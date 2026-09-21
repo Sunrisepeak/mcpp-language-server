@@ -1,0 +1,10 @@
+{
+  "name": "mcpp-emit-broken",
+  "description": "An mcpp that can emit a build database (mcpp-community/mcpp#636, simulated by mcppls-mock-mcpp) answering with an error: the user sees mcpp's own diagnostic, sources are scanned meanwhile, and nothing is configured or written into the project in its place.",
+  "server-arguments": ["--mcpp", "{runner-dir}/mcppls-mock-mcpp{exe}"],
+  "checks": [
+    {"id": "S1", "kind": "status", "source": "inferred", "state": "degraded", "issue-code": "discovery-failed", "issue-message": "MCPP_MANIFEST: mcpp.toml: the [package] table has no version"},
+    {"id": "C2", "kind": "definition", "file": "src/main.cpp", "at": [4, 31], "expect": "src/greet/greet.cppm"},
+    {"id": "W1", "kind": "workspace-unchanged"}
+  ]
+}

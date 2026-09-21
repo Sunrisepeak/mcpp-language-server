@@ -1,0 +1,32 @@
+# The only package that talks to openkal for the program: files, processes, the environment,
+# directories, loopback sockets. Everything above it asks here.
+[package]
+name        = "mcppls-platform"
+version     = "0.1.0"
+description = "mcppls platform adapters over openkal: fs, process, env, dirs, loopback net, stdio, tool runs"
+license     = "Apache-2.0"
+
+[targets.mcppls-platform]
+kind = "lib"
+
+[dependencies]
+openkal-llvm-runtime.workspace = true
+mcppls-base = { path = "../base" }
+
+[dependencies.nlohmann]
+json.workspace = true
+
+[dev-dependencies]
+mcppls-testing = { path = "../testing" }
+
+[target.'cfg(os = "linux")'.dependencies]
+mcppls-os-linux = { path = "../os/linux" }
+
+[target.'cfg(os = "macos")'.dependencies]
+mcppls-os-macos = { path = "../os/macos" }
+
+[target.'cfg(windows)'.dependencies]
+mcppls-os-windows = { path = "../os/windows" }
+
+[lib]
+path = "src/platform.cppm"

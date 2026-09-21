@@ -1,0 +1,8 @@
+[package]
+name        = "calc"
+version     = "0.1.0"
+description = "Bench task fixture: every module unit in .cppm, partitions and a re-exported module (GCC)"
+license     = "Apache-2.0"
+
+[toolchain]
+default = "gcc@16.1.0"

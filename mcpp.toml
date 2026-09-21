@@ -1,0 +1,118 @@
+# A workspace rooted in the server (.agents/docs/design.md §2).
+#
+# Split by DEPENDENCY SET, not by taste: mcpp compiles a package's modules once and links them into
+# every executable of that package, so anything a tool needs and the server must not carry (a
+# network client, an archive reader) lives in a member the server does not depend on.
+#
+#   modules/base, modules/platform   shared by the server, the tools and the gateway
+#   modules/pack                     packaging only: tinyhttps, libarchive
+#   tools/devtools                   mcppls-devtools, the one entry for project work (docs/93-devtools.md)
+#   tools/model-gateway              mcppls-model
+#
+# The root package stays the server, so `mcpp build` and `mcpp test` mean what they meant; a
+# member is reached with `-p` (`mcpp run -p devtools -- payload`), and `--workspace` reaches all.
+[workspace]
+members = [
+    "modules/base",
+    "modules/platform",
+    "modules/pack",
+    "tools/devtools",
+    "tools/model-gateway",
+]
+
+# One version of each third-party package for every member.
+[workspace.dependencies]
+openkal-llvm-runtime = "0.15.1"
+cmdline              = "0.0.2"
+tinyhttps            = "0.3.1"
+
+[workspace.dependencies.nlohmann]
+json = "3.12.0"
+
+[workspace.dependencies.compat]
+libarchive = "3.8.7"
+
+[package]
+name        = "mcpp-language-server"
+version     = "2026.9.22.1"
+description = "Compiler-agnostic C++ modules language server"
+license     = "Apache-2.0"
+authors     = ["Sunrisepeak"]
+repo        = "https://github.com/Sunrisepeak/mcpp-language-server"
+
+[build]
+sources = ["src/**/*.cppm", "src/**/*.cpp"]
+
+# Every executable shares every module under src/.
+[targets.mcppls]
+kind = "bin"
+main = "src/main.cpp"
+
+[targets.mcppls-conformance]
+kind = "bin"
+main = "src/bin/conformance.cpp"
+
+[targets.mcppls-lspgen]
+kind = "bin"
+main = "src/bin/lspgen.cpp"
+
+# Stands in for mcpp in conformance fixtures: the build-database contract of mcpp-community/mcpp#636.
+[targets.mcppls-mock-mcpp]
+kind = "bin"
+main = "src/bin/mockmcpp.cpp"
+
+# Stands in for the mcppls-model gateway in tests: tools/model-gateway/PROTOCOL.md over stdin/stdout.
+[targets.mcppls-mock-model]
+kind = "bin"
+main = "src/bin/mockmodel.cpp"
+
+[toolchain]
+default = "llvm@22.1.8"
+
+# The platform: openkal beneath musl, libc++ above it. One source builds every target.
+[dependencies]
+openkal-llvm-runtime.workspace = true
+cmdline.workspace              = true
+mcppls-base                    = { path = "modules/base" }
+mcppls-platform                = { path = "modules/platform" }
+
+[dependencies.nlohmann]
+json.workspace = true
+
+[dev-dependencies]
+mcppls-testing = { path = "modules/testing" }
+
+# Platform facts are a package chosen by the target, consumed with `if constexpr`.
+[target.'cfg(os = "linux")'.dependencies]
+mcppls-os-linux = { path = "modules/os/linux" }
+
+[target.'cfg(os = "macos")'.dependencies]
+mcppls-os-macos = { path = "modules/os/macos" }
+
+[target.'cfg(windows)'.dependencies]
+mcppls-os-windows = { path = "modules/os/windows" }
+
+# What packaging needs, declared rather than fetched at runtime.
+#
+# `mcppls-devtools` drives Node (the VS Code extension is TypeScript), Rust (a Zed extension is a
+# crate compiled to WebAssembly) and Gradle (the CLion plugin is a Gradle project, and xim:gradle
+# brings the JDK it runs on). None of them is a library this project links, so none is a
+# `[dependencies]` entry: they are tools the environment has to contain. A developer configures
+# nothing -- `mcpp run -p devtools` provisions what is missing before it runs.
+#
+# `when = "dev"` rather than `"run"`: `run` also covers `mcpp test`, which needs none of them, and
+# `dev` does not reach a consumer of this package. `version = ""` means any version.
+[xlings.workspace]
+"xim:node"   = { version = "", when = "dev" }
+"xim:rust"   = { version = "", when = "dev" }
+
+# Gradle is behind a feature: `[xlings.workspace]` is provisioned as a set, so an unconditional
+# entry would make every `mcpp run` in this project wait for it -- or fail where the index lacks
+# it. Only someone building the CLion plugin should pay for it:
+#
+#   mcpp run --features clion -p devtools -- extension --editor clion
+[features]
+clion = {}
+
+[feature-xlings.clion]
+"xim:gradle" = { version = "", when = "dev" }

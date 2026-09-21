@@ -1,0 +1,14 @@
+{
+  "id": "move-helper-split",
+  "title": "Move a helper into an implementation partition (interface/implementation split)",
+  "prompt": "In this mcpp C++23 modules project, module `hello.greet` has two implementation units of the primary interface: src/greet/greet.cpp and src/greet/format.cpp. A private helper `normalize(std::string_view)` (upper-cases the first letter) is currently defined only inside src/greet/greet.cpp, so src/greet/format.cpp cannot see it and the project fails to build where format.cpp tries to call it. Move `normalize` into a new, non-exported implementation partition of `hello.greet` (for example `hello.greet:util` in a new src/greet/util.cppm) so both implementation units can import and use it, and have decorate() in format.cpp call it on its input before formatting, the same way greet() already does. The project must build and its tests must pass.",
+  "project": "project",
+  "shape": "split",
+  "toolchain": "llvm@22.1.8",
+  "check": [
+    ["mcpp", "build"],
+    ["mcpp", "test"],
+    {"file-contains": {"files": ["src/greet/format.cpp"], "all": ["normalize"]}}
+  ],
+  "reference": "reference.patch"
+}

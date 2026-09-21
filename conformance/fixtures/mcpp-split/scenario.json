@@ -1,0 +1,602 @@
+{
+  "name": "mcpp-split",
+  "description": "Interface units in .cppm and implementation units in .cpp (module hello.greet; in two files), an interface partition re-exported by the primary interface and an implementation partition, described by mcpp's own `emit build-database`, completed to level 3 by the S1 library: navigation from importers to declarations and to definitions in implementation units, before any of them is open, from implementation units into partitions, completion and hover inside implementation units, a file outside the build (apps/gui/main.cpp, importing a module nothing provides) answered by clangd with the nearest unit's arguments, and nothing written into the project.",
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "mcpp",
+      "profile-kind": "build-toolchain",
+      "level": 3,
+      "state": "ready"
+    },
+    {
+      "id": "C1",
+      "kind": "diagnostics-empty",
+      "file": "src/main.cpp"
+    },
+    {
+      "id": "C2-definition-in-an-implementation-unit-not-open",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "src/greet/greet.cpp",
+      "timeout": 60
+    },
+    {
+      "id": "C1-implementation",
+      "kind": "diagnostics-empty",
+      "file": "src/greet/greet.cpp"
+    },
+    {
+      "id": "C1-second-implementation",
+      "kind": "diagnostics-empty",
+      "file": "src/greet/format.cpp"
+    },
+    {
+      "id": "C1-implementation-partition",
+      "kind": "diagnostics-empty",
+      "file": "src/greet/counter.cppm"
+    },
+    {
+      "id": "C2-declaration",
+      "kind": "declaration",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "src/greet/greet.cppm"
+    },
+    {
+      "id": "C2-definition",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "src/greet/greet.cpp"
+    },
+    {
+      "id": "C2-definition-count",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        5,
+        19
+      ],
+      "expect": "src/greet/greet.cpp"
+    },
+    {
+      "id": "C3",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet"
+    },
+    {
+      "id": "C4",
+      "kind": "definition-any",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        11
+      ]
+    },
+    {
+      "id": "C5",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        1,
+        9
+      ],
+      "expect": "src/greet/greet.cppm"
+    },
+    {
+      "id": "C5-partition",
+      "kind": "definition",
+      "file": "src/greet/greet.cppm",
+      "at": [
+        3,
+        16
+      ],
+      "expect": "src/greet/format.cppm"
+    },
+    {
+      "id": "C8-implementation-to-partition-declaration",
+      "kind": "declaration",
+      "file": "src/greet/greet.cpp",
+      "at": [
+        8,
+        12
+      ],
+      "expect": "src/greet/format.cppm"
+    },
+    {
+      "id": "C8-implementation-to-definition",
+      "kind": "definition",
+      "file": "src/greet/greet.cpp",
+      "at": [
+        8,
+        12
+      ],
+      "expect": "src/greet/format.cpp"
+    },
+    {
+      "id": "C8-implementation-partition",
+      "kind": "definition",
+      "file": "src/greet/greet.cpp",
+      "at": [
+        7,
+        13
+      ],
+      "expect": "src/greet/counter.cppm"
+    },
+    {
+      "id": "C8-implementation-hover",
+      "kind": "hover-contains",
+      "file": "src/greet/greet.cpp",
+      "at": [
+        12,
+        20
+      ],
+      "expect": "value"
+    },
+    {
+      "id": "C6",
+      "kind": "completion-contains",
+      "file": "src/main.cpp",
+      "insert": [
+        6,
+        "    hello::"
+      ],
+      "at": [
+        6,
+        11
+      ],
+      "expect": "decorate"
+    },
+    {
+      "id": "C6-implementation",
+      "kind": "completion-contains",
+      "file": "src/greet/greet.cpp",
+      "insert": [
+        13,
+        "    detail::"
+      ],
+      "at": [
+        13,
+        12
+      ],
+      "expect": "bump"
+    },
+    {
+      "id": "C7",
+      "kind": "completion-contains",
+      "file": "src/main.cpp",
+      "at": [
+        6,
+        11
+      ],
+      "expect": "greet2",
+      "edit": {
+        "file": "src/greet/greet.cppm",
+        "replace": "int count();",
+        "with": "int count();\nint greet2();"
+      }
+    },
+    {
+      "id": "C9",
+      "kind": "references-span",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": [
+        "src/main.cpp",
+        "src/greet/greet.cppm",
+        "src/greet/greet.cpp"
+      ]
+    },
+    {
+      "id": "C10-test",
+      "kind": "definition",
+      "file": "tests/greet_test.cpp",
+      "at": [
+        4,
+        19
+      ],
+      "expect": "src/greet/greet.cpp"
+    },
+    {
+      "id": "Q1-symbol",
+      "kind": "mcp",
+      "tool": "cxx_symbol",
+      "arguments": {
+        "name": "hello::greet"
+      },
+      "expect": [
+        {
+          "path": "/symbols/0/module",
+          "equals": "hello.greet"
+        },
+        {
+          "path": "/symbols/0/declaration/file",
+          "equals": "src/greet/greet.cppm"
+        },
+        {
+          "path": "/symbols/0/definition/file",
+          "equals": "src/greet/greet.cpp"
+        },
+        {
+          "path": "/symbols/0/signature",
+          "contains": "greet(std::string_view"
+        },
+        {
+          "path": "/symbols/0/id",
+          "exists": true
+        },
+        {
+          "path": "/snapshot/generation",
+          "exists": true
+        }
+      ]
+    },
+    {
+      "id": "Q1-position",
+      "kind": "mcp",
+      "tool": "cxx_symbol",
+      "arguments": {
+        "file": "src/main.cpp",
+        "line": 5,
+        "column": 31
+      },
+      "expect": [
+        {
+          "path": "/symbols/0/qualifiedName",
+          "equals": "hello::greet"
+        },
+        {
+          "path": "/symbols/0/definition/line",
+          "equals": 7
+        }
+      ]
+    },
+    {
+      "id": "Q1-id",
+      "kind": "mcp",
+      "tool": "cxx_symbol",
+      "arguments": {
+        "id": "c:@N@hello@F@count#"
+      },
+      "expect": [
+        {
+          "path": "/symbols/0/qualifiedName",
+          "equals": "hello::count"
+        },
+        {
+          "path": "/symbols/0/definition/file",
+          "equals": "src/greet/greet.cpp"
+        }
+      ]
+    },
+    {
+      "id": "Q1-not-found",
+      "kind": "mcp",
+      "tool": "cxx_symbol",
+      "arguments": {
+        "name": "no_symbol_is_named_this"
+      },
+      "is-error": true,
+      "retry": false,
+      "expect": [
+        {
+          "path": "/error/code",
+          "equals": "not-found"
+        }
+      ]
+    },
+    {
+      "id": "Q2-references-importers",
+      "kind": "mcp",
+      "tool": "cxx_references",
+      "arguments": {
+        "name": "hello::greet"
+      },
+      "expect": [
+        {
+          "path": "/groups/*/file",
+          "equals": "src/main.cpp"
+        },
+        {
+          "path": "/groups/*/file",
+          "equals": "tests/greet_test.cpp"
+        },
+        {
+          "path": "/groups/*/file",
+          "equals": "src/greet/greet.cpp"
+        },
+        {
+          "path": "/scope/complete",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "id": "Q2-callers-partition",
+      "kind": "mcp",
+      "tool": "cxx_references",
+      "arguments": {
+        "name": "hello::decorate",
+        "direction": "callers"
+      },
+      "expect": [
+        {
+          "path": "/calls/*/symbol/qualifiedName",
+          "equals": "hello::greet"
+        },
+        {
+          "path": "/calls/0/sites/0/file",
+          "equals": "src/greet/greet.cpp"
+        }
+      ]
+    },
+    {
+      "id": "Q2-callees",
+      "kind": "mcp",
+      "tool": "cxx_references",
+      "arguments": {
+        "name": "hello::greet",
+        "direction": "callees"
+      },
+      "expect": [
+        {
+          "path": "/calls/*/symbol/qualifiedName",
+          "equals": "hello::detail::bump"
+        },
+        {
+          "path": "/calls/*/symbol/qualifiedName",
+          "equals": "hello::decorate"
+        }
+      ]
+    },
+    {
+      "id": "Q3-outline",
+      "kind": "mcp",
+      "tool": "cxx_outline",
+      "arguments": {
+        "file": "src/greet/greet.cpp"
+      },
+      "expect": [
+        {
+          "path": "/module",
+          "equals": "hello.greet"
+        },
+        {
+          "path": "/symbols/*/children/*/name",
+          "equals": "greet"
+        }
+      ]
+    },
+    {
+      "id": "Q4-module",
+      "kind": "mcp",
+      "tool": "cxx_module",
+      "arguments": {
+        "name": "hello.greet"
+      },
+      "expect": [
+        {
+          "path": "/partitions",
+          "contains": "hello.greet:counter"
+        },
+        {
+          "path": "/exportedPartitions",
+          "contains": "hello.greet:format"
+        },
+        {
+          "path": "/importingFiles",
+          "contains": "src/main.cpp"
+        },
+        {
+          "path": "/units",
+          "contains": {
+            "file": "src/greet/format.cpp",
+            "role": "module-implementation"
+          }
+        }
+      ]
+    },
+    {
+      "id": "Q5-build-context",
+      "kind": "mcp",
+      "tool": "cxx_build_context",
+      "arguments": {
+        "file": "src/greet/greet.cpp"
+      },
+      "expect": [
+        {
+          "path": "/module",
+          "equals": "hello.greet"
+        },
+        {
+          "path": "/sets/0/role",
+          "equals": "module-implementation"
+        },
+        {
+          "path": "/projectSource",
+          "equals": "mcpp"
+        },
+        {
+          "path": "/semanticSource",
+          "equals": "build-toolchain"
+        },
+        {
+          "path": "/inModel",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "id": "Q6-diagnostics",
+      "kind": "mcp",
+      "tool": "cxx_diagnostics",
+      "arguments": {
+        "files": [
+          "src/main.cpp",
+          "src/greet/greet.cpp"
+        ]
+      },
+      "expect": [
+        {
+          "path": "/files/0/complete",
+          "equals": true
+        },
+        {
+          "path": "/files/1/complete",
+          "equals": true
+        },
+        {
+          "path": "/counts/error",
+          "equals": 0
+        }
+      ]
+    },
+    {
+      "id": "Q7-tools",
+      "kind": "mcp",
+      "method": "tools/list",
+      "retry": false,
+      "expect": [
+        {
+          "path": "/tools/*/name",
+          "equals": "cxx_symbol"
+        },
+        {
+          "path": "/tools/*/annotations/readOnlyHint",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "id": "Q8-cli-symbol",
+      "kind": "cli",
+      "args": [
+        "query",
+        "symbol",
+        "hello::count"
+      ],
+      "expect": [
+        {
+          "path": "/symbols/0/definition/file",
+          "equals": "src/greet/greet.cpp"
+        },
+        {
+          "path": "/symbols/0/module",
+          "equals": "hello.greet"
+        }
+      ]
+    },
+    {
+      "id": "Q8-cli-diagnostics",
+      "kind": "cli",
+      "args": [
+        "diagnostics",
+        "src/main.cpp"
+      ],
+      "expect": [
+        {
+          "path": "/files/0/complete",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "id": "D1-daemon-references",
+      "kind": "mcp",
+      "via": "daemon",
+      "tool": "cxx_references",
+      "arguments": {
+        "name": "hello::greet"
+      },
+      "expect": [
+        {
+          "path": "/groups/*/file",
+          "equals": "src/main.cpp"
+        },
+        {
+          "path": "/scope/complete",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "id": "D1-daemon-stop",
+      "kind": "cli",
+      "args": [
+        "daemon",
+        "stop"
+      ],
+      "expect": [
+        {
+          "path": "/ok",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "id": "O1-file-outside-the-build",
+      "kind": "hover-contains",
+      "file": "apps/gui/main.cpp",
+      "at": [
+        6,
+        31
+      ],
+      "expect": "string_view",
+      "timeout": 90
+    },
+    {
+      "id": "O1-definition",
+      "kind": "definition",
+      "file": "apps/gui/main.cpp",
+      "at": [
+        6,
+        31
+      ],
+      "expect": "src/greet/greet.cpp",
+      "timeout": 60
+    },
+    {
+      "id": "O1-planned-with-a-stand-in",
+      "kind": "report",
+      "timeout": 10,
+      "expect": [
+        {
+          "path": "/roots/0/plan/openSources",
+          "min-items": 1
+        },
+        {
+          "path": "/roots/0/plan/standIns",
+          "contains": "hello.gui"
+        },
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside",
+          "max-items": 0
+        }
+      ]
+    },
+    {
+      "id": "W1",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}

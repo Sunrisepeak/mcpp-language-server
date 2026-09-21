@@ -1,0 +1,32 @@
+{
+  "name": "mcpp-emit-unavailable",
+  "description": "A project whose .xlings.json asks for an mcpp that is not installed, simulated by mcppls-mock-mcpp: xlings answers every mcpp command with its own explanation and runs nothing. The status carries that explanation instead of a bare failure, sources are scanned meanwhile, and nothing is written into the project.",
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}"
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "inferred",
+      "state": "degraded",
+      "issue-code": "mcpp-no-database",
+      "issue-message": "mcpp could not describe the project: [warn] mcpp@2026.8.7.1 is the version this project asks for, and it is not installed yet"
+    },
+    {
+      "id": "C2",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "src/greet/greet.cppm"
+    },
+    {
+      "id": "W1",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}

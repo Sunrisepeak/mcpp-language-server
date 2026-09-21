@@ -1,0 +1,36 @@
+# mcppls-devtools: the one entry for work on this repository (docs/93-devtools.md).
+#
+# It depends on no server code -- only the shared foundations and packaging -- so it can change,
+# break or be rebuilt without touching the program users run. What only the server knows (its
+# cache layout, its BMI names) it asks the server for, through `mcppls`'s command line.
+[package]
+name        = "mcppls-devtools"
+version     = "0.1.0"
+description = "Development, test, packaging and release tools for mcpp-language-server"
+license     = "Apache-2.0"
+
+[targets.mcppls-devtools]
+kind = "bin"
+main = "src/main.cpp"
+
+[dependencies]
+openkal-llvm-runtime.workspace = true
+cmdline.workspace              = true
+mcppls-base                    = { path = "../../modules/base" }
+mcppls-platform                = { path = "../../modules/platform" }
+mcppls-pack                    = { path = "../../modules/pack" }
+
+[dependencies.nlohmann]
+json.workspace = true
+
+[dev-dependencies]
+mcppls-testing = { path = "../../modules/testing" }
+
+[target.'cfg(os = "linux")'.dependencies]
+mcppls-os-linux = { path = "../../modules/os/linux" }
+
+[target.'cfg(os = "macos")'.dependencies]
+mcppls-os-macos = { path = "../../modules/os/macos" }
+
+[target.'cfg(windows)'.dependencies]
+mcppls-os-windows = { path = "../../modules/os/windows" }

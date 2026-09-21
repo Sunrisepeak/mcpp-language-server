@@ -1,0 +1,7 @@
+{
+  "hang": {
+    "seconds": 45,
+    "holdPipe": true,
+    "exitAtOnce": false
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "kit-version": 1,
+  "name": "libcxx-23.1.0-x86_64-unknown-linux-gnu",
+  "target": "x86_64-unknown-linux-gnu",
+  "stdlib": {
+    "name": "libc++",
+    "version": "23.1.0",
+    "module-metadata": "lib/x86_64-unknown-linux-gnu/libc++.modules.json"
+  },
+  "system-include-directories": ["include/c++/v1", "include/x86_64-unknown-linux-gnu/c++/v1"],
+  "sysroot": "sysroot",
+  "arguments": ["-nostdinc++"],
+  "licenses": ["licenses/LLVM-LICENSE.TXT", "licenses/glibc-COPYING.LIB", "licenses/linux-COPYING"]
+}

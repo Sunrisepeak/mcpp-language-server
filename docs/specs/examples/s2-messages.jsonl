@@ -1,0 +1,3 @@
+{"kind": "progress", "message": "resolving dependencies"}
+{"kind": "progress", "message": "scanning module sources", "done": 3, "total": 3}
+{"kind": "finished", "database": "/home/u/hello/target/build_database.json", "watch": ["mcpp.toml", "mcpp.lock", "src/**/*.cppm", "src/**/*.cpp"], "profile-version": "0.2.0"}

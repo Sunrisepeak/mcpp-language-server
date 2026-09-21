@@ -1,0 +1,14 @@
+{
+  "id": "add-parameter-all-cppm",
+  "title": "Add a parameter to an exported function and update call sites (all-.cppm)",
+  "prompt": "In this mcpp C++23 modules project, module partition `calc:geometry` (src/calc/geometry.cppm, re-exported by the primary interface src/calc/calc.cppm) exports `double length(const vec2& v)`. Add a second parameter `double scale` that multiplies the result, and update every call site (including src/main.cpp) so the project builds and its tests pass.",
+  "project": "project",
+  "shape": "all-cppm",
+  "toolchain": "llvm@22.1.8",
+  "check": [
+    ["mcpp", "build"],
+    ["mcpp", "test"],
+    {"file-contains": {"files": ["src/calc/geometry.cppm"], "all": ["scale"]}}
+  ],
+  "reference": "reference.patch"
+}

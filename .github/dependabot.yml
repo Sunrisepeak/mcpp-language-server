@@ -1,0 +1,24 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /editors/vscode
+    schedule:
+      interval: weekly
+    groups:
+      vscode-extension:
+        patterns: ['*']
+    ignore:
+      # The types must match the oldest VS Code the extension supports (`engines.vscode`), not the
+      # newest; raising them is raising the minimum VS Code, which is a decision, not an update.
+      - dependency-name: '@types/vscode'
+      # The same for Node: the types follow the Node that the oldest supported VS Code runs.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']

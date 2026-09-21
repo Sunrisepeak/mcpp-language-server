@@ -1,0 +1,19 @@
+{
+  "id": "removed-export-reexported-all-cppm",
+  "title": "A function of a module re-exported by the primary interface is removed while importers of the primary interface call it",
+  "category": "missed-importer",
+  "project": "conformance/fixtures/mcpp-all-cppm",
+  "remove": [],
+  "must": [
+    {
+      "rule": "module/export-removed-in-use",
+      "file": "src/text/text.cppm",
+      "evidence-file": "src/main.cpp"
+    }
+  ],
+  "must-not": [
+    {
+      "rule": "module/partition-misuse"
+    }
+  ]
+}

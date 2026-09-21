@@ -1,0 +1,10 @@
+{
+  "name": "timing",
+  "description": "Startup timing (usable plan W7): the inferred project, opened and navigated at once. Run cold, then warm with the same --workspace-dir and --cache-dir and --expect-warm; the measure file records initialize, ready, first diagnostics and first navigation.",
+  "server-arguments": ["--no-discover"],
+  "checks": [
+    { "id": "T1-first-navigation", "kind": "definition", "file": "src/main.cpp", "at": [4, 31], "expect": "src/greet/greet.cppm" },
+    { "id": "T2-module-navigation", "kind": "definition", "file": "src/main.cpp", "at": [1, 9], "expect": "src/greet/greet.cppm" },
+    { "id": "SC4-std-reused", "kind": "module-cache-reused", "module": "std" }
+  ]
+}

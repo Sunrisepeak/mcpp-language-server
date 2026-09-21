@@ -1,0 +1,22 @@
+{
+  "id": "partition-implementation-exported-split",
+  "title": "The primary interface re-exports an implementation partition",
+  "category": "partition-misuse",
+  "project": "conformance/fixtures/mcpp-split",
+  "remove": [],
+  "must": [
+    {
+      "rule": "module/partition-misuse",
+      "file": "src/greet/greet.cppm",
+      "line": 5
+    }
+  ],
+  "must-not": [
+    {
+      "rule": "module/import-unresolved"
+    },
+    {
+      "rule": "build/diagnostic-introduced"
+    }
+  ]
+}

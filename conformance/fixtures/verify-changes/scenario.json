@@ -1,0 +1,34 @@
+{
+  "name": "verify-changes",
+  "description": "mcpp-split's project in a git repository, for verification after an edit (S5 3.7): a candidate snippet checked in place without writing it, a partition interface renamed on disk breaking the implementation unit that uses it, the working tree's changes found through git, and a restored file passing again.",
+  "prepare": [
+    ["git", "init", "-q"],
+    ["git", "add", "-A"],
+    ["git", "-c", "user.name=mcppls", "-c", "user.email=mcppls@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "base"]
+  ],
+  "checks": [
+    { "id": "S1", "kind": "status", "source": "mcpp", "state": "ready" },
+    { "id": "V1-snippet-pass", "kind": "mcp", "tool": "cxx_verify",
+      "arguments": { "snippet": { "file": "src/main.cpp", "line": 6, "code": "    std::println(\"{}\", hello::count());" } },
+      "expect": [{ "path": "/verdict", "equals": "pass" }, { "path": "/complete", "equals": true }] },
+    { "id": "V1-snippet-errors", "kind": "mcp", "tool": "cxx_verify",
+      "arguments": { "snippet": { "file": "src/main.cpp", "line": 6, "code": "    hello::greet(42);" } },
+      "expect": [{ "path": "/verdict", "equals": "errors" }, { "path": "/inSnippet/0/severity", "equals": "error" }, { "path": "/inSnippet/0/location/line", "equals": 6 }] },
+    { "id": "V1-snippet-leaves-no-overlay", "kind": "mcp", "tool": "cxx_diagnostics", "arguments": { "files": ["src/main.cpp"] },
+      "expect": [{ "path": "/counts/error", "equals": 0 }, { "path": "/snapshot/overlays/0", "absent": true }] },
+    { "id": "V2-write-rename", "kind": "write-file", "file": "src/greet/format.cppm", "content-from": "pristine/format-renamed.cppm.txt" },
+    { "id": "V2-importer-breaks", "kind": "mcp", "tool": "cxx_verify", "arguments": { "files": ["src/greet/format.cppm"] },
+      "expect": [{ "path": "/verdict", "equals": "errors" }, { "path": "/checked", "contains": { "file": "src/greet/greet.cpp", "why": "importer" } },
+                 { "path": "/checked/*/diagnostics/*/location/file", "equals": "src/greet/greet.cpp" }] },
+    { "id": "V3-working-tree", "kind": "mcp", "tool": "cxx_verify", "arguments": { "changed": true },
+      "expect": [{ "path": "/changed", "contains": "src/greet/format.cppm" }, { "path": "/verdict", "equals": "errors" }] },
+    { "id": "E1-editor-review", "kind": "execute-command", "command": "mcppls.review.run", "arguments": [{ "base": "HEAD" }] },
+    { "id": "E1-review-diagnostic", "kind": "diagnostic-code", "file": "src/greet/format.cppm", "expect": "module/export-removed-in-use" },
+    { "id": "E2-review-cleared", "kind": "execute-command", "command": "mcppls.review.clear" },
+    { "id": "V4-write-restore", "kind": "write-file", "file": "src/greet/format.cppm", "content-from": "pristine/format.cppm.txt" },
+    { "id": "V4-restored-passes", "kind": "mcp", "tool": "cxx_verify", "arguments": { "files": ["src/greet/format.cppm"] },
+      "expect": [{ "path": "/verdict", "equals": "pass" }] },
+    { "id": "V5-cli-snippet", "kind": "cli", "args": ["verify", "--snippet", "src/main.cpp:6", "--code", "    hello::greet(42);"], "exit": 1,
+      "expect": [{ "path": "/verdict", "equals": "errors" }] }
+  ]
+}

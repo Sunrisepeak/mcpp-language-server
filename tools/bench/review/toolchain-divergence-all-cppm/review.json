@@ -1,0 +1,29 @@
+{
+  "id": "toolchain-divergence-all-cppm",
+  "title": "Designated initializers out of declaration order: GCC rejects them, Clang builds with a warning",
+  "category": "portability",
+  "project": "conformance/fixtures/mcpp-all-cppm",
+  "remove": [],
+  "toolchains": [
+    "gcc@16.1.0",
+    "llvm@22.1.8"
+  ],
+  "hosts": [
+    "linux"
+  ],
+  "must": [
+    {
+      "rule": "build/toolchain-divergence",
+      "file": "src/main.cpp",
+      "line": 5
+    }
+  ],
+  "must-not": [
+    {
+      "rule": "module/export-removed-in-use"
+    },
+    {
+      "rule": "module/import-unresolved"
+    }
+  ]
+}

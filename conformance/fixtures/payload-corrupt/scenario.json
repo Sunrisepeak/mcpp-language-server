@@ -1,0 +1,16 @@
+{
+  "name": "payload-corrupt",
+  "description": "usable plan W9.4: the runner's `prepare payload-corrupt` copies the payload the runner was given and truncates its clangd executable; server-arguments then points --payload at that copy (overriding the runner's own), so the server itself must detect the mismatch and report status error with issue payload-corrupt, instead of running clangd off a broken binary or leaving a request unanswered.",
+  "prepare": [
+    ["{conformance}", "prepare", "payload-corrupt", "{payload}"]
+  ],
+  "server-arguments": ["--payload", "{workspace}/payload-copy", "--no-discover"],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "state": "error",
+      "issue-code": "payload-corrupt"
+    }
+  ]
+}
