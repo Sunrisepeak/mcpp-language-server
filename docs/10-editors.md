@@ -1,6 +1,6 @@
 # Editors and agents
 
-Until the first release every extension here is built from source, and one tool builds all of them:
+Every extension here can also be built from source, and one tool builds all of them:
 
 ```bash
 mcpp run -p devtools -- extension --editor vscode|zed|clion|all   # build (all is the default)

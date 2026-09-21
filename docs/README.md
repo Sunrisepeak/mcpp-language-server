@@ -1,5 +1,7 @@
 # Documentation
 
+**English** | [简体中文](zh-CN/README.md)
+
 | | |
 |---|---|
 | [00-install.md](00-install.md) | Getting it, and what a payload is |
