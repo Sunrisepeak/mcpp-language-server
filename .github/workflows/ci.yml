@@ -497,7 +497,7 @@ jobs:
           name: payload-${{ matrix.platform }}
       - name: Unpack the payload
         run: tar -xzf payload-${{ matrix.platform }}.tar.gz
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -599,7 +599,7 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
