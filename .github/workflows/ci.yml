@@ -145,7 +145,7 @@ jobs:
             cp "$path" cross/
           done
           (cd cross && sha256sum * | tee SHA256SUMS)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: cross-${{ matrix.target }}
           path: cross
@@ -238,7 +238,7 @@ jobs:
           # A tarball keeps executable bits and links, which an artifact zip does not.
           tar -czf payload-${{ matrix.platform }}.tar.gz payload stage
           du -sh payload payload-${{ matrix.platform }}.tar.gz
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: payload-${{ matrix.platform }}
           path: payload-${{ matrix.platform }}.tar.gz
@@ -450,7 +450,7 @@ jobs:
           start --measure "$timing/cold.json" --navigation-budget 15
           start --measure "$timing/warm.json" --navigation-budget 5 --expect-warm
           cat "$timing/cold.json" "$timing/warm.json"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: timing-${{ matrix.platform }}
@@ -632,7 +632,7 @@ jobs:
           MCPPLS_E2E_SCENARIO: conflicts
         run: |
           if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a npm test; else npm test; fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: vsix-${{ matrix.platform }}
           path: editors/vscode/mcppls-${{ matrix.platform }}.vsix

@@ -87,7 +87,7 @@ jobs:
           archive=$(ls editors/clion/build/distributions/*.zip | head -1)
           cp "$archive" "mcppls-clion-${{ steps.version.outputs.version }}.zip"
           unzip -l "mcppls-clion-${{ steps.version.outputs.version }}.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: editor-plugins
           path: |
@@ -191,7 +191,7 @@ jobs:
           done
           "stage/mcppls-devtools${{ matrix.exe }}" measure summary "$results" --max-cold 12 --max-warm 5 \
               | tee "$results/summary.md" >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: prerelease-timing-${{ matrix.platform }}
@@ -226,7 +226,7 @@ jobs:
             exit 1
           fi
           { echo '```json'; cat "$RUNNER_TEMP/self/self-mcppls.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: prerelease-self-mcppls
@@ -326,7 +326,7 @@ jobs:
           ./stage/mcppls-devtools release check --version "$version" --dir release --render
           (cd release && sha256sum * > SHA256SUMS && cat SHA256SUMS)
           ./stage/mcppls-devtools release check --version "$version" --dir release
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-candidate
           path: release

@@ -59,7 +59,7 @@ jobs:
             done
           done
           "stage/mcppls-devtools$exe" measure summary "$results" | tee "$results/summary.md" >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: nightly-timing-${{ matrix.platform }}
@@ -156,7 +156,7 @@ jobs:
             exit 1
           fi
           cat "$RUNNER_TEMP/self/${{ matrix.fixture }}.json" >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: nightly-${{ matrix.fixture }}-${{ matrix.platform }}
