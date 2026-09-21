@@ -39,7 +39,7 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: payload-${{ matrix.platform }}
       - name: Unpack the payload
@@ -83,7 +83,7 @@ jobs:
       - uses: ./.github/actions/setup-mcpp
       - name: GCC 16, which mcpp-gcc builds with
         run: mcpp toolchain install gcc 16.1.0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: payload-linux-x64
       - name: Unpack the payload
@@ -140,7 +140,7 @@ jobs:
           xlings install mcpp@2026.9.14.1 -y -g
           xlings use mcpp "$MCPP_VERSION"
           mcpp --version
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: payload-${{ matrix.platform }}
       - name: Unpack the payload

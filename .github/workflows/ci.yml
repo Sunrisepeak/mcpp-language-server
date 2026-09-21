@@ -198,7 +198,7 @@ jobs:
           done
       - name: The cross-built server
         if: matrix.cross != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: cross-${{ matrix.cross }}
           path: cross
@@ -353,7 +353,7 @@ jobs:
           # the runner's own CMake untouched.
           $env:PATH = "$env:RUNNER_TEMP\cmake-4.4.2\bin;$env:PATH"
           cmd /d /c "$env:RUNNER_TEMP\capture-msvc.cmd" | Out-File -Encoding utf8 "$env:RUNNER_TEMP\msvc-bdb.env"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: payload-${{ matrix.platform }}
       - name: Unpack the payload
@@ -492,7 +492,7 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: payload-${{ matrix.platform }}
       - name: Unpack the payload
@@ -604,7 +604,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: editors/vscode/package-lock.json
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: payload-${{ matrix.platform }}
       # One tool does what a developer does locally (docs/00-install.md): put the payload in, build

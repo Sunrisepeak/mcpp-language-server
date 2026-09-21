@@ -113,10 +113,10 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: payload-${{ matrix.platform }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: editor-plugins
       - name: Install both plugins from the release archives, then remove them
@@ -166,7 +166,7 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: payload-${{ matrix.platform }}
       - name: Unpack the payload
@@ -210,7 +210,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-mcpp
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: payload-linux-x64
       - name: Unpack the payload
@@ -262,7 +262,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-mcpp
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: payload-${{ matrix.platform }}
       - name: Unpack the payload
@@ -299,7 +299,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
       - name: Stage the release
