@@ -1,0 +1,14 @@
+{
+  "id": "export-from-partition-all-cppm",
+  "title": "Export a new function from a partition re-exported by the primary interface (all-.cppm, GCC)",
+  "prompt": "In this mcpp C++23 modules project, the primary interface src/calc/calc.cppm re-exports partition `calc:geometry` (`export import :geometry;`, src/calc/geometry.cppm), which already exports `length`. Add and export a new function `vec2 midpoint(const vec2& a, const vec2& b)` from that same partition, returning the point halfway between `a` and `b`. It must be callable as `calc::midpoint(...)` by anything that imports `calc` (no change to calc.cppm's re-export should be needed), and the project's tests must pass.",
+  "project": "project",
+  "shape": "all-cppm",
+  "toolchain": "gcc@16.1.0",
+  "check": [
+    ["mcpp", "build"],
+    ["mcpp", "test"],
+    {"file-contains": {"files": ["src/calc/geometry.cppm"], "all": ["midpoint"]}}
+  ],
+  "reference": "reference.patch"
+}

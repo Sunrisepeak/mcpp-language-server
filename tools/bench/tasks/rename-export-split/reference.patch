@@ -1,0 +1,37 @@
+diff --git a/a/src/greet/greet.cpp b/b/src/greet/greet.cpp
+index a50a06a..78d6f13 100644
+--- a/a/src/greet/greet.cpp
++++ b/b/src/greet/greet.cpp
+@@ -4,7 +4,7 @@ import std;
+ import :counter;
+ 
+ namespace hello {
+-std::string greet(std::string_view who) {
++std::string salute(std::string_view who) {
+     detail::bump();
+     return decorate(std::format("hello, {}", who));
+ }
+diff --git a/a/src/greet/greet.cppm b/b/src/greet/greet.cppm
+index db9f04b..40762fd 100644
+--- a/a/src/greet/greet.cppm
++++ b/b/src/greet/greet.cppm
+@@ -4,6 +4,6 @@ import std;
+ export import :format;
+ 
+ export namespace hello {
+-std::string greet(std::string_view who);
++std::string salute(std::string_view who);
+ int count();
+ }
+diff --git a/a/src/main.cpp b/b/src/main.cpp
+index 850bffb..63a9f01 100644
+--- a/a/src/main.cpp
++++ b/b/src/main.cpp
+@@ -2,6 +2,6 @@ import std;
+ import hello.greet;
+ 
+ int main() {
+-    std::println("{}", hello::greet("mcpp"));
++    std::println("{}", hello::salute("mcpp"));
+     return hello::count() > 0 ? 0 : 1;
+ }

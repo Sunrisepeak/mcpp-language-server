@@ -1,0 +1,114 @@
+name: Release
+
+# One button. `workflow_dispatch` with a version runs the pre-release test (prerelease.yml: all of
+# CI, the Zed and CLion plugins, installing them, performance and stability), and publishes the
+# release candidate it staged and checked, as a GitHub release with the tag it created. A pushed
+# `v*` tag does the same thing for people who prefer tagging first; `v*-rc*` tags run only the
+# pre-release test.
+#
+# What it deliberately does NOT do: publish to the VS Code Marketplace, Open VSX, or the xlings
+# index. Those are separate decisions with separate credentials, and this repository is not where
+# the project will finally live — see docs/92-release.md. Everything a user needs is a file on the
+# release page.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 2026.9.16.1 (the tag becomes v<version>)'
+        required: true
+      draft:
+        description: 'Publish as a draft (uncheck to publish immediately)'
+        type: boolean
+        default: true
+      prerelease:
+        description: 'Mark as a pre-release'
+        type: boolean
+        default: true
+  push:
+    tags: ['v*', '!v*-rc*']
+
+permissions:
+  contents: write
+
+env:
+  XLINGS_NON_INTERACTIVE: '1'
+  PAYLOAD_CACHE: ${{ github.workspace }}/.payload-cache
+
+jobs:
+  # The version the rest of the run uses, from whichever trigger fired. Resolved once so no later
+  # step has to repeat the `inputs.version || ref_name` dance and get it subtly different.
+  what:
+    name: what is being released
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.pick.outputs.version }}
+      tag: ${{ steps.pick.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: pick
+        run: |
+          set -euo pipefail
+          if [ -n '${{ github.event.inputs.version }}' ]; then
+            version='${{ github.event.inputs.version }}'
+          else
+            version='${{ github.ref_name }}'; version="${version#v}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version"    >> "$GITHUB_OUTPUT"
+          echo "releasing $version"
+      # The version in the manifests is the one being released. Checked before anything is built,
+      # because a mismatch found after the matrix has run has cost an hour to learn one line.
+      - uses: ./.github/actions/setup-mcpp
+      - name: Every version site agrees with it
+        run: |
+          set -euo pipefail
+          mcpp build -p devtools
+          devtools=$(find tools/devtools/target -type f -name mcppls-devtools -path '*/bin/*' | head -1)
+          "$devtools" version --check
+          declared=$("$devtools" version --print)
+          echo "manifests say $declared, releasing ${{ steps.pick.outputs.version }}"
+          [ "$declared" = '${{ steps.pick.outputs.version }}' ] || {
+            echo "::error::mcpp.toml says $declared but the release asks for ${{ steps.pick.outputs.version }}."
+            echo "::error::Run: mcpp run -p devtools -- version --set ${{ steps.pick.outputs.version }}"
+            exit 1
+          }
+
+  # Exactly what the pre-release test builds and tests, so a release is what was tested, and its
+  # staged candidate is what ships.
+  prerelease:
+    needs: what
+    uses: ./.github/workflows/prerelease.yml
+
+  publish:
+    name: publish ${{ needs.what.outputs.tag }}
+    needs: [what, prerelease]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+          path: release
+      # The candidate was checked against the manifest for the version mcpp.toml declares, and
+      # `what` checked that this is the version being released; this only confirms the two met.
+      - name: The candidate is this version
+        run: |
+          set -euo pipefail
+          ls -l release
+          ls release | grep -q -- '-${{ needs.what.outputs.version }}\.' || {
+            echo "::error::the release candidate is not version ${{ needs.what.outputs.version }}"; exit 1; }
+          (cd release && sha256sum -c SHA256SUMS)
+      - name: Tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag='${{ needs.what.outputs.tag }}'
+          git tag -f "$tag" && git push -f origin "$tag" || echo "tag $tag already points here"
+          gh release create "$tag" release/* \
+            --title "mcpp-language-server $tag" \
+            --notes-file release/MANIFEST.md \
+            ${{ github.event.inputs.draft == 'false' && ' ' || '--draft' }} \
+            ${{ github.event.inputs.prerelease == 'false' && ' ' || '--prerelease' }} \
+            || gh release upload "$tag" release/* --clobber

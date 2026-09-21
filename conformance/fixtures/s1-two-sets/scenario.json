@@ -1,0 +1,45 @@
+{
+  "name": "s1-two-sets",
+  "description": "A workspace carrying its own S1 build database (usable plan W9.2, the runner's `prepare s1-two-sets` writes it): two sets compile the same file with -DVARIANT=1 and -DVARIANT=2, and cxxModules/setContext switches which one answers.",
+  "prepare": [
+    ["{conformance}", "prepare", "s1-two-sets", "{env:CONFORMANCE_CLANGXX|clang++}"]
+  ],
+  "server-arguments": ["--database", "build_database.json"],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "build-database",
+      "profile-kind": "build-toolchain",
+      "profile-compiler": "clang",
+      "state": "ready"
+    },
+    {
+      "id": "C1",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [0, 16],
+      "expect": "101"
+    },
+    {
+      "id": "M1-context",
+      "kind": "set-context",
+      "context": "variant2",
+      "file": "src/main.cpp",
+      "at": [0, 16],
+      "expect": "102"
+    },
+    {
+      "id": "M2-context-back",
+      "kind": "set-context",
+      "context": "variant1",
+      "file": "src/main.cpp",
+      "at": [0, 16],
+      "expect": "101"
+    },
+    {
+      "id": "W1",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "id": "fix-broken-import-split",
+  "title": "Fix a deliberately broken import: a partition imported from outside its module (interface/implementation split)",
+  "prompt": "In this mcpp C++23 modules project, src/main.cpp is not part of module `hello.greet` and does not compile: it writes `import hello.greet:format;`, trying to import module partition `:format` directly, which is only reachable from within its own module. Fix the import in src/main.cpp so the project builds and its tests pass, without changing what main() does.",
+  "project": "project",
+  "shape": "split",
+  "toolchain": "llvm@22.1.8",
+  "check": [
+    ["mcpp", "build"],
+    ["mcpp", "test"],
+    {"file-contains": {"files": ["src/main.cpp"], "none": [":format"]}}
+  ],
+  "reference": "reference.patch"
+}

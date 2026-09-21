@@ -1,0 +1,56 @@
+{
+  "name": "mcpp-emit-hang",
+  "description": "The failure the external-program runner exists for (build description design 1.1, T2): the producer does not return, and it leaves behind a descendant that inherited the caller's pipe as a unit of its own. Reading to the end of that stream would wait for the descendant, and terminating the producer alone would not reach it. The server must bound both, plan from scanned sources meanwhile, and answer the editor throughout.",
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}",
+    "--producer-timeout",
+    "5"
+  ],
+  "checks": [
+    {
+      "id": "H1-answers-while-the-producer-hangs",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "src/greet/greet.cppm",
+      "timeout": 60
+    },
+    {
+      "id": "H2-the-run-was-bounded-and-the-pipe-was-not-waited-for",
+      "kind": "report",
+      "timeout": 60,
+      "expect": [
+        {
+          "path": "/roots/0/project/producerRun/purpose",
+          "equals": "producer"
+        },
+        {
+          "path": "/roots/0/project/producerRun/timedOut",
+          "equals": true
+        },
+        {
+          "path": "/roots/0/project/producerRun/unitEnded",
+          "equals": true
+        },
+        {
+          "path": "/roots/0/project/producerRun/offline",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "id": "H3-the-model-is-scanned-sources-not-nothing",
+      "kind": "status",
+      "source": "inferred",
+      "state": "degraded"
+    },
+    {
+      "id": "H4-nothing-was-written-into-the-project",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}

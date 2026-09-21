@@ -1,0 +1,26 @@
+[package]
+name        = "mcppls-base"
+version     = "0.1.0"
+description = "mcppls foundations: errors, paths, text, globbing, sha256, URIs, logging, the product version"
+license     = "Apache-2.0"
+
+[targets.mcppls-base]
+kind = "lib"
+
+[dependencies]
+openkal-llvm-runtime.workspace = true
+
+[dev-dependencies]
+mcppls-testing = { path = "../testing" }
+
+[target.'cfg(os = "linux")'.dependencies]
+mcppls-os-linux = { path = "../os/linux" }
+
+[target.'cfg(os = "macos")'.dependencies]
+mcppls-os-macos = { path = "../os/macos" }
+
+[target.'cfg(windows)'.dependencies]
+mcppls-os-windows = { path = "../os/windows" }
+
+[lib]
+path = "src/base.cppm"

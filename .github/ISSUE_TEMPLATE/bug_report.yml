@@ -1,0 +1,54 @@
+name: Bug report
+description: Something in mcppls (the language server or the VS Code extension) is wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: report
+    attributes:
+      label: Diagnostic report
+      description: >
+        Run **C++ Modules: Collect Diagnostic Report** in the editor, or `mcppls report` on the
+        command line, and paste the JSON here. It was built to carry what a bug report needs:
+        where the build description came from, what the engine was given, what ran and how long it
+        took, and the end of the log. It names paths on your machine and nothing else — no
+        environment variable values, no file contents.
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, and what the editor did instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: input
+    id: build-system
+    attributes:
+      label: Build system
+      description: mcpp, CMake, only a compile_commands.json, or none.
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: For example "Ubuntu 24.04", "macOS 15 (arm64)", "Windows 11".
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Only if you could not attach the report above — it already carries this.

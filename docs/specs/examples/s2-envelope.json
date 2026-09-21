@@ -1,0 +1,276 @@
+{
+  "schemaVersion": 1,
+  "kind": "mcpp.build-database",
+  "kindVersion": 1,
+  "effects": [
+    "read-project"
+  ],
+  "mcpp": {
+    "version": "2026.9.20.1",
+    "protocol": {
+      "min": 1,
+      "max": 1
+    }
+  },
+  "data": {
+    "database": {
+      "version": 1,
+      "revision": 0,
+      "ide": {
+        "profile-version": "0.2.0",
+        "generator": {
+          "name": "mcpp",
+          "version": "2026.9.13.1"
+        },
+        "toolchains": {
+          "gcc-16.1.0-x86_64-linux-gnu": {
+            "family": "gcc",
+            "version": "16.1.0",
+            "driver": "/opt/xpkgs/gcc/16.1.0/bin/g++",
+            "target": "x86_64-linux-gnu",
+            "sysroot": "/opt/subos/default",
+            "stdlib": {
+              "name": "libstdc++",
+              "version": "16.1.0",
+              "module-metadata": "/opt/xpkgs/gcc/16.1.0/lib64/libstdc++.modules.json"
+            },
+            "config-files": []
+          }
+        }
+      },
+      "sets": [
+        {
+          "name": "hello",
+          "family-name": "hello",
+          "visible-sets": [
+            "hello:test",
+            "mcpp:std"
+          ],
+          "baseline-arguments": [
+            "-std=c++23",
+            "-fmodules",
+            "-O0",
+            "-g"
+          ],
+          "ide": {
+            "toolchain": "gcc-16.1.0-x86_64-linux-gnu",
+            "configuration": "dev",
+            "kind": "executable"
+          },
+          "translation-units": [
+            {
+              "source": "src/greet/detail.cppm",
+              "work-directory": "/home/u/hello",
+              "arguments": [
+                "/opt/xpkgs/gcc/16.1.0/bin/g++",
+                "-std=c++23",
+                "-fmodules",
+                "-O0",
+                "-g",
+                "-c",
+                "src/greet/detail.cppm",
+                "-o",
+                "target/obj/detail.m.o"
+              ],
+              "local-arguments": [],
+              "object": "target/obj/detail.m.o",
+              "private": false,
+              "provides": {
+                "hello.greet:detail": "target/gcm.cache/hello.greet-detail.gcm"
+              },
+              "requires": [
+                "std"
+              ],
+              "ide": {
+                "role": "module-partition-interface"
+              }
+            },
+            {
+              "source": "src/greet/greet.cppm",
+              "work-directory": "/home/u/hello",
+              "arguments": [
+                "/opt/xpkgs/gcc/16.1.0/bin/g++",
+                "-std=c++23",
+                "-fmodules",
+                "-O0",
+                "-g",
+                "-c",
+                "src/greet/greet.cppm",
+                "-o",
+                "target/obj/greet.m.o"
+              ],
+              "local-arguments": [],
+              "object": "target/obj/greet.m.o",
+              "private": false,
+              "provides": {
+                "hello.greet": "target/gcm.cache/hello.greet.gcm"
+              },
+              "requires": [
+                "hello.greet:detail",
+                "std"
+              ],
+              "ide": {
+                "role": "module-interface"
+              }
+            },
+            {
+              "source": "src/main.cpp",
+              "work-directory": "/home/u/hello",
+              "arguments": [
+                "/opt/xpkgs/gcc/16.1.0/bin/g++",
+                "-std=c++23",
+                "-fmodules",
+                "-O0",
+                "-g",
+                "-c",
+                "src/main.cpp",
+                "-o",
+                "target/obj/main.o"
+              ],
+              "local-arguments": [],
+              "object": "target/obj/main.o",
+              "private": true,
+              "provides": {},
+              "requires": [
+                "hello.greet",
+                "std"
+              ],
+              "ide": {
+                "role": "non-module"
+              }
+            }
+          ]
+        },
+        {
+          "name": "hello:test",
+          "family-name": "hello",
+          "visible-sets": [
+            "hello",
+            "mcpp:std"
+          ],
+          "baseline-arguments": [
+            "-std=c++23",
+            "-fmodules",
+            "-O0",
+            "-g"
+          ],
+          "ide": {
+            "toolchain": "gcc-16.1.0-x86_64-linux-gnu",
+            "configuration": "dev",
+            "kind": "test"
+          },
+          "translation-units": [
+            {
+              "source": "tests/greet_test.cpp",
+              "work-directory": "/home/u/hello",
+              "arguments": [
+                "/opt/xpkgs/gcc/16.1.0/bin/g++",
+                "-std=c++23",
+                "-fmodules",
+                "-O0",
+                "-g",
+                "-c",
+                "tests/greet_test.cpp",
+                "-o",
+                "target/obj/greet_test.o"
+              ],
+              "local-arguments": [],
+              "object": "target/obj/greet_test.o",
+              "private": true,
+              "provides": {},
+              "requires": [
+                "hello.greet",
+                "std"
+              ],
+              "ide": {
+                "role": "non-module"
+              }
+            }
+          ]
+        },
+        {
+          "name": "mcpp:std",
+          "family-name": "mcpp",
+          "visible-sets": [
+            "hello",
+            "hello:test"
+          ],
+          "baseline-arguments": [
+            "-std=c++23",
+            "-fmodules",
+            "-O0",
+            "-g"
+          ],
+          "ide": {
+            "toolchain": "gcc-16.1.0-x86_64-linux-gnu",
+            "configuration": "dev",
+            "kind": "library"
+          },
+          "translation-units": [
+            {
+              "source": "/opt/xpkgs/gcc/16.1.0/include/c++/16.1.0/bits/std.cc",
+              "work-directory": "/home/u/.mcpp/build-cache/v1/std/gcc-16.1.0-x86_64-linux-gnu",
+              "arguments": [
+                "/opt/xpkgs/gcc/16.1.0/bin/g++",
+                "-std=c++23",
+                "-fmodules",
+                "-O0",
+                "-g",
+                "-c",
+                "/opt/xpkgs/gcc/16.1.0/include/c++/16.1.0/bits/std.cc",
+                "-o",
+                "/home/u/.mcpp/build-cache/v1/std/gcc-16.1.0-x86_64-linux-gnu/std.o"
+              ],
+              "local-arguments": [],
+              "object": "/home/u/.mcpp/build-cache/v1/std/gcc-16.1.0-x86_64-linux-gnu/std.o",
+              "private": false,
+              "provides": {
+                "std": "/home/u/.mcpp/build-cache/v1/std/gcc-16.1.0-x86_64-linux-gnu/gcm.cache/std.gcm"
+              },
+              "requires": [],
+              "ide": {
+                "role": "module-interface"
+              }
+            },
+            {
+              "source": "/opt/xpkgs/gcc/16.1.0/include/c++/16.1.0/bits/std.compat.cc",
+              "work-directory": "/home/u/.mcpp/build-cache/v1/std/gcc-16.1.0-x86_64-linux-gnu",
+              "arguments": [
+                "/opt/xpkgs/gcc/16.1.0/bin/g++",
+                "-std=c++23",
+                "-fmodules",
+                "-O0",
+                "-g",
+                "-c",
+                "/opt/xpkgs/gcc/16.1.0/include/c++/16.1.0/bits/std.compat.cc",
+                "-o",
+                "/home/u/.mcpp/build-cache/v1/std/gcc-16.1.0-x86_64-linux-gnu/std.compat.o"
+              ],
+              "local-arguments": [],
+              "object": "/home/u/.mcpp/build-cache/v1/std/gcc-16.1.0-x86_64-linux-gnu/std.compat.o",
+              "private": false,
+              "provides": {
+                "std.compat": "/home/u/.mcpp/build-cache/v1/std/gcc-16.1.0-x86_64-linux-gnu/gcm.cache/std.compat.gcm"
+              },
+              "requires": [
+                "std"
+              ],
+              "ide": {
+                "role": "module-interface"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "watch": [
+      "mcpp.toml",
+      "mcpp.lock",
+      "src/**/*.cppm",
+      "src/**/*.cpp",
+      "tests/**/*.cpp"
+    ],
+    "inputs-fingerprint": "fnv1a:5e1d4f0a9c3b2716"
+  },
+  "diagnostics": []
+}

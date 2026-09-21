@@ -1,0 +1,11 @@
+diff --git a/a/src/main.cpp b/b/src/main.cpp
+index e9a54b5..f4aec5b 100644
+--- a/a/src/main.cpp
++++ b/b/src/main.cpp
+@@ -1,5 +1,5 @@
+ import std;
+-import calc:types;
++import calc;
+ 
+ int main() {
+     const calc::vec2 v { 3.0, 4.0 };

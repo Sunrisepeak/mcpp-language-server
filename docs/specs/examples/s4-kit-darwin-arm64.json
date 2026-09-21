@@ -1,0 +1,15 @@
+{
+  "kit-version": 1,
+  "name": "libcxx-23.1.0-arm64-apple-darwin",
+  "target": "arm64-apple-darwin",
+  "stdlib": {
+    "name": "libc++",
+    "version": "23.1.0",
+    "module-metadata": "lib/libc++.modules.json"
+  },
+  "system-include-directories": ["include/c++/v1"],
+  "sysroot": null,
+  "arguments": ["-nostdinc++"],
+  "requires": [{ "kind": "macos-sdk" }],
+  "licenses": ["licenses/LLVM-LICENSE.TXT"]
+}

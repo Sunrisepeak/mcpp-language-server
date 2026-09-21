@@ -1,0 +1,93 @@
+module mcppls.engine.clangd.process;
+
+import std;
+import nlohmann.json;
+import mcppls.base.error;
+import mcppls.base.path;
+import mcppls.base.text;
+import mcppls.platform.fs;
+import mcppls.platform.process;
+import mcppls.lsp.connection;
+
+namespace mcppls::engine::clangd {
+
+std::vector<std::string> clangd_arguments(const ProcessConfig& config) {
+    std::vector<std::string> arguments {
+        "--experimental-modules-support",
+        "--use-dirty-headers",
+        "--compile-commands-dir=" + config.databaseDirectory,
+        "--background-index",
+        "--header-insertion=never",
+        "--pretty=false",
+        config.verboseLog ? "--log=verbose" : "--log=error",
+    };
+    const bool workersGiven { std::ranges::any_of(config.extraArguments, [](const std::string& argument) { return argument.starts_with("-j"); }) };
+    if (config.workers > 0 && !workersGiven) arguments.push_back(std::format("-j={}", config.workers));
+    arguments.insert(arguments.end(), config.extraArguments.begin(), config.extraArguments.end());
+    return arguments;
+}
+
+std::optional<ModuleFailure> parse_module_failure(std::string_view line) {
+    static constexpr std::string_view MARKER { "Failed to build module " };
+    const std::size_t marker { line.find(MARKER) };
+    if (marker == std::string_view::npos) return std::nullopt;
+    std::string_view rest { line.substr(marker + MARKER.size()) };
+    const std::size_t semicolon { rest.find(';') };
+    if (semicolon == std::string_view::npos || semicolon == 0) return std::nullopt;
+    ModuleFailure failure;
+    failure.module = std::string { base::trim(rest.substr(0, semicolon)) };
+    std::string_view reason { rest.substr(semicolon + 1) };
+    if (const std::size_t due { reason.find("due to ") }; due != std::string_view::npos) reason = reason.substr(due + 7);
+    if (const std::size_t hint { reason.find(" Use '--log=verbose'") }; hint != std::string_view::npos) reason = reason.substr(0, hint);
+    reason = base::trim(reason);
+    if (reason.ends_with('.')) reason.remove_suffix(1);
+    failure.reason = std::string { reason };
+    static constexpr std::string_view COMPILE { "Failed to compile " };
+    if (reason.starts_with(COMPILE)) failure.failedSource = std::string { base::trim(reason.substr(COMPILE.size())) };
+    return failure;
+}
+
+FailureKind failure_kind(const ModuleFailure& failure) {
+    if (failure.reason.find("Don't get the module unit") != std::string::npos) return FailureKind::unresolved;
+    if (failure.reason.starts_with("Failed to compile")) return FailureKind::compile;
+    return FailureKind::other;
+}
+
+std::string parse_clangd_version(std::string_view output) {
+    for (auto line : base::split_lines(output)) {
+        const std::size_t marker { line.find("clangd version ") };
+        if (marker == std::string_view::npos) continue;
+        std::string_view rest { line.substr(marker + 15) };
+        return std::string { rest.substr(0, rest.find_first_of(" \t\r")) };
+    }
+    return {};
+}
+
+base::Result<void> ClangdProcess::start(const ProcessConfig& config, MessageHandler onMessage, ClosedHandler onClosed, LogHandler onLog) {
+    stop(std::chrono::milliseconds { 200 });
+    config_ = config;
+    platform::SpawnOptions options;
+    options.program = config.executable;
+    options.arguments = clangd_arguments(config);
+    options.workDirectory = config.workDirectory;
+    options.ownUnit = true;
+    auto connection = lsp::Connection::start(std::move(options), std::move(onMessage), std::move(onClosed), std::move(onLog));
+    if (!connection) return std::unexpected { connection.error() };
+    connection_ = std::move(*connection);
+    return {};
+}
+
+base::Result<void> ClangdProcess::send(const nlohmann::json& message) {
+    if (!connection_) return base::fail("engine-stopped", "clangd is not running");
+    return connection_->send(message);
+}
+
+void ClangdProcess::stop(std::chrono::milliseconds grace) {
+    if (!connection_) return;
+    connection_->stop(grace);
+    connection_.reset();
+}
+
+bool ClangdProcess::running() const { return connection_ && !connection_->closed(); }
+
+} // namespace mcppls::engine::clangd

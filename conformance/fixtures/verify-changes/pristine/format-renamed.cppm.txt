@@ -1,0 +1,7 @@
+export module hello.greet:format;
+
+import std;
+
+export namespace hello {
+std::string embellish(std::string_view text);
+}

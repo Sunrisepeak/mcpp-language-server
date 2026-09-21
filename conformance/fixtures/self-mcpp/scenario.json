@@ -1,0 +1,84 @@
+{
+  "name": "self-mcpp",
+  "description": "The mcpp repository at a fixed commit (usable plan W8, E17): about 170 modules built with GCC 16. Its .xlings.json asks for mcpp 2026.9.14.1, which xlings runs inside it, so the model comes from the mcpp build --configure-only fallback of an mcpp without emit build-database. Nightly.",
+  "prepare": [
+    [
+      "git",
+      "init",
+      "-q"
+    ],
+    [
+      "git",
+      "fetch",
+      "-q",
+      "--depth",
+      "1",
+      "https://github.com/mcpp-community/mcpp",
+      "b8d9684404cd02dde711a4097e6e4a3ee7fbcac4"
+    ],
+    [
+      "git",
+      "checkout",
+      "-q",
+      "FETCH_HEAD"
+    ]
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready"
+    },
+    {
+      "id": "C2-cli-run",
+      "kind": "declaration",
+      "file": "src/main.cpp",
+      "at": [
+        29,
+        25
+      ],
+      "expect": "src/cli.cppm"
+    },
+    {
+      "id": "C1-main",
+      "kind": "diagnostics-empty",
+      "file": "src/main.cpp"
+    },
+    {
+      "id": "C2-ui",
+      "kind": "declaration",
+      "file": "src/main.cpp",
+      "at": [
+        25,
+        16
+      ],
+      "expect": "src/ui.cppm"
+    },
+    {
+      "id": "C3-cli-run",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        29,
+        25
+      ],
+      "expect": "run"
+    },
+    {
+      "id": "C5-module",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        9
+      ],
+      "expect": "src/cli.cppm"
+    },
+    {
+      "id": "M3-graph",
+      "kind": "module-graph-contains",
+      "expect": "mcpp.cli"
+    }
+  ]
+}

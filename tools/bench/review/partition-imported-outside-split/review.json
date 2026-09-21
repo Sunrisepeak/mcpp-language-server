@@ -1,0 +1,19 @@
+{
+  "id": "partition-imported-outside-split",
+  "title": "A program imports a partition of a module it is not part of",
+  "category": "partition-misuse",
+  "project": "conformance/fixtures/mcpp-split",
+  "remove": [],
+  "must": [
+    {
+      "rule": "module/partition-misuse",
+      "file": "src/main.cpp",
+      "line": 3
+    }
+  ],
+  "must-not": [
+    {
+      "rule": "module/export-removed-in-use"
+    }
+  ]
+}

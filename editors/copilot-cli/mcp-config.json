@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "mcppls": {
+      "type": "local",
+      "command": "mcppls",
+      "args": ["mcp"],
+      "tools": ["*"]
+    }
+  }
+}

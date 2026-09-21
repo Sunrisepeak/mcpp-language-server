@@ -1,0 +1,25 @@
+{
+  "name": "watch-polling",
+  "description": "usable plan W9.3: run with the runner's own --no-dynamic-watch, so the client declares no didChangeWatchedFiles support and the server's own worker must notice a new module interface written straight into the workspace (not through textDocument/didOpen) and add it to the module graph within 10 seconds.",
+  "server-arguments": ["--no-discover"],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "profile-kind": "semantic-kit",
+      "state": "ready"
+    },
+    {
+      "id": "W1",
+      "kind": "write-file",
+      "file": "src/added.cppm",
+      "content": "export module added;\n"
+    },
+    {
+      "id": "M1",
+      "kind": "module-graph-contains",
+      "expect": "added",
+      "timeout": 10
+    }
+  ]
+}

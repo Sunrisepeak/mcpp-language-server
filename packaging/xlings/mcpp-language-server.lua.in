@@ -1,0 +1,63 @@
+-- mcpp-language-server: the compiler-agnostic C++ modules language server, program mcppls (xim-pkgindex entry).
+--
+-- Rendered by `mcppls-devtools release xlings` for one release; the
+-- rendered file goes to xim-pkgindex as pkgs/m/mcpp-language-server.lua. The server finds
+-- clangd on PATH (llvm-tools) and the semantic kit in the xlings store
+-- (mcppls-kit), which is what the two dependencies install.
+package = {
+    spec = "2",
+
+    name = "mcpp-language-server",
+    description = "Compiler-agnostic C++ modules language server: module navigation, completion and diagnostics for any compiler, with clangd",
+
+    authors = {"Sunrisepeak"},
+    licenses = {"Apache-2.0"},
+    repo = "https://github.com/Sunrisepeak/mcpp-language-server",
+
+    type = "package",
+    archs = {"x86_64", "aarch64"},
+    status = "dev",
+    categories = {"lsp", "cpp"},
+    keywords = {"c++", "modules", "lsp", "clangd", "mcpp"},
+
+    programs = { "mcppls" },
+    xvm_enable = true,
+
+    xpm = {
+        source = "xlings-res",
+        deps = { "xim:llvm-tools@@CLANGD_VERSION@", "xim:mcppls-kit@@KIT_VERSION@" },
+        linux = {
+            ["latest"] = { ref = "@VERSION@" },
+            ["@VERSION@"] = { res = true, sha256 = { x86_64 = "@SHA256_LINUX_X86_64@" } },
+        },
+        macosx = {
+            ["latest"] = { ref = "@VERSION@" },
+            ["@VERSION@"] = { res = true, sha256 = { aarch64 = "@SHA256_MACOSX_AARCH64@" } },
+        },
+        windows = {
+            ["latest"] = { ref = "@VERSION@" },
+            ["@VERSION@"] = { res = true, sha256 = { x86_64 = "@SHA256_WINDOWS_X86_64@" } },
+        },
+    },
+}
+
+import("xim.libxpkg.pkginfo")
+import("xim.libxpkg.xvm")
+
+function install()
+    -- The archive holds mcpp-language-server-<version>-<os>-<arch>/bin/mcppls[.exe].
+    local root = pkginfo.install_file():replace(".tar.gz", "")
+    os.tryrm(pkginfo.install_dir())
+    os.trymv(root, pkginfo.install_dir())
+    return true
+end
+
+function config()
+    xvm.add("mcppls", { bindir = path.join(pkginfo.install_dir(), "bin") })
+    return true
+end
+
+function uninstall()
+    xvm.remove("mcppls")
+    return true
+end

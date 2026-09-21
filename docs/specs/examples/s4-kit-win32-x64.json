@@ -1,0 +1,14 @@
+{
+  "kit-version": 1,
+  "name": "libcxx-23.1.0-x86_64-w64-mingw32",
+  "target": "x86_64-w64-mingw32",
+  "stdlib": {
+    "name": "libc++",
+    "version": "23.1.0",
+    "module-metadata": "x86_64-w64-mingw32/lib/libc++.modules.json"
+  },
+  "system-include-directories": ["generic-w64-mingw32/include/c++/v1", "generic-w64-mingw32/include"],
+  "sysroot": null,
+  "arguments": ["-nostdinc++", "-nostdlibinc"],
+  "licenses": ["licenses/LLVM-LICENSE.TXT", "licenses/mingw-w64-COPYING"]
+}

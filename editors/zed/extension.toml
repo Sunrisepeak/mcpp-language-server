@@ -1,0 +1,18 @@
+id = "mcppls"
+name = "C++ Modules (mcppls)"
+version = "2026.922.1"
+schema_version = 1
+description = "C++20 named modules that work on any compiler: navigation, completion and diagnostics from mcpp-language-server"
+repository = "https://github.com/Sunrisepeak/mcpp-language-server"
+authors = ["Sunrisepeak"]
+
+[lib]
+kind = "Rust"
+version = "0.7.0"
+
+# Zed already knows the C and C++ languages; this adds a language server for them. Put it before
+# clangd in `languages."C++".language_servers` and mcppls drives clangd itself, with the module
+# database it built — running both directly would mean two engines over one file.
+[language_servers.mcppls]
+name = "mcppls"
+languages = ["C++", "C"]

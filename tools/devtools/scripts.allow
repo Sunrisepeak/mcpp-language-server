@@ -1,0 +1,7 @@
+# Every *.py / *.sh tracked in this repository, and why it may exist (docs/93-devtools.md "What is
+# not C++"). `mcppls-devtools check scripts` fails on a tracked script not listed here, on an entry
+# whose script is gone, and on an entry without a reason. Format: `<path>`, a tab, the reason;
+# blank lines and lines starting with '#' are comments.
+
+docs/specs/tools/validate.py	JSON Schema 2020-12 validation, and no C++ library in the mcpp index supports it yet; ported when one does, or when the schemas can say the same in draft-07.
+.github/scripts/install-mcpp.sh	CI bootstrap: installs mcpp itself, before any mcpp-built program can run.

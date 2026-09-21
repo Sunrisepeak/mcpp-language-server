@@ -1,0 +1,90 @@
+{
+  "name": "mcpp-watch",
+  "description": "S2 5 against mcpp itself (mcpp 2026.9.15.1): the inputs mcpp's emit build-database names in watch reload the model when they change. A new module interface reloads it; a broken mcpp.toml leaves the last good model in place, degraded with model-stale and mcpp's own diagnostic (S2-5-9); the repaired manifest makes it fresh again.",
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "mcpp",
+      "profile-kind": "build-toolchain",
+      "level": 3,
+      "state": "ready"
+    },
+    {
+      "id": "C2",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "src/greet/greet.cppm"
+    },
+    {
+      "id": "W1-new-module",
+      "kind": "write-file",
+      "file": "src/extra/extra.cppm",
+      "module": "hello.extra",
+      "expect-reload": true,
+      "timeout": 60
+    },
+    {
+      "id": "S2-reloaded",
+      "kind": "status",
+      "source": "mcpp",
+      "level": 3,
+      "state": "ready",
+      "timeout": 60
+    },
+    {
+      "id": "M1-new-module",
+      "kind": "module-graph-contains",
+      "expect": "hello.extra",
+      "timeout": 60
+    },
+    {
+      "id": "W2-manifest-broken",
+      "kind": "write-file",
+      "file": "mcpp.toml",
+      "content": "[package\nname = \"hello\"\n",
+      "expect-reload": true,
+      "timeout": 60
+    },
+    {
+      "id": "S3-stale",
+      "kind": "status",
+      "source": "mcpp",
+      "level": 3,
+      "state": "degraded",
+      "issue-code": "model-stale",
+      "issue-message": "MCPP_BUILD_DATABASE_PLAN_FAILED",
+      "timeout": 60
+    },
+    {
+      "id": "C2-still",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "src/greet/greet.cppm"
+    },
+    {
+      "id": "W3-manifest-repaired",
+      "kind": "write-file",
+      "file": "mcpp.toml",
+      "content": "[package]\nname        = \"hello\"\nversion     = \"0.1.0\"\ndescription = \"Conformance fixture: mcpp-watch\"\nlicense     = \"Apache-2.0\"\n\n[toolchain]\ndefault = \"llvm@22.1.8\"\n",
+      "expect-reload": true,
+      "timeout": 60
+    },
+    {
+      "id": "S4-fresh",
+      "kind": "status",
+      "source": "mcpp",
+      "level": 3,
+      "state": "ready",
+      "timeout": 60
+    }
+  ]
+}

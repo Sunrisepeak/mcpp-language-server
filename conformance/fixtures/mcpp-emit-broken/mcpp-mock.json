@@ -1,0 +1,5 @@
+{
+  "diagnostics": [
+    { "code": "MCPP_MANIFEST", "severity": "error", "source": "mcpp", "message": "mcpp.toml: the [package] table has no version" }
+  ]
+}

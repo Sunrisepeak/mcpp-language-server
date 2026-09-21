@@ -1,0 +1,37 @@
+{
+  "name": "mcpp-emit-needs-download",
+  "description": "Build description design 4.4: the producer ran offline, as an implicit run must, and cannot describe the build without fetching a dependency. That is not a failure of the producer and not a reason to go quiet: the status says what is missing and offers to run the build tool where the user's own proxy and credentials are, the sources are scanned meanwhile, and nothing is written into the project.",
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}"
+  ],
+  "checks": [
+    {
+      "id": "D1-the-status-says-what-is-missing-and-what-to-do",
+      "kind": "status",
+      "source": "inferred",
+      "state": "degraded",
+      "issue-code": "producer-needs-download",
+      "issue-message": "compat.eigen",
+      "issue-command": "mcppls.runBuildToolInTerminal"
+    },
+    {
+      "id": "D2-and-suggests-the-one-thing-that-is-always-worth-trying",
+      "kind": "status",
+      "issue-code": "producer-needs-download",
+      "issue-message": "updating it is worth trying"
+    },
+    {
+      "id": "D3-navigation-works-from-scanned-sources-meanwhile",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [4, 31],
+      "expect": "src/greet/greet.cppm",
+      "timeout": 60
+    },
+    {
+      "id": "D4-nothing-was-written-into-the-project",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}

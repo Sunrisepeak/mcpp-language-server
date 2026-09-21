@@ -1,0 +1,70 @@
+{
+  "lock-version": 1,
+  "comment": "Every upstream input of the bundled payload. Change versions here only; CI fetches, verifies and assembles. Each sha256 was checked against two independent downloads and against the digest GitHub records for the release asset. The server version is read from mcpp.toml.",
+  "clangd-version": "23.1.0",
+  "libcxx-version": "23.1.0",
+  "entries": {
+    "clangd-linux": {
+      "url": "https://github.com/clangd/clangd/releases/download/23.1.0/clangd-linux-23.1.0.zip",
+      "file": "clangd-linux-23.1.0.zip",
+      "size": 117949007,
+      "sha256": "e53b1a96196095faedb7642cf64964f7fb9ad4a0c1f00dd2c172a3d9dcbafdfd",
+      "license": "Apache-2.0 WITH LLVM-exception"
+    },
+    "clangd-mac": {
+      "url": "https://github.com/clangd/clangd/releases/download/23.1.0/clangd-mac-23.1.0.zip",
+      "file": "clangd-mac-23.1.0.zip",
+      "size": 100060151,
+      "sha256": "1082e6638223b785ca2daf0939f13afcd0bb95c84ee9a4bbaff4745365159253",
+      "license": "Apache-2.0 WITH LLVM-exception"
+    },
+    "clangd-windows": {
+      "url": "https://github.com/clangd/clangd/releases/download/23.1.0/clangd-windows-23.1.0.zip",
+      "file": "clangd-windows-23.1.0.zip",
+      "size": 29690805,
+      "sha256": "23412a240756a162e7b98a282f36aa2a23a88db5ce16a0cbc4fef7253768c810",
+      "license": "Apache-2.0 WITH LLVM-exception"
+    },
+    "llvm-project-src": {
+      "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.0/llvm-project-23.1.0.src.tar.xz",
+      "file": "llvm-project-23.1.0.src.tar.xz",
+      "size": 179140728,
+      "sha256": "ab1f0e3ec52448c33e8782eaf0422504b87c7b016b22514653ee0d8fcee479ff",
+      "license": "Apache-2.0 WITH LLVM-exception"
+    },
+    "llvm-mingw": {
+      "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-ubuntu-22.04-x86_64.tar.xz",
+      "file": "llvm-mingw-20260826-ucrt-ubuntu-22.04-x86_64.tar.xz",
+      "size": 83880560,
+      "sha256": "cee8d2ce3da5145ce4dc882e70d0b0719a783d53a99752c60948fc0659975a65",
+      "llvm-version": "23.1.0",
+      "license": "Apache-2.0 WITH LLVM-exception; mingw-w64 headers: ZPL-2.1 and public domain (see COPYING files)"
+    }
+  },
+  "platforms": {
+    "linux-x64": {
+      "clangd": "clangd-linux",
+      "kit": {
+        "recipe": "libcxx-source",
+        "source": "llvm-project-src",
+        "target": "x86_64-unknown-linux-gnu"
+      }
+    },
+    "darwin-arm64": {
+      "clangd": "clangd-mac",
+      "kit": {
+        "recipe": "libcxx-source",
+        "source": "llvm-project-src",
+        "target": "arm64-apple-darwin"
+      }
+    },
+    "win32-x64": {
+      "clangd": "clangd-windows",
+      "kit": {
+        "recipe": "llvm-mingw",
+        "source": "llvm-mingw",
+        "target": "x86_64-w64-mingw32"
+      }
+    }
+  }
+}

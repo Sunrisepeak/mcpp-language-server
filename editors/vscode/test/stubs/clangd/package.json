@@ -1,0 +1,22 @@
+{
+  "name": "vscode-clangd",
+  "displayName": "clangd (conflicts scenario stub)",
+  "description": "Stands in for llvm-vs-code-extensions.vscode-clangd in the e2e conflicts scenario: only the configuration setting mcppls reacts to.",
+  "version": "0.0.1",
+  "publisher": "llvm-vs-code-extensions",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "contributes": {
+    "configuration": {
+      "title": "clangd",
+      "properties": {
+        "clangd.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Stub setting: only the default matters for the conflicts scenario."
+        }
+      }
+    }
+  }
+}
