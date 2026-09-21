@@ -1,0 +1,8 @@
+[package]
+name        = "hello"
+version     = "0.1.0"
+description = "Conformance fixture: interface units in .cppm, implementation units in .cpp"
+license     = "Apache-2.0"
+
+[toolchain]
+default = "gcc@16.1.0"

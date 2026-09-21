@@ -1,0 +1,14 @@
+# Sources and tests stay out of the package; the compiled extension (out/src),
+# the payload and the production dependencies stay in.
+.vscode/**
+.vscode-test/**
+src/**
+test/**
+out/test/**
+**/*.map
+**/*.ts
+tsconfig.json
+.gitignore
+*.vsix
+node_modules/.bin/**
+node_modules/.package-lock.json

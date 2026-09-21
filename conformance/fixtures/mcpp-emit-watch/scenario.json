@@ -1,0 +1,16 @@
+{
+  "name": "mcpp-emit-watch",
+  "description": "mcpp-emit with inputs the producer names in watch (S2 5). A change to a named input loads the model again, whether the client reports it (dynamic registration) or the server's own polling notices it (run as mcpp-emit-watch@polling, with --no-dynamic-watch). When the producer then fails, the last model is kept and the status says it may be stale; when it answers again, the status is ready.",
+  "server-arguments": ["--mcpp", "{runner-dir}/mcppls-mock-mcpp{exe}"],
+  "checks": [
+    {"id": "S1", "kind": "status", "source": "mcpp", "profile-kind": "build-toolchain", "profile-compiler": "clang", "level": 3, "state": "ready"},
+    {"id": "C2", "kind": "definition", "file": "src/main.cpp", "at": [4, 31], "expect": "src/greet/greet.cppm"},
+    {"id": "W1-named-input", "kind": "write-file", "file": "inputs/configuration.txt", "content": "configuration changed\n", "expect-reload": true, "timeout": 30},
+    {"id": "S2-reloaded", "kind": "status", "source": "mcpp", "state": "ready", "level": 3},
+    {"id": "W2-producer-fails", "kind": "write-file", "file": "mcpp-mock.json", "content": "{\"diagnostics\": [{\"code\": \"MCPP_BROKEN\", \"severity\": \"error\", \"message\": \"the build description is broken\"}]}\n", "expect-reload": true, "timeout": 30},
+    {"id": "S3-stale", "kind": "status", "source": "mcpp", "level": 3, "state": "degraded", "issue-code": "model-stale", "timeout": 30, "issue-message": "MCPP_BROKEN: the build description is broken"},
+    {"id": "C2-still", "kind": "definition", "file": "src/main.cpp", "at": [4, 31], "expect": "src/greet/greet.cppm"},
+    {"id": "W3-producer-recovers", "kind": "write-file", "file": "mcpp-mock.json", "content-from": "recorded/mcpp-mock.json", "expect-reload": true, "timeout": 30},
+    {"id": "S4-fresh", "kind": "status", "source": "mcpp", "level": 3, "state": "ready", "timeout": 30}
+  ]
+}

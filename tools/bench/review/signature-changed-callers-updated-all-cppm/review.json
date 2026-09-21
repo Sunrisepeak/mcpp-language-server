@@ -1,0 +1,24 @@
+{
+  "id": "signature-changed-callers-updated-all-cppm",
+  "title": "An exported function gains a parameter and every caller, the test's included, is updated",
+  "category": "clean",
+  "project": "conformance/fixtures/mcpp-all-cppm",
+  "remove": [],
+  "must": [
+    {
+      "rule": "module/export-signature-changed",
+      "file": "src/calc/geometry.cppm"
+    }
+  ],
+  "must-not": [
+    {
+      "rule": "test/exported-change-untested"
+    },
+    {
+      "rule": "module/export-removed-in-use"
+    },
+    {
+      "rule": "build/diagnostic-introduced"
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+diff --git a/a/src/calc/geometry.cppm b/b/src/calc/geometry.cppm
+index 519c717..2d8fbec 100644
+--- a/a/src/calc/geometry.cppm
++++ b/b/src/calc/geometry.cppm
+@@ -2,15 +2,10 @@ export module calc:geometry;
+ 
+ import std;
+ import :types;
+-
+-namespace {
+-double square(double x) {
+-    return x * x;
+-}
+-}
++import :numeric;
+ 
+ export namespace calc {
+ double length(const vec2& v) {
+-    return std::sqrt(square(v.x) + square(v.y));
++    return std::sqrt(detail::square(v.x) + detail::square(v.y));
+ }
+ }
+diff --git a/b/src/calc/numeric.cppm b/b/src/calc/numeric.cppm
+new file mode 100644
+index 0000000..f3b189a
+--- /dev/null
++++ b/b/src/calc/numeric.cppm
+@@ -0,0 +1,7 @@
++module calc:numeric;
++
++namespace calc::detail {
++double square(double x) {
++    return x * x;
++}
++}
+diff --git a/a/src/calc/types.cppm b/b/src/calc/types.cppm
+index 9feb974..f6fbe0b 100644
+--- a/a/src/calc/types.cppm
++++ b/b/src/calc/types.cppm
+@@ -1,5 +1,7 @@
+ export module calc:types;
+ 
++import :numeric;
++
+ export namespace calc {
+ struct vec2 {
+     double x;
+@@ -7,6 +9,6 @@ struct vec2 {
+ };
+ 
+ double norm_squared(const vec2& v) {
+-    return square(v.x) + square(v.y);
++    return detail::square(v.x) + detail::square(v.y);
+ }
+ }

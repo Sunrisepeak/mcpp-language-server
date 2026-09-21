@@ -1,0 +1,30 @@
+diff --git a/a/src/greet/format.cpp b/b/src/greet/format.cpp
+index e12d899..59af9c3 100644
+--- a/a/src/greet/format.cpp
++++ b/b/src/greet/format.cpp
+@@ -6,4 +6,15 @@ namespace hello {
+ std::string decorate(std::string_view text) {
+     return std::format("[{}]", text);
+ }
++
++std::string shout(std::string_view text) {
++    std::string result(text);
++    for (char& c : result) {
++        if (c >= 'a' && c <= 'z') {
++            c = static_cast<char>(c - 'a' + 'A');
++        }
++    }
++    result += "!!!";
++    return result;
++}
+ }
+diff --git a/a/src/greet/format.cppm b/b/src/greet/format.cppm
+index cfb22a3..780dd9d 100644
+--- a/a/src/greet/format.cppm
++++ b/b/src/greet/format.cppm
+@@ -4,4 +4,5 @@ import std;
+ 
+ export namespace hello {
+ std::string decorate(std::string_view text);
++std::string shout(std::string_view text);
+ }

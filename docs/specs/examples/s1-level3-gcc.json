@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "revision": 0,
+  "ide": {
+    "profile-version": "0.2.0",
+    "generator": { "name": "example-producer", "version": "1.0.0" },
+    "toolchains": {
+      "gcc-16.1.0-x86_64-linux-gnu": {
+        "family": "gcc",
+        "version": "16.1.0",
+        "driver": "/opt/xpkgs/gcc/16.1.0/bin/g++",
+        "target": "x86_64-linux-gnu",
+        "sysroot": "/opt/subos/default",
+        "stdlib": {
+          "name": "libstdc++",
+          "version": "16.1.0",
+          "module-metadata": "/opt/xpkgs/gcc/16.1.0/lib64/libstdc++.modules.json"
+        },
+        "config-files": []
+      }
+    }
+  },
+  "sets": [
+    {
+      "name": "hello@dev",
+      "family-name": "hello",
+      "visible-sets": [],
+      "baseline-arguments": ["-std=c++23", "-fmodules", "-O0", "-g"],
+      "ide": {
+        "toolchain": "gcc-16.1.0-x86_64-linux-gnu",
+        "configuration": "dev",
+        "kind": "executable",
+        "options": {
+          "language-standard": "c++23",
+          "language-extensions": "none",
+          "macros": [],
+          "include-directories": { "user": [], "quote": [], "system": [], "after": [] },
+          "forced-includes": [],
+          "exceptions": true,
+          "rtti": true
+        }
+      },
+      "translation-units": [
+        {
+          "source": "src/greet/detail.cppm",
+          "work-directory": "/home/u/hello",
+          "arguments": ["/opt/xpkgs/gcc/16.1.0/bin/g++", "-std=c++23", "-fmodules", "-O0", "-g",
+                        "-c", "src/greet/detail.cppm", "-o", "target/obj/detail.m.o"],
+          "local-arguments": [],
+          "object": "target/obj/detail.m.o",
+          "private": false,
+          "provides": { "hello.greet:detail": "target/gcm.cache/hello.greet-detail.gcm" },
+          "requires": ["std"],
+          "ide": { "role": "module-partition-interface" }
+        },
+        {
+          "source": "src/greet/greet.cppm",
+          "work-directory": "/home/u/hello",
+          "arguments": ["/opt/xpkgs/gcc/16.1.0/bin/g++", "-std=c++23", "-fmodules", "-O0", "-g",
+                        "-c", "src/greet/greet.cppm", "-o", "target/obj/greet.m.o"],
+          "local-arguments": [],
+          "object": "target/obj/greet.m.o",
+          "private": false,
+          "provides": { "hello.greet": "target/gcm.cache/hello.greet.gcm" },
+          "requires": ["hello.greet:detail", "std"],
+          "ide": { "role": "module-interface" }
+        },
+        {
+          "source": "src/main.cpp",
+          "work-directory": "/home/u/hello",
+          "arguments": ["/opt/xpkgs/gcc/16.1.0/bin/g++", "-std=c++23", "-fmodules", "-O0", "-g",
+                        "-c", "src/main.cpp", "-o", "target/obj/main.o"],
+          "local-arguments": [],
+          "object": "target/obj/main.o",
+          "private": true,
+          "provides": {},
+          "requires": ["hello.greet", "std"],
+          "ide": { "role": "non-module" }
+        }
+      ]
+    }
+  ]
+}

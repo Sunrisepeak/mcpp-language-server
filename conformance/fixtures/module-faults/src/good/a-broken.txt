@@ -1,0 +1,4 @@
+export module good.a;
+import nowhere.either;
+
+export int answer() { return 42; }

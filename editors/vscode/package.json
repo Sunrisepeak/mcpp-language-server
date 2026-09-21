@@ -1,0 +1,255 @@
+{
+  "name": "mcppls",
+  "displayName": "C++ Modules (mcppls)",
+  "description": "C++20/23 named modules that just work: go to definition, completion, hover and references across modules for any compiler, with clangd and a standard library kit built in.",
+  "version": "2026.922.1",
+  "publisher": "sunrisepeak",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sunrisepeak/mcpp-language-server"
+  },
+  "bugs": {
+    "url": "https://github.com/Sunrisepeak/mcpp-language-server/issues"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "keywords": [
+    "c++",
+    "cpp",
+    "modules",
+    "c++20",
+    "c++23",
+    "cppm",
+    "clangd",
+    "lsp",
+    "mcpp"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "main": "./out/src/extension.js",
+  "activationEvents": [
+    "onLanguage:cpp",
+    "workspaceContains:**/mcpp.toml",
+    "workspaceContains:**/*.cppm",
+    "workspaceContains:**/CMakeLists.txt"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "In Restricted Mode only the module index and the built-in standard library kit are used. No compiler, build system or discovery command from the workspace is run.",
+      "restrictedConfigurations": [
+        "mcppls.compiler"
+      ]
+    },
+    "virtualWorkspaces": false
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "cpp",
+        "extensions": [
+          ".cppm",
+          ".ixx",
+          ".mpp",
+          ".cxxm",
+          ".ccm"
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "mcppls.selectContext",
+        "title": "Select Context",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.showModuleGraph",
+        "title": "Show Module Graph",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.restartServer",
+        "title": "Restart Language Server",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.showLogs",
+        "title": "Show Logs",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.installCommandLineTools",
+        "title": "Install Command Line Tools",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.review.run",
+        "title": "Review Changes",
+        "category": "C++ Modules",
+        "enablement": "config.mcppls.ai.enabled"
+      },
+      {
+        "command": "mcppls.review.clear",
+        "title": "Clear Review",
+        "category": "C++ Modules",
+        "enablement": "config.mcppls.ai.enabled"
+      },
+      {
+        "command": "mcppls.collectReport",
+        "title": "Collect Diagnostic Report",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.runBuildToolInTerminal",
+        "title": "Run the Build Tool in a Terminal",
+        "category": "C++ Modules"
+      }
+    ],
+    "configuration": {
+      "title": "C++ Modules",
+      "properties": {
+        "mcppls.compiler": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "markdownDescription": "Compiler whose semantics the language server follows, as an absolute path or a name on `PATH`. Empty means discovered automatically from the build system and the machine."
+        },
+        "mcppls.semanticKit": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Use the built-in standard library kit when no compiler is found.",
+            "Never use the built-in kit; without a compiler only module-level features remain."
+          ],
+          "default": "auto",
+          "description": "Whether the built-in standard library kit may be used."
+        },
+        "mcppls.engine": {
+          "type": "string",
+          "enum": [
+            "clangd",
+            "none"
+          ],
+          "enumDescriptions": [
+            "The built-in clangd provides C++ semantics; mcppls's own engine answers module-level requests.",
+            "No core engine: only mcppls's own module-level features (module navigation, import completion, module diagnostics)."
+          ],
+          "default": "clangd",
+          "description": "The core semantic engine. mcppls's own module engine always runs beside it."
+        },
+        "mcppls.ai.enabled": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Show the AI-era features: **Review Changes** reviews the workspace's changes against `HEAD` with mcppls's rules and shows the findings, with their evidence, as problems. Nothing is sent to a model."
+        },
+        "mcppls.detectConflicts": {
+          "type": "boolean",
+          "default": true,
+          "description": "Offer once to turn off the language features of other C++ extensions in this workspace, so results are not shown twice."
+        },
+        "mcppls.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the language server in the C++ Modules output."
+        },
+        "mcppls.buildTool": {
+          "type": "string",
+          "enum": [
+            "offline",
+            "online",
+            "off"
+          ],
+          "default": "offline",
+          "enumDescriptions": [
+            "Run the build tool without the network. When it cannot describe the build without downloading something, the status says so and offers to run it in a terminal.",
+            "Let the build tool reach the network, and give it up to ten minutes.",
+            "Never run the build tool: use the cached description, or scanned sources."
+          ],
+          "description": "How mcppls may run this project's build tool (mcpp, CMake) to learn how the project is built. It is run in your login shell's environment; a run mcppls starts by itself does not reach the network by default."
+        },
+        "mcppls.toolEnvironment": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "editor"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "Read the login shell's environment once in the background and start build tools in it (POSIX). On Windows the editor's environment already matches the terminal's.",
+            "Always start build tools in the editor process's environment."
+          ],
+          "description": "Which environment mcppls starts your build tools in. An editor started from a desktop entry, a Dock icon or a launcher does not carry your shell configuration, so the tool it finds may not be the one your terminal finds."
+        }
+      }
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "mcppls.review.run",
+          "when": "config.mcppls.ai.enabled"
+        },
+        {
+          "command": "mcppls.review.clear",
+          "when": "config.mcppls.ai.enabled"
+        }
+      ]
+    },
+    "colors": [
+      {
+        "id": "mcppls.statusReadyForeground",
+        "description": "Status bar text when module semantics are ready. A background would be better, but VS Code accepts only its error and warning backgrounds.",
+        "defaults": {
+          "dark": "#73c991",
+          "light": "#2d883a",
+          "highContrast": "#73c991",
+          "highContrastLight": "#2d883a"
+        }
+      },
+      {
+        "id": "mcppls.statusPreparingForeground",
+        "description": "Status bar text on the lit half of the pulse while modules are being prepared. Resolving it to the default foreground turns the pulse off without breaking anything.",
+        "defaults": {
+          "dark": "#4daafc",
+          "light": "#0066bf",
+          "highContrast": "#4daafc",
+          "highContrastLight": "#0066bf"
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.19.43",
+    "@types/vscode": "~1.90.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.0.0",
+    "glob": "^13.0.6",
+    "mocha": "^12.0.2",
+    "typescript": "~7.0.2"
+  }
+}

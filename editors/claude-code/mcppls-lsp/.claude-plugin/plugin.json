@@ -1,0 +1,24 @@
+{
+  "name": "mcppls-lsp",
+  "displayName": "mcppls (C/C++ Modules)",
+  "version": "0.1.0",
+  "description": "Registers mcppls as the language server for C and C++ sources, including C++20/23 named modules, and its MCP tools (symbols, references, modules, verification, review). Replaces clangd-lsp for a project; do not enable both at once.",
+  "author": {
+    "name": "Sunrisepeak",
+    "url": "https://github.com/Sunrisepeak/mcpp-language-server"
+  },
+  "homepage": "https://github.com/Sunrisepeak/mcpp-language-server",
+  "repository": "https://github.com/Sunrisepeak/mcpp-language-server",
+  "license": "Apache-2.0",
+  "keywords": [
+    "c++",
+    "cpp",
+    "c",
+    "modules",
+    "lsp",
+    "language-server",
+    "mcpp"
+  ],
+  "lspServers": "./.lsp.json",
+  "mcpServers": "./.mcp.json"
+}

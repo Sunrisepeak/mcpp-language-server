@@ -1,0 +1,7 @@
+{
+  "workspace": "/home/u/hello",
+  "files": ["/home/u/hello/src/greet/greet.cppm"],
+  "configuration": "dev",
+  "network": false,
+  "profile-version": "0.2.0"
+}

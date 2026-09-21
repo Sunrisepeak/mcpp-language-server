@@ -1,0 +1,8 @@
+[package]
+name        = "hello"
+version     = "0.1.0"
+description = "Conformance fixture: mcpp-llvm-msvc"
+license     = "Apache-2.0"
+
+[toolchain]
+default = "llvm@22.1.8"

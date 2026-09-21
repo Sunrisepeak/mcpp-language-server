@@ -1,0 +1,134 @@
+{
+  "name": "self-mcppls",
+  "description": "This repository at a fixed commit from before the rename to mcppls, so its modules are still named lspmcpp.* (usable plan W8): an mcpp package whose std comes from the openkal-llvm-runtime package, which mcpp's own build database describes as units of mcpp:std. Nightly. The prepare step asks mcpp for the build database once, online, so the dependencies that commit pins are in the package store the way they are on a machine that has built it; the server's own runs are offline and would otherwise report producer-needs-download.",
+  "prepare": [
+    [
+      "git",
+      "init",
+      "-q"
+    ],
+    [
+      "git",
+      "fetch",
+      "-q",
+      "--depth",
+      "1",
+      "https://github.com/Sunrisepeak/lsp-mcpp-private",
+      "28ecd6e3bf440884a63bddaf8d57d2aeb8d64b75"
+    ],
+    [
+      "git",
+      "checkout",
+      "-q",
+      "FETCH_HEAD"
+    ],
+    [
+      "mcpp",
+      "emit",
+      "build-database",
+      "--format",
+      "json"
+    ]
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready"
+    },
+    {
+      "id": "C1-main",
+      "kind": "diagnostics-empty",
+      "file": "src/main.cpp"
+    },
+    {
+      "id": "C1-mcpp",
+      "kind": "diagnostics-empty",
+      "file": "src/project/mcpp.cpp"
+    },
+    {
+      "id": "C2-run_cli",
+      "kind": "declaration",
+      "file": "src/main.cpp",
+      "at": [
+        5,
+        30
+      ],
+      "expect": "src/server/cli.cppm"
+    },
+    {
+      "id": "C2-fail",
+      "kind": "declaration",
+      "file": "src/project/mcpp.cpp",
+      "at": [
+        103,
+        22
+      ],
+      "expect": "src/base/error.cppm"
+    },
+    {
+      "id": "C3-run",
+      "kind": "hover-contains",
+      "file": "src/project/mcpp.cpp",
+      "at": [
+        48,
+        31
+      ],
+      "expect": "run"
+    },
+    {
+      "id": "C4-std",
+      "kind": "definition-any",
+      "file": "src/project/mcpp.cpp",
+      "at": [
+        48,
+        40
+      ]
+    },
+    {
+      "id": "C5-module",
+      "kind": "definition",
+      "file": "src/project/mcpp.cpp",
+      "at": [
+        3,
+        10
+      ],
+      "expect": "src/base/error.cppm"
+    },
+    {
+      "id": "C6-complete",
+      "kind": "completion-contains",
+      "file": "src/project/mcpp.cpp",
+      "insert": [
+        103,
+        "        base::fai"
+      ],
+      "at": [
+        103,
+        17
+      ],
+      "expect": "fail"
+    },
+    {
+      "id": "C9-references",
+      "kind": "references-span",
+      "file": "src/project/mcpp.cpp",
+      "at": [
+        104,
+        22
+      ],
+      "expect": [
+        "src/project/mcpp.cpp",
+        "src/base/error.cppm"
+      ],
+      "optional": true,
+      "timeout": 60
+    },
+    {
+      "id": "M3-graph",
+      "kind": "module-graph-contains",
+      "expect": "lspmcpp.server.session"
+    }
+  ]
+}

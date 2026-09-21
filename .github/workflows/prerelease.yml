@@ -1,0 +1,334 @@
+name: Pre-release
+
+# A release candidate, built and tested the way a user would get it, without publishing anything.
+#
+#   CI            every job of ci.yml: payloads, VSIX, conformance, clean machines, VS Code end to end
+#   plugins       the Zed and CLion plugins, packaged exactly as a release ships them
+#   install       each host: the Zed and CLion plugins installed from those archives by devtools,
+#                 the installed server answering a project, and uninstall leaving nothing behind
+#   performance   each host: five cold and five warm starts, medians against a budget; on Linux the
+#                 server on this repository itself as well
+#   stability     each host: the fixtures of the project shapes that matter most, three rounds in a
+#                 row; one failure in any round fails the candidate
+#   candidate     every asset staged, checked against packaging/release.manifest.json, checksummed,
+#                 and kept as the `release-candidate` artifact — which is what Release publishes
+#
+# It runs by itself on a release candidate tag (v<version>-rc<n>), weekly on main, and on a pull
+# request that changes release packaging; Release calls it before publishing, so nothing is
+# published that did not pass here.
+
+on:
+  push:
+    tags: ['v*-rc*']
+  schedule:
+    - cron: '0 20 * * 0'
+  pull_request:
+    paths:
+      - .github/workflows/prerelease.yml
+      - .github/workflows/release.yml
+      - packaging/release.manifest.json
+      - editors/zed/**
+      - editors/clion/**
+      - tools/devtools/src/editors.*
+      - tools/devtools/src/packaging.*
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: prerelease-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  XLINGS_NON_INTERACTIVE: '1'
+  PAYLOAD_CACHE: ${{ github.workspace }}/.payload-cache
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  # The two plugins that are not built per platform: one wasm, one jar. Neither carries a payload,
+  # so one archive serves every machine.
+  plugins:
+    name: zed and clion plugins
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - name: The version being packaged
+        id: version
+        run: |
+          set -euo pipefail
+          mcpp build --release -p devtools
+          devtools=$(find tools/devtools/target -type f -name mcppls-devtools -path '*/bin/*' | head -1)
+          "$devtools" version --check
+          echo "version=$("$devtools" version --print)" >> "$GITHUB_OUTPUT"
+      # No rust or java action here on purpose. `[xlings.workspace]` declares what packaging needs
+      # and `mcpp run` provisions it, so this job is the thing that proves that claim on a machine
+      # which has neither.
+      #
+      # The crate goes in with the compiled extension: extension.toml says `kind = "Rust"`, and
+      # Zed's "install dev extension" compiles a Rust extension from its Cargo.toml, so an archive
+      # of extension.toml and extension.wasm alone cannot be installed the recommended way.
+      - name: Zed extension
+        run: |
+          set -euo pipefail
+          mcpp run --release -p devtools -- extension --editor zed
+          tar -czf "mcppls-zed-${{ steps.version.outputs.version }}.tar.gz" -C editors \
+              --transform 's,^zed,mcppls-zed,' \
+              zed/extension.toml zed/extension.wasm zed/README.md zed/Cargo.toml zed/Cargo.lock zed/src
+          tar -tzf "mcppls-zed-${{ steps.version.outputs.version }}.tar.gz"
+      - name: CLion plugin
+        run: |
+          set -euo pipefail
+          mcpp run --release --features clion -p devtools -- extension --editor clion
+          archive=$(ls editors/clion/build/distributions/*.zip | head -1)
+          cp "$archive" "mcppls-clion-${{ steps.version.outputs.version }}.zip"
+          unzip -l "mcppls-clion-${{ steps.version.outputs.version }}.zip"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: editor-plugins
+          path: |
+            mcppls-zed-*.tar.gz
+            mcppls-clion-*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  install:
+    name: install and remove (${{ matrix.platform }})
+    needs: [ci, plugins]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x64,    os: ubuntu-24.04, exe: '' }
+          - { platform: darwin-arm64, os: macos-14,     exe: '' }
+          - { platform: win32-x64,    os: windows-2022, exe: '.exe' }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: payload-${{ matrix.platform }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: editor-plugins
+      - name: Install both plugins from the release archives, then remove them
+        run: |
+          set -euo pipefail
+          tar -xzf payload-${{ matrix.platform }}.tar.gz
+          t="$RUNNER_TEMP/editors"; rm -rf "$t"; mkdir -p "$t/clion/CLion2025.2"
+          # From inside the directory: GNU tar reads `D:` in a Windows `-C D:\...` as a remote host.
+          archive="$PWD/$(ls mcppls-zed-*.tar.gz)"
+          (cd "$t" && tar -xzf "$archive")
+          dev="stage/mcppls-devtools${{ matrix.exe }}"
+          where=(--server-dir "$t/server" --zed-dir "$t/zed" --clion-dir "$t/clion/CLion2025.2")
+
+          "$dev" extension --editor zed --install --link --plugin "$t/mcppls-zed" --payload payload "${where[@]}"
+          test -f "$t/zed/extensions/installed/mcppls/extension.wasm"
+          "$dev" extension --editor clion --install --plugin "$(ls mcppls-clion-*.zip)" --payload payload "${where[@]}"
+          ls "$t"/clion/CLion2025.2/mcppls-clion/lib/mcppls-clion-*.jar
+
+          # The server both plugins fall back to answers a project.
+          "$t/server/bin/mcppls${{ matrix.exe }}" --version
+          "stage/mcppls-conformance${{ matrix.exe }}" run --server "$t/server/bin/mcppls${{ matrix.exe }}" --payload "$t/server" \
+              --fixture conformance/fixtures/inferred --timeout 180
+
+          "$dev" uninstall --editor zed "${where[@]}"
+          test -d "$t/server"   # CLion still uses it
+          "$dev" uninstall --editor clion "${where[@]}"
+          for gone in "$t/server" "$t/zed/extensions/installed/mcppls" "$t/clion/CLion2025.2/mcppls-clion"; do
+            if [ -e "$gone" ]; then echo "::error::$gone is still there after uninstall"; exit 1; fi
+          done
+          # The source of a linked install is untouched by removing the link.
+          test -f "$t/mcppls-zed/extension.toml"
+
+  performance:
+    name: performance (${{ matrix.platform }})
+    needs: ci
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x64,    os: ubuntu-24.04, exe: '' }
+          - { platform: darwin-arm64, os: macos-14,     exe: '' }
+          - { platform: win32-x64,    os: windows-2022, exe: '.exe' }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: payload-${{ matrix.platform }}
+      - name: Unpack the payload
+        run: tar -xzf payload-${{ matrix.platform }}.tar.gz
+      # Budgets are on medians, so one slow runner does not decide a release. Measured medians of
+      # first navigation (nightly, 2026-09-14): cold 5.5 / 4.4 / 8.5 s and warm 2.0 / 1.9 / 2.9 s on
+      # Linux / macOS / Windows. 12 s cold and 5 s warm is room for a slow runner, not for a
+      # regression that doubles startup.
+      - name: Five cold and warm starts
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/timing"
+          rm -rf "$results"; mkdir -p "$results"
+          for round in 1 2 3 4 5; do
+            for start in cold warm; do
+              warm=(); [ "$start" = warm ] && warm=(--expect-warm)
+              "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls${{ matrix.exe }}" --payload payload \
+                  --fixture conformance/fixtures/timing \
+                  --workspace-dir "$RUNNER_TEMP/timing-$round/workspace" --cache-dir "$RUNNER_TEMP/timing-$round/cache" \
+                  --timeout 120 --measure "$results/$start-$round.json" ${warm[@]+"${warm[@]}"}
+            done
+          done
+          "stage/mcppls-devtools${{ matrix.exe }}" measure summary "$results" --max-cold 12 --max-warm 5 \
+              | tee "$results/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: prerelease-timing-${{ matrix.platform }}
+          path: ${{ runner.temp }}/timing
+
+  # This repository (at the fixed commit the self-mcppls fixture names) opened in the server: a real
+  # mcpp project, the size a fixture is not.
+  self-hosting:
+    name: performance on this repository (linux-x64)
+    needs: ci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - uses: actions/download-artifact@v8
+        with:
+          name: payload-linux-x64
+      - name: Unpack the payload
+        run: tar -xzf payload-linux-x64.tar.gz
+      - name: mcppls on mcppls, timed
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/self"
+          if ! stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture conformance/fixtures/self-mcppls \
+                --timeout 900 --measure "$RUNNER_TEMP/self/self-mcppls.json"; then
+            stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture conformance/fixtures/self-mcppls \
+                --timeout 300 --verbose 2>&1 | tail -300 || true
+            exit 1
+          fi
+          { echo '```json'; cat "$RUNNER_TEMP/self/self-mcppls.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: prerelease-self-mcppls
+          path: ${{ runner.temp }}/self
+
+  # The project shapes users have (all-.cppm, .cppm/.cpp split, watched edits, a broken module, a
+  # hung build tool) run three times over with fresh workspaces. CI runs each once; a fixture that
+  # passes once and fails on a rerun is exactly what a release should not carry.
+  stability:
+    name: stability (${{ matrix.platform }})
+    needs: ci
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            os: ubuntu-24.04
+            exe: ''
+            fixtures: inferred module-faults verify-changes multi-root mcpp-llvm mcpp-split mcpp-all-cppm mcpp-watch mcpp-watch@polling mcpp-emit-hang mcpp-emit-watch
+          - platform: darwin-arm64
+            os: macos-14
+            exe: ''
+            fixtures: inferred module-faults verify-changes multi-root mcpp-llvm mcpp-split mcpp-all-cppm mcpp-watch
+          - platform: win32-x64
+            os: windows-2022
+            exe: '.exe'
+            fixtures: inferred module-faults verify-changes multi-root mcpp-split mcpp-all-cppm mcpp-watch mcpp-emit-hang
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - uses: actions/download-artifact@v8
+        with:
+          name: payload-${{ matrix.platform }}
+      - name: Unpack the payload
+        run: tar -xzf payload-${{ matrix.platform }}.tar.gz
+      - name: Three rounds
+        run: |
+          set -euo pipefail
+          failed=''
+          for round in 1 2 3; do
+            for fixture in ${{ matrix.fixtures }}; do
+              extra=()
+              case "$fixture" in *@polling) extra=(--no-dynamic-watch) ;; esac
+              echo "::group::round $round: $fixture"
+              started=$(date +%s)
+              if ! "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls${{ matrix.exe }}" --payload payload \
+                    ${extra[@]+"${extra[@]}"} --fixture "conformance/fixtures/${fixture%@*}" --timeout 180; then
+                failed="$failed $round:$fixture"
+              fi
+              echo "::endgroup::"
+              echo "round $round $fixture $(( $(date +%s) - started )) s" | tee -a "$RUNNER_TEMP/stability.txt"
+            done
+          done
+          { echo '| round | fixture | seconds |'; echo '|---|---|---|'
+            awk '{ printf "| %s | %s | %s |\n", $2, $3, $4 }' "$RUNNER_TEMP/stability.txt"; } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$failed" ]; then
+            echo "::error::failed (round:fixture):$failed"
+            exit 1
+          fi
+
+  # Everything a release would publish, staged and checked. Release takes this artifact as it is.
+  candidate:
+    name: release candidate
+    needs: [ci, plugins, install, performance, self-hosting, stability]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+      - name: Stage the release
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          find artifacts -type f \( -name '*.vsix' -o -name 'payload-*.tar.gz' \
+                                 -o -name 'mcppls-zed-*.tar.gz' -o -name 'mcppls-clion-*.zip' \) \
+               -exec cp {} release/ \;
+          ls -l release
+      # The Linux payload artifact carries the devtools the same run built (stage/mcppls-devtools),
+      # a static openkal executable, so this job needs no toolchain.
+      - name: The release tool from this run
+        run: |
+          set -euo pipefail
+          tar -xzf "$(find artifacts -name 'payload-linux-x64.tar.gz' | head -1)" stage/mcppls-devtools
+          ./stage/mcppls-devtools --help > /dev/null
+      # Every required asset present and non-empty, nothing shipped that the manifest does not
+      # declare, and MANIFEST.md rendered from the same declaration.
+      - name: Check against the release manifest
+        run: |
+          set -euo pipefail
+          version='${{ needs.plugins.outputs.version }}'
+          ./stage/mcppls-devtools release check --version "$version" --dir release --render
+          (cd release && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+          ./stage/mcppls-devtools release check --version "$version" --dir release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-candidate
+          path: release
+          if-no-files-found: error
+          retention-days: 14

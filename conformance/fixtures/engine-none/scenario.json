@@ -1,0 +1,33 @@
+{
+  "name": "engine-none",
+  "description": "The inferred project with no core engine (--engine none, overall design 5.6): mcppls's own engine alone answers module-level requests from its index; status names no core engine and lists mcppls's.",
+  "server-arguments": ["--no-discover", "--engine", "none"],
+  "checks": [
+    { "id": "S1", "kind": "status", "source": "inferred", "state": "ready", "engine-name": "none", "engines-include": ["mcppls"] },
+    { "id": "M1-definition", "kind": "definition", "file": "src/main.cpp", "at": [1, 9], "expect": "src/greet/greet.cppm" },
+    { "id": "M1-partition", "kind": "definition", "file": "src/greet/greet.cppm", "at": [1, 16], "expect": "src/greet/detail.cppm" },
+    { "id": "M2-hover", "kind": "hover-contains", "file": "src/main.cpp", "at": [1, 9], "expect": "module hello.greet" },
+    { "id": "M3-outline", "kind": "document-symbol-contains", "file": "src/greet/greet.cppm", "expect": "hello.greet" },
+    { "id": "M4-import-completion", "kind": "completion-contains", "file": "src/scratch.cpp", "text": "import hel", "at": [0, 10], "expect": "hello.greet" },
+    { "id": "M5-unresolved", "kind": "diagnostic-code", "file": "src/unresolved.cpp", "text": "import missing.module;\nint f();\n", "expect": "unresolved-module" },
+    { "id": "M6-graph", "kind": "module-graph-contains", "expect": "hello.greet:detail" },
+    { "id": "Q4-module", "kind": "mcp", "tool": "cxx_module", "arguments": { "name": "hello.greet" },
+      "expect": [{ "path": "/partitions", "contains": "hello.greet:detail" }, { "path": "/importingFiles", "contains": "src/main.cpp" }] },
+    { "id": "Q1-module-symbol", "kind": "mcp", "tool": "cxx_symbol", "arguments": { "name": "hello.greet" }, "expect": [{ "path": "/symbols/0/kind", "equals": "module" }] },
+    { "id": "Q1-exported-symbol", "kind": "mcp", "tool": "cxx_symbol", "arguments": { "name": "hello::greet" },
+      "expect": [{ "path": "/symbols/0/declaration/file", "equals": "src/greet/greet.cppm" }, { "path": "/symbols/0/signature", "equals": "std::string greet(std::string_view who)" }, { "path": "/symbols/0/module", "equals": "hello.greet" }] },
+    { "id": "Q4-interface", "kind": "mcp", "tool": "cxx_module", "arguments": { "name": "hello.greet" },
+      "expect": [{ "path": "/interface/declarations", "contains": { "qualifiedName": "hello::detail::prefix", "unit": "hello.greet:detail" } }, { "path": "/interface/files", "contains": "src/greet/detail.cppm" }] },
+    { "id": "Q2-unavailable", "kind": "mcp", "tool": "cxx_references", "arguments": { "name": "hello::greet" }, "is-error": true, "retry": false,
+      "expect": [{ "path": "/error/code", "equals": "unavailable" }] },
+    { "id": "Q6-diagnostics", "kind": "mcp", "tool": "cxx_diagnostics", "arguments": { "files": ["src/main.cpp"] }, "expect": [{ "path": "/files/0/complete", "equals": true }] },
+    { "id": "Q8-cli-module", "kind": "cli", "args": ["query", "module", "--file", "src/greet/detail.cppm"], "expect": [{ "path": "/name", "equals": "hello.greet" }] },
+    { "id": "Q9-written-partition", "kind": "write-file", "file": "src/greet/extra.cppm", "content": "export module hello.greet:extra;\n" },
+    { "id": "Q9-disk-read", "kind": "mcp", "tool": "cxx_module", "arguments": { "name": "hello.greet" }, "expect": [{ "path": "/partitions", "contains": "hello.greet:extra" }] },
+    { "id": "D1-daemon-mcp", "kind": "mcp", "via": "daemon", "tool": "cxx_module", "arguments": { "name": "hello.greet" },
+      "expect": [{ "path": "/partitions", "contains": "hello.greet:detail" }] },
+    { "id": "D1-daemon-status", "kind": "cli", "args": ["daemon", "status"], "expect": [{ "path": "/sessions", "equals": 1 }, { "path": "/status/engine/name", "equals": "none" }] },
+    { "id": "D1-daemon-stop", "kind": "cli", "args": ["daemon", "stop"], "expect": [{ "path": "/ok", "equals": true }] },
+    { "id": "R1-elsewhere", "kind": "responds", "file": "src/main.cpp", "at": [4, 10], "timeout": 5 }
+  ]
+}

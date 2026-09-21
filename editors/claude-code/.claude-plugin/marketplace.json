@@ -1,0 +1,25 @@
+{
+  "name": "mcppls",
+  "owner": {
+    "name": "Sunrisepeak",
+    "url": "https://github.com/Sunrisepeak/mcpp-language-server"
+  },
+  "description": "mcppls, the compiler-agnostic C++ modules language server, as a Claude Code LSP plugin.",
+  "plugins": [
+    {
+      "name": "mcppls-lsp",
+      "displayName": "C++ Modules (mcppls)",
+      "source": "./mcppls-lsp",
+      "description": "Registers mcppls as the language server for C and C++ sources, including C++20/23 named modules.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Sunrisepeak",
+        "url": "https://github.com/Sunrisepeak/mcpp-language-server"
+      },
+      "homepage": "https://github.com/Sunrisepeak/mcpp-language-server",
+      "repository": "https://github.com/Sunrisepeak/mcpp-language-server",
+      "license": "Apache-2.0",
+      "keywords": ["c++", "cpp", "c", "modules", "lsp", "language-server", "mcpp"]
+    }
+  ]
+}

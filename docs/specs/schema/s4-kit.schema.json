@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mcpp-community/mcpp-language-server/specs/schema/s4-kit/1",
+  "title": "Semantic Kit Manifest, kit-version 1 (S4)",
+  "description": "kit.json at the root of a semantic kit. Paths are kit paths: relative to the kit root, '/'-separated, not absolute, without a drive prefix and without '..' components.",
+  "type": "object",
+  "required": ["kit-version", "name", "target", "stdlib", "system-include-directories", "licenses"],
+  "properties": {
+    "kit-version": { "const": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "target": { "type": "string", "minLength": 1 },
+    "stdlib": {
+      "type": "object",
+      "required": ["name", "version", "module-metadata"],
+      "properties": {
+        "name": { "enum": ["libc++", "libstdc++", "msvc-stl", "other"] },
+        "version": { "type": "string", "minLength": 1 },
+        "module-metadata": { "$ref": "#/$defs/kitPath" }
+      }
+    },
+    "system-include-directories": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/kitPath" }
+    },
+    "sysroot": {
+      "oneOf": [
+        { "$ref": "#/$defs/kitPath" },
+        { "type": "null" }
+      ]
+    },
+    "arguments": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "requires": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": {
+          "kind": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "licenses": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/kitPath" }
+    }
+  },
+  "$defs": {
+    "kitPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?!/)(?!.*\\\\)(?!(.*/)?\\.\\.(/|$)).+$"
+    }
+  }
+}

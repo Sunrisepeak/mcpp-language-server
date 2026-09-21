@@ -1,0 +1,14 @@
+{
+  "id": "move-helper-all-cppm",
+  "title": "Move a helper into an implementation partition (all-.cppm)",
+  "prompt": "In this mcpp C++23 modules project, module `calc` has partitions `:geometry` (src/calc/geometry.cppm) and `:types` (src/calc/types.cppm). A private helper `square(double)` is currently defined only inside `:geometry`, but `:types` also needs it for a new exported function `double norm_squared(const vec2& v)` (already added there) — the project fails to build because `:types` cannot see `:geometry`'s private helper. Move `square` into a new, non-exported partition of `calc` (for example `calc:numeric` in a new src/calc/numeric.cppm) so both `:geometry` and `:types` can import and use it, and have both call it from there. The project must build and its tests must pass.",
+  "project": "project",
+  "shape": "all-cppm",
+  "toolchain": "llvm@22.1.8",
+  "check": [
+    ["mcpp", "build"],
+    ["mcpp", "test"],
+    {"file-contains": {"files": ["src/calc/types.cppm"], "all": ["square"]}}
+  ],
+  "reference": "reference.patch"
+}

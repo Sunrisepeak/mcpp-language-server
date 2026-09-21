@@ -1,0 +1,40 @@
+# What packaging needs and a product must not carry: a network client and an archive reader.
+#
+# A separate package because mcpp links every module of a package into every one of its
+# executables. Under src/ these two put mbedTLS and libarchive into the server -- measured,
+# 78.5 MB -> 86.3 MB and 1841 symbols. Only mcppls-devtools depends on this; `devtools check binary` fails if the server ever does.
+[package]
+name        = "mcppls-pack"
+version     = "0.1.0"
+description = "Packaging for mcppls: verified downloads, archive extraction, payload and kit assembly, release checks"
+license     = "Apache-2.0"
+
+[targets.mcppls-pack]
+kind = "lib"
+
+[dependencies]
+openkal-llvm-runtime.workspace = true
+tinyhttps.workspace = true
+mcppls-base = { path = "../base" }
+mcppls-platform = { path = "../platform" }
+
+[dependencies.nlohmann]
+json.workspace = true
+
+[dependencies.compat]
+libarchive.workspace = true
+
+[dev-dependencies]
+mcppls-testing = { path = "../testing" }
+
+[target.'cfg(os = "linux")'.dependencies]
+mcppls-os-linux = { path = "../os/linux" }
+
+[target.'cfg(os = "macos")'.dependencies]
+mcppls-os-macos = { path = "../os/macos" }
+
+[target.'cfg(windows)'.dependencies]
+mcppls-os-windows = { path = "../os/windows" }
+
+[lib]
+path = "src/pack.cppm"

@@ -1,0 +1,13 @@
+{
+  "name": "inferred-no-sdk",
+  "description": "The inferred project on macOS with the Command Line Tools and Xcode hidden (usable plan W5, U7). Discovery finds no compiler and runs no developer-tool shim; the semantic kit needs the missing SDK, so the status is degraded with an sdk-missing issue carrying the install command, a file that imports std is answered at once, and module-level features keep working.",
+  "checks": [
+    {"id": "S1", "kind": "status", "source": "inferred", "profile-kind": "semantic-kit", "state": "degraded", "issue-code": "sdk-missing", "issue-command": "mcppls.installCommandLineTools"},
+    {"id": "R1-std-user", "kind": "responds", "file": "src/main.cpp", "at": [4, 31], "timeout": 15},
+    {"id": "M1-hover", "kind": "hover-contains", "file": "src/main.cpp", "at": [1, 9], "expect": "module hello.greet"},
+    {"id": "M2-outline", "kind": "document-symbol-contains", "file": "src/greet/greet.cppm", "expect": "hello.greet"},
+    {"id": "M3-graph", "kind": "module-graph-contains", "expect": "hello.greet:detail"},
+    {"id": "M4-import-completion", "kind": "completion-contains", "file": "src/scratch.cpp", "text": "import hel", "at": [0, 10], "expect": "hello.greet"},
+    {"id": "M5-unresolved", "kind": "diagnostic-code", "file": "src/unresolved.cpp", "text": "import missing.module;\nint f();\n", "expect": "unresolved-module"}
+  ]
+}

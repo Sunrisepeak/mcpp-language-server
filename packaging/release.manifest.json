@@ -1,0 +1,64 @@
+{
+  "$comment": "What a release of mcpp-language-server carries. This file is the declaration; `mcppls-devtools release check` (modules/pack/src/release.cpp) checks a staged release directory against it and refuses a release that is missing a required asset or carrying one nobody declared. Prose describing a release goes stale silently; this does not.",
+  "release-name": "mcpp-language-server {version}",
+  "platforms": [
+    "linux-x64",
+    "darwin-arm64",
+    "win32-x64"
+  ],
+  "assets": [
+    {
+      "id": "vsix",
+      "pattern": "mcppls-{platform}.vsix",
+      "per-platform": true,
+      "required": true,
+      "what": "The VS Code extension for one platform, with that platform's payload inside it",
+      "install": "`code --install-extension <file>`, or the Extensions view's “Install from VSIX…”"
+    },
+    {
+      "id": "payload",
+      "pattern": "payload-{platform}.tar.gz",
+      "per-platform": true,
+      "required": true,
+      "what": "The server, the clangd it drives and the semantic kit, as one tree. What every non-VS-Code editor needs",
+      "install": "Unpack it and put `bin/` on PATH; `mcppls serve` speaks LSP over stdio"
+    },
+    {
+      "id": "zed",
+      "pattern": "mcppls-zed-{version}.tar.gz",
+      "per-platform": false,
+      "required": true,
+      "what": "The Zed extension directory `mcppls-zed/`: extension.toml, the compiled extension.wasm and the crate it was compiled from, which Zed's dev-extension install compiles again. Platform-independent; the server comes from the payload",
+      "install": "Unpack it, put the payload's `bin/` on PATH, then Zed's command palette: `zed: install dev extension`, and choose `mcppls-zed` (Zed compiles it, which needs Rust through rustup)"
+    },
+    {
+      "id": "clion",
+      "pattern": "mcppls-clion-{version}.zip",
+      "per-platform": false,
+      "required": true,
+      "what": "The IntelliJ-platform plugin archive Gradle produces. Gradle and the JDK it compiles with come from the `clion` feature (xim:gradle, xim:jdk-temurin), so it does not depend on whatever JDK the machine happens to default to",
+      "install": "Put the payload's `bin/` on PATH, then CLion: Settings → Plugins → the gear menu → *Install Plugin from Disk*, and restart"
+    },
+    {
+      "id": "checksums",
+      "pattern": "SHA256SUMS",
+      "per-platform": false,
+      "required": true,
+      "what": "sha256 of every other file in the release",
+      "install": "`sha256sum -c SHA256SUMS`"
+    },
+    {
+      "id": "manifest",
+      "pattern": "MANIFEST.md",
+      "per-platform": false,
+      "required": true,
+      "what": "This declaration, rendered for the release page: every file, what it is, and how to install it",
+      "install": "This page"
+    }
+  ],
+  "not-in-a-release": [
+    "The Claude Code plugin: it is consumed from the repository through its marketplace file, not downloaded as an archive.",
+    "xlings-res archives and the rendered xim-pkgindex descriptors: the ecosystem publish path is deliberately out of scope for this release, so `mcppls-devtools release xlings` is not run.",
+    "The model gateway: a separate package, built and tested on its own, not part of what a user installs."
+  ]
+}

@@ -1,0 +1,110 @@
+{
+  "name": "cmake-msvc-bdb",
+  "description": "The cmake-msvc project configured with CMake's experimental build database (CMAKE_EXPERIMENTAL_EXPORT_BUILD_DATABASE, CMake 4.4+ only, W4/E16), built by cl.exe and Ninja in a developer environment, the server under test without one (usable plan D30): the model comes from the build directory's build_database.json, whose provides/requires are taken as written and whose roles come from scanning.",
+  "prepare-environment": "msvc",
+  "prepare": [
+    [
+      "cmake",
+      "-S",
+      ".",
+      "-B",
+      "build",
+      "-G",
+      "Ninja",
+      "-DCMAKE_CXX_COMPILER=cl",
+      "-DCMAKE_EXPERIMENTAL_EXPORT_BUILD_DATABASE=70ef007e-b743-492d-9407-e35eeac03a40",
+      "-DCMAKE_EXPORT_BUILD_DATABASE=ON",
+      "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+    ],
+    [
+      "cmake",
+      "--build",
+      "build"
+    ],
+    [
+      "cmake",
+      "--build",
+      "build",
+      "--target",
+      "build_database.json"
+    ]
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "cmake",
+      "profile-kind": "build-toolchain",
+      "level": 2,
+      "state": "ready"
+    },
+    {
+      "id": "C1",
+      "kind": "diagnostics-empty",
+      "file": "src/main.cpp"
+    },
+    {
+      "id": "C2",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        3,
+        21
+      ],
+      "expect": "src/shapes.cppm"
+    },
+    {
+      "id": "C2-partition-symbol",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        3,
+        58
+      ],
+      "expect": "src/circle.cppm"
+    },
+    {
+      "id": "C3",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        3,
+        21
+      ],
+      "expect": "square"
+    },
+    {
+      "id": "C5",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        0,
+        9
+      ],
+      "expect": "src/shapes.cppm"
+    },
+    {
+      "id": "C5-partition",
+      "kind": "definition",
+      "file": "src/shapes.cppm",
+      "at": [
+        1,
+        16
+      ],
+      "expect": "src/circle.cppm"
+    },
+    {
+      "id": "C9",
+      "kind": "references-span",
+      "file": "src/main.cpp",
+      "at": [
+        3,
+        21
+      ],
+      "expect": [
+        "src/main.cpp",
+        "src/shapes.cppm"
+      ]
+    }
+  ]
+}

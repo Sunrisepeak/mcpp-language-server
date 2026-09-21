@@ -1,0 +1,19 @@
+{
+  "id": "module-renamed-all-cppm",
+  "title": "A module is renamed while the primary interface still re-exports it by its old name",
+  "category": "missed-importer",
+  "project": "conformance/fixtures/mcpp-all-cppm",
+  "remove": [],
+  "must": [
+    {
+      "rule": "module/export-removed-in-use",
+      "file": "src/text/text.cppm",
+      "evidence-file": "src/calc/calc.cppm"
+    }
+  ],
+  "must-not": [
+    {
+      "rule": "module/partition-misuse"
+    }
+  ]
+}

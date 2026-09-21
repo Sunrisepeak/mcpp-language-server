@@ -1,0 +1,134 @@
+{
+  "id": "model-evidence-checked-split",
+  "title": "A scripted model answers with findings that cite the review's evidence or evidence that does not exist, and with a fix that compiles and one that does not",
+  "category": "model",
+  "project": "conformance/fixtures/mcpp-split",
+  "remove": [],
+  "model": {
+    "script": {
+      "model": "mock-reviewer",
+      "result": {
+        "content": "",
+        "finishReason": "stop",
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 30
+        },
+        "json": {
+          "findings": [
+            {
+              "rule": "model/unused-definition",
+              "severity": "warning",
+              "message": "decorate is still defined in format.cpp but no longer exported or declared in the interface",
+              "location": {
+                "file": "src/greet/greet.cpp",
+                "line": 9,
+                "column": 12
+              },
+              "evidence": [
+                "E2"
+              ],
+              "confidence": 0.7
+            },
+            {
+              "rule": "model/invented",
+              "severity": "error",
+              "message": "a claim with no evidence behind it",
+              "location": {
+                "file": "src/main.cpp",
+                "line": 1,
+                "column": 1
+              },
+              "evidence": [
+                "E404"
+              ],
+              "confidence": 0.99
+            },
+            {
+              "rule": "model/restore-export",
+              "severity": "error",
+              "message": "declare decorate again, since greet.cpp still calls it",
+              "location": {
+                "file": "src/greet/format.cppm",
+                "line": 6,
+                "column": 1
+              },
+              "evidence": [
+                "E1"
+              ],
+              "confidence": 0.9,
+              "fix": {
+                "description": "declare decorate in the partition interface again",
+                "edits": [
+                  {
+                    "file": "src/greet/format.cppm",
+                    "line": 6,
+                    "column": 1,
+                    "endLine": 6,
+                    "endColumn": 1,
+                    "newText": "std::string decorate(std::string_view text);\n"
+                  }
+                ]
+              }
+            },
+            {
+              "rule": "model/broken-fix",
+              "severity": "warning",
+              "message": "a fix that does not compile",
+              "location": {
+                "file": "src/greet/format.cppm",
+                "line": 6,
+                "column": 1
+              },
+              "evidence": [
+                "E1"
+              ],
+              "confidence": 0.5,
+              "fix": {
+                "description": "a declaration without its semicolon",
+                "edits": [
+                  {
+                    "file": "src/greet/format.cppm",
+                    "line": 6,
+                    "column": 1,
+                    "endLine": 6,
+                    "endColumn": 1,
+                    "newText": "std::string decorate(std::string_view text)\n"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "must": [
+    {
+      "rule": "module/export-removed-in-use",
+      "file": "src/greet/format.cppm",
+      "origin": "rule"
+    },
+    {
+      "rule": "model/unused-definition",
+      "file": "src/greet/greet.cpp",
+      "origin": "model",
+      "evidence-file": "src/greet/greet.cpp"
+    },
+    {
+      "rule": "model/restore-export",
+      "origin": "model",
+      "fixed": true
+    },
+    {
+      "rule": "model/broken-fix",
+      "origin": "model",
+      "fixed": false
+    }
+  ],
+  "must-not": [
+    {
+      "rule": "model/invented"
+    }
+  ]
+}

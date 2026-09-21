@@ -1,0 +1,191 @@
+# A workspace rooted in the server (.agents/docs/design.md §2).
+#
+# Split by DEPENDENCY SET, not by taste: mcpp compiles a package's modules once and links them into
+# every executable of that package, so anything a tool needs and the server must not carry (a
+# network client, an archive reader) lives in a member the server does not depend on.
+#
+#   modules/base, modules/platform   shared by the server, the tools and the gateway
+#   modules/pack                     packaging only: tinyhttps, libarchive
+#   tools/devtools                   mcppls-devtools, the one entry for project work (docs/93-devtools.md)
+#   tools/model-gateway              mcppls-model
+#
+# The root package stays the server, so `mcpp build` and `mcpp test` mean what they meant; a
+# member is reached with `-p` (`mcpp run -p devtools -- payload`), and `--workspace` reaches all.
+[workspace]
+members = [
+    "modules/base",
+    "modules/platform",
+    "modules/pack",
+    "tools/devtools",
+    "tools/model-gateway",
+]
+
+# One version of each third-party package for every member.
+[workspace.dependencies]
+openkal-llvm-runtime = "0.15.1"
+cmdline              = "0.0.2"
+tinyhttps            = "0.3.1"
+
+[workspace.dependencies.nlohmann]
+json = "3.12.0"
+
+[workspace.dependencies.compat]
+libarchive = "3.8.7"
+
+[package]
+name        = "mcpp-language-server"
+version     = "2026.9.22.1"
+description = "Compiler-agnostic C++ modules language server"
+license     = "Apache-2.0"
+authors     = ["Sunrisepeak"]
+repo        = "https://github.com/Sunrisepeak/mcpp-language-server"
+
+[build]
+sources = ["src/**/*.cppm", "src/**/*.cpp"]
+
+# Every executable shares every module under src/.
+[targets.mcppls]
+kind = "bin"
+main = "src/main.cpp"
+
+[targets.mcppls-conformance]
+kind = "bin"
+main = "src/bin/conformance.cpp"
+
+[targets.mcppls-lspgen]
+kind = "bin"
+main = "src/bin/lspgen.cpp"
+
+# Stands in for mcpp in conformance fixtures: the build-database contract of mcpp-community/mcpp#636.
+[targets.mcppls-mock-mcpp]
+kind = "bin"
+main = "src/bin/mockmcpp.cpp"
+
+# Stands in for the mcppls-model gateway in tests: tools/model-gateway/PROTOCOL.md over stdin/stdout.
+[targets.mcppls-mock-model]
+kind = "bin"
+main = "src/bin/mockmodel.cpp"
+
+[toolchain]
+default = "llvm@22.1.8"
+
+# The platform: openkal beneath musl, libc++ above it. One source builds every target.
+[dependencies]
+openkal-llvm-runtime.workspace = true
+cmdline.workspace              = true
+mcppls-base                    = { path = "modules/base" }
+mcppls-platform                = { path = "modules/platform" }
+
+[dependencies.nlohmann]
+json.workspace = true
+
+[dev-dependencies]
+mcppls-testing = { path = "modules/testing" }
+
+# Platform facts are a package chosen by the target, consumed with `if constexpr`.
+[target.'cfg(os = "linux")'.dependencies]
+mcppls-os-linux = { path = "modules/os/linux" }
+
+[target.'cfg(os = "macos")'.dependencies]
+mcppls-os-macos = { path = "modules/os/macos" }
+
+[target.'cfg(windows)'.dependencies]
+mcppls-os-windows = { path = "modules/os/windows" }
+
+# What packaging needs, declared rather than fetched at runtime.
+#
+# `mcppls-devtools` drives Node (the VS Code extension is TypeScript), Rust (a Zed extension is a
+# crate compiled to WebAssembly) and Gradle (the CLion plugin is a Gradle
+# project, and xim:gradle brings the JDK it runs on). None of them is a library this project links,
+# so none is a `[dependencies]` entry — they are tools the environment has to contain, which is what
+# this table is for. A developer therefore configures nothing: `mcpp run -p devtools` provisions
+# what is missing before it runs, and the program itself installs nothing.
+#
+# `when = "dev"`, not `"run"`. `run` covers `mcpp run` AND `mcpp test` (mcpp docs 23 §`when`), so
+# it made `mcpp test` download Node, Python and Rust — none of which a unit test touches. Measured:
+# it broke CI's `Unit tests` step, because installing `xim:python` pulled a glibc that no longer
+# matched the toolchain binding the cached store had resolved:
+#
+#   error: toolchain post-install fixup: selected RuntimeBinding glibc@2.44 requires payload
+#   '.../xim-x-glibc/2.44', but no installed payload is its resolution
+#
+# `dev` means "while the package that declared this is itself being developed", which is exactly
+# when packaging tools are wanted, and it does not reach a consumer. `mcpp run -p devtools`
+# still provisions them; `mcpp build` and `mcpp test` no longer do.
+#
+# `version = ""` means "present, any version" — packaging is not sensitive to which, and pinning
+# would install a second copy beside a perfectly good one.
+#
+# Python is no longer here: every packaging, release and check step is C++ in mcppls-devtools
+# (docs/93-devtools.md), so the entry -- and the glibc incident above that it caused -- is gone.
+# `mcpp run -p devtools` still sees this table: in a workspace the root owns the environment
+# (mcpp docs 23 §3), measured on a scratch workspace before the split.
+# The C library, named exactly, because the toolchain binding names it exactly.
+#
+# mcpp resolves the binding as `glibc@2.44` and then requires the store directory
+# `xim-x-glibc/2.44`. Each version installs under its own name, so only `2.44` creates it —
+# measured by printing the restored store before anything installs:
+#
+#   What glibc the restored store has
+#     2.44.2: .../xim-x-glibc/2.44.2/lib/ld-linux-x86-64.so.2
+#
+# One directory, and not the one the binding looks in. Runs green before 2026-09-16 16:01 had
+# `xim-x-glibc/2.44` from an older install still in the cache; once that rotated out, nothing
+# recreated it, because `latest` had moved to 2.44.3 (xim-pkgindex#852).
+#
+# The 2.44 package itself is sound — verified by installing it into an empty XLINGS_HOME:
+#
+#   lrwxrwxrwx  lib64 -> lib
+#   .../2.44/lib/ld-linux-x86-64.so.2
+#
+# `lib64` is a symlink, so the loader the recipe declares at `lib64/ld-linux-x86-64.so.2` resolves.
+# An earlier attempt read a `tar -tzf | grep ld-linux` listing, which cannot show a symlink whose
+# own name lacks the pattern, and wrongly reported the artifact as broken upstream; that report is
+# retracted (openxlings/xim-pkgindex#853).
+#
+# Linux only and `when = "build"`: macOS and Windows have no glibc, and an unconditional entry sent
+# them looking for one. Remove this when the binding accepts a directory that satisfies the version
+# it asked for (mcpp-community/mcpp#660).
+[target.'cfg(os = "linux")'.xlings.workspace]
+"xim:glibc" = { version = "2.44", when = "build" }
+
+# The same pin again, behind a feature, because `cfg()` cannot say what this needs to say.
+#
+# The glibc payload is a property of the BUILD HOST -- whatever it builds for, a Linux host resolves
+# a RuntimeBinding and needs the directory that binding names. But every key `cfg()` accepts is
+# evaluated against the TARGET; measured with `mcpp build --strict`:
+#
+#   Supported keys: arch, env, family, os, c++-abi, c-abi, compiler, compiler-runtime, kernel-abi
+#   host_os / host / target_os -> "which mcpp does not know, so the section never applies"
+#
+# So on `--target aarch64-macos`, the section above is skipped even though the host is Linux and
+# still resolves the binding -- which is exactly how the cross-build jobs failed while the native
+# Linux job passed, on the same commit and the same runner OS.
+#
+# Features are not target-derived: `--features` with `--target aarch64-macos` does provision. So the
+# one CI job that builds a non-Linux target on a Linux host asks for it explicitly:
+#
+#   mcpp build --features host-glibc --profile release --target aarch64-macos
+#
+# Native Linux builds need no flag; the section above already covers them. Both go away together
+# when mcpp#660 is fixed.
+[feature-xlings.host-glibc]
+"xim:glibc" = { version = "2.44", when = "build" }
+
+[xlings.workspace]
+"xim:node"   = { version = "", when = "dev" }
+"xim:rust"   = { version = "", when = "dev" }
+
+# Gradle is behind a feature, and the reason is not tidiness. `[xlings.workspace]` is provisioned
+# as a set: one entry that cannot be resolved fails the whole of `mcpp run`, so an unconditional
+# `xim:gradle` would stop the Zed build, the VS Code build and every other `mcpp run` in this
+# project on any machine whose index does not carry it. Only the CLion plugin needs it, and only
+# someone asking for that plugin should pay for it — or be blocked by it.
+#
+#   mcpp run --features clion -p devtools -- extension --editor clion
+[features]
+clion = {}
+host-glibc = {}
+
+[feature-xlings.clion]
+"xim:gradle" = { version = "", when = "dev" }
