@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Schemas, examples, text blocks and links
         shell: bash
         run: |
@@ -64,7 +64,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
       - name: Build
         run: |
@@ -121,7 +121,7 @@ jobs:
           - { target: x86_64-windows-gnu, exe: '.exe' }
           - { target: aarch64-macos,      exe: '' }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
       # `--features host-glibc`: this is the one job where a Linux host builds a non-Linux target,
       # and mcpp.toml's `cfg(os = "linux")` glibc pin is evaluated against the TARGET, so it does
@@ -172,7 +172,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
       - name: Build tools for the kit configure
         run: |
@@ -268,7 +268,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
       - name: Toolchains the fixtures build with
         run: |
@@ -491,7 +491,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with:
           name: payload-${{ matrix.platform }}
@@ -598,7 +598,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -649,7 +649,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
       - name: GCC toolchain (two of the ten tasks pin gcc@16.1.0)
         run: mcpp toolchain install gcc 16.1.0
