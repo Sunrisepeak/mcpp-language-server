@@ -250,6 +250,6 @@
     "@vscode/vsce": "^3.9.2",
     "glob": "^10.5.0",
     "mocha": "^10.8.2",
-    "typescript": "~5.9.3"
+    "typescript": "~7.0.2"
   }
 }
