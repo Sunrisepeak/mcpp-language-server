@@ -180,7 +180,7 @@ jobs:
           if [ "$RUNNER_OS" = macOS ]; then brew install ninja; fi
           cmake --version | head -1; ninja --version
       - name: Cache upstream inputs
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .payload-cache
           key: payload-inputs-${{ matrix.platform }}-${{ hashFiles('packaging/payload.lock.json') }}
@@ -313,7 +313,7 @@ jobs:
       - name: Cache CMake 4.4.2 (cmake-clang-bdb, cmake-msvc-bdb)
         if: matrix.platform == 'linux-x64' || matrix.platform == 'win32-x64'
         id: cmake-bdb-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}/cmake-4.4.2
           key: cmake-bdb-4.4.2-${{ runner.os }}
