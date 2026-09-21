@@ -1,0 +1,13 @@
+diff --git a/a/src/calc/geometry.cppm b/b/src/calc/geometry.cppm
+index 4626c1d..f21a953 100644
+--- a/a/src/calc/geometry.cppm
++++ b/b/src/calc/geometry.cppm
+@@ -7,4 +7,8 @@ export namespace calc {
+ double length(const vec2& v) {
+     return std::sqrt(v.x * v.x + v.y * v.y);
+ }
++
++vec2 midpoint(const vec2& a, const vec2& b) {
++    return vec2 { (a.x + b.x) / 2.0, (a.y + b.y) / 2.0 };
++}
+ }

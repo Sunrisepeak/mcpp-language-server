@@ -1,0 +1,25 @@
+{
+  "id": "introduced-diagnostic-split",
+  "title": "An implementation unit passes an integer where a string view is expected",
+  "category": "build-error",
+  "project": "conformance/fixtures/mcpp-split",
+  "remove": [],
+  "must": [
+    {
+      "rule": "build/diagnostic-introduced",
+      "file": "src/greet/greet.cpp",
+      "line": 9
+    }
+  ],
+  "must-not": [
+    {
+      "rule": "module/export-removed-in-use"
+    },
+    {
+      "rule": "module/export-signature-changed"
+    },
+    {
+      "rule": "test/exported-change-untested"
+    }
+  ]
+}

@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mcpp-community/mcpp-language-server/specs/schema/s2-discovery/0.2.0",
+  "title": "Build Database Discovery Protocol 0.2.0 (S2)",
+  "description": "A value is the request a consumer writes to a stream-mode discovery command's standard input, one message line such a command writes to its standard output, or the envelope a single-document-mode command prints.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/message"
+    },
+    {
+      "$ref": "#/$defs/envelope"
+    }
+  ],
+  "$defs": {
+    "semanticVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
+    },
+    "request": {
+      "type": "object",
+      "required": [
+        "workspace",
+        "profile-version"
+      ],
+      "not": {
+        "required": [
+          "kind"
+        ]
+      },
+      "properties": {
+        "workspace": {
+          "type": "string",
+          "minLength": 1
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "configuration": {
+          "type": "string"
+        },
+        "profile-version": {
+          "$ref": "#/$defs/semanticVersion"
+        }
+      }
+    },
+    "message": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/progress"
+        },
+        {
+          "$ref": "#/$defs/finished"
+        },
+        {
+          "$ref": "#/$defs/error"
+        }
+      ]
+    },
+    "progress": {
+      "type": "object",
+      "required": [
+        "kind",
+        "message"
+      ],
+      "properties": {
+        "kind": {
+          "const": "progress"
+        },
+        "message": {
+          "type": "string"
+        },
+        "done": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "finished": {
+      "type": "object",
+      "required": [
+        "kind",
+        "database",
+        "watch"
+      ],
+      "properties": {
+        "kind": {
+          "const": "finished"
+        },
+        "database": {
+          "type": "string",
+          "pattern": "^(/|[A-Za-z]:[\\\\/])",
+          "description": "An absolute path (section 3.3)."
+        },
+        "watch": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "profile-version": {
+          "$ref": "#/$defs/semanticVersion"
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "required": [
+        "kind",
+        "message"
+      ],
+      "properties": {
+        "kind": {
+          "const": "error"
+        },
+        "message": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        }
+      }
+    },
+    "envelope": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "kind",
+        "kindVersion",
+        "effects",
+        "diagnostics"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "kind": {
+          "type": "string",
+          "pattern": "\\.build-database$"
+        },
+        "kindVersion": {
+          "const": 1
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "database",
+            "watch"
+          ],
+          "properties": {
+            "database": {
+              "type": "object"
+            },
+            "watch": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "inputs-fingerprint": {
+              "type": "string"
+            }
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "code",
+              "severity",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "severity": {
+                "enum": [
+                  "error",
+                  "warning",
+                  "note"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

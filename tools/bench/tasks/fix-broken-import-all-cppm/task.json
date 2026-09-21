@@ -1,0 +1,14 @@
+{
+  "id": "fix-broken-import-all-cppm",
+  "title": "Fix a deliberately broken import: a partition imported from outside its module (all-.cppm)",
+  "prompt": "In this mcpp C++23 modules project, src/main.cpp is not part of module `calc` and does not compile: it writes `import calc:types;`, trying to import module partition `:types` directly, which is only reachable from within its own module. Fix the import in src/main.cpp so the project builds and its tests pass, without changing what main() does.",
+  "project": "project",
+  "shape": "all-cppm",
+  "toolchain": "llvm@22.1.8",
+  "check": [
+    ["mcpp", "build"],
+    ["mcpp", "test"],
+    {"file-contains": {"files": ["src/main.cpp"], "none": [":types"]}}
+  ],
+  "reference": "reference.patch"
+}

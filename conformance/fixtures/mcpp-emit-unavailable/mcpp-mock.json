@@ -1,0 +1,3 @@
+{
+  "unavailable": "[warn] mcpp@2026.8.7.1 is the version this project asks for, and it is not installed yet\n         from                  ./.xlings.json  ->  workspace.mcpp\n         installed             2026.9.15.1, 2026.9.14.3, +136 more (xlings list mcpp)\n         set this project up   xlings install\n"
+}

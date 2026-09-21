@@ -1,0 +1,39 @@
+name: Set up mcpp
+description: Install xlings, the pinned mcpp and the pinned LLVM toolchain, with the package store cached.
+runs:
+  using: composite
+  steps:
+    # One source for the build pins (.github/versions.env). A workflow that set one of them keeps
+    # its value, which is how nightly asks for `latest` without editing anything here.
+    - name: Version pins
+      shell: bash
+      run: |
+        set -euo pipefail
+        while IFS='=' read -r name value; do
+          case "$name" in ''|\#*) continue ;; esac
+          if [ -z "${!name:-}" ]; then echo "$name=$value" >> "$GITHUB_ENV"; fi
+          echo "$name=${!name:-$value}"
+        done < .github/versions.env
+    - name: Install xlings (Unix)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
+          https://raw.githubusercontent.com/openxlings/xlings/main/tools/other/quick_install.sh \
+          | bash -s "$XLINGS_VERSION"
+        echo "$HOME/.xlings/subos/current/bin" >> "$GITHUB_PATH"
+    - name: Install xlings (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        irm https://d2learn.org/xlings-install.ps1.txt | iex
+        "$env:USERPROFILE\.xlings\subos\current\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+    - name: Cache the mcpp package store
+      uses: actions/cache@v6
+      with:
+        path: ~/.mcpp/registry/data/xpkgs
+        key: mcpp-xpkgs-${{ runner.os }}-${{ env.MCPP_VERSION }}-${{ hashFiles('**/mcpp.toml') }}
+        restore-keys: mcpp-xpkgs-${{ runner.os }}-${{ env.MCPP_VERSION }}-
+    - name: Install mcpp and LLVM
+      shell: bash
+      run: bash .github/scripts/install-mcpp.sh

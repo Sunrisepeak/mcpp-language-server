@@ -1,0 +1,8 @@
+[package]
+name        = "hello"
+version     = "0.1.0"
+description = "Conformance fixture: an mcpp package built with GCC 16"
+license     = "Apache-2.0"
+
+[toolchain]
+default = "gcc@16.1.0"

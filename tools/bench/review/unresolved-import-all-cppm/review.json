@@ -1,0 +1,22 @@
+{
+  "id": "unresolved-import-all-cppm",
+  "title": "A program imports a module nothing provides",
+  "category": "build-description",
+  "project": "conformance/fixtures/mcpp-all-cppm",
+  "remove": [],
+  "must": [
+    {
+      "rule": "module/import-unresolved",
+      "file": "src/main.cpp",
+      "line": 3
+    }
+  ],
+  "must-not": [
+    {
+      "rule": "module/partition-misuse"
+    },
+    {
+      "rule": "module/export-removed-in-use"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "lspServers": {
+    "mcppls": {
+      "command": "mcppls",
+      "args": ["serve"],
+      "fileExtensions": {
+        ".cpp": "cpp",
+        ".cc": "cpp",
+        ".cxx": "cpp",
+        ".c++": "cpp",
+        ".cppm": "cpp",
+        ".ccm": "cpp",
+        ".cxxm": "cpp",
+        ".c++m": "cpp",
+        ".ixx": "cpp",
+        ".mpp": "cpp",
+        ".mxx": "cpp",
+        ".h": "cpp",
+        ".hh": "cpp",
+        ".hpp": "cpp",
+        ".hxx": "cpp",
+        ".inl": "cpp",
+        ".c": "c"
+      }
+    }
+  }
+}

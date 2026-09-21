@@ -1,0 +1,14 @@
+{
+  "id": "rename-export-all-cppm",
+  "title": "Rename an exported function and update all importers (all-.cppm)",
+  "prompt": "In this mcpp C++23 modules project, module partition `calc:geometry` (src/calc/geometry.cppm, re-exported by the primary interface src/calc/calc.cppm) exports a function `double length(const vec2& v)`. Rename it to `magnitude`, keeping its signature and behavior unchanged, and update every importer that calls it (including src/main.cpp) so the project builds and its tests pass.",
+  "project": "project",
+  "shape": "all-cppm",
+  "toolchain": "llvm@22.1.8",
+  "check": [
+    ["mcpp", "build"],
+    ["mcpp", "test"],
+    {"file-contains": {"files": ["src/calc/geometry.cppm"], "all": ["magnitude"], "none": ["length("]}}
+  ],
+  "reference": "reference.patch"
+}

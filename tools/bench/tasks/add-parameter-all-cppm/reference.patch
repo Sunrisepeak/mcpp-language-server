@@ -1,0 +1,26 @@
+diff --git a/a/src/calc/geometry.cppm b/b/src/calc/geometry.cppm
+index 4626c1d..5c14796 100644
+--- a/a/src/calc/geometry.cppm
++++ b/b/src/calc/geometry.cppm
+@@ -4,7 +4,7 @@ import std;
+ import :types;
+ 
+ export namespace calc {
+-double length(const vec2& v) {
+-    return std::sqrt(v.x * v.x + v.y * v.y);
++double length(const vec2& v, double scale) {
++    return scale * std::sqrt(v.x * v.x + v.y * v.y);
+ }
+ }
+diff --git a/a/src/main.cpp b/b/src/main.cpp
+index f4aec5b..e92a431 100644
+--- a/a/src/main.cpp
++++ b/b/src/main.cpp
+@@ -3,6 +3,6 @@ import calc;
+ 
+ int main() {
+     const calc::vec2 v { 3.0, 4.0 };
+-    std::println("{} {}", calc::length(v), calc::format_pair(v.x, v.y));
++    std::println("{} {}", calc::length(v, 1.0), calc::format_pair(v.x, v.y));
+     return 0;
+ }

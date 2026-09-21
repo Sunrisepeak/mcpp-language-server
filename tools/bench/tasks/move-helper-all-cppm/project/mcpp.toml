@@ -1,0 +1,8 @@
+[package]
+name        = "calc"
+version     = "0.1.0"
+description = "Conformance fixture: every module unit in .cppm, partitions and a re-exported module"
+license     = "Apache-2.0"
+
+[toolchain]
+default = "llvm@22.1.8"

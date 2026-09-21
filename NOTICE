@@ -1,0 +1,57 @@
+mcpp-language-server (mcppls)
+Copyright (c) 2026-present Sunrisepeak
+
+This product is licensed under the Apache License, Version 2.0. See LICENSE.
+
+This NOTICE file lists the third-party components bundled in the payload that ships alongside
+mcppls (the server, a trimmed clangd, and the mcppls-kit semantic kit — see packaging/README.md
+and packaging/kits/README.md for how each is built). Full upstream license texts are bundled
+verbatim: clangd/LLVM texts under <payload>/licenses/, and standard-library and system-header
+texts under <payload>/kit/licenses/ (also reproduced inside the mcppls-kit archive/package). No
+source code of the listed components has been modified.
+
+--------------------------------------------------------------------------------
+clangd
+  Version:  23.1.0
+  Upstream: https://github.com/clangd/clangd (an LLVM project distribution)
+  License:  Apache License 2.0 with LLVM Exceptions
+  Location: <payload>/clangd/, license text at <payload>/licenses/LLVM-LICENSE.TXT
+
+libc++ and libc++abi (LLVM's C++ standard library)
+  Version:  23.1.0
+  Upstream: https://github.com/llvm/llvm-project (runtimes/libcxx, runtimes/libcxxabi)
+  License:  Apache License 2.0 with LLVM Exceptions
+  Location: headers and module sources under <payload>/kit/, license text at
+            <payload>/kit/licenses/LLVM-LICENSE.TXT
+  Note:     data only — headers and precompiled module sources, nothing is compiled into the
+            payload from this source.
+
+llvm-mingw (win32-x64 kit only)
+  Version:  20260826 (built on LLVM 23.1.0), UCRT, Linux x86_64 host build
+  Upstream: https://github.com/mstorsjo/llvm-mingw
+  License:  Apache License 2.0 with LLVM Exceptions (LLVM/libc++ parts);
+            mingw-w64 headers under the Zope Public License 2.1 and public domain
+  Location: headers, module manifest and license text under <payload>/kit/,
+            license text at <payload>/kit/licenses/LLVM-LICENSE.TXT,
+            mingw-w64 COPYING files at <payload>/kit/licenses/mingw-w64/
+
+glibc headers (linux-x64 kit only)
+  Upstream: the build host's libc6-dev package (Debian/Ubuntu)
+  License:  as stated in that package's own copyright file
+  Location: <payload>/kit/sysroot/usr/include/, license text at
+            <payload>/kit/licenses/libc6-dev-copyright.txt
+  Note:     headers only, not linked into any mcppls binary.
+
+Linux kernel headers (linux-x64 kit only)
+  Upstream: the build host's linux-libc-dev package (Debian/Ubuntu)
+  License:  as stated in that package's own copyright file
+  Location: <payload>/kit/sysroot/usr/include/, license text at
+            <payload>/kit/licenses/linux-libc-dev-copyright.txt
+  Note:     headers only, not linked into any mcppls binary. A handful of files whose names
+            differ only in case (e.g. xt_mark.h / xt_MARK.h) are kept under their all-lowercase
+            name only; packaging/kits/README.md and mcppls.pack.kit record what was dropped.
+
+--------------------------------------------------------------------------------
+The macOS kit (darwin-arm64) carries no bundled C library headers: Apple's SDK license does not
+allow redistributing them, so that kit requires the macOS SDK already installed on the machine
+(Xcode or the Command Line Tools) and uses it in place.

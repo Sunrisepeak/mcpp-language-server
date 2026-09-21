@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "revision": 0,
+  "ide": {
+    "profile-version": "0.2.0",
+    "generator": { "name": "example-cmake-adapter", "version": "0.1.0" },
+    "toolchains": {
+      "clang-22.1.8-x86_64-unknown-linux-gnu": {
+        "family": "clang",
+        "version": "22.1.8",
+        "build-id": "ca7933e47d3a",
+        "driver": "/opt/llvm/22.1.8/bin/clang++",
+        "target": "x86_64-unknown-linux-gnu",
+        "stdlib": {
+          "name": "libc++",
+          "version": "22.1.8",
+          "module-metadata": "/opt/llvm/22.1.8/lib/x86_64-unknown-linux-gnu/libc++.modules.json"
+        },
+        "config-files": ["/opt/llvm/22.1.8/bin/clang++.cfg"],
+        "introspection": [
+          { "command": ["/opt/llvm/22.1.8/bin/clang++", "-print-target-triple"],
+            "output": "x86_64-unknown-linux-gnu" },
+          { "command": ["/opt/llvm/22.1.8/bin/clang++", "-print-library-module-manifest-path"],
+            "output": "/opt/llvm/22.1.8/lib/x86_64-unknown-linux-gnu/libc++.modules.json" }
+        ]
+      }
+    }
+  },
+  "sets": [
+    {
+      "name": "shapes@Debug",
+      "family-name": "shapes",
+      "visible-sets": [],
+      "baseline-arguments": ["-std=c++23", "-stdlib=libc++", "-g"],
+      "ide": {
+        "toolchain": "clang-22.1.8-x86_64-unknown-linux-gnu",
+        "configuration": "Debug",
+        "kind": "library"
+      },
+      "translation-units": [
+        {
+          "source": "/work/demo/shapes/shapes.cppm",
+          "work-directory": "/work/demo/build",
+          "arguments": ["/opt/llvm/22.1.8/bin/clang++", "-std=c++23", "-stdlib=libc++", "-g",
+                        "-fmodule-output=CMakeFiles/shapes.dir/demo.shapes.pcm",
+                        "-x", "c++-module", "-c", "/work/demo/shapes/shapes.cppm",
+                        "-o", "CMakeFiles/shapes.dir/shapes.cppm.o"],
+          "local-arguments": ["-fmodule-output=CMakeFiles/shapes.dir/demo.shapes.pcm"],
+          "object": "CMakeFiles/shapes.dir/shapes.cppm.o",
+          "private": false,
+          "provides": { "demo.shapes": "CMakeFiles/shapes.dir/demo.shapes.pcm" },
+          "requires": ["demo.shapes:circle", "std"],
+          "ide": { "role": "module-interface" }
+        },
+        {
+          "source": "/work/demo/shapes/circle.cppm",
+          "work-directory": "/work/demo/build",
+          "arguments": ["/opt/llvm/22.1.8/bin/clang++", "-std=c++23", "-stdlib=libc++", "-g",
+                        "-fmodule-output=CMakeFiles/shapes.dir/demo.shapes-circle.pcm",
+                        "-x", "c++-module", "-c", "/work/demo/shapes/circle.cppm",
+                        "-o", "CMakeFiles/shapes.dir/circle.cppm.o"],
+          "local-arguments": ["-fmodule-output=CMakeFiles/shapes.dir/demo.shapes-circle.pcm"],
+          "object": "CMakeFiles/shapes.dir/circle.cppm.o",
+          "private": false,
+          "provides": { "demo.shapes:circle": "CMakeFiles/shapes.dir/demo.shapes-circle.pcm" },
+          "requires": ["std"],
+          "ide": { "role": "module-partition-interface" }
+        },
+        {
+          "source": "/work/demo/shapes/area.cpp",
+          "work-directory": "/work/demo/build",
+          "arguments": ["/opt/llvm/22.1.8/bin/clang++", "-std=c++23", "-stdlib=libc++", "-g",
+                        "-c", "/work/demo/shapes/area.cpp",
+                        "-o", "CMakeFiles/shapes.dir/area.cpp.o"],
+          "local-arguments": [],
+          "object": "CMakeFiles/shapes.dir/area.cpp.o",
+          "private": false,
+          "provides": {},
+          "requires": ["demo.shapes", "std"],
+          "ide": { "role": "module-implementation" }
+        }
+      ]
+    },
+    {
+      "name": "app@Debug",
+      "family-name": "app",
+      "visible-sets": ["shapes@Debug"],
+      "baseline-arguments": ["-std=c++23", "-stdlib=libc++", "-g"],
+      "ide": {
+        "toolchain": "clang-22.1.8-x86_64-unknown-linux-gnu",
+        "configuration": "Debug",
+        "kind": "executable"
+      },
+      "translation-units": [
+        {
+          "source": "/work/demo/app/main.cpp",
+          "work-directory": "/work/demo/build",
+          "arguments": ["/opt/llvm/22.1.8/bin/clang++", "-std=c++23", "-stdlib=libc++", "-g",
+                        "-c", "/work/demo/app/main.cpp",
+                        "-o", "CMakeFiles/app.dir/main.cpp.o"],
+          "local-arguments": [],
+          "object": "CMakeFiles/app.dir/main.cpp.o",
+          "private": true,
+          "provides": {},
+          "requires": ["demo.shapes", "std"],
+          "ide": { "role": "non-module" }
+        }
+      ]
+    }
+  ]
+}

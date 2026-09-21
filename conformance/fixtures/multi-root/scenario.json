@@ -1,0 +1,99 @@
+{
+  "name": "multi-root",
+  "description": "usable plan W9.1: two workspace folders (inferred's own content and mcpp-llvm's own content, copied verbatim), each getting its own project model and clangd process; a request routes to the root with the longest matching prefix of its document's path, cxxModules/status is sent once per root, told apart by project.root (the URI the client named the folder by, whatever the canonical path); and a watched file changing in the second folder reloads that folder's own model.",
+  "folders": [
+    "inferred",
+    "mcpp-llvm"
+  ],
+  "server-arguments": [
+    "--no-discover"
+  ],
+  "checks": [
+    {
+      "id": "S1-inferred",
+      "kind": "status",
+      "folder": "inferred",
+      "source": "inferred",
+      "profile-kind": "semantic-kit",
+      "state": "ready"
+    },
+    {
+      "id": "S1-mcpp",
+      "kind": "status",
+      "folder": "mcpp-llvm",
+      "source": "mcpp",
+      "profile-kind": "build-toolchain",
+      "profile-compiler": "clang",
+      "level": 3,
+      "state": "ready"
+    },
+    {
+      "id": "C1-inferred",
+      "kind": "definition",
+      "file": "inferred/src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "inferred/src/greet/greet.cppm"
+    },
+    {
+      "id": "C1-mcpp",
+      "kind": "definition",
+      "file": "mcpp-llvm/src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "mcpp-llvm/src/greet/greet.cppm"
+    },
+    {
+      "id": "C2-inferred-hover",
+      "kind": "hover-contains",
+      "file": "inferred/src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet"
+    },
+    {
+      "id": "C2-mcpp-hover",
+      "kind": "hover-contains",
+      "file": "mcpp-llvm/src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet"
+    },
+    {
+      "id": "C3-inferred-diag",
+      "kind": "diagnostics-empty",
+      "file": "inferred/src/main.cpp"
+    },
+    {
+      "id": "C3-mcpp-diag",
+      "kind": "diagnostics-empty",
+      "file": "mcpp-llvm/src/main.cpp"
+    },
+    {
+      "id": "W1-mcpp-watched",
+      "kind": "write-file",
+      "folder": "mcpp-llvm",
+      "file": "mcpp-llvm/mcpp.toml",
+      "content-from": "mcpp-llvm/mcpp.toml",
+      "expect-reload": true,
+      "timeout": 60
+    },
+    {
+      "id": "S2-mcpp-reloaded",
+      "kind": "status",
+      "folder": "mcpp-llvm",
+      "source": "mcpp",
+      "level": 3,
+      "state": "ready",
+      "timeout": 120
+    }
+  ]
+}

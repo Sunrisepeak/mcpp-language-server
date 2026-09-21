@@ -1,0 +1,63 @@
+diff --git a/a/src/greet/format.cpp b/b/src/greet/format.cpp
+index 2e030f9..ea7bb35 100644
+--- a/a/src/greet/format.cpp
++++ b/b/src/greet/format.cpp
+@@ -1,9 +1,10 @@
+ module hello.greet;
+ 
+ import std;
++import :util;
+ 
+ namespace hello {
+ std::string decorate(std::string_view text) {
+-    return std::format("[{}]", normalize(text));
++    return std::format("[{}]", detail::normalize(text));
+ }
+ }
+diff --git a/a/src/greet/greet.cpp b/b/src/greet/greet.cpp
+index c2e71ae..ff167ed 100644
+--- a/a/src/greet/greet.cpp
++++ b/b/src/greet/greet.cpp
+@@ -2,21 +2,12 @@ module hello.greet;
+ 
+ import std;
+ import :counter;
+-
+-namespace {
+-std::string normalize(std::string_view text) {
+-    std::string result(text);
+-    if (!result.empty() && result[0] >= 'a' && result[0] <= 'z') {
+-        result[0] = static_cast<char>(result[0] - 'a' + 'A');
+-    }
+-    return result;
+-}
+-}
++import :util;
+ 
+ namespace hello {
+ std::string greet(std::string_view who) {
+     detail::bump();
+-    return decorate(std::format("hello, {}", normalize(who)));
++    return decorate(std::format("hello, {}", detail::normalize(who)));
+ }
+ 
+ int count() {
+diff --git a/b/src/greet/util.cppm b/b/src/greet/util.cppm
+new file mode 100644
+index 0000000..b79e1cc
+--- /dev/null
++++ b/b/src/greet/util.cppm
+@@ -0,0 +1,13 @@
++module hello.greet:util;
++
++import std;
++
++namespace hello::detail {
++std::string normalize(std::string_view text) {
++    std::string result(text);
++    if (!result.empty() && result[0] >= 'a' && result[0] <= 'z') {
++        result[0] = static_cast<char>(result[0] - 'a' + 'A');
++    }
++    return result;
++}
++}

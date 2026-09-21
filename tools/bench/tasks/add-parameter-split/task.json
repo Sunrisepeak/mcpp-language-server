@@ -1,0 +1,14 @@
+{
+  "id": "add-parameter-split",
+  "title": "Add a parameter to an exported function and update call sites (interface/implementation split, GCC)",
+  "prompt": "In this mcpp C++23 modules project, module `hello.greet` (interface unit src/greet/greet.cppm, implementation unit src/greet/greet.cpp) exports `std::string greet(std::string_view who)`, which greets `who` with the fixed salutation \"hello\". Add a second parameter `std::string_view salutation` so callers choose the salutation instead, use it in place of the hard-coded \"hello\", and update every call site (including src/main.cpp) so the project builds and its tests pass.",
+  "project": "project",
+  "shape": "split",
+  "toolchain": "gcc@16.1.0",
+  "check": [
+    ["mcpp", "build"],
+    ["mcpp", "test"],
+    {"file-contains": {"files": ["src/greet/greet.cppm"], "all": ["salutation"]}}
+  ],
+  "reference": "reference.patch"
+}

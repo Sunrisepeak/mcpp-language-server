@@ -1,0 +1,10 @@
+{
+  "diagnostics": [
+    {
+      "code": "MCPP_OFFLINE_DOWNLOAD_REQUIRED",
+      "severity": "error",
+      "source": "mcpp",
+      "message": "offline mode: dependency 'compat.eigen' v5.0.1 is not installed and cannot be downloaded\n       run without --offline (or unset MCPP_OFFLINE) to fetch it"
+    }
+  ]
+}

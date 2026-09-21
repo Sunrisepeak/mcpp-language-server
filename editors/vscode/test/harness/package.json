@@ -1,0 +1,10 @@
+{
+  "name": "mcppls-e2e-harness",
+  "displayName": "mcppls e2e harness",
+  "description": "Placeholder extension used only as --extensionDevelopmentPath in VSIX-form end-to-end runs (runTest.ts), where the extension under test is installed for real instead of loaded from source. Contributes and does nothing.",
+  "version": "0.0.0",
+  "publisher": "mcpp-community",
+  "engines": {
+    "vscode": "^1.90.0"
+  }
+}

@@ -1,0 +1,8 @@
+[package]
+name        = "mcppls-testing"
+version     = "0.1.0"
+description = "Test support for mcppls: named test cases, expectations and a summary exit code"
+license     = "Apache-2.0"
+
+[targets.mcppls-testing]
+kind = "lib"

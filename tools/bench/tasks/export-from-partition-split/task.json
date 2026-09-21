@@ -1,0 +1,14 @@
+{
+  "id": "export-from-partition-split",
+  "title": "Export a new function from a partition re-exported by the primary interface (interface/implementation split)",
+  "prompt": "In this mcpp C++23 modules project, the primary interface src/greet/greet.cppm re-exports partition `hello.greet:format` (`export import :format;`, interface src/greet/format.cppm, implementation src/greet/format.cpp), which already exports `decorate`. Add and export a new function `std::string shout(std::string_view text)` from that same partition: it upper-cases every letter and appends \"!!!\". It must be callable as `hello::shout(...)` by anything that imports `hello.greet` (no change to greet.cppm's re-export should be needed), and the project's tests must pass.",
+  "project": "project",
+  "shape": "split",
+  "toolchain": "llvm@22.1.8",
+  "check": [
+    ["mcpp", "build"],
+    ["mcpp", "test"],
+    {"file-contains": {"files": ["src/greet/format.cppm"], "all": ["shout"]}}
+  ],
+  "reference": "reference.patch"
+}

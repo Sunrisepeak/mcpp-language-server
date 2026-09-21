@@ -1,0 +1,65 @@
+{
+  "name": "untrusted",
+  "description": "An mcpp package opened in an untrusted workspace: no build tool or compiler runs; the kit answers and the status explains why.",
+  "server-arguments": [
+    "--untrusted"
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "inferred",
+      "profile-kind": "semantic-kit",
+      "state": "degraded"
+    },
+    {
+      "id": "C2",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "src/greet/greet.cppm"
+    },
+    {
+      "id": "C3",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet"
+    },
+    {
+      "id": "C4",
+      "kind": "definition-any",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        10
+      ]
+    },
+    {
+      "id": "C5",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        1,
+        9
+      ],
+      "expect": "src/greet/greet.cppm"
+    },
+    {
+      "id": "C5-partition",
+      "kind": "definition",
+      "file": "src/greet/greet.cppm",
+      "at": [
+        1,
+        16
+      ],
+      "expect": "src/greet/detail.cppm"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "name": "cpptools",
+  "displayName": "C/C++ (conflicts scenario stub)",
+  "description": "Stands in for ms-vscode.cpptools in the e2e conflicts scenario: only the configuration setting mcppls reacts to.",
+  "version": "0.0.1",
+  "publisher": "ms-vscode",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "contributes": {
+    "configuration": {
+      "title": "C/C++",
+      "properties": {
+        "C_Cpp.intelliSenseEngine": {
+          "type": "string",
+          "enum": [
+            "default",
+            "disabled"
+          ],
+          "default": "default",
+          "description": "Stub setting: only the enum values and default matter for the conflicts scenario."
+        }
+      }
+    }
+  }
+}

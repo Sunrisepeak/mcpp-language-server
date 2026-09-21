@@ -1,0 +1,28 @@
+{
+  "id": "clean-implementation-change-split",
+  "title": "An implementation unit changes a string literal",
+  "category": "clean",
+  "project": "conformance/fixtures/mcpp-split",
+  "remove": [],
+  "must": [],
+  "must-not": [
+    {
+      "rule": "module/export-removed-in-use"
+    },
+    {
+      "rule": "module/export-signature-changed"
+    },
+    {
+      "rule": "module/partition-misuse"
+    },
+    {
+      "rule": "module/import-unresolved"
+    },
+    {
+      "rule": "build/diagnostic-introduced"
+    },
+    {
+      "rule": "test/exported-change-untested"
+    }
+  ]
+}

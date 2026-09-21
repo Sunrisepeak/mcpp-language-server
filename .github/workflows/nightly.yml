@@ -1,0 +1,159 @@
+name: nightly
+
+# What is too slow or too variable for every commit (usable plan W7, W8): the whole CI,
+# then three cold and warm starts per host with their medians, the self-hosting fixtures
+# with their timings, and the mcpp fixtures with the latest mcpp. The measure files are uploaded.
+on:
+  schedule:
+    - cron: '30 18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # The build pins live in .github/versions.env and are exported by .github/actions/setup-mcpp,
+  # so a bump lands in one file instead of three. A job may still set one to override it.
+  XLINGS_NON_INTERACTIVE: '1'
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  timing:
+    name: startup timing (${{ matrix.platform }})
+    needs: ci
+    # Timings and self-hosting need only the payloads: a failure elsewhere in CI does not skip them.
+    if: ${{ !cancelled() }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x64,    os: ubuntu-24.04 }
+          - { platform: darwin-arm64, os: macos-14 }
+          - { platform: win32-x64,    os: windows-2022 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: payload-${{ matrix.platform }}
+      - name: Unpack the payload
+        run: tar -xzf payload-${{ matrix.platform }}.tar.gz
+      - name: Three cold and warm starts
+        run: |
+          set -euo pipefail
+          exe=''; [ "$RUNNER_OS" = Windows ] && exe='.exe'
+          results="$RUNNER_TEMP/timing-results"
+          mkdir -p "$results"
+          for round in 1 2 3; do
+            for start in cold warm; do
+              warm=(); [ "$start" = warm ] && warm=(--expect-warm)
+              "stage/mcppls-conformance$exe" run --server "payload/bin/mcppls$exe" --payload payload --fixture conformance/fixtures/timing \
+                  --workspace-dir "$RUNNER_TEMP/timing-$round/workspace" --cache-dir "$RUNNER_TEMP/timing-$round/cache" --timeout 120 \
+                  --measure "$results/$start-$round.json" ${warm[@]+"${warm[@]}"}
+            done
+          done
+          "stage/mcppls-devtools$exe" measure summary "$results" | tee "$results/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: nightly-timing-${{ matrix.platform }}
+          path: ${{ runner.temp }}/timing-results
+
+  # usable plan 5.2: the mcpp fixtures with the newest mcpp the index has, so that a change on the
+  # producer's side shows up here before the pinned MCPP_VERSION moves.
+  mcpp-latest:
+    name: mcpp fixtures with the latest mcpp (linux-x64)
+    needs: ci
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      MCPP_VERSION: latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - name: GCC 16, which mcpp-gcc builds with
+        run: mcpp toolchain install gcc 16.1.0
+      - uses: actions/download-artifact@v8
+        with:
+          name: payload-linux-x64
+      - name: Unpack the payload
+        run: tar -xzf payload-linux-x64.tar.gz
+      - name: The mcpp fixtures
+        run: |
+          set -euo pipefail
+          mcpp --version | tee -a "$GITHUB_STEP_SUMMARY"
+          failed=''
+          for fixture in mcpp-gcc mcpp-llvm mcpp-watch; do
+            echo "::group::$fixture"
+            if ! stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture "conformance/fixtures/$fixture" --timeout 180; then
+              failed="$failed $fixture"
+            fi
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::failed with the latest mcpp:$failed"
+            exit 1
+          fi
+
+  # A real mcpp project at a fixed commit: the mcpp repository (usable plan W8).
+  self-hosting:
+    name: self-hosting (${{ matrix.fixture }}, ${{ matrix.platform }})
+    needs: ci
+    if: ${{ !cancelled() }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { fixture: self-mcpp,     platform: linux-x64,    os: ubuntu-24.04 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - name: GCC 16, which the mcpp repository builds with
+        if: matrix.fixture == 'self-mcpp'
+        run: mcpp toolchain install gcc 16.1.0
+      # The mcpp repository's .xlings.json asks for the mcpp it is built with, and xlings runs that one
+      # inside it, refusing to when it is not installed. A developer sets the repository up with
+      # `xlings install`; here the version it names is installed next to MCPP_VERSION, which stays the default.
+      - name: The mcpp the mcpp repository asks for
+        if: matrix.fixture == 'self-mcpp'
+        run: |
+          set -euo pipefail
+          xlings install mcpp@2026.9.21.1 -y -g
+          xlings use mcpp "$MCPP_VERSION"
+          mcpp --version
+      - uses: actions/download-artifact@v8
+        with:
+          name: payload-${{ matrix.platform }}
+      - name: Unpack the payload
+        run: tar -xzf payload-${{ matrix.platform }}.tar.gz
+      - name: The fixture, timed
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/self"
+          if ! stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture conformance/fixtures/${{ matrix.fixture }} \
+                --timeout 900 --measure "$RUNNER_TEMP/self/${{ matrix.fixture }}.json"; then
+            stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture conformance/fixtures/${{ matrix.fixture }} \
+                --timeout 300 --verbose 2>&1 | tail -300 || true
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/self/${{ matrix.fixture }}.json" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: nightly-${{ matrix.fixture }}-${{ matrix.platform }}
+          path: ${{ runner.temp }}/self
