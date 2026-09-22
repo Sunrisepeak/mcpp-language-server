@@ -140,6 +140,26 @@ int main() {
         expect(result->output == expected) << result->output;
     };
 
+    // The stress check's process-tree sampler (mcppls-conformance) reads this to find the server
+    // it started on POSIX, where openkal's process handle is the OS pid it waits on with wait4.
+    "native_pid is the process a signal of 0 reaches while it runs, or nullopt on Windows"_test = [&] {
+        auto process = platform::Process::spawn({ .program = self, .arguments = { "--sleep" } });
+        expect(fatal(process.has_value())) << (process ? "" : process.error().message);
+        const auto pid { process->native_pid() };
+        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+            expect(!pid.has_value());
+        } else {
+            expect(fatal(pid.has_value()));
+            expect(*pid > 0) << *pid;
+            if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
+                expect(platform::fs::is_directory(std::format("/proc/{}", *pid))) << *pid;
+            }
+        }
+        process->kill();
+        (void)process->wait();
+        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::windows) expect(!process->native_pid().has_value());
+    };
+
     "exit status is propagated"_test = [&] {
         auto result = platform::run({ .program = self, .arguments = { "--exit", "7" } }, std::chrono::seconds { 60 });
         expect(fatal(result.has_value()));
