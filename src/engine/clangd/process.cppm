@@ -6,6 +6,7 @@ export module mcppls.engine.clangd.process;
 import std;
 import nlohmann.json;
 import mcppls.base.error;
+import mcppls.base.log;
 import mcppls.lsp.connection;
 
 export namespace mcppls::engine::clangd {
@@ -45,6 +46,10 @@ struct ModuleFailure {
     std::string failedSource;   // the source that did not compile, when the reason names one
 };
 std::optional<ModuleFailure> parse_module_failure(std::string_view line);
+// clangd's own severity for one of its log lines, by the letter before its timestamp
+// ("E[10:31:02.1] ..."): E is a problem worth a person's attention, I/V/D are its everyday chatter,
+// and a line with no such prefix (a continuation, or something else entirely) is kept at info.
+base::log::Level clangd_log_level(std::string_view line);
 // What a module build failure means for the engine database (robustness design C3). `unresolved`:
 // clangd found no unit for the module ("Don't get the module unit"); a provider importing it cannot be
 // built. `compile`: the unit was found and did not compile; its importers get errors, not a hang (S3).

@@ -10,6 +10,8 @@
     { "id": "F2-importer-of-a-broken-chain", "kind": "hover-contains", "file": "src/main.cpp", "at": [4, 12], "expect": "twice", "timeout": 90 },
     { "id": "F3-plain-file", "kind": "hover-contains", "file": "src/plain.cpp", "at": [2, 19], "expect": "square", "timeout": 30 },
     { "id": "F4-importer-of-a-module-that-does-not-compile", "kind": "responds", "file": "src/broken/f.cppm", "at": [3, 25], "method": "textDocument/hover", "timeout": 20 },
+    { "id": "F4b-plain-importer-of-a-doomed-closure-responds", "kind": "responds", "file": "src/plain-importer.cpp", "at": [5, 26], "method": "textDocument/hover", "timeout": 15 },
+    { "id": "F4c-plain-importer-names-the-failed-module", "kind": "diagnostic-code", "file": "src/plain-importer.cpp", "expect": "module-failed", "timeout": 30 },
     { "id": "F5-importer-of-a-module-with-a-missing-import", "kind": "hover-contains", "file": "src/bad/c.cppm", "at": [3, 25], "expect": "fb", "timeout": 60 },
     { "id": "F6-module-breaks", "kind": "write-file", "file": "src/good/a.cppm", "content-from": "src/good/a-broken.txt" },
     { "id": "F6-plain-file-still-answered", "kind": "hover-contains", "file": "src/plain.cpp", "at": [0, 4], "expect": "square", "timeout": 60 },

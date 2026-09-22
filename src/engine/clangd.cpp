@@ -19,10 +19,12 @@ import mcppls.engine.clangd.definition;
 import mcppls.engine.clangd.guard;
 import mcppls.engine.clangd.primer;
 import mcppls.engine.clangd.process;
+import mcppls.engine.native.index;
 
 namespace mcppls::engine::clangd {
 
 namespace log = base::log;
+namespace midx = mcppls::index;
 
 EngineTraits traits_for_version(std::string_view version) {
     EngineTraits traits {
@@ -91,9 +93,32 @@ private:
     };
     std::map<std::string, UnresolvedModule, std::less<>> unresolvedModules_;
     std::set<std::string, std::less<>> reportedFailures_;   // modules whose compile failure was logged
+    std::set<std::string, std::less<>> loggedStandIns_;     // stand-in modules already named at warning
     std::map<std::string, std::string, std::less<>> moduleCommands_;   // importable module -> its unit's engine command
     // robustness design C5: clangd could not build the toolchain's standard library; C++ units are read with the kit.
     bool stdFromKit_ { false };
+    // Closure-scoped failure containment (workstream B, design P1): a module clangd could not compile
+    // dooms everything that imports it, transitively, and any plain importer of the closure. Their
+    // files are routed to mcppls's own engine at once, never restart clangd, and are never primed
+    // again — until the failed module's own unit or command changes.
+    struct DoomRoot {
+        std::string reason;
+        std::string provider;                          // the plan's unit for the module; empty when it had none
+        std::optional<platform::fs::FileStamp> stamp;  // of that unit
+        std::string command;                           // its engine command
+    };
+    std::map<std::string, DoomRoot, std::less<>> doomRoots_;    // modules clangd reported it could not compile
+    std::set<std::string, std::less<>> doomedModules_;          // roots and everything that imports them, transitively
+    struct DoomedFile {
+        std::string rootModule;   // the module that actually failed to compile
+        std::string viaModule;    // the doomed module this file provides or directly imports
+        std::string reason;
+    };
+    std::map<std::string, DoomedFile, std::less<>> doomedFiles_;                // path key -> why
+    std::map<std::string, std::vector<std::string>, std::less<>> moduleRequires_;   // module -> the modules it imports, from the plan
+    std::map<std::string, std::vector<std::string>, std::less<>> fileImports_;      // path key -> modules it imports directly
+    std::map<std::string, std::string, std::less<>> fileModule_;                    // path key -> its module, any role
+    static constexpr std::chrono::seconds PREPARATION_STALL_TIMEOUT { 60 };
 
     // Parallel module preparation (primer.cppm): `import M;` units opened in clangd.
     Primer primer_;
@@ -201,10 +226,20 @@ public:
         status.version = options_.version.empty() ? std::string { "unknown" } : options_.version;
         status.role = "core";
         status.accepting = accepting_;
-        status.preparing = (!awaitingDiagnostics_.empty() || primer_.busy() || !held_.empty()) && accepting_;
+        const bool preparingBusy { primer_.busy() };
+        // The status settles instead of saying "preparing" forever (design P7, workstream B): once
+        // preparation has made no progress for a minute, it counts as not preparing any more, whatever
+        // it is still nominally waiting on. A known cause (doomed modules) explains it in issues_
+        // already; an unexplained stall gets a generic one below so degraded always says why.
+        const bool stalled { preparingBusy && lastPrimeProgressAt_ && Clock::now() - *lastPrimeProgressAt_ >= PREPARATION_STALL_TIMEOUT };
+        status.preparing = (!awaitingDiagnostics_.empty() || (preparingBusy && !stalled) || !held_.empty()) && accepting_;
         status.failed = options_.payloadCorrupt || (unavailable_ && crashes_.size() >= 3);
-        if (primer_.busy()) std::tie(status.prepared, status.toPrepare) = primer_.progress();
+        if (preparingBusy) std::tie(status.prepared, status.toPrepare) = primer_.progress();
         status.issues = issues_;
+        if (stalled && doomedModules_.empty()) {
+            status.issues.push_back(Issue { "preparation-stalled",
+                std::format("module preparation made no progress for a minute ({}/{} done)", status.prepared, status.toPrepare), "mcppls.showLogs" });
+        }
         status.state = unavailable_ ? "unavailable" : status.preparing ? "preparing" : accepting_ ? "ready" : "starting";
         // overall design 5.6: a clangd outside the traits table runs with every compensation on, and says so.
         if (!unavailable_ && !traits_.tested && !options_.version.empty()) {
@@ -221,6 +256,10 @@ public:
         for (const auto& [name, module] : unresolvedModules_) unresolved[name] = Json { { "reason", module.reason }, { "provider", module.provider } };
         Json compileFailures = Json::array();
         for (const auto& name : reportedFailures_) compileFailures.push_back(name);
+        Json doomed = Json::object();
+        for (const auto& [name, root] : doomRoots_) doomed[name] = Json { { "reason", root.reason }, { "provider", root.provider } };
+        Json doomedFiles = Json::array();
+        for (const auto& [key, info] : doomedFiles_) doomedFiles.push_back(Json { { "file", key }, { "rootModule", info.rootModule }, { "viaModule", info.viaModule } });
         const auto [done, wanted] = primer_.progress();
         return Json {
             { "executable", options_.executable },
@@ -239,6 +278,8 @@ public:
             { "definitionSearches", searches_.size() },
             { "unresolvedModules", std::move(unresolved) },
             { "modulesThatDidNotCompile", std::move(compileFailures) },
+            { "doomedModules", std::move(doomed) },
+            { "filesRoutedToOwnEngine", std::move(doomedFiles) },
             { "stdFromSemanticKit", stdFromKit_ },
             { "preparation", Json { { "done", done }, { "wanted", wanted }, { "running", primer_.running() },
                                     { "limit", preparation_limit(std::thread::hardware_concurrency(), mcppls::os::FAMILY == mcppls::os::Family::macos,
@@ -312,6 +353,24 @@ public:
                       plan->entries.size(), plan->stdUnits, plan->stubModules.size(), plan->excludedFiles.size(), plan->issues.size());
             host_->record_event("engine-database", Json { { "entries", plan->entries.size() }, { "standIns", plan->stubModules.size() },
                                                           { "leftOut", plan->excludedFiles.size() } });
+        }
+        // Each stand-in named at warning, with why it got one, not just counted (robustness design O3
+        // extended, workstream B): a module nothing usable provides is worth a person's attention once,
+        // not every time the database is rewritten for something else.
+        {
+            std::set<std::string, std::less<>> currentStubs { plan->stubModules.begin(), plan->stubModules.end() };
+            for (const auto& name : currentStubs) {
+                if (loggedStandIns_.contains(name)) continue;
+                std::string reason { "no usable provider" };
+                for (const auto& issue : plan->issues) {
+                    if (issue.module == name) {
+                        reason = issue.message;
+                        break;
+                    }
+                }
+                log::warning("module {} has a stand-in ({}): {}", name, host_->root_directory(), reason);
+            }
+            loggedStandIns_ = std::move(currentStubs);
         }
         std::set<std::string> newExcluded;
         for (const auto& file : plan->excludedFiles) newExcluded.insert(base::path_key(file));
@@ -399,6 +458,17 @@ public:
             if (!entry.provides.empty()) interfaceModules_.emplace(base::path_key(entry.file), entry.module);
             if (entry.provides != entry.module) moduleUnits_[entry.module].push_back(UnitOfModule { entry.file, !entry.provides.empty() });
         }
+        // The module import graph and each file's direct imports, for closure-scoped failure
+        // containment (design P1, workstream B): who is doomed with a module that fails to compile.
+        moduleRequires_.clear();
+        for (const auto& module : plan->modules) moduleRequires_.emplace(module.name, module.requires_);
+        fileImports_.clear();
+        fileModule_.clear();
+        for (const auto& entry : plan->entries) {
+            const std::string key { base::path_key(entry.file) };
+            if (!entry.imports.empty()) fileImports_[key] = entry.imports;
+            if (!entry.module.empty()) fileModule_[key] = entry.module;
+        }
         std::vector<std::string> backgroundLeaving;
         for (const auto& [key, unit] : background_) {
             if (!writtenArguments_.contains(key) || excluded_.contains(key) || restartNeeded) backgroundLeaving.push_back(key);
@@ -406,7 +476,9 @@ public:
         for (const auto& key : backgroundLeaving) close_background_(key);
         startupBmis_.reset();
         planApplied_ = true;
-        const bool forgot { forget_changed_unresolved_() };
+        const bool unresolvedForgot { forget_changed_unresolved_() };
+        const bool doomForgot { forget_changed_doom_() };
+        recompute_doom_();
         if (restartNeeded) {
             request_restart_(providerLeft ? "a module's unit left the engine database" : "units are compiled with other arguments");
         } else {
@@ -414,7 +486,7 @@ public:
             open_held_files_(appliedAt);
             prepare_modules_();
         }
-        if (forgot) host_->request_replan();
+        if (unresolvedForgot || doomForgot) host_->request_replan();
     }
 
     void document(const DocumentEvent& event) override {
@@ -424,6 +496,13 @@ public:
             touch_(document.path);
             // clangd has it open without the editor: it is opened again as the editor's, so its diagnostics come again.
             if (!document.path.empty()) close_background_(base::path_key(document.path));
+            if (const std::string key { document.path.empty() ? std::string {} : base::path_key(document.path) }; !key.empty()) {
+                if (const auto doom = doomedFiles_.find(key); doom != doomedFiles_.end()) {
+                    // Never sent to clangd: it does not know it, so there is nothing to close there.
+                    publish_doom_diagnostic_(document, doom->second);
+                    break;
+                }
+            }
             if (excluded_path_(document.path) || quarantined_(document.path)) break;
             if (accepting_) {
                 open_or_hold_(document, false);
@@ -438,7 +517,7 @@ public:
         case DocumentChange::changed:
             touch_(document.path);
             // clangd is given the whole text when it is given the file.
-            if (held_path_(document.path)) break;
+            if (held_path_(document.path) || doomed_path_(document.path)) break;
             if (quarantined_(document.path)) {
                 const std::string key { base::path_key(document.path) };
                 // What clangd stopped on is still there: the file stays aside until its time is up or what it imports changes.
@@ -452,7 +531,8 @@ public:
             if (accepting_ && !excluded_path_(document.path) && event.message != nullptr) (void)send_(*event.message);
             break;
         case DocumentChange::closed: {
-            const bool wasExcluded { excluded_path_(document.path) || quarantined_(document.path) || held_path_(document.path) };
+            const bool wasExcluded { excluded_path_(document.path) || quarantined_(document.path) || held_path_(document.path)
+                                     || doomed_path_(document.path) };
             if (!document.path.empty()) held_.erase(base::path_key(document.path));
             awaitingDiagnostics_.erase(document.uri);
             awaitingSince_.erase(document.uri);
@@ -463,8 +543,8 @@ public:
             break;
         }
         case DocumentChange::saved:
-            if (!document.path.empty() && !excluded_path_(document.path) && !quarantined_(document.path) && !held_path_(document.path) && accepting_
-                && event.message != nullptr) {
+            if (!document.path.empty() && !excluded_path_(document.path) && !quarantined_(document.path) && !held_path_(document.path)
+                && !doomed_path_(document.path) && accepting_ && event.message != nullptr) {
                 (void)send_(*event.message);
             }
             sources_changed();
@@ -499,11 +579,16 @@ public:
                 if (accepting_ && !excluded_path_(document.path)) open_or_hold_(document, true);
             }
         }
+        // A module that failed to compile is tried again only when its own unit or command changes
+        // (design P1, workstream B): a save elsewhere in the project is not, by itself, a reason to
+        // hand a doomed file back to clangd only to fail the same way again.
+        if (forget_changed_doom_()) recompute_doom_();
         if (forget_changed_unresolved_()) host_->request_replan();
     }
 
     bool claims(const RequestView& request) const override {
-        return !unavailable_ && !excluded_path_(request.path) && !quarantined_(request.path) && !held_path_(request.path);
+        return !unavailable_ && !excluded_path_(request.path) && !quarantined_(request.path) && !held_path_(request.path)
+            && !doomed_path_(request.path);
     }
 
     void request(const RequestView&, const Json& message, Reply reply) override {
@@ -566,6 +651,9 @@ public:
         for (const auto& [module, at] : primeDeadlines_) consider(at);
         consider(restartAt_);
         consider(stuckCheckAt_);
+        // So the status settles into ready or degraded on its own, not only when something else wakes
+        // the event loop (design P7, workstream B).
+        if (primer_.busy() && lastPrimeProgressAt_) consider(*lastPrimeProgressAt_ + PREPARATION_STALL_TIMEOUT);
         for (const auto& [key, held] : held_) {
             if (const auto joined = joinedAt_.find(key); joined != joinedAt_.end()) consider(joined->second + DATABASE_REREAD);
             else if (!held.planned) consider(held.since + PLAN_PATIENCE);
@@ -657,7 +745,10 @@ public:
             restartAt_.reset();
             restart_(restartReason_.empty() ? std::string_view { "recovering from an exit" } : std::string_view { restartReason_ });
         }
-        if (!expired.empty()) host_->status_changed();
+        // The status settles once preparation has made no progress for a minute (design P7, workstream
+        // B), so a client polling only when told to is told, even with nothing else happening.
+        const bool stalledNow { primer_.busy() && lastPrimeProgressAt_ && now - *lastPrimeProgressAt_ >= PREPARATION_STALL_TIMEOUT };
+        if (!expired.empty() || stalledNow) host_->status_changed();
     }
 
 private:
@@ -777,7 +868,16 @@ private:
                     log::info("clangd ({}): {} more lines left out of this log", root, decision.suppressedBefore);
                     sink(Json { { "kind", "log-left-out" }, { "generation", generation }, { "count", decision.suppressedBefore } });
                 }
-                if (decision.forward) log::info("clangd ({}): {}", root, line);
+                // Forwarded at clangd's own severity (robustness design C7 extended, workstream B): a
+                // problem worth someone's attention (E[..]) is not lost among the chatter (I[..]/V[..]/
+                // D[..]), which stays at debug instead of crowding the default log at info.
+                if (decision.forward) {
+                    switch (clangd_log_level(line)) {
+                    case log::Level::warning: log::warning("clangd ({}): {}", root, line); break;
+                    case log::Level::debug: log::debug("clangd ({}): {}", root, line); break;
+                    default: log::info("clangd ({}): {}", root, line); break;
+                    }
+                }
                 if (auto failure = parse_module_failure(line)) {
                     sink(Json { { "kind", "module-failed" }, { "generation", generation },
                                 { "failure", Json { { "module", failure->module }, { "reason", failure->reason }, { "source", failure->failedSource } } } });
@@ -1103,11 +1203,26 @@ private:
             const auto now = Clock::now();
             modulesFailedAt_[parsed.module] = now;
             schedule_stuck_check_(now + FAILED_MODULE_PATIENCE);
+            // Closure-scoped failure containment (design P1, workstream B): everything that imports this
+            // module, transitively, is doomed with it, and is routed to mcppls's own engine at once
+            // instead of waiting out clangd's request timeout or its preparation deadline. The standard
+            // library is excepted: it already gets the whole-project kit fallback above, which fixes
+            // every importer at once instead of setting them all aside one by one.
+            if (!stdFailed && !doomRoots_.contains(parsed.module)) {
+                DoomRoot root { parsed.reason, {}, {}, {} };
+                if (const auto provider = moduleSources_.find(parsed.module); provider != moduleSources_.end()) {
+                    root.provider = provider->second;
+                    root.stamp = platform::fs::stamp(provider->second);
+                    root.command = moduleCommands_.contains(parsed.module) ? moduleCommands_.find(parsed.module)->second : std::string {};
+                }
+                doomRoots_.emplace(parsed.module, std::move(root));
+                recompute_doom_();
+            }
         }
         if (kind != FailureKind::unresolved) {
             // Found and not compiled: its importers get errors, they do not hang (experiment S3). Nothing to replan.
             if (reportedFailures_.insert(parsed.module).second) {
-                log::info("clangd could not build module {} ({}): {}", parsed.module, host_->root_directory(), parsed.reason);
+                log::warning("clangd could not build module {} ({}): {}", parsed.module, host_->root_directory(), parsed.reason);
                 host_->record_event("module-failed", Json { { "module", parsed.module }, { "kind", kind == FailureKind::compile ? "compile" : "other" },
                                                             { "reason", parsed.reason } });
             }
@@ -1146,6 +1261,176 @@ private:
             }
         }
         return forgot;
+    }
+
+    // ---- closure-scoped failure containment (design P1, workstream B) ------------------------
+
+    bool doomed_path_(std::string_view path) const { return !path.empty() && doomedFiles_.contains(base::path_key(path)); }
+
+    // A doom root whose unit or command is no longer what it was when clangd reported it failed is
+    // forgotten (same rule as forget_changed_unresolved_), so the next attempt goes to clangd again.
+    bool forget_changed_doom_() {
+        bool forgot { false };
+        for (auto it = doomRoots_.begin(); it != doomRoots_.end();) {
+            const auto provider = moduleSources_.find(it->first);
+            const std::string current { provider == moduleSources_.end() ? std::string {} : provider->second };
+            const auto command = moduleCommands_.find(it->first);
+            const bool changed { !base::same_path(current, it->second.provider) || (!current.empty() && platform::fs::stamp(current) != it->second.stamp)
+                                 || (!current.empty() && (command == moduleCommands_.end() ? std::string {} : command->second) != it->second.command) };
+            if (changed) {
+                log::info("trying module {} again ({}): its unit changed", it->first, host_->root_directory());
+                host_->record_event("module-retry", Json { { "module", it->first } });
+                it = doomRoots_.erase(it);
+                forgot = true;
+            } else {
+                ++it;
+            }
+        }
+        return forgot;
+    }
+
+    // The modules doomed by every current root, and the files that provide one or directly import
+    // one — a plain importer like the incident's main.cpp included. Reconciles with what was doomed
+    // before: newly doomed files are routed to mcppls's own engine at once, and files no longer
+    // doomed go back to clangd.
+    void recompute_doom_() {
+        std::set<std::string, std::less<>> doomedModules;
+        std::map<std::string, std::string, std::less<>> rootOf;   // a doomed module -> the root that dooms it
+        for (const auto& [root, info] : doomRoots_) {
+            for (const auto& module : doomed_modules(moduleRequires_, root)) {
+                doomedModules.insert(module);
+                rootOf.try_emplace(module, root);
+            }
+        }
+        doomedModules_ = std::move(doomedModules);
+        abandon_doomed_modules_();
+        std::map<std::string, DoomedFile, std::less<>> next;
+        const auto consider = [&](const std::string& file, const std::string& viaModule) {
+            if (next.contains(file)) return;
+            const auto root = rootOf.find(viaModule);
+            if (root == rootOf.end()) return;
+            next.emplace(file, DoomedFile { root->second, viaModule, doomRoots_.at(root->second).reason });
+        };
+        for (const auto& [file, module] : fileModule_) {
+            if (doomedModules_.contains(module)) consider(file, module);
+        }
+        for (const auto& [file, imports] : fileImports_) {
+            for (const auto& imported : imports) {
+                if (doomedModules_.contains(imported)) {
+                    consider(file, imported);
+                    break;
+                }
+            }
+        }
+        apply_doom_diff_(std::move(next));
+    }
+
+    // Doomed modules are never primed again: nothing is gained by waiting out clangd's own attempt at
+    // a module known to be doomed, and a prime unit already running for one is closed so it stops
+    // holding a worker.
+    void abandon_doomed_modules_() {
+        if (doomedModules_.empty()) return;
+        for (const auto& module : doomedModules_) {
+            primeDeadlines_.erase(module);
+            if (const auto* planned = primer_.find(module); planned != nullptr && !planned->primeFile.empty()) {
+                const std::string key { base::path_key(planned->primeFile) };
+                if (primeModuleByPath_.erase(key) > 0 && accepting_) {
+                    (void)send_(lsp::make_notification("textDocument/didClose", Json { { "textDocument", Json { { "uri", base::path_to_uri(planned->primeFile) } } } }));
+                }
+            }
+        }
+        primer_.abandon(std::vector<std::string> { doomedModules_.begin(), doomedModules_.end() });
+        lastPrimeProgressAt_ = Clock::now();   // resolved, however it resolved: preparation is not stalled by this
+        pump_primer_();
+    }
+
+    std::string doom_issue_message_() const {
+        if (doomedModules_.empty() || doomRoots_.empty()) return {};
+        const auto& [first, info] { *doomRoots_.begin() };
+        return std::format("{} module{} cannot be prepared because {} failed: {}", doomedModules_.size(), doomedModules_.size() == 1 ? "" : "s",
+                            first, info.reason);
+    }
+
+    void update_doom_issue_() {
+        std::erase_if(issues_, [](const Issue& issue) { return issue.code == "modules-doomed"; });
+        if (doomedModules_.empty()) return;
+        issues_.push_back(Issue { "modules-doomed", doom_issue_message_(), "mcppls.showLogs" });
+    }
+
+    // One diagnostic, on the import (or the module declaration, for a unit of a doomed module
+    // itself), naming plainly which module failed — never a flood, whatever else the file imports.
+    void publish_doom_diagnostic_(const DocumentView& document, const DoomedFile& info) {
+        const auto scan = project::scan_source(document.text);
+        base::Range range { { 0, 0 }, { 0, 1 } };
+        bool found { false };
+        for (const auto& import : scan.imports) {
+            if (project::imported_name(scan, import) == info.viaModule) {
+                range = import.nameRange;
+                found = true;
+                break;
+            }
+        }
+        if (!found && scan.declaration && scan.declaration->module == info.viaModule) range = scan.declaration->nameRange;
+        const std::string message { info.viaModule == info.rootModule
+            ? std::format("module {} did not compile: {}", info.rootModule, info.reason)
+            : std::format("module {} cannot be built because {} did not compile: {}", info.viaModule, info.rootModule, info.reason) };
+        Json diagnostic { { "range", midx::to_json(range) }, { "severity", 1 }, { "code", std::string { "module-failed" } },
+                          { "source", std::string { "mcppls" } }, { "message", message } };
+        const std::optional<std::int64_t> version { document.version != 0 ? std::optional<std::int64_t> { document.version } : std::nullopt };
+        host_->publish_engine_diagnostics(ENGINE_ID, document.uri, Json::array({ std::move(diagnostic) }), version);
+    }
+
+    void mark_doomed_(const std::string& key) {
+        const auto info = doomedFiles_.find(key);
+        if (info == doomedFiles_.end()) return;
+        held_.erase(key);   // never waits for the database either: it is answered by mcppls's own engine
+        for (const auto& document : host_->documents()) {
+            if (document.path.empty() || base::path_key(document.path) != key) continue;
+            awaitingDiagnostics_.erase(document.uri);
+            awaitingSince_.erase(document.uri);
+            // A doomed file is never a reason to restart clangd (design P1): it is released from the
+            // quarantine machinery entirely, not merely set aside by it.
+            quarantine_.release(key);
+            aside_.erase(key);
+            if (accepting_) (void)send_(lsp::make_notification("textDocument/didClose", Json { { "textDocument", Json { { "uri", document.uri } } } }));
+            publish_doom_diagnostic_(document, info->second);
+        }
+        host_->record_event("file-doomed", Json { { "file", key }, { "module", info->second.viaModule },
+                                                  { "rootModule", info->second.rootModule }, { "reason", info->second.reason } });
+    }
+
+    void release_doomed_(const std::string& key) {
+        log::info("handing {} back to clangd ({}): the module it could not build compiles now", key, host_->root_directory());
+        host_->record_event("file-handed-back", Json { { "file", key }, { "why", "the failed module compiles now" } });
+        for (const auto& document : host_->documents()) {
+            if (document.path.empty() || base::path_key(document.path) != key) continue;
+            host_->publish_engine_diagnostics(ENGINE_ID, document.uri, Json::array(), std::nullopt);
+            if (accepting_ && !excluded_path_(document.path) && !quarantined_(document.path) && !held_path_(document.path)) open_or_hold_(document, true);
+        }
+    }
+
+    void apply_doom_diff_(std::map<std::string, DoomedFile, std::less<>> next) {
+        std::vector<std::string> toMark;
+        for (const auto& [key, info] : next) {
+            const auto previous = doomedFiles_.find(key);
+            if (previous == doomedFiles_.end() || previous->second.viaModule != info.viaModule || previous->second.reason != info.reason) {
+                toMark.push_back(key);
+            }
+        }
+        std::vector<std::string> released;
+        for (const auto& [key, info] : doomedFiles_) {
+            if (!next.contains(key)) released.push_back(key);
+        }
+        doomedFiles_ = std::move(next);
+        for (const auto& key : toMark) mark_doomed_(key);
+        for (const auto& key : released) release_doomed_(key);
+        if (toMark.empty() && released.empty()) return;
+        update_doom_issue_();
+        if (!toMark.empty()) {
+            log::warning("{} file{} routed to mcppls's own engine ({}): {}", toMark.size(), toMark.size() == 1 ? "" : "s", host_->root_directory(),
+                         doom_issue_message_());
+        }
+        host_->status_changed();
     }
 
     // ---- files set aside, and restarts -------------------------------------------------------
@@ -1216,6 +1501,9 @@ private:
             open_in_engine_(document);
             return;
         }
+        // A single gate for every caller (design P1, workstream B): a doomed file is never opened in
+        // clangd, from here, whatever reason brought this call about.
+        if (doomed_path_(document.path)) return;
         const auto now = Clock::now();
         const std::string key { base::path_key(document.path) };
         const auto [it, fresh] = held_.try_emplace(key, HeldFile { now, planned });
@@ -1237,7 +1525,7 @@ private:
             const std::string key { base::path_key(document.path) };
             const auto it = held_.find(key);
             if (it == held_.end()) continue;
-            if (excluded_.contains(key) || quarantine_.contains(key)) {
+            if (excluded_.contains(key) || quarantine_.contains(key) || doomedFiles_.contains(key)) {
                 held_.erase(it);
                 continue;
             }
@@ -1251,7 +1539,24 @@ private:
     }
 
     // A restart at the next timer, as soon as the gate allows: for callers in the middle of work on the requests a restart ends.
+    // Restarts are capped, not merely spaced out (design P3, workstream B): past RestartGate::
+    // MAX_RESTARTS_PER_WINDOW in RestartGate::WINDOW, clangd stays down for whatever it cannot answer
+    // until the window ages out, rather than restarting forever for reasons that keep recurring.
+    bool restart_capped_(std::string_view reason) {
+        const auto now = Clock::now();
+        if (!restartGate_.at_cap(now)) return false;
+        add_issue_(Issue { "engine-restart-capped",
+            std::format("clangd was restarted {} times in the last {} minutes; it stays down for the files it cannot answer for until that passes",
+                        RestartGate::MAX_RESTARTS_PER_WINDOW, RestartGate::WINDOW.count()), "mcppls.showLogs" });
+        log::warning("not restarting clangd again ({}): already {} restarts in the last {} minutes ({})", host_->root_directory(),
+                     RestartGate::MAX_RESTARTS_PER_WINDOW, RestartGate::WINDOW.count(), reason);
+        host_->record_event("engine-restart-capped", Json { { "reason", std::string { reason } } });
+        host_->status_changed();
+        return true;
+    }
+
     void schedule_restart_(std::string_view reason) {
+        if (restart_capped_(reason)) return;
         const auto now = Clock::now();
         const auto at = restartGate_.earliest(now);
         if (restartAt_ && *restartAt_ <= at) return;
@@ -1274,6 +1579,7 @@ private:
 
     // A restart now, or as soon as the gate allows (robustness design C4).
     void request_restart_(std::string_view reason) {
+        if (restart_capped_(reason)) return;
         const auto now = Clock::now();
         const auto at = restartGate_.earliest(now);
         if (at <= now) {
@@ -1614,6 +1920,10 @@ private:
 
     void pump_primer_() {
         if (!accepting_) return;
+        // A baseline for the status settling (design P7, workstream B): preparation starting counts as
+        // progress too, so the stall timeout is measured from when there was last something to show for
+        // it, not from some earlier moment nothing had happened yet.
+        if (primer_.busy() && !lastPrimeProgressAt_) lastPrimeProgressAt_ = Clock::now();
         // Prime units take the same clangd workers (-j, one per core) as everything a person does:
         // opening a file, typing, asking for completion. Preparation leaves a core to each file still
         // waiting for its modules and one more for requests, so it never holds every worker (hardware
@@ -1682,6 +1992,10 @@ private:
         primeDeadlines_.clear();
         heldPrimeUnits_.clear();
         primer_.reset();
+        // reset() forgets every module's state, doomed ones included (its own doc comment: "as after an
+        // engine restart"); a fresh clangd still cannot build them, so they are marked doomed again at
+        // once rather than waiting out the same failure a second time (design P1, workstream B).
+        if (!doomedModules_.empty()) primer_.abandon(std::vector<std::string> { doomedModules_.begin(), doomedModules_.end() });
     }
 };
 

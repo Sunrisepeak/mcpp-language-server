@@ -16,11 +16,18 @@ public:
     static constexpr std::chrono::seconds FIRST_GAP { 10 };
     static constexpr std::chrono::minutes MAX_GAP { 5 };
     static constexpr std::chrono::minutes WINDOW { 10 };
+    // A stuck file whose closure contains a module that failed to compile is never a reason to
+    // restart (P1: a fault only affects where it is); every other reason is still capped, so a
+    // machine that keeps finding new reasons to restart does not keep doing it forever either.
+    static constexpr std::size_t MAX_RESTARTS_PER_WINDOW { 3 };
 
     // When the next restart may happen.
     GuardClock::time_point earliest(GuardClock::time_point now) const;
     void record(GuardClock::time_point now);
     std::size_t recent(GuardClock::time_point now) const;
+    // WINDOW already has MAX_RESTARTS_PER_WINDOW restarts in it: no more until it ages out. The
+    // caller stays down to its own engine for whatever a restart would have tried to fix.
+    bool at_cap(GuardClock::time_point now) const;
 
 private:
     std::deque<GuardClock::time_point> restarts_;
@@ -85,6 +92,12 @@ private:
     std::size_t inWindow_ { 0 };
     std::size_t suppressed_ { 0 };
 };
+
+// The modules doomed along with `failed`: it, and every module that imports it, directly or
+// transitively, by `requires_` (module -> the modules it imports). A module compiling again is never
+// discovered by this function; the caller forgets a root when its provider's source or command
+// changes and recomputes (closure-scoped failure containment, workstream B).
+std::set<std::string> doomed_modules(const std::map<std::string, std::vector<std::string>, std::less<>>& requires_, std::string_view failed);
 
 // Whether clangd's state for a file (textDocument/clangd.fileStatus: "parsing includes", "parsing main file", "running Hover",
 // "file is queued", "preamble (queued)" or "idle", several joined by ", ") says it is working on the file, rather than idle or
