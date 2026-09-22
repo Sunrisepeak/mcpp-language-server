@@ -271,7 +271,7 @@ jobs:
             part: 2 of 2
             os: ubuntu-24.04
             extras: true
-            fixtures: inferred engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-watch mcpp-emit-watch@polling cmake-clang cmake-clang-bdb watch-polling payload-corrupt
+            fixtures: inferred engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-watch mcpp-emit-watch@polling cmake-clang cmake-clang-bdb watch-polling payload-corrupt generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed
           - platform: darwin-arm64
             os: macos-14
             extras: true
@@ -406,6 +406,12 @@ jobs:
               # extension. It asserts standard `$/progress` still arrives. Nothing covered that,
               # which is how progress came to be sent only to the one client that already had it.
               *@plain) fixture_extra+=(--plain-client) ;;
+              # Real-project stress testing design 2026-09-22 Workstream A: NAME@vscode/@neovim/@zed
+              # run fixture NAME with the capabilities that editor actually sends
+              # (conformance/README.md "Client profiles").
+              *@vscode) fixture_extra+=(--client vscode) ;;
+              *@neovim) fixture_extra+=(--client neovim) ;;
+              *@zed) fixture_extra+=(--client zed) ;;
             esac
             PATH="$path_prefix$PATH" "stage/mcppls-conformance$exe" run --server "payload/bin/mcppls$exe" --payload payload \
                 ${fixture_extra[@]+"${fixture_extra[@]}"} --fixture "conformance/fixtures/${fixture%@*}" "$@"
