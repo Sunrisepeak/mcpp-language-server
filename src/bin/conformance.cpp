@@ -281,7 +281,10 @@ void print_server_log_tail(const std::string& cacheDirectory) {
     constexpr std::size_t LINES { 200 };
     const std::string directory { base::join_path(cacheDirectory, "logs") };
     auto files = fs::list_directory(directory);
-    std::ranges::sort(files);
+    std::ranges::sort(files);   // the names carry their start time: the newest last
+    // A run that reuses a cache directory finds every earlier run's log there too; the last few are this one's.
+    constexpr std::size_t FILES { 3 };
+    if (files.size() > FILES) files.erase(files.begin(), files.end() - static_cast<std::ptrdiff_t>(FILES));
     for (const auto& file : files) {
         const auto text = fs::read_file(file);
         if (!text) continue;
