@@ -53,7 +53,7 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 
 ## pre-release 测试
 
-`.github/workflows/prerelease.yml` 就是一次不发布的 release。它会在打上 `v<version>-rc<n>` 标签时自己触发，在 `main` 上每周跑一次，在改动 release 打包方式的任何 pull request 上也会跑，Release 本身也会先跑它。它的各个 job，除非另有说明，都会在 Linux、macOS、Windows 三个平台各跑一遍：
+`.github/workflows/prerelease.yml` 就是一次不发布的 release：先跑完整的 `ci.yml`，再用这次运行构建出的产物跑 `.github/workflows/release-checks.yml`。它会在打上 `v<version>-rc<n>` 标签时自己触发，在 `main` 上每周跑一次，Release 本身也会先跑它。改动 release 打包方式的 pull request，由 CI 在自己的 job 全部通过后接着跑同样的 release 检查，CI 不会因此跑两遍。它的各个 job，除非另有说明，都会在 Linux、macOS、Windows 三个平台各跑一遍：
 
 | Job | 通过条件 |
 |---|---|

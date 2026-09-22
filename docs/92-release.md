@@ -70,9 +70,11 @@ create the tag and publish the staged candidate, file for file.
 
 ## The pre-release test
 
-`.github/workflows/prerelease.yml` is a release without the publishing. It runs by itself on a
-`v<version>-rc<n>` tag, weekly on `main`, and on any pull request that changes release packaging, and
-Release runs it first. Its jobs, each on Linux, macOS and Windows unless noted:
+`.github/workflows/prerelease.yml` is a release without the publishing: all of `ci.yml`, then
+`.github/workflows/release-checks.yml` on the artifacts that run built. It runs by itself on a
+`v<version>-rc<n>` tag and weekly on `main`, and Release runs it first. A pull request that changes
+release packaging gets the same release checks from CI itself, after CI's own jobs pass, so CI does
+not run twice for it. Its jobs, each on Linux, macOS and Windows unless noted:
 
 | Job | Passes when |
 |---|---|
