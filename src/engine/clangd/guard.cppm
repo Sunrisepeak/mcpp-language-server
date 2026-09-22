@@ -46,9 +46,11 @@ public:
     static constexpr std::chrono::seconds STALL_WINDOW { 60 };
 
     // A request about `uri`, sent at `sent`, timed out at `now`; `lastAnswer` is when clangd last
-    // answered any request. A file set aside already only waits.
+    // answered any request. A file set aside already only waits. `rebuilding`: the file, or a module
+    // it imports, just changed, so clangd is busy with that change rather than stuck on the file --
+    // the timeout still counts toward clangd answering nobody, never toward setting the file aside.
     Verdict timed_out(std::string_view uri, GuardClock::time_point sent, GuardClock::time_point now,
-                      std::optional<GuardClock::time_point> lastAnswer);
+                      std::optional<GuardClock::time_point> lastAnswer, bool rebuilding = false);
     // clangd answered a request about `uri`: its timeouts start over.
     void answered(std::string_view uri);
     bool contains(std::string_view uri) const;

@@ -104,10 +104,11 @@ void ClangdProcess::stop(std::chrono::milliseconds grace) {
 
 bool ClangdProcess::running() const { return connection_ && !connection_->closed(); }
 
-std::optional<double> ClangdProcess::cpu_seconds() const {
-    if (!running()) return std::nullopt;
+std::function<std::optional<double>()> ClangdProcess::cpu_reader() const {
+    if (!running()) return {};
     const auto pid = connection_->native_pid();
-    return pid ? platform::cpu_seconds(*pid) : std::nullopt;
+    if (!pid) return {};
+    return [pid = *pid] { return platform::cpu_seconds(pid); };
 }
 
 } // namespace mcppls::engine::clangd

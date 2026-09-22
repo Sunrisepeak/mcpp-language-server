@@ -174,7 +174,9 @@ private:
     // The request a watch was last tried for (when it was sent): one try each, so a platform that
     // cannot read clangd's CPU does not wake the loop again and again for the same request.
     std::optional<Clock::time_point> stuckTriedFor_;
-    bool stuckAtCap_ { false };   // a stuck clangd was found at the restart cap, and that was said
+    bool stuckAtCap_ { false };
+    bool cpuReadInFlight_ { false };   // a reading of clangd's CPU is on its way back (read_cpu_)
+    std::jthread cpuReading_;          // the thread taking it; joined when the engine goes, at most the ps(1) bound later   // a stuck clangd was found at the restart cap, and that was said
     // robustness design O1, O3: for a report of a problem.
     std::deque<std::pair<std::string, std::string>> restartHistory_;   // (UTC time, reason), the latest 20
     std::size_t linesLeftOut_ { 0 };                                   // clangd log lines the limiter left out
@@ -738,14 +740,19 @@ public:
     }
 
     void handle_event(const Json& event) override {
-        if (event.value("generation", -1) != generation_) return;
         const std::string kind { event.value("kind", std::string {}) };
+        // Whichever process it was read from, the reading is back and another may start.
+        if (kind == "cpu") cpuReadInFlight_ = false;
+        if (event.value("generation", -1) != generation_) return;
         if (kind == "message") {
             handle_message_(event["message"]);
         } else if (kind == "closed") {
             handle_closed_();
         } else if (kind == "module-failed") {
             handle_module_failure_(event["failure"]);
+        } else if (kind == "cpu") {
+            const Json& seconds = event["seconds"];
+            cpu_read_(event.value("endOfWatch", false), seconds.is_number() ? std::optional<double> { seconds.get<double>() } : std::nullopt);
         } else if (kind == "log-left-out") {
             linesLeftOut_ += event.value("count", std::size_t { 0 });
             host_->record_event("engine-log-left-out", Json { { "count", event.value("count", std::size_t { 0 }) } });
@@ -761,8 +768,11 @@ public:
         for (const auto& [module, at] : primeDeadlines_) consider(at);
         consider(restartAt_);
         consider(stuckCheckAt_);
-        consider(stuck_.due());
-        if (const auto oldest = oldest_unanswered_(); oldest && !stuck_.watching() && stuckTriedFor_ != oldest) consider(*oldest + options_.stuckAfter);
+        // While a reading of clangd's CPU is on its way, its event is what wakes the loop.
+        if (!cpuReadInFlight_) {
+            consider(stuck_.due());
+            if (const auto oldest = oldest_unanswered_(); oldest && !stuck_.watching() && stuckTriedFor_ != oldest) consider(*oldest + options_.stuckAfter);
+        }
         if (!deferredReclaims_.empty() && lastSourceChangeAt_) consider(*lastSourceChangeAt_ + GENERAL_PATIENCE);
         // So the status settles into ready or degraded on its own, not only when something else wakes
         // the event loop (real-project plan RP1.4, design P7).
@@ -815,17 +825,14 @@ public:
                 if (now - request.sent < own_timeout_(request.method)) break;
                 const std::string path { host_->path_of_uri(request.uri) };
                 if (path.empty()) break;
-                switch (quarantine_.timed_out(base::path_key(path), request.sent, now, lastAnswerAt_)) {
+                // Just after this file, or a source of a module it imports, changed, clangd is rebuilding what the
+                // change touched, which either compiles (and the file answers again) or fails and is contained
+                // with its importers (real-project plan RP1.1, RP1.2): a timeout meanwhile says nothing about this
+                // file. An edit elsewhere is no excuse, and clangd answering nobody, which no edit explains,
+                // still counts.
+                switch (quarantine_.timed_out(base::path_key(path), request.sent, now, lastAnswerAt_, changed_recently_(path, now))) {
                 case Quarantine::Verdict::wait: break;
-                case Quarantine::Verdict::quarantined:
-                    // Just after this file, or a source of a module it imports, changed: clangd is rebuilding
-                    // what the change touched, which either compiles (and the file answers again) or fails and
-                    // is contained with its importers (real-project plan RP1.1, RP1.2). A timeout meanwhile says
-                    // nothing about this file. An edit elsewhere is no excuse, and none of this applies to
-                    // clangd answering nobody (below), which no edit explains.
-                    if (changed_recently_(path, now)) break;
-                    set_aside_(path, "it stopped answering its requests", Reclaim::if_busy);
-                    break;
+                case Quarantine::Verdict::quarantined: set_aside_(path, "it stopped answering its requests", Reclaim::if_busy); break;
                 case Quarantine::Verdict::stalled: stalled = true; break;
                 }
                 break;
@@ -1086,26 +1093,60 @@ private:
     // watch of clangd's CPU (StuckWatch). At its end, a clangd that has still answered nothing, still
     // owes an answer to a request older than the watch -- so it had work the whole time -- and used
     // next to no CPU is stuck, and is restarted within the restart cap. A request that timed out and
-    // was cancelled meanwhile leaves clangd rightly idle, and proves nothing.
+    // was cancelled meanwhile leaves clangd rightly idle, and proves nothing. The CPU is read off the
+    // event loop (read_cpu_); what to make of each reading is decided when it comes back (cpu_read_).
     void watch_for_stuck_(Clock::time_point now) {
         if (!accepting_ || !process_) {
             stuck_.clear();
             return;
         }
-        const auto oldest = oldest_unanswered_();
+        if (cpuReadInFlight_) return;
         if (!stuck_.watching()) {
+            const auto oldest = oldest_unanswered_();
             if (oldest && now - *oldest >= options_.stuckAfter && stuckTriedFor_ != oldest) {
                 stuckTriedFor_ = oldest;
-                stuck_.suspect(now, process_->cpu_seconds());
+                read_cpu_(false);
             }
             return;
         }
-        if (const auto due = stuck_.due(); !due || now < *due) return;
+        if (const auto due = stuck_.due(); due && now >= *due) read_cpu_(true);
+    }
+
+    // Reads clangd's CPU on a thread of its own -- ps(1) on macOS can take a while, and the event loop
+    // serves every root -- and hands the reading back as a "cpu" event. One reading at a time; none
+    // where the platform cannot say.
+    void read_cpu_(bool endOfWatch) {
+        auto reader = process_ ? process_->cpu_reader() : std::function<std::optional<double>()> {};
+        if (!reader) {
+            stuck_.clear();
+            return;
+        }
+        // The previous reading's thread has handed its event over already (cpuReadInFlight_ is cleared by that event).
+        if (cpuReading_.joinable()) cpuReading_.join();
+        cpuReadInFlight_ = true;
+        cpuReading_ = std::jthread { [sink = sink_, generation = generation_, endOfWatch, reader = std::move(reader)] {
+            const auto seconds = reader();
+            sink(Json { { "kind", "cpu" }, { "generation", generation }, { "endOfWatch", endOfWatch },
+                        { "seconds", seconds ? Json(*seconds) : Json(nullptr) } });
+        } };
+    }
+
+    // A reading of clangd's CPU, back from read_cpu_: the start of a watch, or its end and verdict.
+    void cpu_read_(bool endOfWatch, std::optional<double> seconds) {
+        if (!accepting_) return;
+        const auto now = Clock::now();
+        const auto oldest = oldest_unanswered_();
+        if (!endOfWatch) {
+            // Answered while it was being read: nothing to watch.
+            if (oldest && !stuck_.watching()) stuck_.suspect(now, seconds);
+            return;
+        }
+        if (!stuck_.watching()) return;   // clangd answered something meanwhile
         if (!oldest || *oldest > *stuck_.started()) {
             stuck_.clear();
             return;
         }
-        const auto verdict = stuck_.check(now, process_->cpu_seconds());
+        const auto verdict = stuck_.check(now, seconds);
         if (!verdict.stuck) {
             log::debug("clangd ({}) has left a request unanswered for {:.0f} s and is busy, not stuck: {:.2f} s of CPU in the last {:.0f} s",
                        host_->root_directory(), std::chrono::duration<double>(now - *oldest).count(), verdict.cpuSeconds, verdict.seconds);
@@ -1116,14 +1157,16 @@ private:
         // At the restart cap, clangd stays as it is until the window frees up; that is said once
         // (restart_capped_), not again at the end of every watch meanwhile.
         if (restartGate_.at_cap(now)) {
-            if (!stuckAtCap_) (void)restart_capped_("clangd was stuck");
+            if (!stuckAtCap_) (void)restart_capped_("clangd stopped answering and used no CPU");
             stuckAtCap_ = true;
             return;
         }
         log::warning("clangd ({}) has left a request unanswered for {:.0f} s and used {:.2f} s of CPU in the last {:.0f} s: it is stuck, not busy; restarting it",
                      host_->root_directory(), std::chrono::duration<double>(now - *oldest).count(), verdict.cpuSeconds, verdict.seconds);
         add_issue_(Issue { "engine-timeout", "clangd stopped making progress; it was restarted", "mcppls.restartServer" });
-        request_restart_("clangd was stuck: it answered nothing and used no CPU");
+        // Worded like the "answers nobody" verdict's reason: both are clangd stopping, told apart by
+        // how it was seen (module-faults F8 allows exactly these).
+        request_restart_("clangd stopped answering and used no CPU: it was stuck");
     }
 
     // How long clangd itself has to answer a client request, once it is sent.

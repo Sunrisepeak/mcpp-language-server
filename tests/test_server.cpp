@@ -108,7 +108,9 @@ public:
     }
     void stop(std::chrono::milliseconds) override { running_ = false; }
     bool running() const override { return running_; }
-    std::optional<double> cpu_seconds() const override { return shared_->cpu(); }
+    std::function<std::optional<double>()> cpu_reader() const override {
+        return [shared = shared_] { return shared->cpu(); };
+    }
 
 private:
     std::shared_ptr<Shared> shared_;
@@ -121,13 +123,23 @@ class RecordingHost : public eng::Host {
 public:
     explicit RecordingHost(std::string root) : root_ { std::move(root) }, cache_ { mcppls::base::join_path(root_, "cache") } {}
     std::vector<std::string> events;
-    std::shared_ptr<std::vector<Json>> sunk { std::make_shared<std::vector<Json>>() };   // what the engine's process sent, to hand back
+    // What the engine's threads sent, to hand back: its process's messages, and its readings of the CPU.
+    struct Sunk {
+        std::mutex mutex;
+        std::vector<Json> events;
+    };
+    std::shared_ptr<Sunk> sunk { std::make_shared<Sunk>() };
 
-    // What the event loop does: each event an engine's process produced goes back to that engine.
+    // What the event loop does: each event an engine's threads produced goes back to that engine.
     void pump(eng::Engine& engine) {
-        while (!sunk->empty()) {
-            auto events = std::exchange(*sunk, {});
-            for (const auto& event : events) engine.handle_event(event);
+        for (;;) {
+            std::vector<Json> taken;
+            {
+                const std::lock_guard lock { sunk->mutex };
+                taken = std::exchange(sunk->events, {});
+            }
+            if (taken.empty()) return;
+            for (const auto& event : taken) engine.handle_event(event);
         }
     }
 
@@ -135,7 +147,10 @@ public:
     const std::string& cache_directory() const override { return cache_; }
     const Json& client_initialize_params() const override { return params_; }
     std::function<void(Json)> event_sink(std::string_view) override {
-        return [sunk = sunk](Json event) { sunk->push_back(std::move(event)); };
+        return [sunk = sunk](Json event) {
+            const std::lock_guard lock { sunk->mutex };
+            sunk->events.push_back(std::move(event));
+        };
     }
     void send_to_client(const Json&) override {}
     std::string client_request_id(std::string_view, int, const Json& id) const override { return id.dump(); }
@@ -380,6 +395,18 @@ int main() {
         expect(stalled.timed_out("/p/main.cpp", t1, t1 + 10s, t1 - 1s) == Verdict::wait);
         expect(stalled.timed_out("/p/plain.cpp", t1 + 2s, t1 + 12s, t1 - 1s) == Verdict::stalled);
         expect(stalled.first_stalled() == std::optional<std::string> { "/p/main.cpp" }) << "the file asked about first is the likeliest cause";
+
+        // A file rebuilding after a change to it, or to a module it imports, is never set aside for its
+        // timeouts, and nothing about it is recorded as set aside -- but clangd answering nobody still counts.
+        cld::Quarantine rebuilding;
+        const auto t2 = t0 + 2h;
+        for (int i { 0 }; i < 4; ++i) {
+            expect(rebuilding.timed_out("/p/user.cppm", t2 + i * 11s, t2 + i * 11s + 10s, t2 + i * 11s + 5s, true) == Verdict::wait);
+        }
+        expect(!rebuilding.contains("/p/user.cppm") && rebuilding.size() == 0u) << "not set aside, not even in the books";
+        expect(rebuilding.timed_out("/p/main.cpp", t2 + 1min, t2 + 1min + 10s, t2 - 1s, true) == Verdict::wait);
+        expect(rebuilding.timed_out("/p/plain.cpp", t2 + 1min + 2s, t2 + 1min + 12s, t2 - 1s, true) == Verdict::stalled)
+            << "answering nobody is clangd, whatever changed";
     };
 
     "clangd's state for a file says whether it is working on it"_test = [] {
@@ -698,17 +725,20 @@ int main() {
             const Json message { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", "textDocument/hover" }, { "params", params } };
             std::optional<eng::Answer> answer;
             engine->request(eng::RequestView { "textDocument/hover", &params, file, {} }, message, [&](eng::Answer given) { answer = std::move(given); });
-            // The event loop: wake at each deadline the engine names, for longer than the watch takes.
+            // The event loop, for longer than the watch takes: wake at each deadline the engine names, and
+            // often enough to hand back what its threads sent (a real loop is woken by those). A deadline
+            // already past on every turn is an engine keeping its loop spinning.
             const auto end = eng::Clock::now() + 2s;
-            int wakeups { 0 };
+            int overdue { 0 };
             while (eng::Clock::now() < end && shared->starts < 2) {
+                const auto now = eng::Clock::now();
                 const auto next = engine->next_deadline();
-                std::this_thread::sleep_until(std::min(next.value_or(end), end));
+                if (next && *next <= now) ++overdue;
+                std::this_thread::sleep_until(std::min({ next.value_or(end), now + 20ms, end }));
                 engine->handle_timers();
                 host.pump(*engine);
-                ++wakeups;
             }
-            expect(wakeups < 50) << wakeups << " wakeups: the loop spins";
+            expect(overdue < 50) << overdue << " turns with a deadline already past: the loop spins";
             const bool sawStuck { std::ranges::find(host.events, std::string { "engine-stuck" }) != host.events.end() };
             if (stuck) {
                 expect(shared->starts == 2) << "restarted once";
