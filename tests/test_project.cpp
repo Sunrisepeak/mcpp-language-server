@@ -17,6 +17,7 @@ import mcppls.project.model;
 import mcppls.project.compdb;
 import mcppls.project.cmake;
 import mcppls.project.modelcache;
+import mcppls.project.generated;
 
 namespace fs = mcppls::platform::fs;
 namespace b = mcppls::base;
@@ -142,7 +143,9 @@ int main() {
         expect(model.detected == p::SourceKind::mcpp) << "the project is still an mcpp project whose data was not available";
         expect(model.usesKit);
         expect(model.profile.kind == "semantic-kit" && model.profile.stdlib == "libc++ 23.1.0");
-        expect(std::ranges::any_of(model.issues, [](const p::ModelIssue& issue) { return issue.code == "mcpp-no-database"; }));
+        expect(std::ranges::any_of(model.issues, [](const p::ModelIssue& issue) { return issue.code == "untrusted-workspace"; }))
+            << "load_mcpp is never even called for an untrusted workspace now (design item 5): nothing a trusted "
+               "session or another build once left on disk should be read just because it is sitting there";
         expect(!model.watch.empty());
         expect(model.database.sets.front().units.size() == 3u);
         fs::remove_all(root);
@@ -163,8 +166,12 @@ int main() {
                "provides": {{ "hello.greet:detail": "" }}, "requires": ["std"] }}
           ] }} ] }})", main, root, main, greet, root, greet, detail, root, detail));
         write(root, "build/db.json", document.dump());
+        // trusted: reading the one file `mcppls.database` names is not a build-tool run, but design
+        // item 5 (an untrusted workspace is L4 unconditionally) does not carve out an exception for
+        // it either -- an untrusted workspace's own settings could otherwise point mcppls at a file
+        // of its choosing. What this test is about is database completion, not trust.
         p::LoadOptions options;
-        options.trusted = false;
+        options.trusted = true;
         const auto model = p::load_project(root, p::LoadOptions { options.trusted, {}, "build/db.json" });
         expect(model.source == p::SourceKind::build_database && model.detected == p::SourceKind::build_database);
         expect(fatal(model.database.sets.size() == 1u && model.database.sets[0].units.size() == 3u));
@@ -256,8 +263,10 @@ int main() {
         // bare S1 override), and its level is the fixed 2 the design gives
         // every CMake source (project/model.cpp), not whatever
         // conformance_level would compute from the document alone.
+        // trusted: this is about reading an already-generated build_database.json, not about trust
+        // (design item 5 makes an untrusted workspace inferred regardless of what is on disk).
         p::LoadOptions options;
-        options.trusted = false;
+        options.trusted = true;
         options.cacheDirectory = b::join_path(root, ".cache-dir");
         const auto model = p::load_project(root, options);
         expect(model.source == p::SourceKind::cmake);
@@ -441,6 +450,176 @@ name = "x"
 version = "1"
 )").has_value()));
         expect(first != p::inputs_fingerprint(root, watch, manifest, "/usr/bin/mcpp", "2026.9.16.1")) << "an edited manifest is a new fingerprint";
+        fs::remove_all(root);
+    };
+
+    // The incident: mcppls's own project.level (S1's document-conformance number) and the README's
+    // L1..L4 (which *kind* of source it is) share a range and are not the same question -- "mcpp
+    // L3" and "inferred L2" both sounded like the good and bad case respectively, which is not what
+    // either number says. `tier` is the second one; a level-1 mcpp database is still tier 1.
+    "tier follows the model's source, independent of level"_test = [] {
+        expect(p::tier_of(p::SourceKind::build_database) == 1_i);
+        expect(p::tier_of(p::SourceKind::mcpp) == 1_i);
+        expect(p::tier_of(p::SourceKind::cmake) == 2_i);
+        expect(p::tier_of(p::SourceKind::compile_commands) == 3_i);
+        expect(p::tier_of(p::SourceKind::inferred) == 4_i);
+
+        const std::string root { make_root("tier") };
+        write(root, "src/a.cppm", "export module a;\n");
+        write(root, "compile_commands.json", nlohmann::json::array({ nlohmann::json {
+            { "directory", root }, { "file", b::join_path(root, "src/a.cppm") },
+            { "arguments", nlohmann::json::array({ "clang++", "-std=c++23", "-c", b::join_path(root, "src/a.cppm") }) },
+        } }).dump());
+        p::LoadOptions options;
+        options.trusted = true;
+        const auto model = p::load_project(root, options);
+        expect(model.source == p::SourceKind::compile_commands);
+        expect(model.tier == 3_i) << "tier 3 whatever `level` this bare document happens to compute to";
+        fs::remove_all(root);
+    };
+
+    // Design item 5: an untrusted workspace is L4 by definition. A `compile_commands.json` or
+    // `target/` a *trusted* session (or a build run outside mcppls entirely) left on disk is still a
+    // fact about the build, and reading it just because it is sitting there would make "untrusted"
+    // mean something less than what the docs promise (docs/20-projects.md, design 2.1).
+    "an untrusted workspace ignores a stale build description already on disk"_test = [] {
+        const std::string root { make_root("untrusted-stale") };
+        write_fixture(root);
+        write(root, "mcpp.toml", "[package]\nname = \"hello\"\n");
+        // A leftover compile_commands.json from a trusted run or another tool: it exists, is valid
+        // JSON, and names a real file -- nothing about it looks "broken" except that this session
+        // never trusted this workspace and so never should have read it.
+        write(root, "compile_commands.json", nlohmann::json::array({ nlohmann::json {
+            { "directory", root }, { "file", b::join_path(root, "src/main.cpp") },
+            { "arguments", nlohmann::json::array({ "clang++", "-std=c++23", "-c", b::join_path(root, "src/main.cpp") }) },
+        } }).dump());
+        p::LoadOptions options;
+        options.trusted = false;
+        const auto model = p::load_project(root, options);
+        expect(model.source == p::SourceKind::inferred);
+        expect(model.tier == 4_i);
+        expect(model.detected == p::SourceKind::mcpp);
+        fs::remove_all(root);
+    };
+
+    // Design item 4: a database entry naming a file that no longer exists (a deleted `target/`, a
+    // `compile_commands.json` checked in from another machine) is used for what remains, not
+    // discarded wholesale or left to fail some other way later.
+    "a stale database entry is dropped and noted; the rest of the model is used"_test = [] {
+        const std::string root { make_root("stale") };
+        write(root, "src/a.cppm", "export module a;\n");
+        write(root, "compile_commands.json", nlohmann::json::array({
+            nlohmann::json { { "directory", root }, { "file", b::join_path(root, "src/a.cppm") },
+                             { "arguments", nlohmann::json::array({ "clang++", "-std=c++23", "-c", b::join_path(root, "src/a.cppm") }) } },
+            nlohmann::json { { "directory", root }, { "file", b::join_path(root, "src/deleted.cppm") },
+                             { "arguments", nlohmann::json::array({ "clang++", "-std=c++23", "-c", b::join_path(root, "src/deleted.cppm") }) } },
+        }).dump());
+        p::LoadOptions options;
+        options.trusted = true;
+        const auto model = p::load_project(root, options);
+        expect(model.source == p::SourceKind::compile_commands) << "some units still exist; not treated as fully stale";
+        expect(fatal(model.database.sets.size() == 1u));
+        expect(model.database.sets.front().units.size() == 1u) << "the entry naming a deleted file is dropped";
+        expect(std::ranges::any_of(model.notices, [](const p::ModelIssue& n) { return n.code == "stale-database"; }));
+        fs::remove_all(root);
+    };
+
+    "a database whose every entry is stale is treated as if it did not exist"_test = [] {
+        const std::string root { make_root("fully-stale") };
+        write(root, "compile_commands.json", nlohmann::json::array({
+            nlohmann::json { { "directory", root }, { "file", b::join_path(root, "src/deleted.cppm") },
+                             { "arguments", nlohmann::json::array({ "clang++", "-std=c++23", "-c", b::join_path(root, "src/deleted.cppm") }) } },
+        }).dump());
+        write(root, "src/live.cppm", "export module live;\n");
+        p::LoadOptions options;
+        options.trusted = true;
+        const auto model = p::load_project(root, options);
+        expect(model.source == p::SourceKind::inferred) << "inference finds src/live.cppm instead";
+        fs::remove_all(root);
+    };
+
+    // Design item 3: before a stand-in is created for a module nothing provides, mcppls looks for
+    // where a build leaves what it generated. The incident this is for: an old mcpp's fallback
+    // `compile_commands.json` outlives the `target/` a later `mcpp build` deletes and recreates, but
+    // the generated file mcpp already built once is still in its own build-database cache.
+    "find_generated_source verifies the module rather than taking the first file"_test = [] {
+        const std::string root { make_root("recover-direct") };
+        write(root, "target/.build-mcpp/deps/dep@1.0.0/out/other.cppm", "export module dep.other;\n");
+        write(root, "target/.build-mcpp/deps/dep@1.0.0/out/thing.cppm", "export module dep.thing;\n");
+        const p::GeneratedSourceOptions options { root, make_root("empty-home"), p::file_scanner() };
+        const auto found = p::find_generated_source("dep.thing", options);
+        expect(fatal(found.has_value()));
+        expect(b::file_name(*found) == "thing.cppm");
+        expect(!p::find_generated_source("dep.nothing", options).has_value()) << "nothing here declares it";
+        fs::remove_all(root);
+    };
+
+    "a generated module's real source is recovered before a stand-in is needed"_test = [] {
+        const std::string root { make_root("generated") };
+        const std::string home { make_root("generated-home") };
+        write(root, "src/main.cpp", "import dep.thing;\n\nint main() { return 0; }\n");
+        write(root, "compile_commands.json", nlohmann::json::array({ nlohmann::json {
+            { "directory", root }, { "file", b::join_path(root, "src/main.cpp") },
+            { "arguments", nlohmann::json::array({ "clang++", "-std=c++23", "-c", b::join_path(root, "src/main.cpp") }) },
+        } }).dump());
+        // Not where the database says it is (that `target/` is gone); where mcpp's own cache keeps
+        // what it once built, keyed by a hash mcppls does not need to know or reproduce.
+        write(home, ".mcpp/cache/build-database/deadbeef/target/.build-mcpp/deps/dep@1.0.0/out/thing.cppm", "export module dep.thing;\n");
+        p::LoadOptions options;
+        options.trusted = true;
+        options.homeDirectory = home;
+        const auto model = p::load_project(root, options);
+        expect(fatal(model.database.sets.size() == 1u));
+        const auto& units = model.database.sets.front().units;
+        const auto recovered = std::ranges::find_if(units, [](const s::TranslationUnit& unit) {
+            return !unit.providedModules.empty() && unit.providedModules.front().first == "dep.thing";
+        });
+        expect(fatal(recovered != units.end())) << "the recovered unit joined the model instead of a stand-in";
+        expect(b::file_name(recovered->source) == "thing.cppm");
+        expect(std::ranges::any_of(model.notices, [](const p::ModelIssue& n) { return n.code == "generated-module-recovered"; }));
+        fs::remove_all(root);
+        fs::remove_all(home);
+    };
+
+    // Design item 1 (producer negotiation): comparing mcpp's date-based versions numerically, not
+    // lexically -- "2026.9.9" sorts after "2026.9.10" as plain strings, which is backwards.
+    "mcpp version comparison is numeric, not lexical"_test = [] {
+        expect(p::mcpp_version_less("2026.8.8.4", "2026.9.21.3"));
+        expect(!p::mcpp_version_less("2026.9.21.3", "2026.8.8.4"));
+        expect(p::mcpp_version_less("2026.9.9", "2026.9.10")) << "a plain string compare gets this one backwards";
+        expect(!p::mcpp_version_less("2026.9.10", "2026.9.9"));
+        expect(!p::mcpp_version_less("2026.9.15.1", "2026.9.15.1")) << "equal versions: neither is less";
+        expect(!p::mcpp_version_less("", "")) << "unparsed versions never look newer than each other";
+    };
+
+    "other mcpp executables are found newest first, and the resolved one is excluded"_test = [] {
+        const std::string home { make_root("mcpp-store") };
+        for (std::string_view version : { "2026.8.8.4", "2026.9.21.3", "2026.9.9.1" }) {
+            write(home, std::format(".xlings/data/xpkgs/xim-x-mcpp/{}/bin/mcpp", version), "#!/bin/sh\n");
+        }
+        const std::string resolved { b::join_path(home, ".xlings/data/xpkgs/xim-x-mcpp/2026.8.8.4/bin/mcpp") };
+        const auto others = p::other_mcpp_executables(resolved, home);
+        expect(fatal(others.size() == 2u)) << others.size();
+        expect(others.front().contains("2026.9.21.3")) << others.front();
+        expect(others.back().contains("2026.9.9.1"));
+        expect(std::ranges::none_of(others, [&](const std::string& path) { return b::same_path(path, resolved); }));
+        fs::remove_all(home);
+    };
+
+    // Design item 7: a directory below the root with its own build manifest is a different project
+    // (a conformance fixture, a vendored copy, an example), not more of this one's sources -- a
+    // general rule the incident against mcppls's own repository is one instance of, not the reason
+    // for it.
+    "inferred scanning does not cross into a nested project's own manifest"_test = [] {
+        const std::string root { make_root("nested") };
+        write(root, "src/a.cppm", "export module a;\n");
+        write(root, "vendor/example/mcpp.toml", "[package]\nname = \"example\"\n");
+        write(root, "vendor/example/src/b.cppm", "export module b;\n");
+        const auto inferred = p::infer_database(root, p::InferOptions {}, p::file_scanner());
+        expect(fatal(inferred.database.sets.size() == 1u));
+        const auto& units = inferred.database.sets.front().units;
+        expect(units.size() == 1u) << "only src/a.cppm; vendor/example is its own project";
+        expect(b::file_name(units.front().source) == "a.cppm");
         fs::remove_all(root);
     };
 

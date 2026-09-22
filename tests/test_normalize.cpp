@@ -10,6 +10,7 @@ import mcppls.spec.kit;
 import mcppls.spec.metadata;
 import mcppls.toolchain.probe;
 import mcppls.project.scan;
+import mcppls.project.infer;
 import mcppls.normalize.gnu;
 import mcppls.normalize.msvc;
 import mcppls.normalize.plan;
@@ -432,6 +433,51 @@ int main() {
         const auto& panel = *byFile["/p/apps/gui/panel.cppm"].front();
         expect(panel.provides == "gui.panel" && contains(panel.arguments, "c++-module") && contains(panel.arguments, "-DTUI"));
         expect(plan.stubModules == std::vector<std::string> { "gui.window" }) << "the module nothing provides gets a stand-in: " << std::format("{}", plan.stubModules);
+    };
+
+    // Design item 7: a file opened while browsing a workspace may belong to a different project
+    // nested inside it (a conformance fixture, a vendored copy, an example with its own manifest).
+    // Borrowing the nearest unit's arguments for it, as the test above does for a target the same
+    // project's own build did not enable, would fold that other project's modules into this one's
+    // plan instead -- exactly what showed up as spurious unresolved/ambiguous-module issues against
+    // mcppls's own repository (conformance fixtures and tools/bench each have their own manifest).
+    "an opened file inside a nested project's own manifest is not folded into this plan"_test = [] {
+        const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+            std::format("mcppls-test-plan-boundary-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+        const std::string coreSource { mcppls::base::join_path(root, "src/core/a.cppm") };
+        const std::string vendoredMain { mcppls::base::join_path(root, "vendor/fixture/src/main.cpp") };
+        (void)mcppls::platform::fs::create_directories(mcppls::base::parent_path(coreSource));
+        (void)mcppls::platform::fs::create_directories(mcppls::base::parent_path(vendoredMain));
+        (void)mcppls::platform::fs::write_file(coreSource, "export module core.a;\n");
+        (void)mcppls::platform::fs::write_file(vendoredMain, "import missing.from.the.fixture;\nint main() {}\n");
+        // What marks "vendor/fixture" as its own project rather than more of this one's sources.
+        (void)mcppls::platform::fs::write_file(mcppls::base::join_path(root, "vendor/fixture/mcpp.toml"), "[package]\nname = \"fixture\"\n");
+
+        s::Database database;
+        database.hasIde = true;
+        s::Set set;
+        set.name = "hello";
+        set.hasIde = true;
+        set.toolchain = "gcc-16.1.0-x86_64-linux-gnu";
+        s::TranslationUnit unit;
+        unit.source = coreSource;
+        unit.workDirectory = root;
+        unit.arguments = { "/opt/gcc/bin/g++", "-std=c++23", "-fmodules", "-c", coreSource };
+        set.units.push_back(std::move(unit));
+        database.sets.push_back(std::move(set));
+        std::map<std::string, ToolchainFacts, std::less<>> facts { { "gcc-16.1.0-x86_64-linux-gnu", gcc_facts() } };
+        n::PlanInput input;
+        input.database = &database;
+        input.facts = &facts;
+        input.engineDriverDirectory = "/payload/clangd/bin";
+        input.scanner = p::file_scanner();
+        input.openSources = { vendoredMain };
+        const auto plan = n::plan_engine(input);
+        expect(plan.openSources.empty()) << "the fixture's own file is left for its own project to serve" << std::format("{}", plan.openSources);
+        expect(std::ranges::none_of(plan.entries, [&](const n::EngineEntry& entry) { return entry.file == vendoredMain; }));
+        expect(plan.issues.empty()) << "no spurious unresolved-module for the fixture's own deliberately-missing import: "
+                                    << std::format("{}", plan.issues.size());
+        mcppls::platform::fs::remove_all(root);
     };
 
     "a module clangd could not find leaves out only the providers that import it"_test = [] {
