@@ -1,0 +1,20 @@
+{
+  "name": "generated-module-negotiated",
+  "description": "Real-project plan RP2.1: the same generated-package/sibling-module project as generated-module-old-mcpp -- an mcpp too old to advertise mcpp.build-database (mcpp-mock.json's oldProtocol) -- but with a newer mock mcpp installed where producer negotiation looks for one (xim-x-mcpp/<version>/bin/mcpp under the fixture's isolated HOME). The server must find and use it instead of falling back to compile_commands.json: the status carries the producer-negotiated notice, and the project reaches tier 1 like generated-module itself, not tier 3.",
+  "isolate-home": true,
+  "prepare": [
+    ["{conformance}", "prepare", "producer-candidate", "{home}"]
+  ],
+  "server-arguments": ["--mcpp", "{runner-dir}/mcppls-mock-mcpp{exe}"],
+  "checks": [
+    { "id": "S1", "kind": "status", "source": "mcpp", "state": "ready", "level": 3, "tier": 1, "notice-code": "producer-negotiated" },
+    { "id": "G1-import-goes-to-the-real-generated-file", "kind": "definition", "file": "src/main.cpp", "at": [1, 9],
+      "expect": "target/.build-mcpp/deps/xpkg@1.0.0/out/xpkg_lua_stdlib.cppm" },
+    { "id": "G2-call-site-definition", "kind": "definition", "file": "src/main.cpp", "at": [4, 36],
+      "expect": "target/.build-mcpp/deps/xpkg@1.0.0/out/xpkg_lua_stdlib.cppm" },
+    { "id": "G3-call-site-hover", "kind": "hover-contains", "file": "src/main.cpp", "at": [4, 36], "expect": "lua_stdlib_answer" },
+    { "id": "G4-sibling-module-import-goes-to-the-real-generated-file", "kind": "definition", "file": "src/consumer.cppm", "at": [2, 9],
+      "expect": "target/.build-mcpp/deps/xpkg@1.0.0/out/xpkg_lua_stdlib.cppm" },
+    { "id": "G6-project-module-definition", "kind": "definition", "file": "src/main.cpp", "at": [4, 15], "expect": "src/consumer.cppm" }
+  ]
+}

@@ -1997,13 +1997,90 @@ int prepare_generated_module_compdb(const std::string& compiler) {
     return 0;
 }
 
+// real-project plan RP2.1: a second, newer mock mcpp under a fixture's isolated HOME
+// (`"isolate-home": true`), at the path producer negotiation searches
+// (`mcppls::project::other_mcpp_executables`, `xim-x-mcpp/<version>/bin/mcpp`), so a fixture whose
+// project mcpp cannot answer `emit build-database` (`mcpp-mock.json`'s `oldProtocol`) can prove
+// negotiation finds and uses a working one instead of falling back to `compile_commands.json`. Its
+// own `mcpp-mock.json`, beside it (mockmcpp reads a config beside its own executable when a
+// fixture put one there, since a negotiated candidate still runs with the project's own directory
+// as its cwd), describes the same generated-package/sibling-module project as generated-module,
+// with the compiler this prepare step resolves itself: prepare steps run in the real environment,
+// never the isolated one the server sees, so a path baked in now still exists once the server asks.
+int prepare_producer_candidate(const std::string& home) {
+    if (home.empty() || !fs::is_directory(home)) {
+        say("producer-candidate: pass the fixture's isolated home (the {{home}} placeholder needs \"isolate-home\": true)");
+        return 1;
+    }
+    const std::string root { fs::current_directory() };
+    auto clangxx = on_path(mcppls::platform::env::get("CONFORMANCE_CLANGXX").value_or("clang++"));
+    if (!clangxx) {
+        say("producer-candidate: clang++ is not on PATH");
+        return 1;
+    }
+    const std::string self { absolute(mcppls::platform::env::arguments().front()) };
+    const std::string mock { base::join_path(base::parent_path(self), "mcppls-mock-mcpp") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+    auto mockContent = fs::read_file(mock);
+    if (!mockContent) {
+        say("producer-candidate: {} is not built (needs mcppls-mock-mcpp beside mcppls-conformance)", mock);
+        return 1;
+    }
+    const std::string binaryDirectory { base::join_path(home, ".xlings/data/xpkgs/xim-x-mcpp/9999.0.0/bin") };
+    (void)fs::create_directories(binaryDirectory);
+    const std::string binaryPath { base::join_path(binaryDirectory, "mcpp") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+    if (auto written = fs::write_file(binaryPath, *mockContent); !written) {
+        say("producer-candidate: {}", written.error().message);
+        return 1;
+    }
+    if (auto marked = fs::make_executable(std::vector<std::string> { binaryPath }); !marked) {
+        say("producer-candidate: {}", marked.error().message);
+        return 1;
+    }
+    auto at = [&](std::string_view relative) { return native(base::join_path(root, relative)); };
+    const std::string consumer { at("src/consumer.cppm") };
+    const std::string main { at("src/main.cpp") };
+    const std::string generated { at("target/.build-mcpp/deps/xpkg@1.0.0/out/xpkg_lua_stdlib.cppm") };
+    auto translation_unit = [&](const std::string& source, std::string_view role, Json provides, Json requires_) {
+        return Json { { "source", source }, { "work-directory", native(root) },
+                      { "arguments", Json::array({ *clangxx, "-std=c++23", "-c", source, "-o", source + ".o" }) },
+                      { "local-arguments", Json::array() }, { "object", source + ".o" },
+                      { "provides", std::move(provides) }, { "requires", std::move(requires_) },
+                      { "private", false }, { "ide", { { "role", role } } } };
+    };
+    const Json database {
+        { "version", 1 }, { "revision", 0 },
+        { "ide", { { "profile-version", "0.2.0" }, { "generator", { { "name", "mcpp" }, { "version", "9999.0.0" } } },
+                   { "toolchains", { { "candidate", { { "family", "clang" }, { "version", "22" }, { "driver", *clangxx },
+                                                       { "target", "x86_64-unknown-linux-gnu" } } } } } } },
+        { "sets", Json::array({
+            Json { { "name", "app" }, { "family-name", "app" },
+                   { "ide", { { "toolchain", "candidate" }, { "configuration", "dev" }, { "kind", "executable" } } },
+                   { "baseline-arguments", Json::array({ "-std=c++23" }) }, { "visible-sets", Json::array({ "xpkg" }) },
+                   { "translation-units", Json::array({
+                       translation_unit(consumer, "module-interface", Json { { "app.consumer", "" } }, Json::array({ "xpkg.lua_stdlib" })),
+                       translation_unit(main, "non-module", Json::object(), Json::array({ "app.consumer", "xpkg.lua_stdlib" })) }) } },
+            Json { { "name", "xpkg" }, { "family-name", "xpkg" },
+                   { "ide", { { "toolchain", "candidate" }, { "configuration", "dev" }, { "kind", "library" } } },
+                   { "baseline-arguments", Json::array({ "-std=c++23" }) }, { "visible-sets", Json::array({ "app" }) },
+                   { "translation-units", Json::array({ translation_unit(generated, "module-interface", Json { { "xpkg.lua_stdlib", "" } }, Json::array()) }) } },
+        }) },
+    };
+    const Json config { { "database", database }, { "watch", Json::array({ "mcpp.toml", "src/**/*.cppm", "src/**/*.cpp" }) } };
+    if (auto written = fs::write_file(base::join_path(binaryDirectory, "mcpp-mock.json"), config.dump(2)); !written) {
+        say("producer-candidate: {}", written.error().message);
+        return 1;
+    }
+    return 0;
+}
+
 int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "s1-two-sets") return prepare_s1_two_sets(argument);
     if (kind == "payload-corrupt") return prepare_payload_corrupt(argument);
+    if (kind == "producer-candidate") return prepare_producer_candidate(argument);
     if (kind == "compdb-clang-cl-std") return prepare_compdb_msvc_std(true);
     if (kind == "compdb-clangxx-msvc-std") return prepare_compdb_msvc_std(false);
     if (kind == "generated-module-old-mcpp") return prepare_generated_module_compdb(argument);
-    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp)", kind);
+    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp)", kind);
     return 2;
 }
 
