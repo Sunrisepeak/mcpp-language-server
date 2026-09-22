@@ -1382,7 +1382,7 @@ public:
             return { ok, result.is_object() ? lsp::dump(result).substr(0, 160) : std::string { "no response" } };
         }
         if (kind == "stress") {
-            // Real-project stress testing (design 2026-09-22, Workstream A): seeded random use.
+            // Real-project stress testing (real-project plan RP0): seeded random use.
             // Files matching "files" are opened, some in quick succession without waiting for an
             // answer; at random identifier positions one of hover/definition/references/completion/
             // documentSymbol is asked. Per method: answered (a non-empty result), empty (a

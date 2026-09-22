@@ -1,6 +1,6 @@
 {
   "name": "generated-module",
-  "description": "Real-project stress testing design 2026-09-22, Workstream A: a package module generated at build time (as libxpkg's build.mcpp writes mcpplibs.xpkg.lua_stdlib into MCPP_OUT_DIR) and a sibling module of the project's own that uses its declarations. mcpp's build database (mocked from mcpp-mock.json, the same mechanism as mcpp-emit) names the generated unit directly; the server must use its real source, never a stand-in, for hover and definition into it.",
+  "description": "Real-project plan RP0: a package module generated at build time (as libxpkg's build.mcpp writes mcpplibs.xpkg.lua_stdlib into MCPP_OUT_DIR) and a sibling module of the project's own that uses its declarations. mcpp's build database (mocked from mcpp-mock.json, the same mechanism as mcpp-emit) names the generated unit directly; the server must use its real source, never a stand-in, for hover and definition into it.",
   "server-arguments": ["--mcpp", "{runner-dir}/mcppls-mock-mcpp{exe}"],
   "checks": [
     { "id": "S1", "kind": "status", "source": "mcpp", "state": "ready" },

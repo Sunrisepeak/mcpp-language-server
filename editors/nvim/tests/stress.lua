@@ -1,4 +1,4 @@
--- Real-project stress testing (design 2026-09-22, Workstream A) through the real plugin: opens
+-- Real-project stress testing (real-project plan RP0) through the real plugin: opens
 -- files under a workspace at random, some in quick succession without waiting, and at random
 -- identifier positions asks hover, definition, references, completion or documentSymbol. Records
 -- per method answered/empty/timeout/error and p50/p90/max latency, the status timeline's longest

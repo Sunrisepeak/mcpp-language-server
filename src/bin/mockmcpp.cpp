@@ -16,7 +16,7 @@
 // minutes (build description design 1.1). {"oldProtocol": true} is mcpp 2026.8.8.4, before
 // mcpp-community/mcpp#636: `--protocol-version` advertises no `mcpp.build-database` kind, `emit
 // build-database` does not exist, and `build --configure-only` is rejected ("error: unknown
-// option: --configure-only", exit 2) — real-project stress testing design 2026-09-22 Workstream A,
+// option: --configure-only", exit 2) — real-project plan RP0,
 // exercising the server's L2 fallback onto the project's own compile_commands.json.
 import std;
 import nlohmann.json;

@@ -1,6 +1,6 @@
 {
   "name": "generated-module-old-mcpp",
-  "description": "Real-project stress testing design 2026-09-22, Workstream A: the same generated-package/sibling-module project as generated-module, but with an mcpp too old to advertise mcpp.build-database (mcpp-mock.json's oldProtocol) and whose `build --configure-only` is rejected the way mcpp 2026.8.8.4 rejects it. The server's L2 fallback reads the project's own compile_commands.json (real-compiled by this prepare step) instead, and must still use the generated module's real source, never a stand-in.",
+  "description": "Real-project plan RP0: the same generated-package/sibling-module project as generated-module, but with an mcpp too old to advertise mcpp.build-database (mcpp-mock.json's oldProtocol) and whose `build --configure-only` is rejected the way mcpp 2026.8.8.4 rejects it. The server's L2 fallback reads the project's own compile_commands.json (real-compiled by this prepare step) instead, and must still use the generated module's real source, never a stand-in.",
   "prepare": [
     ["{conformance}", "prepare", "generated-module-old-mcpp", "{env:CONFORMANCE_CLANGXX|clang++}"]
   ],

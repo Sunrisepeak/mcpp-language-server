@@ -1,4 +1,4 @@
-// Real-project stress testing (design 2026-09-22, Workstream A): runs mcppls-conformance's
+// Real-project stress testing (real-project plan RP0): runs mcppls-conformance's
 // `stress` check over a matrix of fixtures and client profiles, and prints one summary table.
 //
 //   mcpp run -p devtools -- stress --payload DIR [--fixture NAME]... [--project xlings|mcpp|self]...
