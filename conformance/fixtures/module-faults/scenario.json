@@ -18,6 +18,9 @@
     { "id": "F7-working-again", "kind": "hover-contains", "file": "src/good/user.cppm", "at": [3, 28], "expect": "answer", "timeout": 120 },
     { "id": "F8-no-restart-nothing-set-aside", "kind": "report", "timeout": 10,
       "expect": [{ "path": "/roots/0/engines/*/details/restarts", "max-items": 0 }, { "path": "/roots/0/engines/*/details/filesSetAside", "max-items": 0 },
-                 { "path": "/roots/0/eventTotals/plan", "exists": true }, { "path": "/server/version", "exists": true }] }
+                 { "path": "/roots/0/eventTotals/plan", "exists": true }, { "path": "/server/version", "exists": true }] },
+    { "id": "STRESS1", "kind": "stress", "seed": 7, "actions": 40, "requestTimeout": 15,
+      "files": ["src/**/*.cppm", "src/**/*.cpp"],
+      "budget": { "timeouts": 0, "p90": 5, "maxStallSeconds": 45, "cpuSecondsPerMinute": 600, "rssMB": 3000 } }
   ]
 }

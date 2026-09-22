@@ -53,7 +53,9 @@ checks fail at once with that reason instead of each waiting out its timeout.
 | `inferred-discover` | The `inferred` project with compiler discovery on, on clean machines: a Linux container without a compiler and Windows with Visual Studio hidden (usable plan W5) |
 | `self-mcpp` | The mcpp repository at a fixed commit, about 170 modules (nightly, W8). Its `.xlings.json` asks for mcpp 2026.9.21.1, which xlings runs inside it |
 | `timing` | Startup timing (usable plan W7): the `inferred` project opened and navigated at once; run cold, then warm with the same workspace and cache |
-| `module-faults` | Faults stay where they are (robustness design): a module chain whose first unit imports a module nothing provides, a module that does not compile and its importer, and a file importing both a broken chain and a working module. Every file keeps its features, a module nothing provides gets a stand-in, and a module that breaks and heals while the server runs neither stalls clangd nor leaves the project without it. Runs with the semantic kit on every host |
+| `module-faults` | Faults stay where they are (robustness design): a module chain whose first unit imports a module nothing provides, a module that does not compile and its importer, and a file importing both a broken chain and a working module. Every file keeps its features, a module nothing provides gets a stand-in, and a module that breaks and heals while the server runs neither stalls clangd nor leaves the project without it. Runs with the semantic kit on every host. Also carries a `stress` check, so real-project stress testing (below) runs on every PR, on every platform |
+| `generated-module` | Real-project stress testing design 2026-09-22 Workstream A §4a: a package module generated at build time (as libxpkg's `build.mcpp` writes `mcpplibs.xpkg.lua_stdlib` into `MCPP_OUT_DIR`) and a sibling module of the project's own that imports it; mcpp's build database (simulated) names the generated unit directly, at its real path under `target/.build-mcpp/deps/<pkg>@<ver>/out/`. Hover and definition into it must reach that real file, never a stand-in |
+| `generated-module-old-mcpp` | The same project, but mcpp is too old to advertise `mcpp.build-database` and its `build --configure-only` is rejected (`mcpp-mock.json`'s `oldProtocol`, like mcpp 2026.8.8.4): the server's L2 fallback reads the project's own `compile_commands.json` (built for real by the fixture's own `prepare` step) instead, and the generated module's real source is still what hover and definition reach |
 | `s1-two-sets` | A workspace carrying its own S1 build database (`--database`, usable plan W9.2): two sets compile the same file under `-DVARIANT=1` and `-DVARIANT=2`; `cxxModules/setContext` switches which one answers |
 | `watch-polling` | Run with `--no-dynamic-watch` (usable plan W9.3): a new module interface written straight into the workspace must still reach the module graph within seconds, through the polling fallback rather than a client-driven `workspace/didChangeWatchedFiles` |
 | `payload-corrupt` | Its `prepare` step copies the payload the runner was given and truncates clangd in the copy (usable plan W9.4); `server-arguments` then points `--payload` at that broken copy, and status must reach `error` with issue `payload-corrupt` |
@@ -140,6 +142,7 @@ always has been.
 | `mcp` | S5 section 6: `mcppls mcp`, started once per fixture with the fixture's server arguments beside the language server, answers the tool call `"tool"` with `"arguments"` (or, with `"method"` and `"params"`, another request) with a result meeting `"expect"`; `"is-error": true` expects a tool error instead; the call is repeated until the expectations hold or the check's time is up, unless `"retry": false`; with `"via": "daemon"`, through `mcppls mcp --daemon` and the workspace daemon it starts (S5 6.1) |
 | `execute-command` | `workspace/executeCommand` with `"command"` and `"arguments"` is answered without an error (the editor's review commands, design 7.7) |
 | `cli` | S5 section 7: `mcppls <args>` with the runner's payload and the fixture's server arguments, run to completion in the workspace, exits with `"exit"` (default 0) and prints one JSON document meeting `"expect"` |
+| `stress` | real-project stress testing (design 2026-09-22, Workstream A): seeded random use — see below — meets every key present in `"budget"` |
 
 An expectation of `mcp` and `cli` names a JSON pointer in `"path"`, where a `*` segment stands for every
 element of an array, and one of `"equals"` (a value the pointer names equals it), `"contains"` (a string
@@ -148,3 +151,52 @@ contains it, or an array has an element that includes all its members), `"min-it
 
 The check identifiers C1–C9 are the core navigation and diagnostics checks every fixture can
 use; M-checks cover the module features of S3 section 8.5.
+
+## Stress checks
+
+A `stress` check drives the server the way a person's first few minutes with a project do: files
+matching `"files"` (glob, default `["src/**/*.cppm", "src/**/*.cpp"]`) are opened — some in quick
+succession, without waiting for an answer — and at random identifier positions one of hover,
+definition, references, completion or documentSymbol is asked, for `"actions"` rounds (default 60)
+seeded by `"seed"` (default 1: the same seed always produces the same sequence of files, positions
+and methods). `"requestTimeout"` (default 10s) bounds each request. Its `"detail"`, and the
+combined `--measure` JSON's matching entry, carry:
+
+```json
+{ "methods": { "textDocument/hover": { "answered": 7, "empty": 0, "timeout": 0, "error": 0, "p50": 0.001, "p90": 0.01, "max": 0.4 }, "...": "..." },
+  "timeouts": 0, "errors": 0, "p90": 0.02, "maxStallSeconds": 0.9, "finalState": "ready",
+  "cpuSeconds": 9.1, "cpuSecondsPerMinute": 548.4, "rssMB": 893.2 }
+```
+
+`p50`/`p90`/`max` are per-method answered-or-empty latency in seconds. `maxStallSeconds` is the
+longest interval, over the check's own window, with no `cxxModules/status` change and no
+`$/progress` while the project was not `ready` — the status timeline design 1 asks for.
+`cpuSeconds`/`rssMB` are the server's process tree's CPU seconds and peak RSS over that window,
+sampled from `/proc` where the platform is Linux and the server's OS pid is known (POSIX only);
+`null`, never a failure, wherever a platform cannot say. A `"budget"` object enforces whichever of
+`timeouts`, `p90`, `maxStallSeconds`, `cpuSecondsPerMinute` and `rssMB` it names (a budget key with
+no matching measurement, because a platform could not measure it, is not enforced):
+
+```json
+{ "id": "ST1", "kind": "stress", "actions": 60, "seed": 7, "requestTimeout": 10,
+  "files": ["src/**/*.cppm", "src/**/*.cpp"],
+  "budget": { "timeouts": 0, "p90": 3, "maxStallSeconds": 60, "cpuSecondsPerMinute": 90, "rssMB": 3000 } }
+```
+
+## Client profiles
+
+`--client vscode|neovim|zed|plain` sends the capabilities that editor actually advertises, instead
+of this runner's own long-standing default (the full `experimental.cxxModules` block, no
+`initializationOptions`), so a fixture is run the way each real client talks to the server:
+
+| `--client` | `experimental.cxxModules` | `initializationOptions` |
+|---|---|---|
+| (none) | `{ version: 1, status: true, graph: true, contexts: true }` | none |
+| `vscode` | the same, as `editors/vscode/src/extension.ts` sends it | `{ conflictArbitration: "client" }` |
+| `neovim` | `{ version: 1, status: true }`, as `editors/nvim/lua/mcppls/init.lua` sends it | `{ conflictArbitration: "client" }` |
+| `zed` | none | none |
+| `plain` | none | none |
+
+`--client zed` and `--client plain` behave exactly as `--plain-client` always has (kept as its
+alias): no `cxxModules/status` arrives, so a `status` check is skipped rather than run, and the run
+checks that standard `$/progress` still arrived instead.
