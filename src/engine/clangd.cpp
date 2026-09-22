@@ -294,6 +294,7 @@ public:
                                                                  awaitingDiagnostics_.size()) } } },
             { "pendingRequests", pending_.size() },
             { "deferredRequests", deferred_.size() },
+            { "heldRequests", std::ranges::fold_left(heldRequests_ | std::views::values | std::views::transform(&std::vector<std::pair<Json, Reply>>::size), std::size_t { 0 }, std::plus {}) },
             { "filesAwaitingDiagnostics", awaitingDiagnostics_.size() },
             { "logLinesLeftOut", linesLeftOut_ },
             { "databaseDirectory", databaseDirectory_ },
@@ -637,13 +638,21 @@ public:
     }
 
     void cancel(const Json& clientRequestId) override {
-        for (auto it = deferred_.begin(); it != deferred_.end(); ++it) {
-            if (lsp::kind_of(it->first) == lsp::Kind::request && it->first["id"] == clientRequestId) {
-                Reply reply { std::move(it->second) };
-                deferred_.erase(it);
-                if (reply) reply(Answer { Answer::Kind::cancelled, nullptr });
-                return;
+        // Waiting here, not yet sent to clangd: answered cancelled at once.
+        const auto take = [&](std::vector<std::pair<Json, Reply>>& waiting) {
+            for (auto it = waiting.begin(); it != waiting.end(); ++it) {
+                if (lsp::kind_of(it->first) == lsp::Kind::request && it->first["id"] == clientRequestId) {
+                    Reply reply { std::move(it->second) };
+                    waiting.erase(it);
+                    if (reply) reply(Answer { Answer::Kind::cancelled, nullptr });
+                    return true;
+                }
             }
+            return false;
+        };
+        if (take(deferred_)) return;
+        for (auto& [key, requests] : heldRequests_) {
+            if (take(requests)) return;
         }
         for (const auto& [engineId, request] : pending_) {
             if (request.purpose == Purpose::client && request.clientId == clientRequestId) {
@@ -826,9 +835,15 @@ private:
         return true;
     }
 
+    // clangd will not answer: every request waiting for it -- before it accepted traffic, or on a held
+    // file -- is answered unavailable, so routing gives it to the next engine instead of leaving it.
     void flush_deferred_without_engine_() {
         std::vector<std::pair<Json, Reply>> toFlush;
         toFlush.swap(deferred_);
+        for (auto& [key, requests] : heldRequests_) {
+            for (auto& request : requests) toFlush.push_back(std::move(request));
+        }
+        heldRequests_.clear();
         for (auto& [message, reply] : toFlush) {
             if (reply) reply(Answer {});
         }
