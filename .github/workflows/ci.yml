@@ -46,20 +46,25 @@ jobs:
   # gateway against a mock provider (tools/model-gateway/README.md "Tests") -- so the gateway is
   # built and tested on each host's openkal target here, with no job of its own.
   build-test:
-    name: build and unit tests (${{ matrix.os }})
+    name: build and unit tests (${{ matrix.os }}, ${{ matrix.profile }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
+        # Each host's dev and release profiles side by side: the two share no build, so one
+        # machine running them in turn only added their times.
         include:
-          - { os: ubuntu-24.04, target: '' }
+          - { os: ubuntu-24.04, target: '', profile: dev }
+          - { os: ubuntu-24.04, target: '', profile: release }
           # A macOS host resolves the Apple-native triple by default; openkal's
           # macOS implementation is reached through aarch64-macos.
-          - { os: macos-14, target: '--target aarch64-macos' }
+          - { os: macos-14, target: '--target aarch64-macos', profile: dev }
+          - { os: macos-14, target: '--target aarch64-macos', profile: release }
           # A Windows host defaults to the MSVC target; openkal's Windows
           # implementation is reached through the GNU target.
-          - { os: windows-2022, target: '--target x86_64-windows-gnu' }
+          - { os: windows-2022, target: '--target x86_64-windows-gnu', profile: dev }
+          - { os: windows-2022, target: '--target x86_64-windows-gnu', profile: release }
     defaults:
       run:
         shell: bash
@@ -67,10 +72,12 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
       - name: Build
+        if: matrix.profile == 'dev'
         run: |
           mcpp build ${{ matrix.target }}
           mcpp build -p devtools ${{ matrix.target }}
       - name: Executables run
+        if: matrix.profile == 'dev'
         run: |
           set -euo pipefail
           for exe in mcppls mcppls-conformance mcppls-lspgen mcppls-devtools; do
@@ -79,12 +86,14 @@ jobs:
             if [ "$exe" = mcppls-devtools ]; then "$path" --help > /dev/null; else "$path" version; fi
           done
       - name: Unit tests
+        if: matrix.profile == 'dev'
         run: |
           mcpp test ${{ matrix.target }}
           mcpp test --workspace ${{ matrix.target }}
       # The payloads ship release builds, and every release-only defect found so
       # far (design 12.9, K7 and K13) was invisible to the dev profile.
       - name: Unit tests (release)
+        if: matrix.profile == 'release'
         run: |
           mcpp test --profile release ${{ matrix.target }}
           mcpp test --workspace --profile release ${{ matrix.target }}
@@ -93,7 +102,7 @@ jobs:
       # packaging, no script outside the allowlist -- and the server's own symbol table carries no
       # archive or TLS code, which is the one of these a green build cannot show.
       - name: Repository invariants
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.profile == 'dev'
         run: |
           set -euo pipefail
           devtools=$(find tools/devtools/target -type f -name mcppls-devtools -path '*/bin/*' | head -1)
@@ -101,7 +110,7 @@ jobs:
           "$devtools" check all
           "$devtools" check binary --server "$server"
       - name: Generated protocol is fresh
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.profile == 'dev'
         run: |
           mcpp run mcppls-lspgen -- generate --meta-model vendor/lsp-metamodel/metaModel-3.18.json --out src/lsp
           git diff --exit-code src/lsp
@@ -243,7 +252,7 @@ jobs:
   # ---------------------------------------------------------------------------
   # The specifications' executable part, against real toolchains (conformance/README.md).
   conformance:
-    name: conformance (${{ matrix.platform }})
+    name: conformance (${{ matrix.platform }}${{ matrix.part && format(', {0}', matrix.part) || '' }})
     needs: payload
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
@@ -251,15 +260,31 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Linux and Windows run their fixtures in two parts side by side, balanced on measured
+          # times. `extras` marks the part that also runs the job's other checks (review fixtures,
+          # startup timing, the cached model, a linked workspace), which need running only once.
           - platform: linux-x64
+            part: 1 of 2
             os: ubuntu-24.04
-            fixtures: inferred engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-llvm mcpp-split mcpp-split-gcc mcpp-all-cppm verify-changes mcpp-watch mcpp-watch@polling mcpp-emit mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-watch mcpp-emit-watch@polling mingw cmake-clang cmake-clang-bdb s1-two-sets watch-polling payload-corrupt multi-root
+            fixtures: mcpp-split mcpp-all-cppm verify-changes mingw mcpp-split-gcc mcpp-watch multi-root mcpp-llvm mcpp-watch@polling mcpp-emit s1-two-sets
+          - platform: linux-x64
+            part: 2 of 2
+            os: ubuntu-24.04
+            extras: true
+            fixtures: inferred engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-watch mcpp-emit-watch@polling cmake-clang cmake-clang-bdb watch-polling payload-corrupt
           - platform: darwin-arm64
             os: macos-14
+            extras: true
             fixtures: inferred engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-all-cppm verify-changes mcpp-watch multi-root
           - platform: win32-x64
+            part: 1 of 2
             os: windows-2022
-            fixtures: inferred engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-msvc-std cmake-clangxx-msvc cmake-clang-cl compdb-clangxx-msvc-std compdb-clang-cl-std mcpp-msvc mcpp-llvm-msvc mcpp-split mcpp-split-msvc mcpp-all-cppm verify-changes mcpp-watch multi-root
+            fixtures: mcpp-split mcpp-all-cppm verify-changes mcpp-split-msvc cmake-msvc-std compdb-clangxx-msvc-std multi-root compdb-clang-cl-std mcpp-llvm-msvc
+          - platform: win32-x64
+            part: 2 of 2
+            os: windows-2022
+            extras: true
+            fixtures: inferred engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-clangxx-msvc cmake-clang-cl mcpp-msvc mcpp-watch
     defaults:
       run:
         shell: bash
@@ -405,6 +430,7 @@ jobs:
       # reviewed by the payload's server; a missing finding or one a fixture rules out fails the job, and
       # the precision and recall of each rule are printed.
       - name: Review fixtures
+        if: matrix.extras
         run: |
           set -euo pipefail
           exe=''; [ "$RUNNER_OS" = Windows ] && exe='.exe'
@@ -420,7 +446,7 @@ jobs:
       # before the producer has said anything, and only then confirms it. The check reads which of
       # the two the session started from, so "it felt fast" is not the evidence.
       - name: The cached model is what the next session starts from
-        if: runner.os == 'Linux'
+        if: matrix.extras && runner.os == 'Linux'
         run: |
           set -euo pipefail
           cached="$RUNNER_TEMP/cached"
@@ -434,6 +460,7 @@ jobs:
           start --expect-warm
 
       - name: Cold and warm start
+        if: matrix.extras
         run: |
           set -euo pipefail
           exe=''; [ "$RUNNER_OS" = Windows ] && exe='.exe'
@@ -447,7 +474,7 @@ jobs:
           start --measure "$timing/warm.json" --navigation-budget 5 --expect-warm
           cat "$timing/cold.json" "$timing/warm.json"
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: always() && matrix.extras
         with:
           name: timing-${{ matrix.platform }}
           path: ${{ runner.temp }}/timing/*.json
@@ -458,7 +485,7 @@ jobs:
       # resolved path, and an unsaved edit must still reach the modules that
       # import it (check C7).
       - name: A workspace reached through a symbolic link
-        if: runner.os == 'Linux'
+        if: matrix.extras && runner.os == 'Linux'
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/real"
@@ -612,6 +639,11 @@ jobs:
           tar -xzf payload-${{ matrix.platform }}.tar.gz
           stage/mcppls-devtools${{ matrix.exe }} extension --editor vscode \
               --payload "$PWD/payload" --out "$PWD/editors/vscode/mcppls-${{ matrix.platform }}.vsix"
+      # The extension's own logic that needs no VS Code (src/serverLog.ts), in plain Node: a
+      # regression there reads here in seconds, before the end-to-end suites.
+      - name: Unit tests
+        working-directory: editors/vscode
+        run: npm run test:unit
       - name: End-to-end tests (VSIX form)
         working-directory: editors/vscode
         env:
@@ -651,3 +683,41 @@ jobs:
         run: mcpp toolchain install gcc 16.1.0
       - name: Validate every task's baseline/reference pair
         run: mcpp run -p devtools -- bench tasks validate
+
+  # ---------------------------------------------------------------------------
+  # A pull request that changes release packaging is checked the way a release is: after every job
+  # above has passed, release-checks.yml runs on this run's own payloads and VSIX files. It used to
+  # be prerelease.yml on its own trigger, which ran all of CI a second time for the same commit.
+  # The paths are the ones that decide what a release builds, stages or checks.
+  packaging-changes:
+    name: does the pull request change release packaging
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.files.outputs.changed }}
+    steps:
+      # The merge commit and its first parent, the base it merges into: their difference is what
+      # the pull request changes, with no API call and no permission beyond reading the repository.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - id: files
+        run: |
+          set -euo pipefail
+          changed=false
+          while read -r file; do
+            case "$file" in
+              .github/workflows/release.yml|.github/workflows/prerelease.yml|.github/workflows/release-checks.yml|\
+              packaging/release.manifest.json|editors/zed/*|editors/clion/*|\
+              tools/devtools/src/editors.*|tools/devtools/src/packaging.*|tools/devtools/src/release.*)
+                echo "release packaging: $file"; changed=true ;;
+            esac
+          done < <(git diff --name-only HEAD^1 HEAD)
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+  release-checks:
+    name: release checks
+    needs: [packaging-changes, specifications, build-test, cross-build, payload, conformance, clean-machine, vscode-e2e, bench-validate]
+    if: needs.packaging-changes.outputs.changed == 'true'
+    uses: ./.github/workflows/release-checks.yml

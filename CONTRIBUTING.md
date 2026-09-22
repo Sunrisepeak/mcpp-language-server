@@ -78,13 +78,13 @@ python3 -m venv .venv && .venv/bin/pip install --quiet 'jsonschema>=4.18'
 
 ## Versions
 
-The product version lives in `mcpp.toml`; every other site (`modules/base/src/version.cppm`, the extension's
-`package.json`, the clangd and kit versions the server expects) is derived or checked from it, never
+The product version lives in `mcpp.toml`; every other site (`modules/base/src/version.cppm`, every editor
+plugin's manifest, the clangd and kit versions the server expects) is derived or checked from it, never
 edited by hand:
 
 ```bash
 mcpp run -p devtools -- version --check       # CI runs this (as part of `check all`)
-mcpp run -p devtools -- version --set 2026.9.16.1
+mcpp run -p devtools -- version --set 0.0.2
 ```
 
 ## Code shape

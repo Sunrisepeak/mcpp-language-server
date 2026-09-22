@@ -191,4 +191,16 @@ suite('C++ modules through mcppls', function () {
             assert.strictEqual(languageStatusItemCount, 1, `languageStatusItemCount was ${languageStatusItemCount}`);
         }
     });
+
+    // The server logs to stderr, `[info]` for a healthy start. vscode-languageclient writes every
+    // stderr line as an error unless told otherwise, which made this very session read as a wall of
+    // errors; the lines must arrive at the level the server gave them.
+    test('the server log reaches the output at its own level, and a working session has no errors', async () => {
+        const info = api.serverLogLineCount('info');
+        const warning = api.serverLogLineCount('warning');
+        const error = api.serverLogLineCount('error');
+        console.log(`server log lines: ${info} info, ${warning} warning, ${error} error`);
+        assert.ok(info > 0, 'no server line was written at info level');
+        assert.strictEqual(error, 0, `${error} server line(s) were written at error level in a session with nothing wrong`);
+    });
 });

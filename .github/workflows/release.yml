@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release, e.g. 2026.9.16.1 (the tag becomes v<version>)'
+        description: 'Version to release, e.g. 0.0.2 (the tag becomes v<version>)'
         required: true
       draft:
         description: 'Publish as a draft (uncheck to publish immediately)'

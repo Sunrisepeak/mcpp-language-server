@@ -47,9 +47,9 @@ Download from the [release page](https://github.com/Sunrisepeak/mcpp-language-se
 
 | Editor | Asset | Install |
 |---|---|---|
-| VS Code | `mcppls-<platform>.vsix` | `code --install-extension mcppls-<platform>.vsix` |
+| VS Code | the [Marketplace](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcppls), or `mcppls-<platform>.vsix` | search *C++ Modules (mcppls)*, or `code --install-extension mcppls-<platform>.vsix` |
 | Zed, CLion | `mcppls-zed-<version>.tar.gz`, `mcppls-clion-<version>.zip` | see [docs/00-install.md](docs/00-install.md) |
-| Any other LSP client | `payload-<platform>.tar.gz` | unpack, put its `bin/` on `PATH`, run `mcppls serve` |
+| Any other LSP client | `payload-<platform>.tar.gz` | unpack, put its `payload/bin/` on `PATH`, run `mcppls serve` |
 
 ### From source
 

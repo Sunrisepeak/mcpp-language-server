@@ -139,6 +139,8 @@ std::string module_path(const std::string& root) { return base::join_path(root, 
 std::string extension_manifest_path(const std::string& root) { return base::join_path(root, "editors/vscode/package.json"); }
 std::string zed_manifest_path(const std::string& root) { return base::join_path(root, "editors/zed/extension.toml"); }
 std::string clion_properties_path(const std::string& root) { return base::join_path(root, "editors/clion/gradle.properties"); }
+std::string claude_plugin_path(const std::string& root) { return base::join_path(root, "editors/claude-code/mcppls-lsp/.claude-plugin/plugin.json"); }
+std::string claude_marketplace_path(const std::string& root) { return base::join_path(root, "editors/claude-code/.claude-plugin/marketplace.json"); }
 std::string versions_env_path(const std::string& root) { return base::join_path(root, ".github/versions.env"); }
 std::string payload_lock_path(const std::string& root) { return base::join_path(root, "packaging/payload.lock.json"); }
 std::string kit_module_path(const std::string& root) { return base::join_path(root, "src/spec/kit.cppm"); }
@@ -176,6 +178,15 @@ base::Result<std::string> clion_plugin_version(const std::string& root, std::opt
         return std::string { *next };
     }
     return std::string { base::trim(text->substr(span->first, span->second - span->first)) };
+}
+
+base::Result<std::string> claude_plugin_version(const std::string& root, std::optional<std::string_view> next) {
+    return read_quoted_site(claude_plugin_path(root), "  \"version\"", false, "version field", next);
+}
+
+// The plugin's entry in the marketplace: the one plugin, so the one `version` at its indent.
+base::Result<std::string> claude_marketplace_version(const std::string& root, std::optional<std::string_view> next) {
+    return read_quoted_site(claude_marketplace_path(root), "      \"version\"", false, "plugin version field", next);
 }
 
 base::Result<McppVersions> mcpp_versions(const std::string& root) {
@@ -233,21 +244,17 @@ base::Result<KitVersions> kit_versions(const std::string& root) {
 
 base::Result<std::string> extension_version(std::string_view product) {
     const auto parts = base::split(product, '.');
-    auto all_digits = [](std::string_view s) {
-        return !s.empty() && std::ranges::all_of(s, [](char c) { return c >= '0' && c <= '9'; });
+    // Digits only, and no leading zero but in `0` itself -- semantic versioning's own rule, which
+    // vsce enforces when it packages.
+    auto numeric = [](std::string_view s) {
+        return !s.empty() && std::ranges::all_of(s, [](char c) { return c >= '0' && c <= '9'; })
+            && (s.size() == 1 || s.front() != '0');
     };
-    if (parts.size() == 4 && std::ranges::all_of(parts, all_digits)) {
-        const int year { std::stoi(std::string { parts[0] }) };
-        const int month { std::stoi(std::string { parts[1] }) };
-        const int day { std::stoi(std::string { parts[2] }) };
-        const int ordinal { std::stoi(std::string { parts[3] }) };
-        return std::format("{}.{}.{}", year, month * 100 + day, ordinal);
-    }
-    if (parts.size() == 3 && std::ranges::all_of(parts, all_digits)) {
+    if (parts.size() == 3 && std::ranges::all_of(parts, numeric)) {
         return std::string { product };
     }
     return base::fail("version-shape",
-                      std::format("'{}' is neither YYYY.M.D.N nor a three-part semantic version", product));
+                      std::format("'{}' is not a three-part semantic version MAJOR.MINOR.PATCH (e.g. 0.0.1)", product));
 }
 
 namespace {
@@ -304,6 +311,20 @@ base::Result<std::vector<std::string>> check(const std::string& root) {
         problems.push_back(std::format("editors/clion/gradle.properties says '{}', mcpp.toml says '{}'", *clionV, *product));
     }
 
+    auto claudeV = claude_plugin_version(root);
+    if (!claudeV) return std::unexpected { claudeV.error() };
+    if (*claudeV != *wanted) {
+        problems.push_back(std::format("editors/claude-code/mcppls-lsp/.claude-plugin/plugin.json says '{}', mcpp.toml says '{}'",
+                                        *claudeV, *product));
+    }
+
+    auto marketplaceV = claude_marketplace_version(root);
+    if (!marketplaceV) return std::unexpected { marketplaceV.error() };
+    if (*marketplaceV != *wanted) {
+        problems.push_back(std::format("editors/claude-code/.claude-plugin/marketplace.json says '{}', mcpp.toml says '{}'",
+                                        *marketplaceV, *product));
+    }
+
     auto mcppV = mcpp_versions(root);
     if (!mcppV) return std::unexpected { mcppV.error() };
     if (!mcppV->minimum) {
@@ -341,6 +362,8 @@ base::Result<std::string> set_everywhere(const std::string& root, std::string_vi
     if (auto r = extension_manifest_version(root, *wanted); !r) return std::unexpected { r.error() };
     if (auto r = zed_manifest_version(root, *wanted); !r) return std::unexpected { r.error() };
     if (auto r = clion_plugin_version(root, product); !r) return std::unexpected { r.error() };
+    if (auto r = claude_plugin_version(root, *wanted); !r) return std::unexpected { r.error() };
+    if (auto r = claude_marketplace_version(root, *wanted); !r) return std::unexpected { r.error() };
     return *wanted;
 }
 
@@ -361,7 +384,7 @@ int command_version(const cmdline::ParsedArgs& arguments) {
             std::println(std::cerr, "mcppls-devtools: {}", wanted.error().message);
             return 1;
         }
-        std::println("version: set to {} (vscode/zed {}, clion {})", *set, *wanted, *set);
+        std::println("version: set to {} in mcpp.toml, the server and every editor plugin", *wanted);
         return 0;
     }
     if (arguments.is_flag_set("check")) {
@@ -416,7 +439,7 @@ cmdline::App version_command(bool& handled, int& status) {
     cmdline::App command { "version" };
     (void) command.description("The product version: print it, check every derived site, or set it everywhere");
     (void) command.option("print").help("Print the product version");
-    (void) command.option("extension").help("With --print: the version the VS Code / Zed extension carries");
+    (void) command.option("extension").help("With --print: the version the editor plugins carry, which is the product version");
     (void) command.option("check").help("Every derived site agrees, or say which does not");
     (void) command.option("set").takes_value().value_name("VERSION").help("Write this version everywhere");
     (void) command.action([&handled, &status](const cmdline::ParsedArgs& arguments) {

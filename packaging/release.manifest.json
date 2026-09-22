@@ -21,7 +21,7 @@
       "per-platform": true,
       "required": true,
       "what": "The server, the clangd it drives and the semantic kit, as one tree. What every non-VS-Code editor needs",
-      "install": "Unpack it and put `bin/` on PATH; `mcppls serve` speaks LSP over stdio"
+      "install": "Unpack it and put `payload/bin/` on PATH; `mcppls serve` speaks LSP over stdio"
     },
     {
       "id": "zed",
@@ -29,7 +29,7 @@
       "per-platform": false,
       "required": true,
       "what": "The Zed extension directory `mcppls-zed/`: extension.toml, the compiled extension.wasm and the crate it was compiled from, which Zed's dev-extension install compiles again. Platform-independent; the server comes from the payload",
-      "install": "Unpack it, put the payload's `bin/` on PATH, then Zed's command palette: `zed: install dev extension`, and choose `mcppls-zed` (Zed compiles it, which needs Rust through rustup)"
+      "install": "Unpack it, put the payload's `payload/bin/` on PATH, then Zed's command palette: `zed: install dev extension`, and choose `mcppls-zed` (Zed compiles it, which needs Rust through rustup)"
     },
     {
       "id": "clion",
@@ -37,7 +37,7 @@
       "per-platform": false,
       "required": true,
       "what": "The IntelliJ-platform plugin archive Gradle produces. Gradle and the JDK it compiles with come from the `clion` feature (xim:gradle, xim:jdk-temurin), so it does not depend on whatever JDK the machine happens to default to",
-      "install": "Put the payload's `bin/` on PATH, then CLion: Settings → Plugins → the gear menu → *Install Plugin from Disk*, and restart"
+      "install": "Put the payload's `payload/bin/` on PATH, then CLion: Settings → Plugins → the gear menu → *Install Plugin from Disk*, and restart"
     },
     {
       "id": "checksums",

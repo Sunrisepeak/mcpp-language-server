@@ -34,7 +34,7 @@ libarchive = "3.8.7"
 
 [package]
 name        = "mcpp-language-server"
-version     = "2026.9.22.1"
+version     = "0.0.1"
 description = "Compiler-agnostic C++ modules language server"
 license     = "Apache-2.0"
 authors     = ["Sunrisepeak"]
@@ -116,3 +116,12 @@ clion = {}
 
 [feature-xlings.clion]
 "xim:gradle" = { version = "", when = "dev" }
+
+# The built-in release profile (-O2, no -g), plus -s: the executables ship without their symbol
+# table, 1.3 MB less per platform. Nothing in the server symbolizes its own stack, so nothing reads
+# it; a crash is reproduced from a local build. Restated whole because a [profile.<built-in>]
+# replaces the built-in rather than adding to it.
+[profile.release]
+opt   = 2
+debug = false
+strip = true

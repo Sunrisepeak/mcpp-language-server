@@ -13,7 +13,7 @@
 | `mcppls.engine` | `clangd`（默认）, `none` | 核心引擎。无论如何，mcppls 自己的模块引擎都会运行；`none` 表示只提供模块相关功能 |
 | `mcppls.ai.enabled` | `false`（默认） | 是否启用变更审查里依赖模型的那部分。关闭时服务端不发起任何模型调用 |
 | `mcppls.detectConflicts` | `true`（默认） | 在此工作区中提议关闭另一个 C++ 扩展的语言功能（只提议一次） |
-| `mcppls.trace.server` | `off`（默认）, `messages`, `verbose` | 把 LSP 通信记录到 C++ Modules 输出通道 |
+| `mcppls.trace.server` | `off`（默认）, `messages`, `verbose` | 把 LSP 通信记录到 C++ Modules 输出通道（Trace 级别）；`verbose` 还会打开服务端的 debug 日志（Debug 级别）。要看到它们，需把该输出通道的日志级别调到对应级别 |
 
 ## 命令
 

@@ -11,7 +11,7 @@
 | `mcppls.engine` | `clangd` (default), `none` | The core engine. mcppls's own module engine runs either way; `none` means module features only |
 | `mcppls.ai.enabled` | `false` (default) | Whether the model-backed half of change review may be used. Off means the server makes no model calls |
 | `mcppls.detectConflicts` | `true` (default) | Offer once to turn off another C++ extension's language features in this workspace |
-| `mcppls.trace.server` | `off` (default), `messages`, `verbose` | Log the LSP traffic to the C++ Modules output channel |
+| `mcppls.trace.server` | `off` (default), `messages`, `verbose` | Log the LSP traffic to the C++ Modules output channel (at Trace level); `verbose` adds the server's debug log (at Debug level). Set the channel's log level to see them |
 
 ## Commands
 

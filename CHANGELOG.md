@@ -4,15 +4,15 @@ Notable changes to mcpp-language-server. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); each release is one dated section, and a
 release's notes are that section.
 
-Versions are dates, `YYYY.M.D.N`, as everywhere in the mcpp and xlings ecosystem. The VS Code
-extension carries the same version mapped to the three parts the Marketplace accepts
-(`2026.9.16.1` becomes `2026.916.1`).
+Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
+product version unchanged.
 
-## [2026.9.22.1] — 2026-09-22
+## [0.0.1] — 2026-09-22
 
 The first public release. Every artifact is a file on the GitHub release page; its `MANIFEST.md` says
-what each one is and how to install it, and `SHA256SUMS` covers them all. Nothing is on the VS Code
-Marketplace, Open VSX or the xlings index yet.
+what each one is and how to install it, and `SHA256SUMS` covers them all. The VS Code extension is
+also on the VS Code Marketplace as `sunrisepeak.mcppls`; nothing is on Open VSX or the xlings index
+yet.
 
 ### Module semantics on any compiler
 
@@ -57,6 +57,8 @@ server process itself.
 - Built from source, every plugin is one command: `mcpp run -p devtools -- extension --editor
   vscode|zed|clion --install`, and `uninstall` to remove it. Zed's recommended last step stays its
   own palette action (`--link` does it from the command line).
+- The VS Code extension writes the server's log at the level of each line; a healthy start is no
+  longer shown as errors.
 
 ### Specifications
 

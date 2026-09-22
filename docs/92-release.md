@@ -1,8 +1,9 @@
 # Making a release
 
 > Releases are published on this repository's GitHub release page. The VS Code Marketplace, Open VSX
-> and the xlings index are separate channels with their own credentials, not published to yet; see
-> [91-naming.md](91-naming.md) for the identifiers each would use.
+> and the xlings index are separate channels with their own credentials; the Marketplace is published
+> to by hand (below), the other two not yet. [91-naming.md](91-naming.md) has the identifiers each
+> uses.
 
 ## Versions
 
@@ -11,16 +12,19 @@ or checked by one command:
 
 ```bash
 mcpp run -p devtools -- version --check          # every site agrees
-mcpp run -p devtools -- version --set 2026.9.16.1
+mcpp run -p devtools -- version --set 0.0.2
 ```
 
-It keeps four things in step: `mcpp.toml`, the constant the running binary reports
-(`modules/base/src/version.cppm`), the VS Code extension's version, and the clangd and kit versions the
-server states against the ones the payload is actually built from.
+It keeps these in step: `mcpp.toml`, the constant the running binary reports
+(`modules/base/src/version.cppm`), the version of every editor plugin (VS Code, Zed, CLion and the
+Claude Code plugin with its marketplace entry), and the clangd and kit versions the server states
+against the ones the payload is actually built from.
 
-The ecosystem versions by date, `YYYY.M.D.N`, and the version is the day it is released — if a
-release slips, the number slips with it. The VS Code Marketplace takes only three-part versions, so
-the extension's is derived mechanically: `2026.9.16.1` becomes `2026.916.1`.
+The version is a three-part semantic version, `MAJOR.MINOR.PATCH`, starting at `0.0.1`, and every
+plugin carries it unchanged — three parts is the one shape the VS Code Marketplace, Open VSX, Zed
+and JetBrains all accept. `version --set` refuses anything else, a four-part date version included.
+A marketplace only takes a version higher than every one it has seen, so a version, once published
+anywhere, is never used again.
 
 The versions CI *builds with* are a different thing and live in `.github/versions.env`.
 
@@ -48,7 +52,7 @@ Everything is one manual run. **Actions → Release → Run workflow**, and give
 
 | Input | Meaning |
 |---|---|
-| `version` | e.g. `2026.9.16.1`. The tag `v<version>` is created by the run |
+| `version` | e.g. `0.0.2`. The tag `v<version>` is created by the run |
 | `draft` | on by default — the release is staged for you to look at before anyone sees it |
 | `prerelease` | on by default; turn it off for a stable release |
 
@@ -67,9 +71,11 @@ create the tag and publish the staged candidate, file for file.
 
 ## The pre-release test
 
-`.github/workflows/prerelease.yml` is a release without the publishing. It runs by itself on a
-`v<version>-rc<n>` tag, weekly on `main`, and on any pull request that changes release packaging, and
-Release runs it first. Its jobs, each on Linux, macOS and Windows unless noted:
+`.github/workflows/prerelease.yml` is a release without the publishing: all of `ci.yml`, then
+`.github/workflows/release-checks.yml` on the artifacts that run built. It runs by itself on a
+`v<version>-rc<n>` tag and weekly on `main`, and Release runs it first. A pull request that changes
+release packaging gets the same release checks from CI itself, after CI's own jobs pass, so CI does
+not run twice for it. Its jobs, each on Linux, macOS and Windows unless noted:
 
 | Job | Passes when |
 |---|---|
@@ -101,8 +107,16 @@ Do not trust what the build said; recompute it from what the public can actually
 Record the result on the release's tracking issue, including what failed and what had to be
 finished by hand. It is how the next person finds out what actually happens.
 
+## The VS Code Marketplace
+
+Not part of the workflow yet: after the release is published, the three `mcppls-<platform>.vsix`
+files are uploaded to the publisher `sunrisepeak`, by `npx @vscode/vsce publish --packagePath
+<the three files>` or one at a time on the publisher's management page (the first as a new
+extension, the others with *Update*). A version is published once: the Marketplace takes only a
+version higher than every one it has had.
+
 ## Not here yet
 
-The Marketplace, Open VSX and the xlings index each need their own credentials and a publish step
-in the release workflow. `mcppls-devtools release xlings` already produces the xlings package
+Open VSX and the xlings index each need their own credentials and a publish step in the release
+workflow, and so would publishing to the Marketplace from the workflow. `mcppls-devtools release xlings` already produces the xlings package
 descriptors; the index pull request and the other two channels are still to be added.

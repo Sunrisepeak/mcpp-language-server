@@ -2,7 +2,7 @@
 
 [English](../92-release.md) | **简体中文**
 
-> release 发布在本仓库的 GitHub release 页面。VS Code Marketplace、Open VSX 和 xlings 索引是各自独立的渠道，有自己的凭证，目前还没有开始发布；每个渠道会用到的标识符见 [91-naming.md](91-naming.md)。
+> release 发布在本仓库的 GitHub release 页面。VS Code Marketplace、Open VSX 和 xlings 索引是各自独立的渠道，有自己的凭证；Marketplace 目前手动发布（见下文），另外两个还没有开始。每个渠道用到的标识符见 [91-naming.md](91-naming.md)。
 
 ## 版本号
 
@@ -10,12 +10,12 @@
 
 ```bash
 mcpp run -p devtools -- version --check          # 检查各处版本一致
-mcpp run -p devtools -- version --set 2026.9.16.1
+mcpp run -p devtools -- version --set 0.0.2
 ```
 
-这条命令让四处保持一致：`mcpp.toml`、运行中的二进制文件报出的常量（`modules/base/src/version.cppm`）、VS Code 扩展的版本号，以及服务端声明的 clangd 和 kit 版本与 payload 实际构建所用版本的对应关系。
+这条命令让这些地方保持一致：`mcpp.toml`、运行中的二进制文件报出的常量（`modules/base/src/version.cppm`）、每个编辑器插件的版本号（VS Code、Zed、CLion，以及 Claude Code 插件和它在 marketplace 里的条目），以及服务端声明的 clangd 和 kit 版本与 payload 实际构建所用版本的对应关系。
 
-整个生态按日期编版本号，格式 `YYYY.M.D.N`，版本号就是发布那天——release 延期，版本号跟着延。VS Code Marketplace 只接受三段式版本号，所以扩展的版本号是机械换算出来的：`2026.9.16.1` 变成 `2026.916.1`。
+版本号是三段式的语义化版本 `MAJOR.MINOR.PATCH`，从 `0.0.1` 开始，每个插件都原样使用它——三段式是 VS Code Marketplace、Open VSX、Zed 和 JetBrains 都接受的唯一格式。`version --set` 会拒绝其他格式，包括四段式的日期版本。应用市场只接受比已发布过的版本更高的版本号，所以一个版本号只要在任何地方发布过，就不再重复使用。
 
 CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里。
 
@@ -39,7 +39,7 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 
 | 输入 | 含义 |
 |---|---|
-| `version` | 例如 `2026.9.16.1`。这次运行会创建标签 `v<version>` |
+| `version` | 例如 `0.0.2`。这次运行会创建标签 `v<version>` |
 | `draft` | 默认开启——release 先暂存着，供你在别人看到之前先看一遍 |
 | `prerelease` | 默认开启；正式发布时关掉 |
 
@@ -53,7 +53,7 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 
 ## pre-release 测试
 
-`.github/workflows/prerelease.yml` 就是一次不发布的 release。它会在打上 `v<version>-rc<n>` 标签时自己触发，在 `main` 上每周跑一次，在改动 release 打包方式的任何 pull request 上也会跑，Release 本身也会先跑它。它的各个 job，除非另有说明，都会在 Linux、macOS、Windows 三个平台各跑一遍：
+`.github/workflows/prerelease.yml` 就是一次不发布的 release：先跑完整的 `ci.yml`，再用这次运行构建出的产物跑 `.github/workflows/release-checks.yml`。它会在打上 `v<version>-rc<n>` 标签时自己触发，在 `main` 上每周跑一次，Release 本身也会先跑它。改动 release 打包方式的 pull request，由 CI 在自己的 job 全部通过后接着跑同样的 release 检查，CI 不会因此跑两遍。它的各个 job，除非另有说明，都会在 Linux、macOS、Windows 三个平台各跑一遍：
 
 | Job | 通过条件 |
 |---|---|
@@ -83,6 +83,10 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 
 把结果记到这次发布的 tracking issue 上，包括哪里失败了、哪些是手动补完的。后续发布者依靠这些记录了解实际情况。
 
+## VS Code Marketplace
+
+目前不在 workflow 里：release 发布之后，把三个 `mcppls-<platform>.vsix` 上传到 publisher `sunrisepeak`，可以用 `npx @vscode/vsce publish --packagePath <三个文件>`，也可以在 publisher 管理页面上逐个上传（第一个用新建扩展，其余用 *Update*）。一个版本号只发布一次：Marketplace 只接受比它见过的所有版本都高的版本号。
+
 ## 还没做的
 
-Marketplace、Open VSX 和 xlings 索引都还需要各自的凭证，以及 release workflow 里的一个发布步骤。`mcppls-devtools release xlings` 已经能生成 xlings 的包描述文件；提交到索引的 pull request，以及另外两个渠道，都还没加上。
+Open VSX 和 xlings 索引都还需要各自的凭证，以及 release workflow 里的一个发布步骤；从 workflow 里直接发布到 Marketplace 也一样。`mcppls-devtools release xlings` 已经能生成 xlings 的包描述文件；提交到索引的 pull request，以及另外两个渠道，都还没加上。

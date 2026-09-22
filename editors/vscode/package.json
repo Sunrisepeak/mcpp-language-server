@@ -2,7 +2,7 @@
   "name": "mcppls",
   "displayName": "C++ Modules (mcppls)",
   "description": "C++20/23 named modules that just work: go to definition, completion, hover and references across modules for any compiler, with clangd and a standard library kit built in.",
-  "version": "2026.922.1",
+  "version": "0.0.1",
   "publisher": "sunrisepeak",
   "license": "Apache-2.0",
   "repository": {
@@ -165,7 +165,7 @@
             "verbose"
           ],
           "default": "off",
-          "description": "Traces the communication between VS Code and the language server in the C++ Modules output."
+          "description": "Traces the communication between VS Code and the language server in the C++ Modules output; `verbose` also turns on the server's debug log. The trace is written at Trace level and the debug log at Debug level, so set that output's log level to see them."
         },
         "mcppls.buildTool": {
           "type": "string",
@@ -237,6 +237,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "node ./out/test/runTest.js",
+    "test:unit": "mocha --ui tdd \"out/test/unit/**/*.test.js\"",
     "package": "vsce package"
   },
   "dependencies": {
