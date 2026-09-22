@@ -1098,6 +1098,11 @@ private:
             const std::string uri { host_->client_uri(params.value("uri", std::string {})) };
             const std::string diagnosedPath { host_->path_of_uri(uri) };
             const std::string diagnosedKey { diagnosedPath.empty() ? std::string {} : base::path_key(diagnosedPath) };
+            // A doomed file's diagnostics are mcppls's own (real-project plan RP1.1, design P1):
+            // mark_doomed_ already closed it in clangd, but a publish clangd had queued before that
+            // close can still arrive after, and would otherwise clobber the module-failed diagnostic
+            // with whatever clangd last computed for it -- usually empty, since it never got far.
+            if (!diagnosedKey.empty() && doomedFiles_.contains(diagnosedKey)) return;
             // A unit opened without the editor: its diagnostics are nobody's.
             if (const auto unit = background_.find(diagnosedKey); unit != background_.end() && !host_->has_document(uri)) {
                 if (!unit->second.built) {
