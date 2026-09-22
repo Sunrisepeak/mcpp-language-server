@@ -327,6 +327,24 @@ jobs:
           set -euo pipefail
           tar -xzf "$(find artifacts -name 'payload-linux-x64.tar.gz' | head -1)" stage/mcppls-devtools
           ./stage/mcppls-devtools --help > /dev/null
+      # The payload artifacts also carry this run's test tools (stage/: the conformance runner, the
+      # mocks, devtools) for the jobs above. A user's payload is the payload tree alone -- 3 to 10 MB
+      # less per platform, compressed.
+      - name: The payloads without the test tools
+        run: |
+          set -euo pipefail
+          for archive in release/payload-*.tar.gz; do
+            work=$(mktemp -d)
+            tar -xzf "$archive" -C "$work" payload
+            tar -czf "$archive" -C "$work" payload
+            rm -rf "$work"
+            # Listed to a file first: `grep -q` stopping early would fail tar under pipefail.
+            tar -tzf "$archive" > "$RUNNER_TEMP/listing"
+            if grep -qv '^payload/' "$RUNNER_TEMP/listing"; then
+              echo "::error::$archive carries more than the payload tree"; exit 1
+            fi
+            ls -l "$archive"
+          done
       # Every required asset present and non-empty, nothing shipped that the manifest does not
       # declare, and MANIFEST.md rendered from the same declaration.
       - name: Check against the release manifest
