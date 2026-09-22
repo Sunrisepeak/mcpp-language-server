@@ -46,7 +46,7 @@ Options that apply to every subcommand:
 | `--build-tool offline\|online\|off` | `offline` | The command-line spelling of `mcppls.buildTool` |
 | `--tool-environment auto\|editor` | `auto` | The command-line spelling of `mcppls.toolEnvironment` |
 | `--producer-timeout SECONDS` | 60, or 600 when online | How long the build tool may take to describe the project. Longer for a genuinely slow build; shorter to watch the bound work |
-| `--request-timeout SECONDS` | 60 | How long an engine request may take before it is answered without the engine |
+| `--request-timeout SECONDS` | 60 | How long an engine request may take before it is answered without the engine. A request a person waits for (hover, definition, completion and the like) waits at most 30 s in all, including while clangd starts or prepares its modules, and is then answered by mcppls's own engine |
 | `--untrusted` | — | Run no build tool and no compiler |
 | `--no-discover` | — | Do not look for compilers; loose sources use the semantic kit |
 | `--log-level debug\|info\|warning\|error` | `info` | |

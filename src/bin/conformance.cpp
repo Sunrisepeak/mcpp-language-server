@@ -276,6 +276,25 @@ std::map<std::string, std::string> module_files(const std::string& cacheDirector
     return files;
 }
 
+// The last lines of each log file the server wrote under its cache directory.
+void print_server_log_tail(const std::string& cacheDirectory) {
+    constexpr std::size_t LINES { 200 };
+    const std::string directory { base::join_path(cacheDirectory, "logs") };
+    auto files = fs::list_directory(directory);
+    std::ranges::sort(files);   // the names carry their start time: the newest last
+    // A run that reuses a cache directory finds every earlier run's log there too; the last few are this one's.
+    constexpr std::size_t FILES { 3 };
+    if (files.size() > FILES) files.erase(files.begin(), files.end() - static_cast<std::ptrdiff_t>(FILES));
+    for (const auto& file : files) {
+        const auto text = fs::read_file(file);
+        if (!text) continue;
+        const auto lines = base::split_lines(*text);
+        const std::size_t from { lines.size() > LINES ? lines.size() - LINES : 0 };
+        say("--- server log {} (last {} of {} lines)", base::file_name(file), lines.size() - from, lines.size());
+        for (std::size_t i { from }; i < lines.size(); ++i) say("  | {}", lines[i]);
+    }
+}
+
 class Client {
 private:
     std::unique_ptr<lsp::Connection> connection_;
@@ -593,7 +612,8 @@ bool includes(const Json& candidate, const Json& expected) {
 }
 
 // A fixture's expectations of a JSON result (conformance/README.md, S5 checks): each names a pointer and
-// one of equals, contains, min-items, max-items, exists or absent, and holds when any value the pointer names satisfies it.
+// one of equals, contains, min-items, max-items, exists or absent, and holds when any value the pointer names satisfies it --
+// except each-contains, which every value the pointer names must satisfy (and holds when it names none).
 std::pair<bool, std::string> expectations_hold(const Json& value, const Json& expectations) {
     for (const auto& expectation : expectations) {
         const std::string pointer { expectation.value("path", std::string {}) };
@@ -601,6 +621,9 @@ std::pair<bool, std::string> expectations_hold(const Json& value, const Json& ex
         bool held { false };
         if (expectation.contains("absent")) {
             held = matches.empty();
+        } else if (expectation.contains("each-contains")) {
+            const std::string wanted { expectation.value("each-contains", std::string {}) };
+            held = std::ranges::all_of(matches, [&](const Json* match) { return match->is_string() && match->get<std::string>().find(wanted) != std::string::npos; });
         } else if (expectation.contains("exists")) {
             held = !matches.empty();
         } else if (expectation.contains("equals")) {
@@ -1303,10 +1326,21 @@ public:
         }
         if (kind == "hover-contains") {
             open(file);
-            const std::string expected { check.value("expect", std::string {}) };
+            // `expect` is one text the hover must contain, or several of which any one will do -- for a
+            // check that accepts either an engine's answer or the server's own explanation of why it
+            // cannot answer yet.
+            std::vector<std::string> expected;
+            if (const auto it = check.find("expect"); it != check.end() && it->is_array()) {
+                for (const auto& one : *it) expected.push_back(one.get<std::string>());
+            } else {
+                expected.push_back(check.value("expect", std::string {}));
+            }
             auto [ok, result] = retry("textDocument/hover",
                 [&] { return Json { { "textDocument", Json { { "uri", uri(file) } } }, { "position", position(check.at("at")) } }; },
-                [&](const Json& value) { return hover_text(value).find(expected) != std::string::npos; });
+                [&](const Json& value) {
+                    const std::string text { hover_text(value) };
+                    return std::ranges::any_of(expected, [&](const std::string& one) { return text.find(one) != std::string::npos; });
+                });
             std::string text { hover_text(result) };
             return { ok, text.substr(0, std::min<std::size_t>(text.size(), 160)) };
         }
@@ -1753,6 +1787,9 @@ int run(Options options) {
         if (!began) ++failures;
     }
 
+    // A failure in CI leaves nothing behind but this output: the server's own log says what it was
+    // doing while a check waited, which the check's one line cannot. --verbose already printed it.
+    if (failures > 0 && !options.verbose) print_server_log_tail(cacheDirectory);
     say("{}: {} failure(s), {:.1f}s", name, failures, total);
     if (!options.measureFile.empty()) {
         // The timeline of usable plan W7: initialize, the first ready state, the first diagnostics, the first navigation.

@@ -34,6 +34,11 @@ public:
     virtual base::Result<void> send(const nlohmann::json& message) = 0;
     virtual void stop(std::chrono::milliseconds grace) = 0;
     virtual bool running() const = 0;
+    // Reads the CPU time the process has used so far (StuckWatch), where the platform can say; empty
+    // where it cannot. Self-contained: it may run on any thread, after this process has been stopped
+    // or restarted (a reading of a process that is gone is nullopt). It can take a while (ps(1) on
+    // macOS), so it is never run on the event loop.
+    virtual std::function<std::optional<double>()> cpu_reader() const { return {}; }
 };
 
 std::vector<std::string> clangd_arguments(const ProcessConfig& config);
@@ -68,6 +73,7 @@ public:
     base::Result<void> send(const nlohmann::json& message) override;
     void stop(std::chrono::milliseconds grace) override;
     bool running() const override;
+    std::function<std::optional<double>()> cpu_reader() const override;
 };
 
 } // namespace mcppls::engine::clangd

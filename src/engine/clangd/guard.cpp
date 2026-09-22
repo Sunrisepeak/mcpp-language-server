@@ -43,12 +43,13 @@ std::set<std::string> doomed_modules(const std::map<std::string, std::vector<std
 }
 
 Quarantine::Verdict Quarantine::timed_out(std::string_view uri, GuardClock::time_point sent, GuardClock::time_point now,
-                                         std::optional<GuardClock::time_point> lastAnswer) {
+                                         std::optional<GuardClock::time_point> lastAnswer, bool rebuilding) {
     while (!unanswered_.empty() && now - std::get<0>(unanswered_.front()) > STALL_WINDOW) unanswered_.pop_front();
     // A request sent before the file was set aside, timing out after: nothing new about the file, nor about clangd.
     if (contains(uri)) return Verdict::wait;
     if (lastAnswer && *lastAnswer >= sent) {
-        // clangd kept answering others while this file waited: the file is what is stuck.
+        // clangd kept answering others while this file waited: the file is what is stuck -- unless it is rebuilding.
+        if (rebuilding) return Verdict::wait;
         auto& entry = entries_[std::string { uri }];
         if (++entry.timeouts < TIMEOUTS_BEFORE_QUARANTINE) return Verdict::wait;
         put(uri, now);
@@ -58,6 +59,7 @@ Quarantine::Verdict Quarantine::timed_out(std::string_view uri, GuardClock::time
     std::set<std::string_view> files;
     for (const auto& [at, requested, file] : unanswered_) files.insert(file);
     if (files.size() >= 2) return Verdict::stalled;
+    if (rebuilding) return Verdict::wait;
     auto& entry = entries_[std::string { uri }];
     if (++entry.timeouts < TIMEOUTS_BEFORE_QUARANTINE) return Verdict::wait;
     put(uri, now);
@@ -124,6 +126,34 @@ std::vector<std::string> Quarantine::members() const {
         if (entry.until) files.push_back(uri);
     }
     return files;
+}
+
+void StuckWatch::suspect(GuardClock::time_point now, std::optional<double> cpuSeconds) {
+    if (since_ || !cpuSeconds) return;
+    since_.emplace(now, *cpuSeconds);
+}
+
+void StuckWatch::clear() { since_.reset(); }
+
+bool StuckWatch::watching() const { return since_.has_value(); }
+
+std::optional<GuardClock::time_point> StuckWatch::started() const {
+    if (!since_) return std::nullopt;
+    return since_->first;
+}
+
+std::optional<GuardClock::time_point> StuckWatch::due() const {
+    if (!since_) return std::nullopt;
+    return since_->first + window_;
+}
+
+StuckWatch::Verdict StuckWatch::check(GuardClock::time_point now, std::optional<double> cpuSeconds) {
+    if (!since_ || now < since_->first + window_) return {};
+    const auto since = std::exchange(since_, std::nullopt);
+    if (!cpuSeconds) return {};
+    const double seconds { std::chrono::duration<double>(now - since->first).count() };
+    const double used { std::max(0.0, *cpuSeconds - since->second) };
+    return Verdict { used < IDLE_SHARE * seconds, seconds, used };
 }
 
 LineLimiter::Decision LineLimiter::admit(GuardClock::time_point now) {

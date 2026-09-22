@@ -593,12 +593,18 @@ struct Workspace::Impl final : engine::Host {
     Json explain_if_preparing(const Job& job, Json result) const {
         if (!result.is_null() || job.method != "textDocument/hover" || coreEngine == nullptr) return result;
         const engine::EngineStatus core { coreEngine->status() };
-        if (core.toPrepare == 0 || core.prepared >= core.toPrepare) return result;
-        return Json { { "contents", Json { { "kind", "markdown" },
-                                           { "value", std::format("**mcppls** is still preparing modules ({}/{}).\n\n"
-                                                                  "Answers for this file need the modules it imports to be built "
-                                                                  "first. Try again shortly.",
-                                                                  core.prepared, core.toPrepare) } } } };
+        const bool preparing { core.toPrepare > 0 && core.prepared < core.toPrepare };
+        // The core engine is building what this file needs on its own, without preparation of ours to
+        // count (real-project plan RP1.1): a module it imports changed and is being compiled again.
+        // Silence would read as "nothing here"; this says to come back.
+        if (!preparing && !coreEngine->busy_with(job.path)) return result;
+        const std::string value { preparing
+            ? std::format("**mcppls** is still preparing modules ({}/{}).\n\n"
+                          "Answers for this file need the modules it imports to be built first. Try again shortly.",
+                          core.prepared, core.toPrepare)
+            : std::string { "**mcppls**: the modules this file imports are still being built.\n\n"
+                            "Answers for this file need them first. Try again shortly." } };
+        return Json { { "contents", Json { { "kind", "markdown" }, { "value", value } } } };
     }
 
     void finish_job(std::uint64_t jobId, Json result) {

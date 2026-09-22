@@ -207,6 +207,32 @@ What differs from §5, on purpose:
   Measured on `real-xlings` (a cold start preparing ~110 modules): p90 0.8 s, one definition past
   15 s. The real-project fixtures therefore budget p90 ≤ 3 s and "no request outlives the server's
   own limit" rather than a hard 15 s.
+- **Every request has a ceiling** (added after the first release candidate): the release checks
+  once saw a hover in `module-faults` go unanswered for 60 s right after an edit, in one of three
+  rounds on one Linux runner, and never locally in 24 loaded rounds. Whatever held it, two waits
+  had no limit at all (a request queued while clangd was not accepting traffic, or held with a
+  file waiting for its database), and the wait on preparation could run to the full 60 s request
+  timeout. Now a request a person waits for waits for clangd at most `INTERACTIVE_LIMIT` (30 s)
+  from when it arrived, across all three, and is then answered by mcppls's own engine; a failing
+  fixture prints the tail of the server's log, so a recurrence shows its cause.
+  That log then caught the same failure on macOS and named the cause: a module the importer needs
+  had failed, the stand-in the edit added changed the database, the module was tried again
+  (`module-retry`), and clangd spent 60 s rebuilding it while every hover on the importer timed out
+  at 10 s and produced nothing. mcppls now says so — a hover with nothing to show while the core
+  engine is building what the file needs explains that, as it already did for its own preparation —
+  and `module-faults` asserts the importer answers within 30 s and either keeps clangd's answer or
+  is told why not, which is the promise; the old check assumed clangd had not noticed the edit yet.
+  Three more failures with logs showed the same thing underneath: after `a.cppm` changed twice
+  within a second, clangd's own build of `good.user` hung — no request answered for minutes, 2 s of
+  CPU in 105 s (Linux), and `Failed to build module good.user; due to Failed to create buffer` only
+  when it was killed. Two gaps let that last minutes. The quarantine's exemption for a recent edit
+  was project-wide, so under continuous editing nothing was contained or restarted; it is now the
+  file's own (the file, or a source of a module it imports). And "clangd answers nobody" needed two
+  files timing out within a minute, which an editor asking one thing at a time never shows. A
+  `StuckWatch` now reads clangd's CPU once a request has waited 3 s with nothing answered, and five
+  seconds later, still unanswered with under 5% of a core used, restarts it within the cap — a long
+  compile keeps a core busy and is left alone. `/proc` on Linux, `ps` on macOS; Windows gives the
+  server no process times, and keeps the per-file quarantine only.
 - **Memory during a cold start** is clangd building module BMIs: 4–8 GB for the process tree on
   xlings and this repository. Nothing here reduces it; bounding it (fewer parallel module builds on
   small machines, releasing BMIs clangd no longer needs) is a follow-up, and the stress check

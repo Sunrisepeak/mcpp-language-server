@@ -12,7 +12,7 @@
     { "id": "C1-main-to-cli-definition", "kind": "definition", "file": "src/main.cpp", "at": [5, 26], "expect": "src/cli/commands.cpp" },
     { "id": "C2-main-hover", "kind": "hover-contains", "file": "src/main.cpp", "at": [5, 26], "expect": "run" },
     { "id": "M1-graph", "kind": "module-graph-contains", "expect": "mcppls.cli.commands" },
-    { "id": "STRESS1", "kind": "stress", "seed": 11, "actions": 60, "requestTimeout": 15,
+    { "id": "STRESS1", "kind": "stress", "seed": 11, "actions": 60, "requestTimeout": 65,
       "files": ["src/**/*.cppm", "src/**/*.cpp"],
       "budget": { "timeouts": 0, "maxStallSeconds": 60 } }
   ]

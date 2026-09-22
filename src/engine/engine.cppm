@@ -166,6 +166,14 @@ public:
     virtual std::optional<Clock::time_point> next_deadline() const = 0;
     virtual void handle_timers() = 0;
 
+    // Whether the engine has the file and is still working on what it needs to answer for it (its
+    // modules are being built), so nothing it answers now means "there is nothing here". A person
+    // hovering meanwhile is told that, rather than shown silence (real-project plan RP1.1).
+    virtual bool busy_with(std::string_view path) const {
+        (void)path;
+        return false;
+    }
+
     // What this engine knows that a report of a problem needs (robustness design O3).
     virtual Json report() const { return Json::object(); }
 };

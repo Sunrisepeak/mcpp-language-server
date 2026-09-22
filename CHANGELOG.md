@@ -7,7 +7,7 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
-## [0.0.2] — 2026-09-22
+## [0.0.2] — 2026-09-23
 
 A module that does not compile, an old pinned mcpp or a stale compile database no longer leaves a
 project stuck: measured on xlings with its pinned mcpp 2026.8.8.4, 0.0.1 never left *preparing*,
@@ -21,9 +21,22 @@ findings and the plan are in `.agents/docs/2026-09-22-real-project-experience.md
   not prepared or sent to clangd again until the failed module's own source or command changes.
   Everything else keeps clangd.
 - A module that does not compile is never a reason to restart clangd, nor is a file clangd is slow
-  on while it rebuilds after an edit (the restart waits until the edit is two minutes old and is
-  still needed); restarts are capped at three in ten minutes (`engine-restart-capped`), and modules
-  known to fail are not prepared again after one.
+  on while it rebuilds after a change to that file or to a module it imports (the restart waits
+  until that change is two minutes old and is still needed); an edit elsewhere in the project does
+  not excuse it, and clangd answering nobody is contained whatever was edited. Restarts are capped
+  at three in ten minutes (`engine-restart-capped`), and modules known to fail are not prepared
+  again after one.
+- Every request is answered: one a person waits for (hover, definition, completion and the like)
+  waits for clangd at most 30 s in all, whether clangd is starting, the file is waiting for its
+  database, or its modules are being prepared, and is then answered by mcppls's own engine. Before,
+  a request queued while clangd started or while its file was held had no limit at all.
+- A clangd that is stuck, not busy, is restarted within seconds: it left a request unanswered,
+  answered nothing else, and used next to no CPU for five seconds. clangd 23.1 has been seen to
+  hang this way after a module's source changed twice within a second, answering nothing for
+  minutes; a long compile keeps a core busy and is left alone. Linux and macOS (Windows gives the
+  server no process times).
+- A hover that would show nothing while the modules a file imports are still being built says so,
+  the way it already did while mcppls prepares them: silence reads as "there is nothing here".
 - The status settles: preparation that makes no progress for a minute ends in *degraded*, naming
   what failed (`modules-doomed`, `preparation-stalled`), instead of *preparing* for good.
 - clangd's own `E[` lines are logged as warnings and its `I[`/`V[`/`D[` chatter at debug; a module
@@ -68,6 +81,8 @@ findings and the plan are in `.agents/docs/2026-09-22-real-project-experience.md
   on Linux, macOS and Windows and the generated-module fixtures on Linux and macOS (their mock mcpp
   is POSIX-only), each client profile at least once per platform, and the real projects nightly and
   before a release.
+- A fixture that fails prints the last lines of the server's own log, so a failure seen only in CI
+  says what the server was doing meanwhile.
 
 ### Editors
 

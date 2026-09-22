@@ -148,7 +148,7 @@ always has been.
 | `diagnostic-code` | a diagnostic with code `expect` is published for the file |
 | `definition` / `declaration` | a location ends with `expect` |
 | `definition-any` | there is at least one location |
-| `hover-contains` | the hover text contains `expect` |
+| `hover-contains` | the hover text contains `expect`, or any one of them when `expect` is a list |
 | `completion-contains` | a completion label starts with `expect`; `insert: [line, text]` adds a line first, `edit` changes another open buffer without saving it |
 | `references-span` | the references include every path in `expect` |
 | `document-symbol-contains` | the outline has a top-level symbol named `expect` |
@@ -165,7 +165,9 @@ always has been.
 An expectation of `mcp`, `cli` and `report` names a JSON pointer in `"path"`, where a `*` segment stands for every
 element of an array, and one of `"equals"` (a value the pointer names equals it), `"contains"` (a string
 contains it, or an array has an element that includes all its members), `"min-items"`, `"max-items"`, `"exists"` or
-`"absent"`; it holds when any value the pointer names satisfies it.
+`"absent"`; it holds when any value the pointer names satisfies it. `"each-contains"` is the one that
+every value the pointer names must satisfy instead (each is a string containing it), and it holds when
+the pointer names none.
 
 The check identifiers C1–C9 are the core navigation and diagnostics checks every fixture can
 use; M-checks cover the module features of S3 section 8.5.
@@ -177,7 +179,9 @@ matching `"files"` (glob, default `["src/**/*.cppm", "src/**/*.cpp"]`) are opene
 succession, without waiting for an answer — and at random identifier positions one of hover,
 definition, references, completion or documentSymbol is asked, for `"actions"` rounds (default 60)
 seeded by `"seed"` (default 1: the same seed always produces the same sequence of files, positions
-and methods). `"requestTimeout"` (default 10s) bounds each request. Its `"detail"`, and the
+and methods). `"requestTimeout"` (default 10s) bounds each request; a check whose budget allows no timeout at all
+sets it above the server's own request limit (60s), so a timeout there means the server itself never
+answered, while `"p90"` and `"maxStallSeconds"` carry how fast it did. Its `"detail"`, and the
 combined `--measure` JSON's matching entry, carry:
 
 ```json
