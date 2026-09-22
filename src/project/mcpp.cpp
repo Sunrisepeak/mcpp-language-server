@@ -2,6 +2,7 @@ module mcppls.project.mcpp;
 
 import std;
 import nlohmann.json;
+import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
@@ -38,6 +39,56 @@ std::string mcpp_package_name(std::string_view manifestText) {
         }
     }
     return {};
+}
+
+namespace {
+
+// The leading run of digits at `text[i]`, as a number, and how far it advanced; 0 and no advance
+// for a segment that has none (a pre-release suffix, an empty segment).
+std::pair<std::uint64_t, std::size_t> leading_number(std::string_view text) {
+    std::size_t end { 0 };
+    while (end < text.size() && text[end] >= '0' && text[end] <= '9') ++end;
+    if (end == 0) return { 0, 0 };
+    std::uint64_t value { 0 };
+    for (std::size_t i { 0 }; i < end && i < 19; ++i) value = value * 10 + static_cast<std::uint64_t>(text[i] - '0');
+    return { value, end };
+}
+
+} // namespace
+
+bool mcpp_version_less(std::string_view left, std::string_view right) {
+    std::size_t li { 0 };
+    std::size_t ri { 0 };
+    while (li < left.size() || ri < right.size()) {
+        const auto [lv, ladvance] = leading_number(left.substr(li));
+        const auto [rv, radvance] = leading_number(right.substr(ri));
+        if (lv != rv) return lv < rv;
+        li += ladvance;
+        ri += radvance;
+        // Skip one non-digit separator ('.', '-', ...) on whichever side still has one, so "2026.9"
+        // and "2026.9.0" compare equal in their shared segments and neither side gets stuck.
+        if (li < left.size() && (left[li] < '0' || left[li] > '9')) ++li;
+        if (ri < right.size() && (right[ri] < '0' || right[ri] > '9')) ++ri;
+        if (ladvance == 0 && radvance == 0) break;
+    }
+    return false;
+}
+
+std::vector<std::string> other_mcpp_executables(std::string_view resolved, std::string_view homeDirectory) {
+    std::vector<std::string> found;
+    for (std::string_view store : { ".xlings/data/xpkgs", ".mcpp/registry/data/xpkgs" }) {
+        const std::string packageDirectory { base::join_path(std::string { homeDirectory }, std::format("{}/xim-x-mcpp", store)) };
+        auto versions = platform::fs::list_directory(packageDirectory);
+        std::ranges::sort(versions, [](const std::string& a, const std::string& b) { return mcpp_version_less(base::file_name(b), base::file_name(a)); });
+        for (const auto& version : versions) {
+            const std::string candidate { base::join_path(version, "bin/mcpp") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+            if (!platform::fs::is_regular_file(candidate)) continue;
+            if (base::same_path(candidate, resolved)) continue;
+            if (std::ranges::find_if(found, [&](const std::string& existing) { return base::same_path(existing, candidate); }) != found.end()) continue;
+            found.push_back(candidate);
+        }
+    }
+    return found;
 }
 
 std::vector<CompileCommand> mcpp_standard_units(std::span<const CompileCommand> commands) {
@@ -163,8 +214,13 @@ ProducerAnswers& producer_answers() {
 
 // `mcpp --protocol-version` in the project, whose .xlings.json may select another mcpp than the one on
 // PATH: whether that mcpp advertises the kind and runs the command without writing into the project.
-// `version` is set when it said which it is.
-bool produces_build_databases(const std::string& mcpp, const Detection& detection, const ProviderContext& context, std::string& version) {
+// `version` is set when it said which it is. `reachable`, when given, is set once this mcpp answered
+// the command at all (exit 0) -- distinct from the kind being missing, since only a real, running but
+// old mcpp is worth negotiating a substitute for (design item 1): a project whose .xlings.json names
+// an mcpp that is not installed at all answers nothing, and substituting another mcpp for it would
+// hide that fact instead of reporting it, which mcpp-emit-unavailable exists to keep visible.
+bool produces_build_databases(const std::string& mcpp, const Detection& detection, const ProviderContext& context, std::string& version,
+                              bool* reachable = nullptr) {
     auto answered = platform::toolrun::run({
         .program = mcpp,
         .arguments = { "--protocol-version" },
@@ -182,6 +238,7 @@ bool produces_build_databases(const std::string& mcpp, const Detection& detectio
                         "compile_commands.json if there is one", base::MINIMUM_MCPP_VERSION);
         return false;
     }
+    if (reachable != nullptr) *reachable = true;
     const nlohmann::json described = nlohmann::json::parse(answered->output, nullptr, false);
     if (described.is_object()) {
         if (const auto producer = described.find("mcpp"); producer != described.end() && producer->is_object()) {
@@ -209,11 +266,13 @@ bool produces_build_databases(const std::string& mcpp, const Detection& detectio
 // nullopt when this mcpp cannot be asked; an mcpp that can be asked and fails says why, and nothing
 // else is tried: configuring instead would write into the project and hide what mcpp reported.
 std::optional<base::Result<InferredDatabase>> emit_build_database(const std::string& mcpp, const Detection& detection, const ProviderContext& context,
-                                                                  std::string& version) {
+                                                                  std::string& version, bool* reachable = nullptr) {
     const std::string key { std::format("{}\n{}", mcpp, detection.root) };
     if (!producer_answers().known(key)) {
-        if (!produces_build_databases(mcpp, detection, context, version)) return std::nullopt;
+        if (!produces_build_databases(mcpp, detection, context, version, reachable)) return std::nullopt;
         producer_answers().remember(key);
+    } else if (reachable != nullptr) {
+        *reachable = true;   // a "yes" was already remembered: it answered, or this key would not be known
     }
     const std::vector<std::string> command { mcpp, "emit", "build-database", "--format", "json" };
     const spec::RunContext how {
@@ -265,11 +324,34 @@ base::Result<InferredDatabase> load_mcpp(const Detection& detection, const Provi
         const std::optional<std::string> mcpp { context.mcppExecutable.empty() ? find_tool("mcpp", fallbacks) : std::optional<std::string> { context.mcppExecutable } };
         if (mcpp) {
             std::string version;
+            bool reachable { false };
             context.producerUsed = *mcpp;
-            auto emitted = emit_build_database(*mcpp, detection, context, version);
+            auto emitted = emit_build_database(*mcpp, detection, context, version, &reachable);
             context.producerVersionUsed = version;
             if (emitted) return std::move(*emitted);
-            // This mcpp cannot describe the build without configuring it, which writes into the project.
+            // Producer negotiation (design item 1): the project's own mcpp answered but does not
+            // advertise `mcpp.build-database` -- a real, working, old mcpp. Another mcpp installed on
+            // the machine might advertise it, asked the same read-only, offline way as above, only to
+            // describe the project; what the project itself builds with does not change. Newest
+            // first, stopping at the first that answers. Nothing is negotiated when the project's own
+            // mcpp did not even answer `--protocol-version` (not installed, wrong path, a broken
+            // shim): that is a different, more direct problem, and substituting another mcpp for it
+            // would hide the failure mcpp-emit-unavailable exists to keep visible, rather than fix it.
+            for (const auto& candidate : reachable ? other_mcpp_executables(*mcpp, platform::dirs::home_directory()) : std::vector<std::string> {}) {
+                std::string candidateVersion;
+                auto negotiated = emit_build_database(candidate, detection, context, candidateVersion);
+                if (!negotiated || !*negotiated) continue;
+                context.producerUsed = candidate;
+                context.producerVersionUsed = candidateVersion;
+                auto described = std::move(**negotiated);
+                described.notices.emplace_back("producer-negotiated",
+                    std::format("described by {} (the project pins {})",
+                                candidateVersion.empty() ? candidate : std::format("mcpp {}", candidateVersion),
+                                version.empty() ? std::format("{}, which has no emit build-database", *mcpp) : std::format("mcpp {}", version)));
+                return base::Result<InferredDatabase> { std::move(described) };
+            }
+            // Neither the project's own mcpp nor another installed one can describe the build without
+            // configuring it, which writes into the project.
             auto result = platform::toolrun::run({
                 .program = *mcpp,
                 .arguments = { "build", "--configure-only" },

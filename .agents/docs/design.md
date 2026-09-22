@@ -65,11 +65,30 @@ editor / coding agent / CI
 | L3 | only `compile_commands.json` | the database plus scanning | arguments per file, module roles recovered by scanning, compilers probed |
 | L4 | sources only, or no usable compiler | scanning and the bundled semantic kit | modules resolve and `import std` works, with libc++ diagnostics |
 
-An untrusted workspace is L4 by definition: no build tool and no compiler runs.
+An untrusted workspace is L4 by definition: no build tool and no compiler runs, and — the rule an
+incident against a real project (openxlings/xlings) sharpened — nothing already on disk from a
+trusted session, or from a build run outside mcppls entirely, is read either; a leftover
+`compile_commands.json` is still a fact about a build, and reading it would make "untrusted" mean
+"unless something is already sitting there".
+
+This table's L1..L4 is `project.tier` (S3); the S1 profile's own 1..4 conformance level
+(`project.level`, how completely a *document* is structured) answers a different question and
+happens to share the same range — an mcpp project and a hand-written level-3 database are both tier
+1, and a CMake project without `FILE_SET CXX_MODULES` is tier 2 even at level 1. The status bar and
+the editor plugins show `L<tier>`, never `level`, because showing both as a bare number invited
+reading one as the other.
 
 **Model sources are ordered** cache > producer > inferred, each with an input fingerprint. A cached
 model is used at once and confirmed in the background; a worse source never replaces a better result
-or overwrites a better cache.
+or overwrites a better cache. Within "producer", the mcpp a project pins is not the only one asked:
+an mcpp that cannot `emit build-database` is not the end of it if a newer one is installed elsewhere
+on the machine (the xlings package store, mcpp's own registry store) and advertises the kind — that
+one describes the project instead, read-only and offline the same way, while the project still
+builds with the mcpp it pins (`mcppls.project.mcpp::other_mcpp_executables`). A database entry naming
+a file that no longer exists is used for what remains rather than discarded outright, and a module a
+dependency's build generates is looked for where builds leave it — the project's own build
+directory, and mcpp's build-database cache, which survives a `target/` the project later deleted —
+before an empty stand-in is created for it (`mcppls.project.generated`).
 
 ### 2.2 The payload
 

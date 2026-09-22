@@ -7,7 +7,8 @@ carrying what almost every question turns out to need:
 
 | In the report | Answers |
 |---|---|
-| `project.source`, `project.level` | Where the build description came from, and how complete it is |
+| `project.source`, `project.tier`, `project.level` | Where the build description came from (`tier`, the README's L1..L4), and how complete its document is (`level`, S1's own number — a different question from `tier`) |
+| `project.notices` | Facts worth knowing that cost no feature: a stale database entry dropped, a generated module recovered instead of stubbed, a producer negotiated in place of the project's pinned mcpp |
 | `project.origin` / `firstOrigin` | Whether this session started from the cache, from the build tool, or from scanned sources |
 | `project.producer`, `producerRun` | Which build tool ran, how long it took, how it ended, whether it was offline |
 | `toolEnvironment` | Which environment build tools were started in, and the **names** of the variables that differ from the editor's (never the values) |

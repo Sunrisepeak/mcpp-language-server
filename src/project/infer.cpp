@@ -18,6 +18,27 @@ constexpr std::array<std::string_view, 16> SOURCE_EXTENSIONS {
     ".CPP", ".CC", ".CXX", ".C",
 };
 constexpr std::array<std::string_view, 7> SKIPPED_DIRECTORIES { "target", "build", "node_modules", "out", "_build", "cmake-build-debug", "cmake-build-release" };
+// A directory below the root that has its own build manifest is a separate project (a conformance
+// fixture, a vendored copy, an example with its own mcpp.toml or CMakeLists.txt) rather than more of
+// this one's sources -- a general rule, not specific to this repository's own fixtures, for the same
+// reason `SKIPPED_DIRECTORIES` is: a name mcppls did not choose still marks a boundary it should not
+// cross uninvited.
+constexpr std::array<std::string_view, 3> PROJECT_MANIFESTS { "mcpp.toml", "CMakeLists.txt", "compile_commands.json" };
+
+// True when some directory strictly between `root` and `file` (not `root` itself, which is
+// naturally allowed its own manifest) has one of `PROJECT_MANIFESTS`.
+bool crosses_project_boundary(std::string_view root, std::string_view file) {
+    std::string directory { base::parent_path(file) };
+    while (directory.size() > root.size() && base::is_within(directory, root)) {
+        for (const std::string_view marker : PROJECT_MANIFESTS) {
+            if (platform::fs::is_regular_file(base::join_path(directory, marker))) return true;
+        }
+        const std::string parent { base::parent_path(directory) };
+        if (parent == directory) break;
+        directory = parent;
+    }
+    return false;
+}
 
 void fill_modules(spec::TranslationUnit& unit, const ScanResult& scanned) {
     unit.role = role_of(scanned);
@@ -171,6 +192,7 @@ InferredDatabase infer_database(std::string_view rootInput, const InferOptions& 
     set.baselineArguments = baseline;
 
     for (const auto& file : platform::fs::list_files(root, SOURCE_EXTENSIONS, SKIPPED_DIRECTORIES)) {
+        if (crosses_project_boundary(root, file)) continue;
         spec::TranslationUnit unit;
         unit.source = file;
         unit.workDirectory = root;
