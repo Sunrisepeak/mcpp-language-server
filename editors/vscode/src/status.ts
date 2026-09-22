@@ -30,8 +30,8 @@ export interface CxxModulesStatus {
         root: string;
         source: 'mcpp' | 'cmake' | 'build-database' | 'compile-commands' | 'inferred';
         level?: number;
-        // Which kind of source described the project (README L1..L4; S3-4-8, S3-4-9): 1 build
-        // database, 2 CMake's own database, 3 compile_commands.json, 4 sources only. Shown as
+        // How the project was described (README L1..L4; S3-4-8, S3-4-9): 1 a build database, 2
+        // CMake's own database, 3 a compile_commands.json, 4 sources only. Shown as
         // `L<tier>` instead of `level`, which is S1's own document-conformance number and would
         // read as the same thing to someone who does not know the difference.
         tier?: number;

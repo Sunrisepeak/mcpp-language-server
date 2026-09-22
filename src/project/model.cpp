@@ -345,7 +345,8 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
                     recoveredUnit.source = platform::fs::canonical_path(*recovered);
                     recoveredUnit.object.clear();
                     recoveredUnit.isPrivate = false;
-                    recoveredUnit.requiredModules.clear();
+                    // What it imports, from the file itself: a generated module may import others (`std`).
+                    recoveredUnit.requiredModules = scanner ? required_names(scanner(recoveredUnit.source)) : std::vector<std::string> {};
                     recoveredUnit.providedModules = { { name, std::string {} } };
                     recoveredUnit.role = spec::Role::module_interface;
                     set.units.push_back(std::move(recoveredUnit));

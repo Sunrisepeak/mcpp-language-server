@@ -1350,7 +1350,12 @@ private:
             const auto provider = moduleSources_.find(it->first);
             const std::string current { provider == moduleSources_.end() ? std::string {} : provider->second };
             const auto command = moduleCommands_.find(it->first);
-            const bool inputChanged { std::ranges::any_of(it->second.inputs, [](const auto& input) { return platform::fs::stamp(input.first) != input.second; }) };
+            // An input edited, or the closure now made of other sources -- a module provided by another
+            // file than before, e.g. a recovered generated source in place of a stand-in.
+            const auto sources = closure_sources_(it->first);
+            const bool inputChanged { sources.size() != it->second.inputs.size()
+                                      || std::ranges::any_of(sources, [&](const std::string& source) { return !it->second.inputs.contains(source); })
+                                      || std::ranges::any_of(it->second.inputs, [](const auto& input) { return platform::fs::stamp(input.first) != input.second; }) };
             const bool changed { !base::same_path(current, it->second.provider) || inputChanged
                                  || (!current.empty() && (command == moduleCommands_.end() ? std::string {} : command->second) != it->second.command) };
             if (changed) {
@@ -1477,8 +1482,8 @@ private:
     }
 
     void release_doomed_(const std::string& key) {
-        log::info("handing {} back to clangd ({}): the module it could not build compiles now", key, host_->root_directory());
-        host_->record_event("file-handed-back", Json { { "file", key }, { "why", "the failed module compiles now" } });
+        log::info("handing {} back to clangd ({}): what made its module fail has changed, so it is tried again", key, host_->root_directory());
+        host_->record_event("file-handed-back", Json { { "file", key }, { "why", "the failed module's inputs changed" } });
         for (const auto& document : host_->documents()) {
             if (document.path.empty() || base::path_key(document.path) != key) continue;
             host_->publish_engine_diagnostics(ENGINE_ID, document.uri, Json::array(), std::nullopt);

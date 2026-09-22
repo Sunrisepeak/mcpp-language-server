@@ -167,8 +167,8 @@ function M.status(bufnr)
     end
     local text = 'mcppls ' .. (s.state or '?')
     if s.project and s.project.source then
-      -- `tier` (S3-4-8, S3-4-9) is the README's L1..L4, which kind of source described the
-      -- project; `level` is S1's own document-conformance number and reads as the same thing to
+      -- `tier` (S3-4-8, S3-4-9) is the README's L1..L4, how the project was described; `level`
+      -- is S1's own document-conformance number and reads as the same thing to
       -- someone who does not know the difference, so it is never shown here.
       text = text .. ' · ' .. s.project.source .. (s.project.tier and (' L' .. s.project.tier) or '')
     end
