@@ -1,6 +1,6 @@
 id = "mcppls"
 name = "C++ Modules (mcppls)"
-version = "2026.922.1"
+version = "0.0.1"
 schema_version = 1
 description = "C++20 named modules that work on any compiler: navigation, completion and diagnostics from mcpp-language-server"
 repository = "https://github.com/Sunrisepeak/mcpp-language-server"

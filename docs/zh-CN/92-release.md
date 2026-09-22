@@ -10,12 +10,12 @@
 
 ```bash
 mcpp run -p devtools -- version --check          # 检查各处版本一致
-mcpp run -p devtools -- version --set 2026.9.16.1
+mcpp run -p devtools -- version --set 0.0.2
 ```
 
-这条命令让四处保持一致：`mcpp.toml`、运行中的二进制文件报出的常量（`modules/base/src/version.cppm`）、VS Code 扩展的版本号，以及服务端声明的 clangd 和 kit 版本与 payload 实际构建所用版本的对应关系。
+这条命令让这些地方保持一致：`mcpp.toml`、运行中的二进制文件报出的常量（`modules/base/src/version.cppm`）、每个编辑器插件的版本号（VS Code、Zed、CLion，以及 Claude Code 插件和它在 marketplace 里的条目），以及服务端声明的 clangd 和 kit 版本与 payload 实际构建所用版本的对应关系。
 
-整个生态按日期编版本号，格式 `YYYY.M.D.N`，版本号就是发布那天——release 延期，版本号跟着延。VS Code Marketplace 只接受三段式版本号，所以扩展的版本号是机械换算出来的：`2026.9.16.1` 变成 `2026.916.1`。
+版本号是三段式的语义化版本 `MAJOR.MINOR.PATCH`，从 `0.0.1` 开始，每个插件都原样使用它——三段式是 VS Code Marketplace、Open VSX、Zed 和 JetBrains 都接受的唯一格式。`version --set` 会拒绝其他格式，包括四段式的日期版本。应用市场只接受比已发布过的版本更高的版本号，所以一个版本号只要在任何地方发布过，就不再重复使用。
 
 CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里。
 
@@ -39,7 +39,7 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 
 | 输入 | 含义 |
 |---|---|
-| `version` | 例如 `2026.9.16.1`。这次运行会创建标签 `v<version>` |
+| `version` | 例如 `0.0.2`。这次运行会创建标签 `v<version>` |
 | `draft` | 默认开启——release 先暂存着，供你在别人看到之前先看一遍 |
 | `prerelease` | 默认开启；正式发布时关掉 |
 

@@ -3,9 +3,9 @@
 // version the running binary reports) is the one a release without this could ship silently wrong.
 //
 //   mcppls-devtools version --print                 the product version
-//   mcppls-devtools version --print --extension     the version the VS Code / Zed extension carries
+//   mcppls-devtools version --print --extension     the version the editor plugins carry (the same)
 //   mcppls-devtools version --check                 every derived site agrees, or say which does not
-//   mcppls-devtools version --set 2026.9.16.1        write it everywhere
+//   mcppls-devtools version --set 0.0.2              write it everywhere
 export module mcppls.devtools.version;
 
 import std;
@@ -14,9 +14,10 @@ import mcppls.base.error;
 
 export namespace mcppls::devtools::version {
 
-// The three-part form the VS Code Marketplace and Zed accept for a YYYY.M.D.N product version
-// (`2026.9.16.1` -> `2026.916.1`, major = year, minor = month*100+day, patch = the ordinal), or the
-// product version itself when it is already a three-part semantic version.
+// The version the editor plugins carry: the product version itself, which must be a three-part
+// semantic version MAJOR.MINOR.PATCH -- the one shape the VS Code Marketplace, Open VSX, Zed and
+// JetBrains all accept, so no plugin carries a version mapped from another. Anything else, a
+// four-part date version included, is refused rather than published under a second name.
 base::Result<std::string> extension_version(std::string_view product);
 
 // Each site below reads its current value, and -- when `next` is given -- writes it and returns
@@ -27,6 +28,8 @@ base::Result<std::string> module_version(const std::string& root, std::optional<
 base::Result<std::string> extension_manifest_version(const std::string& root, std::optional<std::string_view> next = std::nullopt);
 base::Result<std::string> zed_manifest_version(const std::string& root, std::optional<std::string_view> next = std::nullopt);
 base::Result<std::string> clion_plugin_version(const std::string& root, std::optional<std::string_view> next = std::nullopt);
+base::Result<std::string> claude_plugin_version(const std::string& root, std::optional<std::string_view> next = std::nullopt);
+base::Result<std::string> claude_marketplace_version(const std::string& root, std::optional<std::string_view> next = std::nullopt);
 
 // The oldest mcpp the server tells users is enough (MINIMUM_MCPP_VERSION), and the one CI actually
 // builds and tests with (.github/versions.env). Neither is written by --set: both are read-only
@@ -55,9 +58,9 @@ base::Result<KitVersions> kit_versions(const std::string& root);
 // site agrees.
 base::Result<std::vector<std::string>> check(const std::string& root);
 
-// Writes `product` (and its derived extension version) to every site --set writes: mcpp.toml,
-// modules/base/src/version.cppm, editors/vscode/package.json, editors/zed/extension.toml,
-// editors/clion/gradle.properties.
+// Writes `product` to every site --set writes: mcpp.toml, modules/base/src/version.cppm,
+// editors/vscode/package.json, editors/zed/extension.toml, editors/clion/gradle.properties, and the
+// Claude Code plugin's plugin.json and its marketplace entry.
 base::Result<std::string> set_everywhere(const std::string& root, std::string_view product);
 
 } // namespace mcppls::devtools::version

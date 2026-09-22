@@ -11,7 +11,7 @@
       "displayName": "C++ Modules (mcppls)",
       "source": "./mcppls-lsp",
       "description": "Registers mcppls as the language server for C and C++ sources, including C++20/23 named modules.",
-      "version": "0.1.0",
+      "version": "0.0.1",
       "author": {
         "name": "Sunrisepeak",
         "url": "https://github.com/Sunrisepeak/mcpp-language-server"

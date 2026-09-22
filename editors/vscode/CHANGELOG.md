@@ -1,9 +1,11 @@
 # Changelog
 
-## 2026.922.1
+## 0.0.1
 
 - First public release: the mcppls language server with a pinned clangd 23.1 and the semantic kit
   built in, so C++20 modules and `import std` work on any compiler, and with none.
+- The server's log reaches the C++ Modules output at the level the server gave each line: a
+  healthy start reads as information, not as a column of errors.
 - A status item that names the build description, the engine and anything degraded; **Collect
   Diagnostic Report** for bug reports.
 - Module-name navigation, `import` completion and module diagnostics alongside clangd's features.

@@ -2,7 +2,7 @@
   "name": "mcppls",
   "displayName": "C++ Modules (mcppls)",
   "description": "C++20/23 named modules that just work: go to definition, completion, hover and references across modules for any compiler, with clangd and a standard library kit built in.",
-  "version": "2026.922.1",
+  "version": "0.0.1",
   "publisher": "sunrisepeak",
   "license": "Apache-2.0",
   "repository": {

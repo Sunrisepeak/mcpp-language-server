@@ -11,16 +11,19 @@ or checked by one command:
 
 ```bash
 mcpp run -p devtools -- version --check          # every site agrees
-mcpp run -p devtools -- version --set 2026.9.16.1
+mcpp run -p devtools -- version --set 0.0.2
 ```
 
-It keeps four things in step: `mcpp.toml`, the constant the running binary reports
-(`modules/base/src/version.cppm`), the VS Code extension's version, and the clangd and kit versions the
-server states against the ones the payload is actually built from.
+It keeps these in step: `mcpp.toml`, the constant the running binary reports
+(`modules/base/src/version.cppm`), the version of every editor plugin (VS Code, Zed, CLion and the
+Claude Code plugin with its marketplace entry), and the clangd and kit versions the server states
+against the ones the payload is actually built from.
 
-The ecosystem versions by date, `YYYY.M.D.N`, and the version is the day it is released — if a
-release slips, the number slips with it. The VS Code Marketplace takes only three-part versions, so
-the extension's is derived mechanically: `2026.9.16.1` becomes `2026.916.1`.
+The version is a three-part semantic version, `MAJOR.MINOR.PATCH`, starting at `0.0.1`, and every
+plugin carries it unchanged — three parts is the one shape the VS Code Marketplace, Open VSX, Zed
+and JetBrains all accept. `version --set` refuses anything else, a four-part date version included.
+A marketplace only takes a version higher than every one it has seen, so a version, once published
+anywhere, is never used again.
 
 The versions CI *builds with* are a different thing and live in `.github/versions.env`.
 
@@ -48,7 +51,7 @@ Everything is one manual run. **Actions → Release → Run workflow**, and give
 
 | Input | Meaning |
 |---|---|
-| `version` | e.g. `2026.9.16.1`. The tag `v<version>` is created by the run |
+| `version` | e.g. `0.0.2`. The tag `v<version>` is created by the run |
 | `draft` | on by default — the release is staged for you to look at before anyone sees it |
 | `prerelease` | on by default; turn it off for a stable release |
 
