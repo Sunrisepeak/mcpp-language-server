@@ -276,6 +276,22 @@ std::map<std::string, std::string> module_files(const std::string& cacheDirector
     return files;
 }
 
+// The last lines of each log file the server wrote under its cache directory.
+void print_server_log_tail(const std::string& cacheDirectory) {
+    constexpr std::size_t LINES { 200 };
+    const std::string directory { base::join_path(cacheDirectory, "logs") };
+    auto files = fs::list_directory(directory);
+    std::ranges::sort(files);
+    for (const auto& file : files) {
+        const auto text = fs::read_file(file);
+        if (!text) continue;
+        const auto lines = base::split_lines(*text);
+        const std::size_t from { lines.size() > LINES ? lines.size() - LINES : 0 };
+        say("--- server log {} (last {} of {} lines)", base::file_name(file), lines.size() - from, lines.size());
+        for (std::size_t i { from }; i < lines.size(); ++i) say("  | {}", lines[i]);
+    }
+}
+
 class Client {
 private:
     std::unique_ptr<lsp::Connection> connection_;
@@ -1753,6 +1769,9 @@ int run(Options options) {
         if (!began) ++failures;
     }
 
+    // A failure in CI leaves nothing behind but this output: the server's own log says what it was
+    // doing while a check waited, which the check's one line cannot. --verbose already printed it.
+    if (failures > 0 && !options.verbose) print_server_log_tail(cacheDirectory);
     say("{}: {} failure(s), {:.1f}s", name, failures, total);
     if (!options.measureFile.empty()) {
         // The timeline of usable plan W7: initialize, the first ready state, the first diagnostics, the first navigation.

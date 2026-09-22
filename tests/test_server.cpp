@@ -69,6 +69,53 @@ public:
     void handle_timers() override {}
 };
 
+// A clangd that starts and never answers anything, not even initialize.
+class SilentProcess : public cld::Process {
+public:
+    mcppls::base::Result<void> start(const cld::ProcessConfig&, MessageHandler, ClosedHandler, LogHandler) override {
+        running_ = true;
+        return {};
+    }
+    mcppls::base::Result<void> send(const Json&) override { return {}; }
+    void stop(std::chrono::milliseconds) override { running_ = false; }
+    bool running() const override { return running_; }
+
+private:
+    bool running_ { false };
+};
+
+// The least a Workspace offers an engine: one root, no documents, events recorded.
+class RecordingHost : public eng::Host {
+public:
+    explicit RecordingHost(std::string root) : root_ { std::move(root) }, cache_ { mcppls::base::join_path(root_, "cache") } {}
+    std::vector<std::string> events;
+
+    const std::string& root_directory() const override { return root_; }
+    const std::string& cache_directory() const override { return cache_; }
+    const Json& client_initialize_params() const override { return params_; }
+    std::function<void(Json)> event_sink(std::string_view) override { return [](Json) {}; }
+    void send_to_client(const Json&) override {}
+    std::string client_request_id(std::string_view, int, const Json& id) const override { return id.dump(); }
+    void publish_engine_diagnostics(std::string_view, const std::string&, Json, std::optional<std::int64_t>) override {}
+    void forget_engine_diagnostics(std::string_view) override {}
+    void engine_settled(std::string_view, const Json&) override {}
+    void status_changed() override {}
+    void request_replan() override {}
+    std::vector<eng::DocumentView> documents() const override { return {}; }
+    bool has_document(std::string_view) const override { return false; }
+    std::string engine_uri(std::string_view uri) const override { return std::string { uri }; }
+    std::string client_uri(std::string_view uri) const override { return std::string { uri }; }
+    void client_view(Json&) const override {}
+    std::string path_of_uri(std::string_view uri) const override { return mcppls::base::uri_to_path(uri).value_or(std::string {}); }
+    std::vector<std::string> imports_of(std::string_view) const override { return {}; }
+    void record_event(std::string_view kind, Json) override { events.emplace_back(kind); }
+
+private:
+    std::string root_;
+    std::string cache_;
+    Json params_ = Json::object();
+};
+
 idx::ModuleIndex fixture_index() {
     idx::ModuleIndex index;
     index.update("/p/src/main.cpp", "import std;\nimport hello.greet;\n\nint main() {\n    return 0;\n}\n");
@@ -507,6 +554,49 @@ int main() {
         request.limit = now + 50s;
         request.purpose = cld::Purpose::engine_initialize;
         expect(!cld::keep_waiting(request, true, now - 2s, now)) << "only a client's request waits";
+    };
+
+    "a request is answered by its limit whatever holds clangd up"_test = [] {
+        using namespace std::chrono_literals;
+        const auto now = eng::Clock::now();
+        expect(cld::wait_limit("textDocument/hover", 60s, now) == now + cld::INTERACTIVE_LIMIT) << "a person's request: the interactive limit";
+        expect(cld::wait_limit("textDocument/hover", 5s, now) == now + 5s) << "a shorter configured timeout still applies";
+        expect(cld::wait_limit("textDocument/references", 60s, now) == now + 60s) << "the rest: the configured timeout";
+
+        // real-project plan RP1.1: a clangd that never finishes its handshake leaves the request
+        // waiting in the engine's own queue; at its limit it is answered unavailable, so the next
+        // engine answers it, rather than never.
+        namespace fs = mcppls::platform::fs;
+        const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+            std::format("mcppls-test-limit-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+        (void)fs::create_directories(root);
+        const std::string executable { mcppls::base::join_path(root, "clangd") };
+        (void)fs::write_file(executable, "pretend-clangd");
+        cld::Options options;
+        options.executable = executable;
+        options.version = "23.1.0";
+        options.requestTimeout = 1s;
+        options.processFactory = [] { return std::make_unique<SilentProcess>(); };
+        RecordingHost host { root };
+        auto engine = cld::make_engine(std::move(options));
+        engine->start(host);
+        const std::string file { mcppls::base::join_path(root, "a.cpp") };
+        const Json params { { "textDocument", Json { { "uri", mcppls::base::path_to_uri(file) } } }, { "position", Json { { "line", 0 }, { "character", 0 } } } };
+        const Json message { { "jsonrpc", "2.0" }, { "id", 7 }, { "method", "textDocument/hover" }, { "params", params } };
+        std::optional<eng::Answer> answer;
+        const auto asked = eng::Clock::now();
+        engine->request(eng::RequestView { "textDocument/hover", &params, file, {} }, message, [&](eng::Answer given) { answer = std::move(given); });
+        expect(!answer.has_value()) << "clangd has not accepted requests: the request waits";
+        const auto deadline = engine->next_deadline();
+        expect(fatal(deadline.has_value()));
+        expect(*deadline <= asked + 1s + 100ms) << "the engine wakes by the request's limit";
+        std::this_thread::sleep_until(asked + 1s + 50ms);
+        engine->handle_timers();
+        expect(fatal(answer.has_value())) << "answered at its limit";
+        expect(answer->kind == eng::Answer::Kind::unavailable) << "unavailable: the next engine answers it";
+        expect(std::ranges::find(host.events, std::string { "request-timeout" }) != host.events.end());
+        engine->shut_down();
+        fs::remove_all(root);
     };
 
     "a module the engine has already built completes without a unit"_test = [] {

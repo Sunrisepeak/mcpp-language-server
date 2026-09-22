@@ -34,7 +34,16 @@ std::unique_ptr<Engine> make_engine(Options options);
 // configured timeout.
 inline constexpr std::chrono::milliseconds INTERACTIVE_TIMEOUT { std::chrono::seconds { 10 } };
 inline constexpr std::chrono::milliseconds PREPARING_GRACE { std::chrono::seconds { 5 } };
+// The most a person's request waits for clangd in all, from when it arrived: queued while clangd
+// starts, held with its file, and kept waiting on preparation together. Past it the request is
+// answered unavailable and the next engine answers it, so a request is never left without an
+// answer whatever state clangd is in (real-project plan RP1.1: at least L4).
+inline constexpr std::chrono::milliseconds INTERACTIVE_LIMIT { std::chrono::seconds { 30 } };
 bool is_interactive(std::string_view method);
+
+// When a client request arriving at `arrived` must have been answered: INTERACTIVE_LIMIT for a
+// request a person waits for (is_interactive), the configured timeout for the rest.
+Clock::time_point wait_limit(std::string_view method, std::chrono::milliseconds requestTimeout, Clock::time_point arrived);
 
 enum class Purpose { client, engine_initialize };
 
@@ -45,7 +54,7 @@ struct PendingRequest {
     std::string uri;                  // the client's URI of the request's document
     Clock::time_point deadline;
     int generation { 0 };
-    Clock::time_point limit {};       // how long a request may be kept waiting at most; see keep_waiting
+    Clock::time_point limit {};       // how long a request may be kept waiting at most (wait_limit); see keep_waiting
     Reply reply;
     Clock::time_point sent {};        // when it was sent to clangd
 };

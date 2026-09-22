@@ -48,7 +48,7 @@ mcppls version
 | `--build-tool offline\|online\|off` | `offline` | `mcppls.buildTool` 的命令行写法 |
 | `--tool-environment auto\|editor` | `auto` | `mcppls.toolEnvironment` 的命令行写法 |
 | `--producer-timeout SECONDS` | 60，联网时 600 | 构建工具描述项目最多可以花多长时间。构建确实慢就调长；想观察超时限制是否生效就调短 |
-| `--request-timeout SECONDS` | 60 | 一个引擎请求最多等待多久，超时后不经该引擎就给出答复 |
+| `--request-timeout SECONDS` | 60 | 一个引擎请求最多等待多久，超时后不经该引擎就给出答复。用户在等的请求（悬停、跳转、补全等）总共最多等 30 秒，clangd 启动或准备模块期间也算在内，之后由 mcppls 自己的引擎答复 |
 | `--untrusted` | — | 不运行任何构建工具，也不运行编译器 |
 | `--no-discover` | — | 不查找编译器；零散源码使用语义工具包 |
 | `--log-level debug\|info\|warning\|error` | `info` | |

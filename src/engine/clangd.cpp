@@ -52,6 +52,10 @@ bool is_interactive(std::string_view method) {
     return std::ranges::find(INTERACTIVE, method) != INTERACTIVE.end();
 }
 
+Clock::time_point wait_limit(std::string_view method, std::chrono::milliseconds requestTimeout, Clock::time_point arrived) {
+    return arrived + (is_interactive(method) ? std::min(requestTimeout, INTERACTIVE_LIMIT) : requestTimeout);
+}
+
 bool keep_waiting(const PendingRequest& request, bool filePreparing, std::optional<Clock::time_point> lastProgress, Clock::time_point now) {
     if (request.purpose != Purpose::client || !filePreparing || !lastProgress) return false;
     return now < request.limit && now - *lastProgress < INTERACTIVE_TIMEOUT;
@@ -140,7 +144,14 @@ private:
     bool unavailable_ { false };
     std::map<std::int64_t, PendingRequest> pending_;
     std::int64_t nextId_ { 1 };
-    std::vector<std::pair<Json, Reply>> deferred_;   // client messages before clangd accepts traffic
+    // A client message not yet given to clangd, and when it must have been answered (wait_limit;
+    // never, for a notification).
+    struct Waiting {
+        Json message;
+        Reply reply;
+        Clock::time_point limit { Clock::time_point::max() };
+    };
+    std::vector<Waiting> deferred_;   // client messages before clangd accepts traffic
     // A request against a held_ file (robustness design C2): the comment on HeldFile says such a
     // file "waits, answered by mcppls's own engine, until clangd has read a database that has it",
     // and that holds for a method mcppls's own engine also answers (a fallback claims the request
@@ -148,7 +159,7 @@ private:
     // has nothing to fall back to, so its own request must wait out the hold instead, the same way
     // one arriving before clangd accepts traffic waits in deferred_ (real-project plan RP1.1: a
     // transient reason is never a reason to answer as though clangd had already given up).
-    std::map<std::string, std::vector<std::pair<Json, Reply>>, std::less<>> heldRequests_;
+    std::map<std::string, std::vector<Waiting>, std::less<>> heldRequests_;
     std::set<std::string> diagnosed_;                // client URIs clangd published diagnostics for
     std::set<std::string> awaitingDiagnostics_;      // client URIs
     std::deque<Clock::time_point> crashes_;
@@ -298,7 +309,7 @@ public:
                                                                  awaitingDiagnostics_.size()) } } },
             { "pendingRequests", pending_.size() },
             { "deferredRequests", deferred_.size() },
-            { "heldRequests", std::ranges::fold_left(heldRequests_ | std::views::values | std::views::transform(&std::vector<std::pair<Json, Reply>>::size), std::size_t { 0 }, std::plus {}) },
+            { "heldRequests", std::ranges::fold_left(heldRequests_ | std::views::values | std::views::transform(&std::vector<Waiting>::size), std::size_t { 0 }, std::plus {}) },
             { "filesAwaitingDiagnostics", awaitingDiagnostics_.size() },
             { "logLinesLeftOut", linesLeftOut_ },
             { "databaseDirectory", databaseDirectory_ },
@@ -573,7 +584,7 @@ public:
         if (accepting_) {
             (void)send_(message);
         } else if (!unavailable_ && message.value("method", std::string {}) != lsp::method::WORKSPACE_DID_CHANGE_WATCHED_FILES) {
-            deferred_.emplace_back(message, Reply {});
+            deferred_.push_back(Waiting { message, Reply {} });
         }
     }
 
@@ -616,15 +627,44 @@ public:
             reply(Answer {});
             return;
         }
+        const auto limit = wait_limit(message.value("method", std::string {}), options_.requestTimeout, Clock::now());
         if (!accepting_) {
-            deferred_.emplace_back(message, std::move(reply));
+            deferred_.push_back(Waiting { message, std::move(reply), limit });
             return;
         }
         if (held_path_(view.path)) {
-            heldRequests_[base::path_key(view.path)].emplace_back(message, std::move(reply));
+            heldRequests_[base::path_key(view.path)].push_back(Waiting { message, std::move(reply), limit });
             return;
         }
-        request_now_(message, std::move(reply));
+        request_now_(message, std::move(reply), limit);
+    }
+
+    // Requests still waiting for clangd (to start, or to be given their file) at their limit are
+    // answered unavailable, so the next engine answers them: whatever holds clangd up, a person's
+    // request is never left unanswered past INTERACTIVE_LIMIT (wait_limit).
+    void answer_overdue_waiting_(Clock::time_point now) {
+        std::vector<std::pair<Waiting, std::string_view>> overdue;   // the request, and what it waited for
+        const auto take = [&](std::vector<Waiting>& waiting, std::string_view waitedFor) {
+            for (auto it = waiting.begin(); it != waiting.end();) {
+                if (it->reply && it->limit <= now) {
+                    overdue.emplace_back(std::move(*it), waitedFor);
+                    it = waiting.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        };
+        take(deferred_, "clangd to accept requests");
+        for (auto& [key, requests] : heldRequests_) take(requests, "its file to be given to clangd");
+        std::erase_if(heldRequests_, [](const auto& item) { return item.second.empty(); });
+        for (auto& [waiting, waitedFor] : overdue) {
+            const std::string method { waiting.message.value("method", std::string {}) };
+            const Json* uri { lsp::find_path(waiting.message, { "params", "textDocument", "uri" }) };
+            const std::string file { uri != nullptr && uri->is_string() ? host_->path_of_uri(uri->get<std::string>()) : std::string {} };
+            log::warning("{} waited too long for {} ({}); the next engine answers it", method, waitedFor, host_->root_directory());
+            host_->record_event("request-timeout", Json { { "method", method }, { "file", file }, { "waitedFor", std::string { waitedFor } } });
+            waiting.reply(Answer {});
+        }
     }
 
     // A held path is no longer held: its own pending requests (held there by request(), above)
@@ -636,18 +676,18 @@ public:
         if (pending == heldRequests_.end()) return;
         auto toFlush = std::move(pending->second);
         heldRequests_.erase(pending);
-        for (auto& [message, reply] : toFlush) {
-            if (toClangd) request_now_(message, std::move(reply));
+        for (auto& [message, reply, limit] : toFlush) {
+            if (toClangd) request_now_(message, std::move(reply), limit);
             else if (reply) reply(Answer {});
         }
     }
 
     void cancel(const Json& clientRequestId) override {
         // Waiting here, not yet sent to clangd: answered cancelled at once.
-        const auto take = [&](std::vector<std::pair<Json, Reply>>& waiting) {
+        const auto take = [&](std::vector<Waiting>& waiting) {
             for (auto it = waiting.begin(); it != waiting.end(); ++it) {
-                if (lsp::kind_of(it->first) == lsp::Kind::request && it->first["id"] == clientRequestId) {
-                    Reply reply { std::move(it->second) };
+                if (lsp::kind_of(it->message) == lsp::Kind::request && it->message["id"] == clientRequestId) {
+                    Reply reply { std::move(it->reply) };
                     waiting.erase(it);
                     if (reply) reply(Answer { Answer::Kind::cancelled, nullptr });
                     return true;
@@ -707,6 +747,12 @@ public:
             else if (!held.planned) consider(held.since + PLAN_PATIENCE);
         }
         for (const auto& search : searches_) consider(search.deadline);
+        for (const auto& waiting : deferred_) {
+            if (waiting.reply) consider(waiting.limit);
+        }
+        for (const auto& [key, requests] : heldRequests_) {
+            for (const auto& waiting : requests) consider(waiting.limit);
+        }
         for (const auto& [key, unit] : background_) consider(unit.built ? unit.usedAt + BACKGROUND_IDLE : unit.openedAt + BACKGROUND_BUILD_LIMIT);
         return deadline;
     }
@@ -737,6 +783,9 @@ public:
                 (void)send_(lsp::make_notification("$/cancelRequest", Json { { "id", id } }));
                 // A file whose modules are still being built is slow, not stuck: setting it aside would throw that work away.
                 if (awaitingDiagnostics_.contains(host_->client_uri(request.uri))) break;
+                // Nor is one clangd had for less than its own timeout, because the request spent the rest of its limit
+                // waiting before it was sent (wait_limit).
+                if (now - request.sent < own_timeout_(request.method)) break;
                 // The same right after any source changed: clangd is rebuilding what the change touched,
                 // often a module this file imports, which either compiles (and the file answers again)
                 // or fails and is contained with its importers (real-project plan RP1.1, RP1.2). A
@@ -784,6 +833,7 @@ public:
         }
         std::erase_if(joinedAt_, [&](const auto& item) { return now >= item.second + DATABASE_REREAD && !held_.contains(item.first); });
         open_held_files_(now);
+        answer_overdue_waiting_(now);
         handle_background_timers_(now);
         std::vector<std::string> overdue;
         for (const auto& [module, at] : primeDeadlines_) {
@@ -850,14 +900,14 @@ private:
     // clangd will not answer: every request waiting for it -- before it accepted traffic, or on a held
     // file -- is answered unavailable, so routing gives it to the next engine instead of leaving it.
     void flush_deferred_without_engine_() {
-        std::vector<std::pair<Json, Reply>> toFlush;
+        std::vector<Waiting> toFlush;
         toFlush.swap(deferred_);
         for (auto& [key, requests] : heldRequests_) {
             for (auto& request : requests) toFlush.push_back(std::move(request));
         }
         heldRequests_.clear();
-        for (auto& [message, reply] : toFlush) {
-            if (reply) reply(Answer {});
+        for (auto& waiting : toFlush) {
+            if (waiting.reply) waiting.reply(Answer {});
         }
     }
 
@@ -990,7 +1040,19 @@ private:
         start_process_();
     }
 
-    void request_now_(const Json& message, Reply reply, bool searchDefinitions = true) {
+    // How long clangd itself has to answer a client request, once it is sent.
+    std::chrono::milliseconds own_timeout_(std::string_view method) const {
+        return is_interactive(method) ? std::min(options_.requestTimeout, INTERACTIVE_TIMEOUT) : options_.requestTimeout;
+    }
+
+    // Sends a client request to clangd. `limit` is when it must have been answered (wait_limit, from
+    // when it arrived): time it spent waiting for clangd counts against it.
+    void request_now_(const Json& message, Reply reply, Clock::time_point limit, bool searchDefinitions = true) {
+        if (Clock::now() >= limit) {
+            // Its time went on waiting for clangd; the next engine answers it.
+            if (reply) reply(Answer {});
+            return;
+        }
         const Json& id { message["id"] };
         const std::string method { message.value("method", std::string {}) };
         if (searchDefinitions && method == lsp::method::TEXT_DOCUMENT_DEFINITION && !moduleUnits_.empty()) {
@@ -999,10 +1061,9 @@ private:
         const Json* params { lsp::find(message, "params") };
         const Json* uri { params != nullptr ? lsp::find_path(*params, { "textDocument", "uri" }) : nullptr };
         const std::int64_t engineId { nextId_++ };
-        const auto timeout = is_interactive(method) ? std::min(options_.requestTimeout, INTERACTIVE_TIMEOUT) : options_.requestTimeout;
         const auto now = Clock::now();
         pending_[engineId] = PendingRequest { Purpose::client, id, method, uri != nullptr && uri->is_string() ? uri->get<std::string>() : std::string {},
-                                              now + timeout, generation_, now + options_.requestTimeout, std::move(reply), now };
+                                              std::min(now + own_timeout_(method), limit), generation_, limit, std::move(reply), now };
         Json forwarded = message;
         forwarded["id"] = engineId;
         if (!send_(forwarded)) {
@@ -1067,19 +1128,19 @@ private:
         for (const auto& document : host_->documents()) {
             if (!excluded_path_(document.path) && !quarantined_(document.path)) open_or_hold_(document, planApplied_);
         }
-        std::vector<std::pair<Json, Reply>> toFlush;
+        std::vector<Waiting> toFlush;
         toFlush.swap(deferred_);
-        for (auto& [message, reply] : toFlush) {
+        for (auto& [message, reply, limit] : toFlush) {
             if (lsp::kind_of(message) == lsp::Kind::request) {
                 const Json* params { lsp::find(message, "params") };
                 const Json* uri { params != nullptr ? lsp::find_path(*params, { "textDocument", "uri" }) : nullptr };
                 const std::string path { uri != nullptr && uri->is_string() ? host_->path_of_uri(uri->get<std::string>()) : std::string {} };
                 if (held_path_(path)) {
-                    heldRequests_[base::path_key(path)].emplace_back(std::move(message), std::move(reply));
+                    heldRequests_[base::path_key(path)].push_back(Waiting { std::move(message), std::move(reply), limit });
                 } else if (excluded_path_(path) || quarantined_(path)) {
                     if (reply) reply(Answer {});
                 } else {
-                    request_now_(message, std::move(reply));
+                    request_now_(message, std::move(reply), limit);
                 }
             } else {
                 (void)send_(message);
@@ -1903,11 +1964,13 @@ private:
             search.reply(Answer { Answer::Kind::result, std::move(search.firstAnswer) });
             return;
         }
+        // Asked again, not waiting: a limit of its own, and clangd's first answer if this one finds nothing.
+        const auto limit = wait_limit(search.message.value("method", std::string {}), options_.requestTimeout, Clock::now());
         request_now_(search.message, [first = std::move(search.firstAnswer), reply = std::move(search.reply)](Answer answer) mutable {
             const bool found { answer.kind == Answer::Kind::result && !answer.value.is_null() && !(answer.value.is_array() && answer.value.empty()) };
             if (found) reply(std::move(answer));
             else reply(Answer { Answer::Kind::result, std::move(first) });
-        }, false);
+        }, limit, false);
     }
 
     // Searches get what clangd answered first, as when it stops.

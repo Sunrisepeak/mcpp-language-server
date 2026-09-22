@@ -207,6 +207,14 @@ What differs from §5, on purpose:
   Measured on `real-xlings` (a cold start preparing ~110 modules): p90 0.8 s, one definition past
   15 s. The real-project fixtures therefore budget p90 ≤ 3 s and "no request outlives the server's
   own limit" rather than a hard 15 s.
+- **Every request has a ceiling** (added after the first release candidate): the release checks
+  once saw a hover in `module-faults` go unanswered for 60 s right after an edit, in one of three
+  rounds on one Linux runner, and never locally in 24 loaded rounds. Whatever held it, two waits
+  had no limit at all (a request queued while clangd was not accepting traffic, or held with a
+  file waiting for its database), and the wait on preparation could run to the full 60 s request
+  timeout. Now a request a person waits for waits for clangd at most `INTERACTIVE_LIMIT` (30 s)
+  from when it arrived, across all three, and is then answered by mcppls's own engine; a failing
+  fixture prints the tail of the server's log, so a recurrence shows its cause.
 - **Memory during a cold start** is clangd building module BMIs: 4–8 GB for the process tree on
   xlings and this repository. Nothing here reduces it; bounding it (fewer parallel module builds on
   small machines, releasing BMIs clangd no longer needs) is a follow-up, and the stress check
