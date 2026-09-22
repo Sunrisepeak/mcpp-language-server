@@ -299,6 +299,17 @@ class ServerHost implements vscode.Disposable {
         if (!client) {
             return;
         }
+        // A client restarting itself after the server exited (onClosed's CloseAction.Restart) is
+        // Starting outside this queue, and the library refuses to stop a client in that state: it
+        // throws before killing the process it has just spawned, which would then outlive this
+        // host. Let the start settle first; dispose then stops whatever it started.
+        if (client.state === State.Starting) {
+            try {
+                await client.start();
+            } catch {
+                // A start that failed has nothing running; dispose below is still safe.
+            }
+        }
         try {
             await client.dispose(5000);
         } catch (error) {
