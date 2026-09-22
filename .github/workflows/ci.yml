@@ -669,8 +669,8 @@ jobs:
   # ---------------------------------------------------------------------------
   # The Neovim plugin (editors/nvim) through Neovim's own LSP client, on each host's payload and on
   # the oldest and newest Neovim it supports: require('mcppls').setup() on every version, and
-  # vim.lsp.enable('mcppls') (lsp/mcppls.lua) from 0.11 on. Neovim is the upstream release archive,
-  # byte-identical to xlings' `nvim` package and its xlings-res mirror.
+  # vim.lsp.enable('mcppls') (lsp/mcppls.lua) from 0.11 on. Neovim comes from xlings like every
+  # other tool here (`nvim` in xim-pkgindex), each version installed and selected with `xlings use`.
   neovim:
     name: Neovim (${{ matrix.platform }})
     needs: payload
@@ -680,36 +680,42 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { platform: linux-x64,    os: ubuntu-24.04, asset: nvim-linux-x86_64.tar.gz, versions: 0.10.4 0.11.5 0.12.5 }
-          - { platform: darwin-arm64, os: macos-14,     asset: nvim-macos-arm64.tar.gz,  versions: 0.10.4 0.12.5 }
-          - { platform: win32-x64,    os: windows-2022, asset: nvim-win64.zip,           versions: 0.10.4 0.12.5 }
+          - { platform: linux-x64,    os: ubuntu-24.04, versions: 0.10.4 0.11.5 0.12.5 }
+          - { platform: darwin-arm64, os: macos-14,     versions: 0.10.4 0.12.5 }
+          - { platform: win32-x64,    os: windows-2022, versions: 0.10.4 0.12.5 }
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
       - uses: actions/download-artifact@v8
         with:
           name: payload-${{ matrix.platform }}
       - name: Unpack the payload
         run: tar -xzf payload-${{ matrix.platform }}.tar.gz
+      - name: Neovim from xlings
+        run: |
+          set -euo pipefail
+          for version in ${{ matrix.versions }}; do
+            for attempt in 1 2 3; do
+              if xlings install "nvim@$version" -y -g; then break; fi
+              [ "$attempt" = 3 ] && { echo "::error::nvim@$version could not be installed"; exit 1; }
+              sleep 30
+            done
+          done
       - name: The plugin on each Neovim
         run: |
           set -euo pipefail
           server="$PWD/payload/bin/mcppls"; [ "$RUNNER_OS" = Windows ] && server="$(cygpath -w "$PWD/payload/bin/mcppls.exe")"
           failed=''
           for version in ${{ matrix.versions }}; do
-            dir="$RUNNER_TEMP/nvim-$version"; mkdir -p "$dir"
-            curl -fsSL "https://github.com/neovim/neovim/releases/download/v$version/${{ matrix.asset }}" -o "$dir/${{ matrix.asset }}"
-            case "${{ matrix.asset }}" in
-              *.zip) (cd "$dir" && unzip -q "${{ matrix.asset }}") ;;
-              *)     tar -xzf "$dir/${{ matrix.asset }}" -C "$dir" ;;
-            esac
-            nvim=$(find "$dir" -path '*/bin/nvim' -o -path '*/bin/nvim.exe' | head -1)
-            "$nvim" --version | head -1
+            xlings use nvim "$version"
+            nvim --version | head -1
+            # No `timeout` wrapper: macOS has none, and every wait in smoke.lua is bounded already.
             for mode in setup enable; do
               echo "::group::Neovim $version, $mode"
-              if ! MCPPLS_SERVER="$server" timeout 600 "$nvim" --headless --clean -l editors/nvim/tests/smoke.lua "$mode"; then
+              if ! MCPPLS_SERVER="$server" nvim --headless --clean -l editors/nvim/tests/smoke.lua "$mode"; then
                 failed="$failed $version:$mode"
               fi
               echo "::endgroup::"
