@@ -18,6 +18,13 @@
 // build-database` does not exist, and `build --configure-only` is rejected ("error: unknown
 // option: --configure-only", exit 2) — real-project plan RP0,
 // exercising the server's L2 fallback onto the project's own compile_commands.json.
+//
+// The config read is normally the project's own mcpp-mock.json (the current directory, which is
+// the project root for every command a real mcpp would run there). A copy of this program placed
+// where producer negotiation looks for another installed mcpp (real-project plan RP2.1,
+// `xim-x-mcpp/<version>/bin/mcpp`) still runs with the *project's* directory as its cwd, so it
+// reads a config beside its own executable instead when a fixture put one there -- a negotiated
+// candidate's own version and database, distinct from the project's own mcpp-mock.json.
 import std;
 import nlohmann.json;
 import mcppls.base.path;
@@ -69,6 +76,24 @@ void expand_all(Json& value, const std::string& root) {
     } else if (value.is_array() || value.is_object()) {
         for (auto& child : value) expand_all(child, root);
     }
+}
+
+// real-project plan RP2.1: a candidate mcpp that producer negotiation finds beside another
+// project's own (`other_mcpp_executables`, `xim-x-mcpp/<version>/bin/mcpp`) still runs with that
+// project's directory as its cwd, so `mcpp-mock.json` there is the *other* mcpp's recording, not
+// this candidate's own. A config file beside this program's own executable, when one exists, is
+// what a fixture puts there to give a negotiated candidate its own version and database; every
+// fixture that runs the mock as the project's one and only mcpp keeps reading the project's.
+std::string mock_config_path() {
+    const auto arguments = mcppls::platform::env::arguments();
+    if (!arguments.empty()) {
+        const std::string& self { arguments.front() };
+        const std::string absolute { base::is_absolute_path(self) ? base::normalize_path(self)
+                                                                   : base::normalize_path(base::join_path(fs::current_directory(), self)) };
+        const std::string beside { base::join_path(base::parent_path(absolute), "mcpp-mock.json") };
+        if (fs::is_regular_file(beside)) return beside;
+    }
+    return base::join_path(fs::current_directory(), "mcpp-mock.json");
 }
 
 Json envelope(std::string_view kind, Json data, Json diagnostics, Json effects) {
@@ -131,7 +156,7 @@ int emit_build_database(std::span<const std::string> arguments) {
         return 2;
     }
     const std::string root { base::normalize_path(fs::current_directory()) };
-    auto text = fs::read_file(base::join_path(root, "mcpp-mock.json"));
+    auto text = fs::read_file(mock_config_path());
     if (!text) {
         const Json diagnostics = Json::array({ Json { { "code", "MCPP_MOCK_NO_DATA" }, { "severity", "error" }, { "source", "mcpp" },
                                                       { "message", "this fixture recorded no mcpp-mock.json" } } });
@@ -199,7 +224,7 @@ int main(int argc, char* argv[]) {
     bool oldProtocol { false };
     // {"unavailable": "<text>"}: a project whose .xlings.json asks for an mcpp that is not installed.
     // xlings then answers every command in mcpp's place, with <text> on standard error, and runs nothing.
-    if (auto text = fs::read_file(base::join_path(fs::current_directory(), "mcpp-mock.json"))) {
+    if (auto text = fs::read_file(mock_config_path())) {
         const Json recorded = Json::parse(*text, nullptr, false);
         if (recorded.is_object() && recorded.contains("unavailable") && recorded["unavailable"].is_string()) {
             std::print(std::cerr, "{}", recorded["unavailable"].get<std::string>());

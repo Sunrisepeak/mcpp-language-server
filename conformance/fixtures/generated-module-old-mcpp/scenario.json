@@ -1,12 +1,13 @@
 {
   "name": "generated-module-old-mcpp",
-  "description": "Real-project plan RP0: the same generated-package/sibling-module project as generated-module, but with an mcpp too old to advertise mcpp.build-database (mcpp-mock.json's oldProtocol) and whose `build --configure-only` is rejected the way mcpp 2026.8.8.4 rejects it. The server's L2 fallback reads the project's own compile_commands.json (real-compiled by this prepare step) instead, and must still use the generated module's real source, never a stand-in.",
+  "description": "Real-project plan RP0: the same generated-package/sibling-module project as generated-module, but with an mcpp too old to advertise mcpp.build-database (mcpp-mock.json's oldProtocol) and whose `build --configure-only` is rejected the way mcpp 2026.8.8.4 rejects it. The server's L2 fallback reads the project's own compile_commands.json (real-compiled by this prepare step) instead, and must still use the generated module's real source, never a stand-in. `isolate-home` (real-project plan RP2.1) keeps producer negotiation from finding a real mcpp the host or CI runner happens to have installed, so the L2 fallback -- and this fixture's tier 3 -- is what actually runs, on every machine.",
+  "isolate-home": true,
   "prepare": [
     ["{conformance}", "prepare", "generated-module-old-mcpp", "{env:CONFORMANCE_CLANGXX|clang++}"]
   ],
   "server-arguments": ["--mcpp", "{runner-dir}/mcppls-mock-mcpp{exe}"],
   "checks": [
-    { "id": "S1", "kind": "status", "state": "ready" },
+    { "id": "S1", "kind": "status", "state": "ready", "tier": 3 },
     { "id": "G1-import-goes-to-the-real-generated-file", "kind": "definition", "file": "src/main.cpp", "at": [1, 9],
       "expect": "target/.build-mcpp/deps/xpkg@1.0.0/out/xpkg_lua_stdlib.cppm" },
     { "id": "G2-call-site-definition", "kind": "definition", "file": "src/main.cpp", "at": [4, 36],

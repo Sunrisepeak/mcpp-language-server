@@ -71,7 +71,27 @@ struct Options {
     // `mcppls-devtools stress --seed N`: overrides every stress check's own "seed", so a matrix
     // run stays reproducible without editing every fixture's scenario.json.
     std::optional<std::uint64_t> stressSeed;
+    // real-project plan RP2.1: a fixture with `"isolate-home": true` needs producer negotiation to
+    // see only its own candidates, never whatever mcpp or xlings a machine happens to have installed
+    // under the real $HOME/%USERPROFILE%. Empty until `run()` reads the scenario; once set, every
+    // process the runner starts for the server under test uses it as HOME (and USERPROFILE).
+    std::string isolatedHome;
 };
+
+// Replaces HOME (POSIX) and USERPROFILE (Windows) in a spawn's environment, so
+// `mcppls::platform::dirs::home_directory()` -- and so producer negotiation's search of
+// `<home>/.xlings/data/xpkgs` and `<home>/.mcpp/registry/data/xpkgs` (real-project plan RP2.1) --
+// sees only what the fixture itself put there. A no-op when `options.isolatedHome` is empty, which
+// is every fixture that predates it.
+void apply_isolated_home(std::vector<std::string>& environment, const Options& options) {
+    if (options.isolatedHome.empty()) return;
+    const auto isHomeVariable = [](const std::string& entry) {
+        return entry.starts_with("HOME=") || entry.starts_with("USERPROFILE=") || entry.starts_with("HOMEDRIVE=") || entry.starts_with("HOMEPATH=");
+    };
+    std::erase_if(environment, isHomeVariable);
+    environment.push_back("HOME=" + options.isolatedHome);
+    environment.push_back("USERPROFILE=" + options.isolatedHome);
+}
 
 // Whether this profile looks like a client with no `experimental.cxxModules` at all: no
 // `cxxModules/status` arrives, so status checks make no sense and standard `$/progress` is what
@@ -105,6 +125,9 @@ struct Expansion {
     std::string runnerDirectory;
     std::string payload;   // usable plan W9.4: the --payload this runner itself was given, if any
     std::string runner;    // this program, for fixtures prepared by `mcppls-conformance prepare`
+    // real-project plan RP2.1: the isolated HOME a `"isolate-home": true` fixture's own prepare
+    // step populates (e.g. with a candidate mcpp under `xim-x-mcpp/<version>/bin/`), empty otherwise.
+    std::string home;
 };
 
 // "{exe}" is the executable suffix; "{env:NAME|fallback}" is a variable or the fallback;
@@ -118,6 +141,7 @@ std::string expand(std::string word, const Expansion& expansion = {}) {
     word = base::replace_all(word, "{runner-dir}", expansion.runnerDirectory);
     word = base::replace_all(word, "{payload}", expansion.payload);
     word = base::replace_all(word, "{conformance}", expansion.runner);
+    word = base::replace_all(word, "{home}", expansion.home);
     for (std::size_t at { word.find("{env:") }; at != std::string::npos; at = word.find("{env:", at)) {
         const std::size_t close { word.find('}', at) };
         if (close == std::string::npos) break;
@@ -293,6 +317,7 @@ public:
         spawn.workDirectory = workspace;
         auto environment = mcppls::platform::env::variables();
         environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory);
+        apply_isolated_home(environment, options);
         spawn.environment = std::move(environment);
         const bool verbose { verbose_ };
         auto inbox = inbox_;
@@ -490,6 +515,7 @@ public:
         spawn.workDirectory = workspace;
         auto environment = mcppls::platform::env::variables();
         environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory);
+        apply_isolated_home(environment, options);
         spawn.environment = std::move(environment);
         const bool verbose { options.verbose };
         auto inbox = inbox_;
@@ -995,6 +1021,10 @@ public:
                 if (auto level = check.find("level"); level != check.end()) {
                     matched = matched && snapshot.value("project", Json::object()).value("level", 0) == level->get<int>();
                 }
+                // real-project plan RP3.2: `project.tier`, the README's L1..L4, distinct from `level`.
+                if (auto tier = check.find("tier"); tier != check.end()) {
+                    matched = matched && snapshot.value("project", Json::object()).value("tier", 0) == tier->get<int>();
+                }
                 if (auto issueCode = check.find("issue-code"); issueCode != check.end()) {
                     const std::string wantedCommand { check.value("issue-command", std::string {}) };
                     const std::string wantedMessage { check.value("issue-message", std::string {}) };   // a part of the message
@@ -1102,6 +1132,7 @@ public:
             spawn.workDirectory = workspace_;
             auto environment = mcppls::platform::env::variables();
             environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory_);
+            apply_isolated_home(environment, options_);
             spawn.environment = std::move(environment);
             auto running = std::async(std::launch::async, [spawn, timeout = timeout_]() mutable { return mcppls::platform::run(std::move(spawn), timeout); });
             while (running.wait_for(std::chrono::milliseconds { 200 }) != std::future_status::ready) client_.drain(std::chrono::milliseconds { 0 });
@@ -1522,7 +1553,7 @@ public:
     }
 };
 
-int run(const Options& options) {
+int run(Options options) {
     const std::string scenarioPath { base::join_path(options.fixture, "scenario.json") };
     auto scenarioText = fs::read_file(scenarioPath);
     if (!scenarioText) {
@@ -1558,7 +1589,16 @@ int run(const Options& options) {
     say("fixture {} in {}{}", name, workspace, alreadyPrepared ? " (prepared before)" : "");
 
     const std::string self { absolute(mcppls::platform::env::arguments().front()) };
-    Expansion expansion { workspace, base::parent_path(self), options.payload, self };
+    // real-project plan RP2.1: an isolated HOME so producer negotiation
+    // (`mcppls::project::other_mcpp_executables`) sees only candidates this fixture put there,
+    // never a real mcpp or xlings install on the host or CI runner running the fixture.
+    std::string isolatedHome;
+    if (scenario.value("isolate-home", false)) {
+        isolatedHome = base::join_path(workspace, ".home");
+        (void)fs::create_directories(isolatedHome);
+        options.isolatedHome = isolatedHome;
+    }
+    Expansion expansion { workspace, base::parent_path(self), options.payload, self, isolatedHome };
     std::optional<std::vector<std::string>> prepareEnvironment;
     if (scenario.value("prepare-environment", std::string {}) == "msvc") {
         if (options.msvcEnvironment.empty()) {
