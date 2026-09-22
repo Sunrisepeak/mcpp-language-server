@@ -104,8 +104,10 @@ private:
     struct DoomRoot {
         std::string reason;
         std::string provider;                          // the plan's unit for the module; empty when it had none
-        std::optional<platform::fs::FileStamp> stamp;  // of that unit
         std::string command;                           // its engine command
+        // The unit's own source and every module source it imports, transitively, as they were when
+        // it failed: a fix in any of them -- not only in the failed unit itself -- is a reason to try again.
+        std::map<std::string, std::optional<platform::fs::FileStamp>, std::less<>> inputs;
     };
     std::map<std::string, DoomRoot, std::less<>> doomRoots_;    // modules clangd reported it could not compile
     std::set<std::string, std::less<>> doomedModules_;          // roots and everything that imports them, transitively
@@ -1267,9 +1269,9 @@ private:
                 DoomRoot root { parsed.reason, {}, {}, {} };
                 if (const auto provider = moduleSources_.find(parsed.module); provider != moduleSources_.end()) {
                     root.provider = provider->second;
-                    root.stamp = platform::fs::stamp(provider->second);
                     root.command = moduleCommands_.contains(parsed.module) ? moduleCommands_.find(parsed.module)->second : std::string {};
                 }
+                for (const auto& source : closure_sources_(parsed.module)) root.inputs.emplace(source, platform::fs::stamp(source));
                 doomRoots_.emplace(parsed.module, std::move(root));
                 recompute_doom_();
             }
@@ -1324,16 +1326,35 @@ private:
 
     // A doom root whose unit or command is no longer what it was when clangd reported it failed is
     // forgotten (same rule as forget_changed_unresolved_), so the next attempt goes to clangd again.
+    // The sources of `module` and of every module it imports, directly or not: what its compile read.
+    std::vector<std::string> closure_sources_(std::string_view module) const {
+        std::vector<std::string> sources;
+        std::set<std::string, std::less<>> seen { std::string { module } };
+        std::deque<std::string> pending { std::string { module } };
+        while (!pending.empty()) {
+            const std::string next { std::move(pending.front()) };
+            pending.pop_front();
+            if (const auto source = moduleSources_.find(next); source != moduleSources_.end()) sources.push_back(source->second);
+            if (const auto imports = moduleRequires_.find(next); imports != moduleRequires_.end()) {
+                for (const auto& imported : imports->second) {
+                    if (seen.insert(imported).second) pending.push_back(imported);
+                }
+            }
+        }
+        return sources;
+    }
+
     bool forget_changed_doom_() {
         bool forgot { false };
         for (auto it = doomRoots_.begin(); it != doomRoots_.end();) {
             const auto provider = moduleSources_.find(it->first);
             const std::string current { provider == moduleSources_.end() ? std::string {} : provider->second };
             const auto command = moduleCommands_.find(it->first);
-            const bool changed { !base::same_path(current, it->second.provider) || (!current.empty() && platform::fs::stamp(current) != it->second.stamp)
+            const bool inputChanged { std::ranges::any_of(it->second.inputs, [](const auto& input) { return platform::fs::stamp(input.first) != input.second; }) };
+            const bool changed { !base::same_path(current, it->second.provider) || inputChanged
                                  || (!current.empty() && (command == moduleCommands_.end() ? std::string {} : command->second) != it->second.command) };
             if (changed) {
-                log::info("trying module {} again ({}): its unit changed", it->first, host_->root_directory());
+                log::info("trying module {} again ({}): it or a module it imports changed", it->first, host_->root_directory());
                 host_->record_event("module-retry", Json { { "module", it->first } });
                 it = doomRoots_.erase(it);
                 forgot = true;

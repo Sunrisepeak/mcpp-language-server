@@ -63,8 +63,10 @@ findings and the plan are in `.agents/docs/2026-09-22-real-project-experience.md
   100-module chain whose base does not compile, and pinned real projects: this repository and xlings,
   as committed and with its old mcpp pin. The mock mcpp can be too old for `emit build-database`.
 - `mcpp run -p devtools -- stress` runs the matrix and compares against a baseline; Neovim and the
-  VS Code suite each have a stress scenario; CI runs the new fixtures on Linux, macOS and Windows
-  under every client profile, and the real projects nightly and before a release.
+  VS Code suite each have a stress scenario; CI runs the failing-base fixture and the stress checks
+  on Linux, macOS and Windows and the generated-module fixtures on Linux and macOS (their mock mcpp
+  is POSIX-only), each client profile at least once per platform, and the real projects nightly and
+  before a release.
 
 ### Editors
 

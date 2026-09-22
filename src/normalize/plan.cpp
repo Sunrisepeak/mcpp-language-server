@@ -14,6 +14,7 @@ import mcppls.spec.metadata;
 import mcppls.toolchain.probe;
 import mcppls.project.scan;
 import mcppls.project.compdb;
+import mcppls.project.boundary;
 import mcppls.normalize.gnu;
 import mcppls.normalize.msvc;
 import mcppls.normalize.semantic;
@@ -59,22 +60,16 @@ std::vector<std::string> without_module_mode(std::vector<std::string> arguments)
     return arguments;
 }
 
-// Whether a directory strictly between `source` and `borrowedFrom` has its own build manifest,
-// which marks it a separate project (a conformance fixture, a vendored copy, an example) rather than
-// more of the one `borrowedFrom` belongs to. Nothing beyond the directory the two paths already
-// share needs checking: past it is shared ground the workspace's own detection already answered for.
+// Whether `source` belongs to a project nested inside the one `borrowedFrom` belongs to (real-project
+// plan RP3.4): a separate project's root lies between `source` and the directory the two share.
 bool crosses_project_boundary(std::string_view source, std::string_view borrowedFrom) {
-    std::string directory { base::parent_path(base::path_key(source)) };
-    for (int guard { 0 }; guard < 64 && !directory.empty(); ++guard) {
-        if (base::is_within(borrowedFrom, directory)) return false;   // shared ground with the unit borrowed from
-        for (std::string_view marker : { "mcpp.toml", "CMakeLists.txt", "compile_commands.json" }) {
-            if (platform::fs::is_regular_file(base::join_path(directory, marker))) return true;
-        }
-        const std::string parent { base::parent_path(directory) };
-        if (parent == directory) break;
-        directory = parent;
+    std::string shared { base::parent_path(base::path_key(source)) };
+    for (int guard { 0 }; guard < 128 && !shared.empty() && !base::is_within(borrowedFrom, shared); ++guard) {
+        const std::string parent { base::parent_path(shared) };
+        if (parent == shared) return false;
+        shared = parent;
     }
-    return false;
+    return project::ProjectBoundaries { project::enclosing_project_root(shared) }.crossed(source, shared);
 }
 
 // How many leading directories two paths share.

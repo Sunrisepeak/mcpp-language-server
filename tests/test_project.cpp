@@ -10,6 +10,7 @@ import mcppls.spec.database;
 import mcppls.spec.kit;
 import mcppls.spec.metadata;
 import mcppls.toolchain.probe;
+import mcppls.project.boundary;
 import mcppls.project.detect;
 import mcppls.project.infer;
 import mcppls.project.mcpp;
@@ -554,6 +555,22 @@ version = "1"
         fs::remove_all(root);
     };
 
+    "find_generated_source takes the most recently built of several cached versions"_test = [] {
+        const std::string root { make_root("recover-newest") };
+        const std::string home { make_root("recover-newest-home") };
+        const std::string cache { ".mcpp/cache/build-database" };
+        write(home, cache + "/aaa/target/.build-mcpp/deps/dep@1.0.9/out/thing.cppm", "export module dep.thing; // older\n");
+        write(home, cache + "/bbb/target/.build-mcpp/deps/dep@1.0.10/out/thing.cppm", "export module dep.thing; // newer\n");
+        // The older build is listed first ("aaa" < "bbb"): it must not win by listing order.
+        std::filesystem::last_write_time(b::join_path(home, cache + "/aaa/target/.build-mcpp/deps/dep@1.0.9/out/thing.cppm"),
+                                         std::filesystem::file_time_type::clock::now() - std::chrono::hours { 1 });
+        const auto found = p::find_generated_source("dep.thing", p::GeneratedSourceOptions { root, home, p::file_scanner() });
+        expect(fatal(found.has_value()));
+        expect(found->contains("dep@1.0.10")) << *found;
+        fs::remove_all(root);
+        fs::remove_all(home);
+    };
+
     "a generated module's real source is recovered before a stand-in is needed"_test = [] {
         const std::string root { make_root("generated") };
         const std::string home { make_root("generated-home") };
@@ -621,6 +638,37 @@ version = "1"
         expect(units.size() == 1u) << "only src/a.cppm; vendor/example is its own project";
         expect(b::file_name(units.front().source) == "a.cppm");
         fs::remove_all(root);
+    };
+
+    // real-project plan RP3.4: a nested manifest is a separate project only when it is not part of
+    // the outer project's own build -- a CMake subdirectory of a CMake project, or a member of an
+    // mcpp workspace, is not.
+    "a CMake project's subdirectories and an mcpp workspace's members are not separate projects"_test = [] {
+        const std::string cmake { make_root("boundary-cmake") };
+        write(cmake, "CMakeLists.txt", "add_subdirectory(libs/core)\n");
+        write(cmake, "libs/core/CMakeLists.txt", "add_library(core)\n");
+        write(cmake, "libs/core/core.cppm", "export module core;\n");
+        write(cmake, "tools/gen/compile_commands.json", "[]\n");
+        write(cmake, "tools/gen/gen.cpp", "int main() {}\n");
+        const p::ProjectBoundaries inCMake { cmake };
+        expect(!inCMake.separate(b::join_path(cmake, "libs/core"))) << "add_subdirectory territory";
+        expect(inCMake.separate(b::join_path(cmake, "tools/gen"))) << "a compile database of its own is always another project";
+
+        const std::string workspace { make_root("boundary-mcpp") };
+        write(workspace, "mcpp.toml", "[workspace]\nmembers = [\n    \"modules/base\",\n    \"tools/*\",\n]\n\n[package]\nname = \"root\"\n");
+        write(workspace, "modules/base/mcpp.toml", "[package]\nname = \"base\"\n");
+        write(workspace, "tools/devtools/mcpp.toml", "[package]\nname = \"devtools\"\n");
+        write(workspace, "conformance/fixtures/x/mcpp.toml", "[package]\nname = \"x\"\n");
+        write(workspace, "examples/cmake/CMakeLists.txt", "project(example)\n");
+        const p::ProjectBoundaries inMcpp { workspace };
+        expect(!inMcpp.separate(b::join_path(workspace, "modules/base"))) << "a listed member";
+        expect(!inMcpp.separate(b::join_path(workspace, "tools/devtools"))) << "a member through tools/*";
+        expect(inMcpp.separate(b::join_path(workspace, "conformance/fixtures/x"))) << "not a member";
+        expect(inMcpp.separate(b::join_path(workspace, "examples/cmake"))) << "a CMake project inside an mcpp one";
+        expect(p::workspace_members("[workspace]\nmembers = [\"a\", \"b/*\"]\n") == std::vector<std::string> { "a", "b/*" });
+        expect(p::workspace_members("[package]\nname = \"x\"\n").empty());
+        fs::remove_all(cmake);
+        fs::remove_all(workspace);
     };
 
     return report();
