@@ -224,6 +224,20 @@ jobs:
             exit 1
           fi
           { echo '```json'; cat "$RUNNER_TEMP/self/self-mcppls.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      # Real-project plan RP0/RP2.1: xlings with its pinned mcpp 2026.8.8.4, too old to emit a build
+      # database -- the incident the plan starts from. It must be described by the newer installed mcpp.
+      - name: mcppls on xlings with its old pinned mcpp, timed
+        run: |
+          set -euo pipefail
+          xlings install mcpp@2026.8.8.4 -y -g
+          xlings use mcpp "$MCPP_VERSION"
+          if ! stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture conformance/fixtures/real-xlings-old-mcpp \
+                --timeout 900 --measure "$RUNNER_TEMP/self/real-xlings-old-mcpp.json"; then
+            stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture conformance/fixtures/real-xlings-old-mcpp \
+                --timeout 300 --verbose 2>&1 | tail -300 || true
+            exit 1
+          fi
+          { echo '```json'; cat "$RUNNER_TEMP/self/real-xlings-old-mcpp.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         if: always()
         with:

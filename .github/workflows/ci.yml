@@ -669,6 +669,15 @@ jobs:
           MCPPLS_E2E_SCENARIO: conflicts
         run: |
           if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a npm test; else npm test; fi
+      # Seeded random use through VS Code's own provider commands (real-project plan RP0): every
+      # request answered, none past its budget, p90 within five seconds.
+      - name: End-to-end tests (stress scenario)
+        working-directory: editors/vscode
+        env:
+          MCPPLS_E2E_VSIX: ${{ github.workspace }}/editors/vscode/mcppls-${{ matrix.platform }}.vsix
+          MCPPLS_E2E_SCENARIO: stress
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a npm test; else npm test; fi
       - uses: actions/upload-artifact@v7
         with:
           name: vsix-${{ matrix.platform }}

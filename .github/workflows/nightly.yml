@@ -119,14 +119,17 @@ jobs:
           - { fixture: self-mcpp,     platform: linux-x64,    os: ubuntu-24.04 }
           # This repository's own conformance: real-project plan RP0/RP3.4's acceptance evidence.
           - { fixture: self-mcppls,   platform: linux-x64,    os: ubuntu-24.04 }
+          # xlings, as committed and with its old pinned mcpp: the real-project plan's own incident.
+          - { fixture: real-xlings,          platform: linux-x64, os: ubuntu-24.04 }
+          - { fixture: real-xlings-old-mcpp, platform: linux-x64, os: ubuntu-24.04 }
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
-      - name: GCC 16, which the mcpp repository builds with
-        if: matrix.fixture == 'self-mcpp'
+      - name: GCC 16, which the mcpp and xlings repositories build with
+        if: matrix.fixture == 'self-mcpp' || startsWith(matrix.fixture, 'real-xlings')
         run: mcpp toolchain install gcc 16.1.0
       # The mcpp repository's .xlings.json asks for the mcpp it is built with, and xlings runs that one
       # inside it, refusing to when it is not installed. A developer sets the repository up with
@@ -136,6 +139,15 @@ jobs:
         run: |
           set -euo pipefail
           xlings install mcpp@2026.9.21.1 -y -g
+          xlings use mcpp "$MCPP_VERSION"
+          mcpp --version
+      # xlings pins mcpp 2026.8.8.4, too old to emit a build database; real-xlings-old-mcpp makes the
+      # pin take effect, so it has to be installed, beside MCPP_VERSION, which stays the default.
+      - name: The old mcpp xlings pins
+        if: matrix.fixture == 'real-xlings-old-mcpp'
+        run: |
+          set -euo pipefail
+          xlings install mcpp@2026.8.8.4 -y -g
           xlings use mcpp "$MCPP_VERSION"
           mcpp --version
       - uses: actions/download-artifact@v8

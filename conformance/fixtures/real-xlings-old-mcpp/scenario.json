@@ -1,0 +1,103 @@
+{
+  "name": "real-xlings-old-mcpp",
+  "description": "Real-project plan RP0/RP2.1, the incident the plan starts from: the same xlings commit with projectScope removed from .xlings.json, so its pinned mcpp 2026.8.8.4 -- too old to emit a build database -- is the project's mcpp. mcppls must describe it with a newer installed mcpp (tier 1, no stand-in for the generated module) and settle without timeouts. Nightly and pre-release.",
+  "prepare": [
+    [
+      "git",
+      "init",
+      "-q"
+    ],
+    [
+      "git",
+      "fetch",
+      "-q",
+      "--depth",
+      "1",
+      "https://github.com/openxlings/xlings.git",
+      "84572b0cc8502a16afaa4ae00867aef17f18c2c2"
+    ],
+    [
+      "git",
+      "checkout",
+      "-q",
+      "FETCH_HEAD"
+    ],
+    [
+      "mcpp",
+      "emit",
+      "build-database"
+    ],
+    [
+      "python3",
+      "-c",
+      "import json; p='.xlings.json'; d=json.load(open(p)); d.pop('projectScope', None); json.dump(d, open(p, 'w'), indent=2)"
+    ],
+    [
+      "xlings",
+      "install",
+      "-y"
+    ]
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "mcpp",
+      "tier": 1,
+      "timeout": 120
+    },
+    {
+      "id": "M1-import-cli",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        2,
+        7
+      ],
+      "expect": "src/cli.cppm"
+    },
+    {
+      "id": "C1-platform-call",
+      "kind": "definition-any",
+      "file": "src/main.cpp",
+      "at": [
+        33,
+        22
+      ]
+    },
+    {
+      "id": "C2-hover",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        33,
+        22
+      ],
+      "expect": "init_console_output"
+    },
+    {
+      "id": "STRESS1",
+      "kind": "stress",
+      "seed": 17,
+      "actions": 60,
+      "requestTimeout": 65,
+      "files": [
+        "src/**/*.cppm",
+        "src/**/*.cpp"
+      ],
+      "budget": {
+        "timeouts": 0,
+        "p90": 3,
+        "maxStallSeconds": 60
+      }
+    },
+    {
+      "id": "S2-negotiated",
+      "kind": "status",
+      "source": "mcpp",
+      "tier": 1,
+      "notice-code": "producer-negotiated",
+      "timeout": 120
+    }
+  ]
+}

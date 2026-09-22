@@ -201,4 +201,11 @@ What differs from §5, on purpose:
 - **Interactive requests during a cold start** still wait for clangd while module preparation is
   progressing (cold-start plan 4.3), up to the interactive budget; answering early from mcppls's own
   engine without losing clangd's answer needs merging in the orchestrator and is the next step.
+  Measured on `real-xlings` (a cold start preparing ~110 modules): p90 0.8 s, one definition past
+  15 s. The real-project fixtures therefore budget p90 ≤ 3 s and "no request outlives the server's
+  own limit" rather than a hard 15 s.
+- **Memory during a cold start** is clangd building module BMIs: 4–8 GB for the process tree on
+  xlings and this repository. Nothing here reduces it; bounding it (fewer parallel module builds on
+  small machines, releasing BMIs clangd no longer needs) is a follow-up, and the stress check
+  reports it (`rssMB`) so it is watched.
 
