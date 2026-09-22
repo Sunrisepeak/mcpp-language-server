@@ -28,6 +28,8 @@ findings and the plan are in `.agents/docs/2026-09-22-real-project-experience.md
   waits for clangd at most 30 s in all, whether clangd is starting, the file is waiting for its
   database, or its modules are being prepared, and is then answered by mcppls's own engine. Before,
   a request queued while clangd started or while its file was held had no limit at all.
+- A hover that would show nothing while the modules a file imports are still being built says so,
+  the way it already did while mcppls prepares them: silence reads as "there is nothing here".
 - The status settles: preparation that makes no progress for a minute ends in *degraded*, naming
   what failed (`modules-doomed`, `preparation-stalled`), instead of *preparing* for good.
 - clangd's own `E[` lines are logged as warnings and its `I[`/`V[`/`D[` chatter at debug; a module

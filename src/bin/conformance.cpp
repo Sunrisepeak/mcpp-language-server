@@ -1322,10 +1322,21 @@ public:
         }
         if (kind == "hover-contains") {
             open(file);
-            const std::string expected { check.value("expect", std::string {}) };
+            // `expect` is one text the hover must contain, or several of which any one will do -- for a
+            // check that accepts either an engine's answer or the server's own explanation of why it
+            // cannot answer yet.
+            std::vector<std::string> expected;
+            if (const auto it = check.find("expect"); it != check.end() && it->is_array()) {
+                for (const auto& one : *it) expected.push_back(one.get<std::string>());
+            } else {
+                expected.push_back(check.value("expect", std::string {}));
+            }
             auto [ok, result] = retry("textDocument/hover",
                 [&] { return Json { { "textDocument", Json { { "uri", uri(file) } } }, { "position", position(check.at("at")) } }; },
-                [&](const Json& value) { return hover_text(value).find(expected) != std::string::npos; });
+                [&](const Json& value) {
+                    const std::string text { hover_text(value) };
+                    return std::ranges::any_of(expected, [&](const std::string& one) { return text.find(one) != std::string::npos; });
+                });
             std::string text { hover_text(result) };
             return { ok, text.substr(0, std::min<std::size_t>(text.size(), 160)) };
         }

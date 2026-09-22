@@ -148,7 +148,7 @@ always has been.
 | `diagnostic-code` | a diagnostic with code `expect` is published for the file |
 | `definition` / `declaration` | a location ends with `expect` |
 | `definition-any` | there is at least one location |
-| `hover-contains` | the hover text contains `expect` |
+| `hover-contains` | the hover text contains `expect`, or any one of them when `expect` is a list |
 | `completion-contains` | a completion label starts with `expect`; `insert: [line, text]` adds a line first, `edit` changes another open buffer without saving it |
 | `references-span` | the references include every path in `expect` |
 | `document-symbol-contains` | the outline has a top-level symbol named `expect` |

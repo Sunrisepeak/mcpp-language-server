@@ -215,6 +215,13 @@ What differs from §5, on purpose:
   timeout. Now a request a person waits for waits for clangd at most `INTERACTIVE_LIMIT` (30 s)
   from when it arrived, across all three, and is then answered by mcppls's own engine; a failing
   fixture prints the tail of the server's log, so a recurrence shows its cause.
+  That log then caught the same failure on macOS and named the cause: a module the importer needs
+  had failed, the stand-in the edit added changed the database, the module was tried again
+  (`module-retry`), and clangd spent 60 s rebuilding it while every hover on the importer timed out
+  at 10 s and produced nothing. mcppls now says so — a hover with nothing to show while the core
+  engine is building what the file needs explains that, as it already did for its own preparation —
+  and `module-faults` asserts the importer answers within 30 s and either keeps clangd's answer or
+  is told why not, which is the promise; the old check assumed clangd had not noticed the edit yet.
 - **Memory during a cold start** is clangd building module BMIs: 4–8 GB for the process tree on
   xlings and this repository. Nothing here reduces it; bounding it (fewer parallel module builds on
   small machines, releasing BMIs clangd no longer needs) is a follow-up, and the stress check

@@ -273,6 +273,22 @@ public:
         return status;
     }
 
+    // clangd has the file and is building what it needs for it: its own file status says it is
+    // working, or it has not published diagnostics for it yet. A file it will never answer for
+    // (doomed, set aside, held, excluded) is not "busy": something else already explains that.
+    bool busy_with(std::string_view path) const override {
+        if (path.empty() || !accepting_) return false;
+        const std::string key { base::path_key(path) };
+        if (doomedFiles_.contains(key) || quarantine_.contains(key) || excluded_.contains(key) || held_.contains(key)) return false;
+        for (const auto& document : host_->documents()) {
+            if (document.path.empty() || base::path_key(document.path) != key) continue;
+            if (awaitingDiagnostics_.contains(document.uri)) return true;
+            const auto status = fileStatus_.find(document.uri);
+            return status != fileStatus_.end() && engine_working(status->second);
+        }
+        return false;
+    }
+
     Json report() const override {
         Json restarts = Json::array();
         for (const auto& [at, reason] : restartHistory_) restarts.push_back(Json { { "at", at }, { "reason", reason } });
