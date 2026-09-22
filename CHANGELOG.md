@@ -7,7 +7,7 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
-## [Unreleased]
+## [0.0.2] — 2026-09-22
 
 ### Editors
 
