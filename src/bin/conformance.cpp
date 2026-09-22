@@ -2073,14 +2073,79 @@ int prepare_producer_candidate(const std::string& home) {
     return 0;
 }
 
+// real-project plan RP1.1/RP1.3: a straight import chain of `argument` modules (default 100),
+// gen.chain0 through gen.chain<count-1>, whose base (gen.chain0) does not compile -- an undeclared
+// name, the same shape as module-faults' broken.e, at the scale a real dependency's failure
+// closure reaches (the plan's own measurement: totals grew from 21 to 101 preparing a single
+// failed package). A plain importer of the chain's last module (never a unit of gen itself, the
+// way xlings' main.cpp imported mcpplibs.xpkg.executor) and two modules entirely outside the chain
+// prove the closure stays where it is at this scale: outside files keep answering, the importer is
+// answered by mcppls's own engine at once, and nothing restarts clangd or keeps priming a module
+// already known to be doomed.
+int prepare_failure_at_base(const std::string& argument) {
+    int count { 100 };
+    if (!argument.empty()) {
+        try {
+            count = std::max(2, std::stoi(argument));
+        } catch (...) {
+            say("failure-at-base: {} is not a module count", argument);
+            return 1;
+        }
+    }
+    const std::string root { fs::current_directory() };
+    (void)fs::create_directories(base::join_path(root, "src/gen"));
+    (void)fs::create_directories(base::join_path(root, "src/healthy"));
+    for (int i { 0 }; i < count; ++i) {
+        const std::string body { i == 0
+            ? std::format("// The base of a {}-module import chain (real-project plan RP1.1): fails to compile,\n"
+                          "// the same shape as module-faults' broken.e, at the scale a real dependency's\n"
+                          "// failure closure reaches.\n"
+                          "export module gen.chain0;\n\n"
+                          "export int chain0() {{ return undeclared_base_symbol; }}\n", count)
+            : std::format("export module gen.chain{0};\nimport gen.chain{1};\n\nexport int chain{0}() {{ return chain{1}() + 1; }}\n",
+                          i, i - 1) };
+        if (auto written = fs::write_file(base::join_path(root, std::format("src/gen/chain{}.cppm", i)), body); !written) {
+            say("failure-at-base: {}", written.error().message);
+            return 1;
+        }
+    }
+    const std::string importer { std::format(
+        "// A plain importer of the chain's last module, never a unit of gen itself: the way xlings'\n"
+        "// main.cpp imported mcpplibs.xpkg.executor in the incident this fixture is named for (real-project\n"
+        "// plan RP1.1).\n"
+        "import gen.chain{0};\n\n"
+        "int use_chain() {{ return chain{0}(); }}\n", count - 1) };
+    if (auto written = fs::write_file(base::join_path(root, "src/gen-importer.cpp"), importer); !written) {
+        say("failure-at-base: {}", written.error().message);
+        return 1;
+    }
+    static constexpr std::string_view HEALTHY_A {
+        "// Outside the failed closure entirely (real-project plan RP1.1): answers normally throughout.\n"
+        "export module healthy.a;\n\n"
+        "export int healthyValue() { return 7; }\n" };
+    static constexpr std::string_view HEALTHY_B {
+        "import healthy.a;\n\n"
+        "int healthyUser() { return healthyValue() * 2; }\n" };
+    if (auto written = fs::write_file(base::join_path(root, "src/healthy/a.cppm"), std::string { HEALTHY_A }); !written) {
+        say("failure-at-base: {}", written.error().message);
+        return 1;
+    }
+    if (auto written = fs::write_file(base::join_path(root, "src/healthy/b.cpp"), std::string { HEALTHY_B }); !written) {
+        say("failure-at-base: {}", written.error().message);
+        return 1;
+    }
+    return 0;
+}
+
 int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "s1-two-sets") return prepare_s1_two_sets(argument);
     if (kind == "payload-corrupt") return prepare_payload_corrupt(argument);
     if (kind == "producer-candidate") return prepare_producer_candidate(argument);
+    if (kind == "failure-at-base") return prepare_failure_at_base(argument);
     if (kind == "compdb-clang-cl-std") return prepare_compdb_msvc_std(true);
     if (kind == "compdb-clangxx-msvc-std") return prepare_compdb_msvc_std(false);
     if (kind == "generated-module-old-mcpp") return prepare_generated_module_compdb(argument);
-    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp)", kind);
+    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp)", kind);
     return 2;
 }
 

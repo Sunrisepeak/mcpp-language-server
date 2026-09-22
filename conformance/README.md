@@ -156,10 +156,11 @@ always has been.
 | `execute-command` | `workspace/executeCommand` with `"command"` and `"arguments"` is answered without an error (the editor's review commands, design 7.7) |
 | `cli` | S5 section 7: `mcppls <args>` with the runner's payload and the fixture's server arguments, run to completion in the workspace, exits with `"exit"` (default 0) and prints one JSON document meeting `"expect"` |
 | `stress` | real-project stress testing (real-project plan RP0): seeded random use — see below — meets every key present in `"budget"` |
+| `report` | robustness design O3: `cxxModules/report` meets `"expect"`, retried within the check's time like an `mcp`/`cli` result (a plan or an engine may still be on its way) |
 
-An expectation of `mcp` and `cli` names a JSON pointer in `"path"`, where a `*` segment stands for every
+An expectation of `mcp`, `cli` and `report` names a JSON pointer in `"path"`, where a `*` segment stands for every
 element of an array, and one of `"equals"` (a value the pointer names equals it), `"contains"` (a string
-contains it, or an array has an element that includes all its members), `"min-items"`, `"exists"` or
+contains it, or an array has an element that includes all its members), `"min-items"`, `"max-items"`, `"exists"` or
 `"absent"`; it holds when any value the pointer names satisfies it.
 
 The check identifiers C1–C9 are the core navigation and diagnostics checks every fixture can
