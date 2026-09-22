@@ -8,6 +8,7 @@ import mcppls.spec.database;
 import mcppls.toolchain.probe;
 import mcppls.project.compdb;
 import mcppls.project.scan;
+import mcppls.project.boundary;
 
 namespace mcppls::project {
 
@@ -18,7 +19,6 @@ constexpr std::array<std::string_view, 16> SOURCE_EXTENSIONS {
     ".CPP", ".CC", ".CXX", ".C",
 };
 constexpr std::array<std::string_view, 7> SKIPPED_DIRECTORIES { "target", "build", "node_modules", "out", "_build", "cmake-build-debug", "cmake-build-release" };
-
 void fill_modules(spec::TranslationUnit& unit, const ScanResult& scanned) {
     unit.role = role_of(scanned);
     if (const std::string provided { provided_name(scanned) }; !provided.empty()) unit.providedModules.emplace_back(provided, std::string {});
@@ -170,7 +170,10 @@ InferredDatabase infer_database(std::string_view rootInput, const InferOptions& 
     }
     set.baselineArguments = baseline;
 
+    // A nested project's own sources are not this one's (real-project plan RP3.4).
+    const ProjectBoundaries boundaries { root };
     for (const auto& file : platform::fs::list_files(root, SOURCE_EXTENSIONS, SKIPPED_DIRECTORIES)) {
+        if (boundaries.crossed(file, root)) continue;
         spec::TranslationUnit unit;
         unit.source = file;
         unit.workDirectory = root;

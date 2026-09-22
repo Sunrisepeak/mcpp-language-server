@@ -3,6 +3,17 @@
 mcppls does not ask you to describe your build. It finds it, and says what it found in the status
 bar. This is what "finding it" means for each kind of project, and what you get when it cannot.
 
+The status bar's `L1`..`L4` is the *tier*: how the project was described — L1 a build database (mcpp's
+`emit build-database`, or one of your own), L2 CMake's own database, L3 a bare `compile_commands.json`
+(including the one an mcpp too old to emit a build database leaves), L4 sources only (an untrusted
+workspace is always L4, whatever else is on disk). It is not the same number as the `level`
+`mcppls check` and `cxxModules/status` also carry, which is [S1](specs/s1-build-database.md)'s own
+1..4 for how completely a database's *document* is structured; a hand-written level-3 database and an
+mcpp build database are both L1, and a CMake project without `FILE_SET CXX_MODULES` is L2 even at
+level 1. The status bar and the editor plugins show `L<tier>` only, to keep the two apart. A model
+is never replaced by one of a worse tier: if the build tool later answers less completely than the
+model in hand, that model is kept and the status says it may be stale.
+
 ## mcpp
 
 mcppls asks mcpp for the build description directly:
@@ -21,9 +32,19 @@ Two things are worth knowing:
   the server asks it with `MCPP_OFFLINE` set. If the project's dependencies are not on the machine
   yet, mcpp says so and the status bar offers to run the build tool in your terminal — where your
   proxy and credentials are. See [30-settings.md](30-settings.md) for `mcppls.buildTool`.
-- **An older mcpp** without `emit build-database` is asked to configure instead
-  (`mcpp build --configure-only`), which does write into the project. The status says so when it
-  happens. Updating mcpp is the fix.
+- **An older mcpp** without `emit build-database` is not the end of it: if a newer mcpp is installed
+  elsewhere on the machine (the xlings package store, mcpp's own registry store), mcppls asks *that*
+  one instead, read-only and offline the same way, only to describe the project — the project still
+  builds with the mcpp it pins. The status says "described by mcpp X (the project pins Y)" when this
+  happens. Only when no installed mcpp can answer is the pinned one asked to configure instead
+  (`mcpp build --configure-only`), which does write into the project; the status says so then, and
+  updating mcpp is the fix.
+- **A stale database** — one whose entries name files a `target/` a build once wrote and the project
+  later deleted, or a `compile_commands.json` checked in from another machine — is used for what
+  still exists; the status notes it is stale rather than failing outright. A module that build writes
+  only when it runs (a dependency's own `std`, a code generator's output) is looked for where builds
+  leave it — the project's own build directory, and mcpp's build-database cache, which survives a
+  deleted `target/` — before mcppls falls back to an empty stand-in for it.
 
 ## CMake
 

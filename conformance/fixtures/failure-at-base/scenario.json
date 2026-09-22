@@ -1,0 +1,21 @@
+{
+  "name": "failure-at-base",
+  "description": "Real-project plan RP1.1/RP1.3, at scale: a straight import chain of 100 generated modules whose base (gen.chain0) does not compile, the shape of the xlings incident this plan is named for (a dependency's failure closure reaching every transitive importer). Files outside the chain keep answering normally; a plain importer of the chain's last module is answered by mcppls's own engine within a second and carries a module-failed diagnostic; the status settles within 60s naming modules-doomed; nothing restarts clangd or is set aside.",
+  "server-arguments": ["--no-discover"],
+  "prepare": [
+    ["{conformance}", "prepare", "failure-at-base", "100"]
+  ],
+  "checks": [
+    { "id": "F1-deep-importer-responds-at-once", "kind": "responds", "file": "src/gen-importer.cpp", "at": [5, 27],
+      "method": "textDocument/hover", "timeout": 1 },
+    { "id": "H1-outside-the-closure-module", "kind": "hover-contains", "file": "src/healthy/a.cppm", "at": [3, 15], "expect": "healthyValue" },
+    { "id": "H2-outside-the-closure-definition", "kind": "definition", "file": "src/healthy/b.cpp", "at": [2, 31], "expect": "src/healthy/a.cppm" },
+    { "id": "S1-settles-degraded", "kind": "status", "state": "degraded", "issue-code": "modules-doomed", "timeout": 60 },
+    { "id": "F2-deep-importer-names-the-failed-module", "kind": "diagnostic-code", "file": "src/gen-importer.cpp", "expect": "module-failed", "timeout": 30 },
+    { "id": "F3-no-restart-nothing-set-aside", "kind": "report", "timeout": 10,
+      "expect": [{ "path": "/roots/0/engines/*/details/restarts", "max-items": 0 }, { "path": "/roots/0/engines/*/details/filesSetAside", "max-items": 0 }] },
+    { "id": "STRESS1", "kind": "stress", "seed": 3, "actions": 40, "requestTimeout": 15,
+      "files": ["src/**/*.cppm", "src/**/*.cpp"],
+      "budget": { "timeouts": 0, "maxStallSeconds": 60 } }
+  ]
+}

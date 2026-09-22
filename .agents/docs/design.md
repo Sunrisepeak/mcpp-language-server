@@ -65,11 +65,30 @@ editor / coding agent / CI
 | L3 | only `compile_commands.json` | the database plus scanning | arguments per file, module roles recovered by scanning, compilers probed |
 | L4 | sources only, or no usable compiler | scanning and the bundled semantic kit | modules resolve and `import std` works, with libc++ diagnostics |
 
-An untrusted workspace is L4 by definition: no build tool and no compiler runs.
+An untrusted workspace is L4 by definition: no build tool and no compiler runs, and — the rule an
+incident against a real project (openxlings/xlings) sharpened — nothing already on disk from a
+trusted session, or from a build run outside mcppls entirely, is read either; a leftover
+`compile_commands.json` is still a fact about a build, and reading it would make "untrusted" mean
+"unless something is already sitting there".
+
+This table's L1..L4 is `project.tier` (S3); the S1 profile's own 1..4 conformance level
+(`project.level`, how completely a *document* is structured) answers a different question and
+happens to share the same range — an mcpp project and a hand-written level-3 database are both tier
+1, and a CMake project without `FILE_SET CXX_MODULES` is tier 2 even at level 1. The status bar and
+the editor plugins show `L<tier>`, never `level`, because showing both as a bare number invited
+reading one as the other.
 
 **Model sources are ordered** cache > producer > inferred, each with an input fingerprint. A cached
 model is used at once and confirmed in the background; a worse source never replaces a better result
-or overwrites a better cache.
+or overwrites a better cache. Within "producer", the mcpp a project pins is not the only one asked:
+an mcpp that cannot `emit build-database` is not the end of it if a newer one is installed elsewhere
+on the machine (the xlings package store, mcpp's own registry store) and advertises the kind — that
+one describes the project instead, read-only and offline the same way, while the project still
+builds with the mcpp it pins (`mcppls.project.mcpp::other_mcpp_executables`). A database entry naming
+a file that no longer exists is used for what remains rather than discarded outright, and a module a
+dependency's build generates is looked for where builds leave it — the project's own build
+directory, and mcpp's build-database cache, which survives a `target/` the project later deleted —
+before an empty stand-in is created for it (`mcppls.project.generated`).
 
 ### 2.2 The payload
 
@@ -202,6 +221,16 @@ above.
 symbols not ready yet · 4.4 cold-start concurrency · 4.6 missing or old mcpp · 4.8 stand-ins for
 modules that fail to compile · 4.10 clangd progress that starts and stops · 4.11 one C++ engine per
 file.
+
+**"real-project plan RP" — [2026-09-22-real-project-experience.md](2026-09-22-real-project-experience.md).**
+RP0 real-project stress testing (the `stress` check, client profiles, the old-mcpp mock, generated
+and failing-base fixtures, pinned real projects, `devtools stress`, real editors, CI) · RP1.1 a
+failed module's import closure is answered by mcppls's own engine · RP1.2 no global recovery for a
+local fault, restarts capped · RP1.3 doomed modules are not prepared · RP1.4 the status settles ·
+RP1.5 resource budgets · RP2.1 producer negotiation · RP2.2 a worse model never replaces a better
+one · RP2.3 generated-source recovery before a stand-in · RP2.4 stale databases · RP3.1 an untrusted
+workspace is L4 · RP3.2 one vocabulary (`project.tier`) · RP3.3 log severities · RP3.4 a nested
+project is not folded into its parent.
 
 **"tooling architecture".** 3.2 the workspace layout · 5.1 what mcpp, mcppls and devtools each do ·
 5.5 how devtools finds the server it just built · M0–M6 its migration steps.

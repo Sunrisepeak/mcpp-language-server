@@ -13,7 +13,18 @@
 // as xlings answers for an mcpp a project pins but that is not installed. {"hang": {...}} is the
 // failure the runner exists for: a producer that does not return, and that leaves something behind
 // holding the caller's pipe, which is what one hung index refresh did to an editor for twelve
-// minutes (build description design 1.1).
+// minutes (build description design 1.1). {"oldProtocol": true} is mcpp 2026.8.8.4, before
+// mcpp-community/mcpp#636: `--protocol-version` advertises no `mcpp.build-database` kind, `emit
+// build-database` does not exist, and `build --configure-only` is rejected ("error: unknown
+// option: --configure-only", exit 2) — real-project plan RP0,
+// exercising the server's L2 fallback onto the project's own compile_commands.json.
+//
+// The config read is normally the project's own mcpp-mock.json (the current directory, which is
+// the project root for every command a real mcpp would run there). A copy of this program placed
+// where producer negotiation looks for another installed mcpp (real-project plan RP2.1,
+// `xim-x-mcpp/<version>/bin/mcpp`) still runs with the *project's* directory as its cwd, so it
+// reads a config beside its own executable instead when a fixture put one there -- a negotiated
+// candidate's own version and database, distinct from the project's own mcpp-mock.json.
 import std;
 import nlohmann.json;
 import mcppls.base.path;
@@ -67,6 +78,24 @@ void expand_all(Json& value, const std::string& root) {
     }
 }
 
+// real-project plan RP2.1: a candidate mcpp that producer negotiation finds beside another
+// project's own (`other_mcpp_executables`, `xim-x-mcpp/<version>/bin/mcpp`) still runs with that
+// project's directory as its cwd, so `mcpp-mock.json` there is the *other* mcpp's recording, not
+// this candidate's own. A config file beside this program's own executable, when one exists, is
+// what a fixture puts there to give a negotiated candidate its own version and database; every
+// fixture that runs the mock as the project's one and only mcpp keeps reading the project's.
+std::string mock_config_path() {
+    const auto arguments = mcppls::platform::env::arguments();
+    if (!arguments.empty()) {
+        const std::string& self { arguments.front() };
+        const std::string absolute { base::is_absolute_path(self) ? base::normalize_path(self)
+                                                                   : base::normalize_path(base::join_path(fs::current_directory(), self)) };
+        const std::string beside { base::join_path(base::parent_path(absolute), "mcpp-mock.json") };
+        if (fs::is_regular_file(beside)) return beside;
+    }
+    return base::join_path(fs::current_directory(), "mcpp-mock.json");
+}
+
 Json envelope(std::string_view kind, Json data, Json diagnostics, Json effects) {
     Json document = Json::object();
     document["schemaVersion"] = 1;
@@ -97,16 +126,21 @@ std::string fingerprint(const std::string& root) {
     return std::format("fnv1a:{:016x}", hash);
 }
 
-int protocol_version() {
+// `{"oldProtocol": true}` in mcpp-mock.json: this mcpp predates mcpp-community/mcpp#636 (mcpp
+// 2026.8.8.4, before mcpp.build-database and `emit build-database` existed), so the server's L2
+// fallback is exercised — `mcpp build --configure-only` (below) instead, and where even that fails
+// or the project has none of its own, the project's already-there compile_commands.json.
+int protocol_version(bool oldProtocol) {
     Json document = Json::object();
     document["schemaVersion"] = 1;
     document["kind"] = "mcpp.protocol";
     document["envelope"] = Json { { "min", 1 }, { "max", 1 } };
-    document["kinds"] = Json { { "mcpp.build-database", 1 } };
-    // As mcpp 2026.9.15.1 declares it.
-    document["commands"] = Json { { "emit build-database", Json { { "effects", Json::array({ "init-mcpp-home", "read-project", "network", "write-global-cache",
-                                                                                              "exec-build-script" }) } } } };
-    document["mcpp"] = Json { { "version", VERSION } };
+    document["kinds"] = oldProtocol ? Json::object() : Json { { "mcpp.build-database", 1 } };
+    // As mcpp 2026.9.15.1 declares it; 2026.8.8.4 has no `emit build-database` at all.
+    document["commands"] = oldProtocol ? Json::object()
+                                       : Json { { "emit build-database", Json { { "effects", Json::array({ "init-mcpp-home", "read-project", "network",
+                                                                                                            "write-global-cache", "exec-build-script" }) } } } };
+    document["mcpp"] = Json { { "version", oldProtocol ? std::string { "2026.8.8.4" } : std::string { VERSION } } };
     std::println("{}", document.dump(2));
     return 0;
 }
@@ -122,7 +156,7 @@ int emit_build_database(std::span<const std::string> arguments) {
         return 2;
     }
     const std::string root { base::normalize_path(fs::current_directory()) };
-    auto text = fs::read_file(base::join_path(root, "mcpp-mock.json"));
+    auto text = fs::read_file(mock_config_path());
     if (!text) {
         const Json diagnostics = Json::array({ Json { { "code", "MCPP_MOCK_NO_DATA" }, { "severity", "error" }, { "source", "mcpp" },
                                                       { "message", "this fixture recorded no mcpp-mock.json" } } });
@@ -187,9 +221,10 @@ int main(int argc, char* argv[]) {
         std::this_thread::sleep_for(std::chrono::seconds { std::max(1, std::stoi(arguments[1])) });
         return 0;
     }
+    bool oldProtocol { false };
     // {"unavailable": "<text>"}: a project whose .xlings.json asks for an mcpp that is not installed.
     // xlings then answers every command in mcpp's place, with <text> on standard error, and runs nothing.
-    if (auto text = fs::read_file(base::join_path(fs::current_directory(), "mcpp-mock.json"))) {
+    if (auto text = fs::read_file(mock_config_path())) {
         const Json recorded = Json::parse(*text, nullptr, false);
         if (recorded.is_object() && recorded.contains("unavailable") && recorded["unavailable"].is_string()) {
             std::print(std::cerr, "{}", recorded["unavailable"].get<std::string>());
@@ -206,18 +241,31 @@ int main(int argc, char* argv[]) {
             const std::vector<std::string> me { absolute };
             return hang(recorded["hang"], me);
         }
+        oldProtocol = recorded.is_object() && recorded.value("oldProtocol", false);
     }
-    if (arguments.size() == 1 && arguments[0] == "--protocol-version") return protocol_version();
-    if (arguments.size() >= 2 && arguments[0] == "emit" && arguments[1] == "build-database") {
+    if (arguments.size() == 1 && arguments[0] == "--protocol-version") return protocol_version(oldProtocol);
+    // 2026.8.8.4 has no `emit build-database` at all; it falls through to "not simulated" below,
+    // the way an unknown subcommand of a real old mcpp would (the server's own protocol-version
+    // check keeps it from ever asking in the first place).
+    if (!oldProtocol && arguments.size() >= 2 && arguments[0] == "emit" && arguments[1] == "build-database") {
         return emit_build_database(std::span<const std::string> { arguments }.subspan(2));
     }
     if (!arguments.empty() && arguments[0] == "--version") {
         std::println("mcpp {}", VERSION);
         return 0;
     }
-    // Anything else, notably `build --configure-only`, is what the consumer must not need. A build
-    // leaves the mark a real one would, a compile_commands.json in the project, so that a fixture's
-    // workspace-unchanged check sees it was run.
+    // `mcpp build --configure-only`: the server's L2 fallback once mcpp advertises no
+    // mcpp.build-database (project/mcpp.cpp `load_mcpp`). 2026.8.8.4 has no --configure-only
+    // either, so the fallback fails too, and reading the project's own compile_commands.json is
+    // what is left to exercise.
+    if (oldProtocol && !arguments.empty() && arguments[0] == "build"
+        && std::ranges::find(arguments, std::string { "--configure-only" }) != arguments.end()) {
+        std::println(std::cerr, "error: unknown option: --configure-only");
+        return 2;
+    }
+    // Anything else, notably a modern `build --configure-only`, is what the consumer must not
+    // need. A build leaves the mark a real one would, a compile_commands.json in the project, so
+    // that a fixture's workspace-unchanged check sees it was run.
     if (!arguments.empty() && arguments[0] == "build") (void)fs::write_file(base::join_path(fs::current_directory(), "compile_commands.json"), "[]\n");
     std::println(std::cerr, "mcppls-mock-mcpp: '{}' is not simulated", base::join(arguments, " "));
     return arguments.empty() ? 2 : 127;

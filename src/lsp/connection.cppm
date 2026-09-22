@@ -44,6 +44,8 @@ public:
     void stop(std::chrono::milliseconds grace);
     bool closed() const { return closed_.load(); }
     std::optional<int> exit_code();
+    // The peer's OS process id, where the platform can say (platform::Process::native_pid).
+    std::optional<std::int64_t> native_pid() const { return process_.native_pid(); }
 };
 
 } // namespace mcppls::lsp

@@ -62,7 +62,45 @@ struct Options {
     // that asks whether the client understands `cxxModules/status`, i.e. only to the one client
     // that already had progress (cold-start plan 4.1).
     bool plainClient { false };
+    // `--client`: the capabilities a real editor actually sends. `none` (no flag at all) keeps this
+    // runner's own long-standing default, the full experimental.cxxModules block with no
+    // initializationOptions, so every fixture that predates this option keeps behaving exactly as
+    // it did. `--plain-client` is kept as the alias `plain`.
+    enum class ClientProfile { none, vscode, neovim, zed, plain };
+    ClientProfile client { ClientProfile::none };
+    // `mcppls-devtools stress --seed N`: overrides every stress check's own "seed", so a matrix
+    // run stays reproducible without editing every fixture's scenario.json.
+    std::optional<std::uint64_t> stressSeed;
+    // real-project plan RP2.1: a fixture with `"isolate-home": true` needs producer negotiation to
+    // see only its own candidates, never whatever mcpp or xlings a machine happens to have installed
+    // under the real $HOME/%USERPROFILE%. Empty until `run()` reads the scenario; once set, every
+    // process the runner starts for the server under test uses it as HOME (and USERPROFILE).
+    std::string isolatedHome;
 };
+
+// Replaces HOME (POSIX) and USERPROFILE (Windows) in a spawn's environment, so
+// `mcppls::platform::dirs::home_directory()` -- and so producer negotiation's search of
+// `<home>/.xlings/data/xpkgs` and `<home>/.mcpp/registry/data/xpkgs` (real-project plan RP2.1) --
+// sees only what the fixture itself put there. A no-op when `options.isolatedHome` is empty, which
+// is every fixture that predates it.
+void apply_isolated_home(std::vector<std::string>& environment, const Options& options) {
+    if (options.isolatedHome.empty()) return;
+    const auto isHomeVariable = [](const std::string& entry) {
+        return entry.starts_with("HOME=") || entry.starts_with("USERPROFILE=") || entry.starts_with("HOMEDRIVE=") || entry.starts_with("HOMEPATH=");
+    };
+    std::erase_if(environment, isHomeVariable);
+    environment.push_back("HOME=" + options.isolatedHome);
+    environment.push_back("USERPROFILE=" + options.isolatedHome);
+}
+
+// Whether this profile looks like a client with no `experimental.cxxModules` at all: no
+// `cxxModules/status` arrives, so status checks make no sense and standard `$/progress` is what
+// the run must prove instead (cold-start plan 4.1). True for `plain` and `zed` (Zed advertises no
+// experimental capability of ours), for `--plain-client`, and false for `none` (this runner's own
+// long-standing default) so every fixture written before `--client` existed is unaffected.
+bool is_plain_like(const Options& options) {
+    return options.plainClient || options.client == Options::ClientProfile::zed || options.client == Options::ClientProfile::plain;
+}
 
 std::string absolute(std::string_view path) {
     if (path.empty() || base::is_absolute_path(path)) return base::normalize_path(path);
@@ -87,6 +125,9 @@ struct Expansion {
     std::string runnerDirectory;
     std::string payload;   // usable plan W9.4: the --payload this runner itself was given, if any
     std::string runner;    // this program, for fixtures prepared by `mcppls-conformance prepare`
+    // real-project plan RP2.1: the isolated HOME a `"isolate-home": true` fixture's own prepare
+    // step populates (e.g. with a candidate mcpp under `xim-x-mcpp/<version>/bin/`), empty otherwise.
+    std::string home;
 };
 
 // "{exe}" is the executable suffix; "{env:NAME|fallback}" is a variable or the fallback;
@@ -100,6 +141,7 @@ std::string expand(std::string word, const Expansion& expansion = {}) {
     word = base::replace_all(word, "{runner-dir}", expansion.runnerDirectory);
     word = base::replace_all(word, "{payload}", expansion.payload);
     word = base::replace_all(word, "{conformance}", expansion.runner);
+    word = base::replace_all(word, "{home}", expansion.home);
     for (std::size_t at { word.find("{env:") }; at != std::string::npos; at = word.find("{env:", at)) {
         const std::size_t close { word.find('}', at) };
         if (close == std::string::npos) break;
@@ -252,6 +294,10 @@ public:
     std::map<std::string, Json> statusByRoot;    // project.root (a DocumentUri) -> latest status
     std::vector<std::string> statusHistory;
     std::map<std::string, std::vector<std::string>> statusHistoryByRoot;   // project.root -> its states, in order
+    // Timestamped, for the stress check's timeline (conformance/README.md): the longest interval
+    // without progress while the project is not ready, and the state a run settled on.
+    std::vector<std::pair<Clock::time_point, std::string>> statusTimeline;
+    std::vector<Clock::time_point> progressTimes;
     std::optional<Clock::time_point> firstReady;         // the first status in state ready
     // Watchers the server registered through client/registerCapability, by registration id: the
     // runner reports its own writes to them the way an editor's file system watcher would.
@@ -271,6 +317,7 @@ public:
         spawn.workDirectory = workspace;
         auto environment = mcppls::platform::env::variables();
         environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory);
+        apply_isolated_home(environment, options);
         spawn.environment = std::move(environment);
         const bool verbose { verbose_ };
         auto inbox = inbox_;
@@ -289,7 +336,16 @@ public:
 
     void notify(std::string_view method, Json params) { (void)connection_->send(lsp::make_notification(method, std::move(params))); }
 
-    std::optional<Json> request(std::string_view method, Json params, std::chrono::seconds timeout) {
+    // A response with enough detail for the stress check to tell a real error apart from a real,
+    // empty answer — both of which `request` below collapses to `Json(nullptr)`, which is fine for
+    // every check that only asks "did it answer", but not for one that counts errors on their own.
+    struct RequestOutcome {
+        Json result { nullptr };
+        bool timedOut { false };
+        bool isError { false };
+    };
+
+    RequestOutcome request_full(std::string_view method, Json params, std::chrono::seconds timeout) {
         const std::int64_t id { nextId_++ };
         (void)connection_->send(lsp::make_request(id, method, std::move(params)));
         const auto deadline = Clock::now() + timeout;
@@ -300,15 +356,25 @@ public:
                 unanswered_ = 0;
                 if (message->contains("error")) {
                     if (verbose_) say("  error response to {}: {}", method, lsp::dump((*message)["error"]));
-                    return Json(nullptr);
+                    return { Json(nullptr), false, true };
                 }
-                return message->value("result", Json {});
+                return { message->value("result", Json {}), false, false };
             }
             dispatch(*message);
         }
         if (!inbox_->closed()) ++unanswered_;
-        return std::nullopt;
+        return { Json(nullptr), true, false };
     }
+
+    std::optional<Json> request(std::string_view method, Json params, std::chrono::seconds timeout) {
+        auto outcome = request_full(method, std::move(params), timeout);
+        if (outcome.timedOut) return std::nullopt;
+        return outcome.result;
+    }
+
+    // The peer's OS process id, for the stress check's process-tree CPU/RSS sampler. nullopt
+    // wherever the platform cannot say (Windows, or no server started yet).
+    std::optional<std::int64_t> native_pid() const { return connection_ ? connection_->native_pid() : std::nullopt; }
 
     // Why the remaining checks cannot run, or empty while the server is usable:
     // a server that exited, or one that let two requests in a row reach their
@@ -397,6 +463,7 @@ public:
                 statusByRoot[statusRoot] = status;
                 statusHistory.push_back(status.value("state", std::string {}));
                 statusHistoryByRoot[statusRoot].push_back(statusHistory.back());
+                statusTimeline.emplace_back(Clock::now(), statusHistory.back());
                 if (!firstReady && statusHistory.back() == "ready") firstReady = Clock::now();
                 if (verbose_) say("  status: {}", lsp::dump(status));
             } else if (method == "$/progress") {
@@ -407,6 +474,7 @@ public:
                 const Json* value { params != nullptr && params->is_object() ? lsp::find(*params, "value") : nullptr };
                 if (value != nullptr && value->is_object()) {
                     progressKinds.push_back(value->value("kind", std::string {}));
+                    progressTimes.push_back(Clock::now());
                     if (verbose_) say("  progress: {} {}", progressKinds.back(), value->value("message", std::string {}));
                 }
             } else if (verbose_ && method == "window/logMessage") {
@@ -447,6 +515,7 @@ public:
         spawn.workDirectory = workspace;
         auto environment = mcppls::platform::env::variables();
         environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory);
+        apply_isolated_home(environment, options);
         spawn.environment = std::move(environment);
         const bool verbose { options.verbose };
         auto inbox = inbox_;
@@ -604,6 +673,225 @@ bool ends_with_path(std::string_view uri, std::string_view suffix) {
 
 Json position(const Json& at) { return Json { { "line", at.at(0) }, { "character", at.at(1) } }; }
 
+// ---- stress: seeded random use, per method answered/empty/timeout/error and latency ----------
+
+// Every file under a directory, relative to it, '/'-separated: what a fixture's own glob
+// ("src/**/*.cppm") is matched against, the same way S2's own watch globs are (base::glob_match).
+std::vector<std::string> list_all_files(const std::string& root) {
+    std::vector<std::string> files;
+    std::vector<std::string> pending { root };
+    while (!pending.empty()) {
+        const std::string directory { pending.back() };
+        pending.pop_back();
+        for (const auto& entry : fs::list_directory(directory)) {
+            if (fs::is_directory(entry)) pending.push_back(entry);
+            else if (auto relative = base::relative_path(entry, root)) files.push_back(*relative);
+        }
+    }
+    return files;
+}
+
+struct MethodStats {
+    int answered { 0 };
+    int empty { 0 };
+    int timeout { 0 };
+    int error { 0 };
+    std::vector<double> latencies;   // seconds; answered and empty both answered in time
+};
+
+// Whether a well-formed, non-error result carries nothing: a legitimate "no information here"
+// answer (null hover, an empty list) rather than a fault, so it is not counted as an error.
+bool is_empty_result(std::string_view method, const Json& value) {
+    if (value.is_null()) return true;
+    if (method == "textDocument/hover") return hover_text(value).empty();
+    if (method == "textDocument/completion") return completion_labels(value).empty();
+    if (method == "textDocument/documentSymbol") return value.is_array() && value.empty();
+    return location_uris(value).empty();   // definition, declaration, references
+}
+
+double percentile(std::vector<double> sorted, double fraction) {
+    if (sorted.empty()) return 0.0;
+    const auto index = static_cast<std::size_t>(std::ceil(fraction * static_cast<double>(sorted.size())));
+    return sorted[std::min(sorted.size(), std::max<std::size_t>(1, index)) - 1];
+}
+
+struct Spot {
+    std::size_t line;
+    std::size_t character;   // where to ask: the middle of the identifier
+    std::size_t finish;      // one past its last character, for completion
+};
+
+// A random identifier in `text`, skipping comments, preprocessor lines and a short list of
+// keywords too common to be interesting. Up to 50 random lines are tried before giving up.
+std::optional<Spot> random_identifier(const std::string& text, std::mt19937_64& rng) {
+    static const std::set<std::string_view> KEYWORDS {
+        "const", "auto", "return", "if", "for", "while", "std", "int", "void", "bool", "class",
+        "struct", "namespace", "import", "export", "module", "using", "public", "private", "case",
+        "switch", "else", "do", "new", "delete", "this", "true", "false", "nullptr", "static",
+        "constexpr", "template", "typename", "co_await", "co_return",
+    };
+    const auto lines = base::split_lines(text);
+    if (lines.empty()) return std::nullopt;
+    std::uniform_int_distribution<std::size_t> lineDist(0, lines.size() - 1);
+    for (int attempt { 0 }; attempt < 50; ++attempt) {
+        const std::size_t at { lineDist(rng) };
+        const std::string_view line { lines[at] };
+        const auto trimmed = base::trim(line);
+        if (trimmed.starts_with("//") || trimmed.starts_with('#')) continue;
+        std::vector<Spot> spots;
+        std::size_t i { 0 };
+        while (i < line.size()) {
+            const unsigned char c { static_cast<unsigned char>(line[i]) };
+            if (std::isalpha(c) || c == '_') {
+                const std::size_t start { i };
+                while (i < line.size() && (std::isalnum(static_cast<unsigned char>(line[i])) || line[i] == '_')) ++i;
+                const std::string_view word { line.substr(start, i - start) };
+                if (word.size() > 2 && !KEYWORDS.contains(word)) spots.push_back({ at, start + word.size() / 2, i });
+            } else {
+                ++i;
+            }
+        }
+        if (!spots.empty()) return spots[std::uniform_int_distribution<std::size_t>(0, spots.size() - 1)(rng)];
+    }
+    return std::nullopt;
+}
+
+// What the stress check's process-tree sampler measures: `getrusage(RUSAGE_CHILDREN)`-style
+// accounting after the server exits is what design 1 asks for, but nothing this codebase already
+// imports exposes it (openkal's process handle is opaque). Where the OS process id is known
+// (Process::native_pid, POSIX only) and this host is Linux, the tree's CPU and RSS are sampled
+// from /proc while the actions run instead: a per-pid high-water mark of CPU ticks, summed across
+// every pid ever seen in the tree (so an exited helper's cost is not lost), and a high-water mark
+// of the tree's total resident memory. Everywhere else this reports null, never fails the check.
+class ProcessSampler {
+private:
+    std::jthread thread_;
+    std::mutex mutex_;
+    std::map<std::int64_t, long> cpuTicksByPid_;   // pid -> highest utime+stime ever seen
+    double peakRssKB_ { 0 };
+    bool active_ { false };
+    // The near-universal Linux default (CLK_TCK=100 on every mainstream distribution this project
+    // targets); a wrong guess only skews cpuSeconds, which stays a best-effort number either way.
+    static constexpr long TICKS_PER_SECOND { 100 };
+
+    static std::optional<std::int64_t> parent_of(std::int64_t pid) {
+        auto stat = fs::read_file(std::format("/proc/{}/stat", pid));
+        if (!stat) return std::nullopt;
+        const auto close = stat->rfind(')');
+        if (close == std::string::npos || close + 2 >= stat->size()) return std::nullopt;
+        std::istringstream rest { stat->substr(close + 2) };
+        char state {};
+        std::int64_t ppid { -1 };
+        rest >> state >> ppid;
+        return rest.fail() ? std::nullopt : std::optional<std::int64_t> { ppid };
+    }
+
+    static std::optional<long> cpu_ticks_of(std::int64_t pid) {
+        auto stat = fs::read_file(std::format("/proc/{}/stat", pid));
+        if (!stat) return std::nullopt;
+        const auto close = stat->rfind(')');
+        if (close == std::string::npos || close + 2 >= stat->size()) return std::nullopt;
+        std::istringstream rest { stat->substr(close + 2) };
+        std::vector<std::string> fields;
+        for (std::string field; rest >> field;) fields.push_back(field);
+        if (fields.size() < 13) return std::nullopt;   // state=0 ... utime=11, stime=12
+        try {
+            return std::stol(fields[11]) + std::stol(fields[12]);
+        } catch (...) {
+            return std::nullopt;
+        }
+    }
+
+    static std::optional<double> rss_kb_of(std::int64_t pid) {
+        auto status = fs::read_file(std::format("/proc/{}/status", pid));
+        if (!status) return std::nullopt;
+        for (auto line : base::split_lines(*status)) {
+            if (!line.starts_with("VmRSS:")) continue;
+            std::istringstream rest { std::string { line.substr(6) } };
+            double kb { 0 };
+            rest >> kb;
+            return rest.fail() ? std::nullopt : std::optional<double> { kb };
+        }
+        return std::nullopt;
+    }
+
+    // `root` and everything descended from it, by one pass over every numeric /proc entry
+    // building a ppid map, then closing over it: the same approach stress.sh took with `ps`.
+    static std::vector<std::int64_t> tree_pids(std::int64_t root) {
+        std::map<std::int64_t, std::int64_t> parent;
+        for (const auto& entry : fs::list_directory("/proc")) {
+            const std::string name { base::file_name(entry) };
+            if (name.empty() || !std::ranges::all_of(name, [](char c) { return c >= '0' && c <= '9'; })) continue;
+            std::int64_t pid { 0 };
+            try {
+                pid = std::stoll(name);
+            } catch (...) {
+                continue;
+            }
+            if (auto ppid = parent_of(pid)) parent[pid] = *ppid;
+        }
+        std::set<std::int64_t> tree { root };
+        for (bool changed { true }; changed;) {
+            changed = false;
+            for (const auto& [pid, ppid] : parent) {
+                if (tree.contains(ppid) && tree.insert(pid).second) changed = true;
+            }
+        }
+        return { tree.begin(), tree.end() };
+    }
+
+    void sample_once(std::int64_t root) {
+        const auto pids = tree_pids(root);
+        double rss { 0 };
+        std::lock_guard lock { mutex_ };
+        for (const auto pid : pids) {
+            if (auto ticks = cpu_ticks_of(pid)) {
+                auto& best = cpuTicksByPid_[pid];
+                best = std::max(best, *ticks);
+            }
+            if (auto kb = rss_kb_of(pid)) rss += *kb;
+        }
+        peakRssKB_ = std::max(peakRssKB_, rss);
+    }
+
+public:
+    // No-op wherever the pid or /proc are not available: `finish()` then reports null, as design 1
+    // asks for anything a platform cannot measure.
+    explicit ProcessSampler(std::optional<std::int64_t> rootPid) {
+        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::linux) {
+            (void)rootPid;
+            return;
+        } else {
+            if (!rootPid || !fs::is_directory("/proc")) return;
+            active_ = true;
+            const std::int64_t root { *rootPid };
+            sample_once(root);
+            thread_ = std::jthread { [this, root](std::stop_token token) {
+                while (!token.stop_requested()) {
+                    sample_once(root);
+                    std::this_thread::sleep_for(std::chrono::milliseconds { 500 });
+                }
+                sample_once(root);
+            } };
+        }
+    }
+
+    struct Usage {
+        std::optional<double> cpuSeconds;
+        std::optional<double> peakRssMB;
+    };
+
+    Usage finish() {
+        if (!active_) return {};
+        thread_.request_stop();
+        if (thread_.joinable()) thread_.join();
+        std::lock_guard lock { mutex_ };
+        long ticks { 0 };
+        for (const auto& [pid, best] : cpuTicksByPid_) ticks += best;
+        return { static_cast<double>(ticks) / static_cast<double>(TICKS_PER_SECOND), peakRssKB_ / 1024.0 };
+    }
+};
+
 class Scenario {
 private:
     Client& client_;
@@ -733,6 +1021,10 @@ public:
                 if (auto level = check.find("level"); level != check.end()) {
                     matched = matched && snapshot.value("project", Json::object()).value("level", 0) == level->get<int>();
                 }
+                // real-project plan RP3.2: `project.tier`, the README's L1..L4, distinct from `level`.
+                if (auto tier = check.find("tier"); tier != check.end()) {
+                    matched = matched && snapshot.value("project", Json::object()).value("tier", 0) == tier->get<int>();
+                }
                 if (auto issueCode = check.find("issue-code"); issueCode != check.end()) {
                     const std::string wantedCommand { check.value("issue-command", std::string {}) };
                     const std::string wantedMessage { check.value("issue-message", std::string {}) };   // a part of the message
@@ -840,6 +1132,7 @@ public:
             spawn.workDirectory = workspace_;
             auto environment = mcppls::platform::env::variables();
             environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory_);
+            apply_isolated_home(environment, options_);
             spawn.environment = std::move(environment);
             auto running = std::async(std::launch::async, [spawn, timeout = timeout_]() mutable { return mcppls::platform::run(std::move(spawn), timeout); });
             while (running.wait_for(std::chrono::milliseconds { 200 }) != std::future_status::ready) client_.drain(std::chrono::milliseconds { 0 });
@@ -1119,11 +1412,148 @@ public:
             });
             return { ok, result.is_object() ? lsp::dump(result).substr(0, 160) : std::string { "no response" } };
         }
+        if (kind == "stress") {
+            // Real-project stress testing (real-project plan RP0): seeded random use.
+            // Files matching "files" are opened, some in quick succession without waiting for an
+            // answer; at random identifier positions one of hover/definition/references/completion/
+            // documentSymbol is asked. Per method: answered (a non-empty result), empty (a
+            // well-formed but empty one), timeout (no response within "requestTimeout"), error, and
+            // p50/p90/max latency. The status timeline's longest gap with no progress while not
+            // ready, and the state it settled on. The server's process tree CPU seconds and peak
+            // RSS, null wherever a platform cannot say. Deterministic for a given "seed".
+            const std::uint64_t seed { static_cast<std::uint64_t>(check.value("seed", 1)) };
+            const int actionCount { std::max(1, check.value("actions", 60)) };
+            const std::chrono::seconds requestTimeout { check.value("requestTimeout", 10) };
+            std::vector<std::string> patterns;
+            for (const auto& item : check.value("files", Json::array({ "src/**/*.cppm", "src/**/*.cpp" }))) patterns.push_back(item.get<std::string>());
+            std::vector<std::string> candidates;
+            for (const auto& found : list_all_files(workspace_)) {
+                if (std::ranges::any_of(patterns, [&](const std::string& pattern) { return base::glob_match(pattern, found); })) candidates.push_back(found);
+            }
+            if (candidates.empty()) return { false, "no file in the workspace matches the stress scenario's \"files\" globs" };
+
+            std::mt19937_64 rng { seed };
+            std::uniform_int_distribution<std::size_t> fileDist(0, candidates.size() - 1);
+            static constexpr std::array<std::string_view, 5> METHODS { "textDocument/hover", "textDocument/definition",
+                                                                        "textDocument/references", "textDocument/completion",
+                                                                        "textDocument/documentSymbol" };
+            std::uniform_int_distribution<std::size_t> methodDist(0, METHODS.size() - 1);
+            std::uniform_real_distribution<double> unit(0.0, 1.0);
+            std::map<std::string, MethodStats> stats;
+
+            const auto windowStart { Clock::now() };
+            ProcessSampler sampler { client_.native_pid() };
+
+            std::string currentFile;
+            auto pick_and_open = [&] { currentFile = candidates[fileDist(rng)]; open(currentFile); };
+            pick_and_open();
+            client_.drain(std::chrono::milliseconds { 200 });
+
+            for (int i { 0 }; i < actionCount; ++i) {
+                const double roll { unit(rng) };
+                if (roll < 0.25) {
+                    pick_and_open();   // switch, and act at once
+                } else if (roll < 0.30) {
+                    for (int k { 0 }; k < 3; ++k) pick_and_open();   // fast switching: several without waiting
+                }
+                const std::string text { text_of(currentFile) };
+                auto spot = random_identifier(text, rng);
+                if (!spot) continue;
+                const std::string method { std::string { METHODS[methodDist(rng)] } };
+                Json params { { "textDocument", Json { { "uri", uri(currentFile) } } },
+                             { "position", Json { { "line", spot->line }, { "character", spot->character } } } };
+                if (method == "textDocument/references") params["context"] = Json { { "includeDeclaration", true } };
+                else if (method == "textDocument/documentSymbol") params = Json { { "textDocument", Json { { "uri", uri(currentFile) } } } };
+                else if (method == "textDocument/completion") params["position"]["character"] = spot->finish;
+                const auto started { Clock::now() };
+                auto outcome = client_.request_full(method, params, requestTimeout);
+                const double elapsed { std::chrono::duration<double>(Clock::now() - started).count() };
+                auto& s = stats[method];
+                if (outcome.timedOut) ++s.timeout;
+                else if (outcome.isError) { ++s.error; s.latencies.push_back(elapsed); }
+                else if (is_empty_result(method, outcome.result)) { ++s.empty; s.latencies.push_back(elapsed); }
+                else { ++s.answered; s.latencies.push_back(elapsed); }
+            }
+            const auto windowEnd { Clock::now() };
+            const auto usage = sampler.finish();
+
+            // The longest interval with no status change and no $/progress while not "ready".
+            double maxStallSeconds { 0.0 };
+            {
+                std::vector<Clock::time_point> times { windowStart, windowEnd };
+                std::vector<std::pair<Clock::time_point, std::string>> events;
+                for (const auto& [at, state] : client_.statusTimeline) {
+                    if (at >= windowStart && at <= windowEnd) events.emplace_back(at, state);
+                }
+                for (const auto at : client_.progressTimes) {
+                    if (at >= windowStart && at <= windowEnd) times.push_back(at);
+                }
+                for (const auto& [at, state] : events) times.push_back(at);
+                std::ranges::sort(times);
+                times.erase(std::unique(times.begin(), times.end()), times.end());
+                std::string state { state_of(client_.status) };
+                // The state as of windowStart: the latest status strictly before it, if any.
+                for (const auto& [at, seenState] : client_.statusTimeline) {
+                    if (at <= windowStart) state = seenState;
+                }
+                std::size_t next { 0 };
+                for (std::size_t i { 0 }; i + 1 < times.size(); ++i) {
+                    while (next < events.size() && events[next].first <= times[i]) { state = events[next].second; ++next; }
+                    if (state != "ready") maxStallSeconds = std::max(maxStallSeconds, std::chrono::duration<double>(times[i + 1] - times[i]).count());
+                }
+            }
+
+            Json methods = Json::object();
+            std::vector<double> allLatencies;
+            int totalTimeouts { 0 };
+            int totalErrors { 0 };
+            for (auto& [method, s] : stats) {
+                std::ranges::sort(s.latencies);
+                methods[method] = Json { { "answered", s.answered }, { "empty", s.empty }, { "timeout", s.timeout }, { "error", s.error },
+                                         { "p50", percentile(s.latencies, 0.5) }, { "p90", percentile(s.latencies, 0.9) },
+                                         { "max", s.latencies.empty() ? 0.0 : s.latencies.back() } };
+                allLatencies.insert(allLatencies.end(), s.latencies.begin(), s.latencies.end());
+                totalTimeouts += s.timeout;
+                totalErrors += s.error;
+            }
+            std::ranges::sort(allLatencies);
+            const double p90 { percentile(allLatencies, 0.9) };
+            const std::string finalState { state_of(client_.status) };
+            const double windowMinutes { std::max(1.0 / 60.0, std::chrono::duration<double>(windowEnd - windowStart).count() / 60.0) };
+            const std::optional<double> cpuPerMinute { usage.cpuSeconds ? std::optional<double> { *usage.cpuSeconds / windowMinutes } : std::nullopt };
+
+            Json summary { { "seed", seed }, { "actions", actionCount }, { "files", candidates.size() }, { "methods", std::move(methods) },
+                          { "timeouts", totalTimeouts }, { "errors", totalErrors }, { "p90", p90 }, { "maxStallSeconds", maxStallSeconds },
+                          { "finalState", finalState },
+                          { "cpuSeconds", usage.cpuSeconds ? Json(*usage.cpuSeconds) : Json(nullptr) },
+                          { "cpuSecondsPerMinute", cpuPerMinute ? Json(*cpuPerMinute) : Json(nullptr) },
+                          { "rssMB", usage.peakRssMB ? Json(*usage.peakRssMB) : Json(nullptr) } };
+
+            std::vector<std::string> failures;
+            if (const auto budget = check.find("budget"); budget != check.end() && budget->is_object()) {
+                if (auto limit = budget->find("timeouts"); limit != budget->end() && totalTimeouts > limit->get<int>()) {
+                    failures.push_back(std::format("{} timeout(s) over budget {}", totalTimeouts, limit->get<int>()));
+                }
+                if (auto limit = budget->find("p90"); limit != budget->end() && p90 > limit->get<double>()) {
+                    failures.push_back(std::format("p90 {:.2f}s over budget {:.2f}s", p90, limit->get<double>()));
+                }
+                if (auto limit = budget->find("maxStallSeconds"); limit != budget->end() && maxStallSeconds > limit->get<double>()) {
+                    failures.push_back(std::format("stall {:.1f}s over budget {:.1f}s", maxStallSeconds, limit->get<double>()));
+                }
+                if (auto limit = budget->find("cpuSecondsPerMinute"); limit != budget->end() && cpuPerMinute && *cpuPerMinute > limit->get<double>()) {
+                    failures.push_back(std::format("{:.1f} CPU-second(s)/minute over budget {:.1f}", *cpuPerMinute, limit->get<double>()));
+                }
+                if (auto limit = budget->find("rssMB"); limit != budget->end() && usage.peakRssMB && *usage.peakRssMB > limit->get<double>()) {
+                    failures.push_back(std::format("{:.0f}MB RSS over budget {:.0f}MB", *usage.peakRssMB, limit->get<double>()));
+                }
+            }
+            return { failures.empty(), failures.empty() ? lsp::dump(summary) : std::format("{}: {}", base::join(failures, "; "), lsp::dump(summary)) };
+        }
         return { false, std::format("unknown check kind {}", kind) };
     }
 };
 
-int run(const Options& options) {
+int run(Options options) {
     const std::string scenarioPath { base::join_path(options.fixture, "scenario.json") };
     auto scenarioText = fs::read_file(scenarioPath);
     if (!scenarioText) {
@@ -1134,6 +1564,13 @@ int run(const Options& options) {
     if (scenario.is_discarded()) {
         say("conformance: {} is not valid JSON", scenarioPath);
         return 2;
+    }
+    // --stress-seed: `mcppls-devtools stress --seed N` overriding whatever seed the fixture's own
+    // stress checks carry, so a matrix run over several fixtures can still be reproduced exactly.
+    if (options.stressSeed && scenario.contains("checks") && scenario["checks"].is_array()) {
+        for (auto& check : scenario["checks"]) {
+            if (check.is_object() && check.value("kind", std::string {}) == "stress") check["seed"] = *options.stressSeed;
+        }
     }
     const std::string name { scenario.value("name", std::string { base::file_name(options.fixture) }) };
     const bool reused { !options.workspaceDirectory.empty() };
@@ -1152,7 +1589,16 @@ int run(const Options& options) {
     say("fixture {} in {}{}", name, workspace, alreadyPrepared ? " (prepared before)" : "");
 
     const std::string self { absolute(mcppls::platform::env::arguments().front()) };
-    Expansion expansion { workspace, base::parent_path(self), options.payload, self };
+    // real-project plan RP2.1: an isolated HOME so producer negotiation
+    // (`mcppls::project::other_mcpp_executables`) sees only candidates this fixture put there,
+    // never a real mcpp or xlings install on the host or CI runner running the fixture.
+    std::string isolatedHome;
+    if (scenario.value("isolate-home", false)) {
+        isolatedHome = base::join_path(workspace, ".home");
+        (void)fs::create_directories(isolatedHome);
+        options.isolatedHome = isolatedHome;
+    }
+    Expansion expansion { workspace, base::parent_path(self), options.payload, self, isolatedHome };
     std::optional<std::vector<std::string>> prepareEnvironment;
     if (scenario.value("prepare-environment", std::string {}) == "msvc") {
         if (options.msvcEnvironment.empty()) {
@@ -1196,9 +1642,30 @@ int run(const Options& options) {
                               { "configuration", true } } },
         { "window", Json { { "workDoneProgress", true } } },
     };
-    if (!options.plainClient) {
-        capabilities["experimental"] = Json { { "cxxModules", Json { { "version", 1 }, { "status", true },
-                                                                     { "graph", true }, { "contexts", true } } } };
+    // --client: the capabilities a real editor actually sends (none keeps this runner's own
+    // long-standing default so every fixture written before this option existed is unaffected).
+    Json initializationOptions = Json::object();
+    switch (options.client) {
+    case Options::ClientProfile::neovim:
+        // editors/nvim/lua/mcppls/init.lua: only cxxModules.status, not graph or contexts.
+        capabilities["experimental"] = Json { { "cxxModules", Json { { "version", 1 }, { "status", true } } } };
+        initializationOptions["conflictArbitration"] = "client";
+        break;
+    case Options::ClientProfile::vscode:
+        // editors/vscode/src/extension.ts: the full block, plus how it tells the server it
+        // arbitrates language-feature conflicts with other C++ extensions itself.
+        capabilities["experimental"] = Json { { "cxxModules", Json { { "version", 1 }, { "status", true }, { "graph", true }, { "contexts", true } } } };
+        initializationOptions["conflictArbitration"] = "client";
+        break;
+    case Options::ClientProfile::zed:
+    case Options::ClientProfile::plain:
+        break;   // no experimental.cxxModules, no initializationOptions
+    case Options::ClientProfile::none:
+        if (!options.plainClient) {
+            capabilities["experimental"] = Json { { "cxxModules", Json { { "version", 1 }, { "status", true },
+                                                                         { "graph", true }, { "contexts", true } } } };
+        }
+        break;
     }
     // usable plan W9.1: a fixture with several roots names them, relative to the fixture's own
     // root, in "folders"; a check names a file or a folder the same way, relative to that root,
@@ -1212,21 +1679,23 @@ int run(const Options& options) {
     } else {
         workspaceFolders.push_back(Json { { "uri", base::path_to_uri(workspace) }, { "name", name } });
     }
-    auto initialized = client.request("initialize", Json { { "processId", nullptr }, { "rootUri", base::path_to_uri(workspace) },
-        { "workspaceFolders", workspaceFolders },
-        { "capabilities", capabilities } }, std::chrono::seconds { 120 });
+    Json initializeParams { { "processId", nullptr }, { "rootUri", base::path_to_uri(workspace) },
+                            { "workspaceFolders", workspaceFolders }, { "capabilities", capabilities } };
+    if (!initializationOptions.empty()) initializeParams["initializationOptions"] = initializationOptions;
+    auto initialized = client.request("initialize", std::move(initializeParams), std::chrono::seconds { 120 });
     if (!initialized || !initialized->is_object()) {
         say("FAIL initialize: no result");
         return 1;
     }
     // In plain-client mode the server is talked to the way every editor but this repository's own
     // VS Code extension talks to it, so `experimental.cxxModules` is neither sent nor expected.
-    const bool advertised { options.plainClient
+    const bool plainLike { is_plain_like(options) };
+    const bool advertised { plainLike
                             || initialized->contains("capabilities") && (*initialized)["capabilities"].contains("experimental")
                             && (*initialized)["capabilities"]["experimental"].contains("cxxModules") };
     const double initializeSeconds { std::chrono::duration<double>(Clock::now() - begin).count() };
     say("{} initialize ({:.1f}s) experimental.cxxModules={}{}", advertised ? "PASS" : "FAIL", initializeSeconds, advertised,
-        options.plainClient ? " (plain client)" : "");
+        plainLike ? " (plain client)" : "");
     client.notify("initialized", Json::object());
 
     Scenario runner { client, options, serverArguments, workspace, options.timeout, std::move(prepared), cacheDirectory, options.expectWarm, std::move(moduleFilesBefore) };
@@ -1240,7 +1709,7 @@ int run(const Options& options) {
         // contract; skipping it is the point, not a concession. Everything else still runs, which
         // is what makes this mode worth having: the standard surface must work without the
         // custom one.
-        if (options.plainClient && check.value("kind", std::string {}) == "status") {
+        if (plainLike && check.value("kind", std::string {}) == "status") {
             say("SKIP {} status (a plain client asks for no cxxModules/status)", id);
             continue;
         }
@@ -1255,7 +1724,7 @@ int run(const Options& options) {
         const double seconds { std::chrono::duration<double>(Clock::now() - started).count() };
         say("{} {} {} ({:.1f}s) {}", ok ? "PASS" : (optional ? "SKIP" : "FAIL"), id, check.value("kind", std::string {}), seconds, detail);
         measured.push_back(Json { { "id", id }, { "kind", check.value("kind", std::string {}) }, { "ok", ok }, { "seconds", seconds },
-                                  { "since-start", std::chrono::duration<double>(Clock::now() - begin).count() } });
+                                  { "since-start", std::chrono::duration<double>(Clock::now() - begin).count() }, { "detail", detail } });
     }
     runner.finish();
     client.stop();
@@ -1277,7 +1746,7 @@ int run(const Options& options) {
     // The point of plain-client mode: a client with no custom capability must still be told that
     // work is happening. Standard `$/progress` is the only channel it has, and before the
     // cold-start work it received nothing at all.
-    if (options.plainClient) {
+    if (plainLike) {
         const auto& kinds = client.progressKinds;
         const bool began { std::ranges::find(kinds, std::string { "begin" }) != kinds.end() };
         say("{} plain client receives $/progress ({} notification(s))", began ? "PASS" : "FAIL", kinds.size());
@@ -1502,12 +1971,184 @@ int prepare_compdb_msvc_std(bool clangCl) {
     return 0;
 }
 
+// generated-module-old-mcpp: a plain compile_commands.json (no S1, no module-specific flags —
+// what a project that has never seen mcpp's build database would already have) for the same three
+// files as the generated-module fixture, real-compiled with `argument` (or clang++ on PATH), so
+// the server's L2 fallback (mcpp advertises no mcpp.build-database, `build --configure-only` fails
+// too, the project's own compile_commands.json is what is left) has something real to read.
+int prepare_generated_module_compdb(const std::string& compiler) {
+    const std::string root { fs::current_directory() };
+    auto clangxx = on_path(compiler.empty() ? std::string { "clang++" } : compiler);
+    if (!clangxx) {
+        say("generated-module-old-mcpp: {} is not on PATH", compiler);
+        return 1;
+    }
+    auto at = [&](std::string_view relative) { return native(base::join_path(root, relative)); };
+    Json database = Json::array();
+    for (const std::string_view relative : { "target/.build-mcpp/deps/xpkg@1.0.0/out/xpkg_lua_stdlib.cppm", "src/consumer.cppm", "src/main.cpp" }) {
+        const std::string source { at(relative) };
+        database.push_back(Json { { "directory", native(root) }, { "file", source },
+                                  { "arguments", Json::array({ *clangxx, "-std=c++23", "-c", source, "-o", source + ".o" }) } });
+    }
+    if (auto written = fs::write_file(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
+        say("generated-module-old-mcpp: {}", written.error().message);
+        return 1;
+    }
+    return 0;
+}
+
+// real-project plan RP2.1: a second, newer mock mcpp under a fixture's isolated HOME
+// (`"isolate-home": true`), at the path producer negotiation searches
+// (`mcppls::project::other_mcpp_executables`, `xim-x-mcpp/<version>/bin/mcpp`), so a fixture whose
+// project mcpp cannot answer `emit build-database` (`mcpp-mock.json`'s `oldProtocol`) can prove
+// negotiation finds and uses a working one instead of falling back to `compile_commands.json`. Its
+// own `mcpp-mock.json`, beside it (mockmcpp reads a config beside its own executable when a
+// fixture put one there, since a negotiated candidate still runs with the project's own directory
+// as its cwd), describes the same generated-package/sibling-module project as generated-module,
+// with the compiler this prepare step resolves itself: prepare steps run in the real environment,
+// never the isolated one the server sees, so a path baked in now still exists once the server asks.
+int prepare_producer_candidate(const std::string& home) {
+    if (home.empty() || !fs::is_directory(home)) {
+        say("producer-candidate: pass the fixture's isolated home (the {{home}} placeholder needs \"isolate-home\": true)");
+        return 1;
+    }
+    const std::string root { fs::current_directory() };
+    // As {env:CONFORMANCE_CLANGXX|clang++} expands in a scenario: an empty variable is an unset one
+    // (CI sets it to "" where the runner's own clang++ is meant).
+    const auto configured = mcppls::platform::env::get("CONFORMANCE_CLANGXX");
+    auto clangxx = on_path(configured && !configured->empty() ? *configured : std::string { "clang++" });
+    if (!clangxx) {
+        say("producer-candidate: clang++ is not on PATH");
+        return 1;
+    }
+    const std::string self { absolute(mcppls::platform::env::arguments().front()) };
+    const std::string mock { base::join_path(base::parent_path(self), "mcppls-mock-mcpp") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+    auto mockContent = fs::read_file(mock);
+    if (!mockContent) {
+        say("producer-candidate: {} is not built (needs mcppls-mock-mcpp beside mcppls-conformance)", mock);
+        return 1;
+    }
+    const std::string binaryDirectory { base::join_path(home, ".xlings/data/xpkgs/xim-x-mcpp/9999.0.0/bin") };
+    (void)fs::create_directories(binaryDirectory);
+    const std::string binaryPath { base::join_path(binaryDirectory, "mcpp") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+    if (auto written = fs::write_file(binaryPath, *mockContent); !written) {
+        say("producer-candidate: {}", written.error().message);
+        return 1;
+    }
+    if (auto marked = fs::make_executable(std::vector<std::string> { binaryPath }); !marked) {
+        say("producer-candidate: {}", marked.error().message);
+        return 1;
+    }
+    auto at = [&](std::string_view relative) { return native(base::join_path(root, relative)); };
+    const std::string consumer { at("src/consumer.cppm") };
+    const std::string main { at("src/main.cpp") };
+    const std::string generated { at("target/.build-mcpp/deps/xpkg@1.0.0/out/xpkg_lua_stdlib.cppm") };
+    auto translation_unit = [&](const std::string& source, std::string_view role, Json provides, Json requires_) {
+        return Json { { "source", source }, { "work-directory", native(root) },
+                      { "arguments", Json::array({ *clangxx, "-std=c++23", "-c", source, "-o", source + ".o" }) },
+                      { "local-arguments", Json::array() }, { "object", source + ".o" },
+                      { "provides", std::move(provides) }, { "requires", std::move(requires_) },
+                      { "private", false }, { "ide", { { "role", role } } } };
+    };
+    const Json database {
+        { "version", 1 }, { "revision", 0 },
+        { "ide", { { "profile-version", "0.2.0" }, { "generator", { { "name", "mcpp" }, { "version", "9999.0.0" } } },
+                   { "toolchains", { { "candidate", { { "family", "clang" }, { "version", "22" }, { "driver", *clangxx },
+                                                       { "target", "x86_64-unknown-linux-gnu" } } } } } } },
+        { "sets", Json::array({
+            Json { { "name", "app" }, { "family-name", "app" },
+                   { "ide", { { "toolchain", "candidate" }, { "configuration", "dev" }, { "kind", "executable" } } },
+                   { "baseline-arguments", Json::array({ "-std=c++23" }) }, { "visible-sets", Json::array({ "xpkg" }) },
+                   { "translation-units", Json::array({
+                       translation_unit(consumer, "module-interface", Json { { "app.consumer", "" } }, Json::array({ "xpkg.lua_stdlib" })),
+                       translation_unit(main, "non-module", Json::object(), Json::array({ "app.consumer", "xpkg.lua_stdlib" })) }) } },
+            Json { { "name", "xpkg" }, { "family-name", "xpkg" },
+                   { "ide", { { "toolchain", "candidate" }, { "configuration", "dev" }, { "kind", "library" } } },
+                   { "baseline-arguments", Json::array({ "-std=c++23" }) }, { "visible-sets", Json::array({ "app" }) },
+                   { "translation-units", Json::array({ translation_unit(generated, "module-interface", Json { { "xpkg.lua_stdlib", "" } }, Json::array()) }) } },
+        }) },
+    };
+    const Json config { { "database", database }, { "watch", Json::array({ "mcpp.toml", "src/**/*.cppm", "src/**/*.cpp" }) } };
+    if (auto written = fs::write_file(base::join_path(binaryDirectory, "mcpp-mock.json"), config.dump(2)); !written) {
+        say("producer-candidate: {}", written.error().message);
+        return 1;
+    }
+    return 0;
+}
+
+// real-project plan RP1.1/RP1.3: a straight import chain of `argument` modules (default 100),
+// gen.chain0 through gen.chain<count-1>, whose base (gen.chain0) does not compile -- an undeclared
+// name, the same shape as module-faults' broken.e, at the scale a real dependency's failure
+// closure reaches (the plan's own measurement: totals grew from 21 to 101 preparing a single
+// failed package). A plain importer of the chain's last module (never a unit of gen itself, the
+// way xlings' main.cpp imported mcpplibs.xpkg.executor) and two modules entirely outside the chain
+// prove the closure stays where it is at this scale: outside files keep answering, the importer is
+// answered by mcppls's own engine at once, and nothing restarts clangd or keeps priming a module
+// already known to be doomed.
+int prepare_failure_at_base(const std::string& argument) {
+    int count { 100 };
+    if (!argument.empty()) {
+        try {
+            count = std::max(2, std::stoi(argument));
+        } catch (...) {
+            say("failure-at-base: {} is not a module count", argument);
+            return 1;
+        }
+    }
+    const std::string root { fs::current_directory() };
+    (void)fs::create_directories(base::join_path(root, "src/gen"));
+    (void)fs::create_directories(base::join_path(root, "src/healthy"));
+    for (int i { 0 }; i < count; ++i) {
+        const std::string body { i == 0
+            ? std::format("// The base of a {}-module import chain (real-project plan RP1.1): fails to compile,\n"
+                          "// the same shape as module-faults' broken.e, at the scale a real dependency's\n"
+                          "// failure closure reaches.\n"
+                          "export module gen.chain0;\n\n"
+                          "export int chain0() {{ return undeclared_base_symbol; }}\n", count)
+            : std::format("export module gen.chain{0};\nimport gen.chain{1};\n\nexport int chain{0}() {{ return chain{1}() + 1; }}\n",
+                          i, i - 1) };
+        if (auto written = fs::write_file(base::join_path(root, std::format("src/gen/chain{}.cppm", i)), body); !written) {
+            say("failure-at-base: {}", written.error().message);
+            return 1;
+        }
+    }
+    const std::string importer { std::format(
+        "// A plain importer of the chain's last module, never a unit of gen itself: the way xlings'\n"
+        "// main.cpp imported mcpplibs.xpkg.executor in the incident this fixture is named for (real-project\n"
+        "// plan RP1.1).\n"
+        "import gen.chain{0};\n\n"
+        "int use_chain() {{ return chain{0}(); }}\n", count - 1) };
+    if (auto written = fs::write_file(base::join_path(root, "src/gen-importer.cpp"), importer); !written) {
+        say("failure-at-base: {}", written.error().message);
+        return 1;
+    }
+    static constexpr std::string_view HEALTHY_A {
+        "// Outside the failed closure entirely (real-project plan RP1.1): answers normally throughout.\n"
+        "export module healthy.a;\n\n"
+        "export int healthyValue() { return 7; }\n" };
+    static constexpr std::string_view HEALTHY_B {
+        "import healthy.a;\n\n"
+        "int healthyUser() { return healthyValue() * 2; }\n" };
+    if (auto written = fs::write_file(base::join_path(root, "src/healthy/a.cppm"), std::string { HEALTHY_A }); !written) {
+        say("failure-at-base: {}", written.error().message);
+        return 1;
+    }
+    if (auto written = fs::write_file(base::join_path(root, "src/healthy/b.cpp"), std::string { HEALTHY_B }); !written) {
+        say("failure-at-base: {}", written.error().message);
+        return 1;
+    }
+    return 0;
+}
+
 int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "s1-two-sets") return prepare_s1_two_sets(argument);
     if (kind == "payload-corrupt") return prepare_payload_corrupt(argument);
+    if (kind == "producer-candidate") return prepare_producer_candidate(argument);
+    if (kind == "failure-at-base") return prepare_failure_at_base(argument);
     if (kind == "compdb-clang-cl-std") return prepare_compdb_msvc_std(true);
     if (kind == "compdb-clangxx-msvc-std") return prepare_compdb_msvc_std(false);
-    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, compdb-clang-cl-std, compdb-clangxx-msvc-std)", kind);
+    if (kind == "generated-module-old-mcpp") return prepare_generated_module_compdb(argument);
+    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp)", kind);
     return 2;
 }
 
@@ -1537,7 +2178,9 @@ int main(int argc, char* argv[]) {
     (void)runCommand.option("expect-warm").help("module-cache-reused checks fail unless an earlier run left module files in --cache-dir");
     (void)runCommand.option("navigation-budget").takes_value().help("Seconds the first navigation may take from initialize; more fails the run");
     (void)runCommand.option("no-dynamic-watch").help("Do not advertise didChangeWatchedFiles.dynamicRegistration, exercising the polling fallback");
-    (void)runCommand.option("plain-client").help("Declare no experimental.cxxModules, as every editor but this repository's own extension does, and require standard $/progress");
+    (void)runCommand.option("plain-client").help("Alias for --client plain");
+    (void)runCommand.option("client").takes_value().help("The capabilities a real editor sends: vscode, neovim, zed or plain (default: this runner's own, the full experimental.cxxModules block)");
+    (void)runCommand.option("stress-seed").takes_value().help("Overrides every stress check's own \"seed\" (mcppls-devtools stress --seed)");
     (void)runCommand.action([&](const cmdline::ParsedArgs& args) {
         Options options;
         options.server = absolute(args.value("server").value_or(""));
@@ -1555,6 +2198,26 @@ int main(int argc, char* argv[]) {
         options.expectWarm = args.is_flag_set("expect-warm");
         options.noDynamicWatch = args.is_flag_set("no-dynamic-watch");
         options.plainClient = args.is_flag_set("plain-client");
+        if (auto clientName = args.value("client")) {
+            if (*clientName == "vscode") options.client = Options::ClientProfile::vscode;
+            else if (*clientName == "neovim") options.client = Options::ClientProfile::neovim;
+            else if (*clientName == "zed") options.client = Options::ClientProfile::zed;
+            else if (*clientName == "plain") options.client = Options::ClientProfile::plain;
+            else {
+                say("run: --client takes vscode, neovim, zed or plain, not {}", *clientName);
+                status = 2;
+                return;
+            }
+        }
+        if (auto stressSeed = args.value("stress-seed")) {
+            try {
+                options.stressSeed = static_cast<std::uint64_t>(std::stoull(*stressSeed));
+            } catch (...) {
+                say("run: --stress-seed takes an integer");
+                status = 2;
+                return;
+            }
+        }
         if (auto budget = args.value("navigation-budget")) {
             try {
                 options.navigationBudget = std::stod(*budget);

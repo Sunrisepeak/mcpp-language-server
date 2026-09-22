@@ -24,9 +24,17 @@
       "id": "W1-new-module",
       "kind": "write-file",
       "file": "src/extra/extra.cppm",
-      "module": "hello.extra",
+      "content": "export module hello.extra;\n\nexport int extraAnswer() { return 42; }\n",
       "expect-reload": true,
       "timeout": 60
+    },
+    {
+      "id": "R1-references-on-a-just-added-file-waits-rather-than-refuses",
+      "kind": "references-span",
+      "file": "src/extra/extra.cppm",
+      "at": [2, 12],
+      "expect": ["extra.cppm"],
+      "timeout": 20
     },
     {
       "id": "S2-reloaded",

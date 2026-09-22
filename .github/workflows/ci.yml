@@ -266,25 +266,28 @@ jobs:
           - platform: linux-x64
             part: 1 of 2
             os: ubuntu-24.04
-            fixtures: mcpp-split mcpp-all-cppm verify-changes mingw mcpp-split-gcc mcpp-watch multi-root mcpp-llvm mcpp-watch@polling mcpp-emit s1-two-sets
+            fixtures: mcpp-split mcpp-all-cppm verify-changes mingw mcpp-split-gcc mcpp-watch multi-root mcpp-llvm mcpp-watch@polling mcpp-emit s1-two-sets failure-at-base@vscode generated-module-negotiated
           - platform: linux-x64
             part: 2 of 2
             os: ubuntu-24.04
             extras: true
-            fixtures: inferred engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-watch mcpp-emit-watch@polling cmake-clang cmake-clang-bdb watch-polling payload-corrupt
+            fixtures: inferred engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-watch mcpp-emit-watch@polling cmake-clang cmake-clang-bdb watch-polling payload-corrupt generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed failure-at-base failure-at-base@neovim
+          # generated-module{,-old-mcpp,-negotiated}'s mcpp-mock.json bakes in a POSIX driver path
+          # (${env:HOME}/.mcpp/registry/..., no {exe}); it resolves the same way here as on Linux, so
+          # these run on macOS but are left off win32-x64 below rather than fixed unverified.
           - platform: darwin-arm64
             os: macos-14
             extras: true
-            fixtures: inferred engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-all-cppm verify-changes mcpp-watch multi-root
+            fixtures: inferred engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated
           - platform: win32-x64
             part: 1 of 2
             os: windows-2022
-            fixtures: mcpp-split mcpp-all-cppm verify-changes mcpp-split-msvc cmake-msvc-std compdb-clangxx-msvc-std multi-root compdb-clang-cl-std mcpp-llvm-msvc
+            fixtures: mcpp-split mcpp-all-cppm verify-changes mcpp-split-msvc cmake-msvc-std compdb-clangxx-msvc-std multi-root compdb-clang-cl-std mcpp-llvm-msvc failure-at-base@vscode
           - platform: win32-x64
             part: 2 of 2
             os: windows-2022
             extras: true
-            fixtures: inferred engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-clangxx-msvc cmake-clang-cl mcpp-msvc mcpp-watch
+            fixtures: inferred engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-clangxx-msvc cmake-clang-cl mcpp-msvc mcpp-watch failure-at-base
     defaults:
       run:
         shell: bash
@@ -406,6 +409,12 @@ jobs:
               # extension. It asserts standard `$/progress` still arrives. Nothing covered that,
               # which is how progress came to be sent only to the one client that already had it.
               *@plain) fixture_extra+=(--plain-client) ;;
+              # Real-project plan RP0: NAME@vscode/@neovim/@zed
+              # run fixture NAME with the capabilities that editor actually sends
+              # (conformance/README.md "Client profiles").
+              *@vscode) fixture_extra+=(--client vscode) ;;
+              *@neovim) fixture_extra+=(--client neovim) ;;
+              *@zed) fixture_extra+=(--client zed) ;;
             esac
             PATH="$path_prefix$PATH" "stage/mcppls-conformance$exe" run --server "payload/bin/mcppls$exe" --payload payload \
                 ${fixture_extra[@]+"${fixture_extra[@]}"} --fixture "conformance/fixtures/${fixture%@*}" "$@"
@@ -658,6 +667,15 @@ jobs:
         env:
           MCPPLS_E2E_VSIX: ${{ github.workspace }}/editors/vscode/mcppls-${{ matrix.platform }}.vsix
           MCPPLS_E2E_SCENARIO: conflicts
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a npm test; else npm test; fi
+      # Seeded random use through VS Code's own provider commands (real-project plan RP0): every
+      # request answered, none past its budget, p90 within five seconds.
+      - name: End-to-end tests (stress scenario)
+        working-directory: editors/vscode
+        env:
+          MCPPLS_E2E_VSIX: ${{ github.workspace }}/editors/vscode/mcppls-${{ matrix.platform }}.vsix
+          MCPPLS_E2E_SCENARIO: stress
         run: |
           if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a npm test; else npm test; fi
       - uses: actions/upload-artifact@v7

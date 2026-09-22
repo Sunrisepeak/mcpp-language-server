@@ -7,6 +7,7 @@ import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.base.log;
 import mcppls.platform.fs;
+import mcppls.platform.dirs;
 import mcppls.spec.database;
 import mcppls.spec.kit;
 import mcppls.spec.options;
@@ -18,6 +19,7 @@ import mcppls.project.infer;
 import mcppls.project.provider;
 import mcppls.project.mcpp;
 import mcppls.project.cmake;
+import mcppls.project.generated;
 
 namespace mcppls::project {
 
@@ -151,7 +153,26 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
         }
     };
 
-    switch (detection.kind) {
+    // design 2.1: an untrusted workspace is L4 by definition. No build tool and no compiler runs
+    // (that guard is in the branches below and in the Prober), and, just as importantly, nothing a
+    // *trusted* session once wrote or a build once produced is read either: a leftover
+    // compile_commands.json or build database from before the workspace lost trust, or from a build
+    // run outside mcppls entirely, is still a fact about the build, and reading it here would make
+    // "untrusted" mean "untrusted, unless something is already sitting on disk" -- including an
+    // explicit `mcppls.database` setting, which an untrusted workspace's own `.vscode/settings.json`
+    // could otherwise use to point mcppls at a file of its choosing. Detection itself (stat calls for
+    // well-known file names, no file content read) is not a build tool run and stays cheap either
+    // way, so `model.detected` still says what kind of project this looks like. That fact is worth
+    // an issue of its own: `mcppls check --untrusted` and other direct callers of load_project never
+    // see workspace.cpp's own "untrusted-workspace" (it is added once, workspace-wide, by the
+    // orchestrator), so this is the only place that says why a project came back inferred when the
+    // workspace is untrusted.
+    if (!options.trusted && detection.kind != SourceKind::inferred) {
+        model.issues.push_back(ModelIssue { "untrusted-workspace",
+            std::format("the workspace is not trusted, so the {} project's own data was not read; sources are scanned instead",
+                        to_string(detection.kind)) });
+    }
+    switch (options.trusted ? detection.kind : SourceKind::inferred) {
     case SourceKind::build_database: {
         auto database = spec::load_database(detection.buildDatabase);
         if (database) {
@@ -194,7 +215,16 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
     case SourceKind::inferred: break;
     }
 
-    if (!loaded || loaded->database.sets.empty() || std::ranges::all_of(loaded->database.sets, [](const spec::Set& set) { return set.units.empty(); })) {
+    // A database whose every unit names a file that no longer exists (real-project plan RP2.4: a
+    // `target/` a build once wrote and the project later deleted, a checked-in
+    // compile_commands.json from a machine that is not this one) is no better than none: it is
+    // treated the same as an empty one, and inference takes over. A database that is only partly
+    // stale keeps its remaining units below, once loaded, rather than being discarded here.
+    const auto has_existing_unit = [](const spec::Set& set) {
+        return std::ranges::any_of(set.units, [](const spec::TranslationUnit& unit) { return platform::fs::is_regular_file(spec::absolute_source(unit)); });
+    };
+    if (!loaded || loaded->database.sets.empty() || std::ranges::all_of(loaded->database.sets, [](const spec::Set& set) { return set.units.empty(); })
+        || std::ranges::none_of(loaded->database.sets, has_existing_unit)) {
         InferOptions infer;
         if (options.trusted && options.runner) {
             if (!options.compilerOverride.empty() && options.compilerOverride != "kit") {
@@ -252,7 +282,87 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
     for (auto& set : model.database.sets) {
         for (auto& unit : set.units) unit.source = platform::fs::canonical_path(spec::absolute_source(unit));
     }
+    // Stale database detection (real-project plan RP2.4): a unit whose file does not exist any more is used
+    // for nothing (the caller cannot open, scan or build it), so it is dropped rather than left to
+    // fail every later step in a different way each time; the status says once that the database was
+    // stale rather than the model silently losing units. A fully stale database was already turned
+    // into inference above; this is the partial case.
+    if (model.source != SourceKind::inferred) {
+        std::size_t staleUnits { 0 };
+        for (auto& set : model.database.sets) {
+            const auto stale = std::ranges::remove_if(set.units, [&](const spec::TranslationUnit& unit) { return !platform::fs::is_regular_file(unit.source); });
+            staleUnits += static_cast<std::size_t>(std::ranges::distance(stale));
+            set.units.erase(stale.begin(), stale.end());
+        }
+        if (staleUnits > 0) {
+            model.notices.push_back(ModelIssue { "stale-database",
+                std::format("{} {} database {} named {} that no longer exist; the rest of the model is used",
+                            staleUnits, to_string(model.source), staleUnits == 1 ? "entry" : "entries", staleUnits == 1 ? "a file" : "files") });
+        }
+    }
+    // Generated-source recovery (real-project plan RP2.3): a module a unit imports but nothing in the database
+    // provides may still be a real file on disk, at one of the two places a build leaves what it
+    // generated -- the project's own build directory, or mcpp's build-database cache, which survives
+    // a `target/` the project later deleted (the incident this exists for). Tried before a stand-in
+    // is ever considered, so an importer gets the real declarations when they can still be found; a
+    // module nothing usable provides even after this stays for the engine plan's own stand-in.
+    if (model.source != SourceKind::inferred) {
+        std::set<std::string, std::less<>> provided;
+        for (const auto& set : model.database.sets) {
+            for (const auto& unit : set.units) {
+                for (const auto& [name, bmi] : unit.providedModules) provided.insert(name);
+            }
+        }
+        std::set<std::string, std::less<>> missing;
+        for (const auto& set : model.database.sets) {
+            for (const auto& unit : set.units) {
+                for (const auto& name : unit.requiredModules) {
+                    if (name != "std" && name != "std.compat" && !provided.contains(name)) missing.insert(name);
+                }
+            }
+        }
+        if (!missing.empty()) {
+            const GeneratedSourceOptions recoveryOptions {
+                model.root, options.homeDirectory.empty() ? platform::dirs::home_directory() : options.homeDirectory, scanner
+            };
+            for (const auto& name : missing) {
+                auto recovered = find_generated_source(name, recoveryOptions);
+                if (!recovered) continue;
+                // The arguments of an existing unit in the set that needed this module: the same
+                // include paths and standard version it was built with, since nothing else says what
+                // this generated unit's own arguments were (robustness design C2's own fallback, for
+                // sources rather than for open documents).
+                for (auto& set : model.database.sets) {
+                    const auto importer = std::ranges::find_if(set.units, [&](const spec::TranslationUnit& unit) {
+                        return std::ranges::find(unit.requiredModules, name) != unit.requiredModules.end();
+                    });
+                    if (importer == set.units.end()) continue;
+                    // `.arguments` and `.options` (when the importer has structured ones) are kept
+                    // as they are: the same compiler, include paths and standard the importer was
+                    // built with, which is the best guess for a file mcppls never saw a command for
+                    // (the same reasoning normalize/plan.cpp's own openSources fallback uses).
+                    spec::TranslationUnit recoveredUnit { *importer };
+                    recoveredUnit.source = platform::fs::canonical_path(*recovered);
+                    recoveredUnit.object.clear();
+                    recoveredUnit.isPrivate = false;
+                    // What it imports, from the file itself: a generated module may import others (`std`).
+                    recoveredUnit.requiredModules = scanner ? required_names(scanner(recoveredUnit.source)) : std::vector<std::string> {};
+                    recoveredUnit.providedModules = { { name, std::string {} } };
+                    recoveredUnit.role = spec::Role::module_interface;
+                    set.units.push_back(std::move(recoveredUnit));
+                    model.notices.push_back(ModelIssue { "generated-module-recovered",
+                        std::format("module {} is not in the build description; its generated source was found at {} and used instead of a stand-in",
+                                    name, *recovered) });
+                    break;
+                }
+            }
+        }
+    }
     model.level = producedDatabase ? std::max(spec::conformance_level(model.database), 1) : 2;
+    // The tier says how the model was obtained, not what kind of project it is: an mcpp project
+    // described through mcpp's compile_commands.json (an mcpp too old to emit a build database) is
+    // the design's L3 -- a database plus scanning -- not L1.
+    model.tier = model.source == SourceKind::mcpp && !producedDatabase ? tier_of(SourceKind::compile_commands) : tier_of(model.source);
     set_profile(model, options.kit);
     if (options.probeCache != nullptr) options.probeCache->save();
     return model;

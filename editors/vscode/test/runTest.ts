@@ -9,6 +9,9 @@
 //                                  the extension from source. This is the
 //                                  form CI runs (W6.3); omit it for fast
 //                                  local iteration against the source tree.
+//   MCPPLS_E2E_SCENARIO=stress    Instead of the main suite, seeded random use
+//                                  (test/suite-stress): MCPPLS_STRESS_ACTIONS,
+//                                  _SEED, _REQUEST_MS and _P90_MS tune it.
 //   MCPPLS_E2E_SCENARIO=conflicts
 //                                  Instead of the main suite, run the
 //                                  cpptools/clangd conflict-detection
@@ -308,6 +311,18 @@ async function main(): Promise<void> {
                 extensionTestsEnv: { MCPPLS_E2E_CONFLICT_ANSWER: answer },
             });
         }
+        return;
+    }
+
+    if (scenario === 'stress') {
+        // Seeded random use (real-project plan RP0): test/suite-stress, on the same workspace.
+        await runOnce({
+            label: vsixPath ? 'stress (vsix)' : 'stress (development path)',
+            vsixPath,
+            extraVsixPaths: [],
+            extensionTestsPath: path.resolve(__dirname, 'suite-stress', 'index'),
+            allowedNewFiles: [],
+        });
         return;
     }
 

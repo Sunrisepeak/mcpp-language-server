@@ -1,0 +1,19 @@
+{
+  "name": "generated-module",
+  "description": "Real-project plan RP0: a package module generated at build time (as libxpkg's build.mcpp writes mcpplibs.xpkg.lua_stdlib into MCPP_OUT_DIR) and a sibling module of the project's own that uses its declarations. mcpp's build database (mocked from mcpp-mock.json, the same mechanism as mcpp-emit) names the generated unit directly; the server must use its real source, never a stand-in, for hover and definition into it.",
+  "server-arguments": ["--mcpp", "{runner-dir}/mcppls-mock-mcpp{exe}"],
+  "checks": [
+    { "id": "S1", "kind": "status", "source": "mcpp", "state": "ready", "tier": 1 },
+    { "id": "G1-import-goes-to-the-real-generated-file", "kind": "definition", "file": "src/main.cpp", "at": [1, 9],
+      "expect": "target/.build-mcpp/deps/xpkg@1.0.0/out/xpkg_lua_stdlib.cppm" },
+    { "id": "G2-call-site-definition", "kind": "definition", "file": "src/main.cpp", "at": [4, 36],
+      "expect": "target/.build-mcpp/deps/xpkg@1.0.0/out/xpkg_lua_stdlib.cppm" },
+    { "id": "G3-call-site-hover", "kind": "hover-contains", "file": "src/main.cpp", "at": [4, 36], "expect": "lua_stdlib_answer" },
+    { "id": "G4-sibling-module-import-goes-to-the-real-generated-file", "kind": "definition", "file": "src/consumer.cppm", "at": [2, 9],
+      "expect": "target/.build-mcpp/deps/xpkg@1.0.0/out/xpkg_lua_stdlib.cppm" },
+    { "id": "G5-sibling-module-call-site-definition", "kind": "definition", "file": "src/consumer.cppm", "at": [4, 43],
+      "expect": "target/.build-mcpp/deps/xpkg@1.0.0/out/xpkg_lua_stdlib.cppm" },
+    { "id": "G6-project-module-definition", "kind": "definition", "file": "src/main.cpp", "at": [4, 15], "expect": "src/consumer.cppm" },
+    { "id": "W1", "kind": "workspace-unchanged" }
+  ]
+}

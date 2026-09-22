@@ -114,6 +114,18 @@ void Primer::finish(std::string_view name) {
     --running_;
 }
 
+void Primer::abandon(std::span<const std::string> names) {
+    for (const auto& name : names) {
+        const auto it = states_.find(name);
+        if (it == states_.end() || it->second == State::done) continue;
+        // Resolved whether it was ever asked for yet: a module known doomed before anything wants it
+        // (e.g. right after a graph reset) must not go back to being an ordinary, retryable module.
+        if (it->second == State::running) --running_;
+        it->second = State::done;
+    }
+    heights_.clear();
+}
+
 void Primer::reset() {
     for (auto& [name, state] : states_) state = State::unwanted;
     running_ = 0;

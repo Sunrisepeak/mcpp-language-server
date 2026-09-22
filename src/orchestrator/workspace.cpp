@@ -899,6 +899,23 @@ struct Workspace::Impl final : engine::Host {
             update_status();
             return;
         }
+        // Design 4.1: a worse source never replaces a better result. A producer that now describes the
+        // project less completely than the model in hand -- the build database a cache holds against the
+        // compile database an older mcpp answers with -- leaves that model in place, kept the same way
+        // as a failed reload: marked possibly stale and asked again later.
+        if (model && model->detected == loadedModel->detected && loadedModel->tier > model->tier) {
+            staleModelReason = std::format("{} now describes the project less completely (L{} instead of L{}); the last model is kept and may be stale",
+                                           project::to_string(loadedModel->source), loadedModel->tier, model->tier);
+            log::warning("model reload ({}): {}", root, staleModelReason);
+            journal.add("model-kept", Json { { "reason", staleModelReason }, { "kept", model->tier }, { "offered", loadedModel->tier } });
+            reloadAt = Clock::now() + std::chrono::minutes { 5 };
+            if (reloadAfterLoad) {
+                reloadAfterLoad = false;
+                start_model_load();
+            }
+            update_status();
+            return;
+        }
         staleModelReason.clear();
         adopt_model(std::move(loadedModel), "producer");
     }
@@ -1277,6 +1294,7 @@ struct Workspace::Impl final : engine::Host {
         Json project { { "root", clientUri.empty() ? base::path_to_uri(root) : clientUri },
                        { "source", model ? std::string { project::to_string(model->source) } : std::string { "inferred" } } };
         if (model) project["level"] = model->level;
+        if (model) project["tier"] = model->tier;
         const std::optional<engine::EngineStatus> core { coreEngine != nullptr ? std::optional { coreEngine->status() } : std::nullopt };
         Json params {
             { "state", std::string { to_string(state) } },
@@ -1576,9 +1594,12 @@ Json Workspace::report() const {
         for (const auto& issue : impl.model->issues) issues.push_back(Json { { "code", issue.code }, { "message", issue.message } });
         Json toolchains = Json::array();
         for (const auto& [id, facts] : impl.model->facts) toolchains.push_back(id);
+        Json notices = Json::array();
+        for (const auto& notice : impl.model->notices) notices.push_back(Json { { "code", notice.code }, { "message", notice.message } });
         project = Json { { "source", std::string { project::to_string(impl.model->source) } }, { "level", impl.model->level },
+                         { "tier", impl.model->tier },
                          { "sets", impl.model->database.sets.size() }, { "toolchains", std::move(toolchains) }, { "profile", impl.profile_json() },
-                         { "issues", std::move(issues) }, { "staleReason", impl.staleModelReason } };
+                         { "issues", std::move(issues) }, { "notices", std::move(notices) }, { "staleReason", impl.staleModelReason } };
         // Design 4.6: where this model came from, how the build tool is run, and what the last runs
         // of it cost --- the questions a report of "it has the wrong arguments" always ends at.
         project["origin"] = impl.modelOrigin;

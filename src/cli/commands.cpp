@@ -124,11 +124,16 @@ int command_check(const cmdline::ParsedArgs& args) {
     const Loaded loaded { load(root, args, !args.is_flag_set("untrusted")) };
     const auto& model = loaded.model;
     std::println("root      {}", root);
-    std::println("source    {} (level {})", project::to_string(model.source), model.level);
+    // `tier` (README L1..L4, S3-4-8) is which kind of source this came from; `level` is S1's own
+    // document-conformance number (S1 §7.1). They are printed separately so neither reads as the
+    // other's number.
+    std::println("source    {} (tier {}, level {})", project::to_string(model.source), model.tier, model.level);
+    if (!model.producer.empty()) std::println("producer  {}{}", model.producer, model.producerVersion.empty() ? std::string {} : std::format(" {}", model.producerVersion));
     std::println("profile   {} {} {} {}", model.profile.kind, model.profile.compiler, model.profile.stdlib, model.profile.target);
     std::println("engine    clangd {} {}", loaded.payload.clangdVersion, loaded.payload.clangd);
     std::println("database  {} entries, {} standard library units, {} left out", loaded.plan.entries.size(), loaded.plan.stdUnits, loaded.plan.excludedFiles.size());
     for (const auto& issue : model.issues) std::println("issue     [{}] {}", issue.code, issue.message);
+    for (const auto& notice : model.notices) std::println("notice    [{}] {}", notice.code, notice.message);
     for (const auto& issue : loaded.plan.issues) std::println("issue     [{}] {} ({})", issue.code, issue.message, issue.file);
 
     index::ModuleIndex index;

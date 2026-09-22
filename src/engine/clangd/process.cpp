@@ -3,6 +3,7 @@ module mcppls.engine.clangd.process;
 import std;
 import nlohmann.json;
 import mcppls.base.error;
+import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.platform.fs;
@@ -45,6 +46,19 @@ std::optional<ModuleFailure> parse_module_failure(std::string_view line) {
     static constexpr std::string_view COMPILE { "Failed to compile " };
     if (reason.starts_with(COMPILE)) failure.failedSource = std::string { base::trim(reason.substr(COMPILE.size())) };
     return failure;
+}
+
+base::log::Level clangd_log_level(std::string_view line) {
+    if (line.size() >= 2 && line[1] == '[') {
+        switch (line[0]) {
+        case 'E': return base::log::Level::warning;
+        case 'I':
+        case 'V':
+        case 'D': return base::log::Level::debug;
+        default: break;
+        }
+    }
+    return base::log::Level::info;
 }
 
 FailureKind failure_kind(const ModuleFailure& failure) {

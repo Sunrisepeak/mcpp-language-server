@@ -458,7 +458,7 @@
  "S1-11.2-7": [
   {
    "script": "editors/vscode/src/status.ts",
-   "contains": "level ${status.project.level}"
+   "contains": "status.project.source} · L${tier}"
   },
   {
    "check": "mcpp-emit/S1"
@@ -905,6 +905,25 @@
   },
   {
    "check": "multi-root/W1-mcpp-watched"
+  }
+ ],
+ "S3-4-8": [
+  {
+   "test": "tests/test_project.cpp: tier follows the model's source, independent of level"
+  },
+  {
+   "script": "src/orchestrator/workspace.cpp",
+   "contains": "if (model) project[\"tier\"] = model->tier;"
+  }
+ ],
+ "S3-4-9": [
+  {
+   "script": "editors/vscode/src/status.ts",
+   "contains": "L${tier}"
+  },
+  {
+   "script": "editors/nvim/lua/mcppls/init.lua",
+   "contains": "s.project.tier and (' L' .. s.project.tier)"
   }
  ],
  "S3-5.5-1": [

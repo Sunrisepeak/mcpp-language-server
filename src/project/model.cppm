@@ -29,6 +29,7 @@ struct ProjectModel {
     SourceKind source { SourceKind::inferred };
     SourceKind detected { SourceKind::inferred };   // the kind of project found; `source` is inferred when its data was not available
     int level { 2 };
+    int tier { 4 };                                 // S3 `project.tier`: how the model was obtained, the README's L1..L4 (distinct from `level`, S1's own)
     spec::Database database;
     FactsMap facts;
     bool usesKit { false };
@@ -46,6 +47,7 @@ struct LoadOptions {
     std::string configuredDatabase;
     std::string compilerOverride;             // mcppls.compiler; "kit" forces the semantic kit
     std::string mcppExecutable;               // the producer for mcpp projects; empty: found on PATH
+    std::string homeDirectory;                // empty: platform::dirs::home_directory() (a test override otherwise)
     bool discoverCompilers { true };          // false: loose sources use the kit
     const spec::Kit* kit { nullptr };
     toolchain::Runner runner;

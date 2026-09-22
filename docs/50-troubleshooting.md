@@ -7,7 +7,8 @@ carrying what almost every question turns out to need:
 
 | In the report | Answers |
 |---|---|
-| `project.source`, `project.level` | Where the build description came from, and how complete it is |
+| `project.source`, `project.tier`, `project.level` | Where the build description came from (`tier`, the README's L1..L4), and how complete its document is (`level`, S1's own number — a different question from `tier`) |
+| `project.notices` | Facts worth knowing that cost no feature: a stale database entry dropped, a generated module recovered instead of stubbed, a producer negotiated in place of the project's pinned mcpp |
 | `project.origin` / `firstOrigin` | Whether this session started from the cache, from the build tool, or from scanned sources |
 | `project.producer`, `producerRun` | Which build tool ran, how long it took, how it ended, whether it was offline |
 | `toolEnvironment` | Which environment build tools were started in, and the **names** of the variables that differ from the editor's (never the values) |
@@ -33,7 +34,15 @@ diagnostics come from libc++ rather than from your toolchain.
 
 **It was fine, then a module stopped resolving.** `plan.standIns` lists modules nothing provides —
 mcppls gives them stand-in units so that one broken module does not take the rest of the project
-with it. The real failure is in `plan.issues` or in your build.
+with it, and names each one in the log with the reason. The real failure is in `plan.issues` or in
+your build.
+
+**A module does not compile.** Only what imports it, directly or not, is affected: those files are
+answered at once by mcppls's own engine (module navigation, symbols, `import` completion), carry one
+`module-failed` diagnostic on the import that leads to the failure, and are not sent to clangd until
+the failed module's own source or command changes; everything else keeps clangd. The status says
+*degraded* with "N modules cannot be prepared because M failed", never *preparing* for good. The
+engine's `doomedModules` and `filesRoutedToOwnEngine` in the report list them.
 
 **The editor found a different compiler than my terminal.** `toolEnvironment.source` should say
 `login-shell`. If it says `editor`, the reason is in `toolEnvironment.reason` — an editor started
@@ -45,8 +54,10 @@ confirms it in the background. `project.firstOrigin` says which happened. If it 
 `producer`, the fingerprint is not matching — the report's `project.producerRun` and the build
 files' timestamps are where to look.
 
-**clangd keeps restarting.** `engines[].restarts` and the `events` journal. Restarts are gated and
-spaced out on purpose; a burst of them usually means the compile arguments are changing under it.
+**clangd keeps restarting.** `engines[].restarts` and the `events` journal. Restarts are spaced out
+and capped at three in ten minutes, after which the status says so (`engine-restart-capped`) and
+mcppls's own engine answers what a restart would have tried to fix; a module that does not compile
+is never a reason to restart. A burst usually means the compile arguments are changing under it.
 
 ## Filing a bug
 
