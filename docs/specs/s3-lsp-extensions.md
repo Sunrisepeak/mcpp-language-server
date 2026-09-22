@@ -64,7 +64,9 @@ interface CxxModulesStatusParams {
   project: {
     root: DocumentUri;             // the workspace folder's URI exactly as the client sent it
     source: "mcpp" | "cmake" | "build-database" | "compile-commands" | "inferred";
-    level?: 1 | 2 | 3 | 4;        // S1 conformance level of the project model
+    level?: 1 | 2 | 3 | 4;        // S1 conformance level of the project model's *document*
+    tier?: 1 | 2 | 3 | 4;         // which kind of source it came from: 1 build database, 2 CMake's
+                                   // own database, 3 compile_commands.json, 4 sources only
   };
   profile: SemanticProfile;        // semantic profile of the default context
   engine: { name: string; version: string };   // the core semantic engine, e.g. "clangd"; "none" when there is none
@@ -112,6 +114,8 @@ States:
 | `error` | Only syntactic features remain. `issues` says why. |
 
 A server **MUST** send the notification whenever any field changes, **SHOULD** coalesce changes that occur within a short interval, and **MUST** send at least one notification after `initialized`. `project.source` names where the model came from: an mcpp project, a CMake project, an S1 database, a `compile_commands.json`, or inference from sources alone. `profile.kind` is `semantic-kit` when the server analyzes the project with an [S4](s4-semantic-kit.md) semantic kit because no suitable compiler was found. <a id="S3-4-1"></a><a id="S3-4-2"></a><a id="S3-4-3"></a><sup>S3-4-1, S3-4-2, S3-4-3</sup>
+
+`project.tier` and `project.level` answer different questions: `level` is how completely the *document* a source produced is structured (S1's own 1..4, which a hand-written database can reach without a build tool at all), while `tier` is which *kind* of source produced it at all (mcpp or an explicit build database, CMake's own database, a bare `compile_commands.json`, or sources alone), independent of how that source's document happened to be structured. A build-database or mcpp source is tier 1 and a CMake project without `FILE_SET CXX_MODULES` is tier 2 even when its document is level 1, because CMake's own generator wrote it without the server having to scan or probe anything; an untrusted workspace is tier 4 by definition, since it is sources only regardless of what a database elsewhere on disk might say. `tier` is additive and optional: a client from before it existed sees no field and nothing else changes, and a server **MAY** omit it for a root it has not tiered yet, the same as `level`. A client that presents both **SHOULD** label them distinctly (for example "tier 1" and "S1 level 3") rather than show one bare number twice. <a id="S3-4-8"></a><a id="S3-4-9"></a><sup>S3-4-8, S3-4-9</sup>
 
 A server that manages more than one workspace root (multiple `workspaceFolders`, or folders added or removed later through `workspace/didChangeWorkspaceFolders`) **MUST** send one notification per root, each with that root's own `project.root`, rather than one notification describing all of them; a client that presents status per folder tells them apart by it. This is a backward-compatible addition: `project.root` already existed in protocol version 1, and a single-root server's one notification already satisfied "at least one notification" above. A request that names a document (for example `cxxModules/setContext`) is answered by the root that owns it; `cxxModules/graph` and a bare-name `cxxModules/moduleInfo` name no document and so, until a later protocol version adds a way to select one, are answered by the first root. <a id="S3-4-4"></a><sup>S3-4-4</sup>
 

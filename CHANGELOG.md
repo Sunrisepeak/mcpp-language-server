@@ -9,6 +9,27 @@ product version unchanged.
 
 ## [Unreleased]
 
+### Project model
+
+- An untrusted workspace no longer reads a `compile_commands.json` or build database a trusted
+  session (or another build) already left on disk; it is L4 (sources only) by definition, as the
+  docs always said.
+- An mcpp that cannot `emit build-database` no longer means immediately configuring the project (or
+  giving up): mcppls looks for a newer mcpp installed elsewhere on the machine and, if one advertises
+  it, asks that one instead, read-only — the project still builds with the mcpp it pins. The status
+  and `mcppls check` say "described by mcpp X (the project pins Y)".
+- A compile database entry naming a file that no longer exists is dropped rather than breaking the
+  model; the status notes it as stale. A module a dependency's build generates is looked for where
+  builds leave it (the project's own build directory, mcpp's build-database cache) before mcppls
+  falls back to an empty stand-in.
+- `cxxModules/status` gained `project.tier` (spec S3-4-8, S3-4-9): which kind of source described
+  the project (the README's L1..L4), independent of `project.level` (S1's own document-conformance
+  number). The status bar and the Neovim plugin now show `L<tier>`, never `level`, which the two
+  numbers sharing a range made easy to misread as the same thing.
+- Scanning and a file opened while browsing no longer fold a nested project's own sources (a
+  conformance fixture, a vendored copy, an example with its own `mcpp.toml` or `CMakeLists.txt`) into
+  the workspace's model.
+
 ### Editors
 
 - Neovim: a Lua plugin in `editors/nvim` (Neovim 0.10 or later) that starts mcppls for C and C++

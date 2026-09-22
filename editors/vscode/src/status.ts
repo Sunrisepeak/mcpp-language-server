@@ -30,6 +30,11 @@ export interface CxxModulesStatus {
         root: string;
         source: 'mcpp' | 'cmake' | 'build-database' | 'compile-commands' | 'inferred';
         level?: number;
+        // Which kind of source described the project (README L1..L4; S3-4-8, S3-4-9): 1 build
+        // database, 2 CMake's own database, 3 compile_commands.json, 4 sources only. Shown as
+        // `L<tier>` instead of `level`, which is S1's own document-conformance number and would
+        // read as the same thing to someone who does not know the difference.
+        tier?: number;
     };
     profile: SemanticProfile;
     // The core semantic engine; "none" when a root has none (S3 4, S3-4-6).
@@ -224,9 +229,8 @@ export class StatusController implements vscode.Disposable {
             details.push(state);
         }
         if (status.project) {
-            details.push(status.project.level !== undefined
-                ? `${status.project.source} · level ${status.project.level}`
-                : status.project.source);
+            const tier = status.project.tier;
+            details.push(tier !== undefined ? `${status.project.source} · L${tier}` : status.project.source);
         }
         if (status.engines && status.engines.length > 0) {
             details.push(status.engines.map((engine) => `${engine.name} ${engine.version}`.trim()).join(' + '));
