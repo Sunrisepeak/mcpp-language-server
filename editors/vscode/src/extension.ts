@@ -4,6 +4,7 @@
 // cxxModules protocol extension, shows one language status item, and otherwise
 // stays out of sight: no notifications, no status bar items, no walkthroughs.
 
+import * as readline from 'readline';
 import * as vscode from 'vscode';
 import {
     ClientCapabilities,
@@ -27,6 +28,7 @@ import { CommandLineToolsController, withInstallCommandFallback } from './comman
 import { registerCommands, reloadBuildDescription } from './commands';
 import { checkConflicts, ConflictCheck } from './conflicts';
 import { resolveLaunch } from './payload';
+import { ServerLogLevel, ServerLogRouter } from './serverLog';
 import { promptTestHarness, PromptKind } from './prompt';
 import { CxxModulesStatus, ModuleState, StatusController } from './status';
 
@@ -64,6 +66,8 @@ export interface TestApi {
     // xcode-select --install is never actually spawned in test mode; this
     // counts how many times it would have been.
     commandLineToolsInstallCount(): number;
+    // Server stderr lines written to the log at each level (src/serverLog.ts).
+    serverLogLineCount(level: ServerLogLevel): number;
 }
 
 // Tells the server this client understands the cxxModules extension (S3).
@@ -87,6 +91,10 @@ class CxxModulesFeature implements StaticFeature {
     }
 }
 
+function lines(input: NodeJS.ReadableStream, onLine: (line: string) => void): void {
+    readline.createInterface({ input, crlfDelay: Infinity, terminal: false, historySize: 0 }).on('line', onLine);
+}
+
 function errorText(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
@@ -107,6 +115,7 @@ function messageTypeName(type: MessageType): string {
 class ServerHost implements vscode.Disposable {
     private client: LanguageClient | undefined;
     private channel: vscode.LogOutputChannel | undefined;
+    readonly serverLog = new ServerLogRouter();
     private restarts: number[] = [];
     private queue: Promise<void> = Promise.resolve();
 
@@ -215,6 +224,18 @@ class ServerHost implements vscode.Disposable {
             ],
             outputChannel: this.output(),
             revealOutputChannelOn: RevealOutputChannelOn.Never,
+            // Over stdio, stdout is the protocol and never reaches `stdout` below; the option takes
+            // both, so it keeps the client's default. stderr is the server's log, written at the
+            // level each line carries rather than all as errors.
+            stdioOptions: {
+                stdout: (input, channel) => {
+                    lines(input, (line) => channel.info(line));
+                },
+                stderr: (input, channel) => {
+                    this.serverLog.reset();
+                    lines(input, (line) => this.serverLog.route(line, channel));
+                },
+            },
             initializationOptions: {
                 compiler: compiler.length > 0 ? compiler : null,
                 semanticKit: configuration.get<string>('semanticKit') === 'off' ? 'off' : 'auto',
@@ -482,6 +503,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
         setPromptAnswer: (kind, answer) => promptTestHarness?.setAnswer(kind, answer),
         promptShownCount: (kind) => promptTestHarness?.shownCount(kind) ?? 0,
         commandLineToolsInstallCount: () => commandLineTools.installInvocationCount(),
+        serverLogLineCount: (level) => host.serverLog.count(level),
     };
 }
 

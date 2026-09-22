@@ -165,7 +165,7 @@
             "verbose"
           ],
           "default": "off",
-          "description": "Traces the communication between VS Code and the language server in the C++ Modules output."
+          "description": "Traces the communication between VS Code and the language server in the C++ Modules output; `verbose` also turns on the server's debug log. The trace is written at Trace level and the debug log at Debug level, so set that output's log level to see them."
         },
         "mcppls.buildTool": {
           "type": "string",
@@ -237,6 +237,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "node ./out/test/runTest.js",
+    "test:unit": "mocha --ui tdd \"out/test/unit/**/*.test.js\"",
     "package": "vsce package"
   },
   "dependencies": {

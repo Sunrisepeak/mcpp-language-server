@@ -612,6 +612,11 @@ jobs:
           tar -xzf payload-${{ matrix.platform }}.tar.gz
           stage/mcppls-devtools${{ matrix.exe }} extension --editor vscode \
               --payload "$PWD/payload" --out "$PWD/editors/vscode/mcppls-${{ matrix.platform }}.vsix"
+      # The extension's own logic that needs no VS Code (src/serverLog.ts), in plain Node: a
+      # regression there reads here in seconds, before the end-to-end suites.
+      - name: Unit tests
+        working-directory: editors/vscode
+        run: npm run test:unit
       - name: End-to-end tests (VSIX form)
         working-directory: editors/vscode
         env:
