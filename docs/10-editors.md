@@ -19,7 +19,7 @@ start `mcppls` from PATH, or else the server `--install` puts at `<user data>/mc
 
 ## VS Code
 
-Install **C++ Modules** (`sunrisepeak.mcppls`). It carries the server, a pinned
+Install **C++ Modules** (`sunrisepeak.mcpp-language-server`). It carries the server, a pinned
 clangd and the semantic kit; nothing else to install and nothing to configure. Settings and
 commands are in [30-settings.md](30-settings.md); the extension's own page is
 [editors/vscode/README.md](../editors/vscode/README.md).

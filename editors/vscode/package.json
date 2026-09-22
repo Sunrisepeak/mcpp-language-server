@@ -1,5 +1,5 @@
 {
-  "name": "mcppls",
+  "name": "mcpp-language-server",
   "displayName": "C++ Modules (mcppls)",
   "description": "C++20/23 named modules that just work: go to definition, completion, hover and references across modules for any compiler, with clangd and a standard library kit built in.",
   "version": "0.0.1",

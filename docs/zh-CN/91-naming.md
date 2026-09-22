@@ -25,14 +25,16 @@
 
 | 编辑器 | 标识符 | 显示名 | 说明 |
 |---|---|---|---|
-| VS Code | `sunrisepeak.mcppls` | C++ Modules (mcppls) | `package.json` 里的 `publisher.name`；发布前，发布者必须已经在 Marketplace 上存在 |
+| VS Code | `sunrisepeak.mcpp-language-server` | C++ Modules (mcppls) | `package.json` 里的 `publisher.name`；发布前，发布者必须已经在 Marketplace 上存在 |
 | Zed | `mcppls` | C++ Modules (mcppls) | Zed 的扩展 id 是扁平的，简称本身就是 id |
 | CLion / IntelliJ | `io.github.sunrisepeak.mcppls` | C++ Modules (mcppls) | JetBrains 要求反向域名；个人项目用 `io.github.<user>` 这种形式 |
 | Claude Code | marketplace `mcppls` 里的 `mcppls-lsp` | C++ Modules (mcppls) | 本仓库自己的 marketplace 文件里的一个插件 |
 
 在支持设置和命令的每个编辑器里都用 `mcppls.*`，整个产品用一个名字回答「这叫什么」。
 
-VS Code 扩展是 `sunrisepeak.mcppls`，不是 `sunrisepeak.mcpp-language-server`。包和插件是两回事——xlings 装的是服务端，市场装的是插件——这两个名字里，只有 `mcppls` 已经被可执行文件、设置前缀、模块命名空间和 `mcppls-kit` 一起用着。便于搜索由显示名负责，因此它把「C++ Modules」放在前面。
+VS Code 扩展是简称规则的唯一例外：它叫 `sunrisepeak.mcpp-language-server`。原来叫 `sunrisepeak.mcppls`，为了让版本号从 0.0.1 重新开始，那个扩展从 Marketplace 上删除了，而 Marketplace 会永久保留被删除扩展的名字，原 publisher 自己也不能再用。用户看到的仍然都是 `mcppls`：显示名、设置和命令都没变。便于搜索由显示名负责，因此它把「C++ Modules」放在前面。
+
+需要下架扩展时，一律用**取消发布（Unpublish）**，不要删除（Remove）：取消发布会保留名字，删除则永久失去这个名字。
 
 ## Schema 标识符
 

@@ -6,7 +6,7 @@
 ## VS Code, from the Marketplace
 
 Search the Extensions view for **C++ Modules (mcppls)**, or run
-`code --install-extension sunrisepeak.mcppls` ([Marketplace page](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcppls)). VS Code picks the
+`code --install-extension sunrisepeak.mcpp-language-server` ([Marketplace page](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server)). VS Code picks the
 build for your platform — `linux-x64`, `darwin-arm64` or `win32-x64`; there is none for other
 platforms yet.
 
@@ -21,7 +21,7 @@ The VSIX carries everything it needs: the server, a pinned clangd, and the seman
 project and the status bar says what it found. Take the file matching your machine —
 `linux-x64`, `darwin-arm64` or `win32-x64` — since each carries its own platform's payload.
 
-The extension is `sunrisepeak.mcppls`, and it is a different extension from **mcpp**
+The extension is `sunrisepeak.mcpp-language-server`, and it is a different extension from **mcpp**
 (`mcpp-community.mcpp-vscode`), which handles building, toolchains and project operations. Both are
 worth having; see [10-editors.md](10-editors.md).
 

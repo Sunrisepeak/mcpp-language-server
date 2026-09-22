@@ -574,7 +574,7 @@ int command_uninstall(const cmdline::ParsedArgs& arguments) {
             std::println("vscode: the `code` command is not on PATH; remove it from the Extensions view.");
             continue;
         }
-        if (!step("removing from VS Code", *code, { "--uninstall-extension", "sunrisepeak.mcppls" }, root)) {
+        if (!step("removing from VS Code", *code, { "--uninstall-extension", "sunrisepeak.mcpp-language-server" }, root)) {
             ++failures;
         }
     }

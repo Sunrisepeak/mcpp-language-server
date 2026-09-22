@@ -14,7 +14,7 @@ mcpp run -p devtools -- uninstall --editor vscode|zed|clion|all   # 卸载
 
 ## VS Code
 
-安装 **C++ Modules**（`sunrisepeak.mcppls`）。它带了服务端、一个锁定版本的 clangd 和语义工具包；不用另外装什么，也不用配置。设置和命令在 [30-settings.md](30-settings.md) 里；扩展自己的说明页是 [editors/vscode/README.md](../../editors/vscode/README.md)。
+安装 **C++ Modules**（`sunrisepeak.mcpp-language-server`）。它带了服务端、一个锁定版本的 clangd 和语义工具包；不用另外装什么，也不用配置。设置和命令在 [30-settings.md](30-settings.md) 里；扩展自己的说明页是 [editors/vscode/README.md](../../editors/vscode/README.md)。
 
 **和 mcpp 扩展一起用。** `mcpp-community.mcpp-vscode`（也就是 mcpp）与本扩展是两个独立的扩展，建议同时安装：
 
