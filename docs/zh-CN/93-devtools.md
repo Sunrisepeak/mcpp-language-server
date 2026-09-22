@@ -58,6 +58,7 @@ mcpp run -p devtools -- extension --editor vscode --install  # payload、VS Code
 | 审查测试用例（精确率、召回率） | `mcpp run -p devtools -- bench review --server … --payload … --mock-model …` |
 | Agent 任务基准测试，基线与参考结果 | `mcpp run -p devtools -- bench tasks validate` |
 | 规范文档的 schema | `python3 docs/specs/tools/validate.py`——唯一还留着的 Python，见[下文](#不是-c-的部分) |
+| 真实项目压力测试：多套 fixture × 客户端画像的矩阵 | `mcpp run -p devtools -- stress --payload … --fixture module-faults --client vscode --client neovim` |
 
 ### 调试
 
