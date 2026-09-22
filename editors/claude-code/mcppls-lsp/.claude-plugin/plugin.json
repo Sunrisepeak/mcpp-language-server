@@ -1,6 +1,6 @@
 {
   "name": "mcppls-lsp",
-  "displayName": "mcppls (C/C++ Modules)",
+  "displayName": "C++ Modules Language Server",
   "version": "0.0.1",
   "description": "Registers mcppls as the language server for C and C++ sources, including C++20/23 named modules, and its MCP tools (symbols, references, modules, verification, review). Replaces clangd-lsp for a project; do not enable both at once.",
   "author": {

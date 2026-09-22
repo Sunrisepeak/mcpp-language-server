@@ -5,7 +5,7 @@
 
 ## VS Code, from the Marketplace
 
-Search the Extensions view for **C++ Modules (mcppls)**, or run
+Search the Extensions view for **C++ Modules Language Server**, or run
 `code --install-extension sunrisepeak.mcpp-language-server` ([Marketplace page](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server)). VS Code picks the
 build for your platform — `linux-x64`, `darwin-arm64` or `win32-x64`; there is none for other
 platforms yet.

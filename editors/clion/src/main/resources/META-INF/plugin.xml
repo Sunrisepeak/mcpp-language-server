@@ -1,6 +1,6 @@
 <idea-plugin>
     <id>io.github.sunrisepeak.mcppls</id>
-    <name>C++ Modules (mcppls)</name>
+    <name>C++ Modules Language Server</name>
     <vendor url="https://github.com/Sunrisepeak/mcpp-language-server">Sunrisepeak</vendor>
 
     <description><![CDATA[

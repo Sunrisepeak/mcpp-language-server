@@ -6,7 +6,7 @@
 
 ## VS Code：从 Marketplace 安装
 
-在扩展视图里搜索 **C++ Modules (mcppls)**，或者运行 `code --install-extension sunrisepeak.mcpp-language-server`（[Marketplace 页面](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server））。VS Code 会自动选对应平台的版本——`linux-x64`、`darwin-arm64` 或 `win32-x64`；其他平台暂时没有。
+在扩展视图里搜索 **C++ Modules Language Server**，或者运行 `code --install-extension sunrisepeak.mcpp-language-server`（[Marketplace 页面](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server））。VS Code 会自动选对应平台的版本——`linux-x64`、`darwin-arm64` 或 `win32-x64`；其他平台暂时没有。
 
 ## VS Code：从 release 安装
 
