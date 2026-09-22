@@ -10,9 +10,12 @@ to expect next. Background: [`.agents/docs/design.md`](../../.agents/docs/design
 Every integration below starts the server as `mcppls serve` (LSP over stdio) — the
 `mcppls` binary must resolve on `PATH` wherever the agent runs.
 
-- **Once published**, install it through xlings: `xlings install mcpp-language-server -y -g`
-  (xlings package `mcpp-language-server`, program `mcppls`). Not yet published as of this
-  writing — see the design doc §12 for the rename and release plan.
+- **From a release**: download `payload-<platform>.tar.gz` (`linux-x64`, `darwin-arm64`,
+  `win32-x64`) from the [release page](https://github.com/Sunrisepeak/mcpp-language-server/releases),
+  unpack it, and put its `payload/bin/` on `PATH`. It carries the server, its pinned clangd and the
+  semantic kit.
+- **Once published to the xlings index**: `xlings install mcpp-language-server -y -g` (xlings
+  package `mcpp-language-server`, program `mcppls`). Not published there yet.
 - **Or build it locally**: `mcpp build` from a clone of this repository, binary at
   `target/<triple>/<fingerprint>/bin/mcppls` (for example
   `target/x86_64-linux-gnu/<fingerprint>/bin/mcppls` on Linux); put that `bin/` directory

@@ -10,8 +10,9 @@ product version unchanged.
 ## [0.0.1] — 2026-09-22
 
 The first public release. Every artifact is a file on the GitHub release page; its `MANIFEST.md` says
-what each one is and how to install it, and `SHA256SUMS` covers them all. Nothing is on the VS Code
-Marketplace, Open VSX or the xlings index yet.
+what each one is and how to install it, and `SHA256SUMS` covers them all. The VS Code extension is
+also on the VS Code Marketplace as `sunrisepeak.mcppls`; nothing is on Open VSX or the xlings index
+yet.
 
 ### Module semantics on any compiler
 

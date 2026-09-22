@@ -2,7 +2,11 @@
 
 [English](../00-install.md) | **简体中文**
 
-> release 目前只发布在 GitHub release 页面。VS Code Marketplace、Open VSX 和 xlings 索引上暂时都还没有。
+> release 发布在 GitHub release 页面，VS Code 扩展同时也上架了 VS Code Marketplace。Open VSX 和 xlings 索引上暂时都还没有。
+
+## VS Code：从 Marketplace 安装
+
+在扩展视图里搜索 **C++ Modules (mcppls)**，或者运行 `code --install-extension sunrisepeak.mcppls`（[Marketplace 页面](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcppls））。VS Code 会自动选对应平台的版本——`linux-x64`、`darwin-arm64` 或 `win32-x64`；其他平台暂时没有。
 
 ## VS Code：从 release 安装
 
@@ -17,7 +21,7 @@ VSIX 里带了所需的一切：服务端、一个锁定版本的 clangd，以�
 
 ## 其他编辑器：从 release 安装
 
-下载 `payload-<platform>.tar.gz`，解压后把其中的 `bin/` 加进 `PATH`。这样就有了 `mcppls`，它通过 stdio 提供 LSP（`mcppls serve`）和 MCP（`mcppls mcp`）。Zed 和 CLion 的插件是同一个 release 页面上的独立压缩包；[10-editors.md](10-editors.md) 里两个都有。
+下载 `payload-<platform>.tar.gz`，解压后把其中的 `payload/bin/` 加进 `PATH`。这样就有了 `mcppls`，它通过 stdio 提供 LSP（`mcppls serve`）和 MCP（`mcppls mcp`）。Zed 和 CLion 的插件是同一个 release 页面上的独立压缩包；[10-editors.md](10-editors.md) 里两个都有。
 
 release 里的每个文件都列在它的 `MANIFEST.md` 里，说明是什么、怎么装；`SHA256SUMS` 覆盖所有文件。
 

@@ -1,8 +1,9 @@
 # Making a release
 
 > Releases are published on this repository's GitHub release page. The VS Code Marketplace, Open VSX
-> and the xlings index are separate channels with their own credentials, not published to yet; see
-> [91-naming.md](91-naming.md) for the identifiers each would use.
+> and the xlings index are separate channels with their own credentials; the Marketplace is published
+> to by hand (below), the other two not yet. [91-naming.md](91-naming.md) has the identifiers each
+> uses.
 
 ## Versions
 
@@ -106,8 +107,16 @@ Do not trust what the build said; recompute it from what the public can actually
 Record the result on the release's tracking issue, including what failed and what had to be
 finished by hand. It is how the next person finds out what actually happens.
 
+## The VS Code Marketplace
+
+Not part of the workflow yet: after the release is published, the three `mcppls-<platform>.vsix`
+files are uploaded to the publisher `sunrisepeak`, by `npx @vscode/vsce publish --packagePath
+<the three files>` or one at a time on the publisher's management page (the first as a new
+extension, the others with *Update*). A version is published once: the Marketplace takes only a
+version higher than every one it has had.
+
 ## Not here yet
 
-The Marketplace, Open VSX and the xlings index each need their own credentials and a publish step
-in the release workflow. `mcppls-devtools release xlings` already produces the xlings package
+Open VSX and the xlings index each need their own credentials and a publish step in the release
+workflow, and so would publishing to the Marketplace from the workflow. `mcppls-devtools release xlings` already produces the xlings package
 descriptors; the index pull request and the other two channels are still to be added.

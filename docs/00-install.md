@@ -1,7 +1,14 @@
 # Install
 
-> Releases come from the GitHub release page. Nothing is on the VS Code Marketplace, Open VSX or the
-> xlings index yet.
+> Releases come from the GitHub release page, and the VS Code extension is also on the VS Code
+> Marketplace. Nothing is on Open VSX or the xlings index yet.
+
+## VS Code, from the Marketplace
+
+Search the Extensions view for **C++ Modules (mcppls)**, or run
+`code --install-extension sunrisepeak.mcppls` ([Marketplace page](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcppls)). VS Code picks the
+build for your platform — `linux-x64`, `darwin-arm64` or `win32-x64`; there is none for other
+platforms yet.
 
 ## VS Code, from a release
 
@@ -20,7 +27,7 @@ worth having; see [10-editors.md](10-editors.md).
 
 ## Another editor, from a release
 
-Download `payload-<platform>.tar.gz`, unpack it, and put its `bin/` on `PATH`. That gives you
+Download `payload-<platform>.tar.gz`, unpack it, and put its `payload/bin/` on `PATH`. That gives you
 `mcppls`, which speaks LSP over stdio (`mcppls serve`) and MCP (`mcppls mcp`). The Zed and CLion
 plugins are separate archives on the same release page; [10-editors.md](10-editors.md) has both.
 

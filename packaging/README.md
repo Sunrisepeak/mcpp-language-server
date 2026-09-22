@@ -132,5 +132,5 @@ mcppls-kit-<kit version>-<os>-<arch>.tar.gz          the semantic kit
 ```
 
 clangd is not part of either archive: the xlings package depends on
-`llvm-tools`, which puts clangd on `PATH`. The VS Code Marketplace, Open VSX and
-the xlings index are not published to yet.
+`llvm-tools`, which puts clangd on `PATH`. Open VSX and the xlings index are not
+published to yet; the VS Code extension is on the Marketplace (docs/92-release.md).

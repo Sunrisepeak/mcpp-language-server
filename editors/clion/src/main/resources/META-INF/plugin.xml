@@ -8,8 +8,9 @@
         project is built — mcpp, CMake, a compile_commands.json, or nothing — into one module
         description, drives its own pinned clangd with it, and answers module-level requests.
         <br/><br/>
-        The server must be on PATH. Until the first release, build it from source and put its
-        bin directory on PATH.
+        The server must be on PATH: download payload-&lt;platform&gt;.tar.gz from the
+        <a href="https://github.com/Sunrisepeak/mcpp-language-server/releases">release page</a>,
+        unpack it and put its payload/bin directory on PATH.
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>

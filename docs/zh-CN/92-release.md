@@ -2,7 +2,7 @@
 
 [English](../92-release.md) | **简体中文**
 
-> release 发布在本仓库的 GitHub release 页面。VS Code Marketplace、Open VSX 和 xlings 索引是各自独立的渠道，有自己的凭证，目前还没有开始发布；每个渠道会用到的标识符见 [91-naming.md](91-naming.md)。
+> release 发布在本仓库的 GitHub release 页面。VS Code Marketplace、Open VSX 和 xlings 索引是各自独立的渠道，有自己的凭证；Marketplace 目前手动发布（见下文），另外两个还没有开始。每个渠道用到的标识符见 [91-naming.md](91-naming.md)。
 
 ## 版本号
 
@@ -83,6 +83,10 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 
 把结果记到这次发布的 tracking issue 上，包括哪里失败了、哪些是手动补完的。后续发布者依靠这些记录了解实际情况。
 
+## VS Code Marketplace
+
+目前不在 workflow 里：release 发布之后，把三个 `mcppls-<platform>.vsix` 上传到 publisher `sunrisepeak`，可以用 `npx @vscode/vsce publish --packagePath <三个文件>`，也可以在 publisher 管理页面上逐个上传（第一个用新建扩展，其余用 *Update*）。一个版本号只发布一次：Marketplace 只接受比它见过的所有版本都高的版本号。
+
 ## 还没做的
 
-Marketplace、Open VSX 和 xlings 索引都还需要各自的凭证，以及 release workflow 里的一个发布步骤。`mcppls-devtools release xlings` 已经能生成 xlings 的包描述文件；提交到索引的 pull request，以及另外两个渠道，都还没加上。
+Open VSX 和 xlings 索引都还需要各自的凭证，以及 release workflow 里的一个发布步骤；从 workflow 里直接发布到 Marketplace 也一样。`mcppls-devtools release xlings` 已经能生成 xlings 的包描述文件；提交到索引的 pull request，以及另外两个渠道，都还没加上。
