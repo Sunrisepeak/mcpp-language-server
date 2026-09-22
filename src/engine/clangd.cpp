@@ -164,6 +164,8 @@ private:
     std::size_t linesLeftOut_ { 0 };                                   // clangd log lines the limiter left out
     ProcessConfig lastConfig_;
     std::map<std::string, Clock::time_point, std::less<>> touchedAt_;   // path key -> when the document was last opened or changed
+    std::optional<Clock::time_point> lastSourceChangeAt_;   // the latest edit, save or watched change of any source
+    std::map<std::string, std::string, std::less<>> deferredReclaims_;   // path key -> path: aside, a restart put off by a recent edit
     // robustness design C6: files that wait for diagnostics clangd never publishes. A unit of a module that did not
     // compile gets FAILED_MODULE_PATIENCE (clangd was seen to stop building such a unit for good); any file gets
     // GENERAL_PATIENCE while module preparation makes no progress.
@@ -576,6 +578,7 @@ public:
     }
 
     void sources_changed() override {
+        lastSourceChangeAt_ = Clock::now();
         modulesFailedAt_.clear();   // a module that still does not compile is reported again
         // A unit set aside because its module did not compile goes back to clangd: the module may compile now.
         std::vector<std::string> released;
@@ -695,6 +698,7 @@ public:
         for (const auto& [module, at] : primeDeadlines_) consider(at);
         consider(restartAt_);
         consider(stuckCheckAt_);
+        if (!deferredReclaims_.empty() && lastSourceChangeAt_) consider(*lastSourceChangeAt_ + GENERAL_PATIENCE);
         // So the status settles into ready or degraded on its own, not only when something else wakes
         // the event loop (real-project plan RP1.4, design P7).
         if (primer_.busy() && lastPrimeProgressAt_) consider(*lastPrimeProgressAt_ + PREPARATION_STALL_TIMEOUT);
@@ -785,6 +789,7 @@ public:
             if (const auto* planned = primer_.find(module)) (void)finish_prime_(base::path_to_uri(planned->primeFile));
         }
         if (stuckCheckAt_ && *stuckCheckAt_ <= now) check_stuck_files_(now);
+        reconsider_deferred_reclaims_(now);
         if (restartAt_ && *restartAt_ <= now) {
             restartAt_.reset();
             restart_(restartReason_.empty() ? std::string_view { "recovering from an exit" } : std::string_view { restartReason_ });
@@ -1518,7 +1523,9 @@ private:
     // ---- files set aside, and restarts -------------------------------------------------------
 
     void touch_(std::string_view path) {
-        if (!path.empty()) touchedAt_[base::path_key(path)] = Clock::now();
+        if (path.empty()) return;
+        touchedAt_[base::path_key(path)] = Clock::now();
+        lastSourceChangeAt_ = Clock::now();
     }
 
     bool quarantined_(std::string_view path) const { return !path.empty() && quarantine_.contains(base::path_key(path)); }
@@ -1548,7 +1555,38 @@ private:
         // clangd does not stop building a file it is no longer given: a build that never ends (the spin in experiment S17) keeps a
         // core and one of clangd's workers for as long as clangd runs. A fresh clangd, without the file, gets both back.
         if (reclaim == Reclaim::if_busy && accepting_ && (!state || engine_working(*state))) {
+            // Right after a source changed, clangd being busy is clangd rebuilding what the change
+            // touched -- a module this file imports, one that may be about to fail and be contained
+            // (real-project plan RP1.2). A restart would throw that work away and start it again;
+            // the file stays aside, and a restart is considered only once the edit is not recent.
+            if (lastSourceChangeAt_ && Clock::now() - *lastSourceChangeAt_ < GENERAL_PATIENCE) {
+                log::info("not restarting clangd ({}) for {} yet: it is rebuilding after a source changed", host_->root_directory(), base::file_name(path));
+                host_->record_event("restart-deferred", Json { { "file", path }, { "why", "a source changed recently" } });
+                deferredReclaims_.insert_or_assign(key, path);
+                return;
+            }
             schedule_restart_(std::format("clangd kept working on {} after it was set aside", base::file_name(path)));
+        }
+    }
+
+    // A restart put off because a source had just changed: once no source has changed for
+    // GENERAL_PATIENCE, a file still aside that clangd is still working on is what it was set aside
+    // for in the first place (experiment S17's spin), and the restart goes ahead.
+    void reconsider_deferred_reclaims_(Clock::time_point now) {
+        if (deferredReclaims_.empty() || !lastSourceChangeAt_ || now - *lastSourceChangeAt_ < GENERAL_PATIENCE) return;
+        auto deferred = std::move(deferredReclaims_);
+        deferredReclaims_.clear();
+        for (const auto& [key, path] : deferred) {
+            if (!aside_.contains(key) || !accepting_) continue;
+            std::optional<std::string> state;
+            for (const auto& document : host_->documents()) {
+                if (document.path.empty() || base::path_key(document.path) != key) continue;
+                if (const auto status = fileStatus_.find(document.uri); status != fileStatus_.end()) state = status->second;
+            }
+            if (!state || engine_working(*state)) {
+                schedule_restart_(std::format("clangd kept working on {} after it was set aside", base::file_name(path)));
+                return;   // one restart serves every file
+            }
         }
     }
 
