@@ -29,6 +29,7 @@
 | Zed | `mcppls` | C++ Modules Language Server | Zed 的扩展 id 是扁平的，简称本身就是 id |
 | CLion / IntelliJ | `io.github.sunrisepeak.mcppls` | C++ Modules Language Server | JetBrains 要求反向域名；个人项目用 `io.github.<user>` 这种形式 |
 | Claude Code | marketplace `mcppls` 里的 `mcppls-lsp` | C++ Modules Language Server | 本仓库自己的 marketplace 文件里的一个插件 |
+| Neovim | Lua 模块 `mcppls`，LSP 配置名 `mcppls` | — | `require('mcppls')` 和 `vim.lsp.enable('mcppls')`；插件没有显示名 |
 
 在支持设置和命令的每个编辑器里都用 `mcppls.*`，整个产品用一个名字回答「这叫什么」。
 

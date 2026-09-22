@@ -46,6 +46,7 @@ if there is none for my platform — and check that it works on my C++ modules p
 |---|---|---|
 | VS Code | [Marketplace](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server)，或 `mcppls-<平台>.vsix` | 搜索 *C++ Modules Language Server*，或 `code --install-extension mcppls-<平台>.vsix` |
 | Zed、CLion | `mcppls-zed-<版本>.tar.gz`、`mcppls-clion-<版本>.zip` | 见[安装文档](docs/zh-CN/00-install.md) |
+| Neovim | `payload-<平台>.tar.gz` | 把 `payload/bin/` 加到 `PATH`，再装 [editors/nvim](editors/nvim/README.md) 里的插件 |
 | 其他支持 LSP 的编辑器 | `payload-<平台>.tar.gz` | 解压后把 `payload/bin/` 加到 `PATH`，用 `mcppls serve` 启动 |
 
 ### 从源码构建

@@ -21,7 +21,7 @@ VSIX 里带了所需的一切：服务端、一个锁定版本的 clangd，以�
 
 ## 其他编辑器：从 release 安装
 
-下载 `payload-<platform>.tar.gz`，解压后把其中的 `payload/bin/` 加进 `PATH`。这样就有了 `mcppls`，它通过 stdio 提供 LSP（`mcppls serve`）和 MCP（`mcppls mcp`）。Zed 和 CLion 的插件是同一个 release 页面上的独立压缩包；[10-editors.md](10-editors.md) 里两个都有。
+下载 `payload-<platform>.tar.gz`，解压后把其中的 `payload/bin/` 加进 `PATH`。这样就有了 `mcppls`，它通过 stdio 提供 LSP（`mcppls serve`）和 MCP（`mcppls mcp`）。Zed 和 CLion 的插件是同一个 release 页面上的独立压缩包；[10-editors.md](10-editors.md) 里两个都有。Neovim 插件就是本仓库的 [`editors/nvim`](../../editors/nvim/README.md)。
 
 release 里的每个文件都列在它的 `MANIFEST.md` 里，说明是什么、怎么装；`SHA256SUMS` 覆盖所有文件。
 

@@ -30,6 +30,7 @@ worth having; see [10-editors.md](10-editors.md).
 Download `payload-<platform>.tar.gz`, unpack it, and put its `payload/bin/` on `PATH`. That gives you
 `mcppls`, which speaks LSP over stdio (`mcppls serve`) and MCP (`mcppls mcp`). The Zed and CLion
 plugins are separate archives on the same release page; [10-editors.md](10-editors.md) has both.
+The Neovim plugin is [`editors/nvim`](../editors/nvim/README.md) in this repository.
 
 Every asset on a release is listed in its `MANIFEST.md`, with what it is and how to install it, and
 `SHA256SUMS` covers all of them.
