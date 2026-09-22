@@ -24,6 +24,11 @@ struct Options {
     bool payloadCorrupt { false };
     bool verboseLog { false };
     std::chrono::milliseconds requestTimeout { std::chrono::seconds { 60 } };
+    // StuckWatch: once clangd leaves a request unanswered this long, with nothing answered since, its
+    // CPU is watched for `stuckWatch`; still unanswered then, with next to no CPU used, it is stuck and
+    // is restarted. Both end within an interactive request's own timeout. Tests shorten them.
+    std::chrono::milliseconds stuckAfter { std::chrono::seconds { 3 } };
+    std::chrono::milliseconds stuckWatch { std::chrono::seconds { 5 } };
     std::vector<std::string> extraArguments;
     std::function<std::unique_ptr<Process>()> processFactory;   // empty: a real clangd process
 };

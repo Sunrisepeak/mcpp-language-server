@@ -481,6 +481,74 @@ base::Result<RunResult> run(SpawnOptions options, std::chrono::milliseconds time
     return run(std::move(options), RunBounds { .hard = timeout }, std::string_view {});
 }
 
+namespace {
+
+std::optional<std::int64_t> parse_count(std::string_view text) {
+    std::int64_t value { 0 };
+    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (error != std::errc {} || end != text.data() + text.size() || value < 0) return std::nullopt;
+    return value;
+}
+
+} // namespace
+
+std::optional<double> parse_cpu_time(std::string_view text) {
+    text = base::trim(text);
+    if (text.empty()) return std::nullopt;
+    double days { 0 };
+    if (const auto dash = text.find('-'); dash != std::string_view::npos) {
+        const auto parsed = parse_count(text.substr(0, dash));
+        if (!parsed) return std::nullopt;
+        days = static_cast<double>(*parsed);
+        text.remove_prefix(dash + 1);
+    }
+    // Seconds last, then minutes, then hours.
+    const auto parts = base::split(text, ':');
+    if (parts.empty() || parts.size() > 3) return std::nullopt;
+    double total { 0 };
+    double scale { 1 };
+    for (auto part = parts.rbegin(); part != parts.rend(); ++part, scale *= 60) {
+        if (part->empty() || !std::ranges::all_of(*part, [](char c) { return (c >= '0' && c <= '9') || c == '.'; })) return std::nullopt;
+        double value { 0 };
+        const auto [ptr, error] = std::from_chars(part->data(), part->data() + part->size(), value);
+        if (error != std::errc {} || ptr != part->data() + part->size()) return std::nullopt;
+        total += value * scale;
+    }
+    return total + days * 86400;
+}
+
+std::optional<double> cpu_seconds(std::int64_t pid) {
+    if (pid <= 0) return std::nullopt;
+    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
+        // Fields after the command's closing parenthesis: state is the first, utime the 12th and
+        // stime the 13th, in clock ticks -- 100 a second on every mainstream Linux.
+        constexpr double TICKS_PER_SECOND { 100 };
+        const auto stat = fs::read_file(std::format("/proc/{}/stat", pid));
+        if (!stat) return std::nullopt;
+        const auto close = stat->rfind(')');
+        if (close == std::string::npos || close + 2 >= stat->size()) return std::nullopt;
+        std::vector<std::string_view> fields;
+        for (auto field : base::split(std::string_view { *stat }.substr(close + 2), ' ')) {
+            if (!field.empty()) fields.push_back(field);
+        }
+        if (fields.size() < 13) return std::nullopt;
+        const auto user = parse_count(fields[11]);
+        const auto system = parse_count(fields[12]);
+        if (!user || !system) return std::nullopt;
+        return static_cast<double>(*user + *system) / TICKS_PER_SECOND;
+    } else if constexpr (mcppls::os::FAMILY == mcppls::os::Family::macos) {
+        SpawnOptions options;
+        options.program = "/bin/ps";
+        options.arguments = { "-o", "time=", "-p", std::to_string(pid) };
+        options.pipeInput = false;
+        auto ran = run(std::move(options), std::chrono::seconds { 2 });
+        if (!ran || ran->timedOut || ran->exitCode != 0) return std::nullopt;
+        return parse_cpu_time(ran->output);
+    } else {
+        return std::nullopt;
+    }
+}
+
 std::string last_lines(std::string_view text, std::size_t lines) {
     if (lines == 0 || text.empty()) return std::string {};
     std::size_t end { text.size() };

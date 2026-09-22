@@ -126,6 +126,34 @@ std::vector<std::string> Quarantine::members() const {
     return files;
 }
 
+void StuckWatch::suspect(GuardClock::time_point now, std::optional<double> cpuSeconds) {
+    if (since_ || !cpuSeconds) return;
+    since_.emplace(now, *cpuSeconds);
+}
+
+void StuckWatch::clear() { since_.reset(); }
+
+bool StuckWatch::watching() const { return since_.has_value(); }
+
+std::optional<GuardClock::time_point> StuckWatch::started() const {
+    if (!since_) return std::nullopt;
+    return since_->first;
+}
+
+std::optional<GuardClock::time_point> StuckWatch::due() const {
+    if (!since_) return std::nullopt;
+    return since_->first + window_;
+}
+
+StuckWatch::Verdict StuckWatch::check(GuardClock::time_point now, std::optional<double> cpuSeconds) {
+    if (!since_ || now < since_->first + window_) return {};
+    const auto since = std::exchange(since_, std::nullopt);
+    if (!cpuSeconds) return {};
+    const double seconds { std::chrono::duration<double>(now - since->first).count() };
+    const double used { std::max(0.0, *cpuSeconds - since->second) };
+    return Verdict { used < IDLE_SHARE * seconds, seconds, used };
+}
+
 LineLimiter::Decision LineLimiter::admit(GuardClock::time_point now) {
     Decision decision;
     if (!windowStart_ || now - *windowStart_ >= window_) {

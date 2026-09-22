@@ -59,6 +59,13 @@ and capped at three in ten minutes, after which the status says so (`engine-rest
 mcppls's own engine answers what a restart would have tried to fix; a module that does not compile
 is never a reason to restart. A burst usually means the compile arguments are changing under it.
 
+**"clangd stopped making progress; it was restarted".** clangd left a request unanswered, answered
+nothing else meanwhile, and used next to no CPU for five seconds: it was waiting for something that
+was not coming, not compiling (a long compile keeps a core busy, and is left alone). The `events`
+journal has an `engine-stuck` entry with the numbers. clangd 23.1 has been seen to do this after a
+module's source changed twice within a second. On Windows, where the server cannot read clangd's CPU
+time, this is not detected; files clangd stops answering for are still set aside one by one.
+
 ## Filing a bug
 
 Attach the diagnostic report. It names paths on your machine, so read it first — it carries no

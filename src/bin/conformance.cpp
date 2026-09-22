@@ -612,7 +612,8 @@ bool includes(const Json& candidate, const Json& expected) {
 }
 
 // A fixture's expectations of a JSON result (conformance/README.md, S5 checks): each names a pointer and
-// one of equals, contains, min-items, max-items, exists or absent, and holds when any value the pointer names satisfies it.
+// one of equals, contains, min-items, max-items, exists or absent, and holds when any value the pointer names satisfies it --
+// except each-contains, which every value the pointer names must satisfy (and holds when it names none).
 std::pair<bool, std::string> expectations_hold(const Json& value, const Json& expectations) {
     for (const auto& expectation : expectations) {
         const std::string pointer { expectation.value("path", std::string {}) };
@@ -620,6 +621,9 @@ std::pair<bool, std::string> expectations_hold(const Json& value, const Json& ex
         bool held { false };
         if (expectation.contains("absent")) {
             held = matches.empty();
+        } else if (expectation.contains("each-contains")) {
+            const std::string wanted { expectation.value("each-contains", std::string {}) };
+            held = std::ranges::all_of(matches, [&](const Json* match) { return match->is_string() && match->get<std::string>().find(wanted) != std::string::npos; });
         } else if (expectation.contains("exists")) {
             held = !matches.empty();
         } else if (expectation.contains("equals")) {

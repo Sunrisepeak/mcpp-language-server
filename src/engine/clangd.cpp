@@ -170,6 +170,11 @@ private:
     RestartGate restartGate_;
     Quarantine quarantine_;                                   // path keys
     std::optional<Clock::time_point> lastAnswerAt_;           // clangd's last answer to any client request
+    StuckWatch stuck_;
+    // The request a watch was last tried for (when it was sent): one try each, so a platform that
+    // cannot read clangd's CPU does not wake the loop again and again for the same request.
+    std::optional<Clock::time_point> stuckTriedFor_;
+    bool stuckAtCap_ { false };   // a stuck clangd was found at the restart cap, and that was said
     // robustness design O1, O3: for a report of a problem.
     std::deque<std::pair<std::string, std::string>> restartHistory_;   // (UTC time, reason), the latest 20
     std::size_t linesLeftOut_ { 0 };                                   // clangd log lines the limiter left out
@@ -238,7 +243,8 @@ private:
     std::vector<DefinitionSearch> searches_;
 
 public:
-    explicit ClangdEngine(Options options) : options_ { std::move(options) }, traits_ { traits_for_version(options_.version) } {}
+    explicit ClangdEngine(Options options)
+        : options_ { std::move(options) }, traits_ { traits_for_version(options_.version) }, stuck_ { options_.stuckWatch } {}
 
     std::string_view id() const override { return ENGINE_ID; }
     std::span<const MethodCapability> methods() const override { return methods_; }
@@ -755,6 +761,8 @@ public:
         for (const auto& [module, at] : primeDeadlines_) consider(at);
         consider(restartAt_);
         consider(stuckCheckAt_);
+        consider(stuck_.due());
+        if (const auto oldest = oldest_unanswered_(); oldest && !stuck_.watching() && stuckTriedFor_ != oldest) consider(*oldest + options_.stuckAfter);
         if (!deferredReclaims_.empty() && lastSourceChangeAt_) consider(*lastSourceChangeAt_ + GENERAL_PATIENCE);
         // So the status settles into ready or degraded on its own, not only when something else wakes
         // the event loop (real-project plan RP1.4, design P7).
@@ -776,6 +784,8 @@ public:
 
     void handle_timers() override {
         const auto now = Clock::now();
+        // Before the requests that expire now are answered: they are part of what clangd left unanswered.
+        watch_for_stuck_(now);
         std::vector<std::int64_t> expired;
         for (const auto& [id, request] : pending_) {
             if (request.deadline <= now) expired.push_back(id);
@@ -934,6 +944,8 @@ private:
     void start_process_() {
         handshakeDone_ = false;
         accepting_ = false;
+        stuck_.clear();
+        stuckAtCap_ = false;
         // A new clangd reads the database when it is given its first file.
         databaseRead_ = false;
         joinedAt_.clear();
@@ -1058,6 +1070,60 @@ private:
         diagnosed_.clear();
         host_->forget_engine_diagnostics(ENGINE_ID);
         start_process_();
+    }
+
+    // When the oldest client request clangd still has was sent, if clangd has answered nothing since.
+    std::optional<Clock::time_point> oldest_unanswered_() const {
+        std::optional<Clock::time_point> oldest;
+        for (const auto& [id, request] : pending_) {
+            if (request.purpose == Purpose::client && request.generation == generation_ && (!oldest || request.sent < *oldest)) oldest = request.sent;
+        }
+        if (!oldest || (lastAnswerAt_ && *lastAnswerAt_ >= *oldest)) return std::nullopt;
+        return oldest;
+    }
+
+    // A request unanswered for options_.stuckAfter, with nothing answered since it was sent, starts a
+    // watch of clangd's CPU (StuckWatch). At its end, a clangd that has still answered nothing, still
+    // owes an answer to a request older than the watch -- so it had work the whole time -- and used
+    // next to no CPU is stuck, and is restarted within the restart cap. A request that timed out and
+    // was cancelled meanwhile leaves clangd rightly idle, and proves nothing.
+    void watch_for_stuck_(Clock::time_point now) {
+        if (!accepting_ || !process_) {
+            stuck_.clear();
+            return;
+        }
+        const auto oldest = oldest_unanswered_();
+        if (!stuck_.watching()) {
+            if (oldest && now - *oldest >= options_.stuckAfter && stuckTriedFor_ != oldest) {
+                stuckTriedFor_ = oldest;
+                stuck_.suspect(now, process_->cpu_seconds());
+            }
+            return;
+        }
+        if (const auto due = stuck_.due(); !due || now < *due) return;
+        if (!oldest || *oldest > *stuck_.started()) {
+            stuck_.clear();
+            return;
+        }
+        const auto verdict = stuck_.check(now, process_->cpu_seconds());
+        if (!verdict.stuck) {
+            log::debug("clangd ({}) has left a request unanswered for {:.0f} s and is busy, not stuck: {:.2f} s of CPU in the last {:.0f} s",
+                       host_->root_directory(), std::chrono::duration<double>(now - *oldest).count(), verdict.cpuSeconds, verdict.seconds);
+            return;
+        }
+        host_->record_event("engine-stuck", Json { { "unansweredSeconds", std::chrono::duration<double>(now - *oldest).count() },
+                                                   { "watchedSeconds", verdict.seconds }, { "cpuSeconds", verdict.cpuSeconds } });
+        // At the restart cap, clangd stays as it is until the window frees up; that is said once
+        // (restart_capped_), not again at the end of every watch meanwhile.
+        if (restartGate_.at_cap(now)) {
+            if (!stuckAtCap_) (void)restart_capped_("clangd was stuck");
+            stuckAtCap_ = true;
+            return;
+        }
+        log::warning("clangd ({}) has left a request unanswered for {:.0f} s and used {:.2f} s of CPU in the last {:.0f} s: it is stuck, not busy; restarting it",
+                     host_->root_directory(), std::chrono::duration<double>(now - *oldest).count(), verdict.cpuSeconds, verdict.seconds);
+        add_issue_(Issue { "engine-timeout", "clangd stopped making progress; it was restarted", "mcppls.restartServer" });
+        request_restart_("clangd was stuck: it answered nothing and used no CPU");
     }
 
     // How long clangd itself has to answer a client request, once it is sent.
@@ -1206,6 +1272,7 @@ private:
         }
         case Purpose::client: {
             lastAnswerAt_ = Clock::now();
+            stuck_.clear();
             if (const std::string path { host_->path_of_uri(request.uri) }; !path.empty()) quarantine_.answered(base::path_key(path));
             if (!request.reply) return;
             if (message.contains("error")) {

@@ -40,6 +40,13 @@ int child_main(std::span<const std::string> arguments) {
         std::this_thread::sleep_for(std::chrono::seconds { 30 });
         return 0;
     }
+    if (mode == "--spin") {
+        // A core kept busy for up to 30 s: what a compile looks like to platform::cpu_seconds.
+        const auto until = std::chrono::steady_clock::now() + std::chrono::seconds { 30 };
+        volatile std::uint64_t sink { 0 };
+        while (std::chrono::steady_clock::now() < until) sink = sink + 1;
+        return 0;
+    }
     if (mode == "--env") {
         (void)platform::stdio::write_output(platform::env::get(arguments[2]).value_or("<unset>"));
         return 0;
@@ -158,6 +165,40 @@ int main() {
         process->kill();
         (void)process->wait();
         if constexpr (mcppls::os::FAMILY != mcppls::os::Family::windows) expect(!process->native_pid().has_value());
+    };
+
+    // StuckWatch in the clangd engine tells a stuck clangd from a busy one by this.
+    "cpu_seconds tells a busy child from an idle one, where the platform can say"_test = [&] {
+        expect(platform::parse_cpu_time("0:01.50") == std::optional<double> { 1.5 });
+        expect(platform::parse_cpu_time(" 12:03.25\n") == std::optional<double> { 723.25 });
+        expect(platform::parse_cpu_time("01:02:03") == std::optional<double> { 3723.0 });
+        expect(platform::parse_cpu_time("2-00:00:01") == std::optional<double> { 172801.0 });
+        expect(!platform::parse_cpu_time("").has_value() && !platform::parse_cpu_time("1:x").has_value()
+               && !platform::parse_cpu_time("1:2:3:4").has_value() && !platform::parse_cpu_time(":05").has_value());
+        auto idle = platform::Process::spawn({ .program = self, .arguments = { "--sleep" } });
+        auto busy = platform::Process::spawn({ .program = self, .arguments = { "--spin" } });
+        expect(fatal(idle.has_value() && busy.has_value()));
+        const auto read = [](const platform::Process& process) -> std::optional<double> {
+            const auto pid = process.native_pid();
+            return pid ? platform::cpu_seconds(*pid) : std::nullopt;
+        };
+        const auto idleBefore = read(*idle);
+        const auto busyBefore = read(*busy);
+        std::this_thread::sleep_for(std::chrono::seconds { 2 });
+        const auto idleAfter = read(*idle);
+        const auto busyAfter = read(*busy);
+        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+            expect(!idleBefore && !busyBefore) << "no process times on Windows";
+        } else {
+            expect(fatal(idleBefore && idleAfter && busyBefore && busyAfter));
+            expect(*idleAfter - *idleBefore < 0.2) << *idleBefore << " -> " << *idleAfter;
+            expect(*busyAfter - *busyBefore > 0.5) << *busyBefore << " -> " << *busyAfter;
+        }
+        expect(!platform::cpu_seconds(0).has_value());
+        idle->kill();
+        busy->kill();
+        (void)idle->wait();
+        (void)busy->wait();
     };
 
     "exit status is propagated"_test = [&] {

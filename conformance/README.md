@@ -165,7 +165,9 @@ always has been.
 An expectation of `mcp`, `cli` and `report` names a JSON pointer in `"path"`, where a `*` segment stands for every
 element of an array, and one of `"equals"` (a value the pointer names equals it), `"contains"` (a string
 contains it, or an array has an element that includes all its members), `"min-items"`, `"max-items"`, `"exists"` or
-`"absent"`; it holds when any value the pointer names satisfies it.
+`"absent"`; it holds when any value the pointer names satisfies it. `"each-contains"` is the one that
+every value the pointer names must satisfy instead (each is a string containing it), and it holds when
+the pointer names none.
 
 The check identifiers C1–C9 are the core navigation and diagnostics checks every fixture can
 use; M-checks cover the module features of S3 section 8.5.

@@ -84,16 +84,59 @@ private:
     bool running_ { false };
 };
 
+// A clangd that finishes its handshake and then answers nothing, using the CPU `cpu` says: a fixed
+// amount (stuck) or one that grows with the time (busy compiling).
+class UnansweringProcess : public cld::Process {
+public:
+    struct Shared {
+        int starts { 0 };
+        std::function<std::optional<double>()> cpu;
+    };
+    explicit UnansweringProcess(std::shared_ptr<Shared> shared) : shared_ { std::move(shared) } {}
+
+    mcppls::base::Result<void> start(const cld::ProcessConfig&, MessageHandler onMessage, ClosedHandler, LogHandler) override {
+        onMessage_ = std::move(onMessage);
+        running_ = true;
+        ++shared_->starts;
+        return {};
+    }
+    mcppls::base::Result<void> send(const Json& message) override {
+        if (message.value("method", std::string {}) == "initialize") {
+            onMessage_(Json { { "jsonrpc", "2.0" }, { "id", message["id"] }, { "result", Json { { "capabilities", Json::object() } } } });
+        }
+        return {};
+    }
+    void stop(std::chrono::milliseconds) override { running_ = false; }
+    bool running() const override { return running_; }
+    std::optional<double> cpu_seconds() const override { return shared_->cpu(); }
+
+private:
+    std::shared_ptr<Shared> shared_;
+    MessageHandler onMessage_;
+    bool running_ { false };
+};
+
 // The least a Workspace offers an engine: one root, no documents, events recorded.
 class RecordingHost : public eng::Host {
 public:
     explicit RecordingHost(std::string root) : root_ { std::move(root) }, cache_ { mcppls::base::join_path(root_, "cache") } {}
     std::vector<std::string> events;
+    std::shared_ptr<std::vector<Json>> sunk { std::make_shared<std::vector<Json>>() };   // what the engine's process sent, to hand back
+
+    // What the event loop does: each event an engine's process produced goes back to that engine.
+    void pump(eng::Engine& engine) {
+        while (!sunk->empty()) {
+            auto events = std::exchange(*sunk, {});
+            for (const auto& event : events) engine.handle_event(event);
+        }
+    }
 
     const std::string& root_directory() const override { return root_; }
     const std::string& cache_directory() const override { return cache_; }
     const Json& client_initialize_params() const override { return params_; }
-    std::function<void(Json)> event_sink(std::string_view) override { return [](Json) {}; }
+    std::function<void(Json)> event_sink(std::string_view) override {
+        return [sunk = sunk](Json event) { sunk->push_back(std::move(event)); };
+    }
     void send_to_client(const Json&) override {}
     std::string client_request_id(std::string_view, int, const Json& id) const override { return id.dump(); }
     void publish_engine_diagnostics(std::string_view, const std::string&, Json, std::optional<std::int64_t>) override {}
@@ -597,6 +640,88 @@ int main() {
         expect(std::ranges::find(host.events, std::string { "request-timeout" }) != host.events.end());
         engine->shut_down();
         fs::remove_all(root);
+    };
+
+    "a clangd that answers nothing and uses no CPU is stuck, and a busy one is not"_test = [] {
+        using namespace std::chrono_literals;
+        const auto t0 = cld::GuardClock::now();
+        cld::StuckWatch watch { 5s };
+        watch.suspect(t0, std::nullopt);
+        expect(!watch.watching()) << "no CPU reading, nothing to go on";
+        watch.suspect(t0, 10.0);
+        expect(watch.watching() && watch.due() == t0 + 5s);
+        watch.suspect(t0 + 1s, 99.0);
+        expect(watch.started() == t0) << "a watch already running is not restarted";
+        expect(!watch.check(t0 + 4s, 10.0).stuck && watch.watching()) << "not due yet: still watching";
+        const auto idle = watch.check(t0 + 5s, 10.1);
+        expect(idle.stuck && !watch.watching()) << "0.1 s of CPU in 5 s";
+        watch.suspect(t0, 10.0);
+        expect(!watch.check(t0 + 5s, 14.0).stuck) << "a core busy: compiling, not stuck";
+        watch.suspect(t0, 10.0);
+        expect(!watch.check(t0 + 5s, std::nullopt).stuck && !watch.watching()) << "no reading at the end: nothing proven";
+        watch.suspect(t0, 10.0);
+        watch.clear();
+        expect(!watch.watching()) << "an answer ends the watch";
+
+        // The engine: a request clangd holds on to, with its CPU flat, gets it restarted; with its CPU
+        // climbing, it is left to finish; with no CPU reading (Windows), nothing is decided and the
+        // event loop is not woken again and again for it.
+        namespace fs = mcppls::platform::fs;
+        enum class Cpu { flat, climbing, unreadable };
+        for (const Cpu cpu : { Cpu::flat, Cpu::climbing, Cpu::unreadable }) {
+            const bool stuck { cpu == Cpu::flat };
+            const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+                std::format("mcppls-test-stuck-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+            (void)fs::create_directories(root);
+            const std::string executable { mcppls::base::join_path(root, "clangd") };
+            (void)fs::write_file(executable, "pretend-clangd");
+            auto shared = std::make_shared<UnansweringProcess::Shared>();
+            const auto began = eng::Clock::now();
+            shared->cpu = [cpu, began]() -> std::optional<double> {
+                if (cpu == Cpu::unreadable) return std::nullopt;
+                return cpu == Cpu::flat ? 1.0 : 1.0 + std::chrono::duration<double>(eng::Clock::now() - began).count();
+            };
+            cld::Options options;
+            options.executable = executable;
+            options.version = "23.1.0";
+            options.stuckAfter = 200ms;
+            options.stuckWatch = 300ms;
+            options.processFactory = [shared] { return std::make_unique<UnansweringProcess>(shared); };
+            RecordingHost host { root };
+            auto engine = cld::make_engine(std::move(options));
+            engine->start(host);
+            host.pump(*engine);
+            engine->apply(nullptr);
+            expect(fatal(engine->status().accepting)) << "handshake done, no plan: serving";
+            const std::string file { mcppls::base::join_path(root, "a.cpp") };
+            const Json params { { "textDocument", Json { { "uri", mcppls::base::path_to_uri(file) } } }, { "position", Json { { "line", 0 }, { "character", 0 } } } };
+            const Json message { { "jsonrpc", "2.0" }, { "id", 1 }, { "method", "textDocument/hover" }, { "params", params } };
+            std::optional<eng::Answer> answer;
+            engine->request(eng::RequestView { "textDocument/hover", &params, file, {} }, message, [&](eng::Answer given) { answer = std::move(given); });
+            // The event loop: wake at each deadline the engine names, for longer than the watch takes.
+            const auto end = eng::Clock::now() + 2s;
+            int wakeups { 0 };
+            while (eng::Clock::now() < end && shared->starts < 2) {
+                const auto next = engine->next_deadline();
+                std::this_thread::sleep_until(std::min(next.value_or(end), end));
+                engine->handle_timers();
+                host.pump(*engine);
+                ++wakeups;
+            }
+            expect(wakeups < 50) << wakeups << " wakeups: the loop spins";
+            const bool sawStuck { std::ranges::find(host.events, std::string { "engine-stuck" }) != host.events.end() };
+            if (stuck) {
+                expect(shared->starts == 2) << "restarted once";
+                expect(sawStuck);
+                expect(answer.has_value() && answer->kind == eng::Answer::Kind::unavailable) << "the request the old clangd held is answered by the next engine";
+            } else {
+                expect(shared->starts == 1) << "a busy clangd is not restarted";
+                expect(!sawStuck);
+                expect(!answer.has_value()) << "its request is still within its own timeout";
+            }
+            engine->shut_down();
+            fs::remove_all(root);
+        }
     };
 
     "a module the engine has already built completes without a unit"_test = [] {

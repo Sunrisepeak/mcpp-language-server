@@ -109,6 +109,13 @@ base::Result<RunResult> run(SpawnOptions options, std::chrono::milliseconds time
 // The last lines of a stream, for a record that must stay small.
 std::string last_lines(std::string_view text, std::size_t lines);
 
+// The CPU time, user and system together, that a running process has used so far, where the
+// platform can say: /proc on Linux, ps(1) on macOS. nullopt on Windows (openkal exposes no process
+// times and a handle is not a pid there) and whenever the process cannot be read.
+std::optional<double> cpu_seconds(std::int64_t pid);
+// ps(1)'s cumulative "time" column, "[[dd-]hh:]mm:ss[.ss]", in seconds.
+std::optional<double> parse_cpu_time(std::string_view text);
+
 // The openkal preopened directory that contains an absolute path, and the path
 // beneath it. Exposed for tests and for callers that need to explain a failure.
 struct PreopenMatch {

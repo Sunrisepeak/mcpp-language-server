@@ -34,6 +34,8 @@ public:
     virtual base::Result<void> send(const nlohmann::json& message) = 0;
     virtual void stop(std::chrono::milliseconds grace) = 0;
     virtual bool running() const = 0;
+    // The CPU time the process has used so far, where the platform can say (StuckWatch).
+    virtual std::optional<double> cpu_seconds() const { return std::nullopt; }
 };
 
 std::vector<std::string> clangd_arguments(const ProcessConfig& config);
@@ -68,6 +70,7 @@ public:
     base::Result<void> send(const nlohmann::json& message) override;
     void stop(std::chrono::milliseconds grace) override;
     bool running() const override;
+    std::optional<double> cpu_seconds() const override;
 };
 
 } // namespace mcppls::engine::clangd

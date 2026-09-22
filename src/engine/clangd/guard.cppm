@@ -75,6 +75,43 @@ private:
     std::deque<std::tuple<GuardClock::time_point, GuardClock::time_point, std::string>> unanswered_;   // (timed out, sent, uri)
 };
 
+// clangd answering nothing while it uses next to no CPU is stuck, not slow: whatever it waits for
+// is not coming. Seen on slow CI runners after a module's source changed twice within a second: its
+// build never finished, clangd answered no request for minutes, and used 2 s of CPU in 105 s. A long
+// compile, the case that must not be restarted (the standard library on a slow machine), keeps a
+// core busy the whole time, which is what tells the two apart. Quarantine's "answers nobody" verdict
+// needs two files timing out within a minute; an editor asking one thing at a time never shows it.
+class StuckWatch {
+public:
+    static constexpr double IDLE_SHARE { 0.05 };   // of one core: using less than this, clangd is idle
+
+    explicit StuckWatch(std::chrono::milliseconds window) : window_ { window } {}
+
+    // A request went unanswered: watch from this CPU reading. Without a reading (the platform cannot
+    // say) there is nothing to go on, and nothing is watched.
+    void suspect(GuardClock::time_point now, std::optional<double> cpuSeconds);
+    // clangd answered something, or is a new process: nothing to watch.
+    void clear();
+    bool watching() const;
+    // When the watch began.
+    std::optional<GuardClock::time_point> started() const;
+    // When the watch ends and check() is due.
+    std::optional<GuardClock::time_point> due() const;
+
+    struct Verdict {
+        bool stuck { false };
+        double seconds { 0 };      // how long it was watched
+        double cpuSeconds { 0 };   // the CPU it used meanwhile
+    };
+    // At due(), with the CPU reading then. The watch ends either way; a busy clangd is watched
+    // again from the next request it leaves unanswered.
+    Verdict check(GuardClock::time_point now, std::optional<double> cpuSeconds);
+
+private:
+    std::chrono::milliseconds window_;
+    std::optional<std::pair<GuardClock::time_point, double>> since_;   // when the watch began, and the CPU reading then
+};
+
 // Up to `burst` lines in each window; the first line of the next window carries how many were left out.
 class LineLimiter {
 public:

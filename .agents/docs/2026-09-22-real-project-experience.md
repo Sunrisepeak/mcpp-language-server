@@ -222,6 +222,17 @@ What differs from §5, on purpose:
   engine is building what the file needs explains that, as it already did for its own preparation —
   and `module-faults` asserts the importer answers within 30 s and either keeps clangd's answer or
   is told why not, which is the promise; the old check assumed clangd had not noticed the edit yet.
+  Three more failures with logs showed the same thing underneath: after `a.cppm` changed twice
+  within a second, clangd's own build of `good.user` hung — no request answered for minutes, 2 s of
+  CPU in 105 s (Linux), and `Failed to build module good.user; due to Failed to create buffer` only
+  when it was killed. Two gaps let that last minutes. The quarantine's exemption for a recent edit
+  was project-wide, so under continuous editing nothing was contained or restarted; it is now the
+  file's own (the file, or a source of a module it imports). And "clangd answers nobody" needed two
+  files timing out within a minute, which an editor asking one thing at a time never shows. A
+  `StuckWatch` now reads clangd's CPU once a request has waited 3 s with nothing answered, and five
+  seconds later, still unanswered with under 5% of a core used, restarts it within the cap — a long
+  compile keeps a core busy and is left alone. `/proc` on Linux, `ps` on macOS; Windows gives the
+  server no process times, and keeps the per-file quarantine only.
 - **Memory during a cold start** is clangd building module BMIs: 4–8 GB for the process tree on
   xlings and this repository. Nothing here reduces it; bounding it (fewer parallel module builds on
   small machines, releasing BMIs clangd no longer needs) is a follow-up, and the stress check

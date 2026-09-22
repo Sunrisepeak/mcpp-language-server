@@ -30,6 +30,11 @@ findings and the plan are in `.agents/docs/2026-09-22-real-project-experience.md
   waits for clangd at most 30 s in all, whether clangd is starting, the file is waiting for its
   database, or its modules are being prepared, and is then answered by mcppls's own engine. Before,
   a request queued while clangd started or while its file was held had no limit at all.
+- A clangd that is stuck, not busy, is restarted within seconds: it left a request unanswered,
+  answered nothing else, and used next to no CPU for five seconds. clangd 23.1 has been seen to
+  hang this way after a module's source changed twice within a second, answering nothing for
+  minutes; a long compile keeps a core busy and is left alone. Linux and macOS (Windows gives the
+  server no process times).
 - A hover that would show nothing while the modules a file imports are still being built says so,
   the way it already did while mcppls prepares them: silence reads as "there is nothing here".
 - The status settles: preparation that makes no progress for a minute ends in *degraded*, naming
