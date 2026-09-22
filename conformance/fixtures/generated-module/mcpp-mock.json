@@ -1,0 +1,122 @@
+{
+  "database": {
+    "version": 1,
+    "revision": 0,
+    "ide": {
+      "profile-version": "0.2.0",
+      "generator": { "name": "mcpp", "version": "2026.9.15.1" },
+      "toolchains": {
+        "llvm-22.1.8-x86_64-unknown-linux-gnu": {
+          "family": "clang",
+          "version": "22.1.8",
+          "driver": "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++",
+          "target": "x86_64-unknown-linux-gnu",
+          "stdlib": { "name": "libc++", "version": "22.1.8" },
+          "config-files": []
+        }
+      }
+    },
+    "sets": [
+      {
+        "name": "app",
+        "family-name": "app",
+        "ide": { "toolchain": "llvm-22.1.8-x86_64-unknown-linux-gnu", "configuration": "dev", "kind": "executable" },
+        "baseline-arguments": ["-std=c++23", "-fprebuilt-module-path=${root}/target/.build-mcpp/cache/pcm.cache", "-O0", "-g"],
+        "visible-sets": ["xpkg", "mcpp:std"],
+        "translation-units": [
+          {
+            "source": "${root}/src/consumer.cppm",
+            "work-directory": "${root}",
+            "arguments": [
+              "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++", "-std=c++23",
+              "-fprebuilt-module-path=${root}/target/.build-mcpp/cache/pcm.cache", "-O0", "-g",
+              "-c", "${root}/src/consumer.cppm", "-o", "${root}/target/.build-mcpp/cache/obj/consumer.o"
+            ],
+            "local-arguments": [],
+            "object": "${root}/target/.build-mcpp/cache/obj/consumer.o",
+            "provides": { "app.consumer": "" },
+            "requires": ["xpkg.lua_stdlib"],
+            "private": false,
+            "ide": { "role": "module-interface" }
+          },
+          {
+            "source": "${root}/src/main.cpp",
+            "work-directory": "${root}",
+            "arguments": [
+              "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++", "-std=c++23",
+              "-fprebuilt-module-path=${root}/target/.build-mcpp/cache/pcm.cache", "-O0", "-g",
+              "-c", "${root}/src/main.cpp", "-o", "${root}/target/.build-mcpp/cache/obj/main.o"
+            ],
+            "local-arguments": [],
+            "object": "${root}/target/.build-mcpp/cache/obj/main.o",
+            "provides": {},
+            "requires": ["app.consumer", "xpkg.lua_stdlib"],
+            "private": false,
+            "ide": { "role": "non-module" }
+          }
+        ]
+      },
+      {
+        "name": "xpkg",
+        "family-name": "xpkg",
+        "ide": { "toolchain": "llvm-22.1.8-x86_64-unknown-linux-gnu", "configuration": "dev", "kind": "library" },
+        "baseline-arguments": ["-std=c++23", "-fprebuilt-module-path=${root}/target/.build-mcpp/cache/pcm.cache", "-O0", "-g"],
+        "visible-sets": ["app", "mcpp:std"],
+        "translation-units": [
+          {
+            "source": "${root}/target/.build-mcpp/deps/xpkg@1.0.0/out/xpkg_lua_stdlib.cppm",
+            "work-directory": "${root}",
+            "arguments": [
+              "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++", "-std=c++23",
+              "-fprebuilt-module-path=${root}/target/.build-mcpp/cache/pcm.cache", "-O0", "-g",
+              "-c", "${root}/target/.build-mcpp/deps/xpkg@1.0.0/out/xpkg_lua_stdlib.cppm",
+              "-o", "${root}/target/.build-mcpp/cache/obj/xpkg_lua_stdlib.o"
+            ],
+            "local-arguments": [],
+            "object": "${root}/target/.build-mcpp/cache/obj/xpkg_lua_stdlib.o",
+            "provides": { "xpkg.lua_stdlib": "" },
+            "requires": [],
+            "private": false,
+            "ide": { "role": "module-interface" }
+          }
+        ]
+      },
+      {
+        "name": "mcpp:std",
+        "family-name": "mcpp:std",
+        "ide": { "toolchain": "llvm-22.1.8-x86_64-unknown-linux-gnu", "configuration": "dev", "kind": "library" },
+        "baseline-arguments": [
+          "-std=c++23", "-Wno-reserved-module-identifier", "--no-default-config", "-nostdinc++", "-stdlib=libc++",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1"
+        ],
+        "visible-sets": ["app", "xpkg"],
+        "translation-units": [
+          {
+            "source": "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/share/libc++/v1/std.cppm",
+            "work-directory": "${root}/target/.build-mcpp/cache",
+            "arguments": [
+              "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++", "-std=c++23", "-Wno-reserved-module-identifier",
+              "--no-default-config", "-nostdinc++", "-stdlib=libc++",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1",
+              "--precompile", "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/share/libc++/v1/std.cppm",
+              "-o", "${root}/target/.build-mcpp/cache/pcm.cache/std.pcm"
+            ],
+            "local-arguments": [
+              "--precompile", "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/share/libc++/v1/std.cppm",
+              "-o", "${root}/target/.build-mcpp/cache/pcm.cache/std.pcm"
+            ],
+            "object": "${root}/target/.build-mcpp/cache/obj/std.o",
+            "provides": { "std": "" },
+            "requires": [],
+            "private": false,
+            "ide": { "role": "module-interface" }
+          }
+        ]
+      }
+    ]
+  },
+  "watch": ["mcpp.toml", "src/**/*.cppm", "src/**/*.cpp"],
+  "requireOffline": true
+}

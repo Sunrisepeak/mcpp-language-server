@@ -6,6 +6,7 @@ import openkal.fs;
 import openkal.stream;
 import openkal.process;
 import openkal.timeout;
+import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
@@ -80,6 +81,12 @@ Process::~Process() {
 }
 
 bool Process::valid() const { return static_cast<bool>(state_); }
+
+std::optional<std::int64_t> Process::native_pid() const {
+    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) return std::nullopt;
+    if (!state_ || state_->exited) return std::nullopt;
+    return static_cast<std::int64_t>(state_->handle.h);
+}
 
 base::Result<Process> Process::spawn(const SpawnOptions& options) {
     if (!base::is_absolute_path(options.program)) {

@@ -41,6 +41,11 @@ public:
     static base::Result<Process> spawn(const SpawnOptions& options);
 
     bool valid() const;
+    // The OS process id, best-effort: on the POSIX backends (Linux, macOS) openkal's process
+    // handle IS the pid it waits on with wait4/waitpid, so a caller that needs to look at this
+    // child from outside (a stress check's CPU/RSS sampler, for one) can. nullopt on Windows,
+    // where the handle is not a pid, and whenever there is no process to ask about.
+    std::optional<std::int64_t> native_pid() const;
     base::Result<void> write(std::string_view bytes);      // thread-safe
     // Blocks until bytes arrive. An empty string means the stream ended.
     base::Result<std::string> read_output();
