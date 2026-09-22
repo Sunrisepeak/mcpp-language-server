@@ -215,8 +215,8 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
     case SourceKind::inferred: break;
     }
 
-    // A database whose every unit names a file that no longer exists (design item "stale database
-    // detection": a `target/` a build once wrote and the project later deleted, a checked-in
+    // A database whose every unit names a file that no longer exists (real-project plan RP2.4: a
+    // `target/` a build once wrote and the project later deleted, a checked-in
     // compile_commands.json from a machine that is not this one) is no better than none: it is
     // treated the same as an empty one, and inference takes over. A database that is only partly
     // stale keeps its remaining units below, once loaded, rather than being discarded here.
@@ -282,7 +282,7 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
     for (auto& set : model.database.sets) {
         for (auto& unit : set.units) unit.source = platform::fs::canonical_path(spec::absolute_source(unit));
     }
-    // Stale database detection (design item 4): a unit whose file does not exist any more is used
+    // Stale database detection (real-project plan RP2.4): a unit whose file does not exist any more is used
     // for nothing (the caller cannot open, scan or build it), so it is dropped rather than left to
     // fail every later step in a different way each time; the status says once that the database was
     // stale rather than the model silently losing units. A fully stale database was already turned
@@ -300,7 +300,7 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
                             staleUnits, to_string(model.source), staleUnits == 1 ? "entry" : "entries", staleUnits == 1 ? "a file" : "files") });
         }
     }
-    // Generated-source recovery (design item 3): a module a unit imports but nothing in the database
+    // Generated-source recovery (real-project plan RP2.3): a module a unit imports but nothing in the database
     // provides may still be a real file on disk, at one of the two places a build leaves what it
     // generated -- the project's own build directory, or mcpp's build-database cache, which survives
     // a `target/` the project later deleted (the incident this exists for). Tried before a stand-in
@@ -358,12 +358,13 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
         }
     }
     model.level = producedDatabase ? std::max(spec::conformance_level(model.database), 1) : 2;
-    model.tier = tier_of(model.source);
+    // The tier says how the model was obtained, not what kind of project it is: an mcpp project
+    // described through mcpp's compile_commands.json (an mcpp too old to emit a build database) is
+    // the design's L3 -- a database plus scanning -- not L1.
+    model.tier = model.source == SourceKind::mcpp && !producedDatabase ? tier_of(SourceKind::compile_commands) : tier_of(model.source);
     set_profile(model, options.kit);
     if (options.probeCache != nullptr) options.probeCache->save();
     return model;
 }
-
-int model_defect_count(const ProjectModel& model) { return static_cast<int>(model.issues.size()); }
 
 } // namespace mcppls::project

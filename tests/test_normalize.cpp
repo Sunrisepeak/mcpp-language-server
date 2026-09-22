@@ -435,7 +435,7 @@ int main() {
         expect(plan.stubModules == std::vector<std::string> { "gui.window" }) << "the module nothing provides gets a stand-in: " << std::format("{}", plan.stubModules);
     };
 
-    // Design item 7: a file opened while browsing a workspace may belong to a different project
+    // real-project plan RP3.4: a file opened while browsing a workspace may belong to a different project
     // nested inside it (a conformance fixture, a vendored copy, an example with its own manifest).
     // Borrowing the nearest unit's arguments for it, as the test above does for a target the same
     // project's own build did not enable, would fold that other project's modules into this one's

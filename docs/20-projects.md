@@ -3,13 +3,16 @@
 mcppls does not ask you to describe your build. It finds it, and says what it found in the status
 bar. This is what "finding it" means for each kind of project, and what you get when it cannot.
 
-The status bar's `L1`..`L4` is the *tier*: which kind of source described the project — L1 an mcpp
-build database, L2 CMake's own database, L3 a bare `compile_commands.json`, L4 sources only (an
-untrusted workspace is always L4, whatever else is on disk). It is not the same number as the `level`
+The status bar's `L1`..`L4` is the *tier*: how the project was described — L1 a build database (mcpp's
+`emit build-database`, or one of your own), L2 CMake's own database, L3 a bare `compile_commands.json`
+(including the one an mcpp too old to emit a build database leaves), L4 sources only (an untrusted
+workspace is always L4, whatever else is on disk). It is not the same number as the `level`
 `mcppls check` and `cxxModules/status` also carry, which is [S1](specs/s1-build-database.md)'s own
 1..4 for how completely a database's *document* is structured; a hand-written level-3 database and an
-mcpp project are both L1, and a CMake project without `FILE_SET CXX_MODULES` is L2 even at level 1.
-The status bar and the editor plugins show `L<tier>` only, to keep the two apart.
+mcpp build database are both L1, and a CMake project without `FILE_SET CXX_MODULES` is L2 even at
+level 1. The status bar and the editor plugins show `L<tier>` only, to keep the two apart. A model
+is never replaced by one of a worse tier: if the build tool later answers less completely than the
+model in hand, that model is kept and the status says it may be stale.
 
 ## mcpp
 

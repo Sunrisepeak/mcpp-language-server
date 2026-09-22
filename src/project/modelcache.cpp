@@ -61,6 +61,7 @@ Json model_to_json(const ProjectModel& model) {
         { "source", std::string { to_string(model.source) } },
         { "detected", std::string { to_string(model.detected) } },
         { "level", model.level },
+        { "tier", model.tier },
         { "usesKit", model.usesKit },
         { "watch", model.watch },
         { "issues", issues_to_json(model.issues) },
@@ -84,7 +85,9 @@ base::Result<ProjectModel> model_from_json(const Json& value) {
     model.source = source_from_name(value.value("source", std::string {})).value_or(SourceKind::inferred);
     model.detected = source_from_name(value.value("detected", std::string {})).value_or(model.source);
     model.level = value.value("level", 2);
-    model.tier = tier_of(model.source);   // a pure function of `source`; recomputed rather than cached, so it never goes stale
+    // Cached with the model: it depends on how the model was obtained, which `source` alone does not say.
+    // A cache written before the field existed falls back to what its source promises.
+    model.tier = value.value("tier", tier_of(model.source));
     model.usesKit = value.value("usesKit", false);
     model.database = std::move(*loaded);
     if (const auto watch = value.find("watch"); watch != value.end() && watch->is_array()) {

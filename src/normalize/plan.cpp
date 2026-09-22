@@ -379,7 +379,7 @@ EnginePlan plan_engine(const PlanInput& input) {
             if (standIns) stubbed.insert(name);
             else if (input.excludeUnresolvedImports && provider) excluded[i] = true;
             if (reported.insert(candidates[i].source + "\n" + name).second) {
-                // design item 3: a stand-in is the last resort, tried only after the project layer
+                // real-project plan RP2.3: a stand-in is the last resort, tried only after the project layer
                 // already looked for the module's real generated source (mcppls.project.generated)
                 // and did not find it; the issue says so, since "cannot be resolved" alone reads like
                 // a typo in the import rather than a dependency that was never built.

@@ -49,7 +49,7 @@ public:
     // A module that will never build successfully (its own compile failed, or one of its imports'
     // did): resolved at once, whatever it was doing, so its importers are not blocked on it — but
     // never opened again, unlike finish(), so nothing keeps retrying a module known to be doomed
-    // (closure-scoped failure containment, workstream B). A name outside the graph is ignored.
+    // (real-project plan RP1.1). A name outside the graph is ignored.
     void abandon(std::span<const std::string> names);
     // Everything forgotten, as after an engine restart: nothing is running and nothing is done.
     void reset();

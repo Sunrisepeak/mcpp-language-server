@@ -1,6 +1,6 @@
 # Real-project experience: findings and plan
 
-Status: proposal for review · 2026-09-22 · measured on mcppls 0.0.1 (linux-x64 payload)
+Status: implemented in 0.0.2 (§8) · 2026-09-22 · findings measured on mcppls 0.0.1 (linux-x64 payload)
 
 The goal this plan serves: **mcppls needs no configuration and never gets in the way.** Whatever the
 project's state (an old pinned mcpp, a stale compile database, a module that does not compile, no
@@ -80,8 +80,9 @@ the one setting meant to be the floor (`--untrusted`) is the most expensive of a
 1. **Zero configuration.** No setting is needed to get a working session on a project that builds.
 2. **Never stuck.** No state lasts more than 60 s without progress; *preparing* ends in *ready* or
    *degraded*, with the reason and the fix named.
-3. **A floor that holds.** Every open file always gets at least L4 answers (mcppls's own engine and
-   the kit), within 1 s, whatever clangd is doing.
+3. **A floor that holds.** Every open file always gets an answer: at once from mcppls's own engine
+   when its closure cannot be built, and within the interactive budget otherwise, whatever clangd is
+   doing.
 4. **A fault stays where it is** — in processes too: a failed module affects its import closure only;
    nothing global (restart, preparation reset) happens because of it.
 5. **Bounded cost.** CPU and memory have budgets; failed work is not repeated.
@@ -89,7 +90,7 @@ the one setting meant to be the floor (`--untrusted`) is the most expensive of a
 
 ## 5. Plan
 
-### Phase 0 — measure first: real-project stress, engineered (devtools + CI)
+### Phase 0 (RP0) — measure first: real-project stress, engineered (devtools + CI)
 
 Everything below is proven by this, so it lands first.
 
@@ -121,44 +122,44 @@ Everything below is proven by this, so it lands first.
 
 ### Phase 1 — never stuck, bounded cost (containment)
 
-1. **Closure-scoped failure.** When a module fails, compute its importer closure once. Files in it
+1. **RP1.1 Closure-scoped failure.** When a module fails, compute its importer closure once. Files in it
    are answered by mcppls's engine immediately (no clangd wait) and marked as such in the status;
    clangd keeps serving the rest.
-2. **No global recovery for local faults.** A stuck file whose closure contains a failed module is
+2. **RP1.2 No global recovery for local faults.** A stuck file whose closure contains a failed module is
    never a restart reason; restarts are capped (e.g. 3 per 10 min) and never reset preparation of
    modules that already succeeded.
-3. **Don't prime doomed modules.** Preparation skips transitive importers of a failed module and
+3. **RP1.3 Don't prime doomed modules.** Preparation skips transitive importers of a failed module and
    retries them only when an input of that closure changes. Totals stay stable.
-4. **The status settles.** After preparation ends or stalls (60 s without progress): *degraded*
+4. **RP1.4 The status settles.** After preparation ends or stalls (60 s without progress): *degraded*
    with "N modules cannot be built because M failed: <first cause>", and an action.
-5. **Budgets in the server.** clangd's `-j` and background indexing are sized to the machine and
+5. **RP1.5 Budgets in the server.** clangd's `-j` and background indexing are sized to the machine and
    lowered while a closure is failing.
 
 ### Phase 2 — smart source selection (fix it without the user)
 
-1. **Producer negotiation.** Enumerate usable mcpp executables (the one PATH/xlings resolves for the
+1. **RP2.1 Producer negotiation.** Enumerate usable mcpp executables (the one PATH/xlings resolves for the
    project, and newer installed ones in the xlings store and `~/.mcpp`); use the newest that answers
    `emit build-database`, read-only and offline, for the model only — the project's pin still builds.
    The status says "described by mcpp X (the project pins Y)".
-2. **Quality-aware fallback.** Score a model (unresolved and generated modules, missing files) and
+2. **RP2.2 Quality-aware fallback.** Score a model (unresolved and generated modules, missing files) and
    keep the best among: cache, producer L1, producer L2, root/`build/` compile database, inferred.
    A worse source never replaces a better one; a *better* one always may.
-3. **Generated-source recovery.** Before creating a stand-in, look for the module's real source
+3. **RP2.3 Generated-source recovery.** Before creating a stand-in, look for the module's real source
    where builds leave it: the compile database's own entry if the file exists, mcpp's
    build-database cache and `target/.build-mcpp/deps/<pkg>@<ver>/out/`. A stand-in is the last
    resort, and one whose module is *used* is reported as the cause (R8).
-4. **Stale database detection.** A compile database whose entries point at missing files is used
+4. **RP2.4 Stale database detection.** A compile database whose entries point at missing files is used
    only for what still exists, and the status says it is stale.
 
 ### Phase 3 — the floor, the words, the logs
 
-1. `--untrusted` becomes the real L4: no producer, no compile database's commands, clangd only on
+1. **RP3.1** `--untrusted` becomes the real L4: no producer, no compile database's commands, clangd only on
    the kit's L4 profile or not at all.
-2. One vocabulary: the status shows the README's level (L1 build database … L4 sources only) and
+2. **RP3.2** One vocabulary: the status shows the README's level (L1 build database … L4 sources only) and
    the S1 conformance level only in the report.
-3. Logs: stand-ins and generated-module recoveries named at `warning`; "could not build module" at
+3. **RP3.3** Logs: stand-ins and generated-module recoveries named at `warning`; "could not build module" at
    `warning`; clangd's `E[` lines at `warning`, `I[`/`V[` at `debug`.
-4. The mcppls repository excludes `conformance/fixtures` from its own model (the ambiguous and
+4. **RP3.4** The mcppls repository excludes `conformance/fixtures` from its own model (the ambiguous and
    unresolved modules measured on itself).
 
 ## 6. Acceptance (checked by Phase 0, on Linux, macOS and Windows)
@@ -168,7 +169,7 @@ Everything below is proven by this, so it lands first.
 | xlings with the old pinned mcpp | settles in ≤ 60 s (*ready* via a newer mcpp, or *degraded* naming the module); 0 requests wait out the timeout; files outside the failed closure p90 ≤ 2 s; CPU ≤ 90 s per minute after settling; no restart |
 | `generated-module` fixture, old mock mcpp | the real generated source is found; no stand-in is used |
 | `failure-at-base` fixture | importers answered by mcppls's engine in ≤ 1 s; totals stable; 0 restarts |
-| `--untrusted` on any project | no producer run, no module builds, first answer ≤ 1 s |
+| `--untrusted` on any project | L4: no producer or build tool run, no compiler probed, no database read from disk (clangd with the kit is L4's engine and still prepares modules) |
 | mcpp, mcppls, xlings (new mcpp) | no regression against today's numbers (§2) |
 
 ## 7. Order and size
@@ -176,3 +177,28 @@ Everything below is proven by this, so it lands first.
 Phase 0 (≈ 2–3 days: runner check kind + profiles + mock mode + fixtures + devtools + CI), then
 Phase 1 (containment, the user-visible fix), Phase 2 (smart sources), Phase 3 (floor and words) —
 each a PR of its own, each shown against the Phase 0 table.
+
+## 8. Outcome (0.0.2)
+
+Everything in §5 landed in one change. Measured with the same probe after it (random use, seed 7,
+60 actions, 10 s request timeout, fresh caches):
+
+| Project, scenario | 0.0.1 | 0.0.2 |
+|---|---|---|
+| xlings, pinned mcpp 2026.8.8.4 | never ready; hover/definition p90 = 10 s; 408 s CPU in 108 s | ready in 8 s, described by the installed newer mcpp (RP2.1), no stand-in; 0 timeouts; 44 s wall |
+| xlings, `--untrusted` | "mcpp L2", 682 s CPU, 7.3 GB | L4 (inferred), 247 s CPU, 1.1 GB; modules the kit cannot build are contained (RP1.1) |
+| mcpp repository | ready in 20 s, p90 ≈ 1 s | unchanged: ready in 9 s, p90 ≈ 1–2 s |
+| mcppls repository | degraded (fixtures' modules folded in) | ready in 8 s, no issues (RP3.4) |
+| a failure at the base (xlings, forced) | preparing forever, restarts | degraded naming the module within 29 s, 0 restarts (RP1.1–RP1.4) |
+
+What differs from §5, on purpose:
+
+- **RP1.5** added no new mechanism: clangd's `-j` stays at the existing bound (robustness design
+  C7, cores/4); what changed is that doomed modules are never prepared (RP1.3), which is where the
+  wasted CPU went.
+- **RP2.2** compares models by tier only. A finer score among models of the same tier was considered and
+  dropped: counting issues ranks a correct model with honest notices below a wrong, quiet one.
+- **Interactive requests during a cold start** still wait for clangd while module preparation is
+  progressing (cold-start plan 4.3), up to the interactive budget; answering early from mcppls's own
+  engine without losing clangd's answer needs merging in the orchestrator and is the next step.
+

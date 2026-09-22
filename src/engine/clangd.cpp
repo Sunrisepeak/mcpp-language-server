@@ -97,7 +97,7 @@ private:
     std::map<std::string, std::string, std::less<>> moduleCommands_;   // importable module -> its unit's engine command
     // robustness design C5: clangd could not build the toolchain's standard library; C++ units are read with the kit.
     bool stdFromKit_ { false };
-    // Closure-scoped failure containment (workstream B, design P1): a module clangd could not compile
+    // Closure-scoped failure (real-project plan RP1.1, design P1): a module clangd could not compile
     // dooms everything that imports it, transitively, and any plain importer of the closure. Their
     // files are routed to mcppls's own engine at once, never restart clangd, and are never primed
     // again — until the failed module's own unit or command changes.
@@ -227,7 +227,7 @@ public:
         status.role = "core";
         status.accepting = accepting_;
         const bool preparingBusy { primer_.busy() };
-        // The status settles instead of saying "preparing" forever (design P7, workstream B): once
+        // The status settles instead of saying "preparing" forever (real-project plan RP1.4, design P7): once
         // preparation has made no progress for a minute, it counts as not preparing any more, whatever
         // it is still nominally waiting on. A known cause (doomed modules) explains it in issues_
         // already; an unexplained stall gets a generic one below so degraded always says why.
@@ -354,8 +354,8 @@ public:
             host_->record_event("engine-database", Json { { "entries", plan->entries.size() }, { "standIns", plan->stubModules.size() },
                                                           { "leftOut", plan->excludedFiles.size() } });
         }
-        // Each stand-in named at warning, with why it got one, not just counted (robustness design O3
-        // extended, workstream B): a module nothing usable provides is worth a person's attention once,
+        // Each stand-in named at warning, with why it got one, not just counted (robustness design O3,
+        // real-project plan RP3.3): a module nothing usable provides is worth a person's attention once,
         // not every time the database is rewritten for something else.
         {
             std::set<std::string, std::less<>> currentStubs { plan->stubModules.begin(), plan->stubModules.end() };
@@ -459,7 +459,7 @@ public:
             if (entry.provides != entry.module) moduleUnits_[entry.module].push_back(UnitOfModule { entry.file, !entry.provides.empty() });
         }
         // The module import graph and each file's direct imports, for closure-scoped failure
-        // containment (design P1, workstream B): who is doomed with a module that fails to compile.
+        // containment (real-project plan RP1.1, design P1): who is doomed with a module that fails to compile.
         moduleRequires_.clear();
         for (const auto& module : plan->modules) moduleRequires_.emplace(module.name, module.requires_);
         fileImports_.clear();
@@ -580,7 +580,7 @@ public:
             }
         }
         // A module that failed to compile is tried again only when its own unit or command changes
-        // (design P1, workstream B): a save elsewhere in the project is not, by itself, a reason to
+        // (real-project plan RP1.1, design P1): a save elsewhere in the project is not, by itself, a reason to
         // hand a doomed file back to clangd only to fail the same way again.
         if (forget_changed_doom_()) recompute_doom_();
         if (forget_changed_unresolved_()) host_->request_replan();
@@ -652,7 +652,7 @@ public:
         consider(restartAt_);
         consider(stuckCheckAt_);
         // So the status settles into ready or degraded on its own, not only when something else wakes
-        // the event loop (design P7, workstream B).
+        // the event loop (real-project plan RP1.4, design P7).
         if (primer_.busy() && lastPrimeProgressAt_) consider(*lastPrimeProgressAt_ + PREPARATION_STALL_TIMEOUT);
         for (const auto& [key, held] : held_) {
             if (const auto joined = joinedAt_.find(key); joined != joinedAt_.end()) consider(joined->second + DATABASE_REREAD);
@@ -745,8 +745,8 @@ public:
             restartAt_.reset();
             restart_(restartReason_.empty() ? std::string_view { "recovering from an exit" } : std::string_view { restartReason_ });
         }
-        // The status settles once preparation has made no progress for a minute (design P7, workstream
-        // B), so a client polling only when told to is told, even with nothing else happening.
+        // The status settles once preparation has made no progress for a minute (real-project plan RP1.4,
+        // design P7), so a client polling only when told to is told, even with nothing else happening.
         const bool stalledNow { primer_.busy() && lastPrimeProgressAt_ && now - *lastPrimeProgressAt_ >= PREPARATION_STALL_TIMEOUT };
         if (!expired.empty() || stalledNow) host_->status_changed();
     }
@@ -868,7 +868,7 @@ private:
                     log::info("clangd ({}): {} more lines left out of this log", root, decision.suppressedBefore);
                     sink(Json { { "kind", "log-left-out" }, { "generation", generation }, { "count", decision.suppressedBefore } });
                 }
-                // Forwarded at clangd's own severity (robustness design C7 extended, workstream B): a
+                // Forwarded at clangd's own severity (robustness design C7, real-project plan RP3.3): a
                 // problem worth someone's attention (E[..]) is not lost among the chatter (I[..]/V[..]/
                 // D[..]), which stays at debug instead of crowding the default log at info.
                 if (decision.forward) {
@@ -1203,7 +1203,7 @@ private:
             const auto now = Clock::now();
             modulesFailedAt_[parsed.module] = now;
             schedule_stuck_check_(now + FAILED_MODULE_PATIENCE);
-            // Closure-scoped failure containment (design P1, workstream B): everything that imports this
+            // Closure-scoped failure containment (real-project plan RP1.1, design P1): everything that imports this
             // module, transitively, is doomed with it, and is routed to mcppls's own engine at once
             // instead of waiting out clangd's request timeout or its preparation deadline. The standard
             // library is excepted: it already gets the whole-project kit fallback above, which fixes
@@ -1263,7 +1263,7 @@ private:
         return forgot;
     }
 
-    // ---- closure-scoped failure containment (design P1, workstream B) ------------------------
+    // ---- closure-scoped failure containment (real-project plan RP1.1, design P1) ------------------------
 
     bool doomed_path_(std::string_view path) const { return !path.empty() && doomedFiles_.contains(base::path_key(path)); }
 
@@ -1501,7 +1501,7 @@ private:
             open_in_engine_(document);
             return;
         }
-        // A single gate for every caller (design P1, workstream B): a doomed file is never opened in
+        // A single gate for every caller (real-project plan RP1.1, design P1): a doomed file is never opened in
         // clangd, from here, whatever reason brought this call about.
         if (doomed_path_(document.path)) return;
         const auto now = Clock::now();
@@ -1539,7 +1539,7 @@ private:
     }
 
     // A restart at the next timer, as soon as the gate allows: for callers in the middle of work on the requests a restart ends.
-    // Restarts are capped, not merely spaced out (design P3, workstream B): past RestartGate::
+    // Restarts are capped, not merely spaced out (real-project plan RP1.2): past RestartGate::
     // MAX_RESTARTS_PER_WINDOW in RestartGate::WINDOW, clangd stays down for whatever it cannot answer
     // until the window ages out, rather than restarting forever for reasons that keep recurring.
     bool restart_capped_(std::string_view reason) {
@@ -1920,7 +1920,7 @@ private:
 
     void pump_primer_() {
         if (!accepting_) return;
-        // A baseline for the status settling (design P7, workstream B): preparation starting counts as
+        // A baseline for the status settling (real-project plan RP1.4, design P7): preparation starting counts as
         // progress too, so the stall timeout is measured from when there was last something to show for
         // it, not from some earlier moment nothing had happened yet.
         if (primer_.busy() && !lastPrimeProgressAt_) lastPrimeProgressAt_ = Clock::now();
@@ -1994,7 +1994,7 @@ private:
         primer_.reset();
         // reset() forgets every module's state, doomed ones included (its own doc comment: "as after an
         // engine restart"); a fresh clangd still cannot build them, so they are marked doomed again at
-        // once rather than waiting out the same failure a second time (design P1, workstream B).
+        // once rather than waiting out the same failure a second time (real-project plan RP1.1, design P1).
         if (!doomedModules_.empty()) primer_.abandon(std::vector<std::string> { doomedModules_.begin(), doomedModules_.end() });
     }
 };
