@@ -55,7 +55,8 @@ checks fail at once with that reason instead of each waiting out its timeout.
 | `timing` | Startup timing (usable plan W7): the `inferred` project opened and navigated at once; run cold, then warm with the same workspace and cache |
 | `module-faults` | Faults stay where they are (robustness design): a module chain whose first unit imports a module nothing provides, a module that does not compile and its importer, and a file importing both a broken chain and a working module. Every file keeps its features, a module nothing provides gets a stand-in, and a module that breaks and heals while the server runs neither stalls clangd nor leaves the project without it. Runs with the semantic kit on every host. Also carries a `stress` check, so real-project stress testing (below) runs on every PR, on every platform |
 | `generated-module` | Real-project plan RP0: a package module generated at build time (as libxpkg's `build.mcpp` writes `mcpplibs.xpkg.lua_stdlib` into `MCPP_OUT_DIR`) and a sibling module of the project's own that imports it; mcpp's build database (simulated) names the generated unit directly, at its real path under `target/.build-mcpp/deps/<pkg>@<ver>/out/`. Hover and definition into it must reach that real file, never a stand-in |
-| `generated-module-old-mcpp` | The same project, but mcpp is too old to advertise `mcpp.build-database` and its `build --configure-only` is rejected (`mcpp-mock.json`'s `oldProtocol`, like mcpp 2026.8.8.4): the server's L2 fallback reads the project's own `compile_commands.json` (built for real by the fixture's own `prepare` step) instead, and the generated module's real source is still what hover and definition reach |
+| `generated-module-old-mcpp` | The same project, but mcpp is too old to advertise `mcpp.build-database` and its `build --configure-only` is rejected (`mcpp-mock.json`'s `oldProtocol`, like mcpp 2026.8.8.4): the server's L2 fallback reads the project's own `compile_commands.json` (built for real by the fixture's own `prepare` step) instead, and the generated module's real source is still what hover and definition reach. `isolate-home` keeps the fixture's tier 3 deterministic on a machine that has a real, working mcpp installed |
+| `generated-module-negotiated` | The same old-mcpp project, but a newer mock mcpp is installed where producer negotiation looks (its own isolated HOME's `xim-x-mcpp/9999.0.0/bin/mcpp`, the `producer-candidate` prepare step): the server must find it, describe the project through it (tier 1, level 3, notice `producer-negotiated`), and never fall back to `compile_commands.json` |
 | `s1-two-sets` | A workspace carrying its own S1 build database (`--database`, usable plan W9.2): two sets compile the same file under `-DVARIANT=1` and `-DVARIANT=2`; `cxxModules/setContext` switches which one answers |
 | `watch-polling` | Run with `--no-dynamic-watch` (usable plan W9.3): a new module interface written straight into the workspace must still reach the module graph within seconds, through the polling fallback rather than a client-driven `workspace/didChangeWatchedFiles` |
 | `payload-corrupt` | Its `prepare` step copies the payload the runner was given and truncates clangd in the copy (usable plan W9.4); `server-arguments` then points `--payload` at that broken copy, and status must reach `error` with issue `payload-corrupt` |
@@ -103,7 +104,8 @@ In `prepare` and `server-arguments`, `{exe}` expands to the platform executable 
 `{runner-dir}` to the directory of the runner executable, and `{payload}` to the runner's own
 `--payload` directory (usable plan W9.4: a fixture's `prepare` step can copy and mutate it, then
 point `server-arguments`' own `--payload` at the mutated copy — a later `--payload` wins), and
-`{conformance}` to the runner itself. A fixture that has to generate something before the server
+`{conformance}` to the runner itself, and `{home}` to the isolated HOME a fixture with
+`"isolate-home": true` gets (empty otherwise). A fixture that has to generate something before the server
 sees it names `["{conformance}", "prepare", "<kind>", ...]`: the generators live in the runner
 (`mcppls-conformance prepare --help`), so a conformance host needs nothing the runner does not
 bring — no interpreter. Positions
@@ -111,6 +113,17 @@ are `[line, character]`, zero-based, UTF-16. A check with `"text"` opens its fil
 content; a check with `"optional": true` reports `SKIP` instead of failing, and `"timeout": SECONDS`
 waits less than the run's `--timeout`. `"file"` and `"folder"` on a check, like every other path a
 scenario names, are relative to the fixture's own root, never to a specific workspace folder.
+
+A fixture whose result depends on what mcpp or xlings a machine happens to have installed sets
+`"isolate-home": true` (real-project plan RP2.1): the server under test, and every process it
+starts, gets a private HOME (and, on Windows, USERPROFILE) under the fixture's own scratch
+workspace, empty until the fixture's own `prepare` populates it. Producer negotiation
+(`other_mcpp_executables`) searches `<home>/.xlings/data/xpkgs` and `<home>/.mcpp/registry/data/xpkgs`,
+so `generated-module-old-mcpp` no longer risks being negotiated to a real mcpp a host or CI runner
+happens to have installed, and `generated-module-negotiated`'s `producer-candidate` prepare step
+(`["{conformance}", "prepare", "producer-candidate", "{home}"]`) installs a second mock mcpp exactly
+there to prove negotiation itself, rather than only its fallback. A `status` check's optional
+`"tier"` asserts `project.tier` (the README's L1..L4, real-project plan RP3.2), distinct from `"level"`.
 
 A fixture with more than one workspace folder (usable plan W9.1) names them, relative to its own
 root, in a top-level `"folders"` array; without one, the fixture's root is the only folder, as it
@@ -123,7 +136,7 @@ always has been.
 
 | Kind | Passes when |
 |---|---|
-| `status` | `cxxModules/status` reaches `ready`, `degraded` or `error` and matches `source`, `profile-kind`, `state`, `level`, `issue-code` (with `issue-command`, that issue's command; with `issue-message`, a part of its message) when given, and a `profile-compiler` prefix (a settled status that does not match yet is looked at again for up to three seconds, since a server coalesces changes that keep its state); `"folder"` picks one root's own status in a multi-root fixture (usable plan W9.1), absent picks whichever root's arrived most recently |
+| `status` | `cxxModules/status` reaches `ready`, `degraded` or `error` and matches `source`, `profile-kind`, `state`, `level`, `tier` (`project.tier`, the README's L1..L4, real-project plan RP3.2), `issue-code` (with `issue-command`, that issue's command; with `issue-message`, a part of its message), `notice-code` and `engine-name`/`engines-include` when given, and a `profile-compiler` prefix (a settled status that does not match yet is looked at again for up to three seconds, since a server coalesces changes that keep its state); `"folder"` picks one root's own status in a multi-root fixture (usable plan W9.1), absent picks whichever root's arrived most recently |
 | `workspace-unchanged` | no file under the workspace was added, changed or removed after the prepare steps |
 | `responds` | a request (`method`, default `textDocument/definition`) at `at` is answered, empty answers included, within the check's time |
 | `module-cache-reused` | every file clangd published for `module` (default `std`) before the server started is still there unchanged, and none was added (SC4); passes on a cold start unless `--expect-warm` |
