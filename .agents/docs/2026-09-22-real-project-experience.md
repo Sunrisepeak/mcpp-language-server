@@ -196,6 +196,9 @@ What differs from §5, on purpose:
 - **RP1.5** added no new mechanism: clangd's `-j` stays at the existing bound (robustness design
   C7, cores/4); what changed is that doomed modules are never prepared (RP1.3), which is where the
   wasted CPU went.
+- **RP1.2** caps restarts and keeps doomed modules doomed across one, but a restart still prepares
+  the modules that had succeeded again: a new clangd has none of the old one's built modules, so
+  there is nothing to keep. The fix that matters is that a local fault is no longer a restart.
 - **RP2.2** compares models by tier only. A finer score among models of the same tier was considered and
   dropped: counting issues ranks a correct model with honest notices below a wrong, quiet one.
 - **Interactive requests during a cold start** still wait for clangd while module preparation is
