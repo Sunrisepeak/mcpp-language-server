@@ -34,7 +34,15 @@ diagnostics come from libc++ rather than from your toolchain.
 
 **It was fine, then a module stopped resolving.** `plan.standIns` lists modules nothing provides —
 mcppls gives them stand-in units so that one broken module does not take the rest of the project
-with it. The real failure is in `plan.issues` or in your build.
+with it, and names each one in the log with the reason. The real failure is in `plan.issues` or in
+your build.
+
+**A module does not compile.** Only what imports it, directly or not, is affected: those files are
+answered at once by mcppls's own engine (module navigation, symbols, `import` completion), carry one
+`module-failed` diagnostic on the import that leads to the failure, and are not sent to clangd until
+the failed module's own source or command changes; everything else keeps clangd. The status says
+*degraded* with "N modules cannot be prepared because M failed", never *preparing* for good. The
+engine's `doomedModules` and `filesRoutedToOwnEngine` in the report list them.
 
 **The editor found a different compiler than my terminal.** `toolEnvironment.source` should say
 `login-shell`. If it says `editor`, the reason is in `toolEnvironment.reason` — an editor started
@@ -46,8 +54,10 @@ confirms it in the background. `project.firstOrigin` says which happened. If it 
 `producer`, the fingerprint is not matching — the report's `project.producerRun` and the build
 files' timestamps are where to look.
 
-**clangd keeps restarting.** `engines[].restarts` and the `events` journal. Restarts are gated and
-spaced out on purpose; a burst of them usually means the compile arguments are changing under it.
+**clangd keeps restarting.** `engines[].restarts` and the `events` journal. Restarts are spaced out
+and capped at three in ten minutes, after which the status says so (`engine-restart-capped`) and
+mcppls's own engine answers what a restart would have tried to fix; a module that does not compile
+is never a reason to restart. A burst usually means the compile arguments are changing under it.
 
 ## Filing a bug
 
