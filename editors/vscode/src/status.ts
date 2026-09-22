@@ -132,7 +132,7 @@ export class StatusController implements vscode.Disposable {
         this.item = vscode.languages.createLanguageStatusItem('mcppls.status', { language: 'cpp' });
         this.item.name = 'C++ Modules';
         this.bar = vscode.window.createStatusBarItem('mcppls.statusBar', vscode.StatusBarAlignment.Left, 50);
-        this.bar.name = 'C++ Modules (mcppls)';
+        this.bar.name = 'C++ Modules Language Server';
         this.bar.command = 'mcppls.showLogs';
         this.bar.show();
         this.showStarting();

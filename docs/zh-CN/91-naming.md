@@ -16,7 +16,7 @@
 |---|---|---|
 | 项目 / 包 | `mcpp-language-server` | 完整拼出它是什么；包索引里用的名字。只用于包本身——每个插件都用下面的简称 |
 | 可执行文件、模块命名空间、设置前缀 | `mcppls` | 命令行输入和代码中使用的名字：`mcppls serve`、`import mcppls.lsp`、`mcppls.trace` |
-| 插件显示名 | **C++ Modules (mcppls)** | 先说它做什么，方便被搜到；括号里的简称让四个列表读起来像同一个产品 |
+| 插件显示名 | **C++ Modules Language Server** | 先说它做什么，方便被搜到；四个市场用同一个名字，读起来像同一个产品 |
 | 语义工具包的包名 | `mcppls-kit` | 独立的产物，有自己的版本号，名称取自生成它的程序 |
 
 ## 各编辑器里的插件标识
@@ -25,14 +25,14 @@
 
 | 编辑器 | 标识符 | 显示名 | 说明 |
 |---|---|---|---|
-| VS Code | `sunrisepeak.mcpp-language-server` | C++ Modules (mcppls) | `package.json` 里的 `publisher.name`；发布前，发布者必须已经在 Marketplace 上存在 |
-| Zed | `mcppls` | C++ Modules (mcppls) | Zed 的扩展 id 是扁平的，简称本身就是 id |
-| CLion / IntelliJ | `io.github.sunrisepeak.mcppls` | C++ Modules (mcppls) | JetBrains 要求反向域名；个人项目用 `io.github.<user>` 这种形式 |
-| Claude Code | marketplace `mcppls` 里的 `mcppls-lsp` | C++ Modules (mcppls) | 本仓库自己的 marketplace 文件里的一个插件 |
+| VS Code | `sunrisepeak.mcpp-language-server` | C++ Modules Language Server | `package.json` 里的 `publisher.name`；发布前，发布者必须已经在 Marketplace 上存在 |
+| Zed | `mcppls` | C++ Modules Language Server | Zed 的扩展 id 是扁平的，简称本身就是 id |
+| CLion / IntelliJ | `io.github.sunrisepeak.mcppls` | C++ Modules Language Server | JetBrains 要求反向域名；个人项目用 `io.github.<user>` 这种形式 |
+| Claude Code | marketplace `mcppls` 里的 `mcppls-lsp` | C++ Modules Language Server | 本仓库自己的 marketplace 文件里的一个插件 |
 
 在支持设置和命令的每个编辑器里都用 `mcppls.*`，整个产品用一个名字回答「这叫什么」。
 
-VS Code 扩展是简称规则的唯一例外：它叫 `sunrisepeak.mcpp-language-server`。原来叫 `sunrisepeak.mcppls`，为了让版本号从 0.0.1 重新开始，那个扩展从 Marketplace 上删除了，而 Marketplace 会永久保留被删除扩展的名字，原 publisher 自己也不能再用。用户看到的仍然都是 `mcppls`：显示名、设置和命令都没变。便于搜索由显示名负责，因此它把「C++ Modules」放在前面。
+VS Code 扩展是简称规则的唯一例外：它叫 `sunrisepeak.mcpp-language-server`。原来叫 `sunrisepeak.mcppls`，显示名是 "C++ Modules (mcppls)"。为了让版本号从 0.0.1 重新开始，那个扩展从 Marketplace 上删除了，而 Marketplace 会永久保留被删除扩展的名字和显示名，原 publisher 自己也不能再用，所以两者都换了；显示名在每个编辑器里一起换，保持是同一个产品。设置和命令仍然是 `mcppls.*`。便于搜索由显示名负责，因此它把「C++ Modules」放在前面。
 
 需要下架扩展时，一律用**取消发布（Unpublish）**，不要删除（Remove）：取消发布会保留名字，删除则永久失去这个名字。
 
