@@ -144,7 +144,7 @@ int main() {
         expect(model.usesKit);
         expect(model.profile.kind == "semantic-kit" && model.profile.stdlib == "libc++ 23.1.0");
         expect(std::ranges::any_of(model.issues, [](const p::ModelIssue& issue) { return issue.code == "untrusted-workspace"; }))
-            << "load_mcpp is never even called for an untrusted workspace now (design item 5): nothing a trusted "
+            << "load_mcpp is never even called for an untrusted workspace now (real-project plan RP3.1): nothing a trusted "
                "session or another build once left on disk should be read just because it is sitting there";
         expect(!model.watch.empty());
         expect(model.database.sets.front().units.size() == 3u);
@@ -264,7 +264,7 @@ int main() {
         // every CMake source (project/model.cpp), not whatever
         // conformance_level would compute from the document alone.
         // trusted: this is about reading an already-generated build_database.json, not about trust
-        // (design item 5 makes an untrusted workspace inferred regardless of what is on disk).
+        // (real-project plan RP3.1 makes an untrusted workspace inferred regardless of what is on disk).
         p::LoadOptions options;
         options.trusted = true;
         options.cacheDirectory = b::join_path(root, ".cache-dir");
@@ -478,7 +478,7 @@ version = "1"
         fs::remove_all(root);
     };
 
-    // Design item 5: an untrusted workspace is L4 by definition. A `compile_commands.json` or
+    // real-project plan RP3.1: an untrusted workspace is L4 by definition. A `compile_commands.json` or
     // `target/` a *trusted* session (or a build run outside mcppls entirely) left on disk is still a
     // fact about the build, and reading it just because it is sitting there would make "untrusted"
     // mean something less than what the docs promise (docs/20-projects.md, design 2.1).
@@ -502,7 +502,7 @@ version = "1"
         fs::remove_all(root);
     };
 
-    // Design item 4: a database entry naming a file that no longer exists (a deleted `target/`, a
+    // real-project plan RP2.4: a database entry naming a file that no longer exists (a deleted `target/`, a
     // `compile_commands.json` checked in from another machine) is used for what remains, not
     // discarded wholesale or left to fail some other way later.
     "a stale database entry is dropped and noted; the rest of the model is used"_test = [] {
@@ -538,7 +538,7 @@ version = "1"
         fs::remove_all(root);
     };
 
-    // Design item 3: before a stand-in is created for a module nothing provides, mcppls looks for
+    // real-project plan RP2.3: before a stand-in is created for a module nothing provides, mcppls looks for
     // where a build leaves what it generated. The incident this is for: an old mcpp's fallback
     // `compile_commands.json` outlives the `target/` a later `mcpp build` deletes and recreates, but
     // the generated file mcpp already built once is still in its own build-database cache.
@@ -581,7 +581,7 @@ version = "1"
         fs::remove_all(home);
     };
 
-    // Design item 1 (producer negotiation): comparing mcpp's date-based versions numerically, not
+    // real-project plan RP2.1 (producer negotiation): comparing mcpp's date-based versions numerically, not
     // lexically -- "2026.9.9" sorts after "2026.9.10" as plain strings, which is backwards.
     "mcpp version comparison is numeric, not lexical"_test = [] {
         expect(p::mcpp_version_less("2026.8.8.4", "2026.9.21.3"));
@@ -606,7 +606,7 @@ version = "1"
         fs::remove_all(home);
     };
 
-    // Design item 7: a directory below the root with its own build manifest is a different project
+    // real-project plan RP3.4: a directory below the root with its own build manifest is a different project
     // (a conformance fixture, a vendored copy, an example), not more of this one's sources -- a
     // general rule the incident against mcppls's own repository is one instance of, not the reason
     // for it.

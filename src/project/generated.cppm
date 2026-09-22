@@ -1,12 +1,12 @@
-// Recovering a generated module's real source (design P2, the incident of §7 in the workstream
-// plan): a build writes some modules only when it runs (a dependency's std shim, a code generator's
-// output) into MCPP_OUT_DIR / a package's `out` directory. When the database that describes the
-// project is older than the build directory it named — the incident this module exists for: an old
-// mcpp's fallback compile_commands.json outlives the `target/` a later `mcpp build` deleted and
-// recreated — the file that database names is gone, but the real generated unit often still exists
-// where a build leaves it: the project's own build directory, or mcpp's own build-database cache,
-// which survives a deleted `target/` because it is keyed by the package and version, not the path.
-// A stand-in (robustness design C2) stays the last resort; this is what runs before reaching for it.
+// Recovering a generated module's real source (real-project plan RP2.3, design P2): a build writes
+// some modules only when it runs (a dependency's std shim, a code generator's output) into
+// MCPP_OUT_DIR / a package's `out` directory. When the database that describes the project is older
+// than the build directory it named — the incident this module exists for: an old mcpp's fallback
+// compile_commands.json outlives the `target/` a later `mcpp build` deleted and recreated — the
+// file that database names is gone, but the real generated unit often still exists where a build
+// leaves it: the project's own build directory, or mcpp's own build-database cache, which survives
+// a deleted `target/` because it is keyed by the package and version, not the path. A stand-in
+// (robustness design C2) stays the last resort; this is what runs before reaching for it.
 export module mcppls.project.generated;
 
 import std;

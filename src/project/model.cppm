@@ -29,7 +29,7 @@ struct ProjectModel {
     SourceKind source { SourceKind::inferred };
     SourceKind detected { SourceKind::inferred };   // the kind of project found; `source` is inferred when its data was not available
     int level { 2 };
-    int tier { 4 };                                 // S3 `project.tier`: tier_of(source), the README's L1..L4 (distinct from `level`, S1's own)
+    int tier { 4 };                                 // S3 `project.tier`: how the model was obtained, the README's L1..L4 (distinct from `level`, S1's own)
     spec::Database database;
     FactsMap facts;
     bool usesKit { false };
@@ -65,13 +65,6 @@ struct LoadOptions {
 };
 
 ProjectModel load_project(std::string_view root, const LoadOptions& options);
-// A rough count of what is wrong with a model, for choosing between two candidates of the same
-// `tier` (design item 2, "quality-aware fallback"): 0 is best. Counts feature-costing issues
-// (unresolved or ambiguous modules, a toolchain or database that could not be used, ...); a notice
-// such as a stale cache entry that was simply dropped costs nothing and is not counted. This orders
-// candidates of equal provenance -- a stale cache against a fresh reload of the same source -- and
-// never on its own promotes a worse `tier` over a better one, which the caller checks first.
-int model_defect_count(const ProjectModel& model);
 // usable plan W2.3: a Visual Studio whose toolset has no std module is not used for a workspace
 // without a build system, and the status says why as a notice, not an issue: nothing is reduced.
 std::optional<ModelIssue> visual_studio_notice(const toolchain::ToolchainFacts& facts);

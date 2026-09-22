@@ -222,5 +222,15 @@ symbols not ready yet · 4.4 cold-start concurrency · 4.6 missing or old mcpp �
 modules that fail to compile · 4.10 clangd progress that starts and stops · 4.11 one C++ engine per
 file.
 
+**"real-project plan RP" — [2026-09-22-real-project-experience.md](2026-09-22-real-project-experience.md).**
+RP0 real-project stress testing (the `stress` check, client profiles, the old-mcpp mock, generated
+and failing-base fixtures, pinned real projects, `devtools stress`, real editors, CI) · RP1.1 a
+failed module's import closure is answered by mcppls's own engine · RP1.2 no global recovery for a
+local fault, restarts capped · RP1.3 doomed modules are not prepared · RP1.4 the status settles ·
+RP1.5 resource budgets · RP2.1 producer negotiation · RP2.2 a worse model never replaces a better
+one · RP2.3 generated-source recovery before a stand-in · RP2.4 stale databases · RP3.1 an untrusted
+workspace is L4 · RP3.2 one vocabulary (`project.tier`) · RP3.3 log severities · RP3.4 a nested
+project is not folded into its parent.
+
 **"tooling architecture".** 3.2 the workspace layout · 5.1 what mcpp, mcppls and devtools each do ·
 5.5 how devtools finds the server it just built · M0–M6 its migration steps.

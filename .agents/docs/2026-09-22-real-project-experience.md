@@ -89,7 +89,7 @@ the one setting meant to be the floor (`--untrusted`) is the most expensive of a
 
 ## 5. Plan
 
-### Phase 0 — measure first: real-project stress, engineered (devtools + CI)
+### Phase 0 (RP0) — measure first: real-project stress, engineered (devtools + CI)
 
 Everything below is proven by this, so it lands first.
 
@@ -121,44 +121,44 @@ Everything below is proven by this, so it lands first.
 
 ### Phase 1 — never stuck, bounded cost (containment)
 
-1. **Closure-scoped failure.** When a module fails, compute its importer closure once. Files in it
+1. **RP1.1 Closure-scoped failure.** When a module fails, compute its importer closure once. Files in it
    are answered by mcppls's engine immediately (no clangd wait) and marked as such in the status;
    clangd keeps serving the rest.
-2. **No global recovery for local faults.** A stuck file whose closure contains a failed module is
+2. **RP1.2 No global recovery for local faults.** A stuck file whose closure contains a failed module is
    never a restart reason; restarts are capped (e.g. 3 per 10 min) and never reset preparation of
    modules that already succeeded.
-3. **Don't prime doomed modules.** Preparation skips transitive importers of a failed module and
+3. **RP1.3 Don't prime doomed modules.** Preparation skips transitive importers of a failed module and
    retries them only when an input of that closure changes. Totals stay stable.
-4. **The status settles.** After preparation ends or stalls (60 s without progress): *degraded*
+4. **RP1.4 The status settles.** After preparation ends or stalls (60 s without progress): *degraded*
    with "N modules cannot be built because M failed: <first cause>", and an action.
-5. **Budgets in the server.** clangd's `-j` and background indexing are sized to the machine and
+5. **RP1.5 Budgets in the server.** clangd's `-j` and background indexing are sized to the machine and
    lowered while a closure is failing.
 
 ### Phase 2 — smart source selection (fix it without the user)
 
-1. **Producer negotiation.** Enumerate usable mcpp executables (the one PATH/xlings resolves for the
+1. **RP2.1 Producer negotiation.** Enumerate usable mcpp executables (the one PATH/xlings resolves for the
    project, and newer installed ones in the xlings store and `~/.mcpp`); use the newest that answers
    `emit build-database`, read-only and offline, for the model only — the project's pin still builds.
    The status says "described by mcpp X (the project pins Y)".
-2. **Quality-aware fallback.** Score a model (unresolved and generated modules, missing files) and
+2. **RP2.2 Quality-aware fallback.** Score a model (unresolved and generated modules, missing files) and
    keep the best among: cache, producer L1, producer L2, root/`build/` compile database, inferred.
    A worse source never replaces a better one; a *better* one always may.
-3. **Generated-source recovery.** Before creating a stand-in, look for the module's real source
+3. **RP2.3 Generated-source recovery.** Before creating a stand-in, look for the module's real source
    where builds leave it: the compile database's own entry if the file exists, mcpp's
    build-database cache and `target/.build-mcpp/deps/<pkg>@<ver>/out/`. A stand-in is the last
    resort, and one whose module is *used* is reported as the cause (R8).
-4. **Stale database detection.** A compile database whose entries point at missing files is used
+4. **RP2.4 Stale database detection.** A compile database whose entries point at missing files is used
    only for what still exists, and the status says it is stale.
 
 ### Phase 3 — the floor, the words, the logs
 
-1. `--untrusted` becomes the real L4: no producer, no compile database's commands, clangd only on
+1. **RP3.1** `--untrusted` becomes the real L4: no producer, no compile database's commands, clangd only on
    the kit's L4 profile or not at all.
-2. One vocabulary: the status shows the README's level (L1 build database … L4 sources only) and
+2. **RP3.2** One vocabulary: the status shows the README's level (L1 build database … L4 sources only) and
    the S1 conformance level only in the report.
-3. Logs: stand-ins and generated-module recoveries named at `warning`; "could not build module" at
+3. **RP3.3** Logs: stand-ins and generated-module recoveries named at `warning`; "could not build module" at
    `warning`; clangd's `E[` lines at `warning`, `I[`/`V[` at `debug`.
-4. The mcppls repository excludes `conformance/fixtures` from its own model (the ambiguous and
+4. **RP3.4** The mcppls repository excludes `conformance/fixtures` from its own model (the ambiguous and
    unresolved modules measured on itself).
 
 ## 6. Acceptance (checked by Phase 0, on Linux, macOS and Windows)

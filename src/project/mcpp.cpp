@@ -216,7 +216,7 @@ ProducerAnswers& producer_answers() {
 // PATH: whether that mcpp advertises the kind and runs the command without writing into the project.
 // `version` is set when it said which it is. `reachable`, when given, is set once this mcpp answered
 // the command at all (exit 0) -- distinct from the kind being missing, since only a real, running but
-// old mcpp is worth negotiating a substitute for (design item 1): a project whose .xlings.json names
+// old mcpp is worth negotiating a substitute for (real-project plan RP2.1): a project whose .xlings.json names
 // an mcpp that is not installed at all answers nothing, and substituting another mcpp for it would
 // hide that fact instead of reporting it, which mcpp-emit-unavailable exists to keep visible.
 bool produces_build_databases(const std::string& mcpp, const Detection& detection, const ProviderContext& context, std::string& version,
@@ -329,7 +329,7 @@ base::Result<InferredDatabase> load_mcpp(const Detection& detection, const Provi
             auto emitted = emit_build_database(*mcpp, detection, context, version, &reachable);
             context.producerVersionUsed = version;
             if (emitted) return std::move(*emitted);
-            // Producer negotiation (design item 1): the project's own mcpp answered but does not
+            // Producer negotiation (real-project plan RP2.1): the project's own mcpp answered but does not
             // advertise `mcpp.build-database` -- a real, working, old mcpp. Another mcpp installed on
             // the machine might advertise it, asked the same read-only, offline way as above, only to
             // describe the project; what the project itself builds with does not change. Newest

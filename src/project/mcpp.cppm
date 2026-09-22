@@ -22,7 +22,7 @@ bool mcpp_version_less(std::string_view left, std::string_view right);
 // Other mcpp executables installed on the machine besides `resolved` (the project's own pin, or
 // PATH), newest first: the xlings package store and mcpp's own registry store, following the same
 // `xim-x-mcpp/<version>/bin/mcpp` layout `mcppls.toolchain.discover` already reads for compilers.
-// Producer negotiation (design item 1) uses this to describe a project whose pinned mcpp cannot,
+// Producer negotiation (real-project plan RP2.1) uses this to describe a project whose pinned mcpp cannot,
 // without changing which mcpp the project itself builds with.
 std::vector<std::string> other_mcpp_executables(std::string_view resolved, std::string_view homeDirectory);
 

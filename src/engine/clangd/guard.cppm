@@ -94,10 +94,10 @@ private:
 };
 
 // The modules doomed along with `failed`: it, and every module that imports it, directly or
-// transitively, by `requires_` (module -> the modules it imports). A module compiling again is never
+// transitively, by `imports` (module -> the modules it imports). A module compiling again is never
 // discovered by this function; the caller forgets a root when its provider's source or command
-// changes and recomputes (closure-scoped failure containment, workstream B).
-std::set<std::string> doomed_modules(const std::map<std::string, std::vector<std::string>, std::less<>>& requires_, std::string_view failed);
+// changes and recomputes (real-project plan RP1.1).
+std::set<std::string> doomed_modules(const std::map<std::string, std::vector<std::string>, std::less<>>& imports, std::string_view failed);
 
 // Whether clangd's state for a file (textDocument/clangd.fileStatus: "parsing includes", "parsing main file", "running Hover",
 // "file is queued", "preamble (queued)" or "idle", several joined by ", ") says it is working on the file, rather than idle or

@@ -899,6 +899,23 @@ struct Workspace::Impl final : engine::Host {
             update_status();
             return;
         }
+        // Design 4.1: a worse source never replaces a better result. A producer that now describes the
+        // project less completely than the model in hand -- the build database a cache holds against the
+        // compile database an older mcpp answers with -- leaves that model in place, kept the same way
+        // as a failed reload: marked possibly stale and asked again later.
+        if (model && model->detected == loadedModel->detected && loadedModel->tier > model->tier) {
+            staleModelReason = std::format("{} now describes the project less completely (L{} instead of L{}); the last model is kept and may be stale",
+                                           project::to_string(loadedModel->source), loadedModel->tier, model->tier);
+            log::warning("model reload ({}): {}", root, staleModelReason);
+            journal.add("model-kept", Json { { "reason", staleModelReason }, { "kept", model->tier }, { "offered", loadedModel->tier } });
+            reloadAt = Clock::now() + std::chrono::minutes { 5 };
+            if (reloadAfterLoad) {
+                reloadAfterLoad = false;
+                start_model_load();
+            }
+            update_status();
+            return;
+        }
         staleModelReason.clear();
         adopt_model(std::move(loadedModel), "producer");
     }
