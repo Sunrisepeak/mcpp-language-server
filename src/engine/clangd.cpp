@@ -737,6 +737,11 @@ public:
                 (void)send_(lsp::make_notification("$/cancelRequest", Json { { "id", id } }));
                 // A file whose modules are still being built is slow, not stuck: setting it aside would throw that work away.
                 if (awaitingDiagnostics_.contains(host_->client_uri(request.uri))) break;
+                // The same right after any source changed: clangd is rebuilding what the change touched,
+                // often a module this file imports, which either compiles (and the file answers again)
+                // or fails and is contained with its importers (real-project plan RP1.1, RP1.2). A
+                // timeout meanwhile says nothing about this file, so it does not count toward setting it aside.
+                if (lastSourceChangeAt_ && now - *lastSourceChangeAt_ < GENERAL_PATIENCE) break;
                 const std::string path { host_->path_of_uri(request.uri) };
                 if (path.empty()) break;
                 switch (quarantine_.timed_out(base::path_key(path), request.sent, now, lastAnswerAt_)) {
