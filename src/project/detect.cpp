@@ -19,6 +19,17 @@ std::string_view to_string(SourceKind kind) {
     return "inferred";
 }
 
+int tier_of(SourceKind kind) {
+    switch (kind) {
+    case SourceKind::build_database: return 1;
+    case SourceKind::mcpp: return 1;
+    case SourceKind::cmake: return 2;
+    case SourceKind::compile_commands: return 3;
+    case SourceKind::inferred: return 4;
+    }
+    return 4;
+}
+
 namespace {
 
 std::vector<std::string> cmake_build_directories(std::string_view root) {
