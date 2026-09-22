@@ -139,6 +139,14 @@ private:
     std::map<std::int64_t, PendingRequest> pending_;
     std::int64_t nextId_ { 1 };
     std::vector<std::pair<Json, Reply>> deferred_;   // client messages before clangd accepts traffic
+    // A request against a held_ file (robustness design C2): the comment on HeldFile says such a
+    // file "waits, answered by mcppls's own engine, until clangd has read a database that has it",
+    // and that holds for a method mcppls's own engine also answers (a fallback claims the request
+    // meanwhile). A method with no such fallback -- textDocument/references, the two hierarchies --
+    // has nothing to fall back to, so its own request must wait out the hold instead, the same way
+    // one arriving before clangd accepts traffic waits in deferred_ (real-project plan RP1.1: a
+    // transient reason is never a reason to answer as though clangd had already given up).
+    std::map<std::string, std::vector<std::pair<Json, Reply>>, std::less<>> heldRequests_;
     std::set<std::string> diagnosed_;                // client URIs clangd published diagnostics for
     std::set<std::string> awaitingDiagnostics_;      // client URIs
     std::deque<Clock::time_point> crashes_;
@@ -533,7 +541,11 @@ public:
         case DocumentChange::closed: {
             const bool wasExcluded { excluded_path_(document.path) || quarantined_(document.path) || held_path_(document.path)
                                      || doomed_path_(document.path) };
-            if (!document.path.empty()) held_.erase(base::path_key(document.path));
+            if (!document.path.empty()) {
+                const std::string key { base::path_key(document.path) };
+                held_.erase(key);
+                release_held_requests_(key, false);
+            }
             awaitingDiagnostics_.erase(document.uri);
             awaitingSince_.erase(document.uri);
             diagnosed_.erase(document.uri);
@@ -587,11 +599,13 @@ public:
     }
 
     bool claims(const RequestView& request) const override {
-        return !unavailable_ && !excluded_path_(request.path) && !quarantined_(request.path) && !held_path_(request.path)
-            && !doomed_path_(request.path);
+        // held_path_ is not checked here, the same as !accepting_ is not: both are transient, and
+        // request() below waits them out rather than refusing on this engine's behalf, so a method
+        // with no other answerer still gets clangd's answer once the file is given to it.
+        return !unavailable_ && !excluded_path_(request.path) && !quarantined_(request.path) && !doomed_path_(request.path);
     }
 
-    void request(const RequestView&, const Json& message, Reply reply) override {
+    void request(const RequestView& view, const Json& message, Reply reply) override {
         if (unavailable_) {
             reply(Answer {});
             return;
@@ -600,7 +614,26 @@ public:
             deferred_.emplace_back(message, std::move(reply));
             return;
         }
+        if (held_path_(view.path)) {
+            heldRequests_[base::path_key(view.path)].emplace_back(message, std::move(reply));
+            return;
+        }
         request_now_(message, std::move(reply));
+    }
+
+    // A held path is no longer held: its own pending requests (held there by request(), above)
+    // either go to clangd now (it is being given the file) or, when it never will be (excluded,
+    // quarantined, doomed), are answered unavailable so routing tries the next engine, exactly as
+    // if the hold had never delayed them.
+    void release_held_requests_(const std::string& key, bool toClangd) {
+        const auto pending = heldRequests_.find(key);
+        if (pending == heldRequests_.end()) return;
+        auto toFlush = std::move(pending->second);
+        heldRequests_.erase(pending);
+        for (auto& [message, reply] : toFlush) {
+            if (toClangd) request_now_(message, std::move(reply));
+            else if (reply) reply(Answer {});
+        }
     }
 
     void cancel(const Json& clientRequestId) override {
@@ -1014,7 +1047,9 @@ private:
                 const Json* params { lsp::find(message, "params") };
                 const Json* uri { params != nullptr ? lsp::find_path(*params, { "textDocument", "uri" }) : nullptr };
                 const std::string path { uri != nullptr && uri->is_string() ? host_->path_of_uri(uri->get<std::string>()) : std::string {} };
-                if (excluded_path_(path) || quarantined_(path) || held_path_(path)) {
+                if (held_path_(path)) {
+                    heldRequests_[base::path_key(path)].emplace_back(std::move(message), std::move(reply));
+                } else if (excluded_path_(path) || quarantined_(path)) {
                     if (reply) reply(Answer {});
                 } else {
                     request_now_(message, std::move(reply));
@@ -1098,6 +1133,11 @@ private:
             const std::string uri { host_->client_uri(params.value("uri", std::string {})) };
             const std::string diagnosedPath { host_->path_of_uri(uri) };
             const std::string diagnosedKey { diagnosedPath.empty() ? std::string {} : base::path_key(diagnosedPath) };
+            // A doomed file's diagnostics are mcppls's own (real-project plan RP1.1, design P1):
+            // mark_doomed_ already closed it in clangd, but a publish clangd had queued before that
+            // close can still arrive after, and would otherwise clobber the module-failed diagnostic
+            // with whatever clangd last computed for it -- usually empty, since it never got far.
+            if (!diagnosedKey.empty() && doomedFiles_.contains(diagnosedKey)) return;
             // A unit opened without the editor: its diagnostics are nobody's.
             if (const auto unit = background_.find(diagnosedKey); unit != background_.end() && !host_->has_document(uri)) {
                 if (!unit->second.built) {
@@ -1384,6 +1424,7 @@ private:
         const auto info = doomedFiles_.find(key);
         if (info == doomedFiles_.end()) return;
         held_.erase(key);   // never waits for the database either: it is answered by mcppls's own engine
+        release_held_requests_(key, false);
         for (const auto& document : host_->documents()) {
             if (document.path.empty() || base::path_key(document.path) != key) continue;
             awaitingDiagnostics_.erase(document.uri);
@@ -1516,6 +1557,7 @@ private:
         }
         held_.erase(it);
         open_in_engine_(document);
+        release_held_requests_(key, true);
     }
 
     void open_held_files_(Clock::time_point now) {
@@ -1527,6 +1569,7 @@ private:
             if (it == held_.end()) continue;
             if (excluded_.contains(key) || quarantine_.contains(key) || doomedFiles_.contains(key)) {
                 held_.erase(it);
+                release_held_requests_(key, false);
                 continue;
             }
             if (!ready_for_engine_(document.path, key, it->second, now)) continue;
@@ -1534,6 +1577,7 @@ private:
             host_->record_event("file-given-to-engine", Json { { "file", document.path } });
             open_in_engine_(document);
             prepare_imports_of_(document);
+            release_held_requests_(key, true);
         }
         release_prime_units_if_idle_();
     }

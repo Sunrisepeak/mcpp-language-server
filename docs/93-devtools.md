@@ -68,6 +68,7 @@ constants, and are the only place a platform may differ (`mcppls-devtools check 
 | Agent task benchmark, baseline and reference | `mcpp run -p devtools -- bench tasks validate` |
 | The specifications' schemas | `python3 docs/specs/tools/validate.py` — the one Python left, see [below](#what-is-not-c) |
 | Real-project stress testing, a matrix of fixtures and client profiles | `mcpp run -p devtools -- stress --payload … --fixture module-faults --client vscode --client neovim` |
+| The same, against a pinned real project this checkout carries a fixture for | `mcpp run -p devtools -- stress --payload … --project self` (`mcpp`, `xlings` or `self`; `self` is `self-mcppls`, this repository) |
 
 ### Debug
 

@@ -71,7 +71,27 @@ struct Options {
     // `mcppls-devtools stress --seed N`: overrides every stress check's own "seed", so a matrix
     // run stays reproducible without editing every fixture's scenario.json.
     std::optional<std::uint64_t> stressSeed;
+    // real-project plan RP2.1: a fixture with `"isolate-home": true` needs producer negotiation to
+    // see only its own candidates, never whatever mcpp or xlings a machine happens to have installed
+    // under the real $HOME/%USERPROFILE%. Empty until `run()` reads the scenario; once set, every
+    // process the runner starts for the server under test uses it as HOME (and USERPROFILE).
+    std::string isolatedHome;
 };
+
+// Replaces HOME (POSIX) and USERPROFILE (Windows) in a spawn's environment, so
+// `mcppls::platform::dirs::home_directory()` -- and so producer negotiation's search of
+// `<home>/.xlings/data/xpkgs` and `<home>/.mcpp/registry/data/xpkgs` (real-project plan RP2.1) --
+// sees only what the fixture itself put there. A no-op when `options.isolatedHome` is empty, which
+// is every fixture that predates it.
+void apply_isolated_home(std::vector<std::string>& environment, const Options& options) {
+    if (options.isolatedHome.empty()) return;
+    const auto isHomeVariable = [](const std::string& entry) {
+        return entry.starts_with("HOME=") || entry.starts_with("USERPROFILE=") || entry.starts_with("HOMEDRIVE=") || entry.starts_with("HOMEPATH=");
+    };
+    std::erase_if(environment, isHomeVariable);
+    environment.push_back("HOME=" + options.isolatedHome);
+    environment.push_back("USERPROFILE=" + options.isolatedHome);
+}
 
 // Whether this profile looks like a client with no `experimental.cxxModules` at all: no
 // `cxxModules/status` arrives, so status checks make no sense and standard `$/progress` is what
@@ -105,6 +125,9 @@ struct Expansion {
     std::string runnerDirectory;
     std::string payload;   // usable plan W9.4: the --payload this runner itself was given, if any
     std::string runner;    // this program, for fixtures prepared by `mcppls-conformance prepare`
+    // real-project plan RP2.1: the isolated HOME a `"isolate-home": true` fixture's own prepare
+    // step populates (e.g. with a candidate mcpp under `xim-x-mcpp/<version>/bin/`), empty otherwise.
+    std::string home;
 };
 
 // "{exe}" is the executable suffix; "{env:NAME|fallback}" is a variable or the fallback;
@@ -118,6 +141,7 @@ std::string expand(std::string word, const Expansion& expansion = {}) {
     word = base::replace_all(word, "{runner-dir}", expansion.runnerDirectory);
     word = base::replace_all(word, "{payload}", expansion.payload);
     word = base::replace_all(word, "{conformance}", expansion.runner);
+    word = base::replace_all(word, "{home}", expansion.home);
     for (std::size_t at { word.find("{env:") }; at != std::string::npos; at = word.find("{env:", at)) {
         const std::size_t close { word.find('}', at) };
         if (close == std::string::npos) break;
@@ -293,6 +317,7 @@ public:
         spawn.workDirectory = workspace;
         auto environment = mcppls::platform::env::variables();
         environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory);
+        apply_isolated_home(environment, options);
         spawn.environment = std::move(environment);
         const bool verbose { verbose_ };
         auto inbox = inbox_;
@@ -490,6 +515,7 @@ public:
         spawn.workDirectory = workspace;
         auto environment = mcppls::platform::env::variables();
         environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory);
+        apply_isolated_home(environment, options);
         spawn.environment = std::move(environment);
         const bool verbose { options.verbose };
         auto inbox = inbox_;
@@ -995,6 +1021,10 @@ public:
                 if (auto level = check.find("level"); level != check.end()) {
                     matched = matched && snapshot.value("project", Json::object()).value("level", 0) == level->get<int>();
                 }
+                // real-project plan RP3.2: `project.tier`, the README's L1..L4, distinct from `level`.
+                if (auto tier = check.find("tier"); tier != check.end()) {
+                    matched = matched && snapshot.value("project", Json::object()).value("tier", 0) == tier->get<int>();
+                }
                 if (auto issueCode = check.find("issue-code"); issueCode != check.end()) {
                     const std::string wantedCommand { check.value("issue-command", std::string {}) };
                     const std::string wantedMessage { check.value("issue-message", std::string {}) };   // a part of the message
@@ -1102,6 +1132,7 @@ public:
             spawn.workDirectory = workspace_;
             auto environment = mcppls::platform::env::variables();
             environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory_);
+            apply_isolated_home(environment, options_);
             spawn.environment = std::move(environment);
             auto running = std::async(std::launch::async, [spawn, timeout = timeout_]() mutable { return mcppls::platform::run(std::move(spawn), timeout); });
             while (running.wait_for(std::chrono::milliseconds { 200 }) != std::future_status::ready) client_.drain(std::chrono::milliseconds { 0 });
@@ -1382,7 +1413,7 @@ public:
             return { ok, result.is_object() ? lsp::dump(result).substr(0, 160) : std::string { "no response" } };
         }
         if (kind == "stress") {
-            // Real-project stress testing (design 2026-09-22, Workstream A): seeded random use.
+            // Real-project stress testing (real-project plan RP0): seeded random use.
             // Files matching "files" are opened, some in quick succession without waiting for an
             // answer; at random identifier positions one of hover/definition/references/completion/
             // documentSymbol is asked. Per method: answered (a non-empty result), empty (a
@@ -1522,7 +1553,7 @@ public:
     }
 };
 
-int run(const Options& options) {
+int run(Options options) {
     const std::string scenarioPath { base::join_path(options.fixture, "scenario.json") };
     auto scenarioText = fs::read_file(scenarioPath);
     if (!scenarioText) {
@@ -1558,7 +1589,16 @@ int run(const Options& options) {
     say("fixture {} in {}{}", name, workspace, alreadyPrepared ? " (prepared before)" : "");
 
     const std::string self { absolute(mcppls::platform::env::arguments().front()) };
-    Expansion expansion { workspace, base::parent_path(self), options.payload, self };
+    // real-project plan RP2.1: an isolated HOME so producer negotiation
+    // (`mcppls::project::other_mcpp_executables`) sees only candidates this fixture put there,
+    // never a real mcpp or xlings install on the host or CI runner running the fixture.
+    std::string isolatedHome;
+    if (scenario.value("isolate-home", false)) {
+        isolatedHome = base::join_path(workspace, ".home");
+        (void)fs::create_directories(isolatedHome);
+        options.isolatedHome = isolatedHome;
+    }
+    Expansion expansion { workspace, base::parent_path(self), options.payload, self, isolatedHome };
     std::optional<std::vector<std::string>> prepareEnvironment;
     if (scenario.value("prepare-environment", std::string {}) == "msvc") {
         if (options.msvcEnvironment.empty()) {
@@ -1957,13 +1997,155 @@ int prepare_generated_module_compdb(const std::string& compiler) {
     return 0;
 }
 
+// real-project plan RP2.1: a second, newer mock mcpp under a fixture's isolated HOME
+// (`"isolate-home": true`), at the path producer negotiation searches
+// (`mcppls::project::other_mcpp_executables`, `xim-x-mcpp/<version>/bin/mcpp`), so a fixture whose
+// project mcpp cannot answer `emit build-database` (`mcpp-mock.json`'s `oldProtocol`) can prove
+// negotiation finds and uses a working one instead of falling back to `compile_commands.json`. Its
+// own `mcpp-mock.json`, beside it (mockmcpp reads a config beside its own executable when a
+// fixture put one there, since a negotiated candidate still runs with the project's own directory
+// as its cwd), describes the same generated-package/sibling-module project as generated-module,
+// with the compiler this prepare step resolves itself: prepare steps run in the real environment,
+// never the isolated one the server sees, so a path baked in now still exists once the server asks.
+int prepare_producer_candidate(const std::string& home) {
+    if (home.empty() || !fs::is_directory(home)) {
+        say("producer-candidate: pass the fixture's isolated home (the {{home}} placeholder needs \"isolate-home\": true)");
+        return 1;
+    }
+    const std::string root { fs::current_directory() };
+    auto clangxx = on_path(mcppls::platform::env::get("CONFORMANCE_CLANGXX").value_or("clang++"));
+    if (!clangxx) {
+        say("producer-candidate: clang++ is not on PATH");
+        return 1;
+    }
+    const std::string self { absolute(mcppls::platform::env::arguments().front()) };
+    const std::string mock { base::join_path(base::parent_path(self), "mcppls-mock-mcpp") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+    auto mockContent = fs::read_file(mock);
+    if (!mockContent) {
+        say("producer-candidate: {} is not built (needs mcppls-mock-mcpp beside mcppls-conformance)", mock);
+        return 1;
+    }
+    const std::string binaryDirectory { base::join_path(home, ".xlings/data/xpkgs/xim-x-mcpp/9999.0.0/bin") };
+    (void)fs::create_directories(binaryDirectory);
+    const std::string binaryPath { base::join_path(binaryDirectory, "mcpp") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+    if (auto written = fs::write_file(binaryPath, *mockContent); !written) {
+        say("producer-candidate: {}", written.error().message);
+        return 1;
+    }
+    if (auto marked = fs::make_executable(std::vector<std::string> { binaryPath }); !marked) {
+        say("producer-candidate: {}", marked.error().message);
+        return 1;
+    }
+    auto at = [&](std::string_view relative) { return native(base::join_path(root, relative)); };
+    const std::string consumer { at("src/consumer.cppm") };
+    const std::string main { at("src/main.cpp") };
+    const std::string generated { at("target/.build-mcpp/deps/xpkg@1.0.0/out/xpkg_lua_stdlib.cppm") };
+    auto translation_unit = [&](const std::string& source, std::string_view role, Json provides, Json requires_) {
+        return Json { { "source", source }, { "work-directory", native(root) },
+                      { "arguments", Json::array({ *clangxx, "-std=c++23", "-c", source, "-o", source + ".o" }) },
+                      { "local-arguments", Json::array() }, { "object", source + ".o" },
+                      { "provides", std::move(provides) }, { "requires", std::move(requires_) },
+                      { "private", false }, { "ide", { { "role", role } } } };
+    };
+    const Json database {
+        { "version", 1 }, { "revision", 0 },
+        { "ide", { { "profile-version", "0.2.0" }, { "generator", { { "name", "mcpp" }, { "version", "9999.0.0" } } },
+                   { "toolchains", { { "candidate", { { "family", "clang" }, { "version", "22" }, { "driver", *clangxx },
+                                                       { "target", "x86_64-unknown-linux-gnu" } } } } } } },
+        { "sets", Json::array({
+            Json { { "name", "app" }, { "family-name", "app" },
+                   { "ide", { { "toolchain", "candidate" }, { "configuration", "dev" }, { "kind", "executable" } } },
+                   { "baseline-arguments", Json::array({ "-std=c++23" }) }, { "visible-sets", Json::array({ "xpkg" }) },
+                   { "translation-units", Json::array({
+                       translation_unit(consumer, "module-interface", Json { { "app.consumer", "" } }, Json::array({ "xpkg.lua_stdlib" })),
+                       translation_unit(main, "non-module", Json::object(), Json::array({ "app.consumer", "xpkg.lua_stdlib" })) }) } },
+            Json { { "name", "xpkg" }, { "family-name", "xpkg" },
+                   { "ide", { { "toolchain", "candidate" }, { "configuration", "dev" }, { "kind", "library" } } },
+                   { "baseline-arguments", Json::array({ "-std=c++23" }) }, { "visible-sets", Json::array({ "app" }) },
+                   { "translation-units", Json::array({ translation_unit(generated, "module-interface", Json { { "xpkg.lua_stdlib", "" } }, Json::array()) }) } },
+        }) },
+    };
+    const Json config { { "database", database }, { "watch", Json::array({ "mcpp.toml", "src/**/*.cppm", "src/**/*.cpp" }) } };
+    if (auto written = fs::write_file(base::join_path(binaryDirectory, "mcpp-mock.json"), config.dump(2)); !written) {
+        say("producer-candidate: {}", written.error().message);
+        return 1;
+    }
+    return 0;
+}
+
+// real-project plan RP1.1/RP1.3: a straight import chain of `argument` modules (default 100),
+// gen.chain0 through gen.chain<count-1>, whose base (gen.chain0) does not compile -- an undeclared
+// name, the same shape as module-faults' broken.e, at the scale a real dependency's failure
+// closure reaches (the plan's own measurement: totals grew from 21 to 101 preparing a single
+// failed package). A plain importer of the chain's last module (never a unit of gen itself, the
+// way xlings' main.cpp imported mcpplibs.xpkg.executor) and two modules entirely outside the chain
+// prove the closure stays where it is at this scale: outside files keep answering, the importer is
+// answered by mcppls's own engine at once, and nothing restarts clangd or keeps priming a module
+// already known to be doomed.
+int prepare_failure_at_base(const std::string& argument) {
+    int count { 100 };
+    if (!argument.empty()) {
+        try {
+            count = std::max(2, std::stoi(argument));
+        } catch (...) {
+            say("failure-at-base: {} is not a module count", argument);
+            return 1;
+        }
+    }
+    const std::string root { fs::current_directory() };
+    (void)fs::create_directories(base::join_path(root, "src/gen"));
+    (void)fs::create_directories(base::join_path(root, "src/healthy"));
+    for (int i { 0 }; i < count; ++i) {
+        const std::string body { i == 0
+            ? std::format("// The base of a {}-module import chain (real-project plan RP1.1): fails to compile,\n"
+                          "// the same shape as module-faults' broken.e, at the scale a real dependency's\n"
+                          "// failure closure reaches.\n"
+                          "export module gen.chain0;\n\n"
+                          "export int chain0() {{ return undeclared_base_symbol; }}\n", count)
+            : std::format("export module gen.chain{0};\nimport gen.chain{1};\n\nexport int chain{0}() {{ return chain{1}() + 1; }}\n",
+                          i, i - 1) };
+        if (auto written = fs::write_file(base::join_path(root, std::format("src/gen/chain{}.cppm", i)), body); !written) {
+            say("failure-at-base: {}", written.error().message);
+            return 1;
+        }
+    }
+    const std::string importer { std::format(
+        "// A plain importer of the chain's last module, never a unit of gen itself: the way xlings'\n"
+        "// main.cpp imported mcpplibs.xpkg.executor in the incident this fixture is named for (real-project\n"
+        "// plan RP1.1).\n"
+        "import gen.chain{0};\n\n"
+        "int use_chain() {{ return chain{0}(); }}\n", count - 1) };
+    if (auto written = fs::write_file(base::join_path(root, "src/gen-importer.cpp"), importer); !written) {
+        say("failure-at-base: {}", written.error().message);
+        return 1;
+    }
+    static constexpr std::string_view HEALTHY_A {
+        "// Outside the failed closure entirely (real-project plan RP1.1): answers normally throughout.\n"
+        "export module healthy.a;\n\n"
+        "export int healthyValue() { return 7; }\n" };
+    static constexpr std::string_view HEALTHY_B {
+        "import healthy.a;\n\n"
+        "int healthyUser() { return healthyValue() * 2; }\n" };
+    if (auto written = fs::write_file(base::join_path(root, "src/healthy/a.cppm"), std::string { HEALTHY_A }); !written) {
+        say("failure-at-base: {}", written.error().message);
+        return 1;
+    }
+    if (auto written = fs::write_file(base::join_path(root, "src/healthy/b.cpp"), std::string { HEALTHY_B }); !written) {
+        say("failure-at-base: {}", written.error().message);
+        return 1;
+    }
+    return 0;
+}
+
 int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "s1-two-sets") return prepare_s1_two_sets(argument);
     if (kind == "payload-corrupt") return prepare_payload_corrupt(argument);
+    if (kind == "producer-candidate") return prepare_producer_candidate(argument);
+    if (kind == "failure-at-base") return prepare_failure_at_base(argument);
     if (kind == "compdb-clang-cl-std") return prepare_compdb_msvc_std(true);
     if (kind == "compdb-clangxx-msvc-std") return prepare_compdb_msvc_std(false);
     if (kind == "generated-module-old-mcpp") return prepare_generated_module_compdb(argument);
-    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp)", kind);
+    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp)", kind);
     return 2;
 }
 

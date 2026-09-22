@@ -213,6 +213,17 @@ jobs:
             exit 1
           fi
           { echo '```json'; cat "$RUNNER_TEMP/self/self-mcpp.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      # Real-project plan RP0/RP3.4: this repository's own conformance, at a fixed commit.
+      - name: mcppls on its own repository, timed
+        run: |
+          set -euo pipefail
+          if ! stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture conformance/fixtures/self-mcppls \
+                --timeout 900 --measure "$RUNNER_TEMP/self/self-mcppls.json"; then
+            stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture conformance/fixtures/self-mcppls \
+                --timeout 300 --verbose 2>&1 | tail -300 || true
+            exit 1
+          fi
+          { echo '```json'; cat "$RUNNER_TEMP/self/self-mcppls.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         if: always()
         with:

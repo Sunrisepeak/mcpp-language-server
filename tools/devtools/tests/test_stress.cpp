@@ -1,4 +1,4 @@
-// Real-project stress testing (design 2026-09-22, Workstream A): the devtools `stress` command's
+// Real-project stress testing (real-project plan RP0): the devtools `stress` command's
 // matrix, row-extraction and rendering logic, without running a real server (that is proven by
 // running the command itself against a payload, which a unit test cannot assume it has).
 import std;

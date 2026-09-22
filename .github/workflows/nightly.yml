@@ -117,6 +117,8 @@ jobs:
       matrix:
         include:
           - { fixture: self-mcpp,     platform: linux-x64,    os: ubuntu-24.04 }
+          # This repository's own conformance: real-project plan RP0/RP3.4's acceptance evidence.
+          - { fixture: self-mcppls,   platform: linux-x64,    os: ubuntu-24.04 }
     defaults:
       run:
         shell: bash
