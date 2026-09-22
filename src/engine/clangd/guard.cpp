@@ -21,6 +21,23 @@ std::size_t RestartGate::recent(GuardClock::time_point now) const {
     return static_cast<std::size_t>(std::ranges::count_if(restarts_, [&](GuardClock::time_point at) { return now - at <= WINDOW; }));
 }
 
+bool RestartGate::at_cap(GuardClock::time_point now) const { return recent(now) >= MAX_RESTARTS_PER_WINDOW; }
+
+std::set<std::string> doomed_modules(const std::map<std::string, std::vector<std::string>, std::less<>>& requires_, std::string_view failed) {
+    std::set<std::string> doomed { std::string { failed } };
+    for (bool changed { true }; changed;) {
+        changed = false;
+        for (const auto& [module, imports] : requires_) {
+            if (doomed.contains(module)) continue;
+            if (std::ranges::any_of(imports, [&](const std::string& imported) { return doomed.contains(imported); })) {
+                doomed.insert(module);
+                changed = true;
+            }
+        }
+    }
+    return doomed;
+}
+
 Quarantine::Verdict Quarantine::timed_out(std::string_view uri, GuardClock::time_point sent, GuardClock::time_point now,
                                          std::optional<GuardClock::time_point> lastAnswer) {
     while (!unanswered_.empty() && now - std::get<0>(unanswered_.front()) > STALL_WINDOW) unanswered_.pop_front();

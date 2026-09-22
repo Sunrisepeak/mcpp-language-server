@@ -3,6 +3,7 @@ import std;
 import nlohmann.json;
 import mcppls.testing;
 import mcppls.base.error;
+import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.sha256;
 import mcppls.base.text;
@@ -548,6 +549,77 @@ int main() {
         const auto next = primer.start_ready();
         expect(fatal(next.size() == 1u));
         expect(next.front()->name == "z-root") << next.front()->name;
+    };
+
+    "a module that fails to compile dooms everything that imports it, transitively"_test = [] {
+        const std::map<std::string, std::vector<std::string>, std::less<>> requires_ {
+            { "std", {} },
+            { "leaf", { "std" } },                          // does not import the failed module: safe
+            { "xpkg.core", { "std" } },                     // the module that fails
+            { "xpkg.executor", { "xpkg.core" } },            // imports it directly
+            { "app", { "xpkg.executor" } },                 // imports it transitively, through app's own module
+        };
+        const auto doomed = cld::doomed_modules(requires_, "xpkg.core");
+        expect(doomed.size() == 3u) << doomed.size();
+        expect(doomed.contains("xpkg.core") && doomed.contains("xpkg.executor") && doomed.contains("app"));
+        expect(!doomed.contains("leaf") && !doomed.contains("std")) << "a fault only affects where it is";
+    };
+
+    "a doomed module is resolved at once and never primed again"_test = [] {
+        using State = cld::Primer::State;
+        cld::Primer primer;
+        primer.set_limit(4);
+        primer.set_modules({
+            { "std", {}, "/prime/std.cpp" },
+            { "xpkg.core", { "std" }, "/prime/core.cpp" },
+            { "app", { "xpkg.core" }, "/prime/app.cpp" },
+        });
+        const std::vector<std::string> wanted { "app" };
+        expect(primer.want(wanted) == 3u);
+        const auto started = primer.start_ready();
+        expect(fatal(started.size() == 1u));
+        expect(started.front()->name == "std");
+        primer.finish("std");
+        const auto coreStarted = primer.start_ready();
+        expect(fatal(coreStarted.size() == 1u));
+        expect(coreStarted.front()->name == "xpkg.core");
+        expect(primer.running() == 1u);
+        // clangd reported xpkg.core could not be built while it was still running: abandoning it
+        // resolves it at once, so app is not blocked on a module known to be doomed.
+        primer.abandon(std::vector<std::string> { "xpkg.core" });
+        expect(primer.state("xpkg.core") == State::done && primer.running() == 0u);
+        const auto next = primer.start_ready();
+        expect(fatal(next.size() == 1u));
+        expect(next.front()->name == "app") << "app may proceed once xpkg.core is resolved, however it resolved";
+        // A graph reset (as after an engine restart) puts xpkg.core back to unwanted; abandoning it
+        // again resolves it before anything asks for it, so it is never retried like an ordinary module.
+        primer.reset();
+        expect(primer.state("xpkg.core") == State::unwanted);
+        primer.abandon(std::vector<std::string> { "xpkg.core" });
+        expect(primer.state("xpkg.core") == State::done);
+        expect(primer.want(wanted) == 1u) << "app is wanted; the traversal stops at xpkg.core, already resolved";
+        expect(primer.state("app") == State::waiting && primer.state("std") == State::unwanted);
+    };
+
+    "restarts are capped, not merely spaced out"_test = [] {
+        using namespace std::chrono_literals;
+        cld::RestartGate gate;
+        const auto t0 = cld::GuardClock::now();
+        expect(!gate.at_cap(t0));
+        gate.record(t0);
+        gate.record(t0 + 1min);
+        expect(!gate.at_cap(t0 + 2min)) << "two restarts in the window is not the cap yet";
+        gate.record(t0 + 2min);
+        expect(gate.at_cap(t0 + 3min)) << "a third restart within ten minutes reaches it";
+        expect(!gate.at_cap(t0 + 11min)) << "the window ages out";
+    };
+
+    "clangd's log lines are forwarded at clangd's own severity"_test = [] {
+        expect(cld::clangd_log_level("E[10:31:02.123] Failed to build module greet") == mcppls::base::log::Level::warning);
+        expect(cld::clangd_log_level("I[10:31:02.123] Loaded compilation database") == mcppls::base::log::Level::debug);
+        expect(cld::clangd_log_level("V[10:31:02.123] <-- textDocument/didOpen") == mcppls::base::log::Level::debug);
+        expect(cld::clangd_log_level("D[10:31:02.123] some debug detail") == mcppls::base::log::Level::debug);
+        expect(cld::clangd_log_level("a continuation line with no prefix at all") == mcppls::base::log::Level::info);
     };
 
     "the clangd traits table is keyed by version"_test = [] {
