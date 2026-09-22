@@ -21,9 +21,11 @@ findings and the plan are in `.agents/docs/2026-09-22-real-project-experience.md
   not prepared or sent to clangd again until the failed module's own source or command changes.
   Everything else keeps clangd.
 - A module that does not compile is never a reason to restart clangd, nor is a file clangd is slow
-  on while it rebuilds after an edit (the restart waits until the edit is two minutes old and is
-  still needed); restarts are capped at three in ten minutes (`engine-restart-capped`), and modules
-  known to fail are not prepared again after one.
+  on while it rebuilds after a change to that file or to a module it imports (the restart waits
+  until that change is two minutes old and is still needed); an edit elsewhere in the project does
+  not excuse it, and clangd answering nobody is contained whatever was edited. Restarts are capped
+  at three in ten minutes (`engine-restart-capped`), and modules known to fail are not prepared
+  again after one.
 - Every request is answered: one a person waits for (hover, definition, completion and the like)
   waits for clangd at most 30 s in all, whether clangd is starting, the file is waiting for its
   database, or its modules are being prepared, and is then answered by mcppls's own engine. Before,

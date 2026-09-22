@@ -803,16 +803,19 @@ public:
                 // Nor is one clangd had for less than its own timeout, because the request spent the rest of its limit
                 // waiting before it was sent (wait_limit).
                 if (now - request.sent < own_timeout_(request.method)) break;
-                // The same right after any source changed: clangd is rebuilding what the change touched,
-                // often a module this file imports, which either compiles (and the file answers again)
-                // or fails and is contained with its importers (real-project plan RP1.1, RP1.2). A
-                // timeout meanwhile says nothing about this file, so it does not count toward setting it aside.
-                if (lastSourceChangeAt_ && now - *lastSourceChangeAt_ < GENERAL_PATIENCE) break;
                 const std::string path { host_->path_of_uri(request.uri) };
                 if (path.empty()) break;
                 switch (quarantine_.timed_out(base::path_key(path), request.sent, now, lastAnswerAt_)) {
                 case Quarantine::Verdict::wait: break;
-                case Quarantine::Verdict::quarantined: set_aside_(path, "it stopped answering its requests", Reclaim::if_busy); break;
+                case Quarantine::Verdict::quarantined:
+                    // Just after this file, or a source of a module it imports, changed: clangd is rebuilding
+                    // what the change touched, which either compiles (and the file answers again) or fails and
+                    // is contained with its importers (real-project plan RP1.1, RP1.2). A timeout meanwhile says
+                    // nothing about this file. An edit elsewhere is no excuse, and none of this applies to
+                    // clangd answering nobody (below), which no edit explains.
+                    if (changed_recently_(path, now)) break;
+                    set_aside_(path, "it stopped answering its requests", Reclaim::if_busy);
+                    break;
                 case Quarantine::Verdict::stalled: stalled = true; break;
                 }
                 break;
@@ -1412,6 +1415,22 @@ private:
 
     bool doomed_path_(std::string_view path) const { return !path.empty() && doomedFiles_.contains(base::path_key(path)); }
 
+    // Whether the file itself, or a source of any module it imports (transitively), changed within
+    // GENERAL_PATIENCE: what clangd is busy with is then this change, not this file being stuck.
+    bool changed_recently_(std::string_view path, Clock::time_point now) const {
+        const auto touched = [&](std::string_view file) {
+            const auto at = touchedAt_.find(base::path_key(file));
+            return at != touchedAt_.end() && now - at->second < GENERAL_PATIENCE;
+        };
+        if (touched(path)) return true;
+        for (const auto& module : host_->imports_of(path)) {
+            for (const auto& source : closure_sources_(module)) {
+                if (touched(source)) return true;
+            }
+        }
+        return false;
+    }
+
     // A doom root whose unit or command is no longer what it was when clangd reported it failed is
     // forgotten (same rule as forget_changed_unresolved_), so the next attempt goes to clangd again.
     // The sources of `module` and of every module it imports, directly or not: what its compile read.
@@ -1642,9 +1661,9 @@ private:
             // touched -- a module this file imports, one that may be about to fail and be contained
             // (real-project plan RP1.2). A restart would throw that work away and start it again;
             // the file stays aside, and a restart is considered only once the edit is not recent.
-            if (lastSourceChangeAt_ && Clock::now() - *lastSourceChangeAt_ < GENERAL_PATIENCE) {
+            if (changed_recently_(path, Clock::now())) {
                 log::info("not restarting clangd ({}) for {} yet: it is rebuilding after a source changed", host_->root_directory(), base::file_name(path));
-                host_->record_event("restart-deferred", Json { { "file", path }, { "why", "a source changed recently" } });
+                host_->record_event("restart-deferred", Json { { "file", path }, { "why", "a source it needs changed recently" } });
                 deferredReclaims_.insert_or_assign(key, path);
                 return;
             }
@@ -1652,15 +1671,19 @@ private:
         }
     }
 
-    // A restart put off because a source had just changed: once no source has changed for
-    // GENERAL_PATIENCE, a file still aside that clangd is still working on is what it was set aside
-    // for in the first place (experiment S17's spin), and the restart goes ahead.
+    // A restart put off because a source the file needs had just changed: once that is no longer
+    // recent, a file still aside that clangd is still working on is what it was set aside for in the
+    // first place (experiment S17's spin), and the restart goes ahead.
     void reconsider_deferred_reclaims_(Clock::time_point now) {
-        if (deferredReclaims_.empty() || !lastSourceChangeAt_ || now - *lastSourceChangeAt_ < GENERAL_PATIENCE) return;
+        if (deferredReclaims_.empty() || !accepting_) return;
         auto deferred = std::move(deferredReclaims_);
         deferredReclaims_.clear();
         for (const auto& [key, path] : deferred) {
-            if (!aside_.contains(key) || !accepting_) continue;
+            if (!aside_.contains(key)) continue;
+            if (changed_recently_(path, now)) {
+                deferredReclaims_.insert_or_assign(key, path);   // still rebuilding what changed
+                continue;
+            }
             std::optional<std::string> state;
             for (const auto& document : host_->documents()) {
                 if (document.path.empty() || base::path_key(document.path) != key) continue;

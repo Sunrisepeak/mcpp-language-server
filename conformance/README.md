@@ -177,7 +177,9 @@ matching `"files"` (glob, default `["src/**/*.cppm", "src/**/*.cpp"]`) are opene
 succession, without waiting for an answer — and at random identifier positions one of hover,
 definition, references, completion or documentSymbol is asked, for `"actions"` rounds (default 60)
 seeded by `"seed"` (default 1: the same seed always produces the same sequence of files, positions
-and methods). `"requestTimeout"` (default 10s) bounds each request. Its `"detail"`, and the
+and methods). `"requestTimeout"` (default 10s) bounds each request; a check whose budget allows no timeout at all
+sets it above the server's own request limit (60s), so a timeout there means the server itself never
+answered, while `"p90"` and `"maxStallSeconds"` carry how fast it did. Its `"detail"`, and the
 combined `--measure` JSON's matching entry, carry:
 
 ```json
