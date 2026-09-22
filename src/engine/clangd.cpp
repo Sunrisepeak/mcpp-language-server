@@ -233,6 +233,7 @@ private:
         Reply reply;
         std::set<std::string> waitingFor;   // path keys
         Clock::time_point deadline;
+        Clock::time_point limit;            // the client's request's own limit (wait_limit), which the search stays within
     };
     std::vector<DefinitionSearch> searches_;
 
@@ -1056,7 +1057,7 @@ private:
         const Json& id { message["id"] };
         const std::string method { message.value("method", std::string {}) };
         if (searchDefinitions && method == lsp::method::TEXT_DOCUMENT_DEFINITION && !moduleUnits_.empty()) {
-            reply = [this, message, reply = std::move(reply)](Answer answer) mutable { search_definition_(message, std::move(answer), std::move(reply)); };
+            reply = [this, message, limit, reply = std::move(reply)](Answer answer) mutable { search_definition_(message, std::move(answer), std::move(reply), limit); };
         }
         const Json* params { lsp::find(message, "params") };
         const Json* uri { params != nullptr ? lsp::find_path(*params, { "textDocument", "uri" }) : nullptr };
@@ -1835,7 +1836,9 @@ private:
 
     // clangd's answer to a definition request. When every location it gives is a declaration only, in a module's interface,
     // the module's other units are built and the question asked again.
-    void search_definition_(const Json& message, Answer answer, Reply reply) {
+    // `limit` is the client's request's own (wait_limit): the search for definitions in units clangd has
+    // not built yet waits within it, never past it.
+    void search_definition_(const Json& message, Answer answer, Reply reply, Clock::time_point limit) {
         if (answer.kind != Answer::Kind::result || !accepting_) {
             reply(std::move(answer));
             return;
@@ -1888,7 +1891,8 @@ private:
             return;
         }
         if (!opened.empty()) host_->record_event("definition-search", Json { { "modules", Json(std::vector<std::string> { modules.begin(), modules.end() }) }, { "opened", opened } });
-        searches_.push_back(DefinitionSearch { message, std::move(answer.value), std::move(reply), std::move(waiting), now + DEFINITION_PATIENCE });
+        searches_.push_back(DefinitionSearch { message, std::move(answer.value), std::move(reply), std::move(waiting),
+                                              std::min(now + DEFINITION_PATIENCE, limit), limit });
     }
 
     std::optional<std::string> editor_uri_of_(std::string_view key) const {
@@ -1964,13 +1968,13 @@ private:
             search.reply(Answer { Answer::Kind::result, std::move(search.firstAnswer) });
             return;
         }
-        // Asked again, not waiting: a limit of its own, and clangd's first answer if this one finds nothing.
-        const auto limit = wait_limit(search.message.value("method", std::string {}), options_.requestTimeout, Clock::now());
+        // Asked again within the client's own limit, with clangd's first answer if this one finds nothing
+        // (including when nothing of the limit is left: request_now_ answers unavailable at once).
         request_now_(search.message, [first = std::move(search.firstAnswer), reply = std::move(search.reply)](Answer answer) mutable {
             const bool found { answer.kind == Answer::Kind::result && !answer.value.is_null() && !(answer.value.is_array() && answer.value.empty()) };
             if (found) reply(std::move(answer));
             else reply(Answer { Answer::Kind::result, std::move(first) });
-        }, limit, false);
+        }, search.limit, false);
     }
 
     // Searches get what clangd answered first, as when it stops.
