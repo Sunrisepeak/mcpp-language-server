@@ -39,6 +39,10 @@ mcpp run -p devtools -- uninstall --editor vscode|zed|clion|all   # 卸载
 
 Zed 自带 C/C++ 的 clangd，两个都跑在同一个文件上，就成了两个引擎回答同一个问题，所以要把 mcppls 排在前面：`"languages": {"C++": {"language_servers": ["mcppls", "!clangd"]}}`。mcppls 会自己启动 clangd，并带上一份 clangd 本来不会有的模块数据库。
 
+## Neovim
+
+[`editors/nvim/`](../../editors/nvim/README.md) 里的插件（Neovim 0.10 及以上）会找到 `mcppls`——PATH 上的，或者 `--install` 放在用户数据目录下的 payload——然后通过 Neovim 自带的 LSP 客户端，为 C 和 C++ buffer 启动它。把 `editors/nvim` 加进 runtimepath，调用 `require('mcppls').setup()` 即可；0.11 及以上也可以用 `vim.lsp.enable('mcppls')`。插件提供 `:McpplsStatus`、`:McpplsRestart`、`:McpplsReload` 三个命令和一个状态栏组件。不要再为 C/C++ 另外启动 clangd：如果有第二个 C++ 服务器挂到同一个 buffer 上，插件会提示一次。
+
 ## CLion
 
 [`editors/clion/`](../../editors/clion/README.md) 里的插件通过 IntelliJ 平台的 LSP API 注册 mcppls。

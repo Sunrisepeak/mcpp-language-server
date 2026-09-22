@@ -58,6 +58,15 @@ Zed ships clangd for C and C++, and running both over one file means two engines
 question, so put mcppls first: `"languages": {"C++": {"language_servers": ["mcppls", "!clangd"]}}`.
 mcppls starts clangd itself with a module database clangd would not otherwise have.
 
+## Neovim
+
+The plugin at [`editors/nvim/`](../editors/nvim/README.md) (Neovim 0.10 or later) finds `mcppls` —
+on PATH, or the payload `--install` puts in the user data directory — and starts it for C and C++
+buffers through Neovim's own LSP client. Put `editors/nvim` on the runtimepath and call
+`require('mcppls').setup()`; on 0.11 and later `vim.lsp.enable('mcppls')` works too. It adds
+`:McpplsStatus`, `:McpplsRestart`, `:McpplsReload` and a statusline component. Do not also start
+clangd for C and C++: the plugin names a second C++ server once if one attaches.
+
 ## CLion
 
 The plugin at [`editors/clion/`](../editors/clion/README.md) registers mcppls through the IntelliJ

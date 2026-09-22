@@ -7,6 +7,16 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [Unreleased]
+
+### Editors
+
+- Neovim: a Lua plugin in `editors/nvim` (Neovim 0.10 or later) that starts mcppls for C and C++
+  buffers through Neovim's own LSP client, by `require('mcppls').setup()` or, on 0.11 and later,
+  `vim.lsp.enable('mcppls')`; `:McpplsStatus`, `:McpplsRestart`, `:McpplsReload`, a statusline
+  component, and a one-time warning when clangd or ccls attaches beside it. CI runs it on Neovim
+  0.10.4, 0.11.5 and 0.12.5 on Linux, and 0.10.4 and 0.12.5 on macOS and Windows.
+
 ## [0.0.1] — 2026-09-22
 
 The first public release. Every artifact is a file on the GitHub release page; its `MANIFEST.md` says

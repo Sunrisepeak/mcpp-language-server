@@ -31,6 +31,7 @@ segment is `sunrisepeak`, the product segment is the short name.
 | Zed | `mcppls` | C++ Modules Language Server | Zed extension ids are flat, so the short name is the id |
 | CLion / IntelliJ | `io.github.sunrisepeak.mcppls` | C++ Modules Language Server | JetBrains wants reverse-DNS; `io.github.<user>` is the form for a personal project |
 | Claude Code | `mcppls-lsp` in marketplace `mcppls` | C++ Modules Language Server | A plugin inside this repository's own marketplace file |
+| Neovim | Lua module `mcppls`, LSP config `mcppls` | — | `require('mcppls')` and `vim.lsp.enable('mcppls')`; a plugin has no display name |
 
 Settings and commands are `mcppls.*` in every editor that has them, so one name answers "what is
 this called" across the product.
