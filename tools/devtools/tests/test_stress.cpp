@@ -62,12 +62,15 @@ int main() {
         expect(row->empty == 1) << row->empty;
         expect(row->timeout == 1) << row->timeout;
         expect(row->error == 1) << row->error;
-        expect(row->p90 == 0.42);
-        expect(row->maxStallSeconds == 1.5);
+        // Through a JSON dump and parse: a decimal like 0.42 need not come back as the very same double
+        // on every platform, so values are compared to a tolerance, not for identity.
+        const auto near = [](double a, double b) { return std::abs(a - b) < 1e-9; };
+        expect(near(row->p90, 0.42)) << row->p90;
+        expect(near(row->maxStallSeconds, 1.5));
         expect(fatal(row->cpuSeconds.has_value()));
-        expect(*row->cpuSeconds == 3.2);
+        expect(near(*row->cpuSeconds, 3.2)) << *row->cpuSeconds;
         expect(fatal(row->rssMB.has_value()));
-        expect(*row->rssMB == 128.5);
+        expect(near(*row->rssMB, 128.5));
     };
 
     "extract_row fails on a measure document with no stress check, or none at all"_test = [&] {
