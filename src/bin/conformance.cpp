@@ -2013,7 +2013,10 @@ int prepare_producer_candidate(const std::string& home) {
         return 1;
     }
     const std::string root { fs::current_directory() };
-    auto clangxx = on_path(mcppls::platform::env::get("CONFORMANCE_CLANGXX").value_or("clang++"));
+    // As {env:CONFORMANCE_CLANGXX|clang++} expands in a scenario: an empty variable is an unset one
+    // (CI sets it to "" where the runner's own clang++ is meant).
+    const auto configured = mcppls::platform::env::get("CONFORMANCE_CLANGXX");
+    auto clangxx = on_path(configured && !configured->empty() ? *configured : std::string { "clang++" });
     if (!clangxx) {
         say("producer-candidate: clang++ is not on PATH");
         return 1;

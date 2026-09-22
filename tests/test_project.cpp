@@ -2,6 +2,7 @@
 import std;
 import mcppls.testing;
 import nlohmann.json;
+import mcppls.os;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.platform.fs;
@@ -612,9 +613,9 @@ version = "1"
     "other mcpp executables are found newest first, and the resolved one is excluded"_test = [] {
         const std::string home { make_root("mcpp-store") };
         for (std::string_view version : { "2026.8.8.4", "2026.9.21.3", "2026.9.9.1" }) {
-            write(home, std::format(".xlings/data/xpkgs/xim-x-mcpp/{}/bin/mcpp", version), "#!/bin/sh\n");
+            write(home, std::format(".xlings/data/xpkgs/xim-x-mcpp/{}/bin/mcpp{}", version, mcppls::os::EXECUTABLE_SUFFIX), "#!/bin/sh\n");
         }
-        const std::string resolved { b::join_path(home, ".xlings/data/xpkgs/xim-x-mcpp/2026.8.8.4/bin/mcpp") };
+        const std::string resolved { b::join_path(home, std::format(".xlings/data/xpkgs/xim-x-mcpp/2026.8.8.4/bin/mcpp{}", mcppls::os::EXECUTABLE_SUFFIX)) };
         const auto others = p::other_mcpp_executables(resolved, home);
         expect(fatal(others.size() == 2u)) << others.size();
         expect(others.front().contains("2026.9.21.3")) << others.front();
