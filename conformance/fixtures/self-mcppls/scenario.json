@@ -1,0 +1,19 @@
+{
+  "name": "self-mcppls",
+  "description": "Real-project plan RP0/RP3.4: mcpp-language-server's own repository at a fixed commit (5e4bdec, the tip before the real-project plan's own work landed), built by its own mcpp.toml, about 90 modules. The measured baseline (the real-project plan itself) is ready quickly, then degraded from unresolved and ambiguous modules the conformance fixtures under conformance/fixtures introduce into the workspace's own model (RP3.4 is the fix; this fixture is the acceptance evidence for it, run against whatever the server currently does). Nightly and pre-release.",
+  "prepare": [
+    ["git", "init", "-q"],
+    ["git", "fetch", "-q", "--depth", "1", "https://github.com/Sunrisepeak/mcpp-language-server.git", "5e4bdec26d248678d421d4256c561a3b765060ac"],
+    ["git", "checkout", "-q", "FETCH_HEAD"],
+    ["mcpp", "emit", "build-database"]
+  ],
+  "checks": [
+    { "id": "S1", "kind": "status", "source": "mcpp", "timeout": 60 },
+    { "id": "C1-main-to-cli-definition", "kind": "definition", "file": "src/main.cpp", "at": [5, 26], "expect": "src/cli/commands.cpp" },
+    { "id": "C2-main-hover", "kind": "hover-contains", "file": "src/main.cpp", "at": [5, 26], "expect": "run" },
+    { "id": "M1-graph", "kind": "module-graph-contains", "expect": "mcppls.cli.commands" },
+    { "id": "STRESS1", "kind": "stress", "seed": 11, "actions": 60, "requestTimeout": 15,
+      "files": ["src/**/*.cppm", "src/**/*.cpp"],
+      "budget": { "timeouts": 0, "maxStallSeconds": 60 } }
+  ]
+}
