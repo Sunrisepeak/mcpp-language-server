@@ -13,7 +13,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import type { TestApi } from '../../src/extension';
 
-const EXTENSION_ID = 'sunrisepeak.mcppls';
+const EXTENSION_ID = 'sunrisepeak.mcpp-language-server';
 const STATUS_TIMEOUT_MS = 120_000;
 
 suite('macOS Command Line Tools prompt', function () {

@@ -14,7 +14,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import type { TestApi } from '../../src/extension';
 
-const EXTENSION_ID = 'sunrisepeak.mcppls';
+const EXTENSION_ID = 'sunrisepeak.mcpp-language-server';
 const READY_TIMEOUT_MS = 120_000;
 const RESULT_TIMEOUT_MS = 90_000;
 

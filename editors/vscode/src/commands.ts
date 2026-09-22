@@ -161,7 +161,7 @@ function withTimeout<T>(promise: Thenable<T>, milliseconds: number, what: string
 // server's part (cxxModules/report) comes with the extension's own: versions, settings, other C++ extensions.
 async function collectReport(access: ServerAccess): Promise<void> {
     const client = access.runningClient();
-    const extension = vscode.extensions.getExtension('sunrisepeak.mcppls');
+    const extension = vscode.extensions.getExtension('sunrisepeak.mcpp-language-server');
     const settings = vscode.workspace.getConfiguration('mcppls');
     const report: Record<string, unknown> = {
         extension: {

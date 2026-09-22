@@ -6,7 +6,7 @@
 
 ## VS Code：从 Marketplace 安装
 
-在扩展视图里搜索 **C++ Modules (mcppls)**，或者运行 `code --install-extension sunrisepeak.mcppls`（[Marketplace 页面](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcppls））。VS Code 会自动选对应平台的版本——`linux-x64`、`darwin-arm64` 或 `win32-x64`；其他平台暂时没有。
+在扩展视图里搜索 **C++ Modules (mcppls)**，或者运行 `code --install-extension sunrisepeak.mcpp-language-server`（[Marketplace 页面](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server））。VS Code 会自动选对应平台的版本——`linux-x64`、`darwin-arm64` 或 `win32-x64`；其他平台暂时没有。
 
 ## VS Code：从 release 安装
 
@@ -17,7 +17,7 @@
 
 VSIX 里带了所需的一切：服务端、一个锁定版本的 clangd，以及语义工具包。打开一个 C++ 项目，状态栏会显示它找到了什么。选和自己机器对应的文件——`linux-x64`、`darwin-arm64` 或 `win32-x64`——因为每个文件带的是各自平台的 payload。
 
-这个扩展是 `sunrisepeak.mcppls`，和 **mcpp**（`mcpp-community.mcpp-vscode`）是两个不同的扩展；mcpp 负责构建、工具链和项目操作。两者都值得装，参见 [10-editors.md](10-editors.md)。
+这个扩展是 `sunrisepeak.mcpp-language-server`，和 **mcpp**（`mcpp-community.mcpp-vscode`）是两个不同的扩展；mcpp 负责构建、工具链和项目操作。两者都值得装，参见 [10-editors.md](10-editors.md)。
 
 ## 其他编辑器：从 release 安装
 

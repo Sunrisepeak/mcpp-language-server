@@ -20,7 +20,7 @@ import * as vscode from 'vscode';
 import { DISABLE, KEEP } from '../../src/conflicts';
 import type { TestApi } from '../../src/extension';
 
-const EXTENSION_ID = 'sunrisepeak.mcppls';
+const EXTENSION_ID = 'sunrisepeak.mcpp-language-server';
 const READY_TIMEOUT_MS = 120_000;
 
 function settingsFile(): string {

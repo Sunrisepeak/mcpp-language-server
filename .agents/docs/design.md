@@ -128,7 +128,7 @@ before anything is published (`docs/92-release.md`).
 |---|---|
 | D26 | MSVC STL `import std` is in scope for the first version (clang-cl and MSVC projects on Windows) |
 | D27 | Pick Visual Studio automatically on Windows for a project with no build system |
-| D29 | Names: project `mcpp-language-server`; executable, modules, settings prefix `mcppls`; extension `sunrisepeak.mcppls`; kit package `mcppls-kit` (`docs/91-naming.md`) |
+| D29 | Names: project `mcpp-language-server`; executable, modules, settings prefix `mcppls`; extension `sunrisepeak.mcpp-language-server` (the Marketplace reserved `sunrisepeak.mcppls` after its removal); kit package `mcppls-kit` (`docs/91-naming.md`) |
 | D30 | The engine abstraction: all semantics come from engines; mcppls's own engine is first class from day one, clangd supplies C++ core semantics |
 | D31 | The kit is its own package, versioned as the libc++ of the engine it serves, selected by exact engine version |
 | D33, D34 | AI modules live in `src/ai/`; the direction is review, not code generation; no agent is implemented |

@@ -11,7 +11,7 @@ product version unchanged.
 
 The first public release. Every artifact is a file on the GitHub release page; its `MANIFEST.md` says
 what each one is and how to install it, and `SHA256SUMS` covers them all. The VS Code extension is
-also on the VS Code Marketplace as `sunrisepeak.mcppls`; nothing is on Open VSX or the xlings index
+also on the VS Code Marketplace as `sunrisepeak.mcpp-language-server`; nothing is on Open VSX or the xlings index
 yet.
 
 ### Module semantics on any compiler
