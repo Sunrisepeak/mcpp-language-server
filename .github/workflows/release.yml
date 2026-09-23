@@ -6,10 +6,15 @@ name: Release
 # `v*` tag does the same thing for people who prefer tagging first; `v*-rc*` tags run only the
 # pre-release test.
 #
-# What it deliberately does NOT do: publish to the VS Code Marketplace, Open VSX, or the xlings
-# index. Those are separate decisions with separate credentials, and this repository is not where
-# the project will finally live — see docs/92-release.md. Everything a user needs is a file on the
-# release page.
+# The release is a draft unless asked otherwise, because it is verified before anyone gets it: the
+# maintainer tries the draft's `mcppls-<platform>.vsix` files locally, then publishes the draft.
+# Publishing it is what sends the same files to Open VSX (publish-openvsx.yml, on
+# `release: published`); a release created here already published calls that workflow itself (the
+# `openvsx` job), since a release created with GITHUB_TOKEN triggers no other workflow.
+#
+# What it deliberately does NOT do: upload to the VS Code Marketplace, which the maintainer does by
+# hand after the same local verification, or publish to the xlings index. See docs/92-release.md.
+# Everything a user needs is a file on the release page.
 
 on:
   workflow_dispatch:
@@ -112,3 +117,13 @@ jobs:
             ${{ github.event.inputs.draft == 'false' && ' ' || '--draft' }} \
             ${{ github.event.inputs.prerelease == 'false' && ' ' || '--prerelease' }} \
             || gh release upload "$tag" release/* --clobber
+
+  # Only a release created already published: a draft reaches Open VSX when the maintainer publishes
+  # it, through publish-openvsx.yml's own `release: published` trigger.
+  openvsx:
+    needs: [what, publish]
+    if: github.event.inputs.draft == 'false'
+    uses: ./.github/workflows/publish-openvsx.yml
+    with:
+      tag: ${{ needs.what.outputs.tag }}
+    secrets: inherit

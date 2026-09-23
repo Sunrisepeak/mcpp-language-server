@@ -1,9 +1,9 @@
 # Making a release
 
-> Releases are published on this repository's GitHub release page. The VS Code Marketplace, Open VSX
-> and the xlings index are separate channels with their own credentials; the Marketplace is published
-> to by hand (below), the other two not yet. [91-naming.md](91-naming.md) has the identifiers each
-> uses.
+> Releases are published on this repository's GitHub release page. Open VSX follows automatically
+> when a release is published; the VS Code Marketplace is uploaded to by hand, after the release's
+> VSIX files are verified locally; the xlings index is not a channel yet (below).
+> [91-naming.md](91-naming.md) has the identifiers each uses.
 
 ## Versions
 
@@ -53,7 +53,7 @@ Everything is one manual run. **Actions → Release → Run workflow**, and give
 | Input | Meaning |
 |---|---|
 | `version` | e.g. `0.0.2`. The tag `v<version>` is created by the run |
-| `draft` | on by default — the release is staged for you to look at before anyone sees it |
+| `draft` | on by default — the release is staged for you to verify before anyone gets it, Open VSX included |
 | `prerelease` | on by default; turn it off for a stable release |
 
 Before pressing it:
@@ -68,6 +68,17 @@ The run then runs the pre-release test (below), which re-runs the whole of CI, b
 CLion plugins, installs them, measures performance and stability, stages everything, checks it
 against the manifest and writes `SHA256SUMS` and `MANIFEST.md`. Only when all of that passes does it
 create the tag and publish the staged candidate, file for file.
+
+A release reaches its users in four steps, and only the first is automatic:
+
+1. The run creates the release as a **draft**.
+2. You verify the draft's `mcppls-<platform>.vsix` files locally ([Verifying a release](#verifying-a-release)).
+3. You publish the draft. That triggers `.github/workflows/publish-openvsx.yml`, which puts the same
+   files on Open VSX ([Open VSX](#open-vsx)).
+4. You upload the same files to the VS Code Marketplace ([below](#the-vs-code-marketplace)).
+
+A run with `draft` off skips step 2 on purpose: the release is published at once, and its `openvsx`
+job sends it to Open VSX, since a release created by a workflow triggers no other workflow.
 
 ## The pre-release test
 
@@ -107,16 +118,35 @@ Do not trust what the build said; recompute it from what the public can actually
 Record the result on the release's tracking issue, including what failed and what had to be
 finished by hand. It is how the next person finds out what actually happens.
 
+## Open VSX
+
+Open VSX is where VS Code-compatible editors (Cursor, VSCodium, Windsurf, Trae, ...) find
+extensions. `.github/workflows/publish-openvsx.yml` publishes every `mcppls-<platform>.vsix` of a
+release to the namespace `sunrisepeak` when the release is published: from the UI
+(`release: published`), or from Release's `openvsx` job when the run published it directly. It
+downloads the files from the release, checks them against `SHA256SUMS`, checks that the token may
+publish to the namespace, then publishes each one; each VSIX carries its platform, so every platform
+gets its own file. A GitHub pre-release is published as an ordinary version.
+
+A version Open VSX already has is skipped (`--skip-duplicate`), so re-running is safe: **Actions →
+Publish to Open VSX → Run workflow** with the tag publishes only what is missing.
+
+The token is the repository secret `OVSX_PAT`, an access token of the Open VSX account that owns
+the namespace (its Eclipse account has signed the Open VSX Publisher Agreement). When it expires,
+generate a new one under *Settings → Access Tokens* on open-vsx.org and replace the secret; the
+workflow's *The token may publish to the namespace* step is what fails first when it has not been.
+
 ## The VS Code Marketplace
 
-Not part of the workflow yet: after the release is published, the three `mcppls-<platform>.vsix`
-files are uploaded to the publisher `sunrisepeak`, by `npx @vscode/vsce publish --packagePath
-<the three files>` or one at a time on the publisher's management page (the first as a new
-extension, the others with *Update*). A version is published once: the Marketplace takes only a
-version higher than every one it has had.
+Uploaded by hand, after the local verification: every `mcppls-<platform>.vsix` of the published
+release goes to the publisher `sunrisepeak`, by `npx @vscode/vsce publish --packagePath <the files>`
+or one at a time on the publisher's management page (the first as a new extension, the others with
+*Update*). A version is published once: the Marketplace takes only a version higher than every one
+it has had.
 
 ## Not here yet
 
-Open VSX and the xlings index each need their own credentials and a publish step in the release
-workflow, and so would publishing to the Marketplace from the workflow. `mcppls-devtools release xlings` already produces the xlings package
-descriptors; the index pull request and the other two channels are still to be added.
+The xlings index needs its own credentials and a publish step in the release workflow.
+`mcppls-devtools release xlings` already produces the xlings package descriptors; the index pull
+request is still to be added. Uploading to the VS Code Marketplace from a workflow is deliberately
+not done: it stays behind the local verification above.

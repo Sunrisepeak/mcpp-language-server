@@ -2,7 +2,7 @@
 
 [English](../92-release.md) | **简体中文**
 
-> release 发布在本仓库的 GitHub release 页面。VS Code Marketplace、Open VSX 和 xlings 索引是各自独立的渠道，有自己的凭证；Marketplace 目前手动发布（见下文），另外两个还没有开始。每个渠道用到的标识符见 [91-naming.md](91-naming.md)。
+> release 发布在本仓库的 GitHub release 页面。release 一发布，Open VSX 会自动跟上；VS Code Marketplace 在本地验证过 release 的 VSIX 之后手动上传；xlings 索引还不是发布渠道（见下文）。每个渠道用到的标识符见 [91-naming.md](91-naming.md)。
 
 ## 版本号
 
@@ -40,7 +40,7 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 | 输入 | 含义 |
 |---|---|
 | `version` | 例如 `0.0.2`。这次运行会创建标签 `v<version>` |
-| `draft` | 默认开启——release 先暂存着，供你在别人看到之前先看一遍 |
+| `draft` | 默认开启——release 先暂存着，供你在任何人拿到之前先验证一遍，Open VSX 也包括在内 |
 | `prerelease` | 默认开启；正式发布时关掉 |
 
 运行之前：
@@ -50,6 +50,15 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 3. `CHANGELOG.md` 里有这次发布的条目。
 
 接下来这次运行会执行下面的 pre-release 测试：重新运行完整的 CI，构建 Zed 和 CLion 插件并安装，测性能和稳定性，把所有东西暂存好，对着发布清单检查，写出 `SHA256SUMS` 和 `MANIFEST.md`。只有全部通过，才会创建标签，把暂存好的候选版本逐个文件发布出去。
+
+一个 release 到达用户要经过四步，只有第一步是自动的：
+
+1. 这次运行把 release 创建成**草稿**。
+2. 你在本地验证草稿里的 `mcppls-<platform>.vsix`（见[核实一次发布](#核实一次发布)）。
+3. 你发布这个草稿。这会触发 `.github/workflows/publish-openvsx.yml`，把同样的文件发到 Open VSX（见 [Open VSX](#open-vsx)）。
+4. 你把同样的文件上传到 VS Code Marketplace（见[下文](#vs-code-marketplace)）。
+
+关掉 `draft` 的运行有意跳过第 2 步：release 立即发布，并由它的 `openvsx` job 发到 Open VSX，因为 workflow 创建的 release 不会触发其他 workflow。
 
 ## pre-release 测试
 
@@ -83,10 +92,18 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 
 把结果记到这次发布的 tracking issue 上，包括哪里失败了、哪些是手动补完的。后续发布者依靠这些记录了解实际情况。
 
+## Open VSX
+
+Open VSX 是兼容 VS Code 的编辑器（Cursor、VSCodium、Windsurf、Trae 等）查找扩展的地方。release 一发布，`.github/workflows/publish-openvsx.yml` 就把它的每个 `mcppls-<platform>.vsix` 发到命名空间 `sunrisepeak`：无论是在网页上发布（`release: published`），还是 Release 直接发布时由它的 `openvsx` job 调用。它从 release 下载这些文件，对照 `SHA256SUMS` 检查，确认 token 有权发布到这个命名空间，然后逐个发布；每个 VSIX 自带平台信息，所以每个平台拿到的都是自己的文件。GitHub 上的 pre-release 按普通版本发布。
+
+Open VSX 已有的版本会被跳过（`--skip-duplicate`），所以重跑是安全的：**Actions → Publish to Open VSX → Run workflow**，填上标签，只会补发缺的部分。
+
+token 是仓库 secret `OVSX_PAT`，属于拥有该命名空间的 Open VSX 账号（它的 Eclipse 账号已签署 Open VSX Publisher Agreement）。过期后，在 open-vsx.org 的 *Settings → Access Tokens* 生成新的并替换这个 secret；没换的话，workflow 里 *The token may publish to the namespace* 这一步会最先失败。
+
 ## VS Code Marketplace
 
-目前不在 workflow 里：release 发布之后，把三个 `mcppls-<platform>.vsix` 上传到 publisher `sunrisepeak`，可以用 `npx @vscode/vsce publish --packagePath <三个文件>`，也可以在 publisher 管理页面上逐个上传（第一个用新建扩展，其余用 *Update*）。一个版本号只发布一次：Marketplace 只接受比它见过的所有版本都高的版本号。
+本地验证之后手动上传：把已发布 release 的每个 `mcppls-<platform>.vsix` 上传到 publisher `sunrisepeak`，可以用 `npx @vscode/vsce publish --packagePath <这些文件>`，也可以在 publisher 管理页面上逐个上传（第一个用新建扩展，其余用 *Update*）。一个版本号只发布一次：Marketplace 只接受比它见过的所有版本都高的版本号。
 
 ## 还没做的
 
-Open VSX 和 xlings 索引都还需要各自的凭证，以及 release workflow 里的一个发布步骤；从 workflow 里直接发布到 Marketplace 也一样。`mcppls-devtools release xlings` 已经能生成 xlings 的包描述文件；提交到索引的 pull request，以及另外两个渠道，都还没加上。
+xlings 索引还需要自己的凭证，以及 release workflow 里的一个发布步骤。`mcppls-devtools release xlings` 已经能生成 xlings 的包描述文件；提交到索引的 pull request 还没加上。从 workflow 直接上传到 VS Code Marketplace 是有意不做的：它要留在上面的本地验证之后。

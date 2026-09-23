@@ -47,7 +47,8 @@ Download from the [release page](https://github.com/Sunrisepeak/mcpp-language-se
 
 | Editor | Asset | Install |
 |---|---|---|
-| VS Code | the [Marketplace](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server), or `mcppls-<platform>.vsix` | search *C++ Modules Language Server*, or `code --install-extension mcppls-<platform>.vsix` |
+| VS Code | the [Marketplace](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server), or `mcppls-<platform>.vsix` | search *mcppls* or *C++ Modules Language Server*, or `code --install-extension mcppls-<platform>.vsix` |
+| Cursor, VSCodium, Windsurf and other VS Code-compatible editors | [Open VSX](https://open-vsx.org/extension/sunrisepeak/mcpp-language-server), or `mcppls-<platform>.vsix` | search *mcppls* in the editor's extensions view, or install the `.vsix` from it |
 | Zed, CLion | `mcppls-zed-<version>.tar.gz`, `mcppls-clion-<version>.zip` | see [docs/00-install.md](docs/00-install.md) |
 | Neovim | `payload-<platform>.tar.gz` | put its `payload/bin/` on `PATH`, then the plugin in [editors/nvim](editors/nvim/README.md) |
 | Any other LSP client | `payload-<platform>.tar.gz` | unpack, put its `payload/bin/` on `PATH`, run `mcppls serve` |
