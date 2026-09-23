@@ -44,7 +44,11 @@ and the server must not carry lives in a member the server does not depend on.
 
 `mcpp build -p <member>` and `mcpp test -p <member>` reach one member; `--workspace` reaches all of
 them (the root package is reached by the plain command). `modules/os/*` hold the six platform
-constants, and are the only place a platform may differ (`mcppls-devtools check os-surface`).
+constants, and are the only place a platform may differ (`mcppls-devtools check os-surface`);
+`modules/arch/*` give them the architecture, so `PLATFORM` says `linux-arm64` on an arm64 build.
+The platforms themselves are the rows of `packaging/payload.lock.json`; the VS Code extension,
+`release.manifest.json` and CI's per-platform jobs list the same ones (`mcppls-devtools check
+platforms`).
 
 ## Commands by task
 
@@ -53,7 +57,7 @@ constants, and are the only place a platform may differ (`mcppls-devtools check 
 | Task | Command |
 |---|---|
 | Build the server | `mcpp build` |
-| Build for another platform | `mcpp build --target aarch64-macos` / `--target x86_64-windows-gnu` |
+| Build for another platform | `mcpp build --target aarch64-macos` / `--target x86_64-windows-gnu` / `--target aarch64-linux-musl` |
 | Regenerate `src/lsp` from the LSP meta model | `mcpp run mcppls-lspgen -- generate --meta-model vendor/lsp-metamodel/metaModel-3.18.json --out src/lsp` |
 | Change the product version everywhere | `mcpp run -p devtools -- version --set 0.0.2` |
 

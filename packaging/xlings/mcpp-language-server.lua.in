@@ -28,7 +28,7 @@ package = {
         deps = { "xim:llvm-tools@@CLANGD_VERSION@", "xim:mcppls-kit@@KIT_VERSION@" },
         linux = {
             ["latest"] = { ref = "@VERSION@" },
-            ["@VERSION@"] = { res = true, sha256 = { x86_64 = "@SHA256_LINUX_X86_64@" } },
+            ["@VERSION@"] = { res = true, sha256 = { x86_64 = "@SHA256_LINUX_X86_64@", aarch64 = "@SHA256_LINUX_AARCH64@" } },
         },
         macosx = {
             ["latest"] = { ref = "@VERSION@" },

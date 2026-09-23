@@ -1734,6 +1734,12 @@ int run(Options options) {
 
     Scenario runner { client, options, serverArguments, workspace, options.timeout, std::move(prepared), cacheDirectory, options.expectWarm, std::move(moduleFilesBefore) };
     int failures { advertised ? 0 : 1 };
+    // "initialize-within": seconds. The handshake is answered at all, and in time (0.0.3 plan B1).
+    if (const auto within = scenario.find("initialize-within"); within != scenario.end() && within->is_number()) {
+        const bool inTime { initializeSeconds <= within->get<double>() };
+        say("{} initialize within {}s ({:.1f}s)", inTime ? "PASS" : "FAIL", within->get<double>(), initializeSeconds);
+        if (!inTime) ++failures;
+    }
     Json measured = Json::array();
     for (const auto& check : scenario.value("checks", Json::array())) {
         const std::string id { check.value("id", std::string { "-" }) };
@@ -2177,6 +2183,38 @@ int prepare_failure_at_base(const std::string& argument) {
     return 0;
 }
 
+// 0.0.3 plan B1: a clangd that cannot run on this machine -- what the official arm64 build is on
+// a system whose libstdc++ is too old. mcppls-mock-mcpp, copied to stand-in/clangd with a config
+// beside it saying `unavailable`, writes that text to its standard error and exits 1 however it is
+// started: the loader's message and exit, on every host.
+int prepare_clangd_cannot_load() {
+    const std::string self { absolute(mcppls::platform::env::arguments().front()) };
+    const std::string mock { base::join_path(base::parent_path(self), "mcppls-mock-mcpp") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+    auto mockContent = fs::read_file(mock);
+    if (!mockContent) {
+        say("clangd-cannot-load: {} is not built (needs mcppls-mock-mcpp beside mcppls-conformance)", mock);
+        return 1;
+    }
+    const std::string directory { base::join_path(fs::current_directory(), "stand-in") };
+    (void)fs::create_directories(directory);
+    const std::string clangd { base::join_path(directory, "clangd") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+    if (auto written = fs::write_file(clangd, *mockContent); !written) {
+        say("clangd-cannot-load: {}", written.error().message);
+        return 1;
+    }
+    if (auto marked = fs::make_executable(std::vector<std::string> { clangd }); !marked) {
+        say("clangd-cannot-load: {}", marked.error().message);
+        return 1;
+    }
+    const Json config { { "unavailable",
+        "clangd: /lib/aarch64-linux-gnu/libstdc++.so.6: version `GLIBCXX_3.4.30' not found (required by clangd)\n" } };
+    if (auto written = fs::write_file(base::join_path(directory, "mcpp-mock.json"), config.dump(2) + "\n"); !written) {
+        say("clangd-cannot-load: {}", written.error().message);
+        return 1;
+    }
+    return 0;
+}
+
 int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "s1-two-sets") return prepare_s1_two_sets(argument);
     if (kind == "payload-corrupt") return prepare_payload_corrupt(argument);
@@ -2185,7 +2223,8 @@ int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "compdb-clang-cl-std") return prepare_compdb_msvc_std(true);
     if (kind == "compdb-clangxx-msvc-std") return prepare_compdb_msvc_std(false);
     if (kind == "generated-module-old-mcpp") return prepare_generated_module_compdb(argument);
-    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp)", kind);
+    if (kind == "clangd-cannot-load") return prepare_clangd_cannot_load();
+    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load)", kind);
     return 2;
 }
 

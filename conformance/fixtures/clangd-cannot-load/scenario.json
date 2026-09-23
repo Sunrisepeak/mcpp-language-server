@@ -1,0 +1,15 @@
+{
+  "name": "clangd-cannot-load",
+  "description": "0.0.3 plan B1: a clangd that cannot run on this machine at all -- what the official arm64 build is on a system whose libstdc++ is too old. Its `prepare` step puts a stand-in clangd in the workspace that writes the loader's message (a GLIBCXX version not found) to standard error and exits 1, and `--clangd` points the server at it. The server used to wait on clangd's handshake for good, so an editor never got past initialize; now initialize is answered at once, clangd is not restarted, the status is error with issue engine-incompatible, and mcppls's own module features work.",
+  "prepare": [
+    ["{conformance}", "prepare", "clangd-cannot-load"]
+  ],
+  "server-arguments": ["--clangd", "{workspace}/stand-in/clangd{exe}", "--no-discover"],
+  "initialize-within": 20,
+  "checks": [
+    { "id": "S1", "kind": "status", "state": "error", "issue-code": "engine-incompatible" },
+    { "id": "M1-definition", "kind": "definition", "file": "src/main.cpp", "at": [1, 9], "expect": "src/greet/greet.cppm" },
+    { "id": "M4-import-completion", "kind": "completion-contains", "file": "src/scratch.cpp", "text": "import hel", "at": [0, 10], "expect": "hello.greet" },
+    { "id": "M5-unresolved", "kind": "diagnostic-code", "file": "src/unresolved.cpp", "text": "import missing.module;\nint f();\n", "expect": "unresolved-module" }
+  ]
+}

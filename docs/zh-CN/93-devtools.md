@@ -35,7 +35,7 @@ mcpp run -p devtools -- extension --editor vscode --install  # payload、VS Code
 | `tools/devtools` | `mcppls-devtools` | base, platform, pack |
 | `tools/model-gateway` | `mcppls-model`，参考实现的 model gateway | openkal, tinyhttps |
 
-`mcpp build -p <member>` 和 `mcpp test -p <member>` 只作用于一个成员；`--workspace` 作用于全部成员（根包用不带参数的命令就能作用到）。`modules/os/*` 存放六个平台常量，是唯一允许出现平台差异的地方（`mcppls-devtools check os-surface`）。
+`mcpp build -p <member>` 和 `mcpp test -p <member>` 只作用于一个成员；`--workspace` 作用于全部成员（根包用不带参数的命令就能作用到）。`modules/os/*` 存放六个平台常量，是唯一允许出现平台差异的地方（`mcppls-devtools check os-surface`）；`modules/arch/*` 给它们提供架构，所以 arm64 构建的 `PLATFORM` 是 `linux-arm64`。平台本身就是 `packaging/payload.lock.json` 里的各行；VS Code 扩展、`release.manifest.json` 和 CI 按平台运行的 job 列出的必须是同一组平台（`mcppls-devtools check platforms`）。
 
 ## 按任务分类的命令
 
@@ -44,7 +44,7 @@ mcpp run -p devtools -- extension --editor vscode --install  # payload、VS Code
 | 任务 | 命令 |
 |---|---|
 | 构建服务端 | `mcpp build` |
-| 为另一个平台构建 | `mcpp build --target aarch64-macos` / `--target x86_64-windows-gnu` |
+| 为另一个平台构建 | `mcpp build --target aarch64-macos` / `--target x86_64-windows-gnu` / `--target aarch64-linux-musl` |
 | 从 LSP meta model 重新生成 `src/lsp` | `mcpp run mcppls-lspgen -- generate --meta-model vendor/lsp-metamodel/metaModel-3.18.json --out src/lsp` |
 | 一次性改遍产品版本号 | `mcpp run -p devtools -- version --set 0.0.2` |
 

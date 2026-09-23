@@ -2,11 +2,15 @@
 
 [English](../00-install.md) | **简体中文**
 
-> release 发布在 GitHub release 页面，VS Code 扩展同时也上架了 VS Code Marketplace。Open VSX 和 xlings 索引上暂时都还没有。
+> release 发布在 GitHub release 页面，VS Code 扩展同时也上架了 VS Code Marketplace 和 Open VSX。xlings 索引上暂时还没有。
 
 ## VS Code：从 Marketplace 安装
 
-在扩展视图里搜索 **C++ Modules Language Server**，或者运行 `code --install-extension sunrisepeak.mcpp-language-server`（[Marketplace 页面](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server））。VS Code 会自动选对应平台的版本——`linux-x64`、`darwin-arm64` 或 `win32-x64`；其他平台暂时没有。
+在扩展视图里搜索 **mcppls** 或 **C++ Modules Language Server**，或者运行 `code --install-extension sunrisepeak.mcpp-language-server`（[Marketplace 页面](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server））。VS Code 会自动选对应平台的版本——`linux-x64`、`linux-arm64`、`darwin-arm64` 或 `win32-x64`；其他平台暂时没有。Linux 上各架构支持哪些系统，见[支持的 Linux 系统](#支持的-linux-系统)。
+
+## Cursor、VSCodium、Windsurf 等兼容 VS Code 的编辑器：从 Open VSX 安装
+
+这些编辑器从 [Open VSX](https://open-vsx.org/extension/sunrisepeak/mcpp-language-server) 安装扩展：在它们的扩展视图里搜索 **mcppls** 即可。这是同一个扩展，由同一个 release 构建，支持的平台也一样。release 发布时就会上架 Open VSX，VS Code Marketplace 稍后跟上。
 
 ## VS Code：从 release 安装
 
@@ -15,7 +19,7 @@
 - **在编辑器里**：Extensions 视图 → `…` 菜单 → *Install from VSIX…*
 - **在命令行**：`code --install-extension mcppls-linux-x64.vsix`
 
-VSIX 里带了所需的一切：服务端、一个锁定版本的 clangd，以及语义工具包。打开一个 C++ 项目，状态栏会显示它找到了什么。选和自己机器对应的文件——`linux-x64`、`darwin-arm64` 或 `win32-x64`——因为每个文件带的是各自平台的 payload。
+VSIX 里带了所需的一切：服务端、一个锁定版本的 clangd，以及语义工具包。打开一个 C++ 项目，状态栏会显示它找到了什么。选和自己机器对应的文件——`linux-x64`、`linux-arm64`、`darwin-arm64` 或 `win32-x64`——因为每个文件带的是各自平台的 payload。
 
 这个扩展是 `sunrisepeak.mcpp-language-server`，和 **mcpp**（`mcpp-community.mcpp-vscode`）是两个不同的扩展；mcpp 负责构建、工具链和项目操作。两者都值得装，参见 [10-editors.md](10-editors.md)。
 
@@ -26,6 +30,17 @@ VSIX 里带了所需的一切：服务端、一个锁定版本的 clangd，以�
 release 里的每个文件都列在它的 `MANIFEST.md` 里，说明是什么、怎么装；`SHA256SUMS` 覆盖所有文件。
 
 [releases]: https://github.com/Sunrisepeak/mcpp-language-server/releases
+
+## 支持的 Linux 系统
+
+服务端是静态链接的可执行文件，在同架构的任何 Linux 上都能运行。能支持到哪些系统，取决于 payload 里带的 clangd：
+
+| 平台 | clangd | 需要 | 能运行的系统 |
+|---|---|---|---|
+| `linux-x64` | clangd/clangd 发布的 23.1.0，libstdc++ 已静态链接 | glibc 2.18 | 目前所有基于 glibc 的发行版 |
+| `linux-arm64` | LLVM 官方发布的 23.1.0 Linux arm64 版本（clangd/clangd 不发布 arm64 Linux 版本） | glibc 2.34、GCC 12 的 libstdc++（`GLIBCXX_3.4.30`）、zlib | Ubuntu 22.04 及以上、Debian 12 及以上、openEuler 24.03 LTS 及以上（已测试）；Fedora 36 及以上（按其软件包版本推断） |
+
+比这更老的 arm64 系统——Ubuntu 20.04、Debian 11、RHEL 和 Rocky Linux 8 与 9、Amazon Linux 2023、openEuler 22.03——上，自带的 clangd 无法启动。这时 mcppls 仍提供它自己的模块级功能（模块跳转、import 补全、模块诊断），状态栏会说明原因。Alpine 等基于 musl 的发行版，两种架构的 clangd 都无法运行。
 
 ## 从源码构建
 
@@ -47,7 +62,7 @@ mcpp run -p devtools -- extension --install       # payload、扩展，装进 VS
 | 移除已安装的内容 | `mcpp run -p devtools -- uninstall --editor vscode\|zed\|clion\|all` |
 | 只要 payload，给其他编辑器用 | `mcpp run -p devtools -- payload` |
 | 复用已经构建好的 clangd 或 kit | `... -- payload --clangd DIR --kit DIR` |
-| 其他平台的服务端 | `mcpp build --target aarch64-macos` / `--target x86_64-windows-gnu` |
+| 其他平台的服务端 | `mcpp build --target aarch64-macos` / `--target x86_64-windows-gnu` / `--target aarch64-linux-musl` |
 
 **零配置。** 打包需要什么，都写在 `mcpp.toml` 的 `[xlings.workspace]` 里——VS Code 扩展需要 Node，Zed 需要 Rust——工具启动前 `mcpp run` 会先把这些准备好。payload 本身（clangd、语义工具包）由工具用 C++ 组装，不涉及任何解释器。所有贡献者会用到的命令都在 [93-devtools.md](93-devtools.md) 里。Gradle 和它要用的 JDK 放在 `clion` feature 后面（`mcpp run --features clion ...`），这样不构建那个插件的人就不用下载它们。没有什么需要手动安装，工具也不会背着你装东西：需要什么，只写在这一份 manifest 里。
 

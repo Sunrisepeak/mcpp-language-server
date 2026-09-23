@@ -38,7 +38,9 @@ export type LaunchResolution =
     | { ok: true; launch: ServerLaunch }
     | { ok: false; reason: string };
 
-export const SUPPORTED_PLATFORMS: readonly string[] = ['linux-x64', 'win32-x64', 'darwin-arm64'];
+// The platforms of packaging/payload.lock.json, as `${process.platform}-${process.arch}` names them;
+// `mcppls-devtools check platforms` fails when the two lists differ.
+export const SUPPORTED_PLATFORMS: readonly string[] = ['linux-x64', 'linux-arm64', 'win32-x64', 'darwin-arm64'];
 
 export function currentPlatform(): string {
     return `${process.platform}-${process.arch}`;

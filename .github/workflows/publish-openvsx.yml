@@ -1,0 +1,76 @@
+name: Publish to Open VSX
+
+# Open VSX is where VS Code-compatible editors (Cursor, VSCodium, Windsurf, Trae, ...) find
+# extensions. Its version of a release is the release's own `mcppls-<platform>.vsix` files, the ones
+# the maintainer verified locally, so a release reaches Open VSX when it is published, not before:
+#
+#   release.yml makes a draft -> the maintainer verifies its VSIX files locally -> publishes the
+#   draft (this workflow runs) -> uploads the same files to the VS Code Marketplace by hand.
+#
+# The VS Code Marketplace stays manual on purpose (docs/92-release.md). A GitHub pre-release is
+# published here as an ordinary version: Open VSX users get what the release page offers.
+
+on:
+  # A person publishing a draft in the UI.
+  release:
+    types: [published]
+  # release.yml, when it creates the release already published: a release created with
+  # GITHUB_TOKEN does not trigger `release: published`, so it calls this directly.
+  workflow_call:
+    inputs:
+      tag:
+        description: 'The release tag, e.g. v0.0.3'
+        type: string
+        required: true
+  # A retry. Versions Open VSX already has are skipped, so a re-run publishes only what is missing.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The release tag to publish, e.g. v0.0.3'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-openvsx-${{ inputs.tag || github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  openvsx:
+    name: Open VSX ${{ inputs.tag || github.event.release.tag_name }}
+    runs-on: ubuntu-24.04
+    steps:
+      # ovsx 1.2.0 requires Node 22.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: The release's VSIX files, as checksummed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          mkdir vsix && cd vsix
+          gh release download "$TAG" --repo '${{ github.repository }}' -p 'mcppls-*.vsix' -p SHA256SUMS
+          ls -l
+          compgen -G 'mcppls-*.vsix' > /dev/null || { echo "::error::release $TAG has no mcppls-*.vsix"; exit 1; }
+          # SHA256SUMS covers every file of the release; only the VSIX files were downloaded.
+          sha256sum -c --ignore-missing SHA256SUMS
+      # Fails in seconds, and says so, when the token has expired or lost the namespace, instead of
+      # failing on the first upload.
+      - name: The token may publish to the namespace
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: npx --yes ovsx@1.2.0 verify-pat sunrisepeak
+      # Each VSIX carries its target platform, so Open VSX serves each platform its own file.
+      # --skip-duplicate: a version Open VSX already has is left alone, which makes re-runs no-ops.
+      - name: Publish
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          set -euo pipefail
+          for vsix in vsix/mcppls-*.vsix; do
+            echo "publishing $vsix"
+            npx --yes ovsx@1.2.0 publish --packagePath "$vsix" --skip-duplicate
+          done

@@ -4,6 +4,7 @@
 export module mcppls.os;
 
 import std;
+import mcppls.arch;
 
 export namespace mcppls::os {
 
@@ -13,7 +14,10 @@ inline constexpr Family FAMILY { Family::macos };
 inline constexpr std::string_view FAMILY_NAME { "macos" };
 inline constexpr std::string_view EXECUTABLE_SUFFIX { "" };
 inline constexpr char PATH_LIST_SEPARATOR { ':' };
-inline constexpr std::string_view VSCODE_TARGET { "darwin-arm64" };
+// This operating system on this architecture, named the way VS Code names extension targets
+// (linux-x64, linux-arm64, darwin-arm64, win32-x64): what a payload, a VSIX and the platforms of
+// packaging/payload.lock.json are keyed by.
+inline constexpr std::string_view PLATFORM { mcppls::arch::ARCH == mcppls::arch::Arch::aarch64 ? "darwin-arm64" : "darwin-x64" };
 inline constexpr bool CASE_INSENSITIVE_PATHS { true };
 
 

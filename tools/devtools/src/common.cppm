@@ -44,9 +44,6 @@ struct ServerBuild {
 // openkal executable is static and simply runs, so the pack fails (measured, mcpp 2026.9.21.3).
 base::Result<std::string> locate_server(const std::string& root, const ServerBuild& build);
 
-// This host's openkal triple, which is what `--target` names for the server a payload carries.
-std::string_view host_triple();
-
 // Writes `value` as the command's machine-readable answer.
 void print_json(const nlohmann::json& value);
 

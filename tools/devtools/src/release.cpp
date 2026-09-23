@@ -10,6 +10,8 @@ import mcppls.platform.fs;
 import mcppls.pack.release;
 import mcppls.pack.archive;
 import mcppls.pack.fetch;
+import mcppls.pack.lock;
+import mcppls.pack.targets;
 import mcppls.devtools.common;
 import mcppls.devtools.version;
 
@@ -17,19 +19,6 @@ namespace mcppls::devtools::release {
 namespace fs = mcppls::platform::fs;
 namespace pack = mcppls::pack;
 namespace {
-
-// One xlings-res platform: mcppls.os's VS Code target triple, and the {os}_{arch} xlings names
-// (payload.lock.json and the .lua.in templates both spell it this way).
-struct PlatformInfo {
-    std::string_view vscodeTarget;
-    std::string_view osName;
-    std::string_view arch;
-};
-constexpr std::array<PlatformInfo, 3> PLATFORMS { {
-    { "linux-x64", "linux", "x86_64" },
-    { "darwin-arm64", "macosx", "aarch64" },
-    { "win32-x64", "windows", "x86_64" },
-} };
 
 std::string upper_ascii(std::string_view text) {
     std::string out { text };
@@ -99,8 +88,26 @@ base::Result<XlingsResult> make_xlings_artifacts(const std::string& root, const 
     values["@KIT_VERSION@"] = effectiveKitVersion;
     values["@CLANGD_VERSION@"] = effectiveClangdVersion;
 
+    // One xlings-res platform per lock platform: its name, and the {os}_{arch} xlings spelling the
+    // .lua.in templates use.
+    auto lockData = pack::lock::load(lockPath);
+    if (!lockData) return std::unexpected { lockData.error() };
+    struct PlatformInfo {
+        std::string vscodeTarget;
+        std::string_view osName;
+        std::string_view arch;
+        bool windows;
+    };
+    std::vector<PlatformInfo> platforms;
+    for (const auto& name : pack::lock::platform_names(*lockData)) {
+        const auto target = pack::targets::parse(name);
+        if (!target) return base::fail("xlings-artifacts", std::format("{} in {} is not an <os>-<arch> platform name", name, lockPath));
+        platforms.push_back({ name, pack::targets::xlings_os(target->os), pack::targets::xlings_arch(target->arch),
+                              target->os == pack::targets::Os::win32 });
+    }
+
     XlingsResult result {};
-    for (const auto& platform : PLATFORMS) {
+    for (const auto& platform : platforms) {
         const std::string tarball { base::join_path(payloadsDir, std::format("payload-{}.tar.gz", platform.vscodeTarget)) };
         if (!fs::is_regular_file(tarball)) {
             return base::fail("xlings-artifacts", std::format("missing {}", tarball));
@@ -113,8 +120,7 @@ base::Result<XlingsResult> make_xlings_artifacts(const std::string& root, const 
         auto extracted = pack::archive::extract(tarball, scratch, [](std::string_view) { return true; });
         if (!extracted) return std::unexpected { extracted.error() };
 
-        const bool windows { platform.vscodeTarget == "win32-x64" };
-        const std::string exe { windows ? ".exe" : "" };
+        const std::string exe { platform.windows ? ".exe" : "" };
 
         const std::string serverName { std::format("mcpp-language-server-{}-{}-{}", productVersion, platform.osName, platform.arch) };
         const std::string serverArchive { base::join_path(outDir, serverName + ".tar.gz") };

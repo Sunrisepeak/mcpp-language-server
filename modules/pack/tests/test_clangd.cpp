@@ -4,7 +4,7 @@
 // The win32-x64 platform is used for the selection/extraction tests because it is the one
 // platform trim_clangd.py never strips or runs `--version` against (`--zip` bypasses the lock and
 // network entirely), so the fixture's fake binary content never has to be a real executable; the
-// win32-x64 fixture never matches this host's own mcppls::os::VSCODE_TARGET on the CI machines
+// win32-x64 fixture never matches this host's own mcppls::os::PLATFORM on the CI machines
 // this runs on (Linux, macOS), so the "this host can run it" branch never fires for it either.
 #include <archive.h>
 #include <archive_entry.h>
@@ -13,6 +13,7 @@ import std;
 import mcppls.testing;
 import mcppls.base.path;
 import mcppls.pack.clangd;
+import mcppls.pack.fetch;
 import mcppls.pack.lock;
 import mcppls.platform.env;
 import mcppls.platform.fs;
@@ -76,7 +77,7 @@ std::string runnable_clangd() {
 // trim_clangd.py drops (a lib under the same major, a share/ tree).
 //
 // The "binary" is this test program (runnable_clangd): on the one host whose
-// mcppls::os::VSCODE_TARGET matches the platform under test, the trim executes it to read
+// mcppls::os::PLATFORM matches the platform under test, the trim executes it to read
 // `--version`, the way trim_clangd.py's `host_runs_it` did.
 std::vector<Member> release_members(std::string_view exeName) {
     return {
@@ -88,7 +89,15 @@ std::vector<Member> release_members(std::string_view exeName) {
     };
 }
 
-lock::Lock empty_lock() { return lock::Lock {}; }
+// The lock's platform rows are what trim() accepts; their entries are unused here, because every
+// test hands trim() its archive with `zip` and never fetches one.
+lock::Lock platforms_lock() {
+    lock::Lock lockData {};
+    for (const std::string_view platform : { "linux-x64", "linux-arm64", "darwin-arm64", "win32-x64" }) {
+        lockData.platforms.emplace(std::string { platform }, lock::Platform { .clangd = std::format("clangd-{}", platform) });
+    }
+    return lockData;
+}
 
 std::string scratch_dir() {
     const auto root = std::filesystem::current_path() / ".test-scratch"
@@ -108,7 +117,7 @@ int main(int argc, char* argv[]) {
     using namespace mcppls::testing;
 
     const std::string work { scratch_dir() };
-    const auto lockData = empty_lock();
+    const auto lockData = platforms_lock();
 
     "win32-x64: the executable, the license and the one lib/clang/<major>/include survive"_test = [&] {
         const std::string zip { base::join_path(work, "clangd-win32.zip") };
@@ -179,6 +188,68 @@ int main(int argc, char* argv[]) {
         expect(result.error().code == "clangd-shape");
     };
 
+    "linux-arm64 trims like linux-x64: the executable bit set, the one include kept"_test = [&] {
+        const std::string zip { base::join_path(work, "clangd-linux-arm64.zip") };
+        expect(fatal(write_zip(zip, release_members("clangd"))));
+        auto result = clangd::trim(clangd::Options {
+            .platform = "linux-arm64", .outDirectory = base::join_path(work, "linux-arm64-out"),
+            .zip = zip, .cacheDirectory = base::join_path(work, "cache"), .strip = false,
+        }, lockData);
+        expect(fatal(result.has_value())) << (result ? std::string {} : result.error().message);
+        if (!result) return;
+        expect(result->clangMajor == "23");
+        expect(fs::is_regular_file(base::join_path(result->directory, "LICENSE.TXT")));
+        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::windows) {
+            const auto permissions = std::filesystem::status(result->binary).permissions();
+            expect((permissions & std::filesystem::perms::owner_exec) != std::filesystem::perms::none);
+        }
+    };
+
+    // LLVM's Linux arm64 release carries no LICENSE.TXT; the lock's `license-from` names where the
+    // same text is, and trim() places it where every other platform's release already has it. The
+    // source entry is put in the cache first, verified by its digest, so nothing is downloaded.
+    "an archive without LICENSE.TXT takes it from the entry license-from names"_test = [&] {
+        const std::string cache { base::join_path(work, "license-cache") };
+        (void) fs::create_directories(cache);
+        const std::string source { base::join_path(cache, "llvm-source.zip") };
+        expect(fatal(write_zip(source, { { "llvm-project/llvm/LICENSE.TXT", "the LLVM license text", false },
+                                         { "llvm-project/llvm/README.txt", "not the license", false } })));
+        auto digest = mcppls::pack::fetch::digest_of(source);
+        expect(fatal(digest.has_value()));
+        if (!digest) return;
+        auto withSource { lockData };
+        withSource.entries.emplace("llvm-source", mcppls::pack::fetch::Entry {
+            .file = "llvm-source.zip", .url = "https://invalid.example/llvm-source.zip", .sha256 = *digest });
+        withSource.licenseFrom.emplace("clangd-linux-arm64", lock::LicenseFrom { .entry = "llvm-source", .member = "llvm/LICENSE.TXT" });
+
+        std::vector<Member> members { release_members("clangd") };
+        std::erase_if(members, [](const Member& member) { return member.path.ends_with("LICENSE.TXT"); });
+        const std::string zip { base::join_path(work, "clangd-no-license.zip") };
+        expect(fatal(write_zip(zip, members)));
+        auto result = clangd::trim(clangd::Options {
+            .platform = "linux-arm64", .outDirectory = base::join_path(work, "no-license-out"),
+            .zip = zip, .cacheDirectory = cache, .strip = false,
+        }, withSource);
+        expect(fatal(result.has_value())) << (result ? std::string {} : result.error().message);
+        if (!result) return;
+        expect(fs::read_file(base::join_path(result->directory, "LICENSE.TXT")).value_or("") == "the LLVM license text");
+        expect(!fs::exists(base::join_path(result->directory, ".license-from")));
+    };
+
+    "an archive without LICENSE.TXT and no license-from keeps going without one"_test = [&] {
+        std::vector<Member> members { release_members("clangd.exe") };
+        std::erase_if(members, [](const Member& member) { return member.path.ends_with("LICENSE.TXT"); });
+        const std::string zip { base::join_path(work, "clangd-no-license-plain.zip") };
+        expect(fatal(write_zip(zip, members)));
+        auto result = clangd::trim(clangd::Options {
+            .platform = "win32-x64", .outDirectory = base::join_path(work, "no-license-plain-out"),
+            .zip = zip, .cacheDirectory = base::join_path(work, "cache"), .strip = false,
+        }, lockData);
+        // The payload refuses a clangd without a license (payload.cpp); trim only selects.
+        expect(fatal(result.has_value())) << (result ? std::string {} : result.error().message);
+        if (result) expect(!fs::exists(base::join_path(result->directory, "LICENSE.TXT")));
+    };
+
     "an unknown platform is refused before anything is read"_test = [&] {
         auto result = clangd::trim(clangd::Options {
             .platform = "unknown-platform", .outDirectory = base::join_path(work, "unknown-out"),
@@ -207,10 +278,10 @@ int main(int argc, char* argv[]) {
 
     // trim_clangd.py's `host_runs_it`: only fires when the platform under trim matches this host,
     // and reads the first line of `--version` when it does. Both sides of that are exercised in
-    // one test by trimming for this host's own VSCODE_TARGET (which matches, and reads the
+    // one test by trimming for this host's own PLATFORM (which matches, and reads the
     // fixture script's line) and for a platform two steps away in the tuple (which never does).
     "the version line is read only when this host can run what was just trimmed"_test = [&] {
-        const std::string here { mcppls::os::VSCODE_TARGET };
+        const std::string here { mcppls::os::PLATFORM };
         const std::string elsewhere { here == "linux-x64" ? "darwin-arm64" : "linux-x64" };
 
         const std::string hereZip { base::join_path(work, "clangd-here.zip") };

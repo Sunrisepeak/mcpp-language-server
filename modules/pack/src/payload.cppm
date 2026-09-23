@@ -22,14 +22,12 @@ import mcppls.pack.lock;
 
 export namespace mcppls::pack::payload {
 
-inline constexpr std::array<std::string_view, 3> PLATFORMS { "linux-x64", "win32-x64", "darwin-arm64" };
-
 // usable plan W9.4: records size and sha256 of clangd and the kit manifest, so the server can tell
 // a corrupt or tampered payload from a working one at startup. overall design 5.6 added `engines`.
 inline constexpr int PAYLOAD_VERSION { 3 };
 
 struct AssembleOptions {
-    std::string platform;                      // one of PLATFORMS
+    std::string platform;                      // one of the lock's platforms
     std::string serverPath;                    // the mcppls executable built for `platform`
     std::string clangdDirectory;                // produced by mcppls.pack.clangd::trim
     std::string kitDirectory;                   // produced by mcppls.pack.kit (ported separately)

@@ -24,7 +24,7 @@ package = {
         source = "xlings-res",
         linux = {
             ["latest"] = { ref = "@KIT_VERSION@" },
-            ["@KIT_VERSION@"] = { res = true, sha256 = { x86_64 = "@KIT_SHA256_LINUX_X86_64@" } },
+            ["@KIT_VERSION@"] = { res = true, sha256 = { x86_64 = "@KIT_SHA256_LINUX_X86_64@", aarch64 = "@KIT_SHA256_LINUX_AARCH64@" } },
         },
         macosx = {
             ["latest"] = { ref = "@KIT_VERSION@" },

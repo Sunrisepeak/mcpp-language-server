@@ -118,14 +118,6 @@ std::optional<std::string> tool(std::string_view name, std::string_view whatItIs
     return std::nullopt;
 }
 
-std::string_view host_triple() {
-    switch (mcppls::os::FAMILY) {
-    case mcppls::os::Family::windows: return "x86_64-windows-gnu";
-    case mcppls::os::Family::macos: return "aarch64-macos";
-    default: return "x86_64-linux-gnu";
-    }
-}
-
 base::Result<std::string> locate_server(const std::string& root, const ServerBuild& build) {
     auto mcpp = env::find_executable("mcpp");
     if (!mcpp) return base::fail("devtools-mcpp", "mcpp is not on PATH, so the server cannot be built; pass --server");

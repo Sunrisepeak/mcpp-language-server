@@ -4,6 +4,7 @@
 export module mcppls.os;
 
 import std;
+import mcppls.arch;
 
 export namespace mcppls::os {
 
@@ -13,7 +14,10 @@ inline constexpr Family FAMILY { Family::linux };
 inline constexpr std::string_view FAMILY_NAME { "linux" };
 inline constexpr std::string_view EXECUTABLE_SUFFIX { "" };
 inline constexpr char PATH_LIST_SEPARATOR { ':' };
-inline constexpr std::string_view VSCODE_TARGET { "linux-x64" };
+// This operating system on this architecture, named the way VS Code names extension targets
+// (linux-x64, linux-arm64, darwin-arm64, win32-x64): what a payload, a VSIX and the platforms of
+// packaging/payload.lock.json are keyed by.
+inline constexpr std::string_view PLATFORM { mcppls::arch::ARCH == mcppls::arch::Arch::aarch64 ? "linux-arm64" : "linux-x64" };
 inline constexpr bool CASE_INSENSITIVE_PATHS { false };
 
 

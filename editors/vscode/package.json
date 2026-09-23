@@ -1,10 +1,15 @@
 {
   "name": "mcpp-language-server",
   "displayName": "C++ Modules Language Server",
-  "description": "C++20/23 named modules that just work: go to definition, completion, hover and references across modules for any compiler, with clangd and a standard library kit built in.",
-  "version": "0.0.2",
+  "description": "C++20/23 named modules that just work: go to definition, completion, hover and references across modules for any compiler, with clangd and a standard library kit built in. (mcppls)",
+  "version": "0.0.3",
   "publisher": "sunrisepeak",
   "license": "Apache-2.0",
+  "icon": "icon.png",
+  "galleryBanner": {
+    "color": "#000000",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/Sunrisepeak/mcpp-language-server"
@@ -28,7 +33,16 @@
     "cppm",
     "clangd",
     "lsp",
-    "mcpp"
+    "mcpp",
+    "mcppls",
+    "mcpp-language-server",
+    "c++ modules",
+    "cpp modules",
+    "cxx modules",
+    "module",
+    "import",
+    "ixx",
+    "language server"
   ],
   "extensionKind": [
     "workspace"

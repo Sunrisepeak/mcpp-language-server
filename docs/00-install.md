@@ -1,14 +1,21 @@
 # Install
 
 > Releases come from the GitHub release page, and the VS Code extension is also on the VS Code
-> Marketplace. Nothing is on Open VSX or the xlings index yet.
+> Marketplace and on Open VSX. Nothing is on the xlings index yet.
 
 ## VS Code, from the Marketplace
 
-Search the Extensions view for **C++ Modules Language Server**, or run
+Search the Extensions view for **mcppls** or **C++ Modules Language Server**, or run
 `code --install-extension sunrisepeak.mcpp-language-server` ([Marketplace page](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server)). VS Code picks the
-build for your platform — `linux-x64`, `darwin-arm64` or `win32-x64`; there is none for other
-platforms yet.
+build for your platform — `linux-x64`, `linux-arm64`, `darwin-arm64` or `win32-x64`; there is none
+for other platforms yet. On Linux, see [which systems each architecture runs on](#supported-linux-systems).
+
+## Cursor, VSCodium, Windsurf and other VS Code-compatible editors, from Open VSX
+
+These editors install extensions from [Open VSX](https://open-vsx.org/extension/sunrisepeak/mcpp-language-server):
+search their extensions view for **mcppls**. It is the same extension, built from the same release,
+with the same platforms. A release reaches Open VSX when it is published, and the VS Code Marketplace
+shortly after.
 
 ## VS Code, from a release
 
@@ -19,7 +26,7 @@ Download `mcppls-<platform>.vsix` from the [release page][releases] and install 
 
 The VSIX carries everything it needs: the server, a pinned clangd, and the semantic kit. Open a C++
 project and the status bar says what it found. Take the file matching your machine —
-`linux-x64`, `darwin-arm64` or `win32-x64` — since each carries its own platform's payload.
+`linux-x64`, `linux-arm64`, `darwin-arm64` or `win32-x64` — since each carries its own platform's payload.
 
 The extension is `sunrisepeak.mcpp-language-server`, and it is a different extension from **mcpp**
 (`mcpp-community.mcpp-vscode`), which handles building, toolchains and project operations. Both are
@@ -36,6 +43,21 @@ Every asset on a release is listed in its `MANIFEST.md`, with what it is and how
 `SHA256SUMS` covers all of them.
 
 [releases]: https://github.com/Sunrisepeak/mcpp-language-server/releases
+
+## Supported Linux systems
+
+The server is a static executable and runs on any Linux of its architecture. The floor is set by the
+clangd the payload carries:
+
+| Platform | clangd | Needs | Runs on |
+|---|---|---|---|
+| `linux-x64` | clangd/clangd's 23.1.0 build, with libstdc++ linked in | glibc 2.18 | every current glibc distribution |
+| `linux-arm64` | LLVM's own 23.1.0 Linux arm64 build (clangd/clangd publishes none) | glibc 2.34, GCC 12's libstdc++ (`GLIBCXX_3.4.30`), zlib | Ubuntu 22.04 and later, Debian 12 and later, openEuler 24.03 LTS and later (tested); Fedora 36 and later (by its package versions) |
+
+On an arm64 system older than that — Ubuntu 20.04, Debian 11, RHEL and Rocky Linux 8 and 9, Amazon
+Linux 2023, openEuler 22.03 — the bundled clangd cannot start. mcppls then keeps its own
+module-level features (module navigation, import completion, module diagnostics), and its status
+says why. Alpine and other musl distributions run neither architecture's clangd.
 
 ## From source
 
@@ -60,7 +82,7 @@ step and how long it took. If something it needs is missing it says which and ho
 | Remove what was installed | `mcpp run -p devtools -- uninstall --editor vscode\|zed\|clion\|all` |
 | Only the payload, for another editor | `mcpp run -p devtools -- payload` |
 | Reuse a clangd or kit you already built | `... -- payload --clangd DIR --kit DIR` |
-| Another platform's server | `mcpp build --target aarch64-macos` / `--target x86_64-windows-gnu` |
+| Another platform's server | `mcpp build --target aarch64-macos` / `--target x86_64-windows-gnu` / `--target aarch64-linux-musl` |
 
 **Zero setup.** What packaging needs is declared in `mcpp.toml`'s `[xlings.workspace]` — Node for
 the VS Code extension, Rust for Zed — so `mcpp run` provisions it before the tool starts. The

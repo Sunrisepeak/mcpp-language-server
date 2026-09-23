@@ -36,18 +36,16 @@ export namespace mcppls::pack::kit {
 // not import server code either, so a `mcpp test -p pack` never risks the server domain.
 inline constexpr int KIT_VERSION { 1 };
 
-inline constexpr std::array<std::string_view, 3> PLATFORMS { "linux-x64", "win32-x64", "darwin-arm64" };
-
 // Everything build_kit.py took from argv, plus `lockPath` (which the script found next to itself;
 // a library takes it explicitly because it does not know where the repository root is).
 struct Options {
-    std::string platform;                      // one of PLATFORMS
+    std::string platform;                      // one of the lock's platforms
     std::string outDir;                        // kit directory to create (replaced if it exists)
     std::string cacheDir;                      // download cache (packaging/scripts/fetch.py's DEFAULT_CACHE, here chosen by the caller)
     std::string lockPath;                      // packaging/payload.lock.json
     std::string workDir;                       // scratch directory for sources and the configure tree; empty creates and removes a temporary one
     std::string sourceArchive;                 // --source: use this archive instead of fetching the lock entry
-    std::string sysrootIncludeDir;             // --sysroot-include: linux-x64 only, C library headers instead of the host's dpkg packages
+    std::string sysrootIncludeDir;             // --sysroot-include: Linux only, C library headers instead of the host's dpkg packages
     std::vector<std::string> sysrootLicenses;  // --sysroot-license: license file(s) for --sysroot-include (repeatable)
     // --jobs: parallelism given to ninja's install step. build_kit.py's docstring advertised this
     // option but its argparse never defined it, so the Python build always ran ninja without -j
@@ -72,8 +70,9 @@ struct BuiltKit {
 // Runs the recipe payload.lock.json names for `options.platform` and writes the kit. Every check
 // build_kit.py made is made here too: an unresolvable path in the module manifest, a missing
 // include directory, sysroot or license file, a manifest with no `std` module, and the two
-// host-platform guards (darwin-arm64 needs a macOS host, linux-x64 takes its C library headers
-// from a Linux host) all fail this the same way build_kit.py raised SystemExit for them.
+// host-platform guards (a darwin kit needs a macOS host; a Linux kit takes its C library headers
+// from dpkg on a host of its own architecture, or from --sysroot-include) all fail this the same
+// way build_kit.py raised SystemExit for them.
 base::Result<BuiltKit> build(const Options& options);
 
 // ---- pieces exposed for whitebox testing (mcpp test -p pack, modules/pack/tests/test_kit.cpp) --

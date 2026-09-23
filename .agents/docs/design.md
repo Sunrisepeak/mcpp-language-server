@@ -100,7 +100,9 @@ CLion start `mcppls` from PATH, or else from `<user data>/mcppls/payload`.
 
 The whole product — server, tools, model gateway — is C++23 modules only, built by mcpp on openkal
 (an LLVM runtime with its own libc and kernel layer), cross-built from one Linux host for
-`x86_64-linux-gnu`, `aarch64-macos` and `x86_64-windows-gnu`.
+`x86_64-linux-gnu`, `aarch64-linux-musl`, `aarch64-macos` and `x86_64-windows-gnu`. The platforms a
+release ships are the rows of `packaging/payload.lock.json`; `mcppls-devtools check platforms` holds
+the extension, the release manifest and every per-platform CI job to them.
 
 ## 3. Robustness
 
@@ -169,6 +171,10 @@ before anything is published (`docs/92-release.md`).
 ## 7. Known limits
 
 - The CLion plugin builds and installs but has not been exercised in a running CLion.
+- linux-arm64 ships LLVM's own clangd build, which needs glibc 2.34 and a GCC 12 libstdc++ (Ubuntu
+  22.04+, Debian 12+, openEuler 24.03+); elsewhere the status says `engine-incompatible` and only
+  module-level features remain. A clangd built for a lower floor is the way out, if those systems
+  turn out to matter (0.0.3 plan §5.2).
 - clangd 23.1 rejects MSVC STL's aligned allocation; the plan turns aligned allocation off for
   units using MSVC STL (`msvcStlNeedsNoAlignedAllocation`) until upstream fixes it.
 - An mcpp project built for Windows through openkal needs `--target x86_64-windows-gnu`, which no
@@ -231,6 +237,11 @@ RP1.5 resource budgets · RP2.1 producer negotiation · RP2.2 a worse model neve
 one · RP2.3 generated-source recovery before a stand-in · RP2.4 stale databases · RP3.1 an untrusted
 workspace is L4 · RP3.2 one vocabulary (`project.tier`) · RP3.3 log severities · RP3.4 a nested
 project is not folded into its parent.
+
+**"0.0.3 plan" — [2026-09-24-0.0.3-plan.md](2026-09-24-0.0.3-plan.md).** B1 a clangd that dies
+before its handshake still lets the server initialize; a loader's refusal is `engine-incompatible`,
+not a crash · L the icon · S being found as mcppls · P Open VSX from CI, after local verification · A
+Linux arm64 with the official LLVM clangd · X one platform table.
 
 **"tooling architecture".** 3.2 the workspace layout · 5.1 what mcpp, mcppls and devtools each do ·
 5.5 how devtools finds the server it just built · M0–M6 its migration steps.

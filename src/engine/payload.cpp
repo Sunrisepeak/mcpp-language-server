@@ -74,7 +74,7 @@ std::string kit_version(std::string_view kitRoot) {
 
 PayloadPaths resolve_payload(const PayloadRequest& requested) {
     PayloadPaths paths;
-    paths.platform = std::string { mcppls::os::VSCODE_TARGET };
+    paths.platform = std::string { mcppls::os::PLATFORM };
     const std::string suffix { mcppls::os::EXECUTABLE_SUFFIX };
     PayloadRequest request { requested };
     if (request.payloadDirectory.empty()) request.payloadDirectory = enclosing_payload();

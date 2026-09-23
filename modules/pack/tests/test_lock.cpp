@@ -37,6 +37,12 @@ constexpr std::string_view FIXTURE = R"JSON({
       "url": "https://example.invalid/llvm-project-23.1.0.src.tar.xz",
       "file": "llvm-project-23.1.0.src.tar.xz",
       "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "clangd-linux-arm64": {
+      "url": "https://example.invalid/LLVM-23.1.0-Linux-ARM64.tar.xz",
+      "file": "LLVM-23.1.0-Linux-ARM64.tar.xz",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "license-from": { "entry": "llvm-project-src", "member": "llvm/LICENSE.TXT" }
     }
   },
   "platforms": {
@@ -46,7 +52,17 @@ constexpr std::string_view FIXTURE = R"JSON({
         "recipe": "libcxx-source",
         "source": "llvm-project-src",
         "target": "x86_64-unknown-linux-gnu"
-      }
+      },
+      "server-target": "x86_64-linux-gnu"
+    },
+    "linux-arm64": {
+      "clangd": "clangd-linux-arm64",
+      "kit": {
+        "recipe": "libcxx-source",
+        "source": "llvm-project-src",
+        "target": "aarch64-unknown-linux-gnu"
+      },
+      "server-target": "aarch64-linux-musl"
     }
   }
 })JSON";
@@ -66,8 +82,9 @@ int main() {
         if (!loaded) return;
         expect(loaded->clangdVersion == "23.1.0");
         expect(loaded->libcxxVersion == "23.1.0");
-        expect(loaded->entries.size() == 2);
-        expect(loaded->platforms.size() == 1);
+        expect(loaded->entries.size() == 3);
+        expect(loaded->platforms.size() == 2);
+        expect(lock::platform_names(*loaded) == std::vector<std::string> { "linux-arm64", "linux-x64" });
     };
 
     "a known entry is returned by name"_test = [&] {
@@ -115,6 +132,22 @@ int main() {
         expect(found->kit.recipe == "libcxx-source");
         expect(found->kit.source == "llvm-project-src");
         expect(found->kit.target == "x86_64-unknown-linux-gnu");
+        expect(found->serverTarget == "x86_64-linux-gnu");
+    };
+
+    "an entry's license-from names the entry and member its license comes from"_test = [&] {
+        auto loaded = lock::load(lockPath);
+        expect(fatal(loaded.has_value()));
+        if (!loaded) return;
+        expect(loaded->licenseFrom.size() == 1);
+        const auto from = loaded->licenseFrom.find("clangd-linux-arm64");
+        expect(fatal(from != loaded->licenseFrom.end()));
+        if (from == loaded->licenseFrom.end()) return;
+        expect(from->second.entry == "llvm-project-src");
+        expect(from->second.member == "llvm/LICENSE.TXT");
+        auto arm = lock::platform(*loaded, "linux-arm64");
+        expect(fatal(arm.has_value()));
+        if (arm) expect(arm->serverTarget == "aarch64-linux-musl");
     };
 
     "an unknown platform is an error"_test = [&] {
