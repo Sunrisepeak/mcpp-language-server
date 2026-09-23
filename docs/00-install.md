@@ -1,14 +1,21 @@
 # Install
 
 > Releases come from the GitHub release page, and the VS Code extension is also on the VS Code
-> Marketplace. Nothing is on Open VSX or the xlings index yet.
+> Marketplace and on Open VSX. Nothing is on the xlings index yet.
 
 ## VS Code, from the Marketplace
 
-Search the Extensions view for **C++ Modules Language Server**, or run
+Search the Extensions view for **mcppls** or **C++ Modules Language Server**, or run
 `code --install-extension sunrisepeak.mcpp-language-server` ([Marketplace page](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server)). VS Code picks the
 build for your platform — `linux-x64`, `linux-arm64`, `darwin-arm64` or `win32-x64`; there is none
 for other platforms yet. On Linux, see [which systems each architecture runs on](#supported-linux-systems).
+
+## Cursor, VSCodium, Windsurf and other VS Code-compatible editors, from Open VSX
+
+These editors install extensions from [Open VSX](https://open-vsx.org/extension/sunrisepeak/mcpp-language-server):
+search their extensions view for **mcppls**. It is the same extension, built from the same release,
+with the same platforms. A release reaches Open VSX when it is published, and the VS Code Marketplace
+shortly after.
 
 ## VS Code, from a release
 

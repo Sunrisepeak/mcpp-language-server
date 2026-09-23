@@ -2,11 +2,15 @@
 
 [English](../00-install.md) | **简体中文**
 
-> release 发布在 GitHub release 页面，VS Code 扩展同时也上架了 VS Code Marketplace。Open VSX 和 xlings 索引上暂时都还没有。
+> release 发布在 GitHub release 页面，VS Code 扩展同时也上架了 VS Code Marketplace 和 Open VSX。xlings 索引上暂时还没有。
 
 ## VS Code：从 Marketplace 安装
 
-在扩展视图里搜索 **C++ Modules Language Server**，或者运行 `code --install-extension sunrisepeak.mcpp-language-server`（[Marketplace 页面](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server））。VS Code 会自动选对应平台的版本——`linux-x64`、`linux-arm64`、`darwin-arm64` 或 `win32-x64`；其他平台暂时没有。Linux 上各架构支持哪些系统，见[支持的 Linux 系统](#支持的-linux-系统)。
+在扩展视图里搜索 **mcppls** 或 **C++ Modules Language Server**，或者运行 `code --install-extension sunrisepeak.mcpp-language-server`（[Marketplace 页面](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server））。VS Code 会自动选对应平台的版本——`linux-x64`、`linux-arm64`、`darwin-arm64` 或 `win32-x64`；其他平台暂时没有。Linux 上各架构支持哪些系统，见[支持的 Linux 系统](#支持的-linux-系统)。
+
+## Cursor、VSCodium、Windsurf 等兼容 VS Code 的编辑器：从 Open VSX 安装
+
+这些编辑器从 [Open VSX](https://open-vsx.org/extension/sunrisepeak/mcpp-language-server) 安装扩展：在它们的扩展视图里搜索 **mcppls** 即可。这是同一个扩展，由同一个 release 构建，支持的平台也一样。release 发布时就会上架 Open VSX，VS Code Marketplace 稍后跟上。
 
 ## VS Code：从 release 安装
 

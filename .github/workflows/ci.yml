@@ -282,21 +282,21 @@ jobs:
             part: 2 of 2
             os: ubuntu-24.04
             extras: true
-            fixtures: inferred engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-watch mcpp-emit-watch@polling cmake-clang cmake-clang-bdb watch-polling payload-corrupt generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed failure-at-base failure-at-base@neovim
+            fixtures: inferred engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-watch mcpp-emit-watch@polling cmake-clang cmake-clang-bdb watch-polling payload-corrupt clangd-cannot-load generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed failure-at-base failure-at-base@neovim
           # generated-module{,-old-mcpp,-negotiated}'s mcpp-mock.json bakes in a POSIX driver path
           # (${env:HOME}/.mcpp/registry/..., no {exe}); it resolves the same way here as on Linux, so
           # these run on macOS but are left off win32-x64 below rather than fixed unverified.
           - platform: darwin-arm64
             os: macos-14
             extras: true
-            fixtures: inferred engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated
+            fixtures: inferred engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated
           # No mcpp on the arm64 runner (its tools are the cross-built ones), so the fixtures that
           # need no build tool and no compiler of their own: the semantic kit, clangd and the server
           # on aarch64, with module faults, a corrupt payload and polling included.
           - platform: linux-arm64
             os: ubuntu-24.04-arm
             cross-tools: true
-            fixtures: inferred engine-none module-faults untrusted payload-corrupt failure-at-base watch-polling
+            fixtures: inferred engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling
           - platform: win32-x64
             part: 1 of 2
             os: windows-2022
@@ -305,7 +305,7 @@ jobs:
             part: 2 of 2
             os: windows-2022
             extras: true
-            fixtures: inferred engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-clangxx-msvc cmake-clang-cl mcpp-msvc mcpp-watch failure-at-base
+            fixtures: inferred engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-clangxx-msvc cmake-clang-cl mcpp-msvc mcpp-watch failure-at-base clangd-cannot-load
     defaults:
       run:
         shell: bash
