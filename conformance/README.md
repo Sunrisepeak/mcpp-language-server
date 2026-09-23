@@ -63,6 +63,7 @@ checks fail at once with that reason instead of each waiting out its timeout.
 | `generated-module-negotiated` | The same old-mcpp project, but a newer mock mcpp is installed where producer negotiation looks (its own isolated HOME's `xim-x-mcpp/9999.0.0/bin/mcpp`, the `producer-candidate` prepare step): the server must find it, describe the project through it (tier 1, level 3, notice `producer-negotiated`), and never fall back to `compile_commands.json` |
 | `s1-two-sets` | A workspace carrying its own S1 build database (`--database`, usable plan W9.2): two sets compile the same file under `-DVARIANT=1` and `-DVARIANT=2`; `cxxModules/setContext` switches which one answers |
 | `watch-polling` | Run with `--no-dynamic-watch` (usable plan W9.3): a new module interface written straight into the workspace must still reach the module graph within seconds, through the polling fallback rather than a client-driven `workspace/didChangeWatchedFiles` |
+| `clangd-cannot-load` | 0.0.3 plan B1: its `prepare` step puts a stand-in clangd in the workspace (mcppls-mock-mcpp with an `unavailable` config) that writes a loader's message, a `GLIBCXX` version not found, to standard error and exits 1; `--clangd` points the server at it. `initialize` must be answered within 20 s (it used to wait for good), the status must reach `error` with issue `engine-incompatible`, and mcppls's own module features must work |
 | `payload-corrupt` | Its `prepare` step copies the payload the runner was given and truncates clangd in the copy (usable plan W9.4); `server-arguments` then points `--payload` at that broken copy, and status must reach `error` with issue `payload-corrupt` |
 | `multi-root` | Two workspace folders (usable plan W9.1): an `inferred` root and an mcpp-built `mcpp-llvm` root (level 3, from mcpp's own build database), each getting its own project model and clangd, each `cxxModules/status` telling them apart by `project.root` |
 
@@ -117,6 +118,9 @@ are `[line, character]`, zero-based, UTF-16. A check with `"text"` opens its fil
 content; a check with `"optional": true` reports `SKIP` instead of failing, and `"timeout": SECONDS`
 waits less than the run's `--timeout`. `"file"` and `"folder"` on a check, like every other path a
 scenario names, are relative to the fixture's own root, never to a specific workspace folder.
+`"initialize-within": SECONDS` on the scenario fails the run when `initialize` is answered later
+than that (the runner itself waits up to 120 s): a server that answers eventually is not enough
+where the point is that it answers at once (`clangd-cannot-load`).
 
 A fixture whose result depends on what mcpp or xlings a machine happens to have installed sets
 `"isolate-home": true` (real-project plan RP2.1): the server under test, and every process it

@@ -66,6 +66,15 @@ journal has an `engine-stuck` entry with the numbers. clangd 23.1 has been seen 
 module's source changed twice within a second. On Windows, where the server cannot read clangd's CPU
 time, this is not detected; files clangd stops answering for are still set aside one by one.
 
+**"The bundled clangd cannot run on this system".** clangd did not start at all: the system's
+program loader refused it, and its message is in the status and the log (for example
+``version `GLIBCXX_3.4.30' not found``). No restart can change that, so none is tried; mcppls's own
+engine answers module navigation, `import` completion and module diagnostics meanwhile. On Linux
+arm64 the bundled clangd needs glibc 2.34 and a GCC 12 libstdc++ — the systems it runs on are listed
+in [the install guide](00-install.md). Elsewhere it usually means a musl system (Alpine) or a damaged
+payload. An editor that starts `mcppls` itself can give it a clangd of your own, 23.1 or later, with
+`--clangd PATH`.
+
 ## Filing a bug
 
 Attach the diagnostic report. It names paths on your machine, so read it first — it carries no

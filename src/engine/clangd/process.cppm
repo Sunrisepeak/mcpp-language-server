@@ -55,6 +55,10 @@ std::optional<ModuleFailure> parse_module_failure(std::string_view line);
 // ("E[10:31:02.1] ..."): E is a problem worth a person's attention, I/V/D are its everyday chatter,
 // and a line with no such prefix (a continuation, or something else entirely) is kept at info.
 base::log::Level clangd_log_level(std::string_view line);
+// A line the system's program loader wrote because clangd cannot run on this machine at all: a
+// shared library, or a version of one, it was linked against is missing (glibc's ld.so, musl's, macOS's
+// dyld). No restart can change that, so it is not a crash (0.0.3 plan B1).
+bool loader_failure(std::string_view line);
 // What a module build failure means for the engine database (robustness design C3). `unresolved`:
 // clangd found no unit for the module ("Don't get the module unit"); a provider importing it cannot be
 // built. `compile`: the unit was found and did not compile; its importers get errors, not a hang (S3).

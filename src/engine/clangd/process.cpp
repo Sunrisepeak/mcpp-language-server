@@ -61,6 +61,21 @@ base::log::Level clangd_log_level(std::string_view line) {
     return base::log::Level::info;
 }
 
+bool loader_failure(std::string_view line) {
+    // clangd's own log lines start with a severity letter and a timestamp ("E[10:31:02.1] ..."); a
+    // loader's never do, and one of them quoting these words is a message about a file, not this.
+    if (line.size() >= 2 && line[1] == '[') return false;
+    static constexpr std::array<std::string_view, 6> MARKERS {
+        "error while loading shared libraries",   // glibc: a library missing
+        "not found (required by",                 // glibc: a symbol version missing ("version `GLIBCXX_3.4.30' not found")
+        "Error loading shared library",           // musl
+        "Error relocating",                       // musl: a symbol missing
+        "Library not loaded",                     // dyld
+        "Symbol not found",                       // dyld
+    };
+    return std::ranges::any_of(MARKERS, [&](std::string_view marker) { return line.find(marker) != std::string_view::npos; });
+}
+
 FailureKind failure_kind(const ModuleFailure& failure) {
     if (failure.reason.find("Don't get the module unit") != std::string::npos) return FailureKind::unresolved;
     if (failure.reason.starts_with("Failed to compile")) return FailureKind::compile;

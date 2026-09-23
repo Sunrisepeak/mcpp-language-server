@@ -142,6 +142,15 @@ private:
     bool handshakeDone_ { false };
     bool accepting_ { false };
     bool unavailable_ { false };
+    // 0.0.3 plan B1: a clangd that dies before its handshake. The server's own initialize waits on
+    // this engine settling, so such an exit has to settle it too, or the editor never gets past
+    // initialize. A loader's message on its standard error (loader_failure) means it never can
+    // run here: incompatible_, and no more restarts. The line and the exit arrive on different
+    // threads, in either order; closedGeneration_ is how the later one knows the earlier came.
+    int earlyExits_ { 0 };                  // exits before a handshake since the last one completed
+    std::optional<std::string> loadFailure_;   // this generation's loader message
+    int closedGeneration_ { -1 };
+    bool incompatible_ { false };
     std::map<std::int64_t, PendingRequest> pending_;
     std::int64_t nextId_ { 1 };
     // A client message not yet given to clangd, and when it must have been answered (wait_limit;
@@ -265,7 +274,7 @@ public:
         // already; an unexplained stall gets a generic one below so degraded always says why.
         const bool stalled { preparingBusy && lastPrimeProgressAt_ && Clock::now() - *lastPrimeProgressAt_ >= PREPARATION_STALL_TIMEOUT };
         status.preparing = (!awaitingDiagnostics_.empty() || (preparingBusy && !stalled) || !held_.empty()) && accepting_;
-        status.failed = options_.payloadCorrupt || (unavailable_ && crashes_.size() >= 3);
+        status.failed = options_.payloadCorrupt || incompatible_ || (unavailable_ && crashes_.size() >= 3);
         if (preparingBusy) std::tie(status.prepared, status.toPrepare) = primer_.progress();
         status.issues = issues_;
         if (stalled && doomedModules_.empty()) {
@@ -748,6 +757,8 @@ public:
             handle_message_(event["message"]);
         } else if (kind == "closed") {
             handle_closed_();
+        } else if (kind == "load-failure") {
+            handle_load_failure_(event.value("line", std::string {}));
         } else if (kind == "module-failed") {
             handle_module_failure_(event["failure"]);
         } else if (kind == "cpu") {
@@ -950,6 +961,7 @@ private:
 
     void start_process_() {
         handshakeDone_ = false;
+        loadFailure_.reset();
         accepting_ = false;
         stuck_.clear();
         stuckAtCap_ = false;
@@ -1027,6 +1039,9 @@ private:
                     default: log::info("clangd ({}): {}", root, line); break;
                     }
                 }
+                if (loader_failure(line)) {
+                    sink(Json { { "kind", "load-failure" }, { "generation", generation }, { "line", std::string { base::trim(line) } } });
+                }
                 if (auto failure = parse_module_failure(line)) {
                     sink(Json { { "kind", "module-failed" }, { "generation", generation },
                                 { "failure", Json { { "module", failure->module }, { "reason", failure->reason }, { "source", failure->failedSource } } } });
@@ -1058,6 +1073,7 @@ private:
     }
 
     void restart_(std::string_view reason) {
+        if (incompatible_) return;   // it cannot run on this machine; another start changes nothing
         log::info("restarting clangd ({}): {}", host_->root_directory(), reason);
         restartGate_.record(Clock::now());
         restartHistory_.emplace_back(std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now())), std::string { reason });
@@ -1309,6 +1325,7 @@ private:
             host_->engine_settled(ENGINE_ID, capabilities);
             (void)send_(lsp::make_notification("initialized", Json::object()));
             handshakeDone_ = true;
+            earlyExits_ = 0;
             accept_traffic_if_ready_();
             host_->status_changed();
             break;
@@ -1398,6 +1415,8 @@ private:
     }
 
     void handle_closed_() {
+        const bool early { !handshakeDone_ };
+        closedGeneration_ = generation_;
         handshakeDone_ = false;
         accepting_ = false;
         forget_primes_();
@@ -1408,6 +1427,10 @@ private:
             if (request.purpose == Purpose::client && request.reply) request.reply(Answer {});
         }
         answer_searches_();
+        if (early && loadFailure_) {   // not a crash: no suspects, no restart
+            become_incompatible_(*loadFailure_);
+            return;
+        }
         const auto now = Clock::now();
         crashes_.push_back(now);
         while (!crashes_.empty() && now - crashes_.front() > std::chrono::minutes { 5 }) crashes_.pop_front();
@@ -1426,13 +1449,44 @@ private:
         }
         host_->record_event("engine-exit", Json { { "recentExits", crashes_.size() }, { "suspects", Json(std::vector<std::string> { suspects.begin(), suspects.end() }) } });
         for (const auto& path : suspects) set_aside_(path, "clangd exited while working on it", Reclaim::no);
+        // An exit before the handshake leaves the server's own initialize waiting on this engine. One
+        // may be a fluke the restart below mends; a second is not, and the editor is not kept
+        // waiting for the restarts after it: it gets mcppls's own features now, and clangd's if one
+        // of those restarts succeeds.
+        if (early && ++earlyExits_ >= 2) host_->engine_settled(ENGINE_ID, Json::object());
         if (crashes_.size() >= 5) {
             unavailable_ = true;
             flush_deferred_without_engine_();
+            host_->engine_settled(ENGINE_ID, Json::object());
         } else {
             restartReason_ = "recovering from an exit";
             restartAt_ = std::max(now + std::chrono::seconds { 1 << std::min<std::size_t>(crashes_.size() - 1, 6) }, restartGate_.earliest(now));
         }
+        host_->status_changed();
+    }
+
+    // The loader said why clangd exited: before its exit was handled, it waits for it; after, it is
+    // handled now (the restart that exit scheduled is not wanted any more).
+    void handle_load_failure_(const std::string& line) {
+        if (handshakeDone_ || incompatible_ || line.empty()) return;
+        loadFailure_ = line;
+        if (closedGeneration_ == generation_) become_incompatible_(line);
+    }
+
+    void become_incompatible_(const std::string& line) {
+        log::error("clangd cannot run on this system ({}): {}", host_->root_directory(), line);
+        incompatible_ = true;
+        unavailable_ = true;
+        restartAt_.reset();
+        // Not a crash, whatever the exit looked like: the one issue says what it is.
+        std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-crashed"; });
+        add_issue_(Issue { "engine-incompatible",
+            std::format("the bundled clangd cannot run on this system ({}); only module-level features are available. "
+                        "Supported systems are listed in the install guide", line),
+            "mcppls.showLogs" });
+        host_->record_event("engine-incompatible", Json { { "line", line } });
+        flush_deferred_without_engine_();
+        host_->engine_settled(ENGINE_ID, Json::object());
         host_->status_changed();
     }
 

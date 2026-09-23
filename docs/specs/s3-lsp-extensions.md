@@ -96,6 +96,7 @@ interface CxxModulesIssue {
       | "model-stale"               // the producer failed to answer again; the last model is kept (S2 5)
       | "std-fallback-kit"          // the engine could not build the toolchain's standard library module; a semantic kit reads the files
       | "file-quarantined"          // the engine stopped answering for some files; they are answered from the module index until they change
+      | "engine-incompatible"       // the engine cannot run on this machine at all (its program loader refused it); module-level features remain
       | string;
   message: string;
   command?: Command;               // an optional action that fixes the issue

@@ -118,6 +118,33 @@ private:
     bool running_ { false };
 };
 
+// A clangd that exits as soon as it is started, before any handshake: optionally after writing
+// `line` to its standard error, the way a loader does when clangd cannot run on the machine at all,
+// and with the exit reported before or after that line (they come from different threads).
+class DyingProcess : public cld::Process {
+public:
+    struct Shared {
+        int starts { 0 };
+        std::string line;
+        bool exitFirst { false };
+    };
+    explicit DyingProcess(std::shared_ptr<Shared> shared) : shared_ { std::move(shared) } {}
+
+    mcppls::base::Result<void> start(const cld::ProcessConfig&, MessageHandler, ClosedHandler onClosed, LogHandler onLog) override {
+        ++shared_->starts;
+        if (shared_->exitFirst) onClosed();
+        if (!shared_->line.empty()) onLog(shared_->line);
+        if (!shared_->exitFirst) onClosed();
+        return {};
+    }
+    mcppls::base::Result<void> send(const Json&) override { return {}; }
+    void stop(std::chrono::milliseconds) override {}
+    bool running() const override { return false; }
+
+private:
+    std::shared_ptr<Shared> shared_;
+};
+
 // The least a Workspace offers an engine: one root, no documents, events recorded.
 class RecordingHost : public eng::Host {
 public:
@@ -156,7 +183,8 @@ public:
     std::string client_request_id(std::string_view, int, const Json& id) const override { return id.dump(); }
     void publish_engine_diagnostics(std::string_view, const std::string&, Json, std::optional<std::int64_t>) override {}
     void forget_engine_diagnostics(std::string_view) override {}
-    void engine_settled(std::string_view, const Json&) override {}
+    int settled { 0 };   // how often the engine said it settled (the first answers the server's initialize)
+    void engine_settled(std::string_view, const Json&) override { ++settled; }
     void status_changed() override {}
     void request_replan() override {}
     std::vector<eng::DocumentView> documents() const override { return {}; }
@@ -752,6 +780,94 @@ int main() {
             engine->shut_down();
             fs::remove_all(root);
         }
+    };
+
+    "a loader's message is told from clangd's own lines"_test = [] {
+        expect(cld::loader_failure("clangd: /lib/aarch64-linux-gnu/libstdc++.so.6: version `GLIBCXX_3.4.30' not found (required by clangd)"));
+        expect(cld::loader_failure("/opt/payload/clangd/bin/clangd: error while loading shared libraries: libz.so.1: cannot open shared object file: No such file or directory"));
+        expect(cld::loader_failure("Error loading shared library libstdc++.so.6: No such file or directory (needed by /payload/clangd/bin/clangd)")) << "musl";
+        expect(cld::loader_failure("Error relocating /payload/clangd/bin/clangd: __cxa_thread_atexit_impl: symbol not found")) << "musl";
+        expect(cld::loader_failure("dyld[4242]: Library not loaded: @rpath/libz.1.dylib")) << "macOS";
+        expect(!cld::loader_failure("E[10:31:02.100] Failed to build module greet; due to Failed to compile /p/greet.cppm"));
+        expect(!cld::loader_failure("E[10:31:02.100] error while loading shared libraries is in this file's text")) << "clangd's own line, whatever it quotes";
+        expect(!cld::loader_failure("I[10:31:02.100] clangd version 23.1.0"));
+        expect(!cld::loader_failure(""));
+    };
+
+    // 0.0.3 plan B1: a clangd that dies before its handshake left the server's initialize unanswered
+    // for good -- an editor stuck starting, with no features and no reason given.
+    "a clangd that cannot run on this machine settles at once and is not restarted"_test = [] {
+        using namespace std::chrono_literals;
+        namespace fs = mcppls::platform::fs;
+        for (const bool exitFirst : { false, true }) {
+            const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+                std::format("mcppls-test-incompatible-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+            (void)fs::create_directories(root);
+            const std::string executable { mcppls::base::join_path(root, "clangd") };
+            (void)fs::write_file(executable, "pretend-clangd");
+            auto shared = std::make_shared<DyingProcess::Shared>();
+            shared->line = "clangd: /lib/aarch64-linux-gnu/libstdc++.so.6: version `GLIBCXX_3.4.30' not found (required by clangd)";
+            shared->exitFirst = exitFirst;
+            cld::Options options;
+            options.executable = executable;
+            options.version = "23.1.0";
+            options.processFactory = [shared] { return std::make_unique<DyingProcess>(shared); };
+            RecordingHost host { root };
+            auto engine = cld::make_engine(std::move(options));
+            engine->start(host);
+            host.pump(*engine);
+            const auto settledStatus = engine->status();
+            expect(host.settled >= 1) << (exitFirst ? "exit first" : "line first") << ": the server's initialize is answered";
+            expect(settledStatus.failed && settledStatus.state == "unavailable");
+            const auto has = [&](std::string_view code) {
+                return std::ranges::any_of(settledStatus.issues, [&](const auto& issue) { return issue.code == code; });
+            };
+            expect(has("engine-incompatible")) << "the status says why";
+            expect(!has("engine-crashed")) << "one issue, not a crash as well";
+            // Past the first restart's time: nothing restarts it.
+            const auto end = eng::Clock::now() + 1500ms;
+            while (eng::Clock::now() < end) {
+                std::this_thread::sleep_for(50ms);
+                engine->handle_timers();
+                host.pump(*engine);
+            }
+            expect(shared->starts == 1) << "started " << shared->starts << " times";
+            engine->shut_down();
+            fs::remove_all(root);
+        }
+    };
+
+    "a clangd that exits before its handshake twice still lets the server initialize"_test = [] {
+        using namespace std::chrono_literals;
+        namespace fs = mcppls::platform::fs;
+        const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+            std::format("mcppls-test-early-exit-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+        (void)fs::create_directories(root);
+        const std::string executable { mcppls::base::join_path(root, "clangd") };
+        (void)fs::write_file(executable, "pretend-clangd");
+        auto shared = std::make_shared<DyingProcess::Shared>();   // no loader message: a crash, not an incompatibility
+        cld::Options options;
+        options.executable = executable;
+        options.version = "23.1.0";
+        options.processFactory = [shared] { return std::make_unique<DyingProcess>(shared); };
+        RecordingHost host { root };
+        auto engine = cld::make_engine(std::move(options));
+        engine->start(host);
+        host.pump(*engine);
+        expect(host.settled == 0) << "one early exit may be a fluke: the restart gets its chance";
+        const auto end = eng::Clock::now() + 3s;
+        while (eng::Clock::now() < end && shared->starts < 2) {
+            std::this_thread::sleep_for(50ms);
+            engine->handle_timers();
+            host.pump(*engine);
+        }
+        expect(fatal(shared->starts == 2)) << "restarted after the first exit";
+        expect(host.settled == 1) << "the second early exit answers the server's initialize";
+        const auto status = engine->status();
+        expect(std::ranges::any_of(status.issues, [](const auto& issue) { return issue.code == "engine-crashed"; }));
+        expect(!status.failed) << "two exits: still restarting";
+        engine->shut_down();
+        fs::remove_all(root);
     };
 
     "a module the engine has already built completes without a unit"_test = [] {

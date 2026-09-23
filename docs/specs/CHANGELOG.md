@@ -2,6 +2,14 @@
 
 Changes to the specifications in this directory. Each specification is versioned independently.
 
+## 2026-09-24 — S3: issue `engine-incompatible`
+
+Listed `engine-incompatible` among `CxxModulesIssue` codes: the core engine cannot run on this
+machine at all, because the system's program loader refused it (a shared library, or a version of
+one, it needs is missing). Unlike `engine-crashed`, nothing restarts it, and the root's state is
+`error` with module-level features only. Informative only: the code set was already open
+(`| string`), so protocol version stays 1.
+
 ## 2026-09-22 — S3: `project.tier`
 
 Added `project.tier` (optional) to `cxxModules/status`: which kind of source described the project
