@@ -813,7 +813,7 @@ jobs:
           while read -r file; do
             case "$file" in
               .github/workflows/release.yml|.github/workflows/prerelease.yml|.github/workflows/release-checks.yml|\
-              packaging/release.manifest.json|editors/zed/*|editors/clion/*|\
+              packaging/release.manifest.json|packaging/payload.lock.json|editors/zed/*|editors/clion/*|\
               tools/devtools/src/editors.*|tools/devtools/src/packaging.*|tools/devtools/src/release.*)
                 echo "release packaging: $file"; changed=true ;;
             esac
