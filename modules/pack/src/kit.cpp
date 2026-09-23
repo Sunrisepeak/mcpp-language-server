@@ -14,6 +14,7 @@ import mcppls.platform.process;
 import mcppls.platform.toolrun;
 import mcppls.pack.archive;
 import mcppls.pack.fetch;
+import mcppls.pack.targets;
 
 namespace mcppls::pack::kit {
 namespace fs = mcppls::platform::fs;
@@ -320,11 +321,19 @@ base::Result<nlohmann::ordered_json> recipe_libcxx_source(const Options& options
     // The two host guards build_kit.py raised SystemExit for: the TARGET platform is data (it
     // comes from --platform, same as every other host), but building it needs facts about the
     // HOST this is running on, which is where mcppls.os's compile-time constant belongs.
-    if (options.platform == "darwin-arm64" && mcppls::os::FAMILY != mcppls::os::Family::macos) {
-        return base::fail("kit-host", "darwin-arm64 configures libc++ for Apple platforms and needs a macOS host");
+    const auto parsed = targets::parse(options.platform);
+    if (!parsed) return base::fail("kit-platform", std::format("{} is not an <os>-<arch> platform name", options.platform));
+    if (parsed->os == targets::Os::darwin && mcppls::os::FAMILY != mcppls::os::Family::macos) {
+        return base::fail("kit-host", std::format("{} configures libc++ for Apple platforms and needs a macOS host", options.platform));
     }
-    if (options.platform == "linux-x64" && mcppls::os::FAMILY != mcppls::os::Family::linux) {
-        return base::fail("kit-host", "linux-x64 takes the C library headers from a Linux host");
+    if (parsed->os == targets::Os::linux && mcppls::os::FAMILY != mcppls::os::Family::linux) {
+        return base::fail("kit-host", std::format("{} takes the C library headers from a Linux host", options.platform));
+    }
+    // dpkg lists the headers of the host's own architecture (/usr/include/<host triple>/...), so
+    // without --sysroot-include a Linux kit is built on a host of the architecture it is for.
+    if (parsed->os == targets::Os::linux && options.sysrootIncludeDir.empty() && options.platform != mcppls::os::PLATFORM) {
+        return base::fail("kit-host", std::format("{} takes its C library headers from dpkg on a {} host, or from --sysroot-include; "
+                                                  "this host is {}", options.platform, options.platform, mcppls::os::PLATFORM));
     }
 
     std::string archive { options.sourceArchive };
@@ -429,7 +438,7 @@ base::Result<nlohmann::ordered_json> recipe_libcxx_source(const Options& options
     data["sysroot"] = nullptr;
     data["arguments"] = std::vector<std::string> { "-nostdinc++" };
 
-    if (options.platform == "linux-x64") {
+    if (parsed->os == targets::Os::linux) {
         std::vector<std::string> extraLicenses;
         if (!options.sysrootIncludeDir.empty()) {
             const std::string headerRoot { base::join_path(fs::current_directory(), options.sysrootIncludeDir) };
@@ -609,11 +618,12 @@ std::vector<std::string> configure_arguments(const ConfigureInputs& inputs) {
         "-DLLVM_INCLUDE_TESTS=OFF",
         "-DLLVM_INCLUDE_DOCS=OFF",
     };
-    if (inputs.platform == "linux-x64") {
+    const auto parsed = targets::parse(inputs.platform);
+    if (parsed && parsed->os == targets::Os::linux) {
         configure.push_back("-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON");
         configure.push_back(std::format("-DLLVM_DEFAULT_TARGET_TRIPLE={}", inputs.target));
     } else {
-        configure.push_back("-DCMAKE_OSX_ARCHITECTURES=arm64");
+        configure.push_back(std::format("-DCMAKE_OSX_ARCHITECTURES={}", targets::apple_arch(parsed ? parsed->arch : targets::Arch::arm64)));
     }
     return configure;
 }
@@ -660,8 +670,8 @@ base::Result<void> write_kit_json(const std::string& kitDir, nlohmann::ordered_j
 } // namespace testing
 
 base::Result<BuiltKit> build(const Options& options) {
-    if (std::ranges::find(PLATFORMS, options.platform) == PLATFORMS.end()) {
-        return base::fail("kit-platform", std::format("unknown platform {} (want linux-x64, win32-x64 or darwin-arm64)", options.platform));
+    if (!targets::parse(options.platform)) {
+        return base::fail("kit-platform", std::format("{} is not an <os>-<arch> platform name", options.platform));
     }
     auto lockResult = load_lock(options.lockPath);
     if (!lockResult) return std::unexpected { lockResult.error() };

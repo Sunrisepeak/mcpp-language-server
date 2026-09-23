@@ -54,6 +54,9 @@ base::Result<Lock> load(std::string_view path) {
         if (const auto size = value.find("size"); size != value.end() && size->is_number_unsigned()) {
             parsed.size = size->get<std::uint64_t>();
         }
+        if (const auto from = value.find("license-from"); from != value.end() && from->is_object()) {
+            lockData.licenseFrom.emplace(item.key(), LicenseFrom { from->value("entry", std::string {}), from->value("member", std::string {}) });
+        }
         lockData.entries.emplace(item.key(), std::move(parsed));
     }
 
@@ -65,6 +68,7 @@ base::Result<Lock> load(std::string_view path) {
         const auto& value = item.value();
         Platform parsed {};
         parsed.clangd = value.value("clangd", std::string {});
+        parsed.serverTarget = value.value("server-target", std::string {});
         const auto kit = value.find("kit");
         if (kit != value.end() && kit->is_object()) {
             parsed.kit.recipe = kit->value("recipe", std::string {});
@@ -90,6 +94,12 @@ base::Result<Platform> platform(const Lock& lockData, std::string_view platformN
         return base::fail("lock-platform", std::format("unknown platform {}; known: {}", platformName, joined_names(lockData.platforms)));
     }
     return found->second;
+}
+
+std::vector<std::string> platform_names(const Lock& lockData) {
+    std::vector<std::string> names;
+    for (const auto& [name, unused] : lockData.platforms) names.push_back(name);
+    return names;
 }
 
 } // namespace mcppls::pack::lock

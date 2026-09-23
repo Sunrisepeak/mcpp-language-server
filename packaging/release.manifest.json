@@ -3,6 +3,7 @@
   "release-name": "mcpp-language-server {version}",
   "platforms": [
     "linux-x64",
+    "linux-arm64",
     "darwin-arm64",
     "win32-x64"
   ],

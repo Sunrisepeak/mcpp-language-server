@@ -9,6 +9,7 @@ import mcppls.os;
 import mcppls.pack.archive;
 import mcppls.pack.fetch;
 import mcppls.pack.lock;
+import mcppls.pack.targets;
 import mcppls.platform.env;
 import mcppls.platform.fs;
 import mcppls.platform.process;
@@ -19,7 +20,6 @@ namespace env = mcppls::platform::env;
 namespace platform = mcppls::platform;
 namespace {
 
-std::string executable_name(std::string_view platform) { return platform == "win32-x64" ? "clangd.exe" : "clangd"; }
 
 // The archive's sole top-level directory and its sole lib/clang/<major>, found the way
 // trim_clangd.py's own `extract()` found them: from the raw archive listing, before anything is
@@ -77,25 +77,29 @@ base::Result<std::string> run_tool(const std::string& program, std::vector<std::
 
 // A missing strip tool is not a failure -- trim_clangd.py leaves the binary with its symbols and
 // carries on; a tool that runs and fails is (it may have half-written the binary).
-base::Result<bool> strip_linux(const std::string& binary) {
+//
+// llvm-strip reads every architecture; the system's strip reads only its own. So a binary for
+// another architecture (linux-arm64 trimmed on an x64 host) is left with its symbols when
+// llvm-strip is absent, rather than failing on a strip that could never have read it.
+base::Result<bool> strip_linux(const std::string& binary, bool hostArchitecture) {
     auto tool = env::find_executable("llvm-strip");
-    if (!tool) tool = env::find_executable("strip");
+    if (!tool && hostArchitecture) tool = env::find_executable("strip");
     if (!tool) {
-        base::log::info("trim-clangd: no strip tool on PATH; the binary keeps its symbols");
+        base::log::info("trim-clangd: no strip tool on PATH that reads this binary; it keeps its symbols");
         return false;
     }
     if (auto ran = run_tool(*tool, { "--strip-all", binary }); !ran) return std::unexpected { ran.error() };
     return true;
 }
 
-base::Result<void> thin_and_strip_macos(const std::string& binary) {
+base::Result<void> thin_and_strip_macos(const std::string& binary, std::string_view appleArch) {
     if constexpr (mcppls::os::FAMILY != mcppls::os::Family::macos) {
-        return base::fail("clangd-host", "darwin-arm64 needs a macOS host (lipo, strip -x and codesign)");
+        return base::fail("clangd-host", "a darwin clangd needs a macOS host (lipo, strip -x and codesign)");
     } else {
         auto lipo = env::find_executable("lipo");
         if (!lipo) return base::fail("clangd-tool-missing", "lipo is not on PATH");
-        const std::string thin { binary + ".arm64" };
-        if (auto ran = run_tool(*lipo, { "-thin", "arm64", binary, "-output", thin }); !ran) return std::unexpected { ran.error() };
+        const std::string thin { std::format("{}.{}", binary, appleArch) };
+        if (auto ran = run_tool(*lipo, { "-thin", std::string { appleArch }, binary, "-output", thin }); !ran) return std::unexpected { ran.error() };
         std::error_code renamed;
         std::filesystem::rename(thin, binary, renamed);
         if (renamed) return base::fail("clangd-tool", std::format("cannot replace {}: {}", binary, renamed.message()));
@@ -123,22 +127,42 @@ std::uint64_t dir_size(std::string_view path) {
     return total;
 }
 
-// trim_clangd.py's argparse `choices=PLATFORMS`: checked independently of whether the archive
-// comes from the lock or from --zip.
-constexpr std::array<std::string_view, 3> PLATFORMS { "linux-x64", "win32-x64", "darwin-arm64" };
+// The LICENSE.TXT a release archive did not carry, from where the lock says the same text is
+// (`license-from`): one member of another entry's archive, fetched and verified like any entry.
+base::Result<void> license_from_lock(const lock::Lock& lockData, const std::string& clangdEntry,
+                                     const std::string& cacheDirectory, const std::string& outDirectory) {
+    const auto from = lockData.licenseFrom.find(clangdEntry);
+    if (from == lockData.licenseFrom.end()) return {};
+    auto source = lock::entry(lockData, from->second.entry);
+    if (!source) return std::unexpected { source.error() };
+    auto fetched = fetch::get(*source, cacheDirectory);
+    if (!fetched) return std::unexpected { fetched.error() };
+    const std::string scratch { base::join_path(outDirectory, ".license-from") };
+    const std::string member { from->second.member };
+    auto written = archive::extract(*fetched, scratch, [&](std::string_view relative) { return relative == member; });
+    if (!written) return std::unexpected { written.error() };
+    if (written->empty()) {
+        return base::fail("clangd-license", std::format("{} has no {} (lock: {}'s license-from)", *fetched, member, clangdEntry));
+    }
+    std::error_code moved;
+    std::filesystem::rename(base::join_path(scratch, member), base::join_path(outDirectory, "LICENSE.TXT"), moved);
+    if (moved) return base::fail("clangd-license", std::format("cannot place {}: {}", member, moved.message()));
+    fs::remove_all(scratch);
+    return {};
+}
 
 } // namespace
 
 base::Result<Result> trim(const Options& options, const lock::Lock& lockData) {
-    if (!std::ranges::any_of(PLATFORMS, [&](std::string_view p) { return p == options.platform; })) {
-        return base::fail("clangd-platform", std::format("unknown platform {}", options.platform));
-    }
+    // The lock names the platforms, whether the archive then comes from the lock or from --zip.
+    auto platformEntry = lock::platform(lockData, options.platform);
+    if (!platformEntry) return base::fail("clangd-platform", platformEntry.error().message);
+    const auto target = targets::parse(options.platform);
+    if (!target) return base::fail("clangd-platform", std::format("{} is not an <os>-<arch> platform name", options.platform));
     std::string archivePath;
     if (options.zip && !options.zip->empty()) {
         archivePath = *options.zip;
     } else {
-        auto platformEntry = lock::platform(lockData, options.platform);
-        if (!platformEntry) return std::unexpected { platformEntry.error() };
         auto lockEntry = lock::entry(lockData, platformEntry->clangd);
         if (!lockEntry) return std::unexpected { lockEntry.error() };
         auto fetched = fetch::get(*lockEntry, options.cacheDirectory);
@@ -151,7 +175,7 @@ base::Result<Result> trim(const Options& options, const lock::Lock& lockData) {
     auto shape = shape_of(archivePath, *entries);
     if (!shape) return std::unexpected { shape.error() };
 
-    const std::string exe { executable_name(options.platform) };
+    const std::string exe { std::format("clangd{}", targets::executable_suffix(*target)) };
     const std::string binWanted { "bin/" + exe };
     const std::string includePrefix { std::format("lib/clang/{}/include/", shape->major) };
 
@@ -160,24 +184,29 @@ base::Result<Result> trim(const Options& options, const lock::Lock& lockData) {
         return relative == binWanted || relative == "LICENSE.TXT" || relative.starts_with(includePrefix);
     });
     if (!written) return std::unexpected { written.error() };
+    if (!fs::is_regular_file(base::join_path(options.outDirectory, "LICENSE.TXT"))) {
+        if (auto placed = license_from_lock(lockData, platformEntry->clangd, options.cacheDirectory, options.outDirectory); !placed) {
+            return std::unexpected { placed.error() };
+        }
+    }
 
     const std::string binary { base::join_path(options.outDirectory, binWanted) };
     if (!fs::is_regular_file(binary)) {
         return base::fail("clangd-missing-binary", std::format("{} has no {}", archivePath, binWanted));
     }
-    if (options.platform != "win32-x64") {
+    if (target->os != targets::Os::win32) {
         const std::vector<std::string> executables { binary };
         if (auto marked = fs::make_executable(executables); !marked) return std::unexpected { marked.error() };
     }
 
     bool stripped { false };
     if (options.strip) {
-        if (options.platform == "linux-x64") {
-            auto ran = strip_linux(binary);
+        if (target->os == targets::Os::linux) {
+            auto ran = strip_linux(binary, options.platform == mcppls::os::PLATFORM);
             if (!ran) return std::unexpected { ran.error() };
             stripped = *ran;
-        } else if (options.platform == "darwin-arm64") {
-            if (auto ok = thin_and_strip_macos(binary); !ok) return std::unexpected { ok.error() };
+        } else if (target->os == targets::Os::darwin) {
+            if (auto ok = thin_and_strip_macos(binary, targets::apple_arch(target->arch)); !ok) return std::unexpected { ok.error() };
             stripped = true;
         }
     }

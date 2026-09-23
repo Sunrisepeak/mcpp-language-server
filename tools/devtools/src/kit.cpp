@@ -23,7 +23,7 @@ std::vector<std::string> repeated(const cmdline::ParsedArgs& arguments, std::str
 int command_kit(const cmdline::ParsedArgs& arguments) {
     const auto platform = arguments.value("platform");
     if (!platform || platform->empty()) {
-        std::println(std::cerr, "mcppls-devtools: --platform is required (linux-x64, win32-x64 or darwin-arm64)");
+        std::println(std::cerr, "mcppls-devtools: --platform is required (one of packaging/payload.lock.json's platforms)");
         return 2;
     }
     const auto out = arguments.value("out");
@@ -70,7 +70,7 @@ int command_kit(const cmdline::ParsedArgs& arguments) {
 cmdline::App kit_command(bool& handled, int& status) {
     cmdline::App command { "kit" };
     (void) command.description("Build the mcppls-kit semantic kit for one platform");
-    (void) command.option("platform").takes_value().help("linux-x64 | win32-x64 | darwin-arm64");
+    (void) command.option("platform").takes_value().help("One of packaging/payload.lock.json's platforms, e.g. linux-arm64");
     (void) command.option("out").takes_value().help("kit directory to create (replaced if it exists)");
     (void) command.option("cache").takes_value().help("download cache (default: <repository>/.payload-cache)");
     (void) command.option("work").takes_value().help(
@@ -78,9 +78,9 @@ cmdline::App kit_command(bool& handled, int& status) {
     (void) command.option("jobs").takes_value().help("parallelism given to ninja's install step");
     (void) command.option("source").takes_value().help("use this archive instead of fetching the lock entry");
     (void) command.option("sysroot-include").takes_value().help(
-        "linux-x64: C library headers to use instead of the host's dpkg packages");
+        "Linux: C library headers to use instead of this host's dpkg packages (needed for another architecture)");
     (void) command.option("sysroot-license").takes_value().multiple().help(
-        "linux-x64: license file for --sysroot-include (repeatable)");
+        "Linux: license file for --sysroot-include (repeatable)");
     (void) command.action([&handled, &status](const cmdline::ParsedArgs& arguments) { handled = true; status = command_kit(arguments); });
     return command;
 }

@@ -394,6 +394,189 @@ base::Result<Report> scripts(const std::string& root) {
     return report;
 }
 
+namespace {
+
+// ---- platforms: one table, held to by everything that cannot read it -------------------------
+
+// The quoted strings on the line that declares SUPPORTED_PLATFORMS in the extension's source.
+std::optional<std::vector<std::string>> typescript_platforms(std::string_view text) {
+    for (const auto line : base::split_lines(text)) {
+        if (!line.contains("SUPPORTED_PLATFORMS") || !line.contains('[')) continue;
+        std::vector<std::string> names;
+        const std::string_view list { line.substr(line.find('[')) };
+        for (std::size_t i { 0 }; i < list.size(); ++i) {
+            if (list[i] != '\'' && list[i] != '"') continue;
+            const auto end = list.find(list[i], i + 1);
+            if (end == std::string_view::npos) break;
+            names.push_back(std::string { list.substr(i + 1, end - i - 1) });
+            i = end;
+        }
+        return names;
+    }
+    return std::nullopt;
+}
+
+// The text of job `job` in a workflow file: from its `  <job>:` line to the next line at the same
+// two-space indent. Enough YAML for "which platforms does this matrix list", without a YAML parser
+// this repository has no other use for.
+std::optional<std::string> workflow_job(std::string_view text, std::string_view job) {
+    std::string out;
+    bool inside { false };
+    for (const auto line : base::split_lines(text)) {
+        const bool topLevelKey { line.size() > 2 && line.starts_with("  ") && line[2] != ' ' && line[2] != '#' };
+        if (inside && topLevelKey) break;
+        if (!inside && topLevelKey && line.substr(2) == std::format("{}:", job)) {
+            inside = true;
+            continue;
+        }
+        if (inside) {
+            out += line;
+            out += '\n';
+        }
+    }
+    if (!inside) return std::nullopt;
+    return out;
+}
+
+// Every value written as `<key>: <value>` in `text`, whether in a flow mapping (`{ platform: x, ...}`)
+// or a block one (`- platform: x`).
+std::set<std::string> yaml_values(std::string_view text, std::string_view key) {
+    std::set<std::string> values;
+    const std::string needle { std::format("{}:", key) };
+    for (std::size_t at { text.find(needle) }; at != std::string_view::npos; at = text.find(needle, at + 1)) {
+        if (at > 0) {
+            const char before { text[at - 1] };
+            if (before != ' ' && before != '{' && before != ',' && before != '-') continue;
+        }
+        std::size_t i { at + needle.size() };
+        while (i < text.size() && text[i] == ' ') ++i;
+        std::size_t j { i };
+        while (j < text.size() && text[j] != ',' && text[j] != '}' && text[j] != ' ' && text[j] != '\n') ++j;
+        std::string value { text.substr(i, j - i) };
+        if (value.size() >= 2 && (value.front() == '\'' || value.front() == '"')) value = value.substr(1, value.size() - 2);
+        if (!value.empty() && !value.starts_with("${{")) values.insert(value);
+    }
+    return values;
+}
+
+} // namespace
+
+base::Result<Report> platforms(const std::string& root) {
+    Report report {};
+    const std::string lockPath { base::join_path(root, "packaging/payload.lock.json") };
+    auto lockText = fs::read_file(lockPath);
+    if (!lockText) return std::unexpected { lockText.error() };
+    nlohmann::json lock;
+    try {
+        lock = nlohmann::json::parse(*lockText);
+    } catch (const std::exception& error) {
+        return base::fail("check-platforms", std::format("{} is not valid JSON: {}", lockPath, error.what()));
+    }
+    std::set<std::string> known;
+    std::set<std::string> crossTargets;
+    const auto entries = lock.value("entries", nlohmann::json::object());
+    for (const auto& item : lock.value("platforms", nlohmann::json::object()).items()) {
+        const std::string name { item.key() };
+        const auto& row = item.value();
+        known.insert(name);
+        const auto dash = name.find('-');
+        const std::string os { dash == std::string::npos ? std::string {} : name.substr(0, dash) };
+        const std::string arch { dash == std::string::npos ? std::string {} : name.substr(dash + 1) };
+        if ((os != "linux" && os != "darwin" && os != "win32") || (arch != "x64" && arch != "arm64")) {
+            report.problems.push_back(std::format("{}: platform {} is not <os>-<arch> (linux|darwin|win32 - x64|arm64)", lockPath, name));
+        }
+        const std::string clangd { row.value("clangd", std::string {}) };
+        if (clangd.empty() || !entries.contains(clangd)) {
+            report.problems.push_back(std::format("{}: platform {} names clangd entry \"{}\", which entries does not have", lockPath, name, clangd));
+        }
+        const std::string serverTarget { row.value("server-target", std::string {}) };
+        if (serverTarget.empty()) {
+            report.problems.push_back(std::format("{}: platform {} has no server-target", lockPath, name));
+        } else if (name != "linux-x64") {
+            // Every server but the Linux x64 host's own is cross-built by CI's cross-build job.
+            crossTargets.insert(serverTarget);
+        }
+    }
+    for (const auto& item : entries.items()) {
+        const std::string name { item.key() };
+        const auto& entry = item.value();
+        if (!entry.contains("license-from")) continue;
+        const std::string from { entry["license-from"].value("entry", std::string {}) };
+        if (!entries.contains(from)) {
+            report.problems.push_back(std::format("{}: entry {} takes its license from \"{}\", which entries does not have", lockPath, name, from));
+        }
+    }
+
+    auto compare = [&](std::string_view where, const std::set<std::string>& listed) {
+        for (const auto& name : known) {
+            if (!listed.contains(name)) report.problems.push_back(std::format("{} does not list platform {}", where, name));
+        }
+        for (const auto& name : listed) {
+            if (!known.contains(name)) report.problems.push_back(std::format("{} lists {}, which packaging/payload.lock.json has no platform for", where, name));
+        }
+    };
+
+    const std::string tsPath { base::join_path(root, "editors/vscode/src/payload.ts") };
+    auto tsText = fs::read_file(tsPath);
+    if (!tsText) return std::unexpected { tsText.error() };
+    if (auto listed = typescript_platforms(*tsText)) {
+        compare(std::format("{} SUPPORTED_PLATFORMS", tsPath), { listed->begin(), listed->end() });
+    } else {
+        report.problems.push_back(std::format("{} declares no SUPPORTED_PLATFORMS", tsPath));
+    }
+
+    const std::string manifestPath { base::join_path(root, "packaging/release.manifest.json") };
+    auto manifestText = fs::read_file(manifestPath);
+    if (!manifestText) return std::unexpected { manifestText.error() };
+    try {
+        const auto manifest = nlohmann::json::parse(*manifestText);
+        std::set<std::string> listed;
+        for (const auto& name : manifest.value("platforms", nlohmann::json::array())) listed.insert(name.get<std::string>());
+        compare(std::format("{} platforms", manifestPath), listed);
+    } catch (const std::exception& error) {
+        return base::fail("check-platforms", std::format("{} is not valid JSON: {}", manifestPath, error.what()));
+    }
+
+    // The jobs that run once per platform. A platform left out of one of them ships untested or
+    // unbuilt; one listed there and not in the lock builds a payload nothing can assemble.
+    struct Job {
+        std::string_view file;
+        std::string_view job;
+    };
+    for (const Job job : { Job { "ci.yml", "payload" }, Job { "ci.yml", "conformance" }, Job { "ci.yml", "vscode-e2e" },
+                           Job { "release-checks.yml", "install" } }) {
+        const std::string path { base::join_path(root, std::format(".github/workflows/{}", job.file)) };
+        auto text = fs::read_file(path);
+        if (!text) return std::unexpected { text.error() };
+        const auto block = workflow_job(*text, job.job);
+        if (!block) {
+            report.problems.push_back(std::format("{} has no job {}", path, job.job));
+            continue;
+        }
+        compare(std::format("{} job {}", path, job.job), yaml_values(*block, "platform"));
+    }
+    {
+        const std::string path { base::join_path(root, ".github/workflows/ci.yml") };
+        auto text = fs::read_file(path);
+        if (!text) return std::unexpected { text.error() };
+        if (const auto block = workflow_job(*text, "cross-build")) {
+            const auto listed = yaml_values(*block, "target");
+            for (const auto& target : crossTargets) {
+                if (!listed.contains(target)) report.problems.push_back(std::format("{} job cross-build does not build {}", path, target));
+            }
+        } else {
+            report.problems.push_back(std::format("{} has no job cross-build", path));
+        }
+    }
+
+    report.ok = report.problems.empty();
+    if (report.ok) {
+        report.notes.push_back(std::format("platforms: {} in the lock, and the extension, the release manifest and CI's per-platform jobs list exactly those",
+                                           base::join(std::vector<std::string> { known.begin(), known.end() }, ", ")));
+    }
+    return report;
+}
+
 base::Result<Report> binary(const std::string& serverPath) {
     if (!fs::is_regular_file(serverPath)) {
         return base::fail("check-binary", std::format("{} is not a file", serverPath));
@@ -522,6 +705,7 @@ int command_check_all(const cmdline::ParsedArgs& arguments) {
         { "layers", check::layers(root) },
         { "versions", check::versions(root) },
         { "scripts", check::scripts(root) },
+        { "platforms", check::platforms(root) },
         { "docs", docs_of_this_program(root) },
     };
 
@@ -573,6 +757,7 @@ int dispatch(bool& handled, int& status, std::string_view verb, const cmdline::P
     if (verb == "layers") return run_check(check::layers(root), json, "layers");
     if (verb == "versions") return run_check(check::versions(root), json, "versions");
     if (verb == "scripts") return run_check(check::scripts(root), json, "scripts");
+    if (verb == "platforms") return run_check(check::platforms(root), json, "platforms");
     if (verb == "docs") return run_check(docs_of_this_program(root), json, "docs");
     if (verb == "binary") {
         const auto server = inner.value("server");
@@ -583,7 +768,7 @@ int dispatch(bool& handled, int& status, std::string_view verb, const cmdline::P
         return run_check(check::binary(*server), json, "binary");
     }
     if (verb == "all") return command_check_all(inner);
-    std::println(std::cerr, "mcppls-devtools: check needs a verb: os-surface, layers, versions, scripts, docs, binary, all");
+    std::println(std::cerr, "mcppls-devtools: check needs a verb: os-surface, layers, versions, scripts, platforms, docs, binary, all");
     return 2;
 }
 
@@ -591,7 +776,7 @@ int dispatch(bool& handled, int& status, std::string_view verb, const cmdline::P
 
 cmdline::App check_command(bool& handled, int& status) {
     cmdline::App command { "check" };
-    (void) command.description("Repository invariants: platform surface, layering, versions, scripts, the built binary");
+    (void) command.description("Repository invariants: platform surface, layering, versions, scripts, platforms, the built binary");
 
     (void) command.subcommand("os-surface")
         .description("The platform surface is six constants (ported from tools/check_os_surface.py)")
@@ -607,6 +792,10 @@ cmdline::App check_command(bool& handled, int& status) {
 
     (void) command.subcommand("scripts")
         .description("Every tracked *.py/*.sh is declared in tools/devtools/scripts.allow")
+        .option("json").help("Structured output");
+
+    (void) command.subcommand("platforms")
+        .description("The extension, the release manifest and CI's per-platform jobs list exactly the lock's platforms")
         .option("json").help("Structured output");
 
     (void) command.subcommand("docs")

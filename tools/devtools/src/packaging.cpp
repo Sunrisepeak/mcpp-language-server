@@ -25,16 +25,19 @@ namespace platform = mcppls::platform;
 namespace cmdline = mcpplibs::cmdline;
 namespace pack = mcppls::pack;
 
-// The openkal `--target` of the server a payload for `platformName` carries -- the same three
-// triples common.cpp's host_triple() names for this host.
-std::string_view triple_for_platform(std::string_view platformName) {
-    if (platformName == "win32-x64") return "x86_64-windows-gnu";
-    if (platformName == "darwin-arm64") return "aarch64-macos";
-    return "x86_64-linux-gnu";
+// packaging/payload.lock.json, the one table of platforms; nullopt (said on stderr) when it is
+// missing or does not parse.
+std::optional<pack::lock::Lock> load_lock(const std::string& root) {
+    auto loaded = pack::lock::load(base::join_path(root, "packaging/payload.lock.json"));
+    if (!loaded) {
+        std::println(std::cerr, "mcppls-devtools: {}", loaded.error().message);
+        return std::nullopt;
+    }
+    return std::move(*loaded);
 }
 
 // The server a payload carries: the one given, or the one `mcpp build` makes for `platformName` --
-// this host's own build when the platform is this host's, the openkal cross target otherwise.
+// this host's own build when the platform is this host's, the lock's `server-target` otherwise.
 std::optional<std::string> server_for(const std::string& root, const cmdline::ParsedArgs& arguments,
                                       std::string_view platformName) {
     if (const auto given = arguments.value("server"); given && !given->empty()) {
@@ -44,7 +47,16 @@ std::optional<std::string> server_for(const std::string& root, const cmdline::Pa
     }
     ServerBuild build {};
     if (arguments.is_flag_set("dev")) build.profile = "dev";
-    if (platformName != mcppls::os::PLATFORM) build.target = std::string { triple_for_platform(platformName) };
+    if (platformName != mcppls::os::PLATFORM) {
+        const auto lockData = load_lock(root);
+        if (!lockData) return std::nullopt;
+        auto row = pack::lock::platform(*lockData, platformName);
+        if (!row) {
+            std::println(std::cerr, "mcppls-devtools: {}", row.error().message);
+            return std::nullopt;
+        }
+        build.target = row->serverTarget;
+    }
     auto located = locate_server(root, build);
     if (!located) {
         std::println(std::cerr, "mcppls-devtools: {}", located.error().message);
@@ -53,10 +65,27 @@ std::optional<std::string> server_for(const std::string& root, const cmdline::Pa
     return *located;
 }
 
-std::optional<std::string> parse_platform(const cmdline::ParsedArgs& arguments) {
+std::optional<std::string> parse_platform(const std::string& root, const cmdline::ParsedArgs& arguments) {
     const std::string given { arguments.value("platform").value_or(std::string { mcppls::os::PLATFORM }) };
-    if (std::ranges::any_of(pack::payload::PLATFORMS, [&](std::string_view p) { return p == given; })) return given;
-    std::println(std::cerr, "mcppls-devtools: unknown platform {} — linux-x64, win32-x64, or darwin-arm64", given);
+    const auto lockData = load_lock(root);
+    if (!lockData) return std::nullopt;
+    const auto known = pack::lock::platform_names(*lockData);
+    if (std::ranges::find(known, given) != known.end()) return given;
+    std::println(std::cerr, "mcppls-devtools: unknown platform {} — packaging/payload.lock.json has {}", given, base::join(known, ", "));
+    return std::nullopt;
+}
+
+// The platform of the payload at `directory` (payload.json's `platform`), which is what a VSIX
+// carrying it is for -- not necessarily this host's: a linux-arm64 payload is packaged the same way
+// on any host.
+std::optional<std::string> payload_platform(const std::string& directory) {
+    auto text = platform::fs::read_file(base::join_path(directory, "payload.json"));
+    if (!text) return std::nullopt;
+    try {
+        const auto manifest = nlohmann::json::parse(*text);
+        if (const auto found = manifest.find("platform"); found != manifest.end() && found->is_string()) return found->get<std::string>();
+    } catch (const std::exception&) {
+    }
     return std::nullopt;
 }
 
@@ -272,7 +301,7 @@ int command_payload(const cmdline::ParsedArgs& arguments) {
         return problems.empty() ? 0 : 1;
     }
 
-    auto platformName = parse_platform(arguments);
+    auto platformName = parse_platform(root, arguments);
     if (!platformName) return 2;
 
     if (auto only = arguments.value("only"); only && !only->empty()) {
@@ -389,13 +418,14 @@ int build_vscode(const std::string& root, const cmdline::ParsedArgs& arguments, 
     }
     if (!step("compiling the extension", *npm, { "run", "compile" }, extension)) return 1;
 
+    const std::string target { payload_platform(base::join_path(extension, "payload")).value_or(std::string { mcppls::os::PLATFORM }) };
     const std::string vsix { arguments.value("out").value_or(
-        base::join_path(root, std::format("target/pack/mcppls-{}.vsix", mcppls::os::PLATFORM))) };
+        base::join_path(root, std::format("target/pack/mcppls-{}.vsix", target))) };
     (void) platform::fs::create_directories(base::parent_path(vsix));
     auto npx = tool("npx", "packaging a VSIX runs vsce from the extension's own dependencies");
     if (!npx) return 1;
     if (!step("packaging the VSIX", *npx,
-              { "--no-install", "vsce", "package", "--target", std::string { mcppls::os::PLATFORM }, "--out", vsix },
+              { "--no-install", "vsce", "package", "--target", target, "--out", vsix },
               extension)) {
         return 1;
     }
@@ -600,7 +630,7 @@ cmdline::App payload_command(bool& handled, int& status) {
         "  payload --verify payload                      check an already-assembled payload\n"
         "  payload --from payload --out editors/vscode/payload   copy one, keeping exec bits\n"
         "  payload --only clangd --out work/clangd        trim clangd alone (CI's cache step)");
-    (void) command.option("platform").takes_value().help("linux-x64 | win32-x64 | darwin-arm64 (default: this host)");
+    (void) command.option("platform").takes_value().help("One of packaging/payload.lock.json's platforms, e.g. linux-arm64 (default: this host)");
     (void) command.option("out").takes_value().help("Where to put it (default target/pack/payload)");
     (void) command.option("server").takes_value().help("The server to package (default: `mcpp build --profile release` for --platform)");
     (void) command.option("server-version").takes_value().help("Defaults to this build's own version");

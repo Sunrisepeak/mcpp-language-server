@@ -61,11 +61,12 @@ std::string make_payload_tarball(const std::string& directory, std::string_view 
     return tarball;
 }
 
-// make_xlings_artifacts processes all three platforms unconditionally (the same as
-// xlings_artifacts.py's hardcoded PLATFORMS dict), so a test that wants it to succeed has to
-// provide all three -- a partial payloads directory is exactly the "missing tarball" test below.
+// make_xlings_artifacts processes every platform the lock has, so a test that wants it to succeed
+// has to provide one tarball per platform -- a partial payloads directory is exactly the "missing
+// tarball" test below.
 void make_every_payload_tarball(const std::string& directory) {
     make_payload_tarball(directory, "linux-x64", "mcppls");
+    make_payload_tarball(directory, "linux-arm64", "mcppls");
     make_payload_tarball(directory, "darwin-arm64", "mcppls");
     make_payload_tarball(directory, "win32-x64", "mcppls.exe");
 }
@@ -74,7 +75,8 @@ std::string make_root() {
     const std::string root { scratch("root") };
     write(base::join_path(root, "LICENSE"), "Apache-2.0\n");
     write(base::join_path(root, "packaging/release.manifest.json"), RELEASE_MANIFEST);
-    write(base::join_path(root, "packaging/payload.lock.json"), R"({"clangd-version": "23.1.0", "libcxx-version": "23.1.0"})");
+    write(base::join_path(root, "packaging/payload.lock.json"), R"({"clangd-version": "23.1.0", "libcxx-version": "23.1.0", "entries": {},
+            "platforms": {"linux-x64": {}, "linux-arm64": {}, "darwin-arm64": {}, "win32-x64": {}}})");
     write(base::join_path(root, "packaging/xlings/mcpp-language-server.lua.in"),
           "ref = \"@VERSION@\"\ndeps = { \"xim:llvm-tools@@CLANGD_VERSION@\" }\nsha256 = \"@SHA256_LINUX_X86_64@\"\n");
     write(base::join_path(root, "packaging/xlings/mcppls-kit.lua.in"),

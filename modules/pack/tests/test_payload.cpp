@@ -88,6 +88,9 @@ std::string make_kit_directory(const std::string& root, std::string_view name = 
 lock::Lock lock_with_clangd_version(std::string version = "23.1.0") {
     lock::Lock lockData {};
     lockData.clangdVersion = std::move(version);
+    for (const std::string_view platform : { "linux-x64", "linux-arm64", "darwin-arm64", "win32-x64" }) {
+        lockData.platforms.emplace(std::string { platform }, lock::Platform {});
+    }
     return lockData;
 }
 

@@ -9,6 +9,7 @@ import mcppls.base.version;
 import mcppls.os;
 import mcppls.pack.fetch;
 import mcppls.pack.lock;
+import mcppls.pack.targets;
 import mcppls.platform.env;
 import mcppls.platform.fs;
 import mcppls.platform.process;
@@ -19,11 +20,15 @@ namespace env = mcppls::platform::env;
 namespace platform = mcppls::platform;
 namespace {
 
-bool known_platform(std::string_view platform) {
-    return std::ranges::any_of(PLATFORMS, [&](std::string_view p) { return p == platform; });
-}
+// An assembled payload is checked without the lock (`payload --verify` runs on a copy anywhere), so
+// its platform is checked for being a platform name at all; which ones exist is the lock's to say,
+// and assemble() refuses one the lock does not have.
+bool known_platform(std::string_view platform) { return targets::parse(platform).has_value(); }
 
-std::string suffix(std::string_view platform) { return platform == "win32-x64" ? ".exe" : ""; }
+std::string suffix(std::string_view platform) {
+    const auto target = targets::parse(platform);
+    return std::string { target ? targets::executable_suffix(*target) : "" };
+}
 
 std::string absolute_of(std::string_view path) {
     if (base::is_absolute_path(path)) return base::normalize_path(path);
@@ -211,6 +216,7 @@ std::vector<std::string> kit_problems(const std::string& kitDir, const nlohmann:
 
 base::Result<std::string> assemble(const AssembleOptions& options, const lock::Lock& lockData) {
     if (!known_platform(options.platform)) return base::fail("payload-platform", std::format("unknown platform {}", options.platform));
+    if (auto listed = lock::platform(lockData, options.platform); !listed) return std::unexpected { listed.error() };
     if (!fs::is_regular_file(options.serverPath)) {
         return base::fail("payload-missing", std::format("--server {} does not exist", options.serverPath));
     }
@@ -348,7 +354,7 @@ std::vector<std::string> verify(std::string_view payloadDirectory) {
         if (path != expected) problems.push_back(std::format("{}.path is {}, expected {}", part, path, expected));
         if (entry.value("version", std::string {}).empty()) problems.push_back(std::format("{}.version is empty", part));
         auto found = needFile(expected, part);
-        if (found && platform != "win32-x64") {
+        if (found && suffix(platform).empty()) {
             if constexpr (mcppls::os::FAMILY != mcppls::os::Family::windows) {
                 const auto permissions = std::filesystem::status(*found).permissions();
                 const auto anyExec = std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec;

@@ -32,11 +32,14 @@ struct Result {
     std::optional<std::string> versionLine;
 };
 
-// linux-x64: stripped with llvm-strip or strip, when one is on PATH (a missing tool is not a
-// failure -- the binary just keeps its symbols, as trim_clangd.py leaves it).
-// darwin-arm64: the universal binary is thinned to arm64 with lipo, stripped with `strip -x` and
-// re-signed ad hoc (modifying a Mach-O invalidates its signature); this needs a macOS host.
-// win32-x64: files are selected only, matching trim_clangd.py.
+// Linux: stripped with llvm-strip, or with strip for this host's own architecture, when one is on
+// PATH (a missing tool is not a failure -- the binary just keeps its symbols, as trim_clangd.py
+// leaves it).
+// darwin: the universal binary is thinned to the target's architecture with lipo, stripped with
+// `strip -x` and re-signed ad hoc (modifying a Mach-O invalidates its signature); this needs a
+// macOS host.
+// win32: files are selected only, matching trim_clangd.py.
+// An archive without LICENSE.TXT gets it from the entry the lock's `license-from` names.
 base::Result<Result> trim(const Options& options, const lock::Lock& lockData);
 
 } // namespace mcppls::pack::clangd

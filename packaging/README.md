@@ -54,11 +54,16 @@ and the kit installed by xlings.
 | Entry | What | Used by |
 |---|---|---|
 | `clangd-linux`, `clangd-mac`, `clangd-windows` | clangd 23.1.0 release archives | `mcppls.pack.clangd` |
+| `clangd-linux-arm64` | LLVM 23.1.0's own Linux arm64 release (clangd/clangd publishes none); its license comes from `llvm-project-src` (`license-from`) | `mcppls.pack.clangd` |
 | `llvm-project-src` | llvm-project 23.1.0 source archive | `mcppls.pack.kit`, recipe `libcxx-source` |
 | `llvm-mingw` | llvm-mingw 20260826 (LLVM 23.1.0), UCRT, Linux x86_64 host | `mcppls.pack.kit`, recipe `llvm-mingw` |
 
-`platforms` maps each payload platform to its clangd entry and its kit recipe,
-source and target triple. Versions change here and nowhere else. Each sha256 was
+`platforms` is the one table of platforms. Each row, named `<os>-<arch>` as VS
+Code names extension targets, gives the clangd entry, the kit recipe, source and
+target triple, and `server-target`, the mcpp `--target` the payload's server is
+built for. The VS Code extension, `release.manifest.json` and CI's per-platform
+jobs list the same platforms, and `mcppls-devtools check platforms` fails when one
+of them does not. Versions change here and nowhere else. Each sha256 was
 checked against two independent downloads and against the digest GitHub records
 for the release asset. The server's version is read from `mcpp.toml`.
 
@@ -77,6 +82,7 @@ mcpp run -p devtools -- payload --verify target/pack/payload
 | Platform | Host | Tools |
 |---|---|---|
 | `linux-x64` | Linux with `dpkg` and the `libc6-dev` and `linux-libc-dev` packages installed | cmake, ninja, a C and C++ compiler for libc++'s configure checks; `strip` if available |
+| `linux-arm64` | Linux arm64 with the same packages; CI uses `ubuntu-24.04-arm` and the devtools cross-built for `aarch64-linux-musl`, so mcpp is not needed there. Another host passes `--kit`, built with `mcppls-devtools kit --sysroot-include` and aarch64 C headers, because `dpkg` lists only the host's own | the same as `linux-x64`; `llvm-strip` strips it from any host |
 | `win32-x64` | any; CI uses Linux and cross-builds the server | nothing beyond mcpp |
 | `darwin-arm64` | macOS | cmake, ninja, and the Xcode command line tools (`lipo`, `strip`, `codesign`) |
 

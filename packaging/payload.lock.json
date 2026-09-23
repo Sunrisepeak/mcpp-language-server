@@ -1,6 +1,6 @@
 {
   "lock-version": 1,
-  "comment": "Every upstream input of the bundled payload. Change versions here only; CI fetches, verifies and assembles. Each sha256 was checked against two independent downloads and against the digest GitHub records for the release asset. The server version is read from mcpp.toml.",
+  "comment": "Every upstream input of the bundled payload, and the one table of platforms. Change versions here only; CI fetches, verifies and assembles. Each sha256 was checked against two independent downloads and against the digest GitHub records for the release asset. The server version is read from mcpp.toml. A platform is named <os>-<arch> as VS Code names extension targets; the VS Code extension, the release manifest and CI's matrices list the same platforms, which `mcppls-devtools check platforms` holds them to.",
   "clangd-version": "23.1.0",
   "libcxx-version": "23.1.0",
   "entries": {
@@ -25,6 +25,18 @@
       "sha256": "23412a240756a162e7b98a282f36aa2a23a88db5ce16a0cbc4fef7253768c810",
       "license": "Apache-2.0 WITH LLVM-exception"
     },
+    "clangd-linux-arm64": {
+      "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.0/LLVM-23.1.0-Linux-ARM64.tar.xz",
+      "file": "LLVM-23.1.0-Linux-ARM64.tar.xz",
+      "size": 1828948604,
+      "sha256": "cfb31bfc713ef453248bf5bd026312f838ad6c52c25623e987cb6a340f3050d4",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "license-from": {
+        "entry": "llvm-project-src",
+        "member": "llvm/LICENSE.TXT"
+      },
+      "comment": "LLVM's own Linux arm64 release: clangd/clangd publishes no arm64 Linux build. Only bin/clangd and lib/clang/23/include are kept. It links the system's libstdc++ (GLIBCXX_3.4.30, GCC 12) and glibc 2.34, so it runs on Ubuntu 22.04+, Debian 12+, openEuler 24.03+ (docs/00-install.md). The archive has no LICENSE.TXT; the same text comes from llvm-project-src."
+    },
     "llvm-project-src": {
       "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.0/llvm-project-23.1.0.src.tar.xz",
       "file": "llvm-project-23.1.0.src.tar.xz",
@@ -48,7 +60,17 @@
         "recipe": "libcxx-source",
         "source": "llvm-project-src",
         "target": "x86_64-unknown-linux-gnu"
-      }
+      },
+      "server-target": "x86_64-linux-gnu"
+    },
+    "linux-arm64": {
+      "clangd": "clangd-linux-arm64",
+      "kit": {
+        "recipe": "libcxx-source",
+        "source": "llvm-project-src",
+        "target": "aarch64-unknown-linux-gnu"
+      },
+      "server-target": "aarch64-linux-musl"
     },
     "darwin-arm64": {
       "clangd": "clangd-mac",
@@ -56,7 +78,8 @@
         "recipe": "libcxx-source",
         "source": "llvm-project-src",
         "target": "arm64-apple-darwin"
-      }
+      },
+      "server-target": "aarch64-macos"
     },
     "win32-x64": {
       "clangd": "clangd-windows",
@@ -64,7 +87,8 @@
         "recipe": "llvm-mingw",
         "source": "llvm-mingw",
         "target": "x86_64-w64-mingw32"
-      }
+      },
+      "server-target": "x86_64-windows-gnu"
     }
   }
 }
