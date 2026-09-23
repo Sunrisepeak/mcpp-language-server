@@ -117,8 +117,9 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # One Linux host builds the server for every platform (design 12.4, usable plan W11):
-  # the release executables built here are the ones the Windows and macOS payloads
-  # carry, so conformance, clean-machine and end-to-end jobs test what was cross-built.
+  # the release executables built here are the ones the Windows, macOS and Linux arm64
+  # payloads carry, so conformance, clean-machine and end-to-end jobs test what was
+  # cross-built. On the arm64 runners these are also the tools: mcpp is not installed there.
   cross-build:
     name: cross-build from Linux (${{ matrix.target }})
     runs-on: ubuntu-24.04
@@ -129,6 +130,7 @@ jobs:
         include:
           - { target: x86_64-windows-gnu, exe: '.exe' }
           - { target: aarch64-macos,      exe: '' }
+          - { target: aarch64-linux-musl, exe: '' }
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
@@ -146,6 +148,7 @@ jobs:
             case "${{ matrix.target }}" in
               *windows*) file "$path" | grep -q 'PE32+ executable' ;;
               *macos*)   file "$path" | grep -q 'Mach-O 64-bit arm64' ;;
+              *linux*)   file "$path" | grep -q 'ELF 64-bit LSB executable, ARM aarch64' ;;
             esac
             cp "$path" cross/
           done
@@ -159,8 +162,10 @@ jobs:
   # ---------------------------------------------------------------------------
   # Payloads: the server, trimmed clangd 23.1 and the mcppls-kit (design 15.2).
   # linux-x64 and win32-x64 are assembled on Linux; darwin-arm64 needs a macOS host
-  # for lipo and the libc++ configure. The Windows and macOS executables come from
-  # the cross-build job, unchanged (W11).
+  # for lipo and the libc++ configure; linux-arm64 an arm64 Linux host, whose dpkg has
+  # the aarch64 C headers the kit carries. The Windows, macOS and Linux arm64
+  # executables come from the cross-build job, unchanged (W11). `cross-tools` marks a
+  # runner with no mcpp, where the cross-built devtools does the packaging.
   payload:
     name: payload (${{ matrix.platform }})
     needs: cross-build
@@ -170,18 +175,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { platform: linux-x64,    os: ubuntu-24.04, cross: '',                   exe: '' }
-          - { platform: win32-x64,    os: ubuntu-24.04, cross: x86_64-windows-gnu,   exe: '.exe' }
-          - { platform: darwin-arm64, os: macos-14,     cross: aarch64-macos,        exe: '' }
+          - { platform: linux-x64,    os: ubuntu-24.04,     cross: '',                   exe: '' }
+          - { platform: linux-arm64,  os: ubuntu-24.04-arm, cross: aarch64-linux-musl,   exe: '', cross-tools: true }
+          - { platform: win32-x64,    os: ubuntu-24.04,     cross: x86_64-windows-gnu,   exe: '.exe' }
+          - { platform: darwin-arm64, os: macos-14,         cross: aarch64-macos,        exe: '' }
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
+        if: '!matrix.cross-tools'
       - name: Build tools for the kit configure
         run: |
-          if [ "$RUNNER_OS" = Linux ]; then sudo apt-get update -q && sudo apt-get install -y -q ninja-build; fi
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update -q && sudo apt-get install -y -q ninja-build libc6-dev linux-libc-dev
+            command -v cmake > /dev/null || sudo apt-get install -y -q cmake
+          fi
           if [ "$RUNNER_OS" = macOS ]; then brew install ninja; fi
           cmake --version | head -1; ninja --version
       - name: Cache upstream inputs
@@ -207,12 +217,13 @@ jobs:
         with:
           name: cross-${{ matrix.cross }}
           path: cross
-      # The packaging tool has to run on THIS host. On macOS that is the cross-built one; a Linux
-      # runner assembling the Windows payload builds its own (the cross-built one is a .exe).
+      # The packaging tool has to run on THIS host. On macOS and arm64 Linux that is the
+      # cross-built one; a Linux runner assembling the Windows payload builds its own (the
+      # cross-built one is a .exe).
       - name: The packaging tool for this host
         run: |
           set -euo pipefail
-          if [ "$RUNNER_OS" = Linux ] && [ -n '${{ matrix.cross }}' ]; then
+          if [ "$RUNNER_OS" = Linux ] && [ -n '${{ matrix.cross }}' ] && [ -z '${{ matrix.cross-tools }}' ]; then
             mcpp build -p devtools --profile release
             cp "$(find tools/devtools/target -type f -name mcppls-devtools -path '*/bin/*' -newer mcpp.toml | head -1)" host-devtools
           else
@@ -279,6 +290,13 @@ jobs:
             os: macos-14
             extras: true
             fixtures: inferred engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated
+          # No mcpp on the arm64 runner (its tools are the cross-built ones), so the fixtures that
+          # need no build tool and no compiler of their own: the semantic kit, clangd and the server
+          # on aarch64, with module faults, a corrupt payload and polling included.
+          - platform: linux-arm64
+            os: ubuntu-24.04-arm
+            cross-tools: true
+            fixtures: inferred engine-none module-faults untrusted payload-corrupt failure-at-base watch-polling
           - platform: win32-x64
             part: 1 of 2
             os: windows-2022
@@ -294,6 +312,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
+        if: '!matrix.cross-tools'
       - name: Toolchains the fixtures build with
         run: |
           set -euo pipefail
@@ -304,6 +323,7 @@ jobs:
       # contract of mcpp-community/mcpp#636 (docs/specs/tools/validate.py). The fixtures below then have the
       # server consume the same answers. A fixture with mcpp-mock.json simulates mcpp and is skipped.
       - name: mcpp's own build databases against the specifications
+        if: '!matrix.cross-tools'
         env:
           PYTHONUTF8: '1'
         run: |
@@ -384,7 +404,7 @@ jobs:
         run: tar -xzf payload-${{ matrix.platform }}.tar.gz && ls payload stage
       - name: Run the fixtures
         env:
-          CONFORMANCE_CLANGXX: ${{ runner.os == 'Linux' && '~/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++' || '' }}
+          CONFORMANCE_CLANGXX: ${{ runner.os == 'Linux' && !matrix.cross-tools && '~/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++' || '' }}
         run: |
           set -euo pipefail
           export CONFORMANCE_CLANGXX="${CONFORMANCE_CLANGXX/#\~/$HOME}"
@@ -623,14 +643,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { platform: linux-x64,    os: ubuntu-24.04, exe: '' }
-          - { platform: darwin-arm64, os: macos-14,     exe: '' }
-          - { platform: win32-x64,    os: windows-2022, exe: '.exe' }
+          - { platform: linux-x64,    os: ubuntu-24.04,     exe: '' }
+          - { platform: linux-arm64,  os: ubuntu-24.04-arm, exe: '' }
+          - { platform: darwin-arm64, os: macos-14,         exe: '' }
+          - { platform: win32-x64,    os: windows-2022,     exe: '.exe' }
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v7
+      # The arm64 image is not the x64 one: the display server and the libraries VS Code's
+      # Electron loads are installed rather than assumed.
+      - name: What VS Code needs on arm64 Linux
+        if: matrix.platform == 'linux-arm64'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends xvfb xauth libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 \
+              libgtk-3-0t64 libgbm1 libasound2t64 libxss1 libxkbfile1 libsecret-1-0
       - uses: actions/setup-node@v7
         with:
           node-version: 22
