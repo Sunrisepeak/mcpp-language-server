@@ -121,12 +121,13 @@ jobs:
           tag='${{ needs.what.outputs.tag }}'
           version='${{ needs.what.outputs.version }}'
           # The notes are what CHANGELOG.md promises (its section for this version, under "What
-          # changed"), then the manifest: every file, what it is, how to install it. Written outside
-          # release/, whose every file is an asset.
+          # changed"), then the manifest under "Files": every file, what it is, how to install it.
+          # The manifest's own table has no heading, and without one it reads as part of the
+          # CHANGELOG section's last subsection. Written outside release/, whose every file is an asset.
           notes="$RUNNER_TEMP/notes.md"
           section=$(awk -v heading="## [$version]" 'index($0, heading) == 1 { on = 1; next } on && /^## \[/ { exit } on { print }' CHANGELOG.md)
           [ -n "$(printf '%s' "$section" | tr -d '[:space:]')" ] || { echo "::error::CHANGELOG.md has no [$version] section"; exit 1; }
-          { head -n 1 release/MANIFEST.md; printf '\n## What changed\n'; printf '%s\n' "$section"; tail -n +2 release/MANIFEST.md; } > "$notes"
+          { head -n 1 release/MANIFEST.md; printf '\n## What changed\n'; printf '%s\n' "$section"; printf '\n## Files\n'; tail -n +2 release/MANIFEST.md; } > "$notes"
           git tag -f "$tag" && git push -f origin "$tag" || echo "tag $tag already points here"
           gh release create "$tag" release/* \
             --title "mcpp-language-server $tag" \
