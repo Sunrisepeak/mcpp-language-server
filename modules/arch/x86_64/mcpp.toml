@@ -1,0 +1,8 @@
+[package]
+name        = "mcppls-arch-x86_64"
+version     = "0.1.0"
+description = "The x86_64 architecture for mcppls, exported as module mcppls.arch"
+license     = "Apache-2.0"
+
+[targets.mcppls-arch-x86_64]
+kind = "lib"

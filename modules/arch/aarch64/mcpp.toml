@@ -1,0 +1,8 @@
+[package]
+name        = "mcppls-arch-aarch64"
+version     = "0.1.0"
+description = "The aarch64 architecture for mcppls, exported as module mcppls.arch"
+license     = "Apache-2.0"
+
+[targets.mcppls-arch-aarch64]
+kind = "lib"

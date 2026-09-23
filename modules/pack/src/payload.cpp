@@ -297,7 +297,7 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
 
     // Only when this host can actually run what it just assembled: a cross-assembled payload's
     // clangd cannot be started here to ask it, and asking would be the wrong question anyway.
-    if (options.platform == mcppls::os::VSCODE_TARGET) {
+    if (options.platform == mcppls::os::PLATFORM) {
         auto reported = run_capture(base::join_path(out, "clangd/bin/clangd" + exe), { "--version" });
         if (!reported) return std::unexpected { reported.error() };
         if (!reported->contains(lockData.clangdVersion)) {

@@ -40,7 +40,7 @@ Json make_report(Json roots, Json client, std::string_view engine, const engine:
                  std::chrono::steady_clock::duration uptime) {
     return Json {
         { "generatedAt", utc_now("{:%FT%TZ}") },
-        { "server", Json { { "name", "mcppls" }, { "version", std::string { base::VERSION } }, { "platform", std::string { mcppls::os::VSCODE_TARGET } },
+        { "server", Json { { "name", "mcppls" }, { "version", std::string { base::VERSION } }, { "platform", std::string { mcppls::os::PLATFORM } },
                            { "uptimeSeconds", std::chrono::duration_cast<std::chrono::seconds>(uptime).count() },
                            { "logLevel", std::string { level_name(log::level()) } }, { "logFile", log::file_path() } } },
         { "client", std::move(client) },

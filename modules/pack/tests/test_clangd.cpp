@@ -4,7 +4,7 @@
 // The win32-x64 platform is used for the selection/extraction tests because it is the one
 // platform trim_clangd.py never strips or runs `--version` against (`--zip` bypasses the lock and
 // network entirely), so the fixture's fake binary content never has to be a real executable; the
-// win32-x64 fixture never matches this host's own mcppls::os::VSCODE_TARGET on the CI machines
+// win32-x64 fixture never matches this host's own mcppls::os::PLATFORM on the CI machines
 // this runs on (Linux, macOS), so the "this host can run it" branch never fires for it either.
 #include <archive.h>
 #include <archive_entry.h>
@@ -76,7 +76,7 @@ std::string runnable_clangd() {
 // trim_clangd.py drops (a lib under the same major, a share/ tree).
 //
 // The "binary" is this test program (runnable_clangd): on the one host whose
-// mcppls::os::VSCODE_TARGET matches the platform under test, the trim executes it to read
+// mcppls::os::PLATFORM matches the platform under test, the trim executes it to read
 // `--version`, the way trim_clangd.py's `host_runs_it` did.
 std::vector<Member> release_members(std::string_view exeName) {
     return {
@@ -207,10 +207,10 @@ int main(int argc, char* argv[]) {
 
     // trim_clangd.py's `host_runs_it`: only fires when the platform under trim matches this host,
     // and reads the first line of `--version` when it does. Both sides of that are exercised in
-    // one test by trimming for this host's own VSCODE_TARGET (which matches, and reads the
+    // one test by trimming for this host's own PLATFORM (which matches, and reads the
     // fixture script's line) and for a platform two steps away in the tuple (which never does).
     "the version line is read only when this host can run what was just trimmed"_test = [&] {
-        const std::string here { mcppls::os::VSCODE_TARGET };
+        const std::string here { mcppls::os::PLATFORM };
         const std::string elsewhere { here == "linux-x64" ? "darwin-arm64" : "linux-x64" };
 
         const std::string hereZip { base::join_path(work, "clangd-here.zip") };

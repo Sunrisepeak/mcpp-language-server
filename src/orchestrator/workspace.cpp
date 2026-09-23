@@ -1099,7 +1099,7 @@ struct Workspace::Impl final : engine::Host {
         } else if (kit) {
             profile = Json { { "kind", "semantic-kit" }, { "stdlib", std::format("{} {}", kit->stdlibName, kit->stdlibVersion) }, { "target", kit->target } };
         } else {
-            profile = Json { { "kind", "semantic-kit" }, { "stdlib", "unknown" }, { "target", std::string { mcppls::os::VSCODE_TARGET } } };
+            profile = Json { { "kind", "semantic-kit" }, { "stdlib", "unknown" }, { "target", std::string { mcppls::os::PLATFORM } } };
         }
         return profile;
     }

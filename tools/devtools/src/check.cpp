@@ -21,7 +21,7 @@ constexpr std::array<std::string_view, 0> NO_SKIP {};
 // ---- os-surface: ported from tools/check_os_surface.py -----------------------------------------
 
 constexpr std::array<std::string_view, 6> SIX {
-    "FAMILY", "FAMILY_NAME", "EXECUTABLE_SUFFIX", "PATH_LIST_SEPARATOR", "VSCODE_TARGET", "CASE_INSENSITIVE_PATHS",
+    "FAMILY", "FAMILY_NAME", "EXECUTABLE_SUFFIX", "PATH_LIST_SEPARATOR", "PLATFORM", "CASE_INSENSITIVE_PATHS",
 };
 
 // The NAME in a line shaped `inline constexpr <type> NAME {` -- the first all-caps token on the

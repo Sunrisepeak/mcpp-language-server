@@ -182,10 +182,10 @@ base::Result<Result> trim(const Options& options, const lock::Lock& lockData) {
         }
     }
 
-    // trim_clangd.py's `host_runs_it`: this host's VSCODE_TARGET already folds in family and
+    // trim_clangd.py's `host_runs_it`: this host's PLATFORM already folds in family and
     // architecture, so a match here is exactly "this binary can run on this machine".
     std::optional<std::string> versionLine;
-    if (options.platform == mcppls::os::VSCODE_TARGET) {
+    if (options.platform == mcppls::os::PLATFORM) {
         auto out = run_tool(binary, { "--version" });
         if (!out) return std::unexpected { out.error() };
         const auto lines = base::split_lines(*out);

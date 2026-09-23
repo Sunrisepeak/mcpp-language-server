@@ -6,3 +6,11 @@ license     = "Apache-2.0"
 
 [targets.mcppls-os-windows]
 kind = "lib"
+
+# PLATFORM names the architecture too, so the architecture is chosen the same way as the OS: by
+# the target, one package of two.
+[target.'cfg(arch = "x86_64")'.dependencies]
+mcppls-arch-x86_64 = { path = "../../arch/x86_64" }
+
+[target.'cfg(arch = "aarch64")'.dependencies]
+mcppls-arch-aarch64 = { path = "../../arch/aarch64" }

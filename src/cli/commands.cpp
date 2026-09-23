@@ -413,7 +413,7 @@ int run(int argc, char* argv[]) {
     (void)versionCommand.description("Print the version");
     (void)versionCommand.action([&](const cmdline::ParsedArgs&) {
         handled = true;
-        std::println("mcppls {} ({}; S1 {}; clangd {})", base::VERSION, mcppls::os::VSCODE_TARGET, spec::PROFILE_VERSION, base::CLANGD_VERSION);
+        std::println("mcppls {} ({}; S1 {}; clangd {})", base::VERSION, mcppls::os::PLATFORM, spec::PROFILE_VERSION, base::CLANGD_VERSION);
     });
     (void)app.subcommand(std::move(versionCommand));
     const int parsed { app.run(argc, argv) };

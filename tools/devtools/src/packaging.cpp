@@ -44,7 +44,7 @@ std::optional<std::string> server_for(const std::string& root, const cmdline::Pa
     }
     ServerBuild build {};
     if (arguments.is_flag_set("dev")) build.profile = "dev";
-    if (platformName != mcppls::os::VSCODE_TARGET) build.target = std::string { triple_for_platform(platformName) };
+    if (platformName != mcppls::os::PLATFORM) build.target = std::string { triple_for_platform(platformName) };
     auto located = locate_server(root, build);
     if (!located) {
         std::println(std::cerr, "mcppls-devtools: {}", located.error().message);
@@ -54,7 +54,7 @@ std::optional<std::string> server_for(const std::string& root, const cmdline::Pa
 }
 
 std::optional<std::string> parse_platform(const cmdline::ParsedArgs& arguments) {
-    const std::string given { arguments.value("platform").value_or(std::string { mcppls::os::VSCODE_TARGET }) };
+    const std::string given { arguments.value("platform").value_or(std::string { mcppls::os::PLATFORM }) };
     if (std::ranges::any_of(pack::payload::PLATFORMS, [&](std::string_view p) { return p == given; })) return given;
     std::println(std::cerr, "mcppls-devtools: unknown platform {} — linux-x64, win32-x64, or darwin-arm64", given);
     return std::nullopt;
@@ -367,9 +367,9 @@ int put_payload(const std::string& root, const cmdline::ParsedArgs& arguments, c
         }
         return 0;
     }
-    auto server = server_for(root, arguments, mcppls::os::VSCODE_TARGET);
+    auto server = server_for(root, arguments, mcppls::os::PLATFORM);
     if (!server) return 2;
-    const auto payload = assemble_payload(root, mcppls::os::VSCODE_TARGET, directory,
+    const auto payload = assemble_payload(root, mcppls::os::PLATFORM, directory,
                                           arguments.value("clangd").value_or(""), arguments.value("kit").value_or(""),
                                           *server, base::join_path(root, ".payload-cache"), std::nullopt, true);
     return payload.built ? 0 : 1;
@@ -390,12 +390,12 @@ int build_vscode(const std::string& root, const cmdline::ParsedArgs& arguments, 
     if (!step("compiling the extension", *npm, { "run", "compile" }, extension)) return 1;
 
     const std::string vsix { arguments.value("out").value_or(
-        base::join_path(root, std::format("target/pack/mcppls-{}.vsix", mcppls::os::VSCODE_TARGET))) };
+        base::join_path(root, std::format("target/pack/mcppls-{}.vsix", mcppls::os::PLATFORM))) };
     (void) platform::fs::create_directories(base::parent_path(vsix));
     auto npx = tool("npx", "packaging a VSIX runs vsce from the extension's own dependencies");
     if (!npx) return 1;
     if (!step("packaging the VSIX", *npx,
-              { "--no-install", "vsce", "package", "--target", std::string { mcppls::os::VSCODE_TARGET }, "--out", vsix },
+              { "--no-install", "vsce", "package", "--target", std::string { mcppls::os::PLATFORM }, "--out", vsix },
               extension)) {
         return 1;
     }
@@ -508,7 +508,7 @@ int command_extension(const cmdline::ParsedArgs& arguments) {
     }
 
     for (const Editor editor : editors) {
-        std::println("mcppls-devtools: {} extension for {}", editor_name(editor), mcppls::os::VSCODE_TARGET);
+        std::println("mcppls-devtools: {} extension for {}", editor_name(editor), mcppls::os::PLATFORM);
         if (editor == Editor::zed) {
             const std::string source { plugin.value_or(base::join_path(root, "editors/zed")) };
             if (!plugin && !build_zed(root)) return 1;
