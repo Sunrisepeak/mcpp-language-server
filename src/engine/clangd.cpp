@@ -1451,8 +1451,9 @@ private:
         for (const auto& path : suspects) set_aside_(path, "clangd exited while working on it", Reclaim::no);
         // An exit before the handshake leaves the server's own initialize waiting on this engine. One
         // may be a fluke the restart below mends; a second is not, and the editor is not kept
-        // waiting for the restarts after it: it gets mcppls's own features now, and clangd's if one
-        // of those restarts succeeds.
+        // waiting for the restarts after it: initialize is answered with mcppls's own capabilities.
+        // If a later restart succeeds, clangd answers those again; what only clangd advertises
+        // (semantic tokens, rename, ...) waits for the next server start.
         if (early && ++earlyExits_ >= 2) host_->engine_settled(ENGINE_ID, Json::object());
         if (crashes_.size() >= 5) {
             unavailable_ = true;

@@ -232,5 +232,10 @@ one · RP2.3 generated-source recovery before a stand-in · RP2.4 stale database
 workspace is L4 · RP3.2 one vocabulary (`project.tier`) · RP3.3 log severities · RP3.4 a nested
 project is not folded into its parent.
 
+**"0.0.3 plan" — [2026-09-24-0.0.3-plan.md](2026-09-24-0.0.3-plan.md).** B1 a clangd that dies
+before its handshake still lets the server initialize; a loader's refusal is `engine-incompatible`,
+not a crash · L the icon · S being found as mcppls · P Open VSX from CI, after local verification · A
+Linux arm64 with the official LLVM clangd · X one platform table.
+
 **"tooling architecture".** 3.2 the workspace layout · 5.1 what mcpp, mcppls and devtools each do ·
 5.5 how devtools finds the server it just built · M0–M6 its migration steps.
