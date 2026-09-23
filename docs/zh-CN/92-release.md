@@ -21,7 +21,7 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 
 ## 一个 release 里有什么
 
-[`packaging/release.manifest.json`](../../packaging/release.manifest.json) 声明了这些：每个 release 文件是什么、怎么装。这份文件不是文档——release workflow 会拿它核对已暂存的目录，必需的 release 文件缺失、某个文件是空的，或者出现了一个清单里没声明的文件，就拒绝发布。release 页面上的说明文字也是从同一份声明渲染出来的，页面和检查不会走两个版本。
+[`packaging/release.manifest.json`](../../packaging/release.manifest.json) 声明了这些：每个 release 文件是什么、怎么装。这份文件不是文档——release workflow 会拿它核对已暂存的目录，必需的 release 文件缺失、某个文件是空的，或者出现了一个清单里没声明的文件，就拒绝发布。release 页面的说明是 `CHANGELOG.md` 里这个版本的那一节（放在“What changed”下面），后面接着同一份声明渲染出来的文件列表，页面和检查不会走两个版本。`CHANGELOG.md` 里没有这个版本那一节的，在构建任何东西之前就会被拒绝。
 
 | | 按平台各一份 | 是否必需 |
 |---|---|---|

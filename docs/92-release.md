@@ -34,7 +34,9 @@ The versions CI *builds with* are a different thing and live in `.github/version
 what it is, and how a person installs it. That file is not documentation — the release workflow
 checks the staged directory against it and refuses to publish when a required asset is missing,
 when an asset is empty, or when a file nobody declared is about to be shipped. The release page's
-notes are rendered from the same declaration, so the page and the check cannot drift apart.
+notes are the version's section of `CHANGELOG.md`, under "What changed", followed by the files as
+rendered from the same declaration, so the page and the check cannot drift apart. A version with no
+`CHANGELOG.md` section is refused before anything is built.
 
 | | Per platform | Required |
 |---|---|---|

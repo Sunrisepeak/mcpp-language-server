@@ -78,6 +78,15 @@ jobs:
             echo "::error::Run: mcpp run -p devtools -- version --set ${{ steps.pick.outputs.version }}"
             exit 1
           }
+      # CHANGELOG.md says a release's notes are its section, so the section has to exist before an
+      # hour of pre-release testing, not be found missing after it.
+      - name: CHANGELOG.md has this version's section
+        run: |
+          set -euo pipefail
+          grep -q '^## \[${{ steps.pick.outputs.version }}\]' CHANGELOG.md || {
+            echo "::error::CHANGELOG.md has no '## [${{ steps.pick.outputs.version }}]' section; a release's notes are that section."
+            exit 1
+          }
 
   # Exactly what the pre-release test builds and tests, so a release is what was tested, and its
   # staged candidate is what ships.
@@ -110,10 +119,18 @@ jobs:
         run: |
           set -euo pipefail
           tag='${{ needs.what.outputs.tag }}'
+          version='${{ needs.what.outputs.version }}'
+          # The notes are what CHANGELOG.md promises (its section for this version, under "What
+          # changed"), then the manifest: every file, what it is, how to install it. Written outside
+          # release/, whose every file is an asset.
+          notes="$RUNNER_TEMP/notes.md"
+          section=$(awk -v heading="## [$version]" 'index($0, heading) == 1 { on = 1; next } on && /^## \[/ { exit } on { print }' CHANGELOG.md)
+          [ -n "$(printf '%s' "$section" | tr -d '[:space:]')" ] || { echo "::error::CHANGELOG.md has no [$version] section"; exit 1; }
+          { head -n 1 release/MANIFEST.md; printf '\n## What changed\n'; printf '%s\n' "$section"; tail -n +2 release/MANIFEST.md; } > "$notes"
           git tag -f "$tag" && git push -f origin "$tag" || echo "tag $tag already points here"
           gh release create "$tag" release/* \
             --title "mcpp-language-server $tag" \
-            --notes-file release/MANIFEST.md \
+            --notes-file "$notes" \
             ${{ github.event.inputs.draft == 'false' && ' ' || '--draft' }} \
             ${{ github.event.inputs.prerelease == 'false' && ' ' || '--prerelease' }} \
             || gh release upload "$tag" release/* --clobber
