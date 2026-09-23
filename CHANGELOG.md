@@ -7,6 +7,48 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.3] — 2026-09-24
+
+Linux arm64 is a platform, the extension is on Open VSX and is found by searching *mcppls*, and a
+clangd that cannot run no longer leaves an editor stuck at start. The plan and its measurements are
+in `.agents/docs/2026-09-24-0.0.3-plan.md`.
+
+### Platforms
+
+- **linux-arm64**: `mcppls-linux-arm64.vsix` and `payload-linux-arm64.tar.gz`, for VS Code on arm64
+  Linux, and for Remote-SSH, Dev Containers and WSL on arm64 machines. The server is static; the
+  clangd is LLVM's own 23.1.0 build, which needs glibc 2.34 and a GCC 12 libstdc++: Ubuntu 22.04+,
+  Debian 12+ and openEuler 24.03+ (tested), Fedora 36+ (by package versions). On older systems
+  (Ubuntu 20.04, Debian 11, RHEL/Rocky 8 and 9, openEuler 22.03, Amazon Linux 2023) the status says
+  so and mcppls's own module features remain. `docs/00-install.md` lists them.
+- The platforms a release ships are the rows of `packaging/payload.lock.json`; the extension, the
+  release manifest and every per-platform CI job are checked against them
+  (`mcppls-devtools check platforms`). A server knows its platform from its OS and its architecture,
+  so an arm64 Linux server calls itself `linux-arm64`.
+
+### Engine
+
+- A clangd that dies before its handshake no longer holds the server's `initialize`: before, an
+  editor waited for good (still unanswered after 330 s), with no features and no reason given. Now a
+  second such exit answers it with mcppls's own features, and a loader's refusal on clangd's
+  standard error (a library, or a version of one, missing) is issue `engine-incompatible` at once:
+  status *error*, the loader's message quoted, no restarts, since none can help.
+
+### Editors
+
+- The VS Code extension and the CLion plugin carry the mcpp mark as their icon.
+- The extension is found by searching *mcppls* (it was in none of the fields a store indexes), and
+  by *c++ modules*, *cxx modules*, *ixx* and a few more.
+- **Open VSX**: Cursor, VSCodium, Windsurf and other VS Code-compatible editors install it from there.
+  A release reaches Open VSX when it is published (`publish-openvsx.yml`), after the same local
+  verification that precedes the VS Code Marketplace upload.
+
+### Testing
+
+- Conformance fixture `clangd-cannot-load` (a stand-in clangd that fails the way the loader does, on
+  every host) and the runner's `initialize-within`. linux-arm64 is cross-built, assembled,
+  conformance-tested and end-to-end tested in VS Code on an arm64 runner, like every other platform.
+
 ## [0.0.2] — 2026-09-23
 
 A module that does not compile, an old pinned mcpp or a stale compile database no longer leaves a
