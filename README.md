@@ -18,6 +18,10 @@ mcppls normalizes any build — [mcpp](https://github.com/mcpp-community/mcpp), 
 with it, and answers the module-level requests clangd does not. Coding agents and CI get the same
 answers over MCP and the command line.
 
+<p align="center">
+    <img src="https://github.com/user-attachments/assets/fb4f00c7-df49-431c-9531-4e51c8624372" alt="mcppls demo" width="800">
+</p>
+
 ## Features
 
 - **Module semantics on any compiler** — GCC, Clang, MinGW, clang-cl and MSVC, each with its own `std`
