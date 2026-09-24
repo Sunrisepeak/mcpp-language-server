@@ -40,9 +40,10 @@ struct Legend {
 Legend build_legend(const Json& coreCapabilities);
 
 // The `semanticTokensProvider` entry this server advertises: `legend`'s types and modifiers,
-// `full: true` (no delta -- this server never hands out a resultId a delta could build on) and
-// `range: true`.
-Json provider_capability(const Legend& legend);
+// `full: true` (no delta -- this server never hands out a resultId a delta could build on), and
+// `range` only when `range` says every engine can answer one: clangd 23.1 has no range request,
+// and advertising it had clients send one clangd rejects with "method not found".
+Json provider_capability(const Legend& legend, bool range);
 
 // One token, decoded to absolute position: `length` and `startChar` are UTF-16 code units, as LSP
 // requires; a token never spans two lines.

@@ -120,7 +120,15 @@ Json merge_capabilities(const Json& engineCapabilities) {
     // Semantic tokens (design doc 2026-09-25 K/§7, contract T0): the legend is this server's own,
     // built from whatever the core engine (if any) declared, so a restart or a missing core engine
     // cannot shift an index a client has already seen.
-    capabilities["semanticTokensProvider"] = tokens::provider_capability(tokens::build_legend(engineCapabilities));
+    // Range only when the core engine answers range requests too (mcppls's own engine always does).
+    bool range { true };
+    if (engineCapabilities.is_object()) {
+        if (const auto provider = engineCapabilities.find("semanticTokensProvider"); provider != engineCapabilities.end() && provider->is_object()) {
+            const auto declared = provider->find("range");
+            range = declared != provider->end() && (declared->is_object() || (declared->is_boolean() && declared->get<bool>()));
+        }
+    }
+    capabilities["semanticTokensProvider"] = tokens::provider_capability(tokens::build_legend(engineCapabilities), range);
     if (!capabilities.contains("experimental") || !capabilities["experimental"].is_object()) capabilities["experimental"] = Json::object();
     capabilities["experimental"]["cxxModules"] = Json { { "version", 1 }, { "databaseSpec", ">=0.2 <1" } };
     // usable plan W9.1: without this, a client has no reason to ever send

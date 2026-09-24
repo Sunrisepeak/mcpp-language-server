@@ -53,6 +53,8 @@ async function captureLines(lines: readonly string[]): Promise<{ text: string; s
     const document = await vscode.workspace.openTextDocument(uri);
     await vscode.window.showTextDocument(document);
     const captured = await vscode.commands.executeCommand<CapturedToken[]>('_workbench.captureSyntaxTokens', uri);
+    // The probe is no part of the fixture's project: close it, so the suites after this one see only the project.
+    await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
     return tokensByLine(lines, captured);
 }
 
@@ -69,7 +71,10 @@ suite('module-syntax highlighting: the injected grammar (WA-VSCODE-001)', functi
             'import std;',
             'import hello.greet;',
             'import hello.',
-            'export import hello:part;',
+            // `:part`, the form a partition is imported by. The probe is opened in a real editor, so clangd sees it too:
+            // `import std;` followed by the ill-formed `export import hello:part;` never finishes in clangd 23.1 (nor on
+            // main at 510126255) under a project's module command, and would hold this session in `preparing` for two minutes.
+            'export import :part;',
             'import <vector>;',
             'import "foo.h";',
             'x = import;',
@@ -114,11 +119,12 @@ suite('module-syntax highlighting: the injected grammar (WA-VSCODE-001)', functi
         assert.ok(findToken(line, 'hello')?.scopes.includes('entity.name.namespace.module.cpp'), JSON.stringify(line));
     });
 
-    test('"export import hello:part;" colors export and import', () => {
+    test('"export import :part;" colors export, import and the partition', () => {
         const line = lines[6];
-        assert.ok(findToken(line, 'export')?.scopes.includes('keyword.control.export.cpp'));
-        assert.ok(findToken(line, 'import')?.scopes.includes('keyword.control.import.cpp'));
-        assert.ok(findToken(line, 'hello:part')?.scopes.includes('entity.name.namespace.module.cpp'));
+        assert.ok(findToken(line, 'export')?.scopes.includes('keyword.control.export.cpp'), JSON.stringify(line));
+        assert.ok(findToken(line, 'import')?.scopes.includes('keyword.control.import.cpp'), JSON.stringify(line));
+        assert.ok(findToken(line, ':')?.scopes.includes('punctuation.separator.module-partition.cpp'), JSON.stringify(line));
+        assert.ok(findToken(line, 'part')?.scopes.includes('entity.name.namespace.module.partition.cpp'), JSON.stringify(line));
     });
 
     test('"import <vector>;" colors the angle-bracket header', () => {

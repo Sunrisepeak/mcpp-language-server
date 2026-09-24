@@ -178,6 +178,7 @@ struct Workspace::Impl final : engine::Host {
     tokens::Legend tokensLegend { tokens::build_legend(Json::object()) };
     bool clientSupportsTokensRefresh { false };
     std::optional<Clock::time_point> tokensRefreshAt;   // coalesced: at most one refresh per ~500ms
+    std::uint64_t tokensRefreshes { 0 };                // for the refresh requests' ids
     // Diagnostics published by engines other than mcppls's own, per engine and client URI.
     std::map<std::string, std::map<std::string, Json, std::less<>>, std::less<>> engineDiagnostics;
     std::map<std::string, std::string, std::less<>> publishedDiagnostics;
@@ -1433,7 +1434,9 @@ struct Workspace::Impl final : engine::Host {
         }
         if (tokensRefreshAt && *tokensRefreshAt <= now) {
             tokensRefreshAt.reset();
-            client.notify(lsp::method::WORKSPACE_SEMANTIC_TOKENS_REFRESH, Json::object());
+            // A request, not a notification (LSP 3.16): its answer carries nothing, and an id the session cannot
+            // parse as an engine's is dropped, like the watcher registrations' answers.
+            client.send(lsp::make_request(std::format("w:{}:t{}", key, ++tokensRefreshes), lsp::method::WORKSPACE_SEMANTIC_TOKENS_REFRESH, nullptr));
         }
         if (sdkCheckAt && *sdkCheckAt <= now) {
             sdkCheckAt.reset();

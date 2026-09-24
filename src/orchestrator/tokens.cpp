@@ -80,9 +80,9 @@ Legend build_legend(const Json& coreCapabilities) {
     return legend;
 }
 
-Json provider_capability(const Legend& legend) {
+Json provider_capability(const Legend& legend, bool range) {
     return Json { { "legend", Json { { "tokenTypes", legend.types }, { "tokenModifiers", legend.modifiers } } },
-                  { "full", true }, { "range", true } };
+                  { "full", true }, { "range", range } };
 }
 
 std::vector<Token> decode(const Json& semanticTokensResult) {

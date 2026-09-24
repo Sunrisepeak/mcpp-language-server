@@ -5,6 +5,7 @@ import std;
 import nlohmann.json;
 import mcppls.testing;
 import mcppls.orchestrator.tokens;
+import mcppls.orchestrator.routing;
 
 using Json = nlohmann::json;
 using mcppls::orchestrator::tokens::Legend;
@@ -112,12 +113,20 @@ int main() {
 
     "merge: with neither engine, the answer is null"_test = [] { expect(tokens::merge(Json(nullptr), Json(nullptr)).is_null()); };
 
-    "provider_capability advertises full and range, no delta"_test = [] {
-        const Json capability = tokens::provider_capability(tokens::build_legend(Json::object()));
+    "provider_capability advertises full, no delta, and range only when every engine answers it"_test = [] {
+        const Json capability = tokens::provider_capability(tokens::build_legend(Json::object()), true);
         expect(capability.value("full", false) == true);
         expect(capability.value("range", false) == true);
         expect(!capability.contains("delta"));
         expect(capability["legend"]["tokenTypes"].is_array() && !capability["legend"]["tokenTypes"].empty());
+        expect(tokens::provider_capability(tokens::build_legend(Json::object()), false).value("range", true) == false);
+        // clangd 23.1 declares full (with delta) and no range: a range request would be rejected by it.
+        const Json clangd = Json::parse(R"({"semanticTokensProvider":{"full":{"delta":true},"legend":{"tokenTypes":["variable"],"tokenModifiers":[]}}})");
+        expect(mcppls::orchestrator::merge_capabilities(clangd)["semanticTokensProvider"].value("range", true) == false);
+        const Json ranged = Json::parse(R"({"semanticTokensProvider":{"full":true,"range":true,"legend":{"tokenTypes":[],"tokenModifiers":[]}}})");
+        expect(mcppls::orchestrator::merge_capabilities(ranged)["semanticTokensProvider"].value("range", false) == true);
+        expect(mcppls::orchestrator::merge_capabilities(Json::object())["semanticTokensProvider"].value("range", false) == true)
+            << "mcppls's own engine alone answers range requests";
     };
 
     return report();
