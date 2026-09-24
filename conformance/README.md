@@ -121,6 +121,10 @@ are `[line, character]`, zero-based, UTF-16. A check with `"text"` opens its fil
 content; a check with `"optional": true` reports `SKIP` instead of failing, and `"timeout": SECONDS`
 waits less than the run's `--timeout`. `"file"` and `"folder"` on a check, like every other path a
 scenario names, are relative to the fixture's own root, never to a specific workspace folder.
+`"initialization-options"` on the scenario is an object merged into the runner's own
+`initializationOptions` (over whatever `--client` profile set), so a fixture can ask for something
+`--client` does not, such as `{"semanticTokens": {"moduleType": true}}` (design doc 2026-09-25
+K/§7).
 `"initialize-within": SECONDS` on the scenario fails the run when `initialize` is answered later
 than that (the runner itself waits up to 120 s): a server that answers eventually is not enough
 where the point is that it answers at once (`clangd-cannot-load`).
@@ -159,6 +163,7 @@ always has been.
 | `completion-contains` | a completion label starts with `expect`; `insert: [line, text]` adds a line first, `edit` changes another open buffer without saving it |
 | `references-span` | the references include every path in `expect` |
 | `document-symbol-contains` | the outline has a top-level symbol named `expect` |
+| `semantic-tokens` | `textDocument/semanticTokens/full` (or `/range`, with `"range"`) for `"file"` (optionally with an unsaved `"text"`), decoded with the legend `initialize` gave, has every entry of `"expect"` (`{"line", "text", "type", "modifiers"?}`; `"modifiers"` is a list, and optional) among its tokens (design doc 2026-09-25 K/§7) |
 | `module-graph-contains` | `cxxModules/graph` lists module `expect`; retries within the check's own timeout, so it doubles as "a change reaches the graph within N seconds" (usable plan W9.3's `watch-polling`) |
 | `set-context` | sends `cxxModules/setContext` with `"context"` (usable plan W9.2), then a hover at `"at"` contains `expect`, retried the same way as `hover-contains` |
 | `write-file` | writes `"content"` (default: a fresh `export module <module>;`; `"content-from"` copies another workspace file) to `"file"` directly, the way a file system watcher — or, without one, the server's own polling fallback — would notice it, without the runner opening it as a document (usable plan W9.3); with `"expect-reload": true`, also waits for the status to pass through `loading` again (S2-5-1) |

@@ -25,10 +25,12 @@ import mcppls.platform.process;
 import mcppls.platform.task;
 import mcppls.lsp.jsonrpc;
 import mcppls.lsp.connection;
+import mcppls.orchestrator.tokens;
 
 namespace base = mcppls::base;
 namespace fs = mcppls::platform::fs;
 namespace lsp = mcppls::lsp;
+namespace tokens = mcppls::orchestrator::tokens;
 using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 
@@ -930,6 +932,7 @@ private:
     std::unique_ptr<McpClient> mcp_;                            // started by the first mcp check
     std::unique_ptr<McpClient> mcpDaemon_;                      // the first mcp check "via": "daemon"
     std::string mcpFailure_;
+    Json semanticTokensLegend_ = Json::object();                // initialize's capabilities.semanticTokensProvider.legend
 
     McpClient* mcp_client(bool daemon) {
         auto& kept = daemon ? mcpDaemon_ : mcp_;
@@ -953,9 +956,10 @@ public:
 
     Scenario(Client& client, const Options& options, std::vector<std::string> serverArguments, std::string workspace, std::chrono::seconds timeout,
              std::map<std::string, std::string> prepared, std::string cacheDirectory, bool expectWarm,
-             std::map<std::string, std::map<std::string, std::string>> moduleFilesBefore)
+             std::map<std::string, std::map<std::string, std::string>> moduleFilesBefore, Json semanticTokensLegend = Json::object())
         : client_ { client }, options_ { options }, serverArguments_ { std::move(serverArguments) }, workspace_ { std::move(workspace) }, timeout_ { timeout }, prepared_ { std::move(prepared) },
-          cacheDirectory_ { std::move(cacheDirectory) }, expectWarm_ { expectWarm }, moduleFilesBefore_ { std::move(moduleFilesBefore) } {}
+          cacheDirectory_ { std::move(cacheDirectory) }, expectWarm_ { expectWarm }, moduleFilesBefore_ { std::move(moduleFilesBefore) },
+          semanticTokensLegend_ ( std::move(semanticTokensLegend) ) {}
 
     std::string uri(std::string_view relative) const { return base::path_to_uri(base::join_path(workspace_, relative)); }
 
@@ -980,6 +984,44 @@ public:
         ++version;
         client_.notify("textDocument/didChange", Json { { "textDocument", Json { { "uri", uri(relative) }, { "version", version } } },
                                                         { "contentChanges", Json::array({ Json { { "text", text } } }) } });
+    }
+
+    // A `textDocument/semanticTokens/full` (or `/range`) result, decoded with the legend
+    // `initialize` gave, and the text of the token it names -- from `content`, which must be the
+    // buffer the request was answered against.
+    struct DecodedToken {
+        int line { 0 };
+        int startChar { 0 };
+        int length { 0 };
+        std::string type;
+        std::vector<std::string> modifiers;
+        std::string text;
+    };
+
+    std::vector<DecodedToken> decode_semantic_tokens(const Json& result, const std::string& content) const {
+        const Json types = semanticTokensLegend_.value("tokenTypes", Json::array());
+        const Json modifiers = semanticTokensLegend_.value("tokenModifiers", Json::array());
+        const auto lines = base::split_lines(content);
+        std::vector<DecodedToken> decoded;
+        for (const auto& token : tokens::decode(result)) {
+            DecodedToken entry;
+            entry.line = token.line;
+            entry.startChar = token.startChar;
+            entry.length = token.length;
+            entry.type = token.type < types.size() && types[token.type].is_string() ? types[token.type].get<std::string>() : std::string {};
+            for (std::size_t bit = 0; bit < modifiers.size(); ++bit) {
+                if ((token.modifiers & (1u << bit)) != 0 && modifiers[bit].is_string()) entry.modifiers.push_back(modifiers[bit].get<std::string>());
+            }
+            if (token.line >= 0 && static_cast<std::size_t>(token.line) < lines.size()) {
+                const std::string_view lineText { lines[static_cast<std::size_t>(token.line)] };
+                if (token.startChar >= 0 && static_cast<std::size_t>(token.startChar) <= lineText.size()) {
+                    const std::size_t available { lineText.size() - static_cast<std::size_t>(token.startChar) };
+                    entry.text = std::string { lineText.substr(static_cast<std::size_t>(token.startChar), std::min<std::size_t>(available, static_cast<std::size_t>(std::max(0, token.length)))) };
+                }
+            }
+            decoded.push_back(std::move(entry));
+        }
+        return decoded;
     }
 
     // Repeats a request until `accept` holds, because the engine may still be preparing modules.
@@ -1482,6 +1524,40 @@ public:
                 });
             return { ok, lsp::dump(result).substr(0, 160) };
         }
+        if (kind == "semantic-tokens") {
+            // design doc 2026-09-25 K/§7: every entry of "expect" ({"line", "text", "type",
+            // "modifiers"?}) must be one of the decoded tokens; "modifiers" (a list) is optional.
+            open(file);
+            const std::string content { text_of(file) };
+            const Json expected = check.value("expect", Json::array());
+            const auto range = check.find("range");
+            const std::string method { range != check.end() ? std::string { "textDocument/semanticTokens/range" } : std::string { "textDocument/semanticTokens/full" } };
+            auto [ok, result] = retry(method,
+                [&] {
+                    Json params { { "textDocument", Json { { "uri", uri(file) } } } };
+                    if (range != check.end()) params["range"] = *range;
+                    return params;
+                },
+                [&](const Json& value) {
+                    const auto decoded = decode_semantic_tokens(value, content);
+                    return std::ranges::all_of(expected, [&](const Json& want) {
+                        const int line { want.value("line", -1) };
+                        const std::string text { want.value("text", std::string {}) };
+                        const std::string type { want.value("type", std::string {}) };
+                        std::vector<std::string> modifiers;
+                        for (const auto& modifier : want.value("modifiers", Json::array())) modifiers.push_back(modifier.get<std::string>());
+                        return std::ranges::any_of(decoded, [&](const DecodedToken& token) {
+                            return token.line == line && token.text == text && token.type == type
+                                && std::ranges::all_of(modifiers, [&](const std::string& modifier) { return std::ranges::find(token.modifiers, modifier) != token.modifiers.end(); });
+                        });
+                    });
+                });
+            std::string detail;
+            for (const auto& token : decode_semantic_tokens(result, content)) {
+                detail += std::format("[{}:{} '{}' {} {}] ", token.line, token.startChar, token.text, token.type, lsp::dump(token.modifiers));
+            }
+            return { ok, detail.substr(0, std::min<std::size_t>(detail.size(), 200)) };
+        }
         if (kind == "report") {
             // robustness design O3: cxxModules/report, held to "expect" like a tool's result, retried within the check's time
             // (a plan or an engine may still be on its way).
@@ -1779,6 +1855,12 @@ int run(Options options) {
         }
         break;
     }
+    // A scenario's own "initialization-options" object, merged on top of whatever the client
+    // profile above set -- design doc 2026-09-25 K/§7's conformance cases ask for
+    // {"semanticTokens": {"moduleType": true}} this way, without a client profile of their own.
+    if (const auto extra = scenario.find("initialization-options"); extra != scenario.end() && extra->is_object()) {
+        for (auto entry = extra->begin(); entry != extra->end(); ++entry) initializationOptions[entry.key()] = entry.value();
+    }
     // usable plan W9.1: a fixture with several roots names them, relative to the fixture's own
     // root, in "folders"; a check names a file or a folder the same way, relative to that root,
     // regardless of how many workspace folders the fixture actually declares.
@@ -1810,7 +1892,13 @@ int run(Options options) {
         plainLike ? " (plain client)" : "");
     client.notify("initialized", Json::object());
 
-    Scenario runner { client, options, serverArguments, workspace, options.timeout, std::move(prepared), cacheDirectory, options.expectWarm, std::move(moduleFilesBefore) };
+    // design doc 2026-09-25 K/§7: the legend this server just advertised, so a "semantic-tokens"
+    // check can decode a result's type/modifier indices back into names.
+    const Json semanticTokensLegend = lsp::find_path(*initialized, { "capabilities", "semanticTokensProvider", "legend" }) != nullptr
+                                          ? (*initialized)["capabilities"]["semanticTokensProvider"]["legend"]
+                                          : Json::object();
+    Scenario runner { client, options, serverArguments, workspace, options.timeout, std::move(prepared), cacheDirectory, options.expectWarm,
+                      std::move(moduleFilesBefore), semanticTokensLegend };
     int failures { advertised ? 0 : 1 };
     // "initialize-within": seconds. The handshake is answered at all, and in time (0.0.3 plan B1).
     if (const auto within = scenario.find("initialize-within"); within != scenario.end() && within->is_number()) {
