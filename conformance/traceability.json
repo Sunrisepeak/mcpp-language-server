@@ -999,6 +999,39 @@
    "test": "tests/test_server.cpp: merging"
   }
  ],
+ "S3-6.1-1": [
+  {
+   "check": "inferred/K1-semantic-tokens"
+  },
+  {
+   "check": "engine-none/K1-semantic-tokens"
+  },
+  {
+   "test": "tests/test_tokens.cpp: merge: the core engine wins every position it covers, native fills the gaps"
+  },
+  {
+   "test": "tests/test_tokens.cpp: merge: with no core engine, native's tokens answer alone (not null)"
+  }
+ ],
+ "S3-6.1-2": [
+  {
+   "check": "inferred/K1-semantic-tokens"
+  },
+  {
+   "check": "engine-none/K1-semantic-tokens"
+  },
+  {
+   "test": "tests/test_server.cpp: native engine: semantic tokens, moduleType, modules=false, and the merge"
+  }
+ ],
+ "S3-6.1-3": [
+  {
+   "test": "tests/test_server.cpp: native engine: semantic tokens, moduleType, modules=false, and the merge"
+  },
+  {
+   "test": "tests/test_tokens.cpp: clangd's legend, including its own duplicates, maps by name"
+  }
+ ],
  "S4-3-1": [
   {
    "validate": "S4 schema rejects unknown kit-version"
