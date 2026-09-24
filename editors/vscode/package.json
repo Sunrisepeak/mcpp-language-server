@@ -2,7 +2,7 @@
   "name": "mcpp-language-server",
   "displayName": "C++ Modules Language Server",
   "description": "C++20/23 named modules that just work: go to definition, completion, hover and references across modules for any compiler, with clangd and a standard library kit built in. (mcppls)",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "sunrisepeak",
   "license": "Apache-2.0",
   "icon": "icon.png",
