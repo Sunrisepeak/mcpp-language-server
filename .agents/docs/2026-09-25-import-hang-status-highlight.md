@@ -612,3 +612,52 @@ T0 contracts (above)
   Linux x64 and arm64, macOS and Windows as before.
 - **Consistency.** State, hysteresis and token types are decided by the server, so every editor
   sees the same thing.
+
+## 13. What was built, and what building it found (0.0.4)
+
+**Built.** Everything in §3–§10, in one pull request. Tracks B (semantic tokens in the server),
+C (VS Code) and D (Neovim) ran in parallel against the contracts of §12, and were merged onto track A
+(the server core, specs and docs).
+
+**Measured on this machine** (linux-x64, bundled clangd 23.1.0; the `hello` project and the
+`inferred` fixture):
+
+| | 0.0.3 | 0.0.4 |
+|---|---|---|
+| Typing `import hello.greet;` key by key, with autosave | no answer for 30 s at `import hello.`; `degraded` with `module-build-failed`, `unresolved-module`, `file-quarantined`; stand-ins for `hello.`, `hello.g`, `hello.gr` | slowest answer 0.44 s; status stays `ready`; no stand-in, no restart |
+| The same with WA-CLANGD-001 turned off (the real spin) | — | spin found at its 20 s budget; clangd restarted; features back, slowest answer while still typing 3.2 s |
+| `typing-import` / `typing-import-spin` / `workaround-canaries` | — | pass; the canary fails, as it should, on clangd 24.0.0git |
+| Unit tests (dev and release profiles) | — | 26/26 programs |
+| VS Code e2e: main / conflicts / stress | — | 24 passing, 1 pending (macOS only) / 6 + 3 / 1 |
+| Neovim smoke, setup and enable | — | 28/28 each |
+
+**Changed while building it:**
+1. **Spin detection keys on demand, not on "a newer version waits".**
+   - A user who stops typing at `import hello.` sends no newer version, but the editor's requests for
+     the file do wait on the build.
+   - Those requests count, compared with when the version being built was sent: a request is often
+     sent before clangd reports that it started building.
+2. **"No stand-in for a plain `.cpp`" became "none for a file being edited".** §5 has the xlings
+   evidence that made the narrower rule necessary.
+3. **Semantic tokens advertise `range` only when the core engine has it.** clangd 23.1 declares no
+   range request, so VS Code's range requests came back "method not found".
+   `workspace/semanticTokens/refresh` is sent as the request LSP defines it to be.
+4. **A second clangd 23.1 defect, found by the VS Code grammar test's probe file.**
+   - clangd never finishes a file in which `import std;` comes before an `export import` of something
+     nothing provides, when the command names std's unit (`-fmodule-file=std=…`, WA-CLANGD-004's
+     hints).
+   - Minimal case: `export module m;` `import std;` `export import :p;`. It also hangs on 24.0.0git.
+   - Inside a project it does not happen: typing `export import :detail;` after `import std;` in an
+     interface answered within 0.62 s, with no restart (a scratch fixture, measured).
+   - A file outside the database gets the command clangd interpolates from its nearest unit, hints
+     included, so a stray file with that ill-formed code reaches it.
+   - The first-diagnostics guard sets such a file aside after 120 s. It is recorded as a known limit
+     (design record §7), not worked around, and is to be filed upstream with the first one.
+5. **VS Code's built-in grammar keeps the dead rule under a hash-prefixed key**
+   (`d9bc4796b0b_module_import`). The WA-VSCODE-001 canary matches it by suffix.
+
+**Still open:**
+- Bisect the fix of the first defect (candidate `6dcfc17b1b`), file both defects upstream, and ask for
+  a 23.1.x backport.
+- Update the bundled clangd once a fixed release exists; the canaries will say when.
+- The 21:15:23 restart of the user's session (§5).

@@ -177,6 +177,13 @@ before anything is published (`docs/92-release.md`).
   turn out to matter (0.0.3 plan §5.2).
 - clangd 23.1 rejects MSVC STL's aligned allocation; the plan turns aligned allocation off for
   units using MSVC STL (`msvcStlNeedsNoAlignedAllocation`) until upstream fixes it.
+- Every compensation for a clangd defect is a registered workaround (`WA-CLANGD-<n>`,
+  `src/engine/clangd/workarounds.cpp`, import-hang plan §9); `mcppls report` lists the ones in use.
+- clangd 23.1 (and main at 510126255) never finishes a file in which `import std;` comes before an
+  `export import` of something nothing provides, under a command that names `std`'s unit. Only a file
+  outside the database gets such a command, the one clangd interpolates from its nearest unit, so
+  only a stray file with ill-formed code reaches it. The first-diagnostics guard sets it aside after
+  two minutes (import-hang plan §13).
 - An mcpp project built for Windows through openkal needs `--target x86_64-windows-gnu`, which no
   editor setting passes to mcpp yet.
 - openkal cannot lower a child's scheduling priority, so clangd's cold-start module builds compete
@@ -242,6 +249,13 @@ project is not folded into its parent.
 before its handshake still lets the server initialize; a loader's refusal is `engine-incompatible`,
 not a crash · L the icon · S being found as mcppls · P Open VSX from CI, after local verification · A
 Linux arm64 with the official LLVM clangd · X one platform table.
+
+**"import-hang plan" — [2026-09-25-import-hang-status-highlight.md](2026-09-25-import-hang-status-highlight.md).**
+§1 clangd 23.1 spins on a module name ending in `.` at the end of its line · §2 why the guards did
+not see it · §3 WA-CLANGD-001, the same-line `;` · §4 the spin guard, a build's budget from its own
+history · §5 no stand-in for an import still being typed · §6 status issue categories, the degraded
+hold · §7 module syntax colored by an injected grammar and by the server's semantic tokens · §9 the
+workaround registry and its canaries · §10 living with other C++ extensions.
 
 **"tooling architecture".** 3.2 the workspace layout · 5.1 what mcpp, mcppls and devtools each do ·
 5.5 how devtools finds the server it just built · M0–M6 its migration steps.
