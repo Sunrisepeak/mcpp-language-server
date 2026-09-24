@@ -26,11 +26,12 @@ import {
 } from 'vscode-languageclient/node';
 import { CommandLineToolsController, withInstallCommandFallback } from './commandLineTools';
 import { registerCommands, reloadBuildDescription } from './commands';
-import { checkConflicts, ConflictCheck } from './conflicts';
+import { checkConflicts, ConflictCheck, watchForNewConflicts } from './conflicts';
 import { resolveLaunch } from './payload';
 import { ServerLogLevel, ServerLogRouter } from './serverLog';
 import { promptTestHarness, PromptKind } from './prompt';
 import { CxxModulesStatus, ModuleState, StatusController } from './status';
+import { describeActiveWorkarounds } from './workarounds';
 
 // build description design 4.4: a value this extension does not know must not turn the network on.
 function buildToolSetting(value: string | undefined): string {
@@ -250,6 +251,14 @@ class ServerHost implements vscode.Disposable {
                 // from also explaining it: a server cannot see its siblings through LSP, so it tells
                 // clients that arbitrate nothing — which is every editor but this one.
                 conflictArbitration: 'client',
+                // Design 2026-09-25 §7/§12: `modules` is this setting; `moduleType` is fixed true
+                // because this extension always declares the custom `module` semantic token type
+                // (package.json contributes.semanticTokenTypes) with a `namespace` fallback for
+                // themes that do not colour it.
+                semanticTokens: {
+                    modules: configuration.get<boolean>('semanticTokens.modules', true),
+                    moduleType: true,
+                },
             },
             errorHandler: {
                 error: () => ({ action: ErrorAction.Continue, handled: true }),
@@ -467,6 +476,13 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     host = new ServerHost(context, status, commandLineTools, runConflictCheck);
     activeHost = host;
     context.subscriptions.push(status, host);
+    // Workaround registry design (§9): visible once per activation, so a bug report shows which of
+    // this extension's own workarounds (as opposed to the server's) were on.
+    host.log(describeActiveWorkarounds());
+    // Coexistence design (§10): a conflict that becomes active after activation -- another C++
+    // extension installed, enabled, or its setting turned back on -- gets a notice, once per
+    // conflict per session, distinct from the one-time question above.
+    context.subscriptions.push(watchForNewConflicts(context, (line) => host.log(line)));
 
     const serverAccess = {
         runningClient: () => host.runningClient(),
@@ -480,7 +496,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
         vscode.workspace.onDidChangeConfiguration((event) => {
             if (event.affectsConfiguration('mcppls.compiler') || event.affectsConfiguration('mcppls.semanticKit')
                 || event.affectsConfiguration('mcppls.engine') || event.affectsConfiguration('mcppls.buildTool')
-                || event.affectsConfiguration('mcppls.toolEnvironment')) {
+                || event.affectsConfiguration('mcppls.toolEnvironment') || event.affectsConfiguration('mcppls.semanticTokens.modules')) {
                 void host.restart();
             }
         }),

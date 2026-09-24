@@ -2,6 +2,7 @@
 
 import * as vscode from 'vscode';
 import type { LanguageClient } from 'vscode-languageclient/node';
+import { restoreOtherCppFeatures, turnOffOtherCppFeatures } from './conflicts';
 import { describeProfile, SemanticProfile } from './status';
 
 export interface ServerAccess {
@@ -276,5 +277,7 @@ export function registerCommands(context: vscode.ExtensionContext, access: Serve
         vscode.commands.registerCommand('mcppls.showLogs', () => access.showLogs()),
         vscode.commands.registerCommand('mcppls.collectReport', () => collectReport(access)),
         vscode.commands.registerCommand('mcppls.runBuildToolInTerminal', () => runBuildToolInTerminal(access)),
+        vscode.commands.registerCommand('mcppls.turnOffOtherCppFeatures', () => turnOffOtherCppFeatures(context, access.log)),
+        vscode.commands.registerCommand('mcppls.restoreOtherCppFeatures', () => restoreOtherCppFeatures(context, access.log)),
     );
 }

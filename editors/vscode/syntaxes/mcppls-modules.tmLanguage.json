@@ -1,0 +1,39 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "mcppls C++ Modules",
+  "comment": "WA-VSCODE-001 (see src/workarounds.ts): VS Code's built-in cpp grammar defines a module_import rule but nothing includes it, so import/module/export and module names get no scope on their own. This injection grammar covers only the module syntax the built-in grammar misses; its capture-group scopes match mcpp-community.mcpp-vscode's own module grammar exactly, so installing both extensions is harmless. Anchored at the start of the line (leading whitespace allowed) so 'x = import;' and 'obj.import(1)' are never matched -- only a line that itself begins with (an optional 'export' then) 'module' or 'import' is. Each pattern accepts an incomplete, still-being-typed name (for example 'import hello.' colors 'import' and 'hello', leaving the trailing dot unscoped) because nothing here requires a trailing ';' or an end of line.",
+  "scopeName": "source.cpp.mcppls-modules",
+  "injectionSelector": "L:source.cpp",
+  "patterns": [
+    { "include": "#module-declaration" },
+    { "include": "#import-declaration" }
+  ],
+  "repository": {
+    "module-declaration": {
+      "comment": "module; | [export] module name[:partition][;] | module :partition[;]",
+      "match": "^\\s*(?:(export)\\s+)?(module)\\b(?=[\\s;:/]|$)\\s*(?:([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)(?:\\s*(:)\\s*([A-Za-z_][A-Za-z0-9_]*))?|(:)\\s*([A-Za-z_][A-Za-z0-9_]*))?(?:\\s*;)?",
+      "captures": {
+        "1": { "name": "keyword.control.export.cpp" },
+        "2": { "name": "keyword.control.module.cpp" },
+        "3": { "name": "entity.name.namespace.module.cpp" },
+        "4": { "name": "punctuation.separator.module-partition.cpp" },
+        "5": { "name": "entity.name.namespace.module.partition.cpp" },
+        "6": { "name": "punctuation.separator.module-partition.cpp" },
+        "7": { "name": "entity.name.namespace.module.partition.cpp" }
+      }
+    },
+    "import-declaration": {
+      "comment": "[export] import name | :partition | <header> | \"header\" [;]",
+      "match": "^\\s*(?:(export)\\s+)?(import)\\b(?=[\\s;:<\"/]|$)\\s*(?:(:)([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*(?::[A-Za-z_][A-Za-z0-9_]*)?)|(<[^>]*>)|(\"[^\"]*\"))?(?:\\s*;)?",
+      "captures": {
+        "1": { "name": "keyword.control.export.cpp" },
+        "2": { "name": "keyword.control.import.cpp" },
+        "3": { "name": "punctuation.separator.module-partition.cpp" },
+        "4": { "name": "entity.name.namespace.module.partition.cpp" },
+        "5": { "name": "entity.name.namespace.module.cpp" },
+        "6": { "name": "string.quoted.other.header.cpp" },
+        "7": { "name": "string.quoted.double.header.cpp" }
+      }
+    }
+  }
+}

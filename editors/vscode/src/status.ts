@@ -2,6 +2,7 @@
 // status item for C++ files, driven by the server's cxxModules/status notification.
 
 import * as vscode from 'vscode';
+import { stateTexts } from './statusText';
 
 export type ModuleState = 'starting' | 'loading' | 'preparing' | 'ready' | 'degraded' | 'error';
 
@@ -22,6 +23,10 @@ export interface ModuleIssue {
     code: string;
     message: string;
     command?: IssueCommand;
+    // S3 extension (design 2026-09-25 §6): "code" is the user's own text being wrong, shown as a
+    // diagnostic instead, and never colours the status. Absent means non-code, for a server from
+    // before this field existed; see statusText.ts.
+    category?: 'code' | 'engine' | 'environment' | 'project';
 }
 
 export interface CxxModulesStatus {
@@ -101,25 +106,6 @@ export function describeProfile(profile: SemanticProfile | undefined): string {
     return profile.compiler && profile.compiler.length > 0 ? profile.compiler : profile.stdlib ?? '';
 }
 
-function stateText(status: CxxModulesStatus): string | undefined {
-    switch (status.state) {
-        case 'starting':
-            return 'Starting';
-        case 'loading':
-            return 'Loading the project';
-        case 'preparing':
-            return status.progress && status.progress.total > 0
-                ? `Preparing modules ${status.progress.done}/${status.progress.total}`
-                : 'Preparing modules';
-        case 'ready':
-            return undefined;
-        case 'degraded':
-            return 'Some features are limited';
-        case 'error':
-            return 'Only module-level features are available';
-    }
-}
-
 export class StatusController implements vscode.Disposable {
     private readonly item: vscode.LanguageStatusItem;
     // A LanguageStatusItem lives behind the `{}` icon: a person has to go looking for it, and
@@ -154,8 +140,10 @@ export class StatusController implements vscode.Disposable {
         this.paint('starting', detail);
     }
 
-    // The status bar half of the same state.
-    private paint(state: ModuleState | 'starting', detail: string | undefined): void {
+    // The status bar half of the same state. `detail` is the short label shown next to the icon;
+    // `tooltipDetail` (the full text, when it differs -- only `degraded` shortens anything, see
+    // statusText.ts) is what the tooltip shows, defaulting to `detail` when there is nothing fuller.
+    private paint(state: ModuleState | 'starting', detail: string | undefined, tooltipDetail: string | undefined = detail): void {
         const { text, background, foreground } = barFor(state, detail);
         const busy = BUSY_STATES.includes(state as ModuleState);
         this.bar.text = text;
@@ -164,7 +152,7 @@ export class StatusController implements vscode.Disposable {
         // here, rather than resetting the colour, keeps one steady rhythm across those repaints
         // instead of restarting the cycle a few times a second.
         this.bar.color = busy ? this.pulseColor() : foreground;
-        this.bar.tooltip = detail ? `mcppls — ${detail}` : 'mcppls';
+        this.bar.tooltip = tooltipDetail ? `mcppls — ${tooltipDetail}` : 'mcppls';
         this.setPulsing(busy);
     }
 
@@ -224,9 +212,10 @@ export class StatusController implements vscode.Disposable {
         this.item.text = label.length > 0 ? `C++ Modules · ${label}` : 'C++ Modules';
 
         const details: string[] = [];
-        const state = stateText(status);
-        if (state) {
-            details.push(state);
+        const texts = stateTexts(status);
+        if (texts.full) {
+            // The full, unshortened text; see statusText.ts for why only `degraded` differs from `short`.
+            details.push(texts.full);
         }
         if (status.project) {
             const tier = status.project.tier;
@@ -238,10 +227,9 @@ export class StatusController implements vscode.Disposable {
             details.push(`${status.engine.name} ${status.engine.version}`.trim());
         }
         const issues = status.issues ?? [];
-        if ((status.state === 'degraded' || status.state === 'error') && issues.length > 0) {
-            details.push(issues[0].message);
-        } else if (status.notices && status.notices.length > 0) {
+        if (!texts.full && status.notices && status.notices.length > 0) {
             // Shown in the item's hover only: a notice changes neither the state nor the severity.
+            // Only when there is no issue text already in `details` above -- same precedence as before.
             details.push(status.notices[0].message);
         }
         this.item.detail = details.join(' · ');
@@ -257,8 +245,10 @@ export class StatusController implements vscode.Disposable {
             ? { title: withCommand.command.title, command: withCommand.command.command, arguments: withCommand.command.arguments }
             : status.state === 'degraded' || status.state === 'error' ? COLLECT_REPORT : SHOW_LOGS;
 
-        // The status bar says the one thing that matters now; the item behind `{}` keeps the rest.
-        this.paint(status.state, stateText(status) ?? (describeProfile(status.profile) || undefined));
+        // The status bar says the one thing that matters now, shortened when there is a fuller
+        // version in the tooltip; the item behind `{}` keeps the rest.
+        const shortDetail = texts.short ?? (describeProfile(status.profile) || undefined);
+        this.paint(status.state, shortDetail, texts.full ?? shortDetail);
 
         for (const waiter of [...this.waiters]) {
             if (waiter.states.includes(status.state)) {
