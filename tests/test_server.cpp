@@ -25,6 +25,7 @@ import mcppls.orchestrator.client;
 import mcppls.orchestrator.documents;
 import mcppls.orchestrator.journal;
 import mcppls.orchestrator.routing;
+import mcppls.orchestrator.tokens;
 import mcppls.orchestrator.workspace;
 
 using Json = nlohmann::json;
@@ -33,6 +34,7 @@ namespace idx = mcppls::index;
 namespace orch = mcppls::orchestrator;
 namespace eng = mcppls::engine;
 namespace cld = mcppls::engine::clangd;
+namespace tok = mcppls::orchestrator::tokens;
 
 namespace {
 
@@ -352,6 +354,69 @@ int main() {
                                                                  { "mcppls", index.document_symbols("/p/src/greet/detail.cppm") } };
         const Json outline = orch::merge_results("textDocument/documentSymbol", merged);
         expect(outline.size() == 2u && outline[0]["name"] == "hello.greet:detail") << outline.dump();
+    };
+
+    // design doc 2026-09-25 K/§7: the native engine's own semantic tokens, and the merge with a
+    // (simulated) core engine's already-remapped answer.
+    "native engine: semantic tokens, moduleType, modules=false, and the merge"_test = [] {
+        const auto index = fixture_index();
+        const std::string text { "export module hello.greet:detail;\nimport std;\n" };
+        auto view = [&](std::string_view method, const Json& params) { return eng::RequestView { method, &params, "/p/src/greet/detail.cppm", text }; };
+        const Json empty = Json::object();
+
+        // moduleType == false (default): module names are `namespace`, no `partition` modifier.
+        // Six tokens: export, module, "hello.greet" (declaration), "detail" (declaration
+        // partition) on line 0; import, "std" on line 1.
+        const auto plain = eng::native::make_engine(index, eng::native::TokenOptions { .modules = true, .moduleType = false });
+        std::optional<eng::Answer> answer;
+        plain->request(view("textDocument/semanticTokens/full", empty), Json::object(), [&](eng::Answer a) { answer = std::move(a); });
+        expect(fatal(answer.has_value() && answer->kind == eng::Answer::Kind::result));
+        auto tokens = tok::decode(answer->value);
+        expect(fatal(tokens.size() == 6u)) << tokens.size();
+        expect(tokens[0].type == tok::type_index("keyword"));                                   // export
+        expect(tokens[1].type == tok::type_index("keyword"));                                   // module
+        expect(tokens[2].type == tok::type_index("namespace") && tokens[2].modifiers == tok::modifier_bit("declaration"));   // hello.greet
+        expect(tokens[3].type == tok::type_index("namespace") && tokens[3].modifiers == tok::modifier_bit("declaration"));   // detail (no partition bit: moduleType is off)
+        expect(tokens[4].type == tok::type_index("keyword"));                                   // import
+        expect(tokens[5].type == tok::type_index("namespace") && tokens[5].modifiers == 0u);     // std (not a declaration)
+
+        // moduleType == true: the custom `module` type, and the `partition` modifier.
+        const auto withModuleType = eng::native::make_engine(index, eng::native::TokenOptions { .modules = true, .moduleType = true });
+        answer.reset();
+        withModuleType->request(view("textDocument/semanticTokens/full", empty), Json::object(), [&](eng::Answer a) { answer = std::move(a); });
+        tokens = tok::decode(answer->value);
+        expect(fatal(tokens.size() == 6u));
+        expect(tokens[2].type == tok::type_index("module"));
+        expect(tokens[3].type == tok::type_index("module") && (tokens[3].modifiers & tok::modifier_bit("partition")) != 0);
+
+        // modules == false: mcppls adds no module-syntax tokens at all, and does not claim the method.
+        const auto disabled = eng::native::make_engine(index, eng::native::TokenOptions { .modules = false, .moduleType = false });
+        expect(!disabled->claims(view("textDocument/semanticTokens/full", empty)));
+
+        // range: only the second line's tokens (both "import" and "std" are on it).
+        const Json rangeParams { { "range", Json { { "start", Json { { "line", 1 }, { "character", 0 } } }, { "end", Json { { "line", 2 }, { "character", 0 } } } } } };
+        answer.reset();
+        plain->request(view("textDocument/semanticTokens/range", rangeParams), Json::object(), [&](eng::Answer a) { answer = std::move(a); });
+        tokens = tok::decode(answer->value);
+        expect(fatal(tokens.size() == 2u));
+        expect(tokens[0].line == 1 && tokens[1].line == 1);
+
+        // Merge, through routing::merge_results itself: a (simulated) core engine's own answer,
+        // already remapped into the server's legend by the workspace (test_tokens.cpp covers that
+        // remapping on its own), wins the position it covers; native's answer fills the rest.
+        answer.reset();
+        plain->request(view("textDocument/semanticTokens/full", empty), Json::object(), [&](eng::Answer a) { answer = std::move(a); });
+        expect(fatal(answer.has_value()));
+        const Json coreResult = tok::encode(std::vector<tok::Token> { { 0, 0, 6, tok::type_index("keyword"), 0 } });   // covers "export" on line 0
+        const std::vector<std::pair<std::string, Json>> mergedInputs { { "fake-core", coreResult }, { "mcppls", answer->value } };
+        const Json merged = orch::merge_results("textDocument/semanticTokens/full", mergedInputs);
+        const auto mergedTokens = tok::decode(merged);
+        expect(std::ranges::any_of(mergedTokens, [](const tok::Token& t) { return t.line == 0 && t.startChar == 0 && t.type == tok::type_index("keyword"); }));
+        // Sorted and non-overlapping: no two tokens on the same line share any column.
+        for (std::size_t i = 1; i < mergedTokens.size(); ++i) {
+            if (mergedTokens[i].line != mergedTokens[i - 1].line) continue;
+            expect(mergedTokens[i].startChar >= mergedTokens[i - 1].startChar + mergedTokens[i - 1].length);
+        }
     };
 
     "clangd's module build failures are recognized"_test = [] {

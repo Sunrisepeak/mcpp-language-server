@@ -11,7 +11,13 @@ export namespace mcppls::engine::native {
 
 inline constexpr std::string_view ENGINE_ID { "mcppls" };
 
+// initializationOptions.semanticTokens (design doc 2026-09-25 K/§7, contract T0).
+struct TokenOptions {
+    bool modules { true };       // native module-syntax tokens (export/module/import, module names) at all
+    bool moduleType { false };   // the client knows the custom `module` type and `partition` modifier
+};
+
 // `index` is the workspace's, and outlives the engine.
-std::unique_ptr<Engine> make_engine(const index::ModuleIndex& index);
+std::unique_ptr<Engine> make_engine(const index::ModuleIndex& index, TokenOptions tokenOptions = {});
 
 } // namespace mcppls::engine::native

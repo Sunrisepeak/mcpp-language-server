@@ -35,6 +35,21 @@ struct ScanResult {
 
 ScanResult scan_source(std::string_view text);
 
+// A minimal token for syntax highlighting a module declaration or import (design doc 2026-09-25
+// K/§7): produced from the text alone, complete or not, so a person still typing `import hello.`
+// sees `import` and `hello` colored while they type. Unlike scan_source, this never requires a
+// terminating `;`, and a name cut short (a trailing dot, the end of a line, end of file) is given
+// the span of whatever was actually read -- never a token that spans two lines.
+enum class SyntaxTokenKind { keyword, moduleName, partitionName };
+
+struct SyntaxToken {
+    SyntaxTokenKind kind { SyntaxTokenKind::keyword };
+    base::Range range;
+    bool isDeclaration { false };   // the name of a `module` or `export module` declaration itself, not an import
+};
+
+std::vector<SyntaxToken> scan_syntax_tokens(std::string_view text);
+
 spec::Role role_of(const ScanResult& result);
 // "m" or "m:p" for units that can be imported; empty otherwise.
 std::string provided_name(const ScanResult& result);
