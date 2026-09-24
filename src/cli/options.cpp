@@ -20,7 +20,9 @@ using namespace mcpplibs;
 
 orchestrator::EngineFactories engine_factories(const orchestrator::SessionOptions& options, const engine::PayloadPaths& payload, bool payloadCorrupt) {
     orchestrator::EngineFactories factories;
-    factories.modules = [](const index::ModuleIndex& index) { return engine::native::make_engine(index); };
+    // initializationOptions.semanticTokens (design doc 2026-09-25 K/§7, contract T0).
+    const engine::native::TokenOptions tokenOptions { options.semanticTokensModules, options.semanticTokensModuleType };
+    factories.modules = [tokenOptions](const index::ModuleIndex& index) { return engine::native::make_engine(index, tokenOptions); };
     if (options.engine == "none") return factories;
     if (options.engine != "clangd") base::log::warning("unknown engine {}; using clangd", options.engine);
     factories.core = [options, payload, payloadCorrupt]() -> std::unique_ptr<engine::Engine> {

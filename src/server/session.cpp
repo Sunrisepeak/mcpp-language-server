@@ -263,6 +263,15 @@ private:
                 environment && (*environment == "auto" || *environment == "editor")) {
                 options_.toolEnvironment = *environment;
             }
+            // design doc 2026-09-25 K/§7, contract T0: initializationOptions.semanticTokens.
+            if (const Json* semanticTokens = lsp::find(*init, "semanticTokens"); semanticTokens != nullptr && semanticTokens->is_object()) {
+                if (const auto modules = semanticTokens->find("modules"); modules != semanticTokens->end() && modules->is_boolean()) {
+                    options_.semanticTokensModules = modules->get<bool>();
+                }
+                if (const auto moduleType = semanticTokens->find("moduleType"); moduleType != semanticTokens->end() && moduleType->is_boolean()) {
+                    options_.semanticTokensModuleType = moduleType->get<bool>();
+                }
+            }
         }
         // The environment the user's build tools run in is resolved once, in the background, before
         // anything needs it (design 4.3): an editor started from a desktop entry has none of the

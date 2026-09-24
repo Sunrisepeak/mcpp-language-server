@@ -36,6 +36,7 @@ import mcppls.orchestrator.client;
 import mcppls.orchestrator.documents;
 import mcppls.orchestrator.instance;
 import mcppls.orchestrator.routing;
+import mcppls.orchestrator.tokens;
 
 namespace mcppls::orchestrator {
 
@@ -171,6 +172,12 @@ struct Workspace::Impl final : engine::Host {
     engine::Engine* moduleEngine { nullptr };
     Json coreCapabilities = Json::object();
     bool settledReported { false };
+    // Semantic tokens (design doc 2026-09-25 K/§7): rebuilt whenever the core engine settles (even
+    // with none), so a request's core-engine tokens are always remapped by the same legend
+    // `merge_capabilities` advertised for this same `coreCapabilities`.
+    tokens::Legend tokensLegend { tokens::build_legend(Json::object()) };
+    bool clientSupportsTokensRefresh { false };
+    std::optional<Clock::time_point> tokensRefreshAt;   // coalesced: at most one refresh per ~500ms
     // Diagnostics published by engines other than mcppls's own, per engine and client URI.
     std::map<std::string, std::map<std::string, Json, std::less<>>, std::less<>> engineDiagnostics;
     std::map<std::string, std::string, std::less<>> publishedDiagnostics;
@@ -333,6 +340,10 @@ struct Workspace::Impl final : engine::Host {
     void engine_settled(std::string_view engineId, const Json& serverCapabilities) override {
         if (coreEngine != nullptr && engineId != coreEngine->id()) return;
         if (coreEngine != nullptr) coreCapabilities = serverCapabilities;
+        // Rebuilt from the very capabilities merge_capabilities is about to see (or already saw,
+        // for the first root), so a request's core-engine tokens are always remapped by the same
+        // legend the client was told about.
+        tokensLegend = tokens::build_legend(coreCapabilities);
         if (settledReported || !onEngineSettled) return;
         settledReported = true;
         auto callback = std::move(onEngineSettled);
@@ -343,6 +354,15 @@ struct Workspace::Impl final : engine::Host {
     void status_changed() override { update_status(); }
     void request_replan() override { schedule_replan(); }
     void record_event(std::string_view kind, Json detail) override { journal.add(kind, std::move(detail)); }
+
+    // Semantic tokens (design doc 2026-09-25 K/§7): coalesced to at most one
+    // workspace/semanticTokens/refresh every ~500ms, and never before this root's own initialize
+    // was answered (the same gate update_status uses).
+    void semantic_tokens_changed() override {
+        if (!clientSupportsTokensRefresh || !initializeAnswered) return;
+        if (tokensRefreshAt) return;
+        tokensRefreshAt = Clock::now() + std::chrono::milliseconds { 500 };
+    }
 
     std::vector<engine::DocumentView> documents() const override {
         std::vector<engine::DocumentView> views;
@@ -429,6 +449,7 @@ struct Workspace::Impl final : engine::Host {
         consider(sdkCheckAt);
         consider(statusFlushAt);
         consider(leaseRenewAt);
+        consider(tokensRefreshAt);
         for (const auto& engine : engines) consider(engine->next_deadline());
         return deadline;
     }
@@ -492,7 +513,15 @@ struct Workspace::Impl final : engine::Host {
         job.clientId = message["id"];
         job.method = message.value("method", std::string {});
         job.message = message;
-        job.params = message.contains("params") ? message["params"] : Json::object();
+        // Semantic tokens (design doc 2026-09-25 K/§7): this server advertises `full` with no
+        // `delta` (contract T0), so it never hands out a resultId a delta request could build on.
+        // A client that sends one anyway is answered like `full`, which LSP allows.
+        if (job.method == "textDocument/semanticTokens/full/delta") {
+            job.method = "textDocument/semanticTokens/full";
+            job.message["method"] = job.method;
+            if (job.message.contains("params") && job.message["params"].is_object()) job.message["params"].erase("previousResultId");
+        }
+        job.params = job.message.contains("params") ? job.message["params"] : Json::object();
         const std::string uri { uri_of_params(job.params) };
         job.path = uri.empty() ? std::string {} : path_of_uri(uri);
         const Document* document { uri.empty() ? nullptr : documents_.find(uri) };
@@ -505,9 +534,22 @@ struct Workspace::Impl final : engine::Host {
         if (!selection.mergers.empty()) {
             job.merging = true;
             job.awaiting = selection.mergers.size();
+            // Semantic tokens: the core engine's own answer arrives in its own legend's indices;
+            // remapped into this server's legend right here, once, so routing::merge_results (and
+            // everything downstream) only ever sees the server's own index space (routing itself
+            // stays a pure function of what several engines already answered).
+            const bool remapCoreTokens { coreEngine != nullptr
+                                        && (job.method == "textDocument/semanticTokens/full" || job.method == "textDocument/semanticTokens/range") };
             for (engine::Engine* merger : selection.mergers) {
                 const std::string engineId { merger->id() };
-                merger->request(job.view, job.message, [this, jobId, engineId](engine::Answer answer) { merge_answer(jobId, engineId, std::move(answer)); });
+                engine::Reply reply { [this, jobId, engineId](engine::Answer answer) { merge_answer(jobId, engineId, std::move(answer)); } };
+                if (remapCoreTokens && engineId == coreEngine->id()) {
+                    reply = [this, jobId, engineId](engine::Answer answer) {
+                        if (answer.kind == engine::Answer::Kind::result) answer.value = tokens::remap_core_tokens(answer.value, tokensLegend);
+                        merge_answer(jobId, engineId, std::move(answer));
+                    };
+                }
+                merger->request(job.view, job.message, std::move(reply));
                 if (!jobs.contains(jobId)) return;
             }
             return;
@@ -1389,6 +1431,10 @@ struct Workspace::Impl final : engine::Host {
             statusFlushAt.reset();
             update_status();
         }
+        if (tokensRefreshAt && *tokensRefreshAt <= now) {
+            tokensRefreshAt.reset();
+            client.notify(lsp::method::WORKSPACE_SEMANTIC_TOKENS_REFRESH, Json::object());
+        }
         if (sdkCheckAt && *sdkCheckAt <= now) {
             sdkCheckAt.reset();
             if (kit && spec::requires_macos_sdk(*kit) && macosSdk.empty()) {
@@ -1444,6 +1490,11 @@ bool Workspace::owns_path(std::string_view path) const { return !path.empty() &&
 void Workspace::start(Json clientParams, bool clientSupportsStatus, bool usePolling, std::function<void(Json)> onEngineSettled) {
     impl_->clientParams = std::move(clientParams);
     impl_->clientSupportsStatus = clientSupportsStatus;
+    // Semantic tokens (design doc 2026-09-25 K/§7): workspace.semanticTokens.refreshSupport.
+    if (const Json* supported = lsp::find_path(impl_->clientParams, { "capabilities", "workspace", "semanticTokens", "refreshSupport" });
+        supported != nullptr && supported->is_boolean()) {
+        impl_->clientSupportsTokensRefresh = supported->get<bool>();
+    }
     impl_->onEngineSettled = std::move(onEngineSettled);
     impl_->dynamicWatch = !usePolling;
     if (usePolling) impl_->start_watch_polling();

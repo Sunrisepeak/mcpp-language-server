@@ -72,6 +72,10 @@ private:
         { std::string { EVERY_METHOD }, Role::answer, 0 },
         { std::string { lsp::method::TEXT_DOCUMENT_DOCUMENT_SYMBOL }, Role::merge, 0 },
         { std::string { lsp::method::WORKSPACE_SYMBOL }, Role::merge, 0 },
+        // design doc 2026-09-25 K/§7, contract T0: mcppls's own module-syntax tokens fill the gaps
+        // clangd leaves (it tokenizes no import/module/export line at all, measured on 23.1.0).
+        { std::string { lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL }, Role::merge, 0 },
+        { std::string { lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_RANGE }, Role::merge, 0 },
     };
 
     std::string databaseDirectory_;
@@ -1431,6 +1435,7 @@ private:
             earlyExits_ = 0;
             accept_traffic_if_ready_();
             host_->status_changed();
+            host_->semantic_tokens_changed();   // design doc 2026-09-25 K/§7: clangd (re)started
             break;
         }
         case Purpose::client: {
@@ -2112,6 +2117,9 @@ private:
                             members.size() == 1 ? "it" : "them", members.size() == 1 ? "it" : "they"), "mcppls.restartServer" });
         }
         host_->status_changed();
+        // design doc 2026-09-25 K/§7: called at every point a file is set aside or handed back, so
+        // whichever engine now answers semantic tokens for it, the client asks again.
+        host_->semantic_tokens_changed();
     }
 
     // A restart now, or as soon as the gate allows (robustness design C4).
@@ -2518,6 +2526,7 @@ private:
         if (heldPrimeUnits_.empty() || primer_.busy() || !awaitingDiagnostics_.empty() || !held_.empty()) return;
         log::info("module preparation idle ({}): closing {} prime units", host_->root_directory(), heldPrimeUnits_.size());
         close_prime_units_();
+        host_->semantic_tokens_changed();   // design doc 2026-09-25 K/§7: module preparation finished
     }
 
     void close_prime_units_() {
