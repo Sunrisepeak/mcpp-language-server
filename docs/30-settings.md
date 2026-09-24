@@ -50,6 +50,7 @@ Options that apply to every subcommand:
 | `--untrusted` | — | Run no build tool and no compiler |
 | `--no-discover` | — | Do not look for compilers; loose sources use the semantic kit |
 | `--log-level debug\|info\|warning\|error` | `info` | |
+| `--disable-workaround WA-CLANGD-<n>` | — | Turn off one of the registered workarounds for clangd's defects (repeatable), to see whether it is still needed; `mcppls report` lists them under `engines[].details.workarounds` |
 
 `print-environment` exists for the server itself: it is what the login shell is asked to run when
 `mcppls.toolEnvironment` is `auto`.

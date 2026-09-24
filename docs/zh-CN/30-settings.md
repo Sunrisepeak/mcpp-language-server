@@ -52,5 +52,6 @@ mcppls version
 | `--untrusted` | — | 不运行任何构建工具，也不运行编译器 |
 | `--no-discover` | — | 不查找编译器；零散源码使用语义工具包 |
 | `--log-level debug\|info\|warning\|error` | `info` | |
+| `--disable-workaround WA-CLANGD-<n>` | — | 关掉一个针对 clangd 缺陷登记的规避措施（可重复），用来确认它是否还有必要；`mcppls report` 在 `engines[].details.workarounds` 下列出它们 |
 
 `print-environment` 是给服务端自己用的：`mcppls.toolEnvironment` 为 `auto` 时，服务端让登录 shell 运行的就是这个命令。
