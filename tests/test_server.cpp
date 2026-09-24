@@ -697,6 +697,62 @@ int main() {
         fs::remove_all(root);
     };
 
+    "a file whose build runs far past its own history while the editor waits is spinning"_test = [] {
+        // import-hang plan §4: the budget is five times the file's last build, never under 20 s.
+        using namespace std::chrono_literals;
+        const auto t0 = cld::GuardClock::now();
+        const std::string uri { "file:///p/src/main.cpp" };
+        cld::SpinWatch watch;
+        // A first build with no history is never judged: it may be preparing modules.
+        watch.sent(uri, 1, t0);
+        watch.state(uri, "parsing includes, parsing main file", t0);
+        watch.asked(uri, t0 + 1s);
+        expect(watch.check(t0 + 10min).empty()) << "no history, no verdict";
+        expect(!watch.next_due().has_value());
+        watch.state(uri, "idle", t0 + 10min + 50ms);   // it did finish; history is 10 min + 50 ms
+
+        cld::SpinWatch quick;
+        quick.sent(uri, 1, t0);
+        quick.state(uri, "parsing includes, parsing main file", t0);
+        quick.state(uri, "idle", t0 + 10ms);   // history: 10 ms, so the budget is the 20 s floor
+        quick.sent(uri, 2, t0 + 1s);           // `import hello.`
+        quick.asked(uri, t0 + 1s + 1ms);       // a request sent before clangd says it started
+        quick.state(uri, "parsing includes, parsing main file", t0 + 1s + 5ms);
+        expect(quick.next_due() == t0 + 1s + 5ms + 20s);
+        expect(quick.check(t0 + 20s).empty()) << "within its budget";
+        const auto spins = quick.check(t0 + 1s + 5ms + 20s);
+        expect(fatal(spins.size() == 1u));
+        expect(spins[0].uri == uri && spins[0].textHash == 2u) << "the text being built is the one remembered";
+        expect(spins[0].budget == 20s);
+        expect(quick.check(t0 + 1h).empty()) << "reported once per build";
+        expect(!quick.next_due().has_value());
+
+        // Nothing waiting on the build: no verdict and no deadline, so the event loop is not woken for it.
+        cld::SpinWatch idle;
+        idle.sent(uri, 1, t0);
+        idle.state(uri, "parsing main file", t0);
+        idle.state(uri, "idle", t0 + 10ms);
+        idle.state(uri, "parsing main file", t0 + 1s);
+        expect(idle.check(t0 + 1h).empty() && !idle.next_due().has_value());
+
+        // A file that always takes long keeps a budget of five times what it takes.
+        cld::SpinWatch heavy;
+        heavy.sent(uri, 1, t0);
+        heavy.state(uri, "parsing main file", t0);
+        heavy.state(uri, "idle", t0 + 15s);
+        heavy.sent(uri, 2, t0 + 20s);
+        heavy.state(uri, "parsing main file", t0 + 20s);
+        heavy.sent(uri, 3, t0 + 21s);
+        expect(heavy.check(t0 + 20s + 74s).empty()) << "75 s is its budget";
+        expect(heavy.check(t0 + 20s + 75s).size() == 1u);
+
+        // A restart builds nothing yet; forgetting a file drops it.
+        quick.restarted();
+        expect(!quick.next_due().has_value());
+        heavy.forget(uri);
+        expect(heavy.check(t0 + 10h).empty());
+    };
+
     "a clangd that answers nothing and uses no CPU is stuck, and a busy one is not"_test = [] {
         using namespace std::chrono_literals;
         const auto t0 = cld::GuardClock::now();

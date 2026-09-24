@@ -48,6 +48,8 @@ struct SessionOptions {
     std::chrono::seconds producerTimeout { 0 };
     bool verboseEngineLog { false };
     std::chrono::milliseconds requestTimeout { std::chrono::seconds { 60 } };
+    // Registered workarounds turned off (import-hang plan §9): to see whether one is still needed.
+    std::vector<std::string> disabledWorkarounds;
     // This program, to run `mcppls review` for an editor's review command (overall design 7.7).
     std::string serverExecutable;
     // Given by the composition root; a test can substitute engines that start no process.

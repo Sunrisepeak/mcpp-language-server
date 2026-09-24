@@ -30,6 +30,7 @@ orchestrator::EngineFactories engine_factories(const orchestrator::SessionOption
         clangd.payloadCorrupt = payloadCorrupt;
         clangd.verboseLog = options.verboseEngineLog;
         clangd.requestTimeout = options.requestTimeout;
+        clangd.disabledWorkarounds = options.disabledWorkarounds;
         return engine::clangd::make_engine(std::move(clangd));
     };
     return factories;
@@ -50,6 +51,7 @@ orchestrator::SessionOptions session_options(const cmdline::ParsedArgs& args) {
         options.engineFromCommandLine = true;
     }
     options.engineFactories = engine_factories;
+    options.disabledWorkarounds = args.option_or_empty("disable-workaround").values;
     // This very program, for the reviews an editor asks for: named as the process started it, else found on PATH.
     if (const auto arguments = platform::env::arguments(); !arguments.empty()) {
         const std::string started { arguments.front() };
