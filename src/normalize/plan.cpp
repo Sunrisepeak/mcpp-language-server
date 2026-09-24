@@ -197,6 +197,11 @@ EnginePlan plan_engine(const PlanInput& input) {
             } else {
                 candidate.provided = project::provided_name(scan());
             }
+            // The same mid-edit scan can name `export module hello.`: no module has that name either.
+            if (!candidate.provided.empty() && !project::is_module_name(candidate.provided)) {
+                base::log::debug("ignoring module '{}' provided by {}: not a module name", candidate.provided, candidate.source);
+                candidate.provided.clear();
+            }
             candidate.required = unit.requiredModules;
             if (candidate.required.empty()) candidate.required = project::required_names(scan());
             drop_invalid_module_names(candidate.required, candidate.source);

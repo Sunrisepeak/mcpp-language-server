@@ -387,6 +387,7 @@ int main() {
             { "/p/src/main.cpp", "import hello;\nint main() {}\n" },
             { "/p/src/greet.cppm", "export module hello.greet;\nimport half;\n" },
             { "/p/src/other.cpp", "import gone;\nint f() { return 0; }\n" },
+            { "/p/src/mid.cppm", "export module mid;\n" },
         };
         s::Database database;
         database.hasIde = true;
@@ -401,6 +402,7 @@ int main() {
             unit.arguments = { "/opt/gcc/bin/g++", "-std=c++23", "-fmodules", "-c", path };
             // What a build tool's scan of a file saved mid-edit reported: `hello.` is no module name.
             if (path == "/p/src/other.cpp") unit.requiredModules = { "gone", "hello.", ".x", "a..b", "a:b:c" };
+            if (path == "/p/src/mid.cppm") unit.providedModules = { { "mid.", "" } };
             set.units.push_back(std::move(unit));
         }
         database.sets.push_back(set);
@@ -429,6 +431,8 @@ int main() {
         }
         expect(std::ranges::any_of(editing.issues, [](const n::PlanIssue& issue) { return issue.code == "module-build-failed" && issue.module == "hello"; }))
             << "the import is still reported";
+        expect(std::ranges::none_of(editing.entries, [](const n::EngineEntry& entry) { return entry.provides == "mid."; }))
+            << "a provided name no module can have is never planned either";
 
         input.editingSources.clear();
         const auto quiet = n::plan_engine(input);

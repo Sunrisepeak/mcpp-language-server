@@ -1919,13 +1919,34 @@ private:
             for (const auto& document : host_->documents()) {
                 if (document.uri == spin.uri) path = document.path;
             }
-            if (path.empty() || quarantined_(path)) continue;
+            if (path.empty()) continue;
             const auto seconds = [](std::chrono::milliseconds duration) { return std::chrono::duration<double>(duration).count(); };
             log::warning("clangd ({}) has built {} for {:.0f} s, past its {:.0f} s budget, while the editor waited on it: it will not finish it",
                          host_->root_directory(), base::file_name(path), seconds(spin.building), seconds(spin.budget));
             host_->record_event("engine-spin", Json { { "file", path }, { "buildingSeconds", seconds(spin.building) }, { "budgetSeconds", seconds(spin.budget) } });
+            if (quarantined_(path)) {
+                // Set aside already, by the timeouts of its requests, which may have put the restart off: the same build is
+                // now known to be a spin, so its text is remembered and clangd is restarted at once all the same.
+                const std::string key { base::path_key(path) };
+                aside_[key].spunOn = spin.textHash;
+                deferredReclaims_.erase(key);
+                reclaim_spin_(path);
+                continue;
+            }
             set_aside_(path, "clangd would not finish building it", Reclaim::now, false, spin.textHash);
         }
+    }
+
+    // Not deferred, not spaced out, not capped: a clangd left spinning answers nothing for the file and holds a core, and
+    // the file it spun on stays with mcppls's engine, so the new clangd cannot be sent the same way.
+    void reclaim_spin_(const std::string& path) {
+        if (!accepting_) return;
+        if (restartGate_.at_cap(Clock::now())) {
+            log::warning("restarting clangd ({}) past the restart cap: it cannot be left spinning on {}, which stays with mcppls's engine",
+                         host_->root_directory(), base::file_name(path));
+            host_->record_event("engine-restart-past-cap", Json { { "file", path } });
+        }
+        restart_(std::format("clangd would not finish {}", base::file_name(path)));
     }
 
     // Whether a restart gets back what clangd spends on a file it is no longer given.
@@ -1954,15 +1975,8 @@ private:
         update_quarantine_issue_();
         // clangd does not stop building a file it is no longer given: a build that never ends (the spin in experiment S17) keeps a
         // core and one of clangd's workers for as long as clangd runs. A fresh clangd, without the file, gets both back.
-        if (reclaim == Reclaim::now && accepting_) {
-            // Not deferred, not spaced out, not capped: a clangd left spinning answers nothing for this file and holds a core,
-            // and the file it spun on stays with mcppls's engine, so the new clangd cannot be sent the same way.
-            if (restartGate_.at_cap(Clock::now())) {
-                log::warning("restarting clangd ({}) past the restart cap: it cannot be left spinning on {}, which stays with mcppls's engine",
-                             host_->root_directory(), base::file_name(path));
-                host_->record_event("engine-restart-past-cap", Json { { "file", path } });
-            }
-            restart_(std::format("clangd would not finish {}", base::file_name(path)));
+        if (reclaim == Reclaim::now) {
+            reclaim_spin_(path);
             return;
         }
         if (reclaim == Reclaim::if_busy && accepting_ && (!state || engine_working(*state))) {
