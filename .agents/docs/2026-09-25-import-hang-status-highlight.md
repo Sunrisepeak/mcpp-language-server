@@ -1,6 +1,6 @@
 # Typing `import a.` freezes the editor; what the status means; highlighting `import`
 
-Status: proposal for review · measured 2026-09-25 on mcppls 0.0.3 (linux-x64 payload, bundled clangd
+Status: implemented in 0.0.4 (§13 records what was built and measured) · measured 2026-09-25 on mcppls 0.0.3 (linux-x64 payload, bundled clangd
 23.1.0 `ea7d852a`), `main` at c508e62, project `~/test/mcpp/hello`
 
 | # | Item | Proposal | Section |
@@ -143,10 +143,13 @@ even while the user keeps typing.**
 - **Budget the work that should be short.** clangd reports what each file is doing (`fileStatus_`).
   - Building a preamble or modules can take minutes. It keeps today's patience and progress checks.
   - A main-file AST build on a reused preamble is short: milliseconds for `hello`. clangd is spinning
-    on the file when all of these hold:
-    - the file's state has not changed for its budget;
-    - the CPU is busy;
-    - a newer version of the same file is waiting.
+    on the file when both of these hold:
+    - the build ("parsing main file") has lasted past its budget;
+    - something waits on it: a newer version of the file, or a request about it, sent after the
+      version being built.
+  - **No CPU condition** (changed while building it). Busy or idle, a build five times longer than
+    the file's own history, with the editor waiting on it, is not going to end. Idle stalls are
+    also still caught by StuckWatch.
   - **Budget.** `max(20 s, 5 × the file's last successful AST build)`. A heavy template file that
     really takes 15 s is not called stuck. The numbers are a starting point, to tune on the
     real-project stress runs (0.0.2 plan).
@@ -155,8 +158,7 @@ even while the user keeps typing.**
 - **An edit to the file itself is not a rebuild.** Split `changed_recently_`:
   - Edits to module sources in the file's import closure keep `GENERAL_PATIENCE`.
   - An edit to the file itself gets a short grace, about 10 s.
-- **One file is enough.** If every unanswered request is for one file, clangd answers nothing else
-  for `STALL_WINDOW`, and the CPU is busy, that file is stuck. Today this needs 2 files.
+- **One file is enough.** The spin check is per file: no second file has to go unanswered.
 - **Recovery.**
   - Set the file aside and restart at once (no deferral).
   - Remember a hash of the text clangd hung on. That exact text never goes back to clangd; any other
@@ -166,9 +168,11 @@ even while the user keeps typing.**
     - the file that caused the restarts stays with mcppls's engine until its text changes;
     - clangd is restarted once more, without that file;
     - clangd is never left spinning.
+  - A spin needs a new build to reach its budget (at least 20 s), so restarts cannot come faster
+    than one per 20 s.
 - **Meanwhile, native answers.** While the file is aside, the native engine answers (module
-  navigation, `import` completion, module diagnostics). Timed-out requests fall back to it instead
-  of an empty answer where it can answer.
+  navigation, `import` completion, module diagnostics). Timed-out requests already fell back to it
+  (`Answer {}` means "unavailable", and the next engine answers), so nothing had to change there.
 
 ## 5. H3: plan hygiene for half-typed imports
 
@@ -179,18 +183,29 @@ even while the user keeps typing.**
   - Report this to mcpp.
 - **No stand-in for an import that is still being typed.** A name that does not resolve in a file
   the user is editing is usually a typo in progress.
-  - Report it as a diagnostic on the import, e.g. "module `hello` not found; did you mean
-    `hello.greet`?".
-  - Create a stand-in only after the text has been stable for a while, or for imports in files that
-    are not open.
-  - **Exception: a unit that provides a module** (`.cppm`, partitions). Building such a unit with an
-    import that does not resolve is what deadlocks clangd 23.1 (`plan.cpp`, "building it is what
-    deadlocks"). It keeps today's rule, a stand-in or leaving it out (`WA-CLANGD-002`, §9). A plain
-    source file such as `main.cpp` does not need one: without a stand-in, clangd just reports the
-    module as not found.
-- **To investigate: the 21:15:23 restart during an import edit** ("units are compiled with other
-  arguments"). Changing a file's imports should not restart clangd. Add a test once the cause is
-  found; this analysis did not confirm it.
+  - The diagnostic already exists: the native index publishes `unresolved-module` ("module 'x' not
+    found") on the import.
+  - A file changed in the editor within the last **5 s** gets no stand-in for such an import. The
+    plan reports that it held one back, and the workspace plans again once the file is quiet.
+  - **Exception: a unit that provides a module** (`.cppm`, partitions) gets its stand-in at once.
+    Building such a unit with an import that does not resolve is what deadlocks clangd 23.1
+    (`plan.cpp`, "building it is what deadlocks"; `WA-CLANGD-002`, §9).
+  - **Why not "never for a plain `.cpp`".** That was the first version, and it was dropped:
+    - Measured on `hello` (8 database entries), clangd answers a plain file with an unresolved
+      import normally.
+    - But the plan's own tests record xlings' `apps/gui/main.cpp` keeping a core busy without a
+      stand-in.
+    - Without a name to look up, clangd 23.1 scans the whole database for the module's unit, which
+      on a real project is seconds per lookup.
+    - So only the editing window is exempt.
+- **The 21:15:23 restart ("units are compiled with other arguments") was not reproduced.** Typing
+  and saving `import hello.greet;` key by key restarts nothing:
+  - 0.0.3 restarted only to reclaim the spin;
+  - 0.0.4 restarts nothing (`typing-import` asserts it).
+
+  It came 13 s after the session started, when the plan made from the cached model was followed by
+  the producer's. It belongs to that startup, not to import edits. It stays open, with no claim
+  about its cause.
 
 ## 6. S: the status must say *whose* problem it is
 
@@ -410,15 +425,18 @@ records why each one exists or when it can go.
   struct Workaround {
       std::string_view id;           // "WA-CLANGD-001": grep-able, used in comments, logs, report
       std::string_view title;        // what it works around, one line
-      std::string_view engine;       // "clangd"
-      VersionRange affects;          // data, e.g. [23.1.0, 24.0.0); compared with the running engine's version
-      std::string_view upstream;     // issue / fix commit URL, or "unfiled" (then filing is a to-do)
-      std::string_view evidence;     // doc section and fixture, e.g. ".agents/docs/2026-09-25-...#1"
-      std::string_view added;        // mcppls version and date
-      std::string_view removeWhen;   // the condition, e.g. "bundled and minimum clangd contain 6dcfc17b1b"
-      std::string_view canary;       // the test that fails once the upstream bug is gone
+      std::string_view fixedIn;      // first release of KNOWN_LINE ("23.1") that no longer needs it; empty: none yet
+      std::string_view upstream;     // issue / fix commit, or "unfiled"
+      std::string_view evidence;     // doc section and fixtures
+      std::string_view added;        // mcppls version
+      std::string_view removeWhen;   // the condition
+      std::string_view canary;       // the check that fails once the upstream bug is gone; empty: none yet
   };
   ```
+
+  A version of the pinned line (23.1) needs an entry until its `fixedIn`. A version of any other line
+  has not been through the conformance suite, so it gets every workaround, as the traits table did
+  before. `--disable-workaround` turns one off.
 
 - **Gating comes from the registry.** `traits_for_version` sets its bools from the entries that apply
   to the engine's version, so the registry is the only list.
@@ -440,9 +458,9 @@ records why each one exists or when it can go.
 
 | ID | What | Affects | Remove when | Canary |
 |---|---|---|---|---|
-| WA-CLANGD-001 | Same-line `;` after a trailing-dot module name (§3) | clangd [23.1.0, 24): 23.1.0 measured, .1/.2 assumed from commit titles | the bundled and minimum supported clangd contain the fix (bisect; candidate `6dcfc17b1b`) | `--check` on `import hello.` times out |
+| WA-CLANGD-001 | Same-line `;` after a trailing-dot module name (§3) | every 23.1.x (none fixed; 23.1.0 measured, .1/.2 by commit titles), and every untested line | the bundled and minimum supported clangd contain the fix (bisect; candidate `6dcfc17b1b`) | `--check` on `import hello.` times out |
 | WA-VSCODE-001 | Module-syntax injection grammar (§7 layer 1) | VS Code built-in cpp grammar `071dd6e` | the built-in grammar colors `import std;` | tmgrammar test without the injection |
-| WA-CLANGD-002..005 | Existing: stand-ins for unresolved imports (`hangsOnUnresolvedImports`), module preparation, module hints, MSVC STL aligned allocation | clangd 23.1.x | to be written when moved: each needs its upstream reference and a canary | to be written |
+| WA-CLANGD-002..005 | Existing, now registered: stand-ins for unresolved imports, module preparation, module hints, MSVC STL aligned allocation (005 `fixedIn` 23.1.1, llvm-project#218152) | 23.1.x (005: 23.1.0 only), and every untested line | written in each entry | none yet (an empty `canary`; a test requires one for entries added from 0.0.4 on) |
 
 **Not workarounds, kept out of the registry.** These stay whatever clangd does:
 - H2, the busy-without-progress guard (§4). It is the defense for the next unknown bug; its numbers
