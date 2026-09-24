@@ -177,9 +177,55 @@ check('completion after hello:: offers greet', ok)
 
 check('nothing was shown to the user', #shown == 0, vim.inspect(shown))
 
--- A second C++ server on the same buffer: an in-process stand-in named clangd. The plugin says so,
--- once, and names it.
-local function fake_server()
+-- initializationOptions.semanticTokens: `modules` follows the new `semantic_tokens_modules`
+-- setup() option (default true); `moduleType` is always true, since this plugin knows the custom
+-- `module` type (design .agents/docs/2026-09-25-import-hang-status-highlight.md §12, "Neovim").
+-- config() is pure (it starts nothing), so these are cheap to check without touching the live
+-- client; the reuse below only reattaches main.cpp to the same already-running server
+-- (reuse_client_default in Neovim's own vim.lsp.start matches by name and root_dir, not
+-- init_options).
+local cfg = mcppls.config()
+check('semanticTokens.modules defaults to true', cfg.init_options.semanticTokens.modules == true, vim.inspect(cfg.init_options))
+check('moduleType is always sent as true', cfg.init_options.semanticTokens.moduleType == true, vim.inspect(cfg.init_options))
+
+mcppls.setup({ server = server, semantic_tokens_modules = false })
+cfg = mcppls.config()
+check('semantic_tokens_modules = false is respected', cfg.init_options.semanticTokens.modules == false, vim.inspect(cfg.init_options.semanticTokens))
+
+mcppls.setup({ server = server, semantic_tokens_modules = false, init_options = { semanticTokens = { modules = true, moduleType = false } } })
+cfg = mcppls.config()
+check("a user's own init_options.semanticTokens wins outright", cfg.init_options.semanticTokens.modules == true and cfg.init_options.semanticTokens.moduleType == false,
+  vim.inspect(cfg.init_options.semanticTokens))
+check("conflictArbitration stays forced even with a user's own init_options", cfg.init_options.conflictArbitration == 'client', cfg.init_options.conflictArbitration)
+
+-- Back to the plugin's defaults for the checks below.
+mcppls.setup({ server = server })
+check('nothing was shown while checking init_options', #shown == 0, vim.inspect(shown))
+
+-- `@lsp.type.module` and `@lsp.type.keyword` are `default` links, set at setup and put back on
+-- every ColorScheme (colorschemes clear existing links when they load), so a colorscheme or the
+-- user's own nvim_set_hl wins over them.
+local function hl(name)
+  return vim.api.nvim_get_hl(0, { name = name })
+end
+check('@lsp.type.module links to @module by default', hl('@lsp.type.module').link == '@module', vim.inspect(hl('@lsp.type.module')))
+check('@lsp.type.keyword links to @keyword', hl('@lsp.type.keyword').link == '@keyword', vim.inspect(hl('@lsp.type.keyword')))
+
+local user_color = tonumber('0x123456')
+vim.api.nvim_set_hl(0, '@lsp.type.module', { fg = user_color })
+vim.api.nvim_exec_autocmds('ColorScheme', { modeline = false })
+check("a user's own @lsp.type.module survives the ColorScheme default being reapplied",
+  hl('@lsp.type.module').fg == user_color, vim.inspect(hl('@lsp.type.module')))
+
+-- A second C++ server on the same buffer: an in-process stand-in named clangd/ccls. `notify('exit')`
+-- drives the dispatcher's on_exit the way a real server's exit would, so a full `client:stop()`
+-- is observable the same way a real one is.
+local function fake_server(dispatchers)
+  local function exit()
+    if dispatchers and dispatchers.on_exit then
+      vim.schedule(function() dispatchers.on_exit(0, 0) end)
+    end
+  end
   return {
     request = function(method, _, callback)
       if method == 'initialize' then
@@ -189,17 +235,55 @@ local function fake_server()
       end
       return true, 1
     end,
-    notify = function() return true end,
+    notify = function(method)
+      if method == 'exit' then exit() end
+      return true
+    end,
     is_closing = function() return false end,
-    terminate = function() end,
+    terminate = exit,
   }
 end
+local function stop_fake(c)
+  if vim.fn.has('nvim-0.11') == 1 then c:stop(true) else c.stop(true) end
+end
+
+-- The plugin says so, once, and names it (disable_conflicting stays the default, false).
 vim.lsp.start({ name = 'clangd', cmd = fake_server, root_dir = workspace }, { bufnr = 0 })
 vim.wait(10000, function() return #shown > 0 end, 100)
 check('a second C++ server is named, once', #shown == 1 and shown[1]:find('clangd', 1, true) ~= nil, vim.inspect(shown))
+check('and it mentions disable_conflicting', shown[1] and shown[1]:find('disable_conflicting', 1, true) ~= nil, vim.inspect(shown))
 vim.lsp.start({ name = 'clangd', cmd = fake_server, root_dir = workspace .. sep .. 'other' }, { bufnr = 0 })
 vim.wait(2000)
 check('and only once', #shown == 1, #shown)
+
+-- Clear both stand-in `clangd` clients before the disable_conflicting checks below, so they do not
+-- also get caught by the next LspAttach on this buffer.
+local get = vim.lsp.get_clients or vim.lsp.get_active_clients
+for _, c in ipairs(get({ name = 'clangd' })) do
+  stop_fake(c)
+end
+vim.wait(5000, function() return #get({ name = 'clangd' }) == 0 end, 100)
+
+-- disable_conflicting = true: the conflicting client is stopped for the buffer instead, and the
+-- plugin still says so, once, naming it. A client that serves only buffers mcppls also serves is
+-- stopped outright; one that serves another buffer too is only detached from this one (README).
+local shown_before = #shown
+mcppls.setup({ server = server, disable_conflicting = true })
+
+vim.lsp.start({ name = 'ccls', cmd = fake_server, root_dir = workspace .. sep .. 'ccls-solo' }, { bufnr = 0 })
+check('disable_conflicting stops a single-buffer conflicting client',
+  vim.wait(10000, function() return #get({ name = 'ccls' }) == 0 end, 100),
+  vim.inspect(get({ name = 'ccls' })))
+check('and says so once, naming it', #shown == shown_before + 1 and shown[#shown]:find('ccls', 1, true) ~= nil, vim.inspect(shown))
+
+local scratch = vim.api.nvim_create_buf(false, true)
+vim.lsp.start({ name = 'ccls', cmd = fake_server, root_dir = workspace .. sep .. 'ccls-multi' }, { bufnr = scratch })
+vim.lsp.start({ name = 'ccls', cmd = fake_server, root_dir = workspace .. sep .. 'ccls-multi' }, { bufnr = 0 })
+vim.wait(5000, function() return #shown > shown_before + 1 end, 100)
+check('disable_conflicting only detaches a client that also serves another buffer',
+  vim.wait(5000, function() return #get({ bufnr = 0, name = 'ccls' }) == 0 end, 100) and #get({ bufnr = scratch, name = 'ccls' }) == 1,
+  string.format('buf0 count=%d scratch count=%d', #get({ bufnr = 0, name = 'ccls' }), #get({ bufnr = scratch, name = 'ccls' })))
+check('exactly one more notice, naming it', #shown == shown_before + 2 and shown[#shown]:find('ccls', 1, true) ~= nil, vim.inspect(shown))
 
 local c = client()
 if c then

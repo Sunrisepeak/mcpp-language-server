@@ -93,6 +93,15 @@ function M.config()
   -- The server sends cxxModules/status only to a client that says it reads it (S3).
   capabilities.experimental = vim.tbl_extend('force', capabilities.experimental or {},
     { cxxModules = { version = 1, status = true } })
+  -- `modules`: ask the server for module-syntax semantic tokens (design
+  -- .agents/docs/2026-09-25-import-hang-status-highlight.md §7, §12). `moduleType = true`: this
+  -- plugin knows the custom `module` type and `partition` modifier (set_highlight_defaults below),
+  -- so the server need not fall back to `namespace`.
+  local modules = options.semantic_tokens_modules
+  if modules == nil then
+    modules = true
+  end
+  local defaults = { semanticTokens = { modules = modules, moduleType = true } }
   return {
     name = 'mcppls',
     cmd = { M.server_path() or 'mcppls', 'serve' },
@@ -103,9 +112,10 @@ function M.config()
       on_dir(M.root(bufnr))
     end,
     capabilities = capabilities,
-    -- This plugin tells the user about a second C/C++ server itself (watch_conflicts below), so the
-    -- server need not say it on every start.
-    init_options = vim.tbl_extend('force', options.init_options or {}, { conflictArbitration = 'client' }),
+    -- `defaults` first, so a user's own init_options.semanticTokens replaces it outright; then
+    -- conflictArbitration is forced last, as before: this plugin tells the user about a second
+    -- C/C++ server itself (watch_conflicts below), so the server need not say it on every start.
+    init_options = vim.tbl_extend('force', defaults, options.init_options or {}, { conflictArbitration = 'client' }),
     handlers = { ['cxxModules/status'] = on_status },
   }
 end
@@ -244,31 +254,72 @@ end
 M.conflicting = { clangd = true, ccls = true }
 
 local conflict_told = false
+local conflict_stopped = {}   -- client id -> true, once disable_conflicting has dealt with it
+
+--- Detach `client` from `bufnr`, or stop it outright when that is its only buffer, so no idle
+--- server is left with nothing attached. The least surprising choice: a client also serving other
+--- buffers keeps running for them; one serving only buffers mcppls also serves is not worth
+--- leaving alive (README "Options").
+local function stop_conflicting(client, bufnr)
+  if vim.tbl_count(client.attached_buffers or {}) <= 1 then
+    client_stop(client)
+  else
+    vim.lsp.buf_detach_client(bufnr, client.id)
+  end
+end
+
 local function watch_conflicts(group)
   vim.api.nvim_create_autocmd('LspAttach', {
     group = group,
     callback = function(args)
-      if conflict_told or options.detect_conflicts == false then
+      if options.detect_conflicts == false then
         return
       end
       local get = vim.lsp.get_clients or vim.lsp.get_active_clients
-      local names = {}
+      local mcppls_here = false
+      local conflicting = {}
       for _, c in ipairs(get({ bufnr = args.buf })) do
-        names[c.name] = true
+        if c.name == 'mcppls' then
+          mcppls_here = true
+        elseif M.conflicting[c.name] then
+          conflicting[#conflicting + 1] = c
+        end
       end
-      if not names.mcppls then
+      if not mcppls_here then
         return
       end
-      for name in pairs(M.conflicting) do
-        if names[name] then
+      for _, c in ipairs(conflicting) do
+        if options.disable_conflicting then
+          if not conflict_stopped[c.id] then
+            conflict_stopped[c.id] = true
+            local bufnr, name = args.buf, c.name
+            -- Deferred to the next tick: Neovim's own Client:on_attach() sets
+            -- attached_buffers[bufnr] again right after firing this same LspAttach, so detaching
+            -- synchronously here would be undone as soon as this callback returns.
+            vim.schedule(function()
+              stop_conflicting(c, bufnr)
+              vim.notify(string.format('mcppls already serves this buffer; stopped %s for it.', name), vim.log.levels.WARN)
+            end)
+          end
+        elseif not conflict_told then
           conflict_told = true
           vim.notify(string.format('mcppls runs its own clangd; %s is also attached to this buffer, so two engines answer. '
-            .. 'Stop starting %s for C and C++ (e.g. vim.lsp.enable(%q, false)).', name, name, name), vim.log.levels.WARN)
-          return
+            .. 'Stop starting %s for C and C++ (e.g. vim.lsp.enable(%q, false)), or set disable_conflicting = true '
+            .. 'to have mcppls stop it itself.', c.name, c.name, c.name), vim.log.levels.WARN)
         end
       end
     end,
   })
+end
+
+-- `@lsp.type.module` (module and partition names) and `@lsp.type.keyword` (`import`, `module`,
+-- `export`) as `default` links, so a colorscheme or the user's own nvim_set_hl still wins
+-- (design .agents/docs/2026-09-25-import-hang-status-highlight.md §7, §12). Neovim already links
+-- `@lsp.type.keyword` to `@keyword` on 0.10 through 0.12 (checked on 0.10.4 and 0.12.5); this is a
+-- safety net in case some version, or a colorscheme's `hi clear`, ever leaves it unset.
+local function set_highlight_defaults()
+  vim.api.nvim_set_hl(0, '@lsp.type.module', { link = '@module', default = true })
+  vim.api.nvim_set_hl(0, '@lsp.type.keyword', { link = '@keyword', default = true })
 end
 
 local commands_defined = false
@@ -278,18 +329,26 @@ local function define_commands()
   end
   commands_defined = true
   watch_conflicts(vim.api.nvim_create_augroup('mcppls-conflicts', { clear = true }))
+  set_highlight_defaults()
+  -- Colorschemes clear existing links when they load, so put the defaults back each time.
+  vim.api.nvim_create_autocmd('ColorScheme', {
+    group = vim.api.nvim_create_augroup('mcppls-highlights', { clear = true }),
+    callback = set_highlight_defaults,
+  })
   vim.api.nvim_create_user_command('McpplsStatus', show_status, { desc = 'mcppls: the build description, engine and issues' })
   vim.api.nvim_create_user_command('McpplsRestart', restart, { desc = 'mcppls: restart the server' })
   vim.api.nvim_create_user_command('McpplsReload', reload, { desc = 'mcppls: read the build description again' })
 end
 
 --- Start mcppls on C and C++ buffers.
---- @param opts? { server?: string, init_options?: table, filetypes?: string[], root_markers?: string[], detect_conflicts?: boolean }
+--- @param opts? { server?: string, init_options?: table, filetypes?: string[], root_markers?: string[], detect_conflicts?: boolean, semantic_tokens_modules?: boolean, disable_conflicting?: boolean }
 function M.setup(opts)
   opts = opts or {}
   options.server = opts.server
   options.init_options = opts.init_options
   options.detect_conflicts = opts.detect_conflicts
+  options.semantic_tokens_modules = opts.semantic_tokens_modules
+  options.disable_conflicting = opts.disable_conflicting
   if opts.filetypes then
     M.filetypes = opts.filetypes
   end
