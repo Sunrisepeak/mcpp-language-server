@@ -63,6 +63,10 @@ constexpr std::array<std::string_view, 7> WATCH_POLL_SKIP_DIRECTORIES { "target"
 
 // Changes to cxxModules/status that keep its state are sent at most this often (S3 4).
 constexpr std::chrono::milliseconds STATUS_COALESCE { 250 };
+// import-hang plan §6: a change from a working state to degraded goes out only once it has lasted this
+// long, so a condition that passes by itself (a file set aside and handed back as the user types) never
+// reaches the editor. error goes out at once.
+constexpr std::chrono::milliseconds DEGRADED_HOLD { 3000 };
 
 // The module structure of a scan, for deciding whether an edit changes the engine database.
 std::string structure_of(const project::ScanResult& scan) {
@@ -262,6 +266,8 @@ struct Workspace::Impl final : engine::Host {
     State lastSentState { State::starting };
     std::optional<Clock::time_point> lastStatusSentAt;
     std::optional<Clock::time_point> statusFlushAt;   // a coalesced change goes out then
+    std::optional<Clock::time_point> degradedSince;   // when compute_state() turned degraded, while that is held back
+    State lastReportedState { State::starting };      // the state last let through DEGRADED_HOLD
 
     Impl(std::string root_, std::string key_, SessionOptions options_, engine::PayloadPaths payload_, bool payloadCorrupt_,
          bool kitEnabled_, std::string compilerOverride_, std::shared_ptr<EventChannel> events_, ClientSink& client_)
@@ -1132,10 +1138,14 @@ struct Workspace::Impl final : engine::Host {
         if (core && core->preparing) return State::preparing;
         // usable plan W5.4: degraded regardless of whether any open file happens to need std yet.
         if (kit && spec::requires_macos_sdk(*kit) && macosSdk.empty()) return State::degraded;
+        // import-hang plan §6: a problem in the user's own code is told as a diagnostic where it is, never as a
+        // server that lost a feature; only the other categories make the state degraded.
+        const auto notCode = [](const auto& issue) { return issue.category != "code"; };
         bool engineIssues { false };
-        for (const auto& engine : engines) engineIssues = engineIssues || !engine->status().issues.empty();
+        for (const auto& engine : engines) engineIssues = engineIssues || std::ranges::any_of(engine->status().issues, notCode);
+        const bool planIssues { std::ranges::any_of(plan.issues, notCode) };
         // S2 5: a kept model the producer could not confirm may be stale: said, not hidden in a ready state.
-        if (engineIssues || !model->issues.empty() || !plan.issues.empty() || !staleModelReason.empty()) return State::degraded;
+        if (engineIssues || !model->issues.empty() || planIssues || !staleModelReason.empty()) return State::degraded;
         return State::ready;
     }
 
@@ -1241,6 +1251,16 @@ struct Workspace::Impl final : engine::Host {
     void update_status() {
         if (!initializeAnswered) return;   // see the field's own comment
         const State state { compute_state() };
+        if (state == State::degraded && lastReportedState != State::degraded) {
+            const auto now = Clock::now();
+            if (!degradedSince) degradedSince = now;
+            if (now < *degradedSince + DEGRADED_HOLD) {
+                if (!statusFlushAt || *degradedSince + DEGRADED_HOLD < *statusFlushAt) statusFlushAt = *degradedSince + DEGRADED_HOLD;
+                return;
+            }
+        }
+        if (state != State::degraded) degradedSince.reset();
+        lastReportedState = state;
         // Before the gate below, not after it. `clientSupportsStatus` means the client understands
         // this repository's own `cxxModules/status` — which is its VS Code extension and nothing
         // else. Every client this progress exists for (Zed, nvim, Helix, …) fails that test, so
@@ -1249,14 +1269,15 @@ struct Workspace::Impl final : engine::Host {
         if (state == State::ready || state == State::degraded) say_one_engine_per_file_once();
         if (!clientSupportsStatus) return;
         Json issues = Json::array();
-        auto add = [&](std::string_view code, std::string_view message, std::string_view command, std::string_view title = "Fix") {
+        auto add = [&](std::string_view code, std::string_view message, std::string_view command, std::string_view title = "Fix",
+                       std::string_view category = "project") {
             if (issues.size() >= 20) return;
-            Json issue { { "code", std::string { code } }, { "message", std::string { message } } };
+            Json issue { { "code", std::string { code } }, { "message", std::string { message } }, { "category", std::string { category } } };
             if (!command.empty()) issue["command"] = Json { { "title", std::string { title } }, { "command", std::string { command } } };
             issues.push_back(std::move(issue));
         };
         for (const auto& engine : engines) {
-            for (const auto& issue : engine->status().issues) add(issue.code, issue.message, issue.command);
+            for (const auto& issue : engine->status().issues) add(issue.code, issue.message, issue.command, "Fix", issue.category);
         }
         if (!staleModelReason.empty()) {
             // Decision 8: no version table, no comparison --- one sentence that points at the one
@@ -1272,7 +1293,7 @@ struct Workspace::Impl final : engine::Host {
                 std::format("the build description needs a download: {}. Run the build tool in your terminal, "
                             "or turn on mcppls.buildTool = online. It may also be an older build tool: updating it is worth trying",
                             needsDownload),
-                "mcppls.runBuildToolInTerminal", "Run in Terminal");
+                "mcppls.runBuildToolInTerminal", "Run in Terminal", "environment");
         }
         if (producerElapsed) {
             add("producer-slow", std::format("reading the build description ({}, {} s)",
@@ -1290,11 +1311,12 @@ struct Workspace::Impl final : engine::Host {
         for (const auto& issue : plan.issues) {
             // sdk-missing is reported once below, workspace-wide, with the fix command (W5.4).
             if (issue.code == "sdk-missing") continue;
-            add(issue.code, std::format("{} ({})", issue.message, base::file_name(issue.file)), "");
+            add(issue.code, std::format("{} ({})", issue.message, base::file_name(issue.file)), "", "Fix", issue.category);
         }
-        if (!options.trusted) add("untrusted-workspace", "the workspace is not trusted: build tools and compilers are not run", "");
+        if (!options.trusted) add("untrusted-workspace", "the workspace is not trusted: build tools and compilers are not run", "", "Fix", "environment");
         if (kit && spec::requires_macos_sdk(*kit) && macosSdk.empty()) {
-            add("sdk-missing", "the macOS SDK was not found; install the Command Line Tools", "mcppls.installCommandLineTools", "Install Command Line Tools");
+            add("sdk-missing", "the macOS SDK was not found; install the Command Line Tools", "mcppls.installCommandLineTools", "Install Command Line Tools",
+                "environment");
         }
         Json notices = Json::array();
         if (model) {

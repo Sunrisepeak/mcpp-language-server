@@ -3,7 +3,7 @@
   "description": "Faults stay where they are (robustness design C2-C6): a module chain with an import nothing provides, a module that does not compile, and a file importing both a broken chain and a working module. Files unrelated to a fault keep every feature, a file importing a broken module keeps what does resolve, nothing waits, and a module that breaks and heals while the server runs neither stalls clangd nor leaves the project without it. The only restart allowed is of a clangd that stopped answering (answering nobody, or StuckWatch: answering nothing while using no CPU): clangd 23.1's own build of a module whose source changed twice within a second can hang, on slow machines, and a restart is how that ends. A restart for any other reason, the fault handling's own included, fails F8.",
   "server-arguments": ["--no-discover"],
   "checks": [
-    { "id": "S1", "kind": "status", "source": "inferred", "state": "degraded", "issue-code": "unresolved-module", "issue-message": "nowhere", "engine-name": "clangd" },
+    { "id": "S1", "kind": "status", "source": "inferred", "state": "ready", "issue-code": "unresolved-module", "issue-message": "nowhere", "issue-category": "code", "engine-name": "clangd" },
     { "id": "F0-stand-in", "kind": "report", "expect": [{ "path": "/roots/0/plan/standIns", "contains": "nowhere" }, { "path": "/roots/0/plan/leftOutCount", "equals": 0 }] },
     { "id": "F1-working-module", "kind": "hover-contains", "file": "src/good/user.cppm", "at": [3, 28], "expect": "answer", "timeout": 90 },
     { "id": "F1-definition", "kind": "definition", "file": "src/good/user.cppm", "at": [3, 28], "expect": "src/good/a.cppm", "timeout": 60 },

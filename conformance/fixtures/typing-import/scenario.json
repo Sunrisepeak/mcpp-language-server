@@ -1,0 +1,151 @@
+{
+  "name": "typing-import",
+  "description": "Import-hang plan \u00a78: typing `import hello.greet;` and `export module hello.greet;` one key at a time, through `import hello.` and `export module hello.`, which clangd 23.1 never finishes (WA-CLANGD-001). Every request is answered within 5 s, the status never turns degraded, and features work right after.",
+  "server-arguments": [
+    "--no-discover"
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "inferred",
+      "state": "ready",
+      "engine-name": "clangd"
+    },
+    {
+      "id": "T0-before",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet",
+      "timeout": 90
+    },
+    {
+      "id": "T1-type-import",
+      "kind": "type-text",
+      "file": "src/main.cpp",
+      "line": 1,
+      "steps": [
+        "import hello.greet",
+        "import hello.gree",
+        "import hello.gre",
+        "import hello.gr",
+        "import hello.g",
+        "import hello.",
+        "import hello.g",
+        "import hello.gr",
+        "import hello.gre",
+        "import hello.gree",
+        "import hello.greet",
+        "import hello.greet;"
+      ],
+      "interval-ms": 120,
+      "answer-within": 5,
+      "states-never": [
+        "degraded",
+        "error"
+      ]
+    },
+    {
+      "id": "T2-type-import-saved",
+      "kind": "type-text",
+      "file": "src/main.cpp",
+      "line": 1,
+      "steps": [
+        "import hello.greet",
+        "import hello.gree",
+        "import hello.gre",
+        "import hello.gr",
+        "import hello.g",
+        "import hello.",
+        "import hello.g",
+        "import hello.gr",
+        "import hello.gre",
+        "import hello.gree",
+        "import hello.greet",
+        "import hello.greet;"
+      ],
+      "interval-ms": 120,
+      "answer-within": 5,
+      "save": true,
+      "states-never": [
+        "degraded",
+        "error"
+      ]
+    },
+    {
+      "id": "T3-features-after",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet",
+      "timeout": 20
+    },
+    {
+      "id": "T4-type-module-declaration",
+      "kind": "type-text",
+      "file": "src/greet/greet.cppm",
+      "line": 0,
+      "steps": [
+        "export module hello.greet",
+        "export module hello.gree",
+        "export module hello.gre",
+        "export module hello.gr",
+        "export module hello.g",
+        "export module hello.",
+        "export module hello.g",
+        "export module hello.gr",
+        "export module hello.gre",
+        "export module hello.gree",
+        "export module hello.greet",
+        "export module hello.greet;"
+      ],
+      "interval-ms": 120,
+      "answer-within": 5,
+      "states-never": [
+        "error"
+      ]
+    },
+    {
+      "id": "T5-features-after",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet",
+      "timeout": 30
+    },
+    {
+      "id": "T6-workaround-on",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/workarounds/*/id",
+          "equals": "WA-CLANGD-001"
+        }
+      ]
+    },
+    {
+      "id": "T7-no-spin-no-restart",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/restarts",
+          "max-items": 0
+        },
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside",
+          "max-items": 0
+        }
+      ]
+    }
+  ]
+}

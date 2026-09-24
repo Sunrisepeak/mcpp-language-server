@@ -47,6 +47,10 @@ struct Issue {
     std::string code;
     std::string message;
     std::string command;   // a client command id, optional
+    // Whose problem it is (S3 status issue category, import-hang plan §6): "engine" (the engine lost something),
+    // "environment" (the machine or the payload), or "code" (the user's source; told as diagnostics, never a
+    // degraded state).
+    std::string category { "engine" };
 };
 
 struct EngineStatus {

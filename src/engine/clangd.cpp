@@ -1023,7 +1023,7 @@ private:
         closedBackground_.clear();
         if (options_.payloadCorrupt) {
             unavailable_ = true;
-            add_issue_(Issue { "payload-corrupt", "the extension's payload is corrupt or was modified; reinstall the extension", "mcppls.showLogs" });
+            add_issue_(Issue { "payload-corrupt", "the extension's payload is corrupt or was modified; reinstall the extension", "mcppls.showLogs", "environment" });
             flush_deferred_without_engine_();
             host_->engine_settled(ENGINE_ID, Json::object());
             host_->status_changed();
@@ -1031,7 +1031,7 @@ private:
         }
         if (options_.executable.empty() || !platform::fs::is_regular_file(options_.executable)) {
             unavailable_ = true;
-            add_issue_(Issue { "engine-missing", "clangd was not found; only module-level features are available", "mcppls.showLogs" });
+            add_issue_(Issue { "engine-missing", "clangd was not found; only module-level features are available", "mcppls.showLogs", "environment" });
             flush_deferred_without_engine_();
             host_->engine_settled(ENGINE_ID, Json::object());
             host_->status_changed();
@@ -1590,7 +1590,7 @@ private:
         add_issue_(Issue { "engine-incompatible",
             std::format("the bundled clangd cannot run on this system ({}); only module-level features are available. "
                         "Supported systems are listed in the install guide", line),
-            "mcppls.showLogs" });
+            "mcppls.showLogs", "environment" });
         host_->record_event("engine-incompatible", Json { { "line", line } });
         flush_deferred_without_engine_();
         host_->engine_settled(ENGINE_ID, Json::object());
@@ -1614,7 +1614,7 @@ private:
             host_->record_event("std-fallback-kit", Json { { "module", parsed.module }, { "reason", parsed.reason } });
             add_issue_(Issue { "std-fallback-kit",
                 std::format("clangd could not build the toolchain's standard library module ({}); files are read with the semantic kit", parsed.reason),
-                "mcppls.showLogs" });
+                "mcppls.showLogs", "environment" });
             host_->request_replan();
             host_->status_changed();
         }
@@ -1815,7 +1815,7 @@ private:
     void update_doom_issue_() {
         std::erase_if(issues_, [](const Issue& issue) { return issue.code == "modules-doomed"; });
         if (doomedModules_.empty()) return;
-        issues_.push_back(Issue { "modules-doomed", doom_issue_message_(), "mcppls.showLogs" });
+        issues_.push_back(Issue { "modules-doomed", doom_issue_message_(), "mcppls.showLogs", "code" });
     }
 
     // One diagnostic, on the import (or the module declaration, for a unit of a doomed module

@@ -1,0 +1,17 @@
+{
+  "name": "workaround-canaries",
+  "description": "Import-hang plan \u00a79: each registered clangd workaround's defect, run against the payload's clangd. A check here failing means an update of clangd fixed the defect, and the workaround it names can be removed (src/engine/clangd/workarounds.cpp).",
+  "server-arguments": [
+    "--no-discover"
+  ],
+  "checks": [
+    {
+      "id": "WA-CLANGD-001",
+      "kind": "clangd-check",
+      "file": "src/hang.cpp",
+      "expect": "hangs",
+      "seconds": 10,
+      "says": "WA-CLANGD-001 is no longer needed: this clangd finishes `import hello.` at once; remove it from src/engine/clangd/workarounds.cpp and the typing-import-spin fixture"
+    }
+  ]
+}

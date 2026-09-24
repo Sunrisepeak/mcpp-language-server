@@ -1,0 +1,98 @@
+{
+  "name": "typing-import-spin",
+  "description": "Import-hang plan \u00a74 against the real defect: WA-CLANGD-001 turned off, so clangd 23.1 spins on `import hello.`. The file is found spinning within its 20 s budget, set aside with that text remembered, clangd is restarted, and features come back while typing goes on. If a clangd update removes the defect, T2 fails too: WA-CLANGD-001 can then go.",
+  "server-arguments": [
+    "--no-discover",
+    "--disable-workaround",
+    "WA-CLANGD-001"
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "inferred",
+      "state": "ready",
+      "engine-name": "clangd"
+    },
+    {
+      "id": "T0-before",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet",
+      "timeout": 90
+    },
+    {
+      "id": "T1-type-into-the-spin",
+      "kind": "type-text",
+      "file": "src/main.cpp",
+      "line": 1,
+      "steps": [
+        "import hello.greet",
+        "import hello.gree",
+        "import hello.gre",
+        "import hello.gr",
+        "import hello.g",
+        "import hello."
+      ],
+      "interval-ms": 120,
+      "answer-within": 30
+    },
+    {
+      "id": "T1-keep-typing",
+      "kind": "type-text",
+      "file": "src/main.cpp",
+      "line": 1,
+      "steps": [
+        "import hello.g",
+        "import hello.gr",
+        "import hello.gre",
+        "import hello.gree",
+        "import hello.greet",
+        "import hello.greet;"
+      ],
+      "interval-ms": 500,
+      "answer-within": 30
+    },
+    {
+      "id": "T2-spin-found",
+      "kind": "report",
+      "timeout": 60,
+      "expect": [
+        {
+          "path": "/roots/0/events/*/kind",
+          "equals": "engine-spin"
+        },
+        {
+          "path": "/roots/0/engines/*/details/workarounds/*/turnedOff",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "id": "T3-features-back",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet",
+      "timeout": 60
+    },
+    {
+      "id": "T4-handed-back",
+      "kind": "report",
+      "timeout": 30,
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside",
+          "max-items": 0
+        }
+      ]
+    }
+  ]
+}
