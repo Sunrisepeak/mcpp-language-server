@@ -1686,8 +1686,8 @@ private:
 
     bool doomed_path_(std::string_view path) const { return !path.empty() && doomedFiles_.contains(base::path_key(path)); }
 
-    // Whether the file itself, or a source of any module it imports (transitively), changed within
-    // GENERAL_PATIENCE: what clangd is busy with is then this change, not this file being stuck.
+    // Whether the file itself changed within SELF_EDIT_GRACE, or a source of any module it imports (transitively)
+    // within GENERAL_PATIENCE: what clangd is busy with is then this change, not this file being stuck.
     bool changed_recently_(std::string_view path, Clock::time_point now) const {
         const auto touched = [&](std::string_view file, Clock::duration within) {
             const auto at = touchedAt_.find(base::path_key(file));
@@ -1906,7 +1906,7 @@ private:
     bool quarantined_(std::string_view path) const { return !path.empty() && quarantine_.contains(base::path_key(path)); }
 
     // import-hang plan §4: clangd has been building a file far longer than it ever took while the editor has moved
-    // on. Whatever the cause (WA-CLANGD-001 was one, found in the field), the build will not end, so the file goes to
+    // on. Whatever the cause (the defect behind WA-CLANGD-001 was one, found in the field), the build will not end, so the file goes to
     // mcppls's engine with the text clangd spun on remembered, and clangd is restarted without it.
     void handle_spins_(Clock::time_point now) {
         for (const auto& spin : spin_.check(now)) {
@@ -1916,7 +1916,7 @@ private:
             }
             if (path.empty() || quarantined_(path)) continue;
             const auto seconds = [](std::chrono::milliseconds duration) { return std::chrono::duration<double>(duration).count(); };
-            log::warning("clangd ({}) has built {} for {:.0f} s, past its {:.0f} s budget, while newer versions waited: it will not finish it",
+            log::warning("clangd ({}) has built {} for {:.0f} s, past its {:.0f} s budget, while the editor waited on it: it will not finish it",
                          host_->root_directory(), base::file_name(path), seconds(spin.building), seconds(spin.budget));
             host_->record_event("engine-spin", Json { { "file", path }, { "buildingSeconds", seconds(spin.building) }, { "budgetSeconds", seconds(spin.budget) } });
             set_aside_(path, "clangd would not finish building it", Reclaim::now, false, spin.textHash);
