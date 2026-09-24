@@ -68,13 +68,14 @@ suite('module-syntax highlighting: the injected grammar (WA-VSCODE-001)', functi
             'module;',
             'export module a.b;',
             'module :private;',
-            'import std;',
+            // The probe is opened in a real editor, so clangd sees it too, with the command it makes up for a file outside
+            // the project from the nearest unit's. Under that command clangd 23.1 (and main at 510126255) never finishes a
+            // file in which `import std;` comes before an `export import` of something nothing provides, and the session
+            // would sit in `preparing` for two minutes: this `export import` comes first.
+            'export import :part;',
             'import hello.greet;',
             'import hello.',
-            // `:part`, the form a partition is imported by. The probe is opened in a real editor, so clangd sees it too:
-            // `import std;` followed by the ill-formed `export import hello:part;` never finishes in clangd 23.1 (nor on
-            // main at 510126255) under a project's module command, and would hold this session in `preparing` for two minutes.
-            'export import :part;',
+            'import std;',
             'import <vector>;',
             'import "foo.h";',
             'x = import;',
@@ -103,7 +104,7 @@ suite('module-syntax highlighting: the injected grammar (WA-VSCODE-001)', functi
     });
 
     test('"import std;" colors the keyword and the module name', () => {
-        const line = lines[3];
+        const line = lines[6];
         assert.ok(findToken(line, 'import')?.scopes.includes('keyword.control.import.cpp'), JSON.stringify(line));
         assert.ok(findToken(line, 'std')?.scopes.includes('entity.name.namespace.module.cpp'));
     });
@@ -120,7 +121,7 @@ suite('module-syntax highlighting: the injected grammar (WA-VSCODE-001)', functi
     });
 
     test('"export import :part;" colors export, import and the partition', () => {
-        const line = lines[6];
+        const line = lines[3];
         assert.ok(findToken(line, 'export')?.scopes.includes('keyword.control.export.cpp'), JSON.stringify(line));
         assert.ok(findToken(line, 'import')?.scopes.includes('keyword.control.import.cpp'), JSON.stringify(line));
         assert.ok(findToken(line, ':')?.scopes.includes('punctuation.separator.module-partition.cpp'), JSON.stringify(line));
