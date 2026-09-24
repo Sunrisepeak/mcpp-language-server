@@ -19,6 +19,7 @@ import mcppls.engine.clangd.definition;
 import mcppls.engine.clangd.guard;
 import mcppls.engine.clangd.primer;
 import mcppls.engine.clangd.process;
+import mcppls.engine.clangd.workarounds;
 import mcppls.engine.native.index;
 
 namespace mcppls::engine::clangd {
@@ -27,22 +28,18 @@ namespace log = base::log;
 namespace midx = mcppls::index;
 
 EngineTraits traits_for_version(std::string_view version) {
-    EngineTraits traits {
+    // Every compensation for clangd's own defects is a registered workaround (import-hang plan §9).
+    return EngineTraits {
         .importNavigation = false,
         .pushesDiagnostics = true,
-        .hangsOnUnresolvedImports = true,
-        .needsModulePreparation = true,
-        .needsModuleHints = true,
-        .msvcStlNeedsNoAlignedAllocation = true,
+        .hangsOnUnresolvedImports = needs(UNRESOLVED_IMPORT_STAND_INS, version),
+        .needsModulePreparation = needs(MODULE_PREPARATION, version),
+        .needsModuleHints = needs(MODULE_HINTS, version),
+        .msvcStlNeedsNoAlignedAllocation = needs(MSVC_STL_ALIGNED_ALLOCATION, version),
+        .hangsOnTrailingDotModuleName = needs(TRAILING_DOT_MODULE_NAME, version),
         .kitStdlibVersion = std::string { version },
-        .tested = false,
+        .tested = version == "23.1.0",
     };
-    if (version == "23.1.0") {
-        traits.tested = true;
-    } else if (version.starts_with("23.1.")) {
-        traits.msvcStlNeedsNoAlignedAllocation = false;
-    }
-    return traits;
 }
 
 bool is_interactive(std::string_view method) {
@@ -180,6 +177,9 @@ private:
     Quarantine quarantine_;                                   // path keys
     std::optional<Clock::time_point> lastAnswerAt_;           // clangd's last answer to any client request
     StuckWatch stuck_;
+    // WA-CLANGD-001: the `;` insertions in the text clangd has of each open document (client URI), for
+    // the documents whose text it was given rewritten; mapped back out of what it reports.
+    std::map<std::string, std::vector<Insertion>, std::less<>> rewritten_;
     // The request a watch was last tried for (when it was sent): one try each, so a platform that
     // cannot read clangd's CPU does not wake the loop again and again for the same request.
     std::optional<Clock::time_point> stuckTriedFor_;
@@ -347,7 +347,19 @@ public:
             { "filesAwaitingDiagnostics", awaitingDiagnostics_.size() },
             { "logLinesLeftOut", linesLeftOut_ },
             { "databaseDirectory", databaseDirectory_ },
+            { "workarounds", workarounds_json_() },
         };
+    }
+
+    // import-hang plan §9: the registered workarounds this clangd needs, as the report shows them.
+    Json workarounds_json_() const {
+        Json list = Json::array();
+        for (const auto& workaround : workarounds()) {
+            if (!needs(workaround, options_.version)) continue;
+            list.push_back(Json { { "id", workaround.id }, { "title", workaround.title }, { "upstream", workaround.upstream },
+                                  { "removeWhen", workaround.removeWhen } });
+        }
+        return list;
     }
 
     void start(Host& host) override {
@@ -362,6 +374,13 @@ public:
         // clangd starts without a database; the first plan is written before any document reaches it.
         platform::fs::remove_all(base::join_path(databaseDirectory_, "compile_commands.json"));
         log::info("clangd {} at {}", options_.version.empty() ? "?" : options_.version, options_.executable.empty() ? "(none)" : options_.executable);
+        // import-hang plan §9: which of clangd's known defects this server works around for this version.
+        if (!options_.executable.empty()) {
+            const auto active = active_workarounds(options_.version);
+            std::string ids;
+            for (const auto id : active) ids += std::format("{}{}", ids.empty() ? "" : ", ", id);
+            log::info("workarounds for clangd {}: {}", options_.version.empty() ? "?" : options_.version, ids.empty() ? "none" : ids);
+        }
         start_process_();
     }
 
@@ -586,7 +605,7 @@ public:
                 if (accepting_ && !excluded_path_(document.path)) open_or_hold_(document, true);
                 break;
             }
-            if (accepting_ && !excluded_path_(document.path) && event.message != nullptr) (void)send_(*event.message);
+            if (accepting_ && !excluded_path_(document.path) && event.message != nullptr) send_change_(document, *event.message);
             break;
         case DocumentChange::closed: {
             const bool wasExcluded { excluded_path_(document.path) || quarantined_(document.path) || held_path_(document.path)
@@ -600,6 +619,7 @@ public:
             awaitingSince_.erase(document.uri);
             diagnosed_.erase(document.uri);
             fileStatus_.erase(document.uri);
+            rewritten_.erase(document.uri);
             if (accepting_ && !wasExcluded && event.message != nullptr) (void)send_(*event.message);
             release_prime_units_if_idle_();
             break;
@@ -1219,9 +1239,56 @@ private:
         }
     }
 
+    // The text clangd is given for an open document: the document's own, or, where clangd 23.1 would spin on it
+    // (WA-CLANGD-001), the same text with `;` after each trailing dot, remembered so what clangd says maps back.
+    std::string engine_text_(const std::string& uri, std::string_view text) {
+        if (traits_.hangsOnTrailingDotModuleName) {
+            if (auto sanitized = sanitize_module_names(text); sanitized.changed()) {
+                if (!rewritten_.contains(uri)) {
+                    log::debug("{} is given to clangd with ';' after a module name that ends in '.' ({}, {})", host_->path_of_uri(uri),
+                               TRAILING_DOT_MODULE_NAME, host_->root_directory());
+                }
+                rewritten_[uri] = std::move(sanitized.insertions);
+                return std::move(sanitized.text);
+            }
+        }
+        rewritten_.erase(uri);
+        return std::string { text };
+    }
+
+    // A change goes to clangd as the client sent it, unless clangd's text is, or was until now, a rewrite of
+    // the document's: then clangd gets the whole text as engine_text_ makes it.
+    void send_change_(const DocumentView& document, const Json& message) {
+        const bool wasRewritten { rewritten_.contains(document.uri) };
+        std::string text { engine_text_(document.uri, document.text) };
+        if (!wasRewritten && !rewritten_.contains(document.uri)) {
+            (void)send_(message);
+            return;
+        }
+        (void)send_(lsp::make_notification("textDocument/didChange",
+                                           Json { { "textDocument", Json { { "uri", document.uri }, { "version", document.version } } },
+                                                  { "contentChanges", Json::array({ Json { { "text", std::move(text) } } }) } }));
+    }
+
+    static void map_out_of_rewrite_(std::span<const Insertion> insertions, Json& diagnostics) {
+        const auto map_position = [&](Json& position) {
+            if (!position.is_object()) return;
+            const auto line = lsp::int_at(position, "line");
+            const auto character = lsp::int_at(position, "character");
+            if (!line || !character) return;
+            const auto original = to_original(insertions, TextPosition { static_cast<int>(*line), static_cast<int>(*character) });
+            position["character"] = original.character;
+        };
+        for (auto& diagnostic : diagnostics) {
+            if (!diagnostic.is_object() || !diagnostic.contains("range")) continue;
+            map_position(diagnostic["range"]["start"]);
+            map_position(diagnostic["range"]["end"]);
+        }
+    }
+
     void open_in_engine_(const DocumentView& document) {
         Json params { { "textDocument", Json { { "uri", document.uri }, { "languageId", document.languageId },
-                                               { "version", document.version }, { "text", std::string { document.text } } } } };
+                                               { "version", document.version }, { "text", engine_text_(document.uri, document.text) } } } };
         if (send_(lsp::make_notification("textDocument/didOpen", std::move(params)))) {
             databaseRead_ = true;
             if (!diagnosed_.contains(document.uri)) {
@@ -1399,7 +1466,9 @@ private:
             } else {
                 diagnosed_.insert(uri);
                 const auto version = lsp::int_at(params, "version");
-                host_->publish_engine_diagnostics(ENGINE_ID, uri, params.value("diagnostics", Json::array()), version);
+                Json diagnostics = params.value("diagnostics", Json::array());
+                if (const auto rewritten = rewritten_.find(uri); rewritten != rewritten_.end()) map_out_of_rewrite_(rewritten->second, diagnostics);
+                host_->publish_engine_diagnostics(ENGINE_ID, uri, std::move(diagnostics), version);
             }
             host_->status_changed();
             return;
@@ -2131,6 +2200,11 @@ private:
         auto text = platform::fs::read_file(path);
         if (!text) return false;
         const std::string uri { base::path_to_uri(path) };
+        // WA-CLANGD-001: a file saved mid-edit can hold the text clangd spins on. Nobody reads positions in a
+        // unit opened without the editor, so the rewrite needs no mapping back.
+        if (traits_.hangsOnTrailingDotModuleName) {
+            if (auto sanitized = sanitize_module_names(*text); sanitized.changed()) *text = std::move(sanitized.text);
+        }
         Json params { { "textDocument", Json { { "uri", uri }, { "languageId", "cpp" }, { "version", 1 }, { "text", std::move(*text) } } } };
         if (!send_(lsp::make_notification("textDocument/didOpen", std::move(params)))) return false;
         databaseRead_ = true;

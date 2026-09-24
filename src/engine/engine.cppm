@@ -38,6 +38,7 @@ struct EngineTraits {
     bool needsModulePreparation { false };            // the server prepares modules in parallel for it
     bool needsModuleHints { false };                  // its database names the unit of each module
     bool msvcStlNeedsNoAlignedAllocation { false };   // MSVC STL contexts turn aligned allocation off
+    bool hangsOnTrailingDotModuleName { false };      // `import a.` at the end of a line spins it; it is given `import a.;`
     std::string kitStdlibVersion;                     // the libc++ version a semantic kit must have for it (S4-4-5); empty: any
     bool tested { false };                            // a version this server's conformance suite runs against
 };
