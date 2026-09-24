@@ -28,6 +28,11 @@ int main() {
         expect(!result.uncertain);
     };
 
+    "a module name is dotted identifiers with at most one partition"_test = [] {
+        for (const std::string_view name : { "std", "hello.greet", "a.b:c", "a:b.c", "_x.y2", "m\u00e9.a" }) expect(is_module_name(name)) << name;
+        for (const std::string_view name : { "", "hello.", ".x", "a..b", "a:b:c", ":p", "a:", "1a", "a.1b", "a-b", "a b" }) expect(!is_module_name(name)) << name;
+    };
+
     "partitions and implementation units"_test = [] {
         expect(role_of(scan_source("export module a.b:c;")) == Role::module_partition_interface);
         expect(provided_name(scan_source("export module a.b:c;")) == "a.b:c");

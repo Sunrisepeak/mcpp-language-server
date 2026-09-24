@@ -231,6 +231,10 @@ struct Workspace::Impl final : engine::Host {
     // Timers.
     std::optional<Clock::time_point> reloadAt;
     std::optional<Clock::time_point> replanAt;
+    // import-hang plan §5: when each open file (path key) was last changed in the editor. An import that nothing
+    // provides in a file changed within EDITING_WINDOW is most likely still being typed.
+    std::map<std::string, Clock::time_point, std::less<>> editedAt;
+    static constexpr std::chrono::seconds EDITING_WINDOW { 5 };
     std::optional<Clock::time_point> loadGiveUpAt;       // the producer has not answered: take what there is (design 4.1)
     std::optional<Clock::time_point> lastResortAt;       // nothing at all came: serve without a database rather than nothing
     std::optional<Clock::time_point> sdkCheckAt;
@@ -1033,8 +1037,22 @@ struct Workspace::Impl final : engine::Host {
             if (!document->path.empty() && project::is_cxx_source_name(document->path) && base::is_within(document->path, root)) openSources.insert(document->path);
         }
         input.openSources.assign(openSources.begin(), openSources.end());
+        const auto now = Clock::now();
+        std::optional<Clock::time_point> lastEdit;
+        for (const Document* document : documents_.all()) {
+            if (document->path.empty()) continue;
+            const auto edited = editedAt.find(base::path_key(document->path));
+            if (edited == editedAt.end() || now - edited->second >= EDITING_WINDOW) continue;
+            input.editingSources.push_back(document->path);
+            if (!lastEdit || edited->second > *lastEdit) lastEdit = edited->second;
+        }
         if (coreEngine != nullptr) coreEngine->configure_plan(input);
         normalize::EnginePlan newPlan { normalize::plan_engine(input) };
+        // A stand-in held back for a file being edited is planned once the file has been quiet for EDITING_WINDOW.
+        if (newPlan.standInsDeferred && lastEdit) {
+            const auto quiet = *lastEdit + EDITING_WINDOW + std::chrono::milliseconds { 100 };
+            if (!replanAt || quiet < *replanAt) replanAt = quiet;
+        }
         plan = std::move(newPlan);
         openedOutsideModel = { plan.openSources.begin(), plan.openSources.end() };
         plannedFiles.clear();
@@ -1474,6 +1492,7 @@ void Workspace::did_change(const Json& message, const Json& params) {
     ++impl_->snapshotGeneration;
     const Document* document { impl_->documents_.find(uri) };
     if (!document->path.empty()) {
+        impl_->editedAt[base::path_key(document->path)] = Clock::now();
         impl_->index.update(document->path, document->text);
         impl_->note_structure_change(document->path);
     }
@@ -1487,6 +1506,7 @@ void Workspace::did_close(const Json& message, const Json& params) {
     if (found == nullptr) return;
     const Document document { *found };
     impl_->documents_.close(uri);
+    if (!document.path.empty()) impl_->editedAt.erase(base::path_key(document.path));
     ++impl_->snapshotGeneration;
     if (!document.path.empty()) {
         if (auto text = platform::fs::read_file(document.path)) impl_->index.update(document.path, *text);

@@ -41,6 +41,9 @@ std::string provided_name(const ScanResult& result);
 // Imported module names with partitions qualified ("m:p"); an implementation unit
 // `module m;` implicitly requires "m". Header units are not included.
 std::vector<std::string> required_names(const ScanResult& result);
+// "a.b" or "a.b:c.d": dotted identifiers, with at most one partition. A build tool's scan of a file
+// saved mid-edit can report `hello.` (import-hang plan §5); such a name is no module.
+bool is_module_name(std::string_view name);
 // The full name an import refers to, given the importing unit's declaration.
 std::string imported_name(const ScanResult& result, const ImportDeclaration& import);
 

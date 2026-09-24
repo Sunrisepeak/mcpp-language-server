@@ -328,6 +328,28 @@ std::string imported_name(const ScanResult& result, const ImportDeclaration& imp
     return result.declaration->module + ":" + import.partition;
 }
 
+bool is_module_name(std::string_view name) {
+    const auto dotted = [](std::string_view part) {
+        if (part.empty()) return false;
+        bool atStart { true };
+        for (const char c : part) {
+            if (c == '.') {
+                if (atStart) return false;
+                atStart = true;
+                continue;
+            }
+            const bool utf8 { static_cast<unsigned char>(c) >= 0x80 };
+            if (!utf8 && !base::is_identifier_char(c)) return false;
+            if (atStart && c >= '0' && c <= '9') return false;
+            atStart = false;
+        }
+        return !atStart;
+    };
+    const std::size_t colon { name.find(':') };
+    if (colon == std::string_view::npos) return dotted(name);
+    return dotted(name.substr(0, colon)) && dotted(name.substr(colon + 1));
+}
+
 std::vector<std::string> required_names(const ScanResult& result) {
     std::vector<std::string> names;
     auto add = [&](std::string name) {

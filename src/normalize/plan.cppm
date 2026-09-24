@@ -33,6 +33,10 @@ struct PlanIssue {
     std::string message;
     std::string file;
     std::string module;
+    // Whose problem it is (S3 status issue category, import-hang plan §6): "code" when the fix is in the
+    // file's own source (an import of a module nothing provides, a module that does not compile), else
+    // "project" or "environment".
+    std::string category { "project" };
 };
 
 // A module the engine database provides, for scheduling its build (usable plan W7).
@@ -50,6 +54,7 @@ struct EnginePlan {
     std::vector<std::pair<std::string, std::string>> stubSources;    // stand-in file -> its content
     std::vector<std::string> stubModules;
     std::vector<std::string> openSources;     // open files no set describes, planned with the nearest unit's arguments
+    bool standInsDeferred { false };          // a stand-in was held back for a file being edited: plan again once it is not
     std::vector<PlanIssue> issues;
     std::vector<std::string> excludedFiles;   // providers left out because they cannot be built
     std::string contextSet;                   // empty: every set
@@ -79,6 +84,10 @@ struct PlanInput {
     // Files the editor has open that no set describes: they join the database with the arguments of the nearest C++
     // unit, so their imports resolve or get stand-ins instead of clangd guessing (robustness design C2).
     std::vector<std::string> openSources;
+    // Open files the editor is changing right now (import-hang plan §5): an import of theirs that nothing provides is
+    // most likely still being typed, so it gets no stand-in yet, unless the file provides a module itself (building
+    // such a unit with an unresolved import is what stalls clangd).
+    std::vector<std::string> editingSources;
     // Engine decisions (overall design 5.4), set by the core engine's configure_plan. Providers whose
     // imports cannot resolve, and providers importing them, stay out of the database: clangd 23.1
     // deadlocks building them (robustness design, experiments S2, S6). Other units always stay.
