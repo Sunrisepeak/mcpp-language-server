@@ -12,7 +12,8 @@
 | `mcppls.semanticKit` | `auto`（默认）, `off` | 内置工具包是否可以被使用 |
 | `mcppls.engine` | `clangd`（默认）, `none` | 核心引擎。无论如何，mcppls 自己的模块引擎都会运行；`none` 表示只提供模块相关功能 |
 | `mcppls.ai.enabled` | `false`（默认） | 是否启用变更审查里依赖模型的那部分。关闭时服务端不发起任何模型调用 |
-| `mcppls.detectConflicts` | `true`（默认） | 在此工作区中提议关闭另一个 C++ 扩展的语言功能（只提议一次） |
+| `mcppls.detectConflicts` | `true`（默认） | 在此工作区中提议关闭另一个 C++ 扩展的语言功能（只提议一次），之后又有冲突扩展启用时会提示 |
+| `mcppls.semanticTokens.modules` | `true`（默认） | 用服务端的语义 token 给 `import`、`module`、`export` 和模块名上色。关闭后只用语法文件的颜色 |
 | `mcppls.trace.server` | `off`（默认）, `messages`, `verbose` | 把 LSP 通信记录到 C++ Modules 输出通道（Trace 级别）；`verbose` 还会打开服务端的 debug 日志（Debug 级别）。要看到它们，需把该输出通道的日志级别调到对应级别 |
 
 ## 命令
@@ -24,6 +25,7 @@
 | C++ Modules: Show Module Graph | 项目的模块及其相互导入关系 |
 | C++ Modules: Select Context | 切换该文件所使用的那一套构建数据库 |
 | C++ Modules: Restart Language Server / Show Logs | 重启语言服务端、查看日志 |
+| C++ Modules: Turn Off Other C++ Language Features / Restore Other C++ Language Features | 关闭 C/C++ 扩展的 IntelliSense（调试器照常可用）和 clangd 扩展，可选当前工作区或全局；恢复时原样放回之前的设置 |
 | C++ Modules: Review Changes / Clear Review | 对工作区变更做审查，以诊断形式发布（依赖模型的规则需要开启 `mcppls.ai.enabled`） |
 
 ## 命令行

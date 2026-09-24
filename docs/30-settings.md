@@ -10,7 +10,8 @@
 | `mcppls.semanticKit` | `auto` (default), `off` | Whether the bundled kit may be used at all |
 | `mcppls.engine` | `clangd` (default), `none` | The core engine. mcppls's own module engine runs either way; `none` means module features only |
 | `mcppls.ai.enabled` | `false` (default) | Whether the model-backed half of change review may be used. Off means the server makes no model calls |
-| `mcppls.detectConflicts` | `true` (default) | Offer once to turn off another C++ extension's language features in this workspace |
+| `mcppls.detectConflicts` | `true` (default) | Offer once to turn off another C++ extension's language features in this workspace, and say so when one becomes active later |
+| `mcppls.semanticTokens.modules` | `true` (default) | Color `import`, `module`, `export` and module names from the server's semantic tokens. Off: only the grammar's colors |
 | `mcppls.trace.server` | `off` (default), `messages`, `verbose` | Log the LSP traffic to the C++ Modules output channel (at Trace level); `verbose` adds the server's debug log (at Debug level). Set the channel's log level to see them |
 
 ## Commands
@@ -22,6 +23,7 @@
 | C++ Modules: Show Module Graph | The project's modules and what imports what |
 | C++ Modules: Select Context | Switch which set of the build database the file is seen through |
 | C++ Modules: Restart Language Server / Show Logs | The usual two |
+| C++ Modules: Turn Off Other C++ Language Features / Restore Other C++ Language Features | Turn off the C/C++ extension's IntelliSense (its debugger keeps working) and the clangd extension, in this workspace or everywhere; restore puts back exactly what was there |
 | C++ Modules: Review Changes / Clear Review | Change review over the working tree, published as diagnostics (needs `mcppls.ai.enabled` for the model-backed rules) |
 
 ## Command line
