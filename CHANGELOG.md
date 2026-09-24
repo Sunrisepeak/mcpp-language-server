@@ -19,7 +19,7 @@ Typing an `import` no longer freezes the editor, the status bar says whose probl
   name ends in `.` at the end of its line (`import hello.`, `export module a.`): it spins at a full
   core, and every later version of the file waits behind it. Typing `import hello.greet;` went
   through that text every time. The feature requests for the file went unanswered for 30 s at a
-  time, and the status turned *degraded*. clangd is now given that line with `;` right after the
+  time, and the status turned *degraded*. On Windows, the same text crashed clangd instead. clangd is now given that line with `;` right after the
   dot, which it reports at once as the error it is; nothing else about the text changes.
   Measured: every keystroke answered within 0.4 s, where 0.0.3 answered nothing for 30 s.
 - **A file clangd will not finish is found and recovered even while the user keeps typing.** Before,

@@ -1,6 +1,6 @@
 {
   "name": "typing-import-spin",
-  "description": "Import-hang plan \u00a74 against the real defect: WA-CLANGD-001 turned off, so clangd 23.1 spins on `import hello.`. The file is found spinning within its 20 s budget, set aside with that text remembered, clangd is restarted, and features come back while typing goes on. If a clangd update removes the defect, T2 fails too: WA-CLANGD-001 can then go.",
+  "description": "Import-hang plan \u00a74 against the real defect: WA-CLANGD-001 turned off, so clangd 23.1 spins on `import hello.` (Linux, macOS) or crashes on it (Windows). A spin is found within its 20 s budget, the file set aside with that text remembered and clangd restarted; a crash is restarted as before; either way features come back while typing goes on. If a clangd update removes the defect, T2 fails too: WA-CLANGD-001 can then go.",
   "server-arguments": [
     "--no-discover",
     "--disable-workaround",
@@ -65,6 +65,28 @@
         {
           "path": "/roots/0/events/*/kind",
           "equals": "engine-spin"
+        },
+        {
+          "path": "/roots/0/engines/*/details/workarounds/*/turnedOff",
+          "equals": true
+        }
+      ],
+      "only-on": [
+        "linux",
+        "macos"
+      ]
+    },
+    {
+      "id": "T2-crash-restarted",
+      "kind": "report",
+      "timeout": 60,
+      "only-on": [
+        "windows"
+      ],
+      "expect": [
+        {
+          "path": "/roots/0/events/*/kind",
+          "equals": "engine-exit"
         },
         {
           "path": "/roots/0/engines/*/details/workarounds/*/turnedOff",

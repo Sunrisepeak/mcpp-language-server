@@ -1279,7 +1279,10 @@ public:
             while (running.wait_for(std::chrono::milliseconds { 200 }) != std::future_status::ready) client_.drain(std::chrono::milliseconds { 0 });
             auto result = running.get();
             if (!result) return { false, result.error().message };
-            const bool hung { result->timedOut };
+            // The defect shows as a hang on Linux and macOS, and as a crash on Windows (0x80000003): either is clangd not
+            // finishing. A normal exit, with or without errors, is --check's 0 to 3.
+            const bool crashed { !result->timedOut && (result->exitCode < 0 || result->exitCode > 125) };
+            const bool hung { result->timedOut || crashed };
             const std::string expected { check.value("expect", std::string { "hangs" }) };
             const std::string says { check.value("says", std::string {}) };
             if (expected == "hangs" && !hung) {
@@ -1287,6 +1290,7 @@ public:
                                             result->exitCode, limit.count(), (result->output + result->error).substr(0, 200)) };
             }
             if (expected == "finishes" && hung) return { false, std::format("clangd did not finish {} in {} s", file, limit.count()) };
+            if (crashed) return { true, std::format("clangd crashed on {} (exit {}), as expected", file, result->exitCode) };
             return { true, hung ? std::format("clangd has not finished {} after {} s, as expected", file, limit.count()) : "clangd finished" };
         }
         if (kind == "responds") {
@@ -1918,6 +1922,16 @@ int run(Options options) {
         if (plainLike && check.value("kind", std::string {}) == "status") {
             say("SKIP {} status (a plain client asks for no cxxModules/status)", id);
             continue;
+        }
+        // `only-on`: the operating systems a check holds on ("linux", "macos", "windows"); a defect that shows
+        // differently elsewhere (a crash instead of a spin) is checked by its own entry there.
+        if (const auto onlyOn = check.find("only-on"); onlyOn != check.end() && onlyOn->is_array()) {
+            const std::string_view here { mcppls::os::FAMILY == mcppls::os::Family::windows ? "windows"
+                                          : mcppls::os::FAMILY == mcppls::os::Family::macos ? "macos" : "linux" };
+            if (std::ranges::none_of(*onlyOn, [&](const Json& os) { return os.is_string() && os.get<std::string>() == here; })) {
+                say("SKIP {} {} (only on {})", id, check.value("kind", std::string {}), lsp::dump(*onlyOn));
+                continue;
+            }
         }
         if (const auto reason = client.unusable(); !reason.empty()) {
             if (!optional) ++failures;

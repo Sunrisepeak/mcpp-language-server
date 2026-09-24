@@ -653,7 +653,13 @@ C (VS Code) and D (Neovim) ran in parallel against the contracts of §12, and we
      included, so a stray file with that ill-formed code reaches it.
    - The first-diagnostics guard sets such a file aside after 120 s. It is recorded as a known limit
      (design record §7), not worked around, and is to be filed upstream with the first one.
-5. **VS Code's built-in grammar keeps the dead rule under a hash-prefixed key**
+5. **On Windows the first defect is a crash, not a spin.** clangd 23.1 exits with 0x80000003
+   (`STATUS_BREAKPOINT`) on `import hello.`, found by CI.
+   - WA-CLANGD-001 prevents that crash too.
+   - The canary counts a crash as the defect.
+   - `typing-import-spin` checks the crash restart there (`engine-exit`) instead of `engine-spin`,
+     through a new per-check `only-on`.
+6. **VS Code's built-in grammar keeps the dead rule under a hash-prefixed key**
    (`d9bc4796b0b_module_import`). The WA-VSCODE-001 canary matches it by suffix.
 
 **Still open:**
