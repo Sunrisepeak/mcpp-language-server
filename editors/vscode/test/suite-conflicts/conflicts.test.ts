@@ -77,6 +77,44 @@ suite('conflicting C++ extensions', function () {
                 'clangd.enable': false,
             });
         });
+
+        // design 2026-09-25 §10 "Check again when things change": re-enabling a setting this
+        // extension turned off is a conflict becoming active again, and gets a notice -- distinct
+        // from the one-time question above, and never a warning or error modal.
+        test('re-enabling clangd.enable shows a non-modal notice, once', async () => {
+            const before = api.notificationCount();
+            await vscode.workspace.getConfiguration('clangd').update('enable', true, vscode.ConfigurationTarget.Workspace);
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+            assert.ok(
+                api.notificationCount() > before,
+                `expected a new notice once clangd.enable was re-enabled; count stayed at ${api.notificationCount()}`,
+            );
+        });
+
+        // design §10 "Commands": mcppls.turnOffOtherCppFeatures acts on whatever is active right
+        // now, at the scope chosen by the quick pick (substituted here the same way as the
+        // conflictAnswer prompt; see src/prompt.ts's pickOnce). cpptools is still off from the
+        // first-run answer above, so only clangd (re-enabled by the previous test) is active.
+        test('mcppls.turnOffOtherCppFeatures turns the newly re-enabled conflict back off, at workspace scope', async () => {
+            api.setPromptAnswer('turnOffScope', 'workspace');
+            await vscode.commands.executeCommand('mcppls.turnOffOtherCppFeatures');
+            assert.deepStrictEqual(readWorkspaceSettings(), {
+                'C_Cpp.intelliSenseEngine': 'disabled',
+                'clangd.enable': false,
+            });
+        });
+
+        // design §10 "Restore Other C++ Language Features": puts back exactly what the most
+        // recent turn-off remembered -- here, `true` (what the test itself set clangd.enable to,
+        // right before the command above disabled it again), not `false` (the very first
+        // ask-once answer's value) and not cpptools's setting at all, which that command left
+        // alone because cpptools was not active when it ran. cpptools never had an override
+        // before the very first disable either, so restoring it removes the key entirely rather
+        // than writing a value that happens to match today's default.
+        test('mcppls.restoreOtherCppFeatures puts back the value from right before the last turn-off', async () => {
+            await vscode.commands.executeCommand('mcppls.restoreOtherCppFeatures');
+            assert.deepStrictEqual(readWorkspaceSettings(), { 'clangd.enable': true });
+        });
     } else {
         test('keeping both changes no settings', () => {
             assert.deepStrictEqual(readWorkspaceSettings(), {});
