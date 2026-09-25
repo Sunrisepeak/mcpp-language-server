@@ -39,7 +39,9 @@ ScanResult scan_source(std::string_view text);
 // K/§7): produced from the text alone, complete or not, so a person still typing `import hello.`
 // sees `import` and `hello` colored while they type. Unlike scan_source, this never requires a
 // terminating `;`, and a name cut short (a trailing dot, the end of a line, end of file) is given
-// the span of whatever was actually read -- never a token that spans two lines.
+// the span of whatever was actually read -- never a token that spans two lines. In a module unit, the
+// `export` of every export declaration (`export namespace`, `export {`, `export int f()`) is a keyword
+// token too, like the one of `export module` (fix plan F8).
 enum class SyntaxTokenKind { keyword, moduleName, partitionName };
 
 struct SyntaxToken {

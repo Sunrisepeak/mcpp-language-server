@@ -81,7 +81,24 @@ suite('module-syntax highlighting: the injected grammar (WA-VSCODE-001)', functi
             'x = import;',
             'obj.import(1);',
             'int module = 5;',
+            // Fix plan F8: the export of an export declaration.
+            'export namespace ns {',
+            '  export int inner();',
+            '}',
+            'export {',
+            '}',
+            'export template <class T> T g(T);',
+            'exports = 1;',
         ]);
+    });
+
+    test('the export of an export declaration is colored like export module\'s (F8)', () => {
+        for (const index of [12, 13, 15, 17]) {
+            const token = findToken(lines[index], 'export');
+            assert.ok(token?.scopes.includes('keyword.control.export.cpp'), JSON.stringify(lines[index]));
+        }
+        const identifier = lines[18].find((token) => token.text.startsWith('exports'));
+        assert.ok(!identifier?.scopes.includes('keyword.control.export.cpp'), JSON.stringify(lines[18]));
     });
 
     test('bare "module;" colors the keyword', () => {

@@ -2279,6 +2279,34 @@ int prepare_generated_module_compdb(const std::string& compiler) {
     return 0;
 }
 
+// compdb-lto-msvc (issue #23, fix plan F1): the compile_commands.json of a project built with LTO for the
+// MSVC ABI, as CMake writes it for `-flto` with clang++ on Windows, with `compiler` (or clang++ on PATH)
+// as the driver. Nothing is compiled: the fixture is about the commands the server gives clangd, whose
+// module scan failed on `LTO requires -fuse-ld=lld` when they carried `-flto` and no `-c`. The driver
+// raises that for the windows-msvc target on any host, so the fixture runs on Linux. `--no-default-config`
+// makes the driver the one of the LLVM Windows installer, with no configuration file: an LLVM that
+// carries one choosing lld (as mcpp's does) would not plan the link that fails.
+int prepare_compdb_lto_msvc(const std::string& compiler) {
+    const std::string root { fs::current_directory() };
+    auto clangxx = on_path(compiler.empty() ? std::string { "clang++" } : compiler);
+    if (!clangxx) {
+        say("compdb-lto-msvc: {} is not on PATH", compiler);
+        return 1;
+    }
+    Json database = Json::array();
+    for (const std::string_view relative : { "src/answer.cppm", "src/main.cpp" }) {
+        const std::string source { native(base::join_path(root, relative)) };
+        database.push_back(Json { { "directory", native(root) }, { "file", source },
+                                  { "arguments", Json::array({ *clangxx, "--no-default-config", "--target=x86_64-pc-windows-msvc", "-std=c++23",
+                                                               "-flto", "-O2", "-c", source, "-o", source + ".obj" }) } });
+    }
+    if (auto written = fs::write_file(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
+        say("compdb-lto-msvc: {}", written.error().message);
+        return 1;
+    }
+    return 0;
+}
+
 // real-project plan RP2.1: a second, newer mock mcpp under a fixture's isolated HOME
 // (`"isolate-home": true`), at the path producer negotiation searches
 // (`mcppls::project::other_mcpp_executables`, `xim-x-mcpp/<version>/bin/mcpp`), so a fixture whose
@@ -2463,7 +2491,8 @@ int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "compdb-clangxx-msvc-std") return prepare_compdb_msvc_std(false);
     if (kind == "generated-module-old-mcpp") return prepare_generated_module_compdb(argument);
     if (kind == "clangd-cannot-load") return prepare_clangd_cannot_load();
-    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load)", kind);
+    if (kind == "compdb-lto-msvc") return prepare_compdb_lto_msvc(argument);
+    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc)", kind);
     return 2;
 }
 

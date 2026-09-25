@@ -69,6 +69,7 @@ std::vector<std::string> translate_gnu(const GnuInput& input) {
     if (input.facts != nullptr && input.facts->toolchain.target.find("windows-msvc") != std::string::npos) {
         for (auto& argument : windows_msvc_arguments(*input.facts, out, input.noAlignedAllocationWithMsvcStl)) out.push_back(std::move(argument));
     }
+    out.emplace_back(COMPILE_ONLY);
     if (input.importable) {
         out.emplace_back("-x");
         out.emplace_back("c++-module");
@@ -157,6 +158,7 @@ std::vector<std::string> kit_arguments(const spec::Kit& kit, std::string_view la
         out.emplace_back("-isysroot");
         out.emplace_back(macosSdk);
     }
+    out.emplace_back(COMPILE_ONLY);
     return out;
 }
 

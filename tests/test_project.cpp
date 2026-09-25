@@ -641,6 +641,27 @@ version = "1"
         fs::remove_all(root);
     };
 
+    // Fix plan F5: issue #23's fallback scan took 166 of GalTranslPP's 349 units from vcpkg_installed/, and its
+    // modules showed up as ambiguous. What package managers install is their packages' sources, not the project's.
+    "inferred scanning leaves out what package managers install, and vcpkg packages below the root"_test = [] {
+        const std::string root { make_root("packages") };
+        write(root, "vcpkg.json", "{ \"name\": \"app\" }\n");   // the project's own manifest: its sources stay
+        write(root, "src/a.cppm", "export module a;\n");
+        for (const std::string_view installed : { "vcpkg_installed/x64-windows/include/fmt/fmt.cppm", "vcpkg/ports/fmt/fmt.cppm",
+                                                  ".conan2/p/fmt/fmt.cppm", ".conan/data/fmt/fmt.cppm", ".xmake/packages/fmt/fmt.cppm",
+                                                  ".cache/fmt/fmt.cppm", ".git/fmt.cppm" }) {
+            write(root, installed, "export module fmt;\n");
+        }
+        write(root, "overlays/zlib/vcpkg.json", "{ \"name\": \"zlib\" }\n");
+        write(root, "overlays/zlib/src/deep/z.cppm", "export module z;\n");
+        const auto inferred = p::infer_database(root, p::InferOptions {}, p::file_scanner());
+        expect(fatal(inferred.database.sets.size() == 1u));
+        std::vector<std::string> names;
+        for (const auto& unit : inferred.database.sets.front().units) names.emplace_back(b::file_name(unit.source));
+        expect(names == std::vector<std::string> { "a.cppm" }) << std::format("{}", names);
+        fs::remove_all(root);
+    };
+
     // real-project plan RP3.4: a nested manifest is a separate project only when it is not part of
     // the outer project's own build -- a CMake subdirectory of a CMake project, or a member of an
     // mcpp workspace, is not.

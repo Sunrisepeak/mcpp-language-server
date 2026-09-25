@@ -142,6 +142,8 @@ std::vector<std::string> translate_msvc(const MsvcInput& input) {
     if (input.facts != nullptr) {
         for (auto& argument : windows_msvc_arguments(*input.facts, out, input.noAlignedAllocationWithMsvcStl)) out.push_back(std::move(argument));
     }
+    // The engine's clang++ spelling of /c, whatever the build said (fix plan F1).
+    out.emplace_back(COMPILE_ONLY);
     if (input.importable) {
         out.emplace_back("-x");
         out.emplace_back("c++-module");

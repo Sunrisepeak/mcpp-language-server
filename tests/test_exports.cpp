@@ -31,6 +31,17 @@ int main() {
         expect(to_string(result[1].kind) == "reexport");
     };
 
+    // Fix plan F2: a UTF-8 byte order mark before the module declaration is skipped and takes no column.
+    "a byte order mark changes nothing"_test = [] {
+        const std::string mark { "\xEF\xBB\xBF" };
+        const auto result = exported_declarations(mark + "export module m;\nexport int answer();\n");
+        expect(fatal(result.size() == 1u)) << result.size();
+        expect(result[0].name == "answer" && result[0].nameRange == Range { Position { 1, 11 }, Position { 1, 17 } });
+        const auto first = exported_declarations(mark + "export int first();\n");
+        expect(fatal(first.size() == 1u));
+        expect(first[0].nameRange == Range { Position { 0, 11 }, Position { 0, 16 } });
+    };
+
     "a plain import is not a declaration"_test = [] {
         expect(exported_declarations("export module m;\nimport std;\nimport other;\n").empty());
     };
