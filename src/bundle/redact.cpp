@@ -546,14 +546,12 @@ void find_emails(std::string_view text, std::vector<Span>& spans) {
         if (lowered(text.substr(begin, at - begin)) == "git") continue;   // git@github.com:owner/repo is an address, not a person
         std::size_t end { at + 1 };
         std::size_t labels { 0 };
-        std::size_t lastLabel { end };
         bool alphabeticTop { false };
         while (end < text.size()) {
             const std::size_t labelBegin { end };
             while (end < text.size() && (is_alnum(static_cast<unsigned char>(text[end])) || text[end] == '-')) ++end;
             if (end == labelBegin) break;
             ++labels;
-            lastLabel = labelBegin;
             alphabeticTop = end - labelBegin >= 2 && std::ranges::all_of(text.substr(labelBegin, end - labelBegin), [](char c) { return is_alpha(static_cast<unsigned char>(c)); });
             if (end + 1 < text.size() && text[end] == '.' && is_alnum(static_cast<unsigned char>(text[end + 1]))) {
                 ++end;
@@ -561,7 +559,6 @@ void find_emails(std::string_view text, std::vector<Span>& spans) {
             }
             break;
         }
-        (void)lastLabel;
         if (labels >= 2 && alphabeticTop) spans.push_back(Span { begin, end });
     }
 }
