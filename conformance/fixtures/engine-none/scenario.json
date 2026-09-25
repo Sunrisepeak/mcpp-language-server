@@ -28,6 +28,11 @@
       "expect": [{ "path": "/partitions", "contains": "hello.greet:detail" }] },
     { "id": "D1-daemon-status", "kind": "cli", "args": ["daemon", "status"], "expect": [{ "path": "/sessions", "equals": 1 }, { "path": "/status/engine/name", "equals": "none" }] },
     { "id": "D1-daemon-stop", "kind": "cli", "args": ["daemon", "stop"], "expect": [{ "path": "/ok", "equals": true }] },
-    { "id": "R1-elsewhere", "kind": "responds", "file": "src/main.cpp", "at": [4, 10], "timeout": 5 }
+    { "id": "R1-elsewhere", "kind": "responds", "file": "src/main.cpp", "at": [4, 10], "timeout": 5 },
+    { "id": "K1-semantic-tokens", "kind": "semantic-tokens", "file": "src/main.cpp", "expect": [
+      { "line": 0, "text": "import", "type": "keyword" },
+      { "line": 1, "text": "import", "type": "keyword" },
+      { "line": 1, "text": "hello.greet", "type": "namespace" }
+    ] }
   ]
 }

@@ -379,6 +379,69 @@ int main() {
         expect(plan.excludedFiles == std::vector<std::string> { "/p/src/lost.cppm" }) << std::format("{}", plan.excludedFiles);
     };
 
+    "an import still being typed gets no stand-in, and a name no module can have is never planned"_test = [] {
+        // import-hang plan §5: typing `import hello.greet;` goes through `import hello` and `import hello.`; with autosave
+        // each reached the plan, got a stand-in and rewrote the engine database. A unit that provides a module still gets
+        // its stand-in at once: building it with an import it cannot resolve is what stalls clangd.
+        const std::map<std::string, std::string> sources {
+            { "/p/src/main.cpp", "import hello;\nint main() {}\n" },
+            { "/p/src/greet.cppm", "export module hello.greet;\nimport half;\n" },
+            { "/p/src/other.cpp", "import gone;\nint f() { return 0; }\n" },
+            { "/p/src/mid.cppm", "export module mid;\n" },
+        };
+        s::Database database;
+        database.hasIde = true;
+        s::Set set;
+        set.name = "hello";
+        set.hasIde = true;
+        set.toolchain = "gcc-16.1.0-x86_64-linux-gnu";
+        for (const auto& [path, text] : sources) {
+            s::TranslationUnit unit;
+            unit.source = path;
+            unit.workDirectory = "/p";
+            unit.arguments = { "/opt/gcc/bin/g++", "-std=c++23", "-fmodules", "-c", path };
+            // What a build tool's scan of a file saved mid-edit reported: `hello.` is no module name.
+            if (path == "/p/src/other.cpp") unit.requiredModules = { "gone", "hello.", ".x", "a..b", "a:b:c" };
+            if (path == "/p/src/mid.cppm") unit.providedModules = { { "mid.", "" } };
+            set.units.push_back(std::move(unit));
+        }
+        database.sets.push_back(set);
+        std::map<std::string, ToolchainFacts, std::less<>> facts { { set.toolchain, gcc_facts() } };
+        n::PlanInput input;
+        input.database = &database;
+        input.facts = &facts;
+        input.engineDriverDirectory = "/payload/clangd/bin";
+        input.stubDirectory = "/cache/stubs";
+        input.scanner = [&](std::string_view path) {
+            const auto it = sources.find(std::string { path });
+            return it == sources.end() ? p::ScanResult {} : p::scan_source(it->second);
+        };
+        // clangd said it cannot find `hello`, as it does for an import being typed.
+        input.unresolvedModules = { { "hello", "Don't get the module unit for module hello" } };
+        input.editingSources = { "/p/src/main.cpp", "/p/src/greet.cppm" };
+        const auto editing = n::plan_engine(input);
+        auto stubs = editing.stubModules;
+        std::ranges::sort(stubs);
+        expect(stubs == std::vector<std::string> { "gone", "half" }) << "only the provider's and the quiet file's: " << std::format("{}", stubs);
+        expect(editing.standInsDeferred);
+        expect(editing.excludedFiles.empty()) << std::format("{}", editing.excludedFiles);
+        for (const auto& issue : editing.issues) {
+            expect(issue.module != "hello." && issue.module != ".x" && issue.module != "a..b" && issue.module != "a:b:c") << issue.module;
+            if (issue.code == "unresolved-module" || issue.code == "module-build-failed") expect(issue.category == "code") << issue.code;
+        }
+        expect(std::ranges::any_of(editing.issues, [](const n::PlanIssue& issue) { return issue.code == "module-build-failed" && issue.module == "hello"; }))
+            << "the import is still reported";
+        expect(std::ranges::none_of(editing.entries, [](const n::EngineEntry& entry) { return entry.provides == "mid."; }))
+            << "a provided name no module can have is never planned either";
+
+        input.editingSources.clear();
+        const auto quiet = n::plan_engine(input);
+        stubs = quiet.stubModules;
+        std::ranges::sort(stubs);
+        expect(stubs == std::vector<std::string> { "gone", "half", "hello" }) << "once quiet, every stand-in: " << std::format("{}", stubs);
+        expect(!quiet.standInsDeferred);
+    };
+
     "a file the editor opened that no set describes joins with the nearest unit's arguments"_test = [] {
         // robustness design C2: clangd guessed the command of xlings' apps/gui/main.cpp, a target of a feature the build did not
         // enable, and without a stand-in for the module it imports that nothing provides, kept a core busy for good.

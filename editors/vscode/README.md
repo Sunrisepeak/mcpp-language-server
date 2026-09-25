@@ -15,7 +15,16 @@ Everything ships inside the extension: the language server, clangd 23.1 and the 
 
 ## Status
 
-When a C++ file is open, the language status area shows one item, for example `C++ Modules · gcc 16.1.0`. It is busy while modules are prepared, and turns into a warning with a suggested fix when something limits the results.
+When a C++ file is open, the language status area shows one item, for example `C++ Modules · gcc 16.1.0`. It is busy while modules are prepared. A warning or error names the file and the actual reason (for example "clangd stopped responding"), never a generic "some features are limited"; an error not in your own code that mcppls's diagnostics do not already cover.
+
+## Highlighting `import`, `module` and `export`
+
+Module syntax is colored in two layers, both mcppls's own:
+
+- Immediately, and even with the server not running: an injected grammar colors `module`, `import`, `export` and module names as you type, including a name you are still typing (`import hello.` colors `import` and `hello`). This exists because VS Code's own C++ grammar defines the rule for it but never uses it — see **C++ Modules: Show Logs** at startup for the active workaround, `WA-VSCODE-001`.
+- From the server, once it is running: semantic tokens add module and partition names as a custom `module` type (colored as a namespace until you customize it) and module keywords as the standard `keyword` type, for every editor the server supports, not only this one. Turn this off with `mcppls.semanticTokens.modules` to use only your own grammar or tree-sitter colors.
+
+Customize the color the standard way: `editor.semanticTokenColorCustomizations.rules` (for example `"module": { "foreground": "#..." }`, or `"*.partition"` for partitions).
 
 ## Commands
 
@@ -28,6 +37,8 @@ When a C++ file is open, the language status area shows one item, for example `C
 | C++ Modules: Install Command Line Tools | Run `xcode-select --install` (macOS only) |
 | C++ Modules: Collect Diagnostic Report | Open the server's status and this extension's version, settings and other installed C++ extensions as JSON, ready to copy or attach to an issue |
 | C++ Modules: Run the Build Tool in a Terminal | Run the project's build command (`mcpp build` or the CMake configure step) in your own terminal, where a proxy or credentials you set by hand actually are |
+| C++ Modules: Turn Off Other C++ Language Features | Turn off the language features of other active C++ extensions, in this workspace or everywhere (user settings) |
+| C++ Modules: Restore Other C++ Language Features | Put back whatever the command above (or the one-time question) last changed, in the same scope |
 
 With `mcppls.ai.enabled`:
 
@@ -46,16 +57,21 @@ All settings are optional.
 | `mcppls.semanticKit` | `auto` | `off` never uses the built-in standard library kit |
 | `mcppls.engine` | `clangd` | `none` runs without clangd: module-level features only |
 | `mcppls.ai.enabled` | `false` | Show the review commands |
-| `mcppls.detectConflicts` | `true` | Offer once to turn off other C++ extensions' language features in the workspace |
+| `mcppls.detectConflicts` | `true` | Offer once to turn off other C++ extensions' language features in the workspace, and notice again if one becomes active later |
+| `mcppls.semanticTokens.modules` | `true` | Module keywords and names from the server's semantic tokens; turn off to use only your own grammar or tree-sitter colors for module syntax |
 | `mcppls.trace.server` | `off` | Trace the language server protocol in the log |
 | `mcppls.buildTool` | `offline` | How mcppls may run the project's build tool (mcpp, CMake) to learn how it is built: `offline` runs it without the network, offering to run it in a terminal when it needs a download; `online` lets it reach the network, with up to ten minutes; `off` never runs it, using only the cache or scanned sources |
 | `mcppls.toolEnvironment` | `auto` | Which environment build tools are started in: `auto` reads the login shell's environment once in the background on Linux and macOS (Windows always matches the editor); `editor` always uses the editor process's own environment |
 
 ## Other C++ extensions
 
-If the Microsoft C/C++ extension or the clangd extension also serves C++ files, results appear twice. The extension asks once whether to turn their language features off for the workspace; nothing changes without your answer.
+If the Microsoft C/C++ extension or the clangd extension also serves C++ files, results appear twice. The extension asks once whether to turn their language features off for the workspace; nothing changes without your answer. cpptools keeps its debugger either way — only its IntelliSense engine is turned off.
 
-This extension and `mcpp-community.mcpp-vscode` ("mcpp") are separate, and both are worth having installed together: `mcpp` handles building, toolchains and project operations, while this extension handles C++ module semantics and drives its own pinned clangd.
+Turn them off or put them back at any time with **C++ Modules: Turn Off Other C++ Language Features** and **C++ Modules: Restore Other C++ Language Features**. If one of them becomes active again later — reinstalled, re-enabled, or its setting turned back on — a notice says so once, with a "Turn Off" action; it is never a warning or error, and nothing changes without you choosing it.
+
+An extension with no setting to turn off (for example ccls) can only be pointed out: the notice's action opens it in the Extensions view, where you can disable it yourself.
+
+This extension and `mcpp-community.mcpp-vscode` ("mcpp") are separate, and both are worth having installed together: `mcpp` handles building, toolchains and project operations, while this extension handles C++ module semantics and drives its own pinned clangd. mcpp is not a conflict: it has no language server, and its module grammar uses the same scopes as this extension's own.
 
 ## macOS Command Line Tools
 

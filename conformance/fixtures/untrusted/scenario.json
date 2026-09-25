@@ -10,7 +10,9 @@
       "kind": "status",
       "source": "inferred",
       "profile-kind": "semantic-kit",
-      "state": "degraded"
+      "state": "degraded",
+      "issue-code": "untrusted-workspace",
+      "issue-category": "environment"
     },
     {
       "id": "C2",

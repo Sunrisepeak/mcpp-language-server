@@ -23,7 +23,9 @@ mcpp run -p devtools -- uninstall --editor vscode|zed|clion|all   # 卸载
 | **mcpp** | 构建、工具链、项目操作 |
 | **C++ Modules**（本项目） | C++ 模块语义，驱动自己锁定版本的 clangd |
 
-**和其他 C++ 扩展一起用。** Microsoft 的 C/C++ 扩展和官方 clangd 扩展都想当同一批文件的语言服务端。mcppls 第一次运行时会提示一次，问要不要把它们在这个工作区里的语言功能关掉；这个提示由 `mcppls.detectConflicts` 控制。
+**和其他 C++ 扩展一起用。** Microsoft 的 C/C++ 扩展和官方 clangd 扩展都想当同一批文件的语言服务端。mcppls 第一次运行时会提示一次，问要不要把它们在这个工作区里的语言功能关掉；这个提示由 `mcppls.detectConflicts` 控制。之后任何时候都可以用 *Turn Off Other C++ Language Features* 在当前工作区或全局关掉它们，用 *Restore Other C++ Language Features* 恢复；C/C++ 扩展的调试器照常可用。之后又有冲突扩展启用时，会有一条提示说明。扩展没有办法禁用别的扩展：mcppls 只改它们自己的设置，而且只在你选择之后才改。
+
+**语法高亮。** `import`、`module`、`export` 和模块名有两层上色：扩展自带的语法文件（打开即生效，边输入边上色），以及服务端的语义 token（模块名的 token 类型是 `module`，主题默认按命名空间上色，也可以在 `editor.semanticTokenColorCustomizations` 里单独指定颜色）。VS Code 自带的 C++ 语法不给 `import` 上色。
 
 ## Claude Code
 
@@ -41,7 +43,7 @@ Zed 自带 C/C++ 的 clangd，两个都跑在同一个文件上，就成了两�
 
 ## Neovim
 
-[`editors/nvim/`](../../editors/nvim/README.md) 里的插件（Neovim 0.10 及以上）会找到 `mcppls`——PATH 上的，或者 `--install` 放在用户数据目录下的 payload——然后通过 Neovim 自带的 LSP 客户端，为 C 和 C++ buffer 启动它。把 `editors/nvim` 加进 runtimepath，调用 `require('mcppls').setup()` 即可；0.11 及以上也可以用 `vim.lsp.enable('mcppls')`。插件提供 `:McpplsStatus`、`:McpplsRestart`、`:McpplsReload` 三个命令和一个状态栏组件。不要再为 C/C++ 另外启动 clangd：如果有第二个 C++ 服务器挂到同一个 buffer 上，插件会提示一次。
+[`editors/nvim/`](../../editors/nvim/README.md) 里的插件（Neovim 0.10 及以上）会找到 `mcppls`——PATH 上的，或者 `--install` 放在用户数据目录下的 payload——然后通过 Neovim 自带的 LSP 客户端，为 C 和 C++ buffer 启动它。把 `editors/nvim` 加进 runtimepath，调用 `require('mcppls').setup()` 即可；0.11 及以上也可以用 `vim.lsp.enable('mcppls')`。插件提供 `:McpplsStatus`、`:McpplsRestart`、`:McpplsReload` 三个命令和一个状态栏组件。不要再为 C/C++ 另外启动 clangd：如果有第二个 C++ 服务器挂到同一个 buffer 上，插件会提示一次；设置 `disable_conflicting = true` 后插件会替你停掉它。模块关键字和模块名来自服务端的语义 token（`@lsp.type.keyword`、`@lsp.type.module`；`semantic_tokens_modules = false` 可关闭）。
 
 ## CLion
 

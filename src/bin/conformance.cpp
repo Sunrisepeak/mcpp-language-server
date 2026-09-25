@@ -25,10 +25,12 @@ import mcppls.platform.process;
 import mcppls.platform.task;
 import mcppls.lsp.jsonrpc;
 import mcppls.lsp.connection;
+import mcppls.orchestrator.tokens;
 
 namespace base = mcppls::base;
 namespace fs = mcppls::platform::fs;
 namespace lsp = mcppls::lsp;
+namespace tokens = mcppls::orchestrator::tokens;
 using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 
@@ -930,6 +932,7 @@ private:
     std::unique_ptr<McpClient> mcp_;                            // started by the first mcp check
     std::unique_ptr<McpClient> mcpDaemon_;                      // the first mcp check "via": "daemon"
     std::string mcpFailure_;
+    Json semanticTokensLegend_ = Json::object();                // initialize's capabilities.semanticTokensProvider.legend
 
     McpClient* mcp_client(bool daemon) {
         auto& kept = daemon ? mcpDaemon_ : mcp_;
@@ -953,9 +956,10 @@ public:
 
     Scenario(Client& client, const Options& options, std::vector<std::string> serverArguments, std::string workspace, std::chrono::seconds timeout,
              std::map<std::string, std::string> prepared, std::string cacheDirectory, bool expectWarm,
-             std::map<std::string, std::map<std::string, std::string>> moduleFilesBefore)
+             std::map<std::string, std::map<std::string, std::string>> moduleFilesBefore, Json semanticTokensLegend = Json::object())
         : client_ { client }, options_ { options }, serverArguments_ { std::move(serverArguments) }, workspace_ { std::move(workspace) }, timeout_ { timeout }, prepared_ { std::move(prepared) },
-          cacheDirectory_ { std::move(cacheDirectory) }, expectWarm_ { expectWarm }, moduleFilesBefore_ { std::move(moduleFilesBefore) } {}
+          cacheDirectory_ { std::move(cacheDirectory) }, expectWarm_ { expectWarm }, moduleFilesBefore_ { std::move(moduleFilesBefore) },
+          semanticTokensLegend_ ( std::move(semanticTokensLegend) ) {}
 
     std::string uri(std::string_view relative) const { return base::path_to_uri(base::join_path(workspace_, relative)); }
 
@@ -980,6 +984,44 @@ public:
         ++version;
         client_.notify("textDocument/didChange", Json { { "textDocument", Json { { "uri", uri(relative) }, { "version", version } } },
                                                         { "contentChanges", Json::array({ Json { { "text", text } } }) } });
+    }
+
+    // A `textDocument/semanticTokens/full` (or `/range`) result, decoded with the legend
+    // `initialize` gave, and the text of the token it names -- from `content`, which must be the
+    // buffer the request was answered against.
+    struct DecodedToken {
+        int line { 0 };
+        int startChar { 0 };
+        int length { 0 };
+        std::string type;
+        std::vector<std::string> modifiers;
+        std::string text;
+    };
+
+    std::vector<DecodedToken> decode_semantic_tokens(const Json& result, const std::string& content) const {
+        const Json types = semanticTokensLegend_.value("tokenTypes", Json::array());
+        const Json modifiers = semanticTokensLegend_.value("tokenModifiers", Json::array());
+        const auto lines = base::split_lines(content);
+        std::vector<DecodedToken> decoded;
+        for (const auto& token : tokens::decode(result)) {
+            DecodedToken entry;
+            entry.line = token.line;
+            entry.startChar = token.startChar;
+            entry.length = token.length;
+            entry.type = token.type < types.size() && types[token.type].is_string() ? types[token.type].get<std::string>() : std::string {};
+            for (std::size_t bit = 0; bit < modifiers.size(); ++bit) {
+                if ((token.modifiers & (1u << bit)) != 0 && modifiers[bit].is_string()) entry.modifiers.push_back(modifiers[bit].get<std::string>());
+            }
+            if (token.line >= 0 && static_cast<std::size_t>(token.line) < lines.size()) {
+                const std::string_view lineText { lines[static_cast<std::size_t>(token.line)] };
+                if (token.startChar >= 0 && static_cast<std::size_t>(token.startChar) <= lineText.size()) {
+                    const std::size_t available { lineText.size() - static_cast<std::size_t>(token.startChar) };
+                    entry.text = std::string { lineText.substr(static_cast<std::size_t>(token.startChar), std::min<std::size_t>(available, static_cast<std::size_t>(std::max(0, token.length)))) };
+                }
+            }
+            decoded.push_back(std::move(entry));
+        }
+        return decoded;
     }
 
     // Repeats a request until `accept` holds, because the engine may still be preparing modules.
@@ -1051,9 +1093,11 @@ public:
                 if (auto issueCode = check.find("issue-code"); issueCode != check.end()) {
                     const std::string wantedCommand { check.value("issue-command", std::string {}) };
                     const std::string wantedMessage { check.value("issue-message", std::string {}) };   // a part of the message
+                    const std::string wantedCategory { check.value("issue-category", std::string {}) };   // S3: code | engine | environment | project
                     matched = matched && std::ranges::any_of(snapshot.value("issues", Json::array()), [&](const Json& issue) {
                         if (issue.value("code", std::string {}) != issueCode->get<std::string>()) return false;
                         if (!wantedMessage.empty() && !issue.value("message", std::string {}).contains(wantedMessage)) return false;
+                        if (!wantedCategory.empty() && issue.value("category", std::string {}) != wantedCategory) return false;
                         return wantedCommand.empty() || issue.value("command", Json::object()).value("command", std::string {}) == wantedCommand;
                     });
                 }
@@ -1168,6 +1212,86 @@ public:
             if (value.is_discarded()) return { false, "the output is not JSON: " + result->output.substr(0, 200) };
             auto [held, detail] = expectations_hold(value, check.value("expect", Json::array()));
             return { held, held ? lsp::dump(value).substr(0, 160) : detail };
+        }
+        if (kind == "type-text") {
+            // import-hang plan §8: a person typing a line one key at a time. Line `line` of `file` takes each of
+            // `steps` in turn, `interval-ms` apart (the whole buffer is sent, as editors with full sync do); after each,
+            // `request` (default documentSymbol) must be answered within `answer-within` seconds. With `save`, each step
+            // is also written to disk and reported as saved and changed, as autosave does. The check fails when the
+            // status turned to any state of `states-never` meanwhile.
+            open(file);
+            const int line { check.value("line", 0) };
+            const std::chrono::milliseconds interval { check.value("interval-ms", 150) };
+            const std::string method { check.value("request", std::string { "textDocument/documentSymbol" }) };
+            const std::chrono::seconds answerWithin { check.value("answer-within", 5) };
+            const bool save { check.value("save", false) };
+            const auto startedAt = Clock::now();
+            const std::size_t timelineBefore { client_.statusTimeline.size() };
+            double worst { 0 };
+            for (const auto& step : check.value("steps", Json::array())) {
+                const std::string current { text_of(file) };
+                std::vector<std::string> lines;
+                for (const auto each : base::split_lines(current)) lines.emplace_back(each);
+                if (line < 0 || static_cast<std::size_t>(line) >= lines.size()) return { false, std::format("line {} is not in {}", line, file) };
+                lines[static_cast<std::size_t>(line)] = step.get<std::string>();
+                std::string text;
+                for (const auto& each : lines) text += each + "\n";
+                change(file, text);
+                if (save) {
+                    (void)fs::write_file_atomic(base::join_path(workspace_, file), text);
+                    client_.notify("textDocument/didSave", Json { { "textDocument", Json { { "uri", uri(file) } } } });
+                    client_.notify("workspace/didChangeWatchedFiles", Json { { "changes", Json::array({ Json { { "uri", uri(file) }, { "type", 2 } } }) } });
+                }
+                const auto asked = Clock::now();
+                Json params { { "textDocument", Json { { "uri", uri(file) } } } };
+                if (method != "textDocument/documentSymbol" && method != "textDocument/semanticTokens/full") {
+                    params["position"] = Json { { "line", line }, { "character", 0 } };
+                }
+                if (!client_.request(method, params, answerWithin)) {
+                    return { false, std::format("{} was not answered within {} s after the line became '{}'", method, answerWithin.count(), step.get<std::string>()) };
+                }
+                worst = std::max(worst, std::chrono::duration<double>(Clock::now() - asked).count());
+                client_.drain(interval);
+            }
+            for (std::size_t i { timelineBefore }; i < client_.statusTimeline.size(); ++i) {
+                const auto& [at, state] = client_.statusTimeline[i];
+                for (const auto& never : check.value("states-never", Json::array())) {
+                    if (state == never.get<std::string>()) {
+                        return { false, std::format("the status turned {} {:.1f} s into the typing", state, std::chrono::duration<double>(at - startedAt).count()) };
+                    }
+                }
+            }
+            return { true, std::format("{} steps, slowest answer {:.2f} s", check.value("steps", Json::array()).size(), worst) };
+        }
+        if (kind == "clangd-check") {
+            // import-hang plan §9, a workaround's canary: the runner's own clangd (--clangd, else the payload's) is run with
+            // --check on `file`; `expect` is "hangs" (it has not finished after `seconds`, default 10) or "finishes". A canary
+            // expects the defect its workaround exists for; once an update of clangd fixes it, the check fails with `says`.
+            const std::string clangd { !options_.clangd.empty() ? options_.clangd
+                                                                : base::join_path(options_.payload, "clangd/bin/clangd") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+            if (!fs::is_regular_file(clangd)) return { false, "no clangd: pass --clangd or --payload" };
+            mcppls::platform::SpawnOptions spawn;
+            spawn.program = clangd;
+            spawn.arguments = { std::format("--check={}", base::join_path(workspace_, file)), "--check-tidy-time=0" };
+            spawn.workDirectory = workspace_;
+            const std::chrono::seconds limit { check.value("seconds", 10) };
+            auto running = std::async(std::launch::async, [spawn, limit]() mutable { return mcppls::platform::run(std::move(spawn), limit); });
+            while (running.wait_for(std::chrono::milliseconds { 200 }) != std::future_status::ready) client_.drain(std::chrono::milliseconds { 0 });
+            auto result = running.get();
+            if (!result) return { false, result.error().message };
+            // The defect shows as a hang on Linux and macOS, and as a crash on Windows (0x80000003): either is clangd not
+            // finishing. A normal exit, with or without errors, is --check's 0 to 3.
+            const bool crashed { !result->timedOut && (result->exitCode < 0 || result->exitCode > 125) };
+            const bool hung { result->timedOut || crashed };
+            const std::string expected { check.value("expect", std::string { "hangs" }) };
+            const std::string says { check.value("says", std::string {}) };
+            if (expected == "hangs" && !hung) {
+                return { false, std::format("{} (clangd exited {} in under {} s: {})", says.empty() ? std::string { "clangd finished; the defect is gone" } : says,
+                                            result->exitCode, limit.count(), (result->output + result->error).substr(0, 200)) };
+            }
+            if (expected == "finishes" && hung) return { false, std::format("clangd did not finish {} in {} s", file, limit.count()) };
+            if (crashed) return { true, std::format("clangd crashed on {} (exit {}), as expected", file, result->exitCode) };
+            return { true, hung ? std::format("clangd has not finished {} after {} s, as expected", file, limit.count()) : "clangd finished" };
         }
         if (kind == "responds") {
             // An answer of any kind, an empty one included, within the check's time: a file the engine
@@ -1403,6 +1527,40 @@ public:
                     return std::ranges::any_of(value, [&](const Json& symbol) { return symbol.value("name", std::string {}) == expected; });
                 });
             return { ok, lsp::dump(result).substr(0, 160) };
+        }
+        if (kind == "semantic-tokens") {
+            // design doc 2026-09-25 K/§7: every entry of "expect" ({"line", "text", "type",
+            // "modifiers"?}) must be one of the decoded tokens; "modifiers" (a list) is optional.
+            open(file);
+            const std::string content { text_of(file) };
+            const Json expected = check.value("expect", Json::array());
+            const auto range = check.find("range");
+            const std::string method { range != check.end() ? std::string { "textDocument/semanticTokens/range" } : std::string { "textDocument/semanticTokens/full" } };
+            auto [ok, result] = retry(method,
+                [&] {
+                    Json params { { "textDocument", Json { { "uri", uri(file) } } } };
+                    if (range != check.end()) params["range"] = *range;
+                    return params;
+                },
+                [&](const Json& value) {
+                    const auto decoded = decode_semantic_tokens(value, content);
+                    return std::ranges::all_of(expected, [&](const Json& want) {
+                        const int line { want.value("line", -1) };
+                        const std::string text { want.value("text", std::string {}) };
+                        const std::string type { want.value("type", std::string {}) };
+                        std::vector<std::string> modifiers;
+                        for (const auto& modifier : want.value("modifiers", Json::array())) modifiers.push_back(modifier.get<std::string>());
+                        return std::ranges::any_of(decoded, [&](const DecodedToken& token) {
+                            return token.line == line && token.text == text && token.type == type
+                                && std::ranges::all_of(modifiers, [&](const std::string& modifier) { return std::ranges::find(token.modifiers, modifier) != token.modifiers.end(); });
+                        });
+                    });
+                });
+            std::string detail;
+            for (const auto& token : decode_semantic_tokens(result, content)) {
+                detail += std::format("[{}:{} '{}' {} {}] ", token.line, token.startChar, token.text, token.type, lsp::dump(token.modifiers));
+            }
+            return { ok, detail.substr(0, std::min<std::size_t>(detail.size(), 200)) };
         }
         if (kind == "report") {
             // robustness design O3: cxxModules/report, held to "expect" like a tool's result, retried within the check's time
@@ -1701,6 +1859,12 @@ int run(Options options) {
         }
         break;
     }
+    // A scenario's own "initialization-options" object, merged on top of whatever the client
+    // profile above set -- design doc 2026-09-25 K/§7's conformance cases ask for
+    // {"semanticTokens": {"moduleType": true}} this way, without a client profile of their own.
+    if (const auto extra = scenario.find("initialization-options"); extra != scenario.end() && extra->is_object()) {
+        for (auto entry = extra->begin(); entry != extra->end(); ++entry) initializationOptions[entry.key()] = entry.value();
+    }
     // usable plan W9.1: a fixture with several roots names them, relative to the fixture's own
     // root, in "folders"; a check names a file or a folder the same way, relative to that root,
     // regardless of how many workspace folders the fixture actually declares.
@@ -1732,7 +1896,13 @@ int run(Options options) {
         plainLike ? " (plain client)" : "");
     client.notify("initialized", Json::object());
 
-    Scenario runner { client, options, serverArguments, workspace, options.timeout, std::move(prepared), cacheDirectory, options.expectWarm, std::move(moduleFilesBefore) };
+    // design doc 2026-09-25 K/§7: the legend this server just advertised, so a "semantic-tokens"
+    // check can decode a result's type/modifier indices back into names.
+    const Json semanticTokensLegend = lsp::find_path(*initialized, { "capabilities", "semanticTokensProvider", "legend" }) != nullptr
+                                          ? (*initialized)["capabilities"]["semanticTokensProvider"]["legend"]
+                                          : Json::object();
+    Scenario runner { client, options, serverArguments, workspace, options.timeout, std::move(prepared), cacheDirectory, options.expectWarm,
+                      std::move(moduleFilesBefore), semanticTokensLegend };
     int failures { advertised ? 0 : 1 };
     // "initialize-within": seconds. The handshake is answered at all, and in time (0.0.3 plan B1).
     if (const auto within = scenario.find("initialize-within"); within != scenario.end() && within->is_number()) {
@@ -1752,6 +1922,16 @@ int run(Options options) {
         if (plainLike && check.value("kind", std::string {}) == "status") {
             say("SKIP {} status (a plain client asks for no cxxModules/status)", id);
             continue;
+        }
+        // `only-on`: the operating systems a check holds on ("linux", "macos", "windows"); a defect that shows
+        // differently elsewhere (a crash instead of a spin) is checked by its own entry there.
+        if (const auto onlyOn = check.find("only-on"); onlyOn != check.end() && onlyOn->is_array()) {
+            const std::string_view here { mcppls::os::FAMILY == mcppls::os::Family::windows ? "windows"
+                                          : mcppls::os::FAMILY == mcppls::os::Family::macos ? "macos" : "linux" };
+            if (std::ranges::none_of(*onlyOn, [&](const Json& os) { return os.is_string() && os.get<std::string>() == here; })) {
+                say("SKIP {} {} (only on {})", id, check.value("kind", std::string {}), lsp::dump(*onlyOn));
+                continue;
+            }
         }
         if (const auto reason = client.unusable(); !reason.empty()) {
             if (!optional) ++failures;

@@ -36,6 +36,7 @@ import mcppls.orchestrator.client;
 import mcppls.orchestrator.documents;
 import mcppls.orchestrator.instance;
 import mcppls.orchestrator.routing;
+import mcppls.orchestrator.tokens;
 
 namespace mcppls::orchestrator {
 
@@ -63,6 +64,10 @@ constexpr std::array<std::string_view, 7> WATCH_POLL_SKIP_DIRECTORIES { "target"
 
 // Changes to cxxModules/status that keep its state are sent at most this often (S3 4).
 constexpr std::chrono::milliseconds STATUS_COALESCE { 250 };
+// import-hang plan §6: a change from a working state to degraded goes out only once it has lasted this
+// long, so a condition that passes by itself (a file set aside and handed back as the user types) never
+// reaches the editor. error goes out at once.
+constexpr std::chrono::milliseconds DEGRADED_HOLD { 3000 };
 
 // The module structure of a scan, for deciding whether an edit changes the engine database.
 std::string structure_of(const project::ScanResult& scan) {
@@ -167,6 +172,13 @@ struct Workspace::Impl final : engine::Host {
     engine::Engine* moduleEngine { nullptr };
     Json coreCapabilities = Json::object();
     bool settledReported { false };
+    // Semantic tokens (design doc 2026-09-25 K/§7): rebuilt whenever the core engine settles (even
+    // with none), so a request's core-engine tokens are always remapped by the same legend
+    // `merge_capabilities` advertised for this same `coreCapabilities`.
+    tokens::Legend tokensLegend { tokens::build_legend(Json::object()) };
+    bool clientSupportsTokensRefresh { false };
+    std::optional<Clock::time_point> tokensRefreshAt;   // coalesced: at most one refresh per ~500ms
+    std::uint64_t tokensRefreshes { 0 };                // for the refresh requests' ids
     // Diagnostics published by engines other than mcppls's own, per engine and client URI.
     std::map<std::string, std::map<std::string, Json, std::less<>>, std::less<>> engineDiagnostics;
     std::map<std::string, std::string, std::less<>> publishedDiagnostics;
@@ -231,6 +243,10 @@ struct Workspace::Impl final : engine::Host {
     // Timers.
     std::optional<Clock::time_point> reloadAt;
     std::optional<Clock::time_point> replanAt;
+    // import-hang plan §5: when each open file (path key) was last changed in the editor. An import that nothing
+    // provides in a file changed within EDITING_WINDOW is most likely still being typed.
+    std::map<std::string, Clock::time_point, std::less<>> editedAt;
+    static constexpr std::chrono::seconds EDITING_WINDOW { 5 };
     std::optional<Clock::time_point> loadGiveUpAt;       // the producer has not answered: take what there is (design 4.1)
     std::optional<Clock::time_point> lastResortAt;       // nothing at all came: serve without a database rather than nothing
     std::optional<Clock::time_point> sdkCheckAt;
@@ -258,6 +274,8 @@ struct Workspace::Impl final : engine::Host {
     State lastSentState { State::starting };
     std::optional<Clock::time_point> lastStatusSentAt;
     std::optional<Clock::time_point> statusFlushAt;   // a coalesced change goes out then
+    std::optional<Clock::time_point> degradedSince;   // when compute_state() turned degraded, while that is held back
+    State lastReportedState { State::starting };      // the state last let through DEGRADED_HOLD
 
     Impl(std::string root_, std::string key_, SessionOptions options_, engine::PayloadPaths payload_, bool payloadCorrupt_,
          bool kitEnabled_, std::string compilerOverride_, std::shared_ptr<EventChannel> events_, ClientSink& client_)
@@ -323,6 +341,10 @@ struct Workspace::Impl final : engine::Host {
     void engine_settled(std::string_view engineId, const Json& serverCapabilities) override {
         if (coreEngine != nullptr && engineId != coreEngine->id()) return;
         if (coreEngine != nullptr) coreCapabilities = serverCapabilities;
+        // Rebuilt from the very capabilities merge_capabilities is about to see (or already saw,
+        // for the first root), so a request's core-engine tokens are always remapped by the same
+        // legend the client was told about.
+        tokensLegend = tokens::build_legend(coreCapabilities);
         if (settledReported || !onEngineSettled) return;
         settledReported = true;
         auto callback = std::move(onEngineSettled);
@@ -333,6 +355,15 @@ struct Workspace::Impl final : engine::Host {
     void status_changed() override { update_status(); }
     void request_replan() override { schedule_replan(); }
     void record_event(std::string_view kind, Json detail) override { journal.add(kind, std::move(detail)); }
+
+    // Semantic tokens (design doc 2026-09-25 K/§7): coalesced to at most one
+    // workspace/semanticTokens/refresh every ~500ms, and never before this root's own initialize
+    // was answered (the same gate update_status uses).
+    void semantic_tokens_changed() override {
+        if (!clientSupportsTokensRefresh || !initializeAnswered) return;
+        if (tokensRefreshAt) return;
+        tokensRefreshAt = Clock::now() + std::chrono::milliseconds { 500 };
+    }
 
     std::vector<engine::DocumentView> documents() const override {
         std::vector<engine::DocumentView> views;
@@ -419,6 +450,7 @@ struct Workspace::Impl final : engine::Host {
         consider(sdkCheckAt);
         consider(statusFlushAt);
         consider(leaseRenewAt);
+        consider(tokensRefreshAt);
         for (const auto& engine : engines) consider(engine->next_deadline());
         return deadline;
     }
@@ -482,7 +514,15 @@ struct Workspace::Impl final : engine::Host {
         job.clientId = message["id"];
         job.method = message.value("method", std::string {});
         job.message = message;
-        job.params = message.contains("params") ? message["params"] : Json::object();
+        // Semantic tokens (design doc 2026-09-25 K/§7): this server advertises `full` with no
+        // `delta` (contract T0), so it never hands out a resultId a delta request could build on.
+        // A client that sends one anyway is answered like `full`, which LSP allows.
+        if (job.method == "textDocument/semanticTokens/full/delta") {
+            job.method = "textDocument/semanticTokens/full";
+            job.message["method"] = job.method;
+            if (job.message.contains("params") && job.message["params"].is_object()) job.message["params"].erase("previousResultId");
+        }
+        job.params = job.message.contains("params") ? job.message["params"] : Json::object();
         const std::string uri { uri_of_params(job.params) };
         job.path = uri.empty() ? std::string {} : path_of_uri(uri);
         const Document* document { uri.empty() ? nullptr : documents_.find(uri) };
@@ -495,9 +535,22 @@ struct Workspace::Impl final : engine::Host {
         if (!selection.mergers.empty()) {
             job.merging = true;
             job.awaiting = selection.mergers.size();
+            // Semantic tokens: the core engine's own answer arrives in its own legend's indices;
+            // remapped into this server's legend right here, once, so routing::merge_results (and
+            // everything downstream) only ever sees the server's own index space (routing itself
+            // stays a pure function of what several engines already answered).
+            const bool remapCoreTokens { coreEngine != nullptr
+                                        && (job.method == "textDocument/semanticTokens/full" || job.method == "textDocument/semanticTokens/range") };
             for (engine::Engine* merger : selection.mergers) {
                 const std::string engineId { merger->id() };
-                merger->request(job.view, job.message, [this, jobId, engineId](engine::Answer answer) { merge_answer(jobId, engineId, std::move(answer)); });
+                engine::Reply reply { [this, jobId, engineId](engine::Answer answer) { merge_answer(jobId, engineId, std::move(answer)); } };
+                if (remapCoreTokens && engineId == coreEngine->id()) {
+                    reply = [this, jobId, engineId](engine::Answer answer) {
+                        if (answer.kind == engine::Answer::Kind::result) answer.value = tokens::remap_core_tokens(answer.value, tokensLegend);
+                        merge_answer(jobId, engineId, std::move(answer));
+                    };
+                }
+                merger->request(job.view, job.message, std::move(reply));
                 if (!jobs.contains(jobId)) return;
             }
             return;
@@ -1033,8 +1086,22 @@ struct Workspace::Impl final : engine::Host {
             if (!document->path.empty() && project::is_cxx_source_name(document->path) && base::is_within(document->path, root)) openSources.insert(document->path);
         }
         input.openSources.assign(openSources.begin(), openSources.end());
+        const auto now = Clock::now();
+        std::optional<Clock::time_point> lastEdit;
+        for (const Document* document : documents_.all()) {
+            if (document->path.empty()) continue;
+            const auto edited = editedAt.find(base::path_key(document->path));
+            if (edited == editedAt.end() || now - edited->second >= EDITING_WINDOW) continue;
+            input.editingSources.push_back(document->path);
+            if (!lastEdit || edited->second > *lastEdit) lastEdit = edited->second;
+        }
         if (coreEngine != nullptr) coreEngine->configure_plan(input);
         normalize::EnginePlan newPlan { normalize::plan_engine(input) };
+        // A stand-in held back for a file being edited is planned once the file has been quiet for EDITING_WINDOW.
+        if (newPlan.standInsDeferred && lastEdit) {
+            const auto quiet = *lastEdit + EDITING_WINDOW + std::chrono::milliseconds { 100 };
+            if (!replanAt || quiet < *replanAt) replanAt = quiet;
+        }
         plan = std::move(newPlan);
         openedOutsideModel = { plan.openSources.begin(), plan.openSources.end() };
         plannedFiles.clear();
@@ -1114,10 +1181,14 @@ struct Workspace::Impl final : engine::Host {
         if (core && core->preparing) return State::preparing;
         // usable plan W5.4: degraded regardless of whether any open file happens to need std yet.
         if (kit && spec::requires_macos_sdk(*kit) && macosSdk.empty()) return State::degraded;
+        // import-hang plan §6: a problem in the user's own code is told as a diagnostic where it is, never as a
+        // server that lost a feature; only the other categories make the state degraded.
+        const auto notCode = [](const auto& issue) { return issue.category != "code"; };
         bool engineIssues { false };
-        for (const auto& engine : engines) engineIssues = engineIssues || !engine->status().issues.empty();
+        for (const auto& engine : engines) engineIssues = engineIssues || std::ranges::any_of(engine->status().issues, notCode);
+        const bool planIssues { std::ranges::any_of(plan.issues, notCode) };
         // S2 5: a kept model the producer could not confirm may be stale: said, not hidden in a ready state.
-        if (engineIssues || !model->issues.empty() || !plan.issues.empty() || !staleModelReason.empty()) return State::degraded;
+        if (engineIssues || !model->issues.empty() || planIssues || !staleModelReason.empty()) return State::degraded;
         return State::ready;
     }
 
@@ -1223,6 +1294,16 @@ struct Workspace::Impl final : engine::Host {
     void update_status() {
         if (!initializeAnswered) return;   // see the field's own comment
         const State state { compute_state() };
+        if (state == State::degraded && lastReportedState != State::degraded) {
+            const auto now = Clock::now();
+            if (!degradedSince) degradedSince = now;
+            if (now < *degradedSince + DEGRADED_HOLD) {
+                if (!statusFlushAt || *degradedSince + DEGRADED_HOLD < *statusFlushAt) statusFlushAt = *degradedSince + DEGRADED_HOLD;
+                return;
+            }
+        }
+        if (state != State::degraded) degradedSince.reset();
+        lastReportedState = state;
         // Before the gate below, not after it. `clientSupportsStatus` means the client understands
         // this repository's own `cxxModules/status` — which is its VS Code extension and nothing
         // else. Every client this progress exists for (Zed, nvim, Helix, …) fails that test, so
@@ -1231,14 +1312,15 @@ struct Workspace::Impl final : engine::Host {
         if (state == State::ready || state == State::degraded) say_one_engine_per_file_once();
         if (!clientSupportsStatus) return;
         Json issues = Json::array();
-        auto add = [&](std::string_view code, std::string_view message, std::string_view command, std::string_view title = "Fix") {
+        auto add = [&](std::string_view code, std::string_view message, std::string_view command, std::string_view title = "Fix",
+                       std::string_view category = "project") {
             if (issues.size() >= 20) return;
-            Json issue { { "code", std::string { code } }, { "message", std::string { message } } };
+            Json issue { { "code", std::string { code } }, { "message", std::string { message } }, { "category", std::string { category } } };
             if (!command.empty()) issue["command"] = Json { { "title", std::string { title } }, { "command", std::string { command } } };
             issues.push_back(std::move(issue));
         };
         for (const auto& engine : engines) {
-            for (const auto& issue : engine->status().issues) add(issue.code, issue.message, issue.command);
+            for (const auto& issue : engine->status().issues) add(issue.code, issue.message, issue.command, "Fix", issue.category);
         }
         if (!staleModelReason.empty()) {
             // Decision 8: no version table, no comparison --- one sentence that points at the one
@@ -1254,7 +1336,7 @@ struct Workspace::Impl final : engine::Host {
                 std::format("the build description needs a download: {}. Run the build tool in your terminal, "
                             "or turn on mcppls.buildTool = online. It may also be an older build tool: updating it is worth trying",
                             needsDownload),
-                "mcppls.runBuildToolInTerminal", "Run in Terminal");
+                "mcppls.runBuildToolInTerminal", "Run in Terminal", "environment");
         }
         if (producerElapsed) {
             add("producer-slow", std::format("reading the build description ({}, {} s)",
@@ -1272,11 +1354,12 @@ struct Workspace::Impl final : engine::Host {
         for (const auto& issue : plan.issues) {
             // sdk-missing is reported once below, workspace-wide, with the fix command (W5.4).
             if (issue.code == "sdk-missing") continue;
-            add(issue.code, std::format("{} ({})", issue.message, base::file_name(issue.file)), "");
+            add(issue.code, std::format("{} ({})", issue.message, base::file_name(issue.file)), "", "Fix", issue.category);
         }
-        if (!options.trusted) add("untrusted-workspace", "the workspace is not trusted: build tools and compilers are not run", "");
+        if (!options.trusted) add("untrusted-workspace", "the workspace is not trusted: build tools and compilers are not run", "", "Fix", "environment");
         if (kit && spec::requires_macos_sdk(*kit) && macosSdk.empty()) {
-            add("sdk-missing", "the macOS SDK was not found; install the Command Line Tools", "mcppls.installCommandLineTools", "Install Command Line Tools");
+            add("sdk-missing", "the macOS SDK was not found; install the Command Line Tools", "mcppls.installCommandLineTools", "Install Command Line Tools",
+                "environment");
         }
         Json notices = Json::array();
         if (model) {
@@ -1349,6 +1432,12 @@ struct Workspace::Impl final : engine::Host {
             statusFlushAt.reset();
             update_status();
         }
+        if (tokensRefreshAt && *tokensRefreshAt <= now) {
+            tokensRefreshAt.reset();
+            // A request, not a notification (LSP 3.16): its answer carries nothing, and an id the session cannot
+            // parse as an engine's is dropped, like the watcher registrations' answers.
+            client.send(lsp::make_request(std::format("w:{}:t{}", key, ++tokensRefreshes), lsp::method::WORKSPACE_SEMANTIC_TOKENS_REFRESH, nullptr));
+        }
         if (sdkCheckAt && *sdkCheckAt <= now) {
             sdkCheckAt.reset();
             if (kit && spec::requires_macos_sdk(*kit) && macosSdk.empty()) {
@@ -1404,6 +1493,11 @@ bool Workspace::owns_path(std::string_view path) const { return !path.empty() &&
 void Workspace::start(Json clientParams, bool clientSupportsStatus, bool usePolling, std::function<void(Json)> onEngineSettled) {
     impl_->clientParams = std::move(clientParams);
     impl_->clientSupportsStatus = clientSupportsStatus;
+    // Semantic tokens (design doc 2026-09-25 K/§7): workspace.semanticTokens.refreshSupport.
+    if (const Json* supported = lsp::find_path(impl_->clientParams, { "capabilities", "workspace", "semanticTokens", "refreshSupport" });
+        supported != nullptr && supported->is_boolean()) {
+        impl_->clientSupportsTokensRefresh = supported->get<bool>();
+    }
     impl_->onEngineSettled = std::move(onEngineSettled);
     impl_->dynamicWatch = !usePolling;
     if (usePolling) impl_->start_watch_polling();
@@ -1474,6 +1568,7 @@ void Workspace::did_change(const Json& message, const Json& params) {
     ++impl_->snapshotGeneration;
     const Document* document { impl_->documents_.find(uri) };
     if (!document->path.empty()) {
+        impl_->editedAt[base::path_key(document->path)] = Clock::now();
         impl_->index.update(document->path, document->text);
         impl_->note_structure_change(document->path);
     }
@@ -1487,6 +1582,7 @@ void Workspace::did_close(const Json& message, const Json& params) {
     if (found == nullptr) return;
     const Document document { *found };
     impl_->documents_.close(uri);
+    if (!document.path.empty()) impl_->editedAt.erase(base::path_key(document.path));
     ++impl_->snapshotGeneration;
     if (!document.path.empty()) {
         if (auto text = platform::fs::read_file(document.path)) impl_->index.update(document.path, *text);

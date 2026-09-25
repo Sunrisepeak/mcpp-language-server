@@ -4,6 +4,7 @@ import std;
 import nlohmann.json;
 import mcppls.os;
 import mcppls.base.error;
+import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.base.version;
@@ -22,6 +23,16 @@ import mcppls.normalize.semantic;
 namespace mcppls::normalize {
 
 namespace {
+
+// A build tool's scan of a file saved mid-edit can name `hello.` as an import (import-hang plan §5): no module
+// has such a name, and planning a stand-in for it only churns the engine database.
+void drop_invalid_module_names(std::vector<std::string>& names, std::string_view source) {
+    std::erase_if(names, [&](const std::string& name) {
+        if (project::is_module_name(name)) return false;
+        base::log::debug("ignoring import '{}' of {}: not a module name", name, source);
+        return true;
+    });
+}
 
 struct Candidate {
     const spec::Set* set { nullptr };
@@ -186,8 +197,14 @@ EnginePlan plan_engine(const PlanInput& input) {
             } else {
                 candidate.provided = project::provided_name(scan());
             }
+            // The same mid-edit scan can name `export module hello.`: no module has that name either.
+            if (!candidate.provided.empty() && !project::is_module_name(candidate.provided)) {
+                base::log::debug("ignoring module '{}' provided by {}: not a module name", candidate.provided, candidate.source);
+                candidate.provided.clear();
+            }
             candidate.required = unit.requiredModules;
             if (candidate.required.empty()) candidate.required = project::required_names(scan());
+            drop_invalid_module_names(candidate.required, candidate.source);
             if (!candidate.provided.empty()) {
                 candidate.module = candidate.provided.substr(0, candidate.provided.find(':'));
             } else if (candidate.role == spec::Role::module_implementation && scan().declaration) {
@@ -230,8 +247,10 @@ EnginePlan plan_engine(const PlanInput& input) {
                 }
                 candidate.driver = candidate.c ? clangCDriver : clangDriver;
             } else {
-                plan.issues.push_back(PlanIssue { "toolchain-not-found",
-                    std::format("no usable compiler or semantic kit for {}", base::file_name(candidate.source)), candidate.source, {} });
+                PlanIssue issue { "toolchain-not-found", std::format("no usable compiler or semantic kit for {}", base::file_name(candidate.source)),
+                                  candidate.source, {} };
+                issue.category = "environment";
+                plan.issues.push_back(std::move(issue));
                 continue;
             }
             candidates.push_back(std::move(candidate));
@@ -272,6 +291,7 @@ EnginePlan plan_engine(const PlanInput& input) {
         candidate.role = project::role_of(scanned);
         candidate.provided = project::provided_name(scanned);
         candidate.required = project::required_names(scanned);
+        drop_invalid_module_names(candidate.required, candidate.source);
         candidate.module = scanned.declaration ? scanned.declaration->module : std::string {};
         candidate.arguments = without_module_mode(std::move(candidate.arguments));
         if (spec::is_importable(candidate.role)) {
@@ -321,6 +341,9 @@ EnginePlan plan_engine(const PlanInput& input) {
     //    nothing usable provides gets an empty unit (step 5b), every import resolves and no unit leaves;
     //    without one, the providers that cannot be built leave and every other unit stays.
     const bool standIns { !input.stubDirectory.empty() };
+    const auto editing = [&](std::string_view source) {
+        return std::ranges::any_of(input.editingSources, [&](const std::string& path) { return base::same_path(path, source); });
+    };
     std::set<std::string, std::less<>> stubbed;              // modules that get a stand-in
     std::set<std::string, std::less<>> unusableProviders;    // modules whose planned providers clangd cannot find
     std::vector<bool> excluded(candidates.size(), false);
@@ -343,22 +366,30 @@ EnginePlan plan_engine(const PlanInput& input) {
             if (sdkBlocksStd && candidates[i].usesKit && is_std_module(name)) {
                 excluded[i] = true;
                 if (reported.insert("sdk-missing\n" + name).second) {
-                    plan.issues.push_back(PlanIssue { "sdk-missing",
-                        "the macOS SDK was not found; files that import the standard library cannot be built", candidates[i].source, name });
+                    PlanIssue issue { "sdk-missing", "the macOS SDK was not found; files that import the standard library cannot be built", candidates[i].source, name };
+                    issue.category = "environment";
+                    plan.issues.push_back(std::move(issue));
                 }
                 continue;
             }
             const bool provider { spec::is_importable(candidates[i].role) };
             if (const auto failed = input.unresolvedModules.find(name); failed != input.unresolvedModules.end()) {
-                if (standIns) {
+                // import-hang plan §5: a name nothing provides, imported by a file being edited, is most likely still being
+                // typed: no stand-in until the file is quiet. A unit that provides a module gets one at once, since building
+                // it with an import it cannot resolve is what stalls clangd.
+                const bool deferred { standIns && !provider && !providers.contains(name) && editing(candidates[i].source) };
+                if (deferred) {
+                    plan.standInsDeferred = true;
+                } else if (standIns) {
                     stubbed.insert(name);
                     unusableProviders.insert(name);
                 } else if (provider) {
                     excluded[i] = true;
                 }
                 if (reported.insert(candidates[i].source + "\n" + name).second) {
-                    plan.issues.push_back(PlanIssue { "module-build-failed", std::format("module {} could not be built: {}", name, failed->second),
-                                                      candidates[i].source, name });
+                    PlanIssue issue { "module-build-failed", std::format("module {} could not be built: {}", name, failed->second), candidates[i].source, name };
+                    issue.category = "code";
+                    plan.issues.push_back(std::move(issue));
                 }
                 continue;
             }
@@ -370,21 +401,27 @@ EnginePlan plan_engine(const PlanInput& input) {
                 resolved = resolution.from == spec::ResolvedFrom::module_metadata;
             }
             if (resolved) continue;
-            // A provider with an import that cannot resolve cannot be built, and building it is what deadlocks.
-            if (standIns) stubbed.insert(name);
-            else if (input.excludeUnresolvedImports && provider) excluded[i] = true;
+            // A provider with an import that cannot resolve cannot be built, and building it is what deadlocks. A file
+            // being edited waits for its stand-in until it is quiet (import-hang plan §5).
+            const bool deferred { standIns && !provider && editing(candidates[i].source) };
+            if (deferred) plan.standInsDeferred = true;
+            const bool standIn { standIns && !deferred };
+            if (standIn) stubbed.insert(name);
+            else if (!standIns && input.excludeUnresolvedImports && provider) excluded[i] = true;
             if (reported.insert(candidates[i].source + "\n" + name).second) {
                 // real-project plan RP2.3: a stand-in is the last resort, tried only after the project layer
                 // already looked for the module's real generated source (mcppls.project.generated)
                 // and did not find it; the issue says so, since "cannot be resolved" alone reads like
                 // a typo in the import rather than a dependency that was never built.
-                plan.issues.push_back(PlanIssue { "unresolved-module",
-                    standIns ? std::format("module {} cannot be resolved; an empty stand-in is used so its importers still build -- "
-                                           "if it is generated by a dependency's build, upgrade mcpp to {} or newer, or build the "
-                                           "project once so the real file exists",
-                                           name, base::MINIMUM_MCPP_VERSION)
-                             : std::format("module {} cannot be resolved", name),
-                    candidates[i].source, name });
+                PlanIssue issue { "unresolved-module",
+                    standIn ? std::format("module {} cannot be resolved; an empty stand-in is used so its importers still build -- "
+                                          "if it is generated by a dependency's build, upgrade mcpp to {} or newer, or build the "
+                                          "project once so the real file exists",
+                                          name, base::MINIMUM_MCPP_VERSION)
+                            : std::format("module {} cannot be resolved: nothing the project builds provides it", name),
+                    candidates[i].source, name };
+                issue.category = "code";
+                plan.issues.push_back(std::move(issue));
             }
         }
     }

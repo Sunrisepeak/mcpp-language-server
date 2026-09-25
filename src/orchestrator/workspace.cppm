@@ -48,6 +48,13 @@ struct SessionOptions {
     std::chrono::seconds producerTimeout { 0 };
     bool verboseEngineLog { false };
     std::chrono::milliseconds requestTimeout { std::chrono::seconds { 60 } };
+    // Registered workarounds turned off (import-hang plan §9): to see whether one is still needed.
+    std::vector<std::string> disabledWorkarounds;
+    // initializationOptions.semanticTokens (design doc 2026-09-25 K/§7, contract T0): native
+    // module-syntax tokens are on by default; the custom `module` type and `partition` modifier
+    // only for a client that says it knows them.
+    bool semanticTokensModules { true };
+    bool semanticTokensModuleType { false };
     // This program, to run `mcppls review` for an editor's review command (overall design 7.7).
     std::string serverExecutable;
     // Given by the composition root; a test can substitute engines that start no process.

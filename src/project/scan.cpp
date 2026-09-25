@@ -233,7 +233,98 @@ void skip_attributes(Lexer& lexer, std::optional<Token>& token) {
     }
 }
 
+// module-name, read leniently: whatever complete identifiers were read before the name broke off
+// (a trailing dot, a token that is not an identifier, the end of the file) -- and never across a
+// physical line, even if the raw token stream would otherwise happily continue past a newline (as
+// scan_source's own parse_name does; that is fine there, since an incomplete name there is simply
+// not recorded, but here it would make a token that spans two lines, which LSP does not allow).
+// Advances `token` to wherever reading stopped, so the caller's own scan can go on from there.
+std::optional<std::pair<std::size_t, std::size_t>> read_dotted_lenient(std::string_view text, Lexer& lexer, std::optional<Token>& token) {
+    if (!token || token->kind != TokenKind::identifier) return std::nullopt;
+    const std::size_t begin { token->offset };
+    const std::size_t lineEnd { [&] {
+        const auto newline = text.find('\n', begin);
+        return newline == std::string_view::npos ? text.size() : newline;
+    }() };
+    std::size_t end { token->offset + token->text.size() };
+    token = lexer.next(false);
+    while (token && token->kind == TokenKind::punctuation && token->text == "." && token->offset <= lineEnd) {
+        std::optional<Token> afterDot { lexer.next(false) };
+        if (!afterDot || afterDot->kind != TokenKind::identifier || afterDot->offset > lineEnd) {
+            token = afterDot;
+            break;
+        }
+        end = afterDot->offset + afterDot->text.size();
+        token = lexer.next(false);
+    }
+    return std::make_pair(begin, end);
+}
+
 } // namespace
+
+std::vector<SyntaxToken> scan_syntax_tokens(std::string_view text) {
+    std::vector<SyntaxToken> tokens;
+    Lexer lexer { text };
+    int braceDepth { 0 };
+    std::optional<Token> token { lexer.next(false) };
+    const auto push = [&](SyntaxTokenKind kind, std::size_t begin, std::size_t end, bool isDeclaration = false) {
+        if (end <= begin) return;
+        tokens.push_back(SyntaxToken { kind, base::Range { base::position_at(text, begin), base::position_at(text, end) }, isDeclaration });
+    };
+    while (token) {
+        if (token->kind == TokenKind::punctuation) {
+            if (token->text == "{") ++braceDepth;
+            if (token->text == "}" && braceDepth > 0) --braceDepth;
+            token = lexer.next(false);
+            continue;
+        }
+        if (token->kind != TokenKind::identifier || braceDepth != 0) {
+            token = lexer.next(false);
+            continue;
+        }
+        bool exported { false };
+        std::size_t exportBegin { 0 };
+        std::size_t exportEnd { 0 };
+        if (token->text == "export" && token->startsLine) {
+            exportBegin = token->offset;
+            exportEnd = token->offset + token->text.size();
+            token = lexer.next(false);
+            if (!token || token->kind != TokenKind::identifier || (token->text != "module" && token->text != "import")) continue;
+            exported = true;
+        } else if (!token->startsLine || (token->text != "module" && token->text != "import")) {
+            token = lexer.next(false);
+            continue;
+        }
+        const bool isImport { token->text == "import" };
+        if (exported) push(SyntaxTokenKind::keyword, exportBegin, exportEnd);
+        push(SyntaxTokenKind::keyword, token->offset, token->offset + token->text.size());
+        token = lexer.next(isImport);
+        if (!token) break;
+
+        if (isImport && (token->kind == TokenKind::header_name || token->kind == TokenKind::string)) {
+            // `import <header>;` / `import "header";`: the header text is a string/header-name
+            // literal, not a module-type token; other layers already color it.
+            token = lexer.next(false);
+            continue;
+        }
+        if (isImport && token->kind == TokenKind::punctuation && token->text == ":") {
+            // `import :partition;`: a partition of the current translation unit's own module, no
+            // module name of its own.
+            token = lexer.next(false);
+            if (const auto partition = read_dotted_lenient(text, lexer, token)) push(SyntaxTokenKind::partitionName, partition->first, partition->second);
+            continue;
+        }
+        const auto name = read_dotted_lenient(text, lexer, token);
+        if (name) push(SyntaxTokenKind::moduleName, name->first, name->second, !isImport);
+        // A colon only introduces a partition once a module name was actually read: `module
+        // :private;`'s colon is the private-module-fragment syntax, not `module`'s own partition.
+        if (name && token && token->kind == TokenKind::punctuation && token->text == ":") {
+            token = lexer.next(false);
+            if (const auto partition = read_dotted_lenient(text, lexer, token)) push(SyntaxTokenKind::partitionName, partition->first, partition->second, !isImport);
+        }
+    }
+    return tokens;
+}
 
 ScanResult scan_source(std::string_view text) {
     ScanResult result;
@@ -326,6 +417,28 @@ std::string imported_name(const ScanResult& result, const ImportDeclaration& imp
     if (!import.module.empty()) return import.partition.empty() ? import.module : import.module + ":" + import.partition;
     if (!result.declaration) return ":" + import.partition;
     return result.declaration->module + ":" + import.partition;
+}
+
+bool is_module_name(std::string_view name) {
+    const auto dotted = [](std::string_view part) {
+        if (part.empty()) return false;
+        bool atStart { true };
+        for (const char c : part) {
+            if (c == '.') {
+                if (atStart) return false;
+                atStart = true;
+                continue;
+            }
+            const bool utf8 { static_cast<unsigned char>(c) >= 0x80 };
+            if (!utf8 && !base::is_identifier_char(c)) return false;
+            if (atStart && c >= '0' && c <= '9') return false;
+            atStart = false;
+        }
+        return !atStart;
+    };
+    const std::size_t colon { name.find(':') };
+    if (colon == std::string_view::npos) return dotted(name);
+    return dotted(name.substr(0, colon)) && dotted(name.substr(colon + 1));
 }
 
 std::vector<std::string> required_names(const ScanResult& result) {

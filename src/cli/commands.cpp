@@ -184,6 +184,7 @@ std::vector<std::string> daemon_arguments(const cmdline::ParsedArgs& args) {
         if (auto value = args.value(name)) forwarded.insert(forwarded.end(), { std::format("--{}", name), *value });
     }
     for (const auto& pattern : args.option_or_empty("model-exclude").values) forwarded.insert(forwarded.end(), { "--model-exclude", pattern });
+    for (const auto& id : args.option_or_empty("disable-workaround").values) forwarded.insert(forwarded.end(), { "--disable-workaround", id });
     for (const std::string_view flag : { "untrusted", "no-discover" }) {
         if (args.is_flag_set(flag)) forwarded.push_back(std::format("--{}", flag));
     }
@@ -221,6 +222,7 @@ int run(int argc, char* argv[]) {
     (void)app.option("tool-environment").takes_value().global(true).help("Which environment build tools run in: auto (the login shell on POSIX) or editor");
     (void)app.option("producer-timeout").takes_value().global(true).help("Seconds a build tool may take to describe the project (default 60, or 600 when online)");
     (void)app.option("engine").takes_value().global(true).help("The core semantic engine: clangd (default) or none, mcppls's own module features only");
+    (void)app.option("disable-workaround").takes_value().multiple().global(true).help("Turn off a registered clangd workaround (WA-CLANGD-<n>, see mcppls report); repeatable");
     // Language clients pass these by convention; this server always speaks over its standard streams.
     (void)app.option("stdio").global(true).help("Accepted for language clients; standard input and output are always used");
     (void)app.option("clientProcessId").takes_value().global(true).help("Accepted for language clients; not used");

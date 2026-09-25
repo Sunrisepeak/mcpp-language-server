@@ -2,6 +2,7 @@
   "name": "inferred",
   "description": "Loose module sources, no build system, no compiler: the semantic kit provides libc++ semantics.",
   "server-arguments": ["--no-discover"],
+  "initialization-options": { "semanticTokens": { "moduleType": true } },
   "checks": [
     { "id": "S1", "kind": "status", "source": "inferred", "profile-kind": "semantic-kit", "state": "ready", "engine-name": "clangd", "engines-include": ["mcppls", "clangd"] },
     { "id": "I1-second-instance", "kind": "second-instance", "notice-code": "shared-workspace" },
@@ -19,6 +20,16 @@
     { "id": "C6", "kind": "completion-contains", "file": "src/main.cpp", "insert": [5, "    hello::"], "at": [5, 11], "expect": "greet" },
     { "id": "C7", "kind": "completion-contains", "file": "src/main.cpp", "at": [5, 11], "expect": "greet2",
       "edit": { "file": "src/greet/greet.cppm", "replace": "export namespace hello {", "with": "export namespace hello {\n  int greet2() { return 2; }" } },
-    { "id": "C9", "kind": "references-span", "file": "src/main.cpp", "at": [4, 31], "expect": ["src/main.cpp", "src/greet/greet.cppm"] }
+    { "id": "C9", "kind": "references-span", "file": "src/main.cpp", "at": [4, 31], "expect": ["src/main.cpp", "src/greet/greet.cppm"] },
+    { "id": "K1-semantic-tokens", "kind": "semantic-tokens", "file": "src/greet/greet.cppm", "expect": [
+      { "line": 0, "text": "export", "type": "keyword" },
+      { "line": 0, "text": "module", "type": "keyword" },
+      { "line": 0, "text": "hello.greet", "type": "module", "modifiers": ["declaration"] },
+      { "line": 1, "text": "export", "type": "keyword" },
+      { "line": 1, "text": "import", "type": "keyword" },
+      { "line": 1, "text": "detail", "type": "module", "modifiers": ["partition"] },
+      { "line": 2, "text": "import", "type": "keyword" },
+      { "line": 2, "text": "std", "type": "module" }
+    ] }
   ]
 }

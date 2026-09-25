@@ -19,6 +19,7 @@ import mcppls.engine.clangd.definition;
 import mcppls.engine.clangd.guard;
 import mcppls.engine.clangd.primer;
 import mcppls.engine.clangd.process;
+import mcppls.engine.clangd.workarounds;
 import mcppls.engine.native.index;
 
 namespace mcppls::engine::clangd {
@@ -26,23 +27,20 @@ namespace mcppls::engine::clangd {
 namespace log = base::log;
 namespace midx = mcppls::index;
 
-EngineTraits traits_for_version(std::string_view version) {
-    EngineTraits traits {
+EngineTraits traits_for_version(std::string_view version, std::span<const std::string> disabled) {
+    // Every compensation for clangd's own defects is a registered workaround (import-hang plan §9).
+    const auto on = [&](std::string_view id) { return needs(id, version) && std::ranges::find(disabled, id) == disabled.end(); };
+    return EngineTraits {
         .importNavigation = false,
         .pushesDiagnostics = true,
-        .hangsOnUnresolvedImports = true,
-        .needsModulePreparation = true,
-        .needsModuleHints = true,
-        .msvcStlNeedsNoAlignedAllocation = true,
+        .hangsOnUnresolvedImports = on(UNRESOLVED_IMPORT_STAND_INS),
+        .needsModulePreparation = on(MODULE_PREPARATION),
+        .needsModuleHints = on(MODULE_HINTS),
+        .msvcStlNeedsNoAlignedAllocation = on(MSVC_STL_ALIGNED_ALLOCATION),
+        .hangsOnTrailingDotModuleName = on(TRAILING_DOT_MODULE_NAME),
         .kitStdlibVersion = std::string { version },
-        .tested = false,
+        .tested = version == "23.1.0",
     };
-    if (version == "23.1.0") {
-        traits.tested = true;
-    } else if (version.starts_with("23.1.")) {
-        traits.msvcStlNeedsNoAlignedAllocation = false;
-    }
-    return traits;
 }
 
 bool is_interactive(std::string_view method) {
@@ -74,6 +72,10 @@ private:
         { std::string { EVERY_METHOD }, Role::answer, 0 },
         { std::string { lsp::method::TEXT_DOCUMENT_DOCUMENT_SYMBOL }, Role::merge, 0 },
         { std::string { lsp::method::WORKSPACE_SYMBOL }, Role::merge, 0 },
+        // design doc 2026-09-25 K/§7, contract T0: mcppls's own module-syntax tokens fill the gaps
+        // clangd leaves (it tokenizes no import/module/export line at all, measured on 23.1.0).
+        { std::string { lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL }, Role::merge, 0 },
+        { std::string { lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_RANGE }, Role::merge, 0 },
     };
 
     std::string databaseDirectory_;
@@ -180,6 +182,10 @@ private:
     Quarantine quarantine_;                                   // path keys
     std::optional<Clock::time_point> lastAnswerAt_;           // clangd's last answer to any client request
     StuckWatch stuck_;
+    SpinWatch spin_;   // import-hang plan §4: a file clangd will not finish, busy or not
+    // WA-CLANGD-001: the `;` insertions in the text clangd has of each open document (client URI), for
+    // the documents whose text it was given rewritten; mapped back out of what it reports.
+    std::map<std::string, std::vector<Insertion>, std::less<>> rewritten_;
     // The request a watch was last tried for (when it was sent): one try each, so a platform that
     // cannot read clangd's CPU does not wake the loop again and again for the same request.
     std::optional<Clock::time_point> stuckTriedFor_;
@@ -198,6 +204,7 @@ private:
     // GENERAL_PATIENCE while module preparation makes no progress.
     static constexpr std::chrono::seconds FAILED_MODULE_PATIENCE { 5 };
     static constexpr std::chrono::seconds GENERAL_PATIENCE { 120 };
+    static constexpr std::chrono::seconds SELF_EDIT_GRACE { 10 };
     std::map<std::string, Clock::time_point, std::less<>> awaitingSince_;     // client URI -> when it was handed to clangd
     std::map<std::string, Clock::time_point, std::less<>> modulesFailedAt_;   // module -> when clangd said it did not compile
     std::optional<Clock::time_point> stuckCheckAt_;
@@ -220,6 +227,8 @@ private:
     struct Aside {
         std::string structure;      // what it provided and imported then
         bool moduleFailed { false };
+        // The text clangd spun on (SpinWatch): that exact text never goes back to clangd, and any other does at once.
+        std::optional<std::size_t> spunOn;
     };
     std::map<std::string, Aside, std::less<>> aside_;                  // path key
     std::map<std::string, std::string, std::less<>> fileStatus_;       // client URI -> clangd's last textDocument/clangd.fileStatus state
@@ -255,7 +264,7 @@ private:
 
 public:
     explicit ClangdEngine(Options options)
-        : options_ { std::move(options) }, traits_ { traits_for_version(options_.version) }, stuck_ { options_.stuckWatch } {}
+        : options_ { std::move(options) }, traits_ { traits_for_version(options_.version, options_.disabledWorkarounds) }, stuck_ { options_.stuckWatch } {}
 
     std::string_view id() const override { return ENGINE_ID; }
     std::span<const MethodCapability> methods() const override { return methods_; }
@@ -347,7 +356,20 @@ public:
             { "filesAwaitingDiagnostics", awaitingDiagnostics_.size() },
             { "logLinesLeftOut", linesLeftOut_ },
             { "databaseDirectory", databaseDirectory_ },
+            { "workarounds", workarounds_json_() },
         };
+    }
+
+    // import-hang plan §9: the registered workarounds this clangd needs, as the report shows them.
+    Json workarounds_json_() const {
+        Json list = Json::array();
+        for (const auto& workaround : workarounds()) {
+            if (!needs(workaround, options_.version)) continue;
+            const bool off { std::ranges::find(options_.disabledWorkarounds, workaround.id) != options_.disabledWorkarounds.end() };
+            list.push_back(Json { { "id", workaround.id }, { "title", workaround.title }, { "upstream", workaround.upstream },
+                                  { "removeWhen", workaround.removeWhen }, { "turnedOff", off } });
+        }
+        return list;
     }
 
     void start(Host& host) override {
@@ -362,6 +384,19 @@ public:
         // clangd starts without a database; the first plan is written before any document reaches it.
         platform::fs::remove_all(base::join_path(databaseDirectory_, "compile_commands.json"));
         log::info("clangd {} at {}", options_.version.empty() ? "?" : options_.version, options_.executable.empty() ? "(none)" : options_.executable);
+        // import-hang plan §9: which of clangd's known defects this server works around for this version.
+        if (!options_.executable.empty()) {
+            const auto active = active_workarounds(options_.version);
+            std::string ids;
+            for (const auto id : active) {
+                const bool off { std::ranges::find(options_.disabledWorkarounds, id) != options_.disabledWorkarounds.end() };
+                ids += std::format("{}{}{}", ids.empty() ? "" : ", ", id, off ? " (turned off)" : "");
+            }
+            for (const auto& id : options_.disabledWorkarounds) {
+                if (find_workaround(id) == nullptr) log::warning("--disable-workaround {}: no such workaround", id);
+            }
+            log::info("workarounds for clangd {}: {}", options_.version.empty() ? "?" : options_.version, ids.empty() ? "none" : ids);
+        }
         start_process_();
     }
 
@@ -579,14 +614,18 @@ public:
             if (quarantined_(document.path)) {
                 const std::string key { base::path_key(document.path) };
                 // What clangd stopped on is still there: the file stays aside until its time is up or what it imports changes.
-                if (const auto aside = aside_.find(key); aside != aside_.end() && aside->second.structure == structure_of_text_(document.text)) break;
+                // A file clangd spun on goes back as soon as its text is any other than the one it spun on.
+                if (const auto aside = aside_.find(key); aside != aside_.end()) {
+                    if (aside->second.spunOn ? *aside->second.spunOn == text_hash_(document.text)
+                                             : aside->second.structure == structure_of_text_(document.text)) break;
+                }
                 quarantine_.release(key);
                 aside_.erase(key);
                 update_quarantine_issue_();
                 if (accepting_ && !excluded_path_(document.path)) open_or_hold_(document, true);
                 break;
             }
-            if (accepting_ && !excluded_path_(document.path) && event.message != nullptr) (void)send_(*event.message);
+            if (accepting_ && !excluded_path_(document.path) && event.message != nullptr) send_change_(document, *event.message);
             break;
         case DocumentChange::closed: {
             const bool wasExcluded { excluded_path_(document.path) || quarantined_(document.path) || held_path_(document.path)
@@ -600,6 +639,8 @@ public:
             awaitingSince_.erase(document.uri);
             diagnosed_.erase(document.uri);
             fileStatus_.erase(document.uri);
+            rewritten_.erase(document.uri);
+            spin_.forget(document.uri);
             if (accepting_ && !wasExcluded && event.message != nullptr) (void)send_(*event.message);
             release_prime_units_if_idle_();
             break;
@@ -779,6 +820,7 @@ public:
         for (const auto& [module, at] : primeDeadlines_) consider(at);
         consider(restartAt_);
         consider(stuckCheckAt_);
+        if (accepting_) consider(spin_.next_due());   // only acted on while accepting (handle_spins_)
         // While a reading of clangd's CPU is on its way, its event is what wakes the loop.
         if (!cpuReadInFlight_) {
             consider(stuck_.due());
@@ -807,6 +849,7 @@ public:
         const auto now = Clock::now();
         // Before the requests that expire now are answered: they are part of what clangd left unanswered.
         watch_for_stuck_(now);
+        if (accepting_) handle_spins_(now);
         std::vector<std::int64_t> expired;
         for (const auto& [id, request] : pending_) {
             if (request.deadline <= now) expired.push_back(id);
@@ -870,6 +913,17 @@ public:
             request_restart_("clangd did not answer initialize");
         }
         for (const auto& key : quarantine_.due(now)) {
+            // The text clangd spun on is never given back to it, however long it has been aside.
+            if (const auto aside = aside_.find(key); aside != aside_.end() && aside->second.spunOn) {
+                const auto documents = host_->documents();
+                const bool unchanged { std::ranges::any_of(documents, [&](const DocumentView& document) {
+                    return !document.path.empty() && base::path_key(document.path) == key && text_hash_(document.text) == *aside->second.spunOn;
+                }) };
+                if (unchanged) {
+                    quarantine_.put(key, now);
+                    continue;
+                }
+            }
             aside_.erase(key);
             for (const auto& document : host_->documents()) {
                 if (document.path.empty() || base::path_key(document.path) != key) continue;
@@ -973,7 +1027,7 @@ private:
         closedBackground_.clear();
         if (options_.payloadCorrupt) {
             unavailable_ = true;
-            add_issue_(Issue { "payload-corrupt", "the extension's payload is corrupt or was modified; reinstall the extension", "mcppls.showLogs" });
+            add_issue_(Issue { "payload-corrupt", "the extension's payload is corrupt or was modified; reinstall the extension", "mcppls.showLogs", "environment" });
             flush_deferred_without_engine_();
             host_->engine_settled(ENGINE_ID, Json::object());
             host_->status_changed();
@@ -981,7 +1035,7 @@ private:
         }
         if (options_.executable.empty() || !platform::fs::is_regular_file(options_.executable)) {
             unavailable_ = true;
-            add_issue_(Issue { "engine-missing", "clangd was not found; only module-level features are available", "mcppls.showLogs" });
+            add_issue_(Issue { "engine-missing", "clangd was not found; only module-level features are available", "mcppls.showLogs", "environment" });
             flush_deferred_without_engine_();
             host_->engine_settled(ENGINE_ID, Json::object());
             host_->status_changed();
@@ -1080,6 +1134,7 @@ private:
         if (restartHistory_.size() > 20) restartHistory_.pop_front();
         host_->record_event("engine-restart", Json { { "reason", std::string { reason } } });
         restartAt_.reset();
+        spin_.restarted();
         // Requests to the old process are answered by the other engines.
         auto old = std::move(pending_);
         pending_.clear();
@@ -1209,6 +1264,7 @@ private:
         const auto now = Clock::now();
         pending_[engineId] = PendingRequest { Purpose::client, id, method, uri != nullptr && uri->is_string() ? uri->get<std::string>() : std::string {},
                                               std::min(now + own_timeout_(method), limit), generation_, limit, std::move(reply), now };
+        if (uri != nullptr && uri->is_string()) spin_.asked(uri->get<std::string>(), now);
         Json forwarded = message;
         forwarded["id"] = engineId;
         if (!send_(forwarded)) {
@@ -1219,9 +1275,60 @@ private:
         }
     }
 
+    // The text clangd is given for an open document: the document's own, or, where clangd 23.1 would spin on it
+    // (WA-CLANGD-001), the same text with `;` after each trailing dot, remembered so what clangd says maps back.
+    std::string engine_text_(const std::string& uri, std::string_view text) {
+        if (traits_.hangsOnTrailingDotModuleName) {
+            if (auto sanitized = sanitize_module_names(text); sanitized.changed()) {
+                if (!rewritten_.contains(uri)) {
+                    log::debug("{} is given to clangd with ';' after a module name that ends in '.' ({}, {})", host_->path_of_uri(uri),
+                               TRAILING_DOT_MODULE_NAME, host_->root_directory());
+                }
+                rewritten_[uri] = std::move(sanitized.insertions);
+                return std::move(sanitized.text);
+            }
+        }
+        rewritten_.erase(uri);
+        return std::string { text };
+    }
+
+    // A change goes to clangd as the client sent it, unless clangd's text is, or was until now, a rewrite of
+    // the document's: then clangd gets the whole text as engine_text_ makes it.
+    void send_change_(const DocumentView& document, const Json& message) {
+        spin_.sent(document.uri, text_hash_(document.text), Clock::now());
+        const bool wasRewritten { rewritten_.contains(document.uri) };
+        std::string text { engine_text_(document.uri, document.text) };
+        if (!wasRewritten && !rewritten_.contains(document.uri)) {
+            (void)send_(message);
+            return;
+        }
+        (void)send_(lsp::make_notification("textDocument/didChange",
+                                           Json { { "textDocument", Json { { "uri", document.uri }, { "version", document.version } } },
+                                                  { "contentChanges", Json::array({ Json { { "text", std::move(text) } } }) } }));
+    }
+
+    static void map_out_of_rewrite_(std::span<const Insertion> insertions, Json& diagnostics) {
+        const auto map_position = [&](Json& position) {
+            if (!position.is_object()) return;
+            const auto line = lsp::int_at(position, "line");
+            const auto character = lsp::int_at(position, "character");
+            if (!line || !character) return;
+            const auto original = to_original(insertions, TextPosition { static_cast<int>(*line), static_cast<int>(*character) });
+            position["character"] = original.character;
+        };
+        for (auto& diagnostic : diagnostics) {
+            if (!diagnostic.is_object() || !diagnostic.contains("range")) continue;
+            map_position(diagnostic["range"]["start"]);
+            map_position(diagnostic["range"]["end"]);
+        }
+    }
+
+    static std::size_t text_hash_(std::string_view text) { return std::hash<std::string_view> {}(text); }
+
     void open_in_engine_(const DocumentView& document) {
+        spin_.sent(document.uri, text_hash_(document.text), Clock::now());
         Json params { { "textDocument", Json { { "uri", document.uri }, { "languageId", document.languageId },
-                                               { "version", document.version }, { "text", std::string { document.text } } } } };
+                                               { "version", document.version }, { "text", engine_text_(document.uri, document.text) } } } };
         if (send_(lsp::make_notification("textDocument/didOpen", std::move(params)))) {
             databaseRead_ = true;
             if (!diagnosed_.contains(document.uri)) {
@@ -1328,6 +1435,7 @@ private:
             earlyExits_ = 0;
             accept_traffic_if_ready_();
             host_->status_changed();
+            host_->semantic_tokens_changed();   // design doc 2026-09-25 K/§7: clangd (re)started
             break;
         }
         case Purpose::client: {
@@ -1356,6 +1464,7 @@ private:
                 const std::string uri { host_->client_uri(params->value("uri", std::string {})) };
                 if (host_->has_document(uri)) {
                     fileStatus_[uri] = params->value("state", std::string {});
+                    spin_.state(uri, fileStatus_[uri], Clock::now());
                 } else if (const std::string path { host_->path_of_uri(uri) }; !path.empty()) {
                     if (const auto unit = background_.find(base::path_key(path)); unit != background_.end()) unit->second.state = params->value("state", std::string {});
                 }
@@ -1399,7 +1508,9 @@ private:
             } else {
                 diagnosed_.insert(uri);
                 const auto version = lsp::int_at(params, "version");
-                host_->publish_engine_diagnostics(ENGINE_ID, uri, params.value("diagnostics", Json::array()), version);
+                Json diagnostics = params.value("diagnostics", Json::array());
+                if (const auto rewritten = rewritten_.find(uri); rewritten != rewritten_.end()) map_out_of_rewrite_(rewritten->second, diagnostics);
+                host_->publish_engine_diagnostics(ENGINE_ID, uri, std::move(diagnostics), version);
             }
             host_->status_changed();
             return;
@@ -1484,7 +1595,7 @@ private:
         add_issue_(Issue { "engine-incompatible",
             std::format("the bundled clangd cannot run on this system ({}); only module-level features are available. "
                         "Supported systems are listed in the install guide", line),
-            "mcppls.showLogs" });
+            "mcppls.showLogs", "environment" });
         host_->record_event("engine-incompatible", Json { { "line", line } });
         flush_deferred_without_engine_();
         host_->engine_settled(ENGINE_ID, Json::object());
@@ -1508,7 +1619,7 @@ private:
             host_->record_event("std-fallback-kit", Json { { "module", parsed.module }, { "reason", parsed.reason } });
             add_issue_(Issue { "std-fallback-kit",
                 std::format("clangd could not build the toolchain's standard library module ({}); files are read with the semantic kit", parsed.reason),
-                "mcppls.showLogs" });
+                "mcppls.showLogs", "environment" });
             host_->request_replan();
             host_->status_changed();
         }
@@ -1580,17 +1691,19 @@ private:
 
     bool doomed_path_(std::string_view path) const { return !path.empty() && doomedFiles_.contains(base::path_key(path)); }
 
-    // Whether the file itself, or a source of any module it imports (transitively), changed within
-    // GENERAL_PATIENCE: what clangd is busy with is then this change, not this file being stuck.
+    // Whether the file itself changed within SELF_EDIT_GRACE, or a source of any module it imports (transitively)
+    // within GENERAL_PATIENCE: what clangd is busy with is then this change, not this file being stuck.
     bool changed_recently_(std::string_view path, Clock::time_point now) const {
-        const auto touched = [&](std::string_view file) {
+        const auto touched = [&](std::string_view file, Clock::duration within) {
             const auto at = touchedAt_.find(base::path_key(file));
-            return at != touchedAt_.end() && now - at->second < GENERAL_PATIENCE;
+            return at != touchedAt_.end() && now - at->second < within;
         };
-        if (touched(path)) return true;
+        // import-hang plan §4: an edit to the file itself rebuilds only the file, on a preamble it already has, which
+        // takes milliseconds to seconds. Only a change to a module it imports makes clangd rebuild modules first.
+        if (touched(path, SELF_EDIT_GRACE)) return true;
         for (const auto& module : host_->imports_of(path)) {
             for (const auto& source : closure_sources_(module)) {
-                if (touched(source)) return true;
+                if (touched(source, GENERAL_PATIENCE)) return true;
             }
         }
         return false;
@@ -1707,7 +1820,7 @@ private:
     void update_doom_issue_() {
         std::erase_if(issues_, [](const Issue& issue) { return issue.code == "modules-doomed"; });
         if (doomedModules_.empty()) return;
-        issues_.push_back(Issue { "modules-doomed", doom_issue_message_(), "mcppls.showLogs" });
+        issues_.push_back(Issue { "modules-doomed", doom_issue_message_(), "mcppls.showLogs", "code" });
     }
 
     // One diagnostic, on the import (or the module declaration, for a unit of a doomed module
@@ -1797,14 +1910,55 @@ private:
 
     bool quarantined_(std::string_view path) const { return !path.empty() && quarantine_.contains(base::path_key(path)); }
 
-    // Whether a restart gets back what clangd spends on a file it is no longer given.
-    enum class Reclaim { no, if_busy };
+    // import-hang plan §4: clangd has been building a file far longer than it ever took while the editor has moved
+    // on. Whatever the cause (the defect behind WA-CLANGD-001 was one, found in the field), the build will not end, so the file goes to
+    // mcppls's engine with the text clangd spun on remembered, and clangd is restarted without it.
+    void handle_spins_(Clock::time_point now) {
+        for (const auto& spin : spin_.check(now)) {
+            std::string path;
+            for (const auto& document : host_->documents()) {
+                if (document.uri == spin.uri) path = document.path;
+            }
+            if (path.empty()) continue;
+            const auto seconds = [](std::chrono::milliseconds duration) { return std::chrono::duration<double>(duration).count(); };
+            log::warning("clangd ({}) has built {} for {:.0f} s, past its {:.0f} s budget, while the editor waited on it: it will not finish it",
+                         host_->root_directory(), base::file_name(path), seconds(spin.building), seconds(spin.budget));
+            host_->record_event("engine-spin", Json { { "file", path }, { "buildingSeconds", seconds(spin.building) }, { "budgetSeconds", seconds(spin.budget) } });
+            if (quarantined_(path)) {
+                // Set aside already, by the timeouts of its requests, which may have put the restart off: the same build is
+                // now known to be a spin, so its text is remembered and clangd is restarted at once all the same.
+                const std::string key { base::path_key(path) };
+                aside_[key].spunOn = spin.textHash;
+                deferredReclaims_.erase(key);
+                reclaim_spin_(path);
+                continue;
+            }
+            set_aside_(path, "clangd would not finish building it", Reclaim::now, false, spin.textHash);
+        }
+    }
 
-    void set_aside_(const std::string& path, std::string_view why, Reclaim reclaim, bool moduleFailed = false) {
+    // Not deferred, not spaced out, not capped: a clangd left spinning answers nothing for the file and holds a core, and
+    // the file it spun on stays with mcppls's engine, so the new clangd cannot be sent the same way.
+    void reclaim_spin_(const std::string& path) {
+        if (!accepting_) return;
+        if (restartGate_.at_cap(Clock::now())) {
+            log::warning("restarting clangd ({}) past the restart cap: it cannot be left spinning on {}, which stays with mcppls's engine",
+                         host_->root_directory(), base::file_name(path));
+            host_->record_event("engine-restart-past-cap", Json { { "file", path } });
+        }
+        restart_(std::format("clangd would not finish {}", base::file_name(path)));
+    }
+
+    // Whether a restart gets back what clangd spends on a file it is no longer given.
+    // `now`: what clangd spends on it is never coming back (SpinWatch): restart at once, past the gate and the cap.
+    enum class Reclaim { no, if_busy, now };
+
+    void set_aside_(const std::string& path, std::string_view why, Reclaim reclaim, bool moduleFailed = false,
+                    std::optional<std::size_t> spunOn = std::nullopt) {
         const std::string key { base::path_key(path) };
         if (aside_.contains(key) && quarantine_.contains(key)) return;   // set aside already
         if (!quarantine_.contains(key)) quarantine_.put(key, Clock::now());
-        Aside aside { {}, moduleFailed };
+        Aside aside { {}, moduleFailed, spunOn };
         std::optional<std::string> state;
         for (const auto& document : host_->documents()) {
             if (document.path.empty() || base::path_key(document.path) != key) continue;
@@ -1821,6 +1975,10 @@ private:
         update_quarantine_issue_();
         // clangd does not stop building a file it is no longer given: a build that never ends (the spin in experiment S17) keeps a
         // core and one of clangd's workers for as long as clangd runs. A fresh clangd, without the file, gets both back.
+        if (reclaim == Reclaim::now) {
+            reclaim_spin_(path);
+            return;
+        }
         if (reclaim == Reclaim::if_busy && accepting_ && (!state || engine_working(*state))) {
             // Right after a source changed, clangd being busy is clangd rebuilding what the change
             // touched -- a module this file imports, one that may be about to fail and be contained
@@ -1963,12 +2121,19 @@ private:
 
     void update_quarantine_issue_() {
         std::erase_if(issues_, [](const Issue& issue) { return issue.code == "file-quarantined"; });
-        if (const std::size_t count { quarantine_.size() }; count > 0) {
+        if (const auto members = quarantine_.members(); !members.empty()) {
+            // import-hang plan §6: the files by name, and what they still get.
+            std::string names;
+            for (std::size_t i { 0 }; i < members.size() && i < 3; ++i) names += std::format("{}{}", i == 0 ? "" : ", ", base::file_name(members[i]));
+            if (members.size() > 3) names += std::format(" and {} more", members.size() - 3);
             issues_.push_back(Issue { "file-quarantined",
-                std::format("clangd stopped answering for {} file{}; mcppls's engine answers for {} until {} changes", count, count == 1 ? "" : "s",
-                            count == 1 ? "it" : "them", count == 1 ? "it" : "they"), "mcppls.restartServer" });
+                std::format("clangd stopped responding on {}; module-level features only for {} until {} changes", names,
+                            members.size() == 1 ? "it" : "them", members.size() == 1 ? "it" : "they"), "mcppls.restartServer" });
         }
         host_->status_changed();
+        // design doc 2026-09-25 K/§7: called at every point a file is set aside or handed back, so
+        // whichever engine now answers semantic tokens for it, the client asks again.
+        host_->semantic_tokens_changed();
     }
 
     // A restart now, or as soon as the gate allows (robustness design C4).
@@ -2131,6 +2296,11 @@ private:
         auto text = platform::fs::read_file(path);
         if (!text) return false;
         const std::string uri { base::path_to_uri(path) };
+        // WA-CLANGD-001: a file saved mid-edit can hold the text clangd spins on. Nobody reads positions in a
+        // unit opened without the editor, so the rewrite needs no mapping back.
+        if (traits_.hangsOnTrailingDotModuleName) {
+            if (auto sanitized = sanitize_module_names(*text); sanitized.changed()) *text = std::move(sanitized.text);
+        }
         Json params { { "textDocument", Json { { "uri", uri }, { "languageId", "cpp" }, { "version", 1 }, { "text", std::move(*text) } } } };
         if (!send_(lsp::make_notification("textDocument/didOpen", std::move(params)))) return false;
         databaseRead_ = true;
@@ -2370,6 +2540,7 @@ private:
         if (heldPrimeUnits_.empty() || primer_.busy() || !awaitingDiagnostics_.empty() || !held_.empty()) return;
         log::info("module preparation idle ({}): closing {} prime units", host_->root_directory(), heldPrimeUnits_.size());
         close_prime_units_();
+        host_->semantic_tokens_changed();   // design doc 2026-09-25 K/§7: module preparation finished
     }
 
     void close_prime_units_() {

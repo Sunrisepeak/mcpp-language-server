@@ -2,6 +2,20 @@
 
 Changes to the specifications in this directory. Each specification is versioned independently.
 
+## 2026-09-25 — S3: issue categories, the degraded hold, module syntax in semantic tokens
+
+Added `category` (optional) to `CxxModulesIssue`: `code`, `engine`, `environment` or `project`,
+whose problem an issue is. Issues of category `code` — the user's own source being wrong — never
+make a root `degraded` or `error`; they are reported as diagnostics where they are, and a client
+treats an issue without a category as before (S3-4-10 to S3-4-14). A change to `degraded` is held
+back until it has lasted a short interval, so a condition that passes by itself never reaches a
+client (S3-4-15). Listed `modules-doomed` among the codes.
+
+Added section 6.1: servers add semantic tokens for module syntax (keywords as `keyword`, module
+names as `module` for clients that declare `initializationOptions.semanticTokens.moduleType`, else
+`namespace`), and `initializationOptions.semanticTokens.modules: false` turns them off (S3-6.1-1
+to S3-6.1-3). All additive: protocol version stays 1.
+
 ## 2026-09-24 — S3: issue `engine-incompatible`
 
 Listed `engine-incompatible` among `CxxModulesIssue` codes: the core engine cannot run on this

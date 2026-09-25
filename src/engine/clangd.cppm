@@ -16,7 +16,8 @@ inline constexpr std::string_view ENGINE_ID { "clangd" };
 // The traits table (design 5.4), keyed by clangd version. 23.1.0 is the pinned payload; later 23.1
 // releases no longer need aligned allocation turned off (llvm-project#218152, fixed in 23.1.1) but
 // have not run through the conformance suite; any other version gets every compensation.
-EngineTraits traits_for_version(std::string_view version);
+// `disabled`: registered workarounds (WA-CLANGD-<n>) turned off whatever the version.
+EngineTraits traits_for_version(std::string_view version, std::span<const std::string> disabled = {});
 
 struct Options {
     std::string executable;        // empty, or a file that does not exist: the engine is unavailable
@@ -30,6 +31,7 @@ struct Options {
     std::chrono::milliseconds stuckAfter { std::chrono::seconds { 3 } };
     std::chrono::milliseconds stuckWatch { std::chrono::seconds { 5 } };
     std::vector<std::string> extraArguments;
+    std::vector<std::string> disabledWorkarounds;   // registered workarounds turned off (import-hang plan §9)
     std::function<std::unique_ptr<Process>()> processFactory;   // empty: a real clangd process
 };
 

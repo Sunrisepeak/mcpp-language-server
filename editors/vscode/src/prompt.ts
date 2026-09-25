@@ -30,7 +30,9 @@
 
 import * as vscode from 'vscode';
 
-export type PromptKind = 'conflict' | 'commandLineTools';
+// 'turnOffScope' and 'restoreScope' are the quick picks `mcppls.turnOffOtherCppFeatures` and
+// `mcppls.restoreOtherCppFeatures` (src/conflicts.ts) show for which settings scope to act on.
+export type PromptKind = 'conflict' | 'commandLineTools' | 'turnOffScope' | 'restoreScope';
 
 const TEST_MODE = process.env.MCPPLS_TEST === '1';
 const SUBSTITUTION_GRACE_MS = 5000;
@@ -92,4 +94,19 @@ export function askOnce(kind: PromptKind, message: string, ...items: string[]): 
         return promptTestHarness.ask(kind);
     }
     return vscode.window.showInformationMessage(message, ...items);
+}
+
+// A quick pick among a small set of named values, with the same test-mode substitution as askOnce
+// above (and for the same reason: nothing in the automated test host ever picks an item). `items`
+// are shown in order; the resolved value is whichever item's label was chosen, or undefined for
+// Escape or the grace-period default.
+export function pickOnce<T extends string>(
+    kind: PromptKind,
+    items: readonly { label: string; value: T }[],
+    placeHolder: string,
+): Thenable<T | undefined> {
+    if (promptTestHarness) {
+        return promptTestHarness.ask(kind).then((answer) => items.find((item) => item.value === answer)?.value);
+    }
+    return vscode.window.showQuickPick(items, { placeHolder }).then((choice) => choice?.value);
 }

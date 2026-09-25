@@ -35,12 +35,30 @@ struct ScanResult {
 
 ScanResult scan_source(std::string_view text);
 
+// A minimal token for syntax highlighting a module declaration or import (design doc 2026-09-25
+// K/§7): produced from the text alone, complete or not, so a person still typing `import hello.`
+// sees `import` and `hello` colored while they type. Unlike scan_source, this never requires a
+// terminating `;`, and a name cut short (a trailing dot, the end of a line, end of file) is given
+// the span of whatever was actually read -- never a token that spans two lines.
+enum class SyntaxTokenKind { keyword, moduleName, partitionName };
+
+struct SyntaxToken {
+    SyntaxTokenKind kind { SyntaxTokenKind::keyword };
+    base::Range range;
+    bool isDeclaration { false };   // the name of a `module` or `export module` declaration itself, not an import
+};
+
+std::vector<SyntaxToken> scan_syntax_tokens(std::string_view text);
+
 spec::Role role_of(const ScanResult& result);
 // "m" or "m:p" for units that can be imported; empty otherwise.
 std::string provided_name(const ScanResult& result);
 // Imported module names with partitions qualified ("m:p"); an implementation unit
 // `module m;` implicitly requires "m". Header units are not included.
 std::vector<std::string> required_names(const ScanResult& result);
+// "a.b" or "a.b:c.d": dotted identifiers, with at most one partition. A build tool's scan of a file
+// saved mid-edit can report `hello.` (import-hang plan §5); such a name is no module.
+bool is_module_name(std::string_view name);
 // The full name an import refers to, given the importing unit's declaration.
 std::string imported_name(const ScanResult& result, const ImportDeclaration& import);
 

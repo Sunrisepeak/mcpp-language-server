@@ -2,7 +2,7 @@
   "name": "mcpp-language-server",
   "displayName": "C++ Modules Language Server",
   "description": "C++20/23 named modules that just work: go to definition, completion, hover and references across modules for any compiler, with clangd and a standard library kit built in. (mcppls)",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "sunrisepeak",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -77,6 +77,41 @@
         ]
       }
     ],
+    "grammars": [
+      {
+        "scopeName": "source.cpp.mcppls-modules",
+        "injectTo": [
+          "source.cpp"
+        ],
+        "path": "./syntaxes/mcppls-modules.tmLanguage.json"
+      }
+    ],
+    "semanticTokenTypes": [
+      {
+        "id": "module",
+        "superType": "namespace",
+        "description": "A C++ module or module partition name"
+      }
+    ],
+    "semanticTokenModifiers": [
+      {
+        "id": "partition",
+        "description": "A module partition name, rather than a whole module"
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "cpp",
+        "scopes": {
+          "keyword": [
+            "keyword.control.cpp"
+          ],
+          "module": [
+            "entity.name.namespace.module.cpp"
+          ]
+        }
+      }
+    ],
     "commands": [
       {
         "command": "mcppls.selectContext",
@@ -124,6 +159,16 @@
         "command": "mcppls.runBuildToolInTerminal",
         "title": "Run the Build Tool in a Terminal",
         "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.turnOffOtherCppFeatures",
+        "title": "Turn Off Other C++ Language Features",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.restoreOtherCppFeatures",
+        "title": "Restore Other C++ Language Features",
+        "category": "C++ Modules"
       }
     ],
     "configuration": {
@@ -170,6 +215,11 @@
           "type": "boolean",
           "default": true,
           "description": "Offer once to turn off the language features of other C++ extensions in this workspace, so results are not shown twice."
+        },
+        "mcppls.semanticTokens.modules": {
+          "type": "boolean",
+          "default": true,
+          "description": "Module keywords and names from the server's semantic tokens. Turn this off to use only your own grammar or tree-sitter colors for module syntax."
         },
         "mcppls.trace.server": {
           "type": "string",

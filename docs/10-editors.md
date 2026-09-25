@@ -34,7 +34,17 @@ and both are worth having:
 
 **Alongside other C++ extensions.** Microsoft's C/C++ extension and the official clangd extension
 both want to be the language server for the same files. On first run mcppls offers, once, to turn
-their language features off for this workspace; `mcppls.detectConflicts` controls that offer.
+their language features off for this workspace; `mcppls.detectConflicts` controls that offer. Any
+time later, *Turn Off Other C++ Language Features* does it for this workspace or everywhere and
+*Restore Other C++ Language Features* undoes it; the C/C++ extension's debugger keeps working. A
+conflicting extension that becomes active later is named in a notice. An extension has no way to
+disable another one: only their own settings are changed, and only when you choose to.
+
+**Highlighting.** `import`, `module`, `export` and module names are colored twice over: by a
+grammar the extension adds (at once, as you type), and by the server's semantic tokens (module
+names as the token type `module`, which themes color as a namespace unless you give it a color of
+its own in `editor.semanticTokenColorCustomizations`). VS Code's own C++ grammar leaves `import`
+uncolored.
 
 ## Claude Code
 
@@ -65,7 +75,10 @@ on PATH, or the payload `--install` puts in the user data directory — and star
 buffers through Neovim's own LSP client. Put `editors/nvim` on the runtimepath and call
 `require('mcppls').setup()`; on 0.11 and later `vim.lsp.enable('mcppls')` works too. It adds
 `:McpplsStatus`, `:McpplsRestart`, `:McpplsReload` and a statusline component. Do not also start
-clangd for C and C++: the plugin names a second C++ server once if one attaches.
+clangd for C and C++: the plugin names a second C++ server once if one attaches, and with
+`disable_conflicting = true` stops it for you. Module keywords and names come from the server's
+semantic tokens (`@lsp.type.keyword`, `@lsp.type.module`; `semantic_tokens_modules = false` turns
+them off).
 
 ## CLion
 

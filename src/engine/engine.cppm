@@ -38,6 +38,7 @@ struct EngineTraits {
     bool needsModulePreparation { false };            // the server prepares modules in parallel for it
     bool needsModuleHints { false };                  // its database names the unit of each module
     bool msvcStlNeedsNoAlignedAllocation { false };   // MSVC STL contexts turn aligned allocation off
+    bool hangsOnTrailingDotModuleName { false };      // `import a.` at the end of a line spins it; it is given `import a.;`
     std::string kitStdlibVersion;                     // the libc++ version a semantic kit must have for it (S4-4-5); empty: any
     bool tested { false };                            // a version this server's conformance suite runs against
 };
@@ -46,6 +47,10 @@ struct Issue {
     std::string code;
     std::string message;
     std::string command;   // a client command id, optional
+    // Whose problem it is (S3 status issue category, import-hang plan §6): "engine" (the engine lost something),
+    // "environment" (the machine or the payload), or "code" (the user's source; told as diagnostics, never a
+    // degraded state).
+    std::string category { "engine" };
 };
 
 struct EngineStatus {
@@ -116,6 +121,12 @@ public:
     virtual void engine_settled(std::string_view engineId, const Json& serverCapabilities) = 0;
     virtual void status_changed() = 0;
     virtual void request_replan() = 0;
+    // Semantic tokens (design doc 2026-09-25 K/§7): an engine's next answer for a file may differ
+    // from what it last gave (clangd (re)started and finished its handshake, a file was set aside
+    // or handed back, module preparation finished). The workspace sends
+    // `workspace/semanticTokens/refresh`, coalesced, when the client declared
+    // `workspace.semanticTokens.refreshSupport`; otherwise this is a no-op.
+    virtual void semantic_tokens_changed() {}
     virtual std::vector<DocumentView> documents() const = 0;
     virtual bool has_document(std::string_view clientUri) const = 0;
     // One file, one name (v1 design 14.3): the URI engines are given, and back to the client's.

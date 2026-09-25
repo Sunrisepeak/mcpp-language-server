@@ -53,8 +53,17 @@ the same configuration.
 
 mcppls runs clangd itself, with the module database it built. Do not also start clangd (or ccls)
 for C and C++: two servers over one file means two engines answering. If one is attached to a
-buffer mcppls serves, the plugin says so once, naming it. With nvim-lspconfig that means not
-calling `lspconfig.clangd.setup()`; with 0.11's mechanism, `vim.lsp.enable('clangd', false)`.
+buffer mcppls serves, the plugin says so once, naming it, and mentions `disable_conflicting`. With
+nvim-lspconfig that means not calling `lspconfig.clangd.setup()`; with 0.11's mechanism,
+`vim.lsp.enable('clangd', false)`.
+
+Set `disable_conflicting = true` to have the plugin do this itself instead: when `clangd` or `ccls`
+attaches to a buffer mcppls also serves, the plugin stops it there and says, once per client, which
+one it stopped. If that client serves only buffers mcppls also serves, it is stopped outright
+(`client:stop()`); otherwise only this buffer is detached from it
+(`vim.lsp.buf_detach_client()`), so it keeps running for whatever else it serves. This is a
+per-buffer decision, not a global one: `vim.lsp.enable('clangd', false)`, above, is the way to stop
+it from starting at all.
 
 ## Options
 
@@ -67,12 +76,42 @@ require('mcppls').setup({
     -- compiler = 'clang++',
     -- semanticKit = 'auto',  -- or 'off'
   },
-  detect_conflicts = true,   -- say so when clangd or ccls is attached beside mcppls
+  detect_conflicts = true,      -- say so when clangd or ccls is attached beside mcppls
+  disable_conflicting = false,  -- stop clangd/ccls on buffers mcppls also serves, instead of only saying so
+  semantic_tokens_modules = true, -- ask the server for module-syntax semantic tokens (see "Highlighting `import`" below)
 })
 ```
 
 The root is the nearest directory with a root marker, else the current directory. `.cppm`, `.ixx`,
 `.mpp`, `.ccm` and `.cxxm` files are C++.
+
+## Highlighting `import`
+
+Neither Neovim's own C++ syntax nor clangd's semantic tokens color `import`, `module`, `export` or
+a module name: clangd's legend has no `keyword` type, and it emits nothing for module syntax. mcppls
+fixes this from its own scan of the document, sent as extra semantic tokens on top of clangd's
+(design `.agents/docs/2026-09-25-import-hang-status-highlight.md` §7):
+
+- `import`, `module` and `export` come back as the standard semantic type `keyword`, shown through
+  the `@lsp.type.keyword` highlight group.
+- A module or partition name comes back as a custom type `module` (with a custom modifier
+  `partition` on the part after `:`), shown through `@lsp.type.module` and `@lsp.mod.partition`.
+
+`semantic_tokens_modules` (default `true`) turns this off if you would rather rely on your own
+tree-sitter query or grammar for module syntax; it is sent to the server as
+`initializationOptions.semanticTokens.modules`, and your own `init_options.semanticTokens`, if you
+set one, is used as given instead.
+
+The plugin links `@lsp.type.module` to `@module` and makes sure `@lsp.type.keyword` is linked to
+`@keyword`, both as Neovim's own `default` links: your colorscheme's own choice, or anything you set
+yourself, is used instead, and these defaults are restored on `ColorScheme` (colorschemes clear
+their own links when they load). To pick your own colors:
+
+```lua
+vim.api.nvim_set_hl(0, '@lsp.type.module', { fg = '#...' })   -- module and partition names
+vim.api.nvim_set_hl(0, '@lsp.mod.partition', { italic = true })  -- only the part after `:`
+vim.api.nvim_set_hl(0, '@lsp.type.keyword', { link = 'Keyword' })  -- import / module / export
+```
 
 ## Commands and statusline
 

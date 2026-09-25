@@ -926,6 +926,61 @@
    "contains": "s.project.tier and (' L' .. s.project.tier)"
   }
  ],
+ "S3-4-10": [
+  {
+   "script": "src/engine/engine.cppm",
+   "contains": "std::string category { \"engine\" };"
+  },
+  {
+   "script": "src/normalize/plan.cppm",
+   "contains": "std::string category { \"project\" };"
+  },
+  {
+   "check": "untrusted/S1"
+  }
+ ],
+ "S3-4-11": [
+  {
+   "check": "module-faults/S1"
+  },
+  {
+   "check": "failure-at-base/S1-settles-ready-naming-the-failure"
+  },
+  {
+   "script": "src/orchestrator/workspace.cpp",
+   "contains": "const auto notCode = [](const auto& issue) { return issue.category != \"code\"; };"
+  }
+ ],
+ "S3-4-12": [
+  {
+   "script": "src/engine/native/index.cpp",
+   "contains": "\"unresolved-module\", std::format(\"module '{}' not found\", name)"
+  },
+  {
+   "check": "typing-import/T1-type-import"
+  }
+ ],
+ "S3-4-13": [
+  {
+   "script": "editors/vscode/src/statusText.ts",
+   "contains": "return issue.category === 'code';"
+  }
+ ],
+ "S3-4-14": [
+  {
+   "script": "editors/vscode/src/statusText.ts",
+   "contains": "const issue = firstNonCodeIssue(status.issues ?? []);"
+  }
+ ],
+ "S3-4-15": [
+  {
+   "check": "typing-import/T1-type-import"
+  },
+  {
+   "script": "src/orchestrator/workspace.cpp",
+   "contains": "constexpr std::chrono::milliseconds DEGRADED_HOLD { 3000 };"
+  }
+ ],
  "S3-5.5-1": [
   {
    "check": "module-faults/F0-stand-in"
@@ -942,6 +997,39 @@
  "S3-6-1": [
   {
    "test": "tests/test_server.cpp: merging"
+  }
+ ],
+ "S3-6.1-1": [
+  {
+   "check": "inferred/K1-semantic-tokens"
+  },
+  {
+   "check": "engine-none/K1-semantic-tokens"
+  },
+  {
+   "test": "tests/test_tokens.cpp: merge: the core engine wins every position it covers, native fills the gaps"
+  },
+  {
+   "test": "tests/test_tokens.cpp: merge: with no core engine, native's tokens answer alone (not null)"
+  }
+ ],
+ "S3-6.1-2": [
+  {
+   "check": "inferred/K1-semantic-tokens"
+  },
+  {
+   "check": "engine-none/K1-semantic-tokens"
+  },
+  {
+   "test": "tests/test_server.cpp: native engine: semantic tokens, moduleType, modules=false, and the merge"
+  }
+ ],
+ "S3-6.1-3": [
+  {
+   "test": "tests/test_server.cpp: native engine: semantic tokens, moduleType, modules=false, and the merge"
+  },
+  {
+   "test": "tests/test_tokens.cpp: clangd's legend, including its own duplicates, maps by name"
   }
  ],
  "S4-3-1": [

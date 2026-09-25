@@ -28,6 +28,11 @@ int main() {
         expect(!result.uncertain);
     };
 
+    "a module name is dotted identifiers with at most one partition"_test = [] {
+        for (const std::string_view name : { "std", "hello.greet", "a.b:c", "a:b.c", "_x.y2", "m\u00e9.a" }) expect(is_module_name(name)) << name;
+        for (const std::string_view name : { "", "hello.", ".x", "a..b", "a:b:c", ":p", "a:", "1a", "a.1b", "a-b", "a b" }) expect(!is_module_name(name)) << name;
+    };
+
     "partitions and implementation units"_test = [] {
         expect(role_of(scan_source("export module a.b:c;")) == Role::module_partition_interface);
         expect(provided_name(scan_source("export module a.b:c;")) == "a.b:c");
@@ -119,6 +124,84 @@ import real;
     "source names"_test = [] {
         expect(is_cxx_source_name("/a/b.cppm") && is_cxx_source_name("x.CPP") && is_cxx_source_name("m.ixx"));
         expect(!is_cxx_source_name("a.h") && !is_cxx_source_name("CMakeLists.txt"));
+    };
+
+    // design doc 2026-09-25 K/§7: syntax tokens for the server's native semantic tokens, produced
+    // from the text alone -- complete or not -- and used by the native engine's tokenizer.
+    const auto text_at = [](std::string_view text, Range range) -> std::string {
+        if (range.start.line != range.end.line) return "<crosses lines>";
+        const auto lines = mcppls::base::split_lines(text);
+        if (static_cast<std::size_t>(range.start.line) >= lines.size()) return "<out of range>";
+        const auto line = lines[static_cast<std::size_t>(range.start.line)];
+        return std::string { line.substr(static_cast<std::size_t>(range.start.character),
+                                         static_cast<std::size_t>(range.end.character - range.start.character)) };
+    };
+
+    "syntax tokens: a plain import"_test = [text_at] {
+        const std::string text { "import std;\n" };
+        const auto tokens = scan_syntax_tokens(text);
+        expect(fatal(tokens.size() == 2u));
+        expect(tokens[0].kind == SyntaxTokenKind::keyword && text_at(text, tokens[0].range) == "import");
+        expect(tokens[1].kind == SyntaxTokenKind::moduleName && text_at(text, tokens[1].range) == "std" && !tokens[1].isDeclaration);
+    };
+
+    "syntax tokens: export module with a partition"_test = [text_at] {
+        const std::string text { "export module a.b:part;\n" };
+        const auto tokens = scan_syntax_tokens(text);
+        expect(fatal(tokens.size() == 4u));
+        expect(tokens[0].kind == SyntaxTokenKind::keyword && text_at(text, tokens[0].range) == "export");
+        expect(tokens[1].kind == SyntaxTokenKind::keyword && text_at(text, tokens[1].range) == "module");
+        expect(tokens[2].kind == SyntaxTokenKind::moduleName && text_at(text, tokens[2].range) == "a.b" && tokens[2].isDeclaration);
+        expect(tokens[3].kind == SyntaxTokenKind::partitionName && text_at(text, tokens[3].range) == "part" && tokens[3].isDeclaration);
+    };
+
+    "syntax tokens: module fragments with no name"_test = [] {
+        expect(scan_syntax_tokens("module;\n").size() == 1u);   // just the keyword
+        const auto privateFragment = scan_syntax_tokens("module :private;\n");
+        expect(fatal(privateFragment.size() == 1u));
+        expect(privateFragment[0].kind == SyntaxTokenKind::keyword);
+    };
+
+    "syntax tokens: a partition-only import"_test = [text_at] {
+        const std::string text { "import :part;\n" };
+        const auto tokens = scan_syntax_tokens(text);
+        expect(fatal(tokens.size() == 2u));
+        expect(tokens[0].kind == SyntaxTokenKind::keyword && text_at(text, tokens[0].range) == "import");
+        expect(tokens[1].kind == SyntaxTokenKind::partitionName && text_at(text, tokens[1].range) == "part" && !tokens[1].isDeclaration);
+    };
+
+    "syntax tokens: export import (a re-export) and header imports"_test = [text_at] {
+        const std::string text { "export import x.y;\nimport <vector>;\nimport \"config.h\";\n" };
+        const auto tokens = scan_syntax_tokens(text);
+        expect(fatal(tokens.size() == 5u));
+        expect(tokens[0].kind == SyntaxTokenKind::keyword && text_at(text, tokens[0].range) == "export");
+        expect(tokens[1].kind == SyntaxTokenKind::keyword && text_at(text, tokens[1].range) == "import");
+        expect(tokens[2].kind == SyntaxTokenKind::moduleName && text_at(text, tokens[2].range) == "x.y");
+        expect(tokens[3].kind == SyntaxTokenKind::keyword && text_at(text, tokens[3].range) == "import");   // <vector>
+        expect(tokens[4].kind == SyntaxTokenKind::keyword && text_at(text, tokens[4].range) == "import");   // "config.h"
+    };
+
+    "syntax tokens: an incomplete import while typing never crashes and never spans lines"_test = [text_at] {
+        const std::string trailingDot { "import hello.\n" };
+        const auto tokens = scan_syntax_tokens(trailingDot);
+        expect(fatal(tokens.size() == 2u));
+        expect(tokens[0].kind == SyntaxTokenKind::keyword && text_at(trailingDot, tokens[0].range) == "import");
+        expect(tokens[1].kind == SyntaxTokenKind::moduleName && text_at(trailingDot, tokens[1].range) == "hello");
+
+        // The dot's continuation must not reach across the newline into the next statement.
+        const std::string nextLine { "import hello.\nint x;\n" };
+        const auto acrossLines = scan_syntax_tokens(nextLine);
+        expect(fatal(acrossLines.size() == 2u));
+        expect(text_at(nextLine, acrossLines[1].range) == "hello");
+        for (const auto& token : acrossLines) expect(token.range.start.line == token.range.end.line);
+
+        expect(scan_syntax_tokens("export module a.\n").size() == 3u);       // export, module, "a"
+        expect(scan_syntax_tokens("import hello. ;\n").size() == 2u);        // import, "hello"
+        expect(scan_syntax_tokens("import\n  = 2;\n").size() == 1u);         // just "import"; "=" is not a name
+    };
+
+    "syntax tokens: inside braces are not module syntax"_test = [] {
+        expect(scan_syntax_tokens("void f() {\n  import x;\n}\n").empty());
     };
 
     return report();

@@ -14,7 +14,7 @@ carrying what almost every question turns out to need:
 | `toolEnvironment` | Which environment build tools were started in, and the **names** of the variables that differ from the editor's (never the values) |
 | `toolRuns` | The last twenty external runs, each with its command, duration and outcome |
 | `plan` | What the engine was given: entries, stand-ins, what was left out and why |
-| `engines` | clangd's state, restarts, files set aside |
+| `engines` | clangd's state, restarts, files set aside, and `workarounds`: the clangd defects this server works around for this version |
 | `events` | A journal of the session |
 | `logTail` | The end of the log |
 
@@ -40,9 +40,35 @@ your build.
 **A module does not compile.** Only what imports it, directly or not, is affected: those files are
 answered at once by mcppls's own engine (module navigation, symbols, `import` completion), carry one
 `module-failed` diagnostic on the import that leads to the failure, and are not sent to clangd until
-the failed module's own source or command changes; everything else keeps clangd. The status says
-*degraded* with "N modules cannot be prepared because M failed", never *preparing* for good. The
-engine's `doomedModules` and `filesRoutedToOwnEngine` in the report list them.
+the failed module's own source or command changes; everything else keeps clangd. This is a problem
+in the code, so it is told where it is, as diagnostics: the status stays *ready* (listing
+`modules-doomed`, category `code`) and is never *preparing* for good. The engine's `doomedModules`
+and `filesRoutedToOwnEngine` in the report list them.
+
+**What the status says, and what it does not.** A mistake in your code (a missing `;`, an import
+of a module nothing provides, a module that does not compile) is a diagnostic where it is, in the
+Problems list; the status stays *ready*. *degraded* means the server lost something it would
+otherwise give you, and names what and where: "clangd stopped responding on main.cpp",
+"the workspace is not trusted", "the macOS SDK was not found". Each status issue carries a
+`category` (`code`, `engine`, `environment`, `project`) saying whose problem it is; only the ones
+other than `code` make the state *degraded*, and only once that has lasted three seconds, so a
+condition that passes by itself never reaches the status bar.
+
+**The editor froze while typing an `import` (0.0.3 and earlier).** clangd 23.1 never finishes a
+file in which a module name ends in `.` at the end of its line (`import hello.`, `export module a.`),
+and every later version of the file waits behind it: typing any dotted import went through that
+text. mcppls 0.0.4 gives clangd the line with `;` right after the dot instead, which clangd reports
+at once (workaround `WA-CLANGD-001`); `engines[].details.workarounds` in the report lists it.
+
+**"clangd would not finish main.cpp".** A file's build ran past its budget — five times its own
+last build, never under 20 s — while the editor waited on it: clangd will not finish it, busy or
+not. The file is answered by mcppls's own engine, with module-level features, until its text
+changes (the exact text clangd stopped on is never given back to it), and clangd is restarted at
+once without it. The `events` journal has an `engine-spin` entry with the numbers.
+
+**Is a workaround still needed?** `--disable-workaround WA-CLANGD-<n>` (repeatable) turns one off;
+the log's first lines name the ones in use. Each has a canary in the conformance suite
+(`workaround-canaries`) that fails once a clangd update fixes its defect.
 
 **The editor found a different compiler than my terminal.** `toolEnvironment.source` should say
 `login-shell`. If it says `editor`, the reason is in `toolEnvironment.reason` — an editor started

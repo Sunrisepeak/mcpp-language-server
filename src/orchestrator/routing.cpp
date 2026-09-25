@@ -4,6 +4,7 @@ import std;
 import nlohmann.json;
 import mcppls.engine;
 import mcppls.lsp.jsonrpc;
+import mcppls.orchestrator.tokens;
 
 namespace mcppls::orchestrator {
 
@@ -57,6 +58,12 @@ Json merge_results(std::string_view method, std::span<const std::pair<std::strin
     }
     if (method == "textDocument/documentSymbol") return merge_document_symbols(engineResult, moduleResult.is_null() ? Json::array() : moduleResult);
     if (method == "workspace/symbol") return merge_workspace_symbols(engineResult, moduleResult.is_null() ? Json::array() : moduleResult);
+    // Semantic tokens (design doc 2026-09-25 K/§7): the core engine's own tokens (already mapped
+    // into this server's legend, by the workspace, before they ever reach here -- this function
+    // stays pure) win every position they cover; mcppls's module-syntax tokens fill only the gaps.
+    if (method == "textDocument/semanticTokens/full" || method == "textDocument/semanticTokens/range") {
+        return tokens::merge(engineResult, moduleResult);
+    }
     return engineResult.is_null() ? moduleResult : engineResult;
 }
 
@@ -110,6 +117,18 @@ Json merge_capabilities(const Json& engineCapabilities) {
     if (!capabilities.contains("completionProvider")) {
         capabilities["completionProvider"] = Json { { "triggerCharacters", Json::array({ ".", ":" }) } };
     }
+    // Semantic tokens (design doc 2026-09-25 K/§7, contract T0): the legend is this server's own,
+    // built from whatever the core engine (if any) declared, so a restart or a missing core engine
+    // cannot shift an index a client has already seen.
+    // Range only when the core engine answers range requests too (mcppls's own engine always does).
+    bool range { true };
+    if (engineCapabilities.is_object()) {
+        if (const auto provider = engineCapabilities.find("semanticTokensProvider"); provider != engineCapabilities.end() && provider->is_object()) {
+            const auto declared = provider->find("range");
+            range = declared != provider->end() && (declared->is_object() || (declared->is_boolean() && declared->get<bool>()));
+        }
+    }
+    capabilities["semanticTokensProvider"] = tokens::provider_capability(tokens::build_legend(engineCapabilities), range);
     if (!capabilities.contains("experimental") || !capabilities["experimental"].is_object()) capabilities["experimental"] = Json::object();
     capabilities["experimental"]["cxxModules"] = Json { { "version", 1 }, { "databaseSpec", ">=0.2 <1" } };
     // usable plan W9.1: without this, a client has no reason to ever send

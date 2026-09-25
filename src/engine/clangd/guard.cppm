@@ -77,6 +77,55 @@ private:
     std::deque<std::tuple<GuardClock::time_point, GuardClock::time_point, std::string>> unanswered_;   // (timed out, sent, uri)
 };
 
+// A file clangd will not finish (import-hang plan §4): its main-file build ("parsing main file" in
+// clangd's file status) has lasted past its budget while something waits on it: a newer version of
+// the file, or a request about it. A
+// main-file build on a built preamble takes milliseconds to seconds, so the budget is the file's own
+// history, HISTORY_FACTOR times its last build, and never less than MIN_BUDGET: a file that really
+// takes long takes long every time, and is not called stuck. A file with no finished build yet has
+// no history and is left to the other guards (its first build may be preparing modules). Busy or
+// idle does not matter: either way the build is not going to end.
+class SpinWatch {
+public:
+    static constexpr std::chrono::seconds MIN_BUDGET { 20 };
+    static constexpr int HISTORY_FACTOR { 5 };
+
+    struct Spin {
+        std::string uri;
+        std::chrono::milliseconds building;   // how long the build has run
+        std::chrono::milliseconds budget;
+        std::size_t textHash { 0 };           // the text being built when it started
+    };
+
+    // clangd's file status for `uri`.
+    void state(std::string_view uri, std::string_view state, GuardClock::time_point now);
+    // A version of `uri` whose text hashes to `textHash` was given to clangd.
+    void sent(std::string_view uri, std::size_t textHash, GuardClock::time_point now);
+    // A request about `uri` was sent to clangd: it waits on the file's build too.
+    void asked(std::string_view uri, GuardClock::time_point now);
+    void forget(std::string_view uri);
+    // A new clangd builds nothing yet; what earlier builds took stays.
+    void restarted();
+    // The files found spinning by `now`, each reported once per build.
+    std::vector<Spin> check(GuardClock::time_point now);
+    std::optional<GuardClock::time_point> next_due() const;
+
+private:
+    struct File {
+        std::optional<GuardClock::time_point> buildingSince;
+        std::size_t buildingHash { 0 };
+        std::optional<GuardClock::time_point> buildingSentAt;   // when the version being built was sent
+        std::optional<GuardClock::time_point> lastSentAt;
+        std::optional<GuardClock::duration> lastBuild;
+        std::optional<GuardClock::time_point> lastDemand;   // the latest version sent, or request asked
+        std::size_t lastHash { 0 };
+        bool reported { false };
+    };
+    static std::optional<GuardClock::time_point> due_(const File& file);
+    static bool waited_on_(const File& file);
+    std::map<std::string, File, std::less<>> files_;
+};
+
 // clangd answering nothing while it uses next to no CPU is stuck, not slow: whatever it waits for
 // is not coming. Seen on slow CI runners after a module's source changed twice within a second: its
 // build never finished, clangd answered no request for minutes, and used 2 s of CPU in 105 s. A long

@@ -128,6 +128,81 @@ std::vector<std::string> Quarantine::members() const {
     return files;
 }
 
+void SpinWatch::state(std::string_view uri, std::string_view state, GuardClock::time_point now) {
+    auto& file = files_[std::string { uri }];
+    const bool building { state.find("parsing main file") != std::string_view::npos };
+    if (building && !file.buildingSince) {
+        file.buildingSince = now;
+        file.buildingHash = file.lastHash;
+        file.buildingSentAt = file.lastSentAt;
+        file.reported = false;
+    } else if (!building && file.buildingSince) {
+        file.lastBuild = now - *file.buildingSince;
+        file.buildingSince.reset();
+    }
+}
+
+void SpinWatch::sent(std::string_view uri, std::size_t textHash, GuardClock::time_point now) {
+    auto& file = files_[std::string { uri }];
+    file.lastDemand = now;
+    file.lastSentAt = now;
+    file.lastHash = textHash;
+}
+
+void SpinWatch::asked(std::string_view uri, GuardClock::time_point now) {
+    const auto it = files_.find(uri);
+    if (it != files_.end()) it->second.lastDemand = now;
+}
+
+void SpinWatch::forget(std::string_view uri) {
+    if (const auto it = files_.find(uri); it != files_.end()) files_.erase(it);
+}
+
+void SpinWatch::restarted() {
+    for (auto& [uri, file] : files_) {
+        file.buildingSince.reset();
+        file.reported = false;
+    }
+}
+
+bool SpinWatch::waited_on_(const File& file) {
+    // A request asked, or a version sent, after the version being built was sent waits on this build (a
+    // request is often sent before clangd says it started building).
+    if (!file.buildingSince || !file.lastDemand) return false;
+    return file.buildingSentAt ? *file.lastDemand > *file.buildingSentAt : *file.lastDemand > *file.buildingSince;
+}
+
+std::optional<GuardClock::time_point> SpinWatch::due_(const File& file) {
+    if (!file.buildingSince || !file.lastBuild || file.reported) return std::nullopt;
+    const GuardClock::duration budget { std::max<GuardClock::duration>(MIN_BUDGET, *file.lastBuild * HISTORY_FACTOR) };
+    return *file.buildingSince + budget;
+}
+
+std::vector<SpinWatch::Spin> SpinWatch::check(GuardClock::time_point now) {
+    std::vector<Spin> spins;
+    for (auto& [uri, file] : files_) {
+        const auto due = due_(file);
+        // Past its budget, and the editor has asked for something since the version being built: that waits behind it.
+        if (!due || now < *due || !waited_on_(file)) continue;
+        file.reported = true;
+        spins.push_back(Spin { uri, std::chrono::duration_cast<std::chrono::milliseconds>(now - *file.buildingSince),
+                               std::chrono::duration_cast<std::chrono::milliseconds>(*due - *file.buildingSince), file.buildingHash });
+    }
+    return spins;
+}
+
+std::optional<GuardClock::time_point> SpinWatch::next_due() const {
+    // Only builds something waits behind: a deadline check() would not act on would come back at
+    // once, forever. A version sent later is an event, and the timers run after every event.
+    std::optional<GuardClock::time_point> earliest;
+    for (const auto& [uri, file] : files_) {
+        if (!waited_on_(file)) continue;
+        const auto due = due_(file);
+        if (due && (!earliest || *due < *earliest)) earliest = due;
+    }
+    return earliest;
+}
+
 void StuckWatch::suspect(GuardClock::time_point now, std::optional<double> cpuSeconds) {
     if (since_ || !cpuSeconds) return;
     since_.emplace(now, *cpuSeconds);

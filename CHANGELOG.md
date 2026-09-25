@@ -7,6 +7,83 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.4] — 2026-09-25
+
+Typing an `import` no longer freezes the editor, the status bar says whose problem it is, and
+`import` is colored. The investigation, the plan and its measurements are in
+`.agents/docs/2026-09-25-import-hang-status-highlight.md`.
+
+### Engine
+
+- **Typing a dotted import froze everything.** clangd 23.1 never finishes a file in which a module
+  name ends in `.` at the end of its line (`import hello.`, `export module a.`): it spins at a full
+  core, and every later version of the file waits behind it. Typing `import hello.greet;` went
+  through that text every time. The feature requests for the file went unanswered for 30 s at a
+  time, and the status turned *degraded*. On Windows, the same text crashed clangd instead. clangd is now given that line with `;` right after the
+  dot, which it reports at once as the error it is; nothing else about the text changes.
+  Measured: every keystroke answered within 0.4 s, where 0.0.3 answered nothing for 30 s.
+- **A file clangd will not finish is found and recovered even while the user keeps typing.** Before,
+  the guards took a busy clangd for a compiling one, and an edit to the file postponed setting it
+  aside for two minutes; the edit that caused the hang, and the edits fixing it, kept postponing it.
+  - A file's build now has a budget: five times its own last build, never under 20 s.
+  - Past the budget, with the editor waiting on the file, clangd is restarted at once, past the
+    restart cap if need be.
+  - The file goes to mcppls's own engine, which gives module-level features, and returns to clangd
+    as soon as its text is anything other than the text clangd stopped on.
+  - Event `engine-spin`.
+- **Workarounds for clangd's own defects are registered in one place**
+  (`src/engine/clangd/workarounds.cpp`). Each entry has the versions it applies to, the upstream
+  defect, and when it can go. The report lists the ones in use (`engines[].details.workarounds`),
+  and `--disable-workaround WA-CLANGD-<n>` turns one off.
+- **Half-typed imports no longer churn the engine database.** A module nothing provides, imported
+  by a file changed in the last five seconds, gets its stand-in only once the file is quiet; a
+  unit that provides a module still gets its stand-in at once. A name that is no module name
+  (`hello.`, as a build tool's scan of a file saved mid-edit can report) is never planned.
+
+### Status
+
+- **A problem in your code is a diagnostic, not a lost feature.** A missing `;`, an import of a
+  module nothing provides, or a module that does not compile is reported where it is, in the
+  Problems list, and the status stays *ready*. *degraded* now means the server lost something, and
+  it says what and where, for example "clangd stopped responding on main.cpp; module-level features
+  only for it until it changes". Status issues carry a `category` (`code`, `engine`,
+  `environment`, `project`; S3).
+- A change to *degraded* is shown only once it has lasted three seconds, so a condition that passes
+  by itself never flickers in the status bar.
+
+### Editors
+
+- **`import`, `module` and `export` are colored**, and so are module names:
+  - The server sends semantic tokens for module syntax, which clangd sends none for (a custom type
+    `module`, with `namespace` for clients that do not ask for it), with and without clangd.
+  - The VS Code extension adds a grammar that colors them as you type, since VS Code's own C++
+    grammar leaves `import` uncolored.
+  - Settings: `mcppls.semanticTokens.modules` in VS Code, `semantic_tokens_modules` in Neovim.
+- **Other C++ extensions** can be turned off, or back on, at any time:
+  - Commands *Turn Off Other C++ Language Features* and *Restore Other C++ Language Features*, in
+    this workspace or everywhere.
+  - A notice when one becomes active later.
+  - The C/C++ extension's debugger keeps working.
+  - Neovim has `disable_conflicting`.
+
+### Known limits
+
+- clangd 23.1 also never finishes a file in which `import std;` comes before an `export import` of
+  something nothing provides. Only a file outside the project, holding such ill-formed code, gets the
+  command that exposes it. mcppls sets such a file aside after two minutes, and the defect is to be
+  reported upstream with the first. `.agents/docs/2026-09-25-import-hang-status-highlight.md` §13 has
+  the details.
+
+### Testing
+
+- Conformance kinds `type-text` (a line typed one key at a time, each step answered in time, the
+  status never turning *degraded*) and `clangd-check` (a workaround's canary).
+- Fixtures on every platform:
+  - `typing-import`;
+  - `typing-import-spin`: the real spin, with the workaround off, recovered within its budget;
+  - `workaround-canaries`: it fails once a clangd update fixes the defect.
+- `module-faults` and `failure-at-base` now expect *ready*, naming their code issues.
+
 ## [0.0.3] — 2026-09-24
 
 Linux arm64 is a platform, the extension is on Open VSX and is found by searching *mcppls*, and a

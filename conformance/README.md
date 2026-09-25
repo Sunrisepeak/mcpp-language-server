@@ -64,6 +64,9 @@ checks fail at once with that reason instead of each waiting out its timeout.
 | `s1-two-sets` | A workspace carrying its own S1 build database (`--database`, usable plan W9.2): two sets compile the same file under `-DVARIANT=1` and `-DVARIANT=2`; `cxxModules/setContext` switches which one answers |
 | `watch-polling` | Run with `--no-dynamic-watch` (usable plan W9.3): a new module interface written straight into the workspace must still reach the module graph within seconds, through the polling fallback rather than a client-driven `workspace/didChangeWatchedFiles` |
 | `clangd-cannot-load` | 0.0.3 plan B1: its `prepare` step puts a stand-in clangd in the workspace (mcppls-mock-mcpp with an `unavailable` config) that writes a loader's message, a `GLIBCXX` version not found, to standard error and exits 1; `--clangd` points the server at it. `initialize` must be answered within 20 s (it used to wait for good), the status must reach `error` with issue `engine-incompatible`, and mcppls's own module features must work |
+| `typing-import` | Import-hang plan §8: `import hello.greet;` in `main.cpp` and `export module hello.greet;` in its interface typed one key at a time, through `import hello.` and `export module hello.`, which clangd 23.1 never finishes building (WA-CLANGD-001); again with every step saved, as autosave does. Every request is answered within 5 s, the status never turns `degraded`, hover works right after, and nothing restarts clangd or is set aside |
+| `typing-import-spin` | The same typing with WA-CLANGD-001 turned off (`--disable-workaround`), so clangd really spins (Linux, macOS; on Windows the same text crashes it instead): a spin is found within its 20 s budget (event `engine-spin`), the file set aside with that text remembered and clangd restarted, a crash is restarted as before (`engine-exit`), and either way features come back while typing goes on (import-hang plan §4). If a clangd update removes the defect, its T2 check fails as well |
+| `workaround-canaries` | Import-hang plan §9: one `clangd-check` per registered workaround with a canary, run against the payload's clangd. A failure here means a clangd update fixed that defect and the workaround it names can be removed |
 | `payload-corrupt` | Its `prepare` step copies the payload the runner was given and truncates clangd in the copy (usable plan W9.4); `server-arguments` then points `--payload` at that broken copy, and status must reach `error` with issue `payload-corrupt` |
 | `multi-root` | Two workspace folders (usable plan W9.1): an `inferred` root and an mcpp-built `mcpp-llvm` root (level 3, from mcpp's own build database), each getting its own project model and clangd, each `cxxModules/status` telling them apart by `project.root` |
 
@@ -115,9 +118,13 @@ sees it names `["{conformance}", "prepare", "<kind>", ...]`: the generators live
 (`mcppls-conformance prepare --help`), so a conformance host needs nothing the runner does not
 bring — no interpreter. Positions
 are `[line, character]`, zero-based, UTF-16. A check with `"text"` opens its file with that unsaved
-content; a check with `"optional": true` reports `SKIP` instead of failing, and `"timeout": SECONDS`
+content; a check with `"only-on": ["linux", "macos", "windows"]` runs only on those operating systems and reports `SKIP` elsewhere; a check with `"optional": true` reports `SKIP` instead of failing, and `"timeout": SECONDS`
 waits less than the run's `--timeout`. `"file"` and `"folder"` on a check, like every other path a
 scenario names, are relative to the fixture's own root, never to a specific workspace folder.
+`"initialization-options"` on the scenario is an object merged into the runner's own
+`initializationOptions` (over whatever `--client` profile set), so a fixture can ask for something
+`--client` does not, such as `{"semanticTokens": {"moduleType": true}}` (design doc 2026-09-25
+K/§7).
 `"initialize-within": SECONDS` on the scenario fails the run when `initialize` is answered later
 than that (the runner itself waits up to 120 s): a server that answers eventually is not enough
 where the point is that it answers at once (`clangd-cannot-load`).
@@ -144,7 +151,7 @@ always has been.
 
 | Kind | Passes when |
 |---|---|
-| `status` | `cxxModules/status` reaches `ready`, `degraded` or `error` and matches `source`, `profile-kind`, `state`, `level`, `tier` (`project.tier`, the README's L1..L4, real-project plan RP3.2), `issue-code` (with `issue-command`, that issue's command; with `issue-message`, a part of its message), `notice-code` and `engine-name`/`engines-include` when given, and a `profile-compiler` prefix (a settled status that does not match yet is looked at again for up to three seconds, since a server coalesces changes that keep its state); `"folder"` picks one root's own status in a multi-root fixture (usable plan W9.1), absent picks whichever root's arrived most recently |
+| `status` | `cxxModules/status` reaches `ready`, `degraded` or `error` and matches `source`, `profile-kind`, `state`, `level`, `tier` (`project.tier`, the README's L1..L4, real-project plan RP3.2), `issue-code` (with `issue-command`, that issue's command; with `issue-message`, a part of its message; with `issue-category`, its S3 category: `code`, `engine`, `environment` or `project`), `notice-code` and `engine-name`/`engines-include` when given, and a `profile-compiler` prefix (a settled status that does not match yet is looked at again for up to three seconds, since a server coalesces changes that keep its state); `"folder"` picks one root's own status in a multi-root fixture (usable plan W9.1), absent picks whichever root's arrived most recently |
 | `workspace-unchanged` | no file under the workspace was added, changed or removed after the prepare steps |
 | `responds` | a request (`method`, default `textDocument/definition`) at `at` is answered, empty answers included, within the check's time |
 | `module-cache-reused` | every file clangd published for `module` (default `std`) before the server started is still there unchanged, and none was added (SC4); passes on a cold start unless `--expect-warm` |
@@ -156,6 +163,7 @@ always has been.
 | `completion-contains` | a completion label starts with `expect`; `insert: [line, text]` adds a line first, `edit` changes another open buffer without saving it |
 | `references-span` | the references include every path in `expect` |
 | `document-symbol-contains` | the outline has a top-level symbol named `expect` |
+| `semantic-tokens` | `textDocument/semanticTokens/full` (or `/range`, with `"range"`) for `"file"` (optionally with an unsaved `"text"`), decoded with the legend `initialize` gave, has every entry of `"expect"` (`{"line", "text", "type", "modifiers"?}`; `"modifiers"` is a list, and optional) among its tokens (design doc 2026-09-25 K/§7) |
 | `module-graph-contains` | `cxxModules/graph` lists module `expect`; retries within the check's own timeout, so it doubles as "a change reaches the graph within N seconds" (usable plan W9.3's `watch-polling`) |
 | `set-context` | sends `cxxModules/setContext` with `"context"` (usable plan W9.2), then a hover at `"at"` contains `expect`, retried the same way as `hover-contains` |
 | `write-file` | writes `"content"` (default: a fresh `export module <module>;`; `"content-from"` copies another workspace file) to `"file"` directly, the way a file system watcher — or, without one, the server's own polling fallback — would notice it, without the runner opening it as a document (usable plan W9.3); with `"expect-reload": true`, also waits for the status to pass through `loading` again (S2-5-1) |
@@ -164,6 +172,8 @@ always has been.
 | `execute-command` | `workspace/executeCommand` with `"command"` and `"arguments"` is answered without an error (the editor's review commands, design 7.7) |
 | `cli` | S5 section 7: `mcppls <args>` with the runner's payload and the fixture's server arguments, run to completion in the workspace, exits with `"exit"` (default 0) and prints one JSON document meeting `"expect"` |
 | `stress` | real-project stress testing (real-project plan RP0): seeded random use — see below — meets every key present in `"budget"` |
+| `type-text` | line `line` of `file` takes each of `steps` in turn, `interval-ms` apart (default 120), the whole buffer sent each time; after each, `request` (default `textDocument/documentSymbol`) is answered within `answer-within` seconds (default 5); with `save`, each step is also written to disk and reported as saved and changed, as autosave does; fails when the status turned to a state listed in `states-never` meanwhile (import-hang plan §8) |
+| `clangd-check` | the runner's own clangd (`--clangd`, else the payload's) run with `--check` on `file` does not finish (`expect: "hangs"`: not finished after `seconds`, default 10, or crashed) or finishes normally (`"finishes"`); a workaround's canary expects its defect, and fails with `says` once a clangd update fixed it (import-hang plan §9) |
 | `report` | robustness design O3: `cxxModules/report` meets `"expect"`, retried within the check's time like an `mcp`/`cli` result (a plan or an engine may still be on its way) |
 
 An expectation of `mcp`, `cli` and `report` names a JSON pointer in `"path"`, where a `*` segment stands for every
