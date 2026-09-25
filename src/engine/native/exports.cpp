@@ -25,6 +25,12 @@ struct Comment {
 
 bool is_space(char c) { return c == ' ' || c == '\t' || c == '\f' || c == '\v' || c == '\r'; }
 
+// Where a byte of `text` is, as an editor shows the text: a byte order mark takes no column (fix plan F2).
+base::Position position_in(std::string_view text, std::size_t offset) {
+    const std::size_t mark { base::byte_order_mark_size(text) };
+    return base::position_at(text.substr(mark), offset < mark ? 0 : offset - mark);
+}
+
 // Tokenizes the whole file up front (rather than streaming, like
 // project::scan's lexer in src/project/scan.cpp): the declaration parser
 // below needs lookahead and backtrack-free recursive descent, which a token
@@ -41,7 +47,8 @@ private:
     std::vector<Comment>& comments_;
 
 public:
-    Lexer(std::string_view text, std::vector<Comment>& comments) : text_ { text }, comments_ { comments } {}
+    // A byte order mark before `export module` is skipped, as scan_source skips it (fix plan F2).
+    Lexer(std::string_view text, std::vector<Comment>& comments) : text_ { text }, at_ { base::byte_order_mark_size(text) }, comments_ { comments } {}
 
     std::vector<Token> tokenize() {
         std::vector<Token> tokens;
@@ -342,7 +349,7 @@ private:
     }
 
     static base::Range token_range_(std::string_view source, const Token& token) {
-        return base::Range { base::position_at(source, token.offset), base::position_at(source, token.offset + token.text.size()) };
+        return base::Range { position_in(source, token.offset), position_in(source, token.offset + token.text.size()) };
     }
 
     // A sequence of items at one brace-depth-0 scope: the whole file, a
@@ -408,7 +415,7 @@ private:
             entry.qualifiedName = qualifiedName;
             entry.declaration = collapse_span(tokens_, declStartIndex, declEndIndex);
             entry.documentation = extract_documentation_(anchorOffset);
-            entry.nameRange = base::Range { base::position_at(source_, path.begin), base::position_at(source_, path.end) };
+            entry.nameRange = base::Range { position_in(source_, path.begin), position_in(source_, path.end) };
             entry.conditional = conditionalDepth > 0;
             results_.push_back(std::move(entry));
         }
@@ -434,7 +441,7 @@ private:
         entry.qualifiedName = ref.text;   // re-exports are only ever written at global module scope
         entry.declaration = collapse_span(tokens_, declStartIndex, declEndIndex);
         entry.documentation = extract_documentation_(anchorOffset);
-        entry.nameRange = base::Range { base::position_at(source_, ref.begin), base::position_at(source_, ref.end) };
+        entry.nameRange = base::Range { position_in(source_, ref.begin), position_in(source_, ref.end) };
         entry.conditional = conditionalDepth > 0;
         results_.push_back(std::move(entry));
     }

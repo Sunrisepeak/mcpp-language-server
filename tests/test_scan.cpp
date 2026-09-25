@@ -204,5 +204,31 @@ import real;
         expect(scan_syntax_tokens("void f() {\n  import x;\n}\n").empty());
     };
 
+    // Fix plan F2: a UTF-8 byte order mark before the module declaration, as editors on Windows save it.
+    "a byte order mark is skipped, and takes no column"_test = [text_at] {
+        const std::string mark { "\xEF\xBB\xBF" };
+        const auto interface = scan_source(mark + "export module hello.greet;\nimport std;\n");
+        expect(fatal(interface.declaration.has_value()));
+        expect(interface.declaration->module == "hello.greet" && interface.declaration->isExported);
+        expect(interface.declaration->nameRange == Range { Position { 0, 14 }, Position { 0, 25 } });
+        expect(provided_name(interface) == "hello.greet");
+        const auto fragment = scan_source(mark + "module;\n#include <cstdio>\nexport module m;\n");
+        expect(fatal(fragment.declaration.has_value()));
+        expect(fragment.declaration->module == "m");
+        const auto implementation = scan_source(mark + "module m;\n");
+        expect(role_of(implementation) == Role::module_implementation && required_names(implementation) == std::vector<std::string> { "m" });
+        const auto importer = scan_source(mark + "import hello.greet;\n");
+        expect(fatal(importer.imports.size() == 1u));
+        expect(importer.imports[0].nameRange == Range { Position { 0, 7 }, Position { 0, 18 } });
+        for (const std::string_view body : { "export module a.b:part;\nexport int f();\n", "module;\nexport module m;\n", "import hello.\n" }) {
+            const auto plain = scan_syntax_tokens(body);
+            const auto marked = scan_syntax_tokens(mark + std::string { body });
+            expect(plain.size() == marked.size()) << body;
+            for (std::size_t i { 0 }; i < std::min(plain.size(), marked.size()); ++i) {
+                expect(plain[i].kind == marked[i].kind && plain[i].range == marked[i].range) << body << " token " << i;
+            }
+        }
+    };
+
     return report();
 }

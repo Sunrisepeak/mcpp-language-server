@@ -20,6 +20,15 @@ struct Token {
 
 bool is_space(char c) { return c == ' ' || c == '\t' || c == '\f' || c == '\v' || c == '\r'; }
 
+// Where a byte of `text` is, as an editor shows the text: a byte order mark at its start takes no
+// column (fix plan F2), so a file read from disk and the same file open in an editor get the same ranges.
+base::Position position_in(std::string_view text, std::size_t offset) {
+    const std::size_t mark { base::byte_order_mark_size(text) };
+    return base::position_at(text.substr(mark), offset < mark ? 0 : offset - mark);
+}
+
+// Offsets are the text's own; a byte order mark before `export module` is skipped like white space
+// (fix plan F2), or the declaration would not begin its line and the file would be no module.
 class Lexer {
 private:
     std::string_view text_;
@@ -28,7 +37,7 @@ private:
     int conditionalDepth_ { 0 };
 
 public:
-    explicit Lexer(std::string_view text) : text_ { text } {}
+    explicit Lexer(std::string_view text) : text_ { text }, at_ { base::byte_order_mark_size(text) } {}
 
     int conditional_depth() const { return conditionalDepth_; }
 
@@ -269,7 +278,7 @@ std::vector<SyntaxToken> scan_syntax_tokens(std::string_view text) {
     std::optional<Token> token { lexer.next(false) };
     const auto push = [&](SyntaxTokenKind kind, std::size_t begin, std::size_t end, bool isDeclaration = false) {
         if (end <= begin) return;
-        tokens.push_back(SyntaxToken { kind, base::Range { base::position_at(text, begin), base::position_at(text, end) }, isDeclaration });
+        tokens.push_back(SyntaxToken { kind, base::Range { position_in(text, begin), position_in(text, end) }, isDeclaration });
     };
     while (token) {
         if (token->kind == TokenKind::punctuation) {
@@ -362,7 +371,7 @@ ScanResult scan_source(std::string_view text) {
             import.isHeaderUnit = true;
             import.header = std::string { token->text };
             import.conditional = conditional;
-            import.nameRange = base::Range { base::position_at(text, token->offset), base::position_at(text, token->offset + token->text.size()) };
+            import.nameRange = base::Range { position_in(text, token->offset), position_in(text, token->offset + token->text.size()) };
             token = lexer.next(false);
             skip_attributes(lexer, token);
             if (token && token->text == ";") {
@@ -381,7 +390,7 @@ ScanResult scan_source(std::string_view text) {
         if (!token || token->kind != TokenKind::punctuation || token->text != ";") continue;
         token = lexer.next(false);
 
-        const base::Range range { base::position_at(text, name.begin), base::position_at(text, name.end) };
+        const base::Range range { position_in(text, name.begin), position_in(text, name.end) };
         if (conditional) result.uncertain = true;
         if (isImport) {
             result.imports.push_back(ImportDeclaration { name.module, name.partition, exported, false, {}, conditional, range });

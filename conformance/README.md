@@ -50,6 +50,7 @@ checks fail at once with that reason instead of each waiting out its timeout.
 | `mcpp-msvc` | mcpp with `msvc@system` and `import std`, described by mcpp's own `emit build-database`: level 3, a test across sets, the workspace unchanged |
 | `mcpp-llvm-msvc` | mcpp's default Windows toolchain, LLVM for `x86_64-windows-msvc`, with the MSVC STL (P5), described the same way |
 | `inferred-msvc` | Loose module sources on a machine with Visual Studio: MSVC STL semantics without a build system (design 9.3, D27) |
+| `inferred-bom` | Issue #23: loose module sources saved with a UTF-8 byte order mark. The scanners skip the mark, so `export module greet;` after it declares the module: no false `unresolved-module`, no stand-in, the import navigates to the module and a hover across it answers |
 | `inferred-no-sdk` | macOS with the Command Line Tools and Xcode hidden: degraded with `sdk-missing` and its install command, a file importing `std` answered at once, module-level features (usable plan W5, U7) |
 | `inferred-discover` | The `inferred` project with compiler discovery on, on clean machines: a Linux container without a compiler and Windows with Visual Studio hidden (usable plan W5) |
 | `self-mcpp` | The mcpp repository at a fixed commit, about 170 modules (nightly, W8). Its `.xlings.json` asks for mcpp 2026.9.21.1, which xlings runs inside it |
