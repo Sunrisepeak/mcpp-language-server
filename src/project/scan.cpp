@@ -275,15 +275,28 @@ std::vector<SyntaxToken> scan_syntax_tokens(std::string_view text) {
     std::vector<SyntaxToken> tokens;
     Lexer lexer { text };
     int braceDepth { 0 };
+    // Fix plan F8: once a module declaration (`module;`, `module m;`, `export module m;`) has been read, the
+    // file is a module unit, and every `export` in it begins an export declaration -- `export namespace`,
+    // `export {`, `export int f()`, inside a namespace too -- and is colored like `export module`'s.
+    bool moduleUnit { false };
     std::optional<Token> token { lexer.next(false) };
     const auto push = [&](SyntaxTokenKind kind, std::size_t begin, std::size_t end, bool isDeclaration = false) {
         if (end <= begin) return;
         tokens.push_back(SyntaxToken { kind, base::Range { position_in(text, begin), position_in(text, end) }, isDeclaration });
     };
+    const auto push_export = [&](const Token& exportToken) {
+        if (moduleUnit) push(SyntaxTokenKind::keyword, exportToken.offset, exportToken.offset + exportToken.text.size());
+    };
     while (token) {
         if (token->kind == TokenKind::punctuation) {
             if (token->text == "{") ++braceDepth;
             if (token->text == "}" && braceDepth > 0) --braceDepth;
+            token = lexer.next(false);
+            continue;
+        }
+        if (token->kind == TokenKind::identifier && token->text == "export" && (braceDepth != 0 || !token->startsLine)) {
+            // Inside a namespace, or after another declaration on its line: never module syntax.
+            push_export(*token);
             token = lexer.next(false);
             continue;
         }
@@ -295,16 +308,21 @@ std::vector<SyntaxToken> scan_syntax_tokens(std::string_view text) {
         std::size_t exportBegin { 0 };
         std::size_t exportEnd { 0 };
         if (token->text == "export" && token->startsLine) {
+            const Token exportToken { *token };
             exportBegin = token->offset;
             exportEnd = token->offset + token->text.size();
             token = lexer.next(false);
-            if (!token || token->kind != TokenKind::identifier || (token->text != "module" && token->text != "import")) continue;
+            if (!token || token->kind != TokenKind::identifier || (token->text != "module" && token->text != "import")) {
+                push_export(exportToken);   // a declaration's export; what follows it is read as usual
+                continue;
+            }
             exported = true;
         } else if (!token->startsLine || (token->text != "module" && token->text != "import")) {
             token = lexer.next(false);
             continue;
         }
         const bool isImport { token->text == "import" };
+        if (!isImport) moduleUnit = true;
         if (exported) push(SyntaxTokenKind::keyword, exportBegin, exportEnd);
         push(SyntaxTokenKind::keyword, token->offset, token->offset + token->text.size());
         token = lexer.next(isImport);

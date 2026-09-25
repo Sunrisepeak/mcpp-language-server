@@ -204,6 +204,27 @@ import real;
         expect(scan_syntax_tokens("void f() {\n  import x;\n}\n").empty());
     };
 
+    // Fix plan F8: the export of an export declaration is colored like the one of `export module`.
+    "syntax tokens: every export of a module unit is a keyword"_test = [text_at] {
+        const std::string text { "export module m;\nimport std;\nexport namespace ns {\n  export int inner();\n}\nexport {\n  int grouped();\n}\n"
+                                 "export int f();\nexport template <class T> T g(T);\nexport using alias = int;\nint a; export int b;\n" };
+        const auto tokens = scan_syntax_tokens(text);
+        std::vector<std::pair<int, int>> exports;   // (line, character) of each `export` keyword
+        for (const auto& token : tokens) {
+            if (token.kind == SyntaxTokenKind::keyword && text_at(text, token.range) == "export") exports.emplace_back(token.range.start.line, token.range.start.character);
+        }
+        const std::vector<std::pair<int, int>> wanted { { 0, 0 }, { 2, 0 }, { 3, 2 }, { 5, 0 }, { 8, 0 }, { 9, 0 }, { 10, 0 }, { 11, 7 } };
+        expect(exports == wanted) << std::format("{}", exports);
+        // What the export precedes is read as usual: the braces still hide module syntax, the module name is still one.
+        expect(std::ranges::count_if(tokens, [](const SyntaxToken& token) { return token.kind == SyntaxTokenKind::moduleName; }) == 2);
+        expect(scan_syntax_tokens("export module m;\nexport {\n  import x;\n}\n").size() == 4u);   // export, module, m, export
+    };
+
+    "syntax tokens: outside a module unit, export declares nothing and is left alone"_test = [] {
+        expect(scan_syntax_tokens("export int f();\nexport namespace ns {}\n").empty());
+        expect(scan_syntax_tokens("import std;\nexport int f();\n").size() == 2u);   // import, std
+    };
+
     // Fix plan F2: a UTF-8 byte order mark before the module declaration, as editors on Windows save it.
     "a byte order mark is skipped, and takes no column"_test = [text_at] {
         const std::string mark { "\xEF\xBB\xBF" };

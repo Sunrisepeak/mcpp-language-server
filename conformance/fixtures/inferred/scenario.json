@@ -29,7 +29,8 @@
       { "line": 1, "text": "import", "type": "keyword" },
       { "line": 1, "text": "detail", "type": "module", "modifiers": ["partition"] },
       { "line": 2, "text": "import", "type": "keyword" },
-      { "line": 2, "text": "std", "type": "module" }
+      { "line": 2, "text": "std", "type": "module" },
+      { "line": 4, "text": "export", "type": "keyword" }
     ] }
   ]
 }
