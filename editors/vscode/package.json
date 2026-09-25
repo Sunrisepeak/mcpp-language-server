@@ -156,6 +156,16 @@
         "category": "C++ Modules"
       },
       {
+        "command": "mcppls.exportDiagnosticBundle",
+        "title": "Export Diagnostic Bundle",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.restartClangd",
+        "title": "Restart clangd",
+        "category": "C++ Modules"
+      },
+      {
         "command": "mcppls.runBuildToolInTerminal",
         "title": "Run the Build Tool in a Terminal",
         "category": "C++ Modules"

@@ -43,6 +43,7 @@ const CLIENT_ID = 'mcppls';
 const CLIENT_NAME = 'C++ Modules';
 const RESTART_WINDOW_MS = 3 * 60 * 1000;
 const MAX_RESTARTS = 4;
+const RECENT_LOG_LINES = 1000;
 
 export interface TestApi {
     waitForState(state: ModuleState | readonly ModuleState[], timeoutMs: number): Promise<CxxModulesStatus>;
@@ -120,6 +121,7 @@ class ServerHost implements vscode.Disposable {
     readonly serverLog = new ServerLogRouter();
     private restarts: number[] = [];
     private queue: Promise<void> = Promise.resolve();
+    private readonly recent: string[] = [];
 
     constructor(
         private readonly context: vscode.ExtensionContext,
@@ -145,7 +147,18 @@ class ServerHost implements vscode.Disposable {
     }
 
     log(line: string): void {
-        this.output().appendLine(`[${new Date().toLocaleTimeString()}] ${line}`);
+        const stamped = `[${new Date().toLocaleTimeString()}] ${line}`;
+        this.output().appendLine(stamped);
+        // A diagnostic bundle carries the extension's own log (issue #23 fix plan F18); the output
+        // channel cannot be read back, so its latest lines are kept here too.
+        this.recent.push(stamped);
+        if (this.recent.length > RECENT_LOG_LINES) {
+            this.recent.splice(0, this.recent.length - RECENT_LOG_LINES);
+        }
+    }
+
+    recentLog(): string[] {
+        return [...this.recent];
     }
 
     runningClient(): LanguageClient | undefined {
@@ -504,6 +517,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
         restart: () => host.restart(),
         showLogs: () => host.output().show(true),
         log: (line: string) => host.log(line),
+        recentLog: () => host.recentLog(),
     };
     registerCommands(context, serverAccess);
 

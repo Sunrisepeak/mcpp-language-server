@@ -67,7 +67,8 @@ struct SessionOptions {
 // `review_finished` carries the output of a review an editor asked for.
 // `tool_run` carries what the external-program runner wrote down about one run, so the
 // workspace it belongs to can journal it (design 4.6).
-enum class EventKind { client_message, client_closed, engine_event, model_loaded, external, review_finished, tool_run };
+// `bundle_written` carries the outcome of a diagnostic bundle an editor asked for (issue #23 fix plan F18).
+enum class EventKind { client_message, client_closed, engine_event, model_loaded, external, review_finished, tool_run, bundle_written };
 
 struct Event {
     EventKind kind { EventKind::client_message };

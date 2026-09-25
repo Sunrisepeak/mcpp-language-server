@@ -33,6 +33,7 @@ import mcppls.cli.query;
 import mcppls.cli.cache;
 import mcppls.orchestrator.report;
 import mcppls.orchestrator.kernel;
+import mcppls.bundle.writer;
 import mcppls.ai.mcp.server;
 import mcppls.ai.mcp.daemon;
 import mcppls.ai.model.source;
@@ -257,6 +258,12 @@ int run(int argc, char* argv[]) {
     (void)reportCommand.description("Load a workspace, let it settle, and print what a bug report needs as JSON (robustness design O3)");
     (void)reportCommand.option("root").takes_value().help("Workspace root (default: the current directory)");
     (void)reportCommand.option("settle").takes_value().help("Seconds to wait for the engines to settle first (default 60)");
+    // issue #23 fix plan F18: the diagnostic bundle, and the redaction every report goes through.
+    (void)reportCommand.option("bundle").takes_value().help("Write a diagnostic bundle (a zip of the report, environment, logs, incidents and engine databases) here instead of printing the report");
+    (void)reportCommand.option("hide-project-paths").help("Replace the workspace's own paths too, with <workspace>");
+    (void)reportCommand.option("no-source-excerpts").help("Leave out the lines of source an incident carries");
+    (void)reportCommand.option("include-dumps").help("Include crash dumps in the bundle; they hold memory and cannot be redacted");
+    (void)reportCommand.option("no-redact").help("Keep user names, paths and secrets as they are, to look at a problem on this machine; never for sharing");
     (void)reportCommand.action([&](const cmdline::ParsedArgs& args) {
         handled = true;
         apply_log_level(args);
@@ -272,11 +279,35 @@ int run(int argc, char* argv[]) {
         }, settle);
         (void)kernel->wait_settled(settle);
         Json roots = Json::array({ kernel->workspace().report() });
-        const auto core = kernel->workspace().core_engine_status();
-        std::println("{}", orchestrator::make_report(std::move(roots), Json { { "name", "mcppls report" } }, options.session.engine, engine::PayloadPaths {},
-                                                     false, std::chrono::steady_clock::now() - started).dump(2));
-        (void)core;
+        const engine::PayloadPaths payload { engine::resolve_payload(engine::PayloadRequest { options.session.payloadDirectory, options.session.clangd,
+                                                                                               options.session.kit, options.session.engine }) };
+        Json report = orchestrator::make_report(std::move(roots), Json { { "name", "mcppls report" } }, options.session.engine, payload, false,
+                                                std::chrono::steady_clock::now() - started);
+        const bool redact { !args.is_flag_set("no-redact") };
+        if (auto output = args.value("bundle")) {
+            // Before the kernel shuts down: a second instance's private cache, with its engine database, goes with it.
+            bundle::BundleInput input;
+            input.report = std::move(report);
+            bundle::BundleOptions bundleOptions;
+            bundleOptions.output = absolute(*output);
+            bundleOptions.redact = redact;
+            bundleOptions.hideProjectPaths = args.is_flag_set("hide-project-paths");
+            bundleOptions.sourceExcerpts = !args.is_flag_set("no-source-excerpts");
+            bundleOptions.includeDumps = args.is_flag_set("include-dumps");
+            auto written = bundle::write_bundle(input, bundleOptions);
+            kernel->shut_down();
+            if (!written) {
+                std::println(std::cerr, "report: {}", written.error().message);
+                std::println("{}", Json { { "error", written.error().message }, { "residue", written.error().residue } }.dump(2));
+                status = 1;
+                return;
+            }
+            std::println("{}", Json { { "bundle", written->path }, { "bytes", written->bytes }, { "redactions", written->redactions } }.dump(2));
+            status = 0;
+            return;
+        }
         kernel->shut_down();
+        std::println("{}", (redact ? bundle::redact_report(report) : report).dump(2));
         status = 0;
     });
     (void)app.subcommand(std::move(reportCommand));

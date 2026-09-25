@@ -26,6 +26,8 @@ import mcppls.platform.task;
 import mcppls.lsp.jsonrpc;
 import mcppls.lsp.connection;
 import mcppls.orchestrator.tokens;
+import mcppls.bundle.redact;
+import mcppls.bundle.zip;
 
 namespace base = mcppls::base;
 namespace fs = mcppls::platform::fs;
@@ -78,6 +80,8 @@ struct Options {
     // under the real $HOME/%USERPROFILE%. Empty until `run()` reads the scenario; once set, every
     // process the runner starts for the server under test uses it as HOME (and USERPROFILE).
     std::string isolatedHome;
+    // issue #23 fix plan F18: where `bundle` checks leave a copy of the bundle they checked, for CI to keep; empty: nowhere.
+    std::string keepBundles;
 };
 
 // Replaces HOME (POSIX) and USERPROFILE (Windows) in a spawn's environment, so
@@ -1618,6 +1622,91 @@ public:
             }
             return { ok, detail.substr(0, std::min<std::size_t>(detail.size(), 200)) };
         }
+        if (kind == "bundle") {
+            // issue #23 fix plan F18: `mcppls.exportBundle` writes a zip within its size cap whose manifest is its contents,
+            // digest for digest, and in which no file -- nor the report cxxModules/report answers -- names the home directory
+            // the server runs with or the user it runs as (S3-5.5-3). The client's log it is sent carries the home too.
+            const std::string home { base::normalize_path(options_.isolatedHome.empty() ? mcppls::platform::dirs::home_directory() : options_.isolatedHome) };
+            std::vector<std::string> forbidden { home };
+            forbidden.push_back(base::replace_all(home, "/", "\\"));
+            for (const std::string_view name : { "USER", "USERNAME", "LOGNAME" }) {
+                const auto user = mcppls::platform::env::get(name);
+                if (!user || !mcppls::bundle::distinctive_name(*user)) continue;
+                forbidden.push_back(*user);
+                // Its 8.3 form (RUNNER~1 for runneradmin), which a Windows temporary directory is spelled with.
+                if (user->size() > 8) forbidden.push_back(base::to_lower_ascii(user->substr(0, 6)) + "~");
+            }
+            // The report is redacted but keeps the project's own paths; only a bundle can be asked to hide them.
+            const std::size_t forbiddenInReport { forbidden.size() };
+            if (check.value("forbid-workspace", false)) forbidden.push_back(base::normalize_path(workspace_));
+            const auto named = [&](std::string_view text, std::size_t count) -> std::string {
+                const std::string lower { base::to_lower_ascii(text) };
+                for (const auto& needle : std::span { forbidden }.first(count)) {
+                    if (!needle.empty() && lower.contains(base::to_lower_ascii(needle))) return needle == home ? std::string { "the home directory" } : std::format("'{}'", needle);
+                }
+                return {};
+            };
+            std::string path;
+            if (check.value("via", std::string { "command" }) == "cli") {
+                // `mcppls report --bundle`, the way CI and a person without an editor export one.
+                path = base::join_path(cacheDirectory_, std::format("{}.zip", check.value("id", std::string { "bundle" })));
+                mcppls::platform::SpawnOptions spawn;
+                spawn.program = options_.server;
+                spawn.arguments = { "report", "--root", workspace_, "--settle", "30", "--bundle", path };
+                for (const auto& argument : check.value("args", Json::array())) spawn.arguments.push_back(argument.get<std::string>());
+                if (!options_.payload.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--payload", options_.payload });
+                if (!options_.clangd.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--clangd", options_.clangd });
+                if (!options_.kit.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--kit", options_.kit });
+                spawn.arguments.insert(spawn.arguments.end(), serverArguments_.begin(), serverArguments_.end());
+                spawn.workDirectory = workspace_;
+                auto environment = mcppls::platform::env::variables();
+                environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory_);
+                apply_isolated_home(environment, options_);
+                spawn.environment = std::move(environment);
+                auto running = std::async(std::launch::async, [spawn, timeout = timeout_]() mutable { return mcppls::platform::run(std::move(spawn), timeout); });
+                while (running.wait_for(std::chrono::milliseconds { 200 }) != std::future_status::ready) client_.drain(std::chrono::milliseconds { 0 });
+                auto result = running.get();
+                if (!result) return { false, result.error().message };
+                if (result->timedOut || result->exitCode != 0) return { false, std::format("mcppls report --bundle: exit {}: {}", result->exitCode, (result->output + result->error).substr(0, 300)) };
+            } else {
+                Json arguments = check.value("arguments", Json::object());
+                arguments["client"] = Json { { "name", "mcppls-conformance" }, { "log", std::format("started in {}\nworkspace {}\n", home, workspace_) } };
+                const auto answer = client_.request("workspace/executeCommand", Json { { "command", "mcppls.exportBundle" }, { "arguments", Json::array({ arguments }) } },
+                                                    timeout_);
+                if (!answer || !answer->is_object() || !answer->contains("path")) return { false, "mcppls.exportBundle: no answer, or an error" };
+                path = answer->value("path", std::string {});
+            }
+            auto archive = fs::read_file(path);
+            if (archive && !options_.keepBundles.empty()) {
+                (void)fs::create_directories(options_.keepBundles);
+                (void)fs::write_file(base::join_path(options_.keepBundles, std::format("{}-{}.zip", base::file_name(options_.fixture), check.value("id", std::string { "bundle" }))), *archive);
+            }
+            fs::remove_all(path);
+            if (!archive) return { false, std::format("no bundle at {}", path) };
+            if (archive->size() > 25 * 1024 * 1024) return { false, std::format("the bundle is {} bytes, over its 25 MB cap", archive->size()) };
+            auto files = mcppls::bundle::read_archive(*archive);
+            if (!files) return { false, files.error() };
+            if (!files->contains("manifest.json")) return { false, "no manifest.json" };
+            const Json manifest = Json::parse(files->at("manifest.json"), nullptr, false);
+            if (!manifest.is_object() || !manifest.contains("files")) return { false, "manifest.json is not a manifest" };
+            if (manifest["files"].size() + 1 != files->size()) return { false, std::format("the manifest lists {} files, the bundle has {}", manifest["files"].size(), files->size() - 1) };
+            for (const auto& file : manifest["files"]) {
+                const std::string name { file.value("path", std::string {}) };
+                const auto found = files->find(name);
+                if (found == files->end()) return { false, std::format("{} is in the manifest, not in the bundle", name) };
+                if (base::sha256_hex(found->second) != file.value("sha256", std::string {})) return { false, std::format("{} is not what the manifest's digest says", name) };
+            }
+            for (const auto& expected : check.value("expect-files", Json::array())) {
+                if (!files->contains(expected.get<std::string>())) return { false, std::format("no {} in the bundle", expected.get<std::string>()) };
+            }
+            for (const auto& [name, content] : *files) {
+                if (const auto what = named(content, forbidden.size()); !what.empty()) return { false, std::format("{} names {}", name, what) };
+            }
+            const auto report = client_.request("cxxModules/report", Json::object(), timeout_);
+            if (!report) return { false, "cxxModules/report: no answer" };
+            if (const auto what = named(lsp::dump(*report), forbiddenInReport); !what.empty()) return { false, std::format("cxxModules/report names {}", what) };
+            return { true, std::format("{} files, {} bytes, redactions {}", files->size(), archive->size(), lsp::dump(manifest["redaction"]["rules"])) };
+        }
         if (kind == "report") {
             // robustness design O3: cxxModules/report, held to "expect" like a tool's result, retried within the check's time
             // (a plan or an engine may still be on its way).
@@ -2525,6 +2614,7 @@ int main(int argc, char* argv[]) {
     (void)runCommand.option("plain-client").help("Alias for --client plain");
     (void)runCommand.option("client").takes_value().help("The capabilities a real editor sends: vscode, neovim, zed or plain (default: this runner's own, the full experimental.cxxModules block)");
     (void)runCommand.option("stress-seed").takes_value().help("Overrides every stress check's own \"seed\" (mcppls-devtools stress --seed)");
+    (void)runCommand.option("keep-bundles").takes_value().help("Directory a copy of every diagnostic bundle a bundle check exported is left in");
     (void)runCommand.action([&](const cmdline::ParsedArgs& args) {
         Options options;
         options.server = absolute(args.value("server").value_or(""));
@@ -2542,6 +2632,7 @@ int main(int argc, char* argv[]) {
         options.expectWarm = args.is_flag_set("expect-warm");
         options.noDynamicWatch = args.is_flag_set("no-dynamic-watch");
         options.plainClient = args.is_flag_set("plain-client");
+        options.keepBundles = args.value("keep-bundles") ? absolute(*args.value("keep-bundles")) : std::string {};
         if (auto clientName = args.value("client")) {
             if (*clientName == "vscode") options.client = Options::ClientProfile::vscode;
             else if (*clientName == "neovim") options.client = Options::ClientProfile::neovim;
