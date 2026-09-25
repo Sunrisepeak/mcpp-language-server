@@ -21,6 +21,37 @@ carrying what almost every question turns out to need:
 Log files outlive the editor: the report names the path, and they are kept under the cache
 directory with timestamps.
 
+The report is made to be shared: your home directory is `~` in it, your user and machine names are
+`<user>` and `<host>`, and anything that looks like a secret (a token, a password, an API key, an
+e-mail address) is `<redacted>`. The project's own paths are kept — they are what it is read for.
+
+**C++ Modules: Export Diagnostic Bundle** goes further: one zip, written under the cache directory's
+`bundles/` (the newest five are kept) and never uploaded, with everything a problem usually needs —
+
+| In the bundle | What it is |
+|---|---|
+| `report.json` | The report above |
+| `environment.json` | System, editor and extension versions, the other C/C++ extensions, your mcppls settings, the payload, the toolchains found, and a few environment variables (`PATH`, `LANG`, `LC_*`, `MCPP_*`, `XLINGS_*`) — no other |
+| `logs/` | The server's logs of the last three sessions and any other of the last day, and the extension's own log |
+| `incidents/` | What the server wrote down when clangd crashed, hung or was set aside |
+| `engine/` | The database clangd was given, and the plan behind it |
+| `manifest.json` | Every file with its size and SHA-256, and how many replacements each redaction rule made |
+
+— with the same replacements in every file. Before anything is written, the bundle is searched for
+your home directory, user name and host name in every spelling; if any is left, **no bundle is
+written** and the message says which file, and *Retry with Project Paths Hidden* replaces the
+project's paths too. Source files are never included; an incident carries only the lines it is
+about. Other editors run the same command as `workspace/executeCommand` `mcppls.exportBundle`, and
+on the command line:
+
+```bash
+mcppls report --bundle problem.zip --root path/to/project   # --hide-project-paths, --no-source-excerpts
+```
+
+Crash dumps are left out unless asked for (`--include-dumps`): they hold memory, which cannot be
+redacted. `--no-redact` keeps everything as it is, for looking at a problem on your own machine; it
+is not offered in the editor.
+
 ## Symptoms
 
 **Nothing works — no go-to-definition anywhere.** Look at `project.source` in the report. If it is
@@ -103,5 +134,6 @@ payload. An editor that starts `mcppls` itself can give it a clangd of your own,
 
 ## Filing a bug
 
-Attach the diagnostic report. It names paths on your machine, so read it first — it carries no
-environment variable values and no file contents, by design.
+Attach the diagnostic bundle (**C++ Modules: Export Diagnostic Bundle**, or `mcppls report --bundle`),
+or at least the diagnostic report. Both have your user name, home directory, host name and secrets
+replaced, and neither carries the contents of your files; read them before attaching all the same.

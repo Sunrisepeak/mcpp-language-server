@@ -21,6 +21,27 @@
 
 日志文件不会随编辑器关闭而消失：报告里写明路径，日志按时间戳保存在缓存目录下。
 
+报告本来就是为了给别人看的：其中你的主目录写作 `~`，用户名和主机名写作 `<user>`、`<host>`，看起来像密钥的内容（token、密码、API key、邮箱）写作 `<redacted>`。工程自己的路径保留——看报告要的正是它们。
+
+**C++ Modules: Export Diagnostic Bundle** 更进一步：生成一个 zip，写在缓存目录的 `bundles/` 下（保留最新的 5 个），**从不上传**，里面是排查问题通常需要的全部内容——
+
+| 问题包里的文件 | 内容 |
+|---|---|
+| `report.json` | 上面的报告 |
+| `environment.json` | 系统、编辑器和插件的版本、其他 C/C++ 插件、你的 mcppls 设置、payload、探测到的工具链，以及少数几个环境变量（`PATH`、`LANG`、`LC_*`、`MCPP_*`、`XLINGS_*`），其他的一概不收 |
+| `logs/` | 服务端最近三次会话以及最近一天内其他会话的日志，还有插件自己的日志 |
+| `incidents/` | clangd 崩溃、卡住或文件被搁置时服务端记下的现场 |
+| `engine/` | 交给 clangd 的数据库，以及生成它的计划 |
+| `manifest.json` | 每个文件的大小和 SHA-256，以及每条脱敏规则各替换了多少处 |
+
+——每个文件都做同样的替换。写出之前，会在整个问题包里按各种写法搜索你的主目录、用户名和主机名；只要还有残留，**就不写出问题包**，提示会说明是哪个文件，并可以选择 *Retry with Project Paths Hidden*，把工程路径也一并替换。源文件从不打包；事故记录只带与问题相关的那几行。其他编辑器用 `workspace/executeCommand` 的 `mcppls.exportBundle` 执行同一操作，命令行则是：
+
+```bash
+mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-project-paths、--no-source-excerpts
+```
+
+崩溃转储（dump）默认不包含（需要时用 `--include-dumps`）：它装的是内存，无法脱敏。`--no-redact` 保留一切原样，只用于在你自己的机器上排查；编辑器里不提供这个选项。
+
 ## 常见症状
 
 **所有功能失效，任何位置都无法跳转到定义。** 看报告里的 `project.source`。如果一个用了构建系统的项目里它是 `inferred`，说明构建工具没有给出答复；原因在 `project.issues` 和 `toolRuns` 的最后一条里。常见原因是构建工具需要下载东西：这时状态栏会提议在你的终端里运行它。
@@ -51,4 +72,4 @@
 
 ## 提交 bug 报告
 
-附上诊断报告。它会写出你机器上的路径，所以先读一遍再附——按设计，它不包含任何环境变量的值，也不包含文件内容。
+附上问题包（**C++ Modules: Export Diagnostic Bundle**，或 `mcppls report --bundle`），至少也附上诊断报告。两者都已替换你的用户名、主目录、主机名和密钥，也都不含你的文件内容；附上之前仍请先看一遍。
