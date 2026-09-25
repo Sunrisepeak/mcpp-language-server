@@ -136,6 +136,19 @@ int main() {
         expect(redactor.redact("/home/alicewonderland/x") == "/home/<user-2>/x") << redactor.redact("/home/alicewonderland/x");
         expect(redactor.redact("/data/home/alicewonder/x") == "/data/home/<user>/x") << redactor.redact("/data/home/alicewonder/x");
         expect(redactor.redact("/home/alicewonder.old/x") == "/home/<user-3>/x") << redactor.redact("/home/alicewonder.old/x");
+        expect(redactor.redact("/ab/home/alicewonder/x") == "/ab/home/<user>/x") << redactor.redact("/ab/home/alicewonder/x");
+    };
+
+    "a path glued to a compiler option is still a path"_test = [] {
+        bundle::Redactor posix { linux_user() };
+        expect(posix.redact("-I/home/alicewonder/include -L/home/alicewonder/lib") == "-I~/include -L~/lib");
+        expect(posix.redact("-I/home/bob/include") == "-I/home/<user-2>/include");
+        bundle::Redactor windows { windows_user() };
+        expect(windows.redact(R"(-IC:\Users\runneradmin\inc /IC:\Users\runneradmin\inc)") == R"(-I~\inc /I~\inc)");
+        auto hidden = linux_user();
+        hidden.workspaces = { "/tmp/work/proj" };
+        bundle::Redactor workspace { hidden };
+        expect(workspace.redact(R"(["-I/tmp/work/proj/include", "-fmodule-file=a=/tmp/work/proj/a.pcm"])") == R"(["-I<workspace>/include", "-fmodule-file=a=<workspace>/a.pcm"])");
     };
 
     "a Windows profile is ~ with either separator, escaped, encoded, from WSL and by its 8.3 name"_test = [] {

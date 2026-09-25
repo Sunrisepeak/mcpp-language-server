@@ -2,6 +2,13 @@
 
 Changes to the specifications in this directory. Each specification is versioned independently.
 
+## 2026-09-26 — S3: a report names no one
+
+`cxxModules/report` takes `redact` (optional, default `true`): a server replaces the user's home
+directory, the user's and the machine's names and recognizable secrets in its report with
+placeholders, the same placeholder for the same original, and keeps the project's own paths
+(S3-5.5-3). `redact: false` gets the report as before. Additive: protocol version stays 1.
+
 ## 2026-09-25 — S3: issue categories, the degraded hold, module syntax in semantic tokens
 
 Added `category` (optional) to `CxxModulesIssue`: `code`, `engine`, `environment` or `project`,

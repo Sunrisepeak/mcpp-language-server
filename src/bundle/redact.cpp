@@ -126,13 +126,24 @@ bool name_continues(std::string_view text, std::size_t j) {
 }
 
 // The end of `pattern` matched at `i`, when it is there as a whole path of its own.
+// Whether a path may start at `i`: not the tail of a longer name ("/data/home/speak" does not
+// contain the home "/home/speak"), but it may be glued to a compiler option of one or two letters
+// ("-I/home/speak/include", "-LC:/Users/x/lib", MSVC's "/IC:\Users\x"). `drive`: the path starts
+// with a drive letter, which a '/' option may come before.
+bool path_starts_at(std::string_view text, std::size_t i, bool drive) {
+    if (i == 0) return true;
+    const auto nameChar = [](unsigned char c) { return is_word(c) || c == '_' || c == '.' || c == '-'; };
+    if (!nameChar(static_cast<unsigned char>(text[i - 1]))) return true;
+    std::size_t run { i };
+    while (run > 0 && is_alpha(static_cast<unsigned char>(text[run - 1]))) --run;
+    const std::size_t length { i - run };
+    if (length == 0 || length > 2 || run == 0) return false;
+    return text[run - 1] == '-' || (drive && text[run - 1] == '/');
+}
+
 std::optional<std::size_t> match_path(std::string_view text, std::size_t i, const PathPattern& pattern) {
     if (pattern.pieces.empty()) return std::nullopt;
-    if (i > 0) {
-        // Not the tail of a longer name: "/data/home/speak" does not contain the home "/home/speak".
-        const auto before = static_cast<unsigned char>(text[i - 1]);
-        if (is_word(before) || before == '_' || before == '.' || before == '-') return std::nullopt;
-    }
+    if (!path_starts_at(text, i, pattern.pieces.front().kind == PieceKind::drive)) return std::nullopt;
     std::size_t j { i };
     for (const auto& piece : pattern.pieces) {
         std::size_t taken { 0 };
@@ -663,8 +674,8 @@ struct Redactor::Impl {
             while (runStart > 0 && (text[runStart - 1] == '/' || text[runStart - 1] == '\\')) --runStart;
             if (runStart == at) continue;
             const auto before = [&](std::size_t back) { return static_cast<unsigned char>(text[runStart - back]); };
-            const bool atRoot { runStart == 0 || !(is_word(before(1)) || before(1) == '_' || before(1) == '.') };
-            const bool afterDrive { runStart >= 2 && before(1) == ':' && is_alpha(before(2)) && (runStart == 2 || !is_word(before(3))) };
+            const bool atRoot { path_starts_at(text, runStart, false) };
+            const bool afterDrive { runStart >= 2 && before(1) == ':' && is_alpha(before(2)) && path_starts_at(text, runStart - 2, true) };
             const bool afterMount { runStart >= 6 && is_alpha(before(1)) && lowered(std::string_view { text }.substr(runStart - 6, 5)) == "/mnt/" };
             if (!atRoot && !afterDrive && !afterMount) continue;
             const std::size_t separator { match_separator(text, at + root.size()) };

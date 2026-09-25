@@ -994,6 +994,24 @@
    "manual": "The VS Code extension only shows the report as a document (editors/vscode/src/commands.ts, collectReport); no feature reads it."
   }
  ],
+ "S3-5.5-3": [
+  {
+   "check": "diagnostic-bundle/B1-bundle"
+  },
+  {
+   "test": "tests/test_bundle.cpp: a home directory is ~ in every spelling of a POSIX path"
+  },
+  {
+   "test": "tests/test_bundle.cpp: a Windows profile is ~ with either separator, escaped, encoded, from WSL and by its 8.3 name"
+  },
+  {
+   "test": "tests/test_bundle.cpp: other people's profile directories get their own placeholder, the same one every time"
+  },
+  {
+   "script": "src/server/session.cpp",
+   "contains": "reply_(id, redact ? bundle::redact_report(full_report_()) : full_report_());"
+  }
+ ],
  "S3-6-1": [
   {
    "test": "tests/test_server.cpp: merging"

@@ -209,7 +209,7 @@ After answering, the server rewrites the engine's input for the new context and 
 Direction: client → server. What a report of a problem needs, gathered by the server for a person or a bug report.
 
 ```ts
-// Params: {}
+interface CxxModulesReportParams { redact?: boolean }   // default true
 interface CxxModulesReport {
   generatedAt: string;             // UTC, ISO 8601
   server: { name: string; version: string; platform: string; uptimeSeconds: number; logLevel: string; logFile: string };
@@ -222,6 +222,8 @@ interface CxxModulesReport {
 A server **SHOULD** answer at once with what it knows rather than wait for its engines. <a id="S3-5.5-1"></a><sup>S3-5.5-1</sup>
 
 The content of each `roots` entry is the server's own and may change between server versions: a client **MUST NOT** base features on it. <a id="S3-5.5-2"></a><sup>S3-5.5-2</sup>
+
+A report is made to be shared, so unless `redact` is `false` a server **SHOULD** replace in it the user's home directory (by `~`), the user's and the machine's names and anything it recognizes as a secret (by placeholders such as `<user>` and `<redacted>`), in every spelling a path takes in it, and use the same placeholder for the same original throughout. <a id="S3-5.5-3"></a><sup>S3-5.5-3</sup> Paths of the project itself are kept: they are what a report is read for.
 
 ## 6. Module features through standard LSP
 

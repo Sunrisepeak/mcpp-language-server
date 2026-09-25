@@ -1,0 +1,16 @@
+{
+  "name": "diagnostic-bundle",
+  "description": "Issue #23 fix plan F18: the diagnostic bundle an editor exports holds what its manifest says, within its size cap, and neither it nor the report names the user or the home directory; with project paths hidden, not the workspace either.",
+  "server-arguments": ["--no-discover"],
+  "checks": [
+    { "id": "S1", "kind": "status", "source": "inferred", "profile-kind": "semantic-kit", "state": "ready" },
+    { "id": "C2", "kind": "definition", "file": "src/main.cpp", "at": [4, 31], "expect": "src/greet/greet.cppm" },
+    { "id": "B1-bundle", "kind": "bundle", "timeout": 60,
+      "expect-files": ["manifest.json", "report.json", "environment.json", "logs/client.log", "engine/root-1/plan.json", "engine/root-1/compile_commands.json"] },
+    { "id": "B2-bundle-project-paths-hidden", "kind": "bundle", "timeout": 60, "forbid-workspace": true,
+      "arguments": { "hideProjectPaths": true, "noSourceExcerpts": true },
+      "expect-files": ["manifest.json", "report.json", "environment.json"] },
+    { "id": "B3-bundle-from-the-command-line", "kind": "bundle", "via": "cli", "timeout": 120,
+      "expect-files": ["manifest.json", "report.json", "environment.json", "engine/root-1/compile_commands.json"] }
+  ]
+}
