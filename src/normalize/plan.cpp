@@ -204,6 +204,20 @@ EnginePlan plan_engine(const PlanInput& input) {
             }
             candidate.required = unit.requiredModules;
             if (candidate.required.empty()) candidate.required = project::required_names(scan());
+            // A file being edited imports what its buffer and, after an autosave, its text on disk import, whatever the
+            // model said when it was loaded (fix plan F13): clangd builds with what is on disk, and a module it cannot
+            // find there stalls it unless the plan gives it a stand-in (UP-02). Only such files: the model's own list
+            // stays the word for the rest, where a scan cannot tell a conditional import.
+            const auto editedPath = std::ranges::find_if(input.editingSources, [&](const std::string& each) { return base::same_path(each, candidate.source); });
+            if (editedPath != input.editingSources.end()) {
+                const auto add = [&](const std::string& name) {
+                    if (std::ranges::find(candidate.required, name) == candidate.required.end()) candidate.required.push_back(name);
+                };
+                for (const auto& name : project::required_names(scan())) add(name);
+                if (const auto disk = input.editingDiskImports.find(*editedPath); disk != input.editingDiskImports.end()) {
+                    for (const auto& name : disk->second) add(name);
+                }
+            }
             drop_invalid_module_names(candidate.required, candidate.source);
             if (!candidate.provided.empty()) {
                 candidate.module = candidate.provided.substr(0, candidate.provided.find(':'));

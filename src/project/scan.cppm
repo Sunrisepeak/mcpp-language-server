@@ -30,6 +30,11 @@ struct ImportDeclaration {
 struct ScanResult {
     std::optional<ModuleDeclaration> declaration;
     std::vector<ImportDeclaration> imports;
+    // An `import M` whose line ends before its `;` (fix plan F13): an error, and the module is still imported, since
+    // the directive ends with its line (P1857) -- clang reports the missing `;` and loads M all the same, and with
+    // an autosave, clangd reads it from disk while the name is still being typed. Not an import for navigation or
+    // diagnostics; a module a file needs all the same (required_names).
+    std::vector<ImportDeclaration> unterminatedImports;
     bool uncertain { false };
 };
 

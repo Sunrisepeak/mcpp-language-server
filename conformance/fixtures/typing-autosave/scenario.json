@@ -73,10 +73,10 @@
       "expect": [
         {
           "path": "/roots/0/events/*/kind",
-          "equals": "disk-trailing-dot"
+          "equals": "disk-unsafe"
         },
         {
-          "path": "/roots/0/engines/*/details/filesTrailingDotOnDisk",
+          "path": "/roots/0/engines/*/details/filesUnsafeOnDisk",
           "min-items": 1
         },
         {
@@ -189,16 +189,16 @@
       "timeout": 30,
       "expect": [
         {
-          "path": "/roots/0/engines/*/details/restarts",
-          "max-items": 0
-        },
-        {
-          "path": "/roots/0/engines/*/details/filesTrailingDotOnDisk",
+          "path": "/roots/0/engines/*/details/filesUnsafeOnDisk",
           "max-items": 0
         },
         {
           "path": "/roots/0/engines/*/details/filesSetAside",
           "max-items": 0
+        },
+        {
+          "path": "/roots/0/engines/*/details/restarts/*/reason",
+          "each-contains": "would not finish"
         },
         {
           "path": "/roots/0/events/*/kind",

@@ -405,7 +405,14 @@ ScanResult scan_source(std::string_view text) {
         NameParse name { parse_name(lexer, token, isImport) };
         if (!name.ok) continue;
         skip_attributes(lexer, token);
-        if (!token || token->kind != TokenKind::punctuation || token->text != ";") continue;
+        if (!token || token->kind != TokenKind::punctuation || token->text != ";") {
+            // The directive's line ended first: `import hello.greet` with its `;` not typed yet.
+            if (isImport && (!token || token->startsLine)) {
+                const base::Range range { position_in(text, name.begin), position_in(text, name.end) };
+                result.unterminatedImports.push_back(ImportDeclaration { name.module, name.partition, exported, false, {}, conditional, range });
+            }
+            continue;
+        }
         token = lexer.next(false);
 
         const base::Range range { position_in(text, name.begin), position_in(text, name.end) };
@@ -480,6 +487,7 @@ std::vector<std::string> required_names(const ScanResult& result) {
         if (import.isHeaderUnit) continue;
         add(imported_name(result, import));
     }
+    for (const auto& import : result.unterminatedImports) add(imported_name(result, import));
     return names;
 }
 

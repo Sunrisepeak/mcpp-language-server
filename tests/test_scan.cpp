@@ -252,4 +252,17 @@ import real;
     };
 
     return report();
+
+    "an import whose line ends before its ';' is still a module the file needs (fix plan F13)"_test = [] {
+        const auto scan = scan_source("import std;\nimport hello.greet;\nimport hello.e\n\nint main() {}\n");
+        expect(scan.imports.size() == 2u) << "not an import for navigation and diagnostics";
+        expect(fatal(scan.unterminatedImports.size() == 1u));
+        expect(scan.unterminatedImports[0].module == "hello.e" && scan.unterminatedImports[0].nameRange.start.line == 2);
+        const auto names = required_names(scan);
+        expect(std::ranges::find(names, std::string { "hello.e" }) != names.end()) << "clang loads it all the same";
+        expect(scan_source("import hello.e int x;\n").unterminatedImports.empty()) << "only where the line ends";
+        expect(scan_source("import hello.\n").unterminatedImports.empty()) << "a name cut short is no name";
+        expect(scan_source("import hello.e").unterminatedImports.size() == 1u) << "the end of the file ends the line too";
+        expect(scan_source("export module m\n").declaration == std::nullopt) << "a declaration still needs its ';'";
+    };
 }

@@ -215,10 +215,17 @@ private:
     Json lastPlanDiff_ = nullptr;
     std::map<std::string, Clock::time_point, std::less<>> lastIncidentAt_;
     static constexpr std::chrono::seconds INCIDENT_SPACING { 60 };
-    // Fix plan F16 (WA-CLANGD-001 on disk): files whose text ON DISK has a module name ending in '.' at the
-    // end of its line. clangd reads a file's imports from disk to build what it needs (UP-14), so the
-    // rewrite of the text it is given does not reach there, and it spins as it would on the text itself.
-    std::set<std::string, std::less<>> diskTrailingDot_;   // path keys
+    // Fix plan F16: files whose text ON DISK would stall clangd now, and why. clangd reads a file's imports from disk to
+    // build what it needs (UP-14), so what the server does to the text it gives clangd does not reach there: a module
+    // name ending in '.' spins it (UP-01, which WA-CLANGD-001 keeps out of the text), and an import of a module the
+    // database clangd has read has no unit for can deadlock it (UP-02, which WA-CLANGD-002's stand-ins keep out of the
+    // database). An autosave while an import is typed puts either on disk.
+    std::map<std::string, std::string, std::less<>> diskHazards_;   // path key -> why
+    // When each module the database provides joined it (fix plan F16): a module is of use to clangd only once it
+    // has read that database, DATABASE_REREAD later, or a clangd started after it did.
+    std::map<std::string, Clock::time_point, std::less<>> moduleJoinedAt_;
+    std::optional<Clock::time_point> databaseReadAt_;   // when this clangd first read the database (it was given a file)
+    std::optional<Clock::time_point> diskRecheckAt_;
     // Such a file set aside while clangd was building it: closed once that build ends, or clangd restarted without it at
     // the deadline, since a build that read the disk never ends (the conformance runner, and a Ctrl+S right after the dot).
     static constexpr std::chrono::milliseconds DISK_SETTLE { 1500 };
@@ -410,10 +417,16 @@ public:
             { "lastExit", lastExit_ },
             { "scanFailures", Json { { "count", scanFailures_.count }, { "files", scanFailures_.files }, { "firstReason", scanFailures_.firstReason } } },
             { "restartBudget", restart_budget_json_() },
-            { "filesTrailingDotOnDisk", Json(std::vector<std::string> { diskTrailingDot_.begin(), diskTrailingDot_.end() }) },
+            { "filesUnsafeOnDisk", disk_hazards_json_() },
             { "lastPlanDiff", lastPlanDiff_ },
             { "logRingLines", logRing_->size() },
         };
+    }
+
+    Json disk_hazards_json_() const {
+        Json files = Json::array();
+        for (const auto& [key, why] : diskHazards_) files.push_back(Json { { "file", key }, { "why", why } });
+        return files;
     }
 
     Json restart_budget_json_() const {
@@ -631,7 +644,13 @@ public:
                 primer_.set_modules(std::move(modules));
             }
         }
+        // Fix plan F16: when each module joined the database, for a file whose text on disk imports it.
+        for (const auto& [name, source] : newModuleSources) {
+            if (const auto before = moduleSources_.find(name); before == moduleSources_.end() || !base::same_path(before->second, source)) moduleJoinedAt_[name] = appliedAt;
+        }
+        std::erase_if(moduleJoinedAt_, [&](const auto& item) { return !newModuleSources.contains(item.first); });
         moduleSources_ = std::move(newModuleSources);
+        if (!diskHazards_.empty()) schedule_disk_recheck_(appliedAt);
         moduleCommands_ = std::move(newModuleCommands);
         moduleUnits_.clear();
         interfaceModules_.clear();
@@ -994,6 +1013,7 @@ public:
         consider(stuckCheckAt_);
         if (pendingExit_) consider(pendingExit_->at + EXIT_CONTEXT_WAIT);
         for (const auto& [uri, closing] : closingAfterBuild_) consider(closing.second);
+        consider(diskRecheckAt_);
         if (accepting_) consider(spin_.next_due());   // only acted on while accepting (handle_spins_)
         // While a reading of clangd's CPU is on its way, its event is what wakes the loop.
         if (!cpuReadInFlight_) {
@@ -1023,6 +1043,7 @@ public:
         const auto now = Clock::now();
         if (pendingExit_ && now >= pendingExit_->at + EXIT_CONTEXT_WAIT) settle_exit_();
         if (!closingAfterBuild_.empty()) settle_disk_builds_(now);
+        if (diskRecheckAt_ && *diskRecheckAt_ <= now) recheck_disk_(now);
         // Before the requests that expire now are answered: they are part of what clangd left unanswered.
         watch_for_stuck_(now);
         if (accepting_) handle_spins_(now);
@@ -1090,14 +1111,14 @@ public:
             request_restart_("clangd did not answer initialize");
         }
         for (const auto& key : quarantine_.due(now)) {
-            // Nor is a file whose text on disk clangd would spin on (fix plan F16): it waits for the disk to be fixed.
+            // Nor is a file whose text on disk would stall clangd (fix plan F16): it waits for the disk, or the database.
             if (const auto aside = aside_.find(key); aside != aside_.end() && aside->second.onDisk) {
                 const auto disk = platform::fs::read_file(aside->first);
-                if (diskTrailingDot_.contains(key) && (!disk || sanitize_module_names(*disk).changed())) {
+                if (!disk || disk_hazard_(*disk, now)) {
                     quarantine_.put(key, now);
                     continue;
                 }
-                diskTrailingDot_.erase(key);
+                diskHazards_.erase(key);
             }
             // The text clangd spun on is never given back to it, however long it has been aside.
             if (const auto aside = aside_.find(key); aside != aside_.end() && aside->second.spunOn) {
@@ -1210,6 +1231,7 @@ private:
         joinedAt_.clear();
         fileStatus_.clear();
         closingAfterBuild_.clear();
+        databaseReadAt_.reset();
         background_.clear();
         closedBackground_.clear();
         if (options_.payloadCorrupt) {
@@ -1599,7 +1621,7 @@ private:
         Json params { { "textDocument", Json { { "uri", document.uri }, { "languageId", document.languageId },
                                                { "version", document.version }, { "text", engine_text_(document.uri, document.text) } } } };
         if (send_(lsp::make_notification("textDocument/didOpen", std::move(params)))) {
-            databaseRead_ = true;
+            note_database_read_();
             if (!diagnosed_.contains(document.uri)) {
                 awaitingDiagnostics_.insert(document.uri);
                 const auto now = Clock::now();
@@ -1607,6 +1629,11 @@ private:
                 schedule_stuck_check_(now + GENERAL_PATIENCE);
             }
         }
+    }
+
+    void note_database_read_() {
+        if (!databaseRead_) databaseReadAt_ = Clock::now();
+        databaseRead_ = true;
     }
 
     void schedule_stuck_check_(Clock::time_point at) {
@@ -1986,7 +2013,8 @@ private:
         log::warning("clangd could not find module {} ({}): {}", parsed.module, host_->root_directory(), parsed.reason);
         host_->record_event("module-failed", Json { { "module", parsed.module }, { "kind", "unresolved" }, { "reason", parsed.reason } });
         UnresolvedModule unresolved { parsed.reason, {}, {}, {} };
-        if (const auto provider = moduleSources_.find(parsed.module); provider != moduleSources_.end()) {
+        // A stand-in is not the module's provider (fix plan F13): forget_changed_unresolved_ looks past it too.
+        if (const auto provider = moduleSources_.find(parsed.module); provider != moduleSources_.end() && !generated_path_(provider->second)) {
             unresolved.provider = provider->second;
             unresolved.stamp = platform::fs::stamp(provider->second);
             unresolved.command = moduleCommands_.contains(parsed.module) ? moduleCommands_.find(parsed.module)->second : std::string {};
@@ -2405,47 +2433,94 @@ private:
 
     // ---- fix plan F16: WA-CLANGD-001 on disk ---------------------------------------------------
 
-    // Whether the text of `path` ON DISK has a module name ending in '.' at the end of its line. clangd reads a
-    // file's imports from disk to build what it needs (UP-14), so rewriting the text it is given (WA-CLANGD-001)
-    // does not keep it from spinning on such a file; an autosave while `import hello.` is being typed is enough.
-    // A file that newly has one is set aside before clangd reads it (it is open in the editor) or left out of
-    // what clangd is told (it is not); one that no longer has one goes back. `document`: the editor's, if open.
+    // What in `text`, a file's text on disk, would stall clangd if it built the file now (fix plan F16): a module name
+    // ending in '.' (UP-01), or an import of a module that the database clangd has read has no unit for -- none yet,
+    // or one added less than DATABASE_REREAD ago to a clangd started before (UP-02). The plan gives a file being
+    // edited a stand-in for every module its text on disk imports (F13), so the second passes within seconds.
+    std::optional<std::string> disk_hazard_(std::string_view text, Clock::time_point now) const {
+        if (traits_.hangsOnTrailingDotModuleName && sanitize_module_names(text).changed()) {
+            for (const auto line : base::split_lines(text)) {
+                if (sanitize_module_names(line).changed()) return std::format("it has `{}`, a module name ending in '.', which clangd 23.1 spins on (UP-01)", base::trim(line));
+            }
+        }
+        if (!traits_.hangsOnUnresolvedImports || writtenDatabase_.empty()) return std::nullopt;
+        for (const auto& name : project::required_names(project::scan_source(text))) {
+            const auto joined = moduleJoinedAt_.find(name);
+            if (joined == moduleJoinedAt_.end()) return std::format("it imports {}, which the engine database has no unit for yet (UP-02)", name);
+            // A clangd that has read no database yet reads this one, whole, when it is given its first file.
+            const bool read { !databaseRead_ || (databaseReadAt_ && *databaseReadAt_ >= joined->second) || now >= joined->second + DATABASE_REREAD };
+            if (!read) return std::format("it imports {}, whose unit clangd has not read from the engine database yet (UP-02)", name);
+        }
+        return std::nullopt;
+    }
+
+    // Checks the text of `path` on disk (fix plan F16). A file whose disk text would stall clangd is set aside before
+    // clangd builds it, if the editor has it open, and is left out of what clangd is told of changes on disk either way;
+    // one that is safe again goes back. `document`: the editor's, if open. True: `path` is not safe for clangd now.
     bool check_disk_(std::string_view path, const DocumentView* document) {
-        if (path.empty() || !traits_.hangsOnTrailingDotModuleName || !project::is_cxx_source_name(path)) return false;
+        if (path.empty() || !project::is_cxx_source_name(path) || (!traits_.hangsOnTrailingDotModuleName && !traits_.hangsOnUnresolvedImports)) return false;
         const std::string key { base::path_key(path) };
+        const auto now = Clock::now();
         const auto text = platform::fs::read_file(path);
-        if (!text || !sanitize_module_names(*text).changed()) {
-            if (diskTrailingDot_.erase(key) > 0) hand_back_from_disk_(key);
+        const auto hazard = text ? disk_hazard_(*text, now) : std::nullopt;
+        if (!hazard) {
+            if (diskHazards_.erase(key) > 0) hand_back_from_disk_(key);
             return false;
         }
-        if (diskTrailingDot_.insert(key).second) {
-            std::string line;
-            for (const auto each : base::split_lines(*text)) {
-                if (sanitize_module_names(each).changed()) {
-                    line = std::string { base::trim(each) };
-                    break;
-                }
-            }
-            log::info("{} on disk has a module name that ends in '.' ({}): clangd would spin reading it (UP-01, {}); it is not given to clangd until that changes",
-                      path, line, TRAILING_DOT_MODULE_NAME);
-            host_->record_event("disk-trailing-dot", Json { { "file", std::string { path } }, { "line", line } });
-            // Fix plan F17.4: WA-CLANGD-001's premise, that clangd reads only the text it is given, does not hold here.
-            incident_("workaround-premise", Json { { "workaround", std::string { TRAILING_DOT_MODULE_NAME } }, { "file", std::string { path } }, { "line", line },
-                                                   { "premise", std::string { find_workaround(TRAILING_DOT_MODULE_NAME)->premise } } },
+        const auto [known, fresh] = diskHazards_.insert_or_assign(key, *hazard);
+        (void)known;
+        if (fresh) {
+            log::info("{} on disk would stall clangd ({}): {}; it is not given to clangd until that changes", path, host_->root_directory(), *hazard);
+            host_->record_event("disk-unsafe", Json { { "file", std::string { path } }, { "why", *hazard } });
+            // Fix plan F17.4: the premise of WA-CLANGD-001 or -002, that clangd builds only what it is given, does not hold here.
+            const std::string_view workaround { hazard->contains("UP-01") ? TRAILING_DOT_MODULE_NAME : UNRESOLVED_IMPORT_STAND_INS };
+            incident_("workaround-premise", Json { { "workaround", std::string { workaround } }, { "file", std::string { path } }, { "why", *hazard },
+                                                   { "premise", std::string { find_workaround(workaround)->premise } } },
                       { std::string { path } }, true);
         }
+        schedule_disk_recheck_(now);
         bool open { document != nullptr };
         for (const auto& each : host_->documents()) open = open || (!each.path.empty() && base::path_key(each.path) == key);
         if (open && !doomed_path_(path) && !excluded_path_(path)) {
             const auto aside = aside_.find(key);
             if (aside == aside_.end() || !quarantine_.contains(key)) {
-                set_aside_(std::string { path }, "the file on disk has a module name that ends in '.', which clangd 23.1 spins on (UP-01)",
-                           Reclaim::after_build, false, std::nullopt, true);
+                set_aside_(std::string { path }, std::format("its text on disk would stall clangd: {}", *hazard), Reclaim::after_build, false, std::nullopt, true);
             } else {
                 aside->second.onDisk = true;
             }
         }
         return true;
+    }
+
+    // Files set aside for their disk text are looked at again once the database clangd reads may have what they import:
+    // after a new plan, and when the modules that joined it have been there DATABASE_REREAD.
+    void schedule_disk_recheck_(Clock::time_point now) {
+        if (diskHazards_.empty()) {
+            diskRecheckAt_.reset();
+            return;
+        }
+        std::optional<Clock::time_point> next;
+        for (const auto& [name, joined] : moduleJoinedAt_) {
+            const auto at = joined + DATABASE_REREAD;
+            if (at > now && (!next || at < *next)) next = at;
+        }
+        diskRecheckAt_ = next.value_or(now + DATABASE_REREAD);
+    }
+
+    void recheck_disk_(Clock::time_point now) {
+        diskRecheckAt_.reset();
+        std::vector<std::string> keys;
+        for (const auto& [key, why] : diskHazards_) keys.push_back(key);
+        for (const auto& key : keys) {
+            const auto text = platform::fs::read_file(key);
+            if (text && !disk_hazard_(*text, now)) {
+                diskHazards_.erase(key);
+                hand_back_from_disk_(key);
+            } else if (text) {
+                diskHazards_[key] = *disk_hazard_(*text, now);
+            }
+        }
+        if (!diskHazards_.empty()) schedule_disk_recheck_(now);
     }
 
     void hand_back_from_disk_(const std::string& key) {
@@ -2454,8 +2529,8 @@ private:
         aside_.erase(aside);
         quarantine_.release(key);
         deferredReclaims_.erase(key);
-        log::info("handing {} back to clangd ({}): the file on disk no longer has a module name that ends in '.'", key, host_->root_directory());
-        host_->record_event("file-handed-back", Json { { "file", key }, { "why", "the file on disk was fixed" } });
+        log::info("handing {} back to clangd ({}): its text on disk no longer stalls clangd", key, host_->root_directory());
+        host_->record_event("file-handed-back", Json { { "file", key }, { "why", "its text on disk is safe for clangd again" } });
         update_quarantine_issue_();
         for (const auto& document : host_->documents()) {
             if (document.path.empty() || base::path_key(document.path) != key) continue;
@@ -2958,7 +3033,7 @@ private:
         }
         Json params { { "textDocument", Json { { "uri", uri }, { "languageId", "cpp" }, { "version", 1 }, { "text", std::move(*text) } } } };
         if (!send_(lsp::make_notification("textDocument/didOpen", std::move(params)))) return false;
-        databaseRead_ = true;
+        note_database_read_();
         closedBackground_.erase(key);
         background_[key] = BackgroundUnit { path, uri, now, now, false, {} };
         log::info("opening {} in clangd to find definitions in module {} ({})", path, module, host_->root_directory());
@@ -3165,7 +3240,7 @@ private:
                 primer_.finish(module->name);
                 continue;
             }
-            databaseRead_ = true;
+            note_database_read_();
             primeModuleByPath_[base::path_key(module->primeFile)] = module->name;
             primeDeadlines_[module->name] = Clock::now() + std::chrono::minutes { 3 };
         }

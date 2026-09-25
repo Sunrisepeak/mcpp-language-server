@@ -201,7 +201,10 @@ Sanitized sanitize_module_names(std::string_view text) {
             }
         }
         if (!startsInComment) {
-            if (const std::size_t point { insertion_point(line) }; point != std::string_view::npos) {
+            // A file read from disk can begin with a UTF-8 byte order mark (fix plan F2): it is no part of the directive.
+            const std::size_t mark { lineNumber == 0 ? base::byte_order_mark_size(line) : 0 };
+            if (std::size_t point { insertion_point(line.substr(mark)) }; point != std::string_view::npos) {
+                point += mark;
                 const std::size_t offset { lineStart + point };
                 result.text.append(text.substr(copiedUpTo, offset - copiedUpTo));
                 result.text.push_back(';');

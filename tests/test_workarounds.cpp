@@ -58,6 +58,7 @@ int main() {
             { "module a.\n", "module a.;\n" },
             { "module;\nexport module m.\n", "module;\nexport module m.;\n" },
             { "import hello. \n", "import hello.; \n" },
+            { "\xEF\xBB\xBFimport hello.\n", "\xEF\xBB\xBFimport hello.;\n" },
             { "import hello.\t\n", "import hello.;\t\n" },
             { "import hello.// c\n", "import hello.;// c\n" },
             { "import hello.\n;\n", "import hello.;\n;\n" },
