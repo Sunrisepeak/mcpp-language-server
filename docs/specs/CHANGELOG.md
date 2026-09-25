@@ -2,6 +2,17 @@
 
 Changes to the specifications in this directory. Each specification is versioned independently.
 
+## 2026-09-26 — S3: completion of module syntax
+
+Added section 6.2. A server may make a space a completion trigger character, for the module names
+after `import`; if it does, a space-triggered request anywhere but right after `import ` or
+`export import ` is answered at once, empty, without the semantic engine (S3-6.2-1), and the space is
+advertised only to a client that asks for it (`initializationOptions.completion.triggerOnSpace`) or
+that the server knows drops the other spaces itself; never to one that declared `false` (S3-6.2-2,
+S3-6.2-3). Servers offer the module-syntax keywords where each can begin a declaration, merged with
+the semantic engine's result, and without it when it does not answer in time (S3-6.2-4, S3-6.2-5).
+All additive: protocol version stays 1.
+
 ## 2026-09-25 — S3: issue categories, the degraded hold, module syntax in semantic tokens
 
 Added `category` (optional) to `CxxModulesIssue`: `code`, `engine`, `environment` or `project`,

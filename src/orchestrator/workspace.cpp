@@ -31,6 +31,8 @@ import mcppls.normalize.plan;
 import mcppls.engine;
 import mcppls.engine.payload;
 import mcppls.engine.native.index;
+import mcppls.engine.native.keywords;
+import mcppls.orchestrator.completion;
 import mcppls.orchestrator.incidents;
 import mcppls.orchestrator.journal;
 import mcppls.orchestrator.client;
@@ -62,6 +64,11 @@ constexpr std::array<std::string_view, 6> BUILD_FILES { "mcpp.toml", "mcpp.lock"
 
 constexpr std::array<std::string_view, 7> WATCH_POLL_SKIP_DIRECTORIES { "target", "build", "node_modules", "out",
                                                                         "_build", "cmake-build-debug", "cmake-build-release" };
+
+// F15 (fix plan 2026-09-26): a completion at the start of a declaration waits this long for the core
+// engine; past it the module-syntax keywords go out alone, as an incomplete list the client asks
+// again for as the person types on. A clangd stuck on the file no longer takes `import` with it.
+constexpr std::chrono::milliseconds KEYWORD_PATIENCE { 1500 };
 
 // Changes to cxxModules/status that keep its state are sent at most this often (S3 4).
 constexpr std::chrono::milliseconds STATUS_COALESCE { 250 };
@@ -201,6 +208,16 @@ struct Workspace::Impl final : engine::Host {
         std::map<std::string, std::size_t, std::less<>> answeredBy;
     };
     std::map<std::string, MethodStats, std::less<>> requestStats;
+    // F9 (D4): what space-triggered completion costs. Most never pass the gate and cost one look at a line.
+    struct SpaceTriggerStats {
+        std::size_t count { 0 };
+        std::size_t passed { 0 };
+        std::int64_t maxMicros { 0 };
+        std::int64_t totalMicros { 0 };
+    };
+    SpaceTriggerStats spaceTrigger;
+    std::size_t keywordsWithoutEngine { 0 };   // F15: keyword completions answered before the core engine did
+    bool vscodeLike { false };                 // the client runs VS Code's commands (completion::vscode_like)
 
     // Requests in flight across engines.
     struct Job {
@@ -220,6 +237,10 @@ struct Workspace::Impl final : engine::Host {
         std::string path;
         std::string text;
         Json message;
+        // F15: a completion's module-syntax keywords, merged into whatever the engines answer, and
+        // when they go out without the core engine.
+        Json keywords;
+        std::optional<Clock::time_point> keywordsBy;
     };
     std::map<std::uint64_t, Job> jobs;
     std::uint64_t nextJob { 1 };
@@ -489,6 +510,7 @@ struct Workspace::Impl final : engine::Host {
         consider(statusFlushAt);
         consider(leaseRenewAt);
         consider(tokensRefreshAt);
+        for (const auto& [id, job] : jobs) consider(job.keywordsBy);
         for (const auto& engine : engines) consider(engine->next_deadline());
         return deadline;
     }
@@ -566,6 +588,18 @@ struct Workspace::Impl final : engine::Host {
         const Document* document { uri.empty() ? nullptr : documents_.find(uri) };
         if (document != nullptr) job.text = document->text;
         job.view = engine::RequestView { job.method, &job.params, job.path, job.text };
+        if (job.method == lsp::method::TEXT_DOCUMENT_COMPLETION) {
+            if (completion::is_space_trigger(job.params)) {
+                route_space_triggered(jobId);
+                return;
+            }
+            if (document != nullptr && !job.path.empty()) {
+                if (const auto position = position_of(job.params)) {
+                    job.keywords = index::keyword_completion(job.text, *position, index.scan_of(job.path),
+                                                             index::KeywordOptions { .suggestModulesAfterImport = vscodeLike });
+                }
+            }
+        }
 
         std::vector<engine::Engine*> candidates;
         const bool coreWaits { core_waits_for_producer() };
@@ -601,7 +635,59 @@ struct Workspace::Impl final : engine::Host {
             return;
         }
         job.answerers = std::move(selection.answerers);
+        if (job.keywords.is_array() && !job.keywords.empty() && coreEngine != nullptr
+            && std::ranges::find(job.answerers, coreEngine) != job.answerers.end()) {
+            job.keywordsBy = job.started + KEYWORD_PATIENCE;
+        }
         ask_next(jobId);
+    }
+
+    static std::optional<base::Position> position_of(const Json& params) {
+        const Json* position { lsp::find(params, "position") };
+        if (position == nullptr || !position->is_object()) return std::nullopt;
+        const auto line = lsp::int_at(*position, "line");
+        const auto character = lsp::int_at(*position, "character");
+        if (!line || !character) return std::nullopt;
+        return base::Position { static_cast<int>(*line), static_cast<int>(*character) };
+    }
+
+    // F9 (D4 layer 2): a completion the client asked for because a space was typed. Only the line
+    // before the cursor is looked at: anything but `[export] import ` is answered at once, empty,
+    // without an engine, a lookup or a log line; an import line gets the module names from mcppls's
+    // own engine, never from the core engine.
+    void route_space_triggered(std::uint64_t jobId) {
+        Job& job = jobs.at(jobId);
+        const auto gateStart = Clock::now();
+        std::optional<std::string_view> prefix;
+        if (const auto position = position_of(job.params)) prefix = completion::line_prefix(job.text, *position);
+        const bool passed { prefix && completion::is_import_line_prefix(*prefix) };
+        const std::int64_t micros { std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - gateStart).count() };
+        ++spaceTrigger.count;
+        spaceTrigger.maxMicros = std::max(spaceTrigger.maxMicros, micros);
+        spaceTrigger.totalMicros += micros;
+        if (!passed) {
+            const Json id = job.clientId;
+            jobs.erase(jobId);
+            client.reply(id, completion::empty_list());
+            return;
+        }
+        ++spaceTrigger.passed;
+        if (moduleEngine != nullptr && moduleEngine->claims(job.view)) job.answerers = { moduleEngine };
+        if (job.answerers.empty()) {
+            finish_job(jobId, completion::empty_list());
+            return;
+        }
+        ask_next(jobId);
+    }
+
+    // F15: the keywords go out without the core engine, which has not answered in KEYWORD_PATIENCE.
+    // The job is finished first, so the engines' answers to the cancellation find nothing to finish.
+    void answer_keywords_without_engine(std::uint64_t jobId) {
+        const Json clientId { jobs.at(jobId).clientId };
+        ++keywordsWithoutEngine;
+        jobs.at(jobId).answeredBy = "mcppls";
+        finish_job(jobId, Json(nullptr));
+        for (const auto& engine : engines) engine->cancel(clientId);
     }
 
     void ask_next(std::uint64_t jobId) {
@@ -626,7 +712,11 @@ struct Workspace::Impl final : engine::Host {
                 ask_next(jobId);
                 return;
             case engine::Answer::Kind::unavailable: ask_next(jobId); return;
-            case engine::Answer::Kind::error: finish_job_with_error(jobId, std::move(answer.value)); return;
+            case engine::Answer::Kind::error:
+                // F15: a completion that has keywords to give gives them rather than the engine's error.
+                if (current->second.keywords.is_array() && !current->second.keywords.empty()) finish_job(jobId, Json(nullptr));
+                else finish_job_with_error(jobId, std::move(answer.value));
+                return;
             case engine::Answer::Kind::cancelled: finish_job_cancelled(jobId); return;
             }
         });
@@ -704,6 +794,11 @@ struct Workspace::Impl final : engine::Host {
     void finish_job(std::uint64_t jobId, Json result) {
         auto it = jobs.find(jobId);
         if (it == jobs.end()) return;
+        // F15: the module-syntax keywords, with the engine's items, or alone (and incomplete, so the
+        // client asks again) when the engine gave none.
+        if (it->second.keywords.is_array() && !it->second.keywords.empty()) {
+            result = result.is_null() ? completion::keywords_only(it->second.keywords) : completion::merge(result, it->second.keywords);
+        }
         result = explain_if_preparing(it->second, std::move(result));
         note_request(it->second, result.is_null() ? "empty" : "result");
         const Json id = it->second.clientId;
@@ -1487,6 +1582,15 @@ struct Workspace::Impl final : engine::Host {
     void handle_timers() {
         const auto now = Clock::now();
         for (const auto& engine : engines) engine->handle_timers();
+        {
+            std::vector<std::uint64_t> due;
+            for (const auto& [id, job] : jobs) {
+                if (job.keywordsBy && *job.keywordsBy <= now) due.push_back(id);
+            }
+            for (const auto id : due) {
+                if (jobs.contains(id)) answer_keywords_without_engine(id);
+            }
+        }
         if (leaseRenewAt && *leaseRenewAt <= now) {
             lease->renew(std::chrono::system_clock::now());
             leaseRenewAt = now + LEASE_RENEWAL;
@@ -1576,6 +1680,7 @@ void Workspace::start(Json clientParams, bool clientSupportsStatus, bool usePoll
         impl_->clientSupportsTokensRefresh = supported->get<bool>();
     }
     impl_->onEngineSettled = std::move(onEngineSettled);
+    impl_->vscodeLike = completion::vscode_like(impl_->clientParams);
     impl_->dynamicWatch = !usePolling;
     if (usePolling) impl_->start_watch_polling();
     log::info("mcppls {} ({}) root {}", base::VERSION, mcppls::os::FAMILY_NAME, root_);
@@ -1851,10 +1956,15 @@ Json Workspace::report() const {
                                   { "p50Ms", percentile(0.5) }, { "p95Ms", percentile(0.95) }, { "maxMs", static_cast<std::int64_t>(stats.maxMs) },
                                   { "answeredBy", std::move(answeredBy) } };
     }
+    // F9, F15: what space-triggered completion cost, and how often keywords answered without the core engine.
+    Json completionCosts { { "spaceTrigger", Json { { "count", impl.spaceTrigger.count }, { "passed", impl.spaceTrigger.passed },
+                                                     { "maxMicros", impl.spaceTrigger.maxMicros }, { "totalMicros", impl.spaceTrigger.totalMicros } } },
+                           { "keywordsWithoutEngine", impl.keywordsWithoutEngine } };
     return Json { { "root", root_ }, { "key", key_ }, { "cacheDirectory", impl.cacheDirectory },
                   { "trusted", impl.options.trusted }, { "state", std::string { to_string(impl.compute_state()) } }, { "project", std::move(project) },
                   { "toolEnvironment", std::move(environment) }, { "toolRuns", std::move(toolRuns) },
                   { "plan", std::move(plan) }, { "engines", std::move(engines) }, { "requests", std::move(requests) },
+                  { "completion", std::move(completionCosts) },
                   { "eventTotals", impl.journal.totals() }, { "events", impl.journal.recent(300) } };
 }
 

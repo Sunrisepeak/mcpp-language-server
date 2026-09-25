@@ -20,6 +20,7 @@ import mcppls.lsp.protocol;
 import mcppls.engine.payload;
 import mcppls.orchestrator.report;
 import mcppls.orchestrator.client;
+import mcppls.orchestrator.completion;
 import mcppls.orchestrator.routing;
 import mcppls.orchestrator.workspace;
 
@@ -377,6 +378,9 @@ private:
             { "capabilities", capabilities.empty() ? orchestrator::merge_capabilities(Json::object()) : capabilities },
             { "serverInfo", Json { { "name", "mcppls" }, { "version", std::string { base::VERSION } } } },
         };
+        // F9 (D4 layer 4): a space opens the module list after `import`, for a client that drops the
+        // other spaces itself (VS Code's middleware) or asked for it (completion.triggerOnSpace).
+        if (orchestrator::completion::space_trigger_wanted(clientParams_)) orchestrator::completion::add_space_trigger(result["capabilities"]);
         reply_(clientInitializeId_, std::move(result));
         for (auto& root : roots_) root->allow_status_notifications();
     }

@@ -67,17 +67,63 @@ Json make_location(std::string_view path, const base::Range& range) {
     return Json { { "uri", base::path_to_uri(path) }, { "range", to_json(range) } };
 }
 
+namespace {
+
+// What a file contributes to the module names import completion offers: the name it declares and
+// the role it has. Anything else about it can change without changing those.
+std::string provided_identity(const project::ScanResult& scan) {
+    if (!scan.declaration) return {};
+    return std::format("{}|{}", declared_name(*scan.declaration), spec::to_string(project::role_of(scan)));
+}
+
+} // namespace
+
 void ModuleIndex::update(std::string_view path, std::string_view text) {
-    files_[base::path_key(path)] = { std::string { path }, project::scan_source(text) };
+    auto scan = project::scan_source(text);
+    auto& entry = files_[base::path_key(path)];
+    if (provided_identity(entry.second) != provided_identity(scan)) structure_changed_();
+    entry = { std::string { path }, std::move(scan) };
 }
 
 void ModuleIndex::remove(std::string_view path) {
-    if (const auto it = files_.find(base::path_key(path)); it != files_.end()) files_.erase(it);
+    if (const auto it = files_.find(base::path_key(path)); it != files_.end()) {
+        if (it->second.second.declaration) structure_changed_();
+        files_.erase(it);
+    }
 }
 
-void ModuleIndex::clear() { files_.clear(); }
+void ModuleIndex::clear() {
+    files_.clear();
+    structure_changed_();
+}
 
-void ModuleIndex::set_external(std::vector<ExternalModule> modules) { external_ = std::move(modules); }
+void ModuleIndex::set_external(std::vector<ExternalModule> modules) {
+    external_ = std::move(modules);
+    structure_changed_();
+}
+
+void ModuleIndex::structure_changed_() {
+    ++structure_;
+    candidates_.reset();
+}
+
+const std::vector<ModuleIndex::Candidate>& ModuleIndex::candidates_now_() const {
+    if (candidates_) return *candidates_;
+    std::map<std::string, std::string, std::less<>> byName;   // sorted by name, like module_names
+    for (const auto& [key, entry] : files_) {
+        const auto& scan = entry.second;
+        if (!scan.declaration) continue;
+        const spec::Role role { project::role_of(scan) };
+        if (role == spec::Role::module_implementation) continue;
+        byName.try_emplace(declared_name(*scan.declaration), role_label(role));   // the first provider's role, like providers().front()
+    }
+    for (const auto& module : external_) byName.try_emplace(module.name, "module");
+    std::vector<Candidate> built;
+    built.reserve(byName.size());
+    for (auto& [name, detail] : byName) built.push_back(Candidate { name, std::move(detail) });
+    candidates_ = std::move(built);
+    return *candidates_;
+}
 
 void ModuleIndex::set_profile_label(std::string label) { profileLabel_ = std::move(label); }
 
@@ -212,20 +258,19 @@ Json ModuleIndex::completion(std::string_view path, std::string_view text, base:
     if (partial.starts_with(':')) {
         if (scan == nullptr || !scan->declaration) return Json { { "isIncomplete", false }, { "items", items } };
         const std::string owner { scan->declaration->module };
-        for (const auto& name : module_names()) {
-            if (!name.starts_with(owner + ":")) continue;
-            std::string label { name.substr(owner.size()) };
+        for (const auto& candidate : candidates_now_()) {
+            if (!candidate.name.starts_with(owner + ":")) continue;
+            std::string label { candidate.name.substr(owner.size()) };
             if (label.starts_with(partial) && !(scan->declaration->partition.size() && label == ":" + scan->declaration->partition)) {
                 add(label, "module partition");
             }
         }
     } else {
         const std::string self { scan != nullptr && scan->declaration ? declared_name(*scan->declaration) : std::string {} };
-        for (const auto& name : module_names()) {
-            if (name.find(':') != std::string::npos || name == self) continue;
-            if (!name.starts_with(partial)) continue;
-            const auto units = providers(name);
-            add(name, units.empty() ? std::string_view { "module" } : std::string_view { role_label(units.front().role) });
+        for (const auto& candidate : candidates_now_()) {
+            if (candidate.name.find(':') != std::string::npos || candidate.name == self) continue;
+            if (!candidate.name.starts_with(partial)) continue;
+            add(candidate.name, candidate.detail);
         }
     }
     return Json { { "isIncomplete", false }, { "items", items } };

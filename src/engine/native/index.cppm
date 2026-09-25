@@ -36,6 +36,17 @@ private:
     std::map<std::string, std::pair<std::string, project::ScanResult>, std::less<>> files_;   // path key -> (path, scan)
     std::vector<ExternalModule> external_;
     std::string profileLabel_;
+    // What import completion offers (fix plan 2026-09-26 F9, D4): every module name with what
+    // provides it, built once and kept until a module is declared, dropped or changes role --
+    // not on every edit, which leaves the declarations as they were.
+    struct Candidate {
+        std::string name;     // "m" or "m:p"
+        std::string detail;   // the role of the unit that provides it, or where an external module comes from
+    };
+    mutable std::optional<std::vector<Candidate>> candidates_;
+    std::uint64_t structure_ { 0 };
+    const std::vector<Candidate>& candidates_now_() const;
+    void structure_changed_();
 
 public:
     void update(std::string_view path, std::string_view text);
@@ -50,6 +61,8 @@ public:
     std::vector<ModuleUnit> providers(std::string_view name) const;
     const ExternalModule* external(std::string_view name) const;
     std::vector<std::string> module_names() const;
+    // Advanced whenever the set of declared modules, or the role of a unit declaring one, changes.
+    std::uint64_t structure_generation() const { return structure_; }
 
     std::optional<ModuleHit> module_at(std::string_view path, base::Position position) const;
     // Each returns null when the position is not one this index answers for.

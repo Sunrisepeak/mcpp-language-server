@@ -12,6 +12,7 @@
 | `mcppls.ai.enabled` | `false` (default) | Whether the model-backed half of change review may be used. Off means the server makes no model calls |
 | `mcppls.detectConflicts` | `true` (default) | Offer once to turn off another C++ extension's language features in this workspace, and say so when one becomes active later |
 | `mcppls.semanticTokens.modules` | `true` (default) | Color `import`, `module`, `export` and module names from the server's semantic tokens. Off: only the grammar's colors |
+| `mcppls.completion.triggerOnSpace` | `true` (default) | Show the module list as soon as a space is typed after `import` or `export import`. A space anywhere else never reaches the server. Other editors ask for the same with `initializationOptions.completion.triggerOnSpace` |
 | `mcppls.trace.server` | `off` (default), `messages`, `verbose` | Log the LSP traffic to the C++ Modules output channel (at Trace level); `verbose` adds the server's debug log (at Debug level). Set the channel's log level to see them |
 
 ## Commands

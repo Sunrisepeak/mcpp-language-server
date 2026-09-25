@@ -23,7 +23,7 @@ checks fail at once with that reason instead of each waiting out its timeout.
 | Fixture | What it covers |
 |---|---|
 | `inferred` | Loose module sources, no build system and no compiler: the semantic kit provides libc++ semantics (design 13.5) |
-| `engine-none` | The `inferred` project with `--engine none` (overall design 5.6): no core engine, so mcppls's own engine alone answers module navigation, hover, outline, import completion and module diagnostics; the status names `none` as the core engine and lists `mcppls` in `engines` (S3-4-5, S3-4-6). `inferred` checks the same fields with clangd, and starts a second server on the same workspace and cache, which must report the `shared-workspace` notice (design 6.3). Its S5 checks: module descriptions and interface summaries, exported symbols found without clangd, `unavailable` for references, and a file written to disk read by the next query |
+| `engine-none` | The `inferred` project with `--engine none` (overall design 5.6): no core engine, so mcppls's own engine alone answers module navigation, hover, outline, import completion, module-syntax keywords and module diagnostics, and a space off an import line is answered with nothing (S3-6.2); the status names `none` as the core engine and lists `mcppls` in `engines` (S3-4-5, S3-4-6). `inferred` checks the same fields with clangd, and starts a second server on the same workspace and cache, which must report the `shared-workspace` notice (design 6.3). Its S5 checks: module descriptions and interface summaries, exported symbols found without clangd, `unavailable` for references, and a file written to disk read by the next query |
 | `verify-changes` | `mcpp-split`'s project in a git repository, for S5's verification after an edit: snippets checked in place (passing, failing, and leaving no unsaved content behind), a partition interface renamed on disk that breaks the implementation unit using it, the working tree's changes from git, and the restored file passing again once its importer is built again |
 | `untrusted` | An mcpp package in an untrusted workspace: nothing is executed, the kit answers, the status is `degraded` with the reason |
 | `mcpp-gcc` | mcpp with GCC 16, described by mcpp's own `emit build-database` (mcpp 2026.9.15.1): level 3 once the S1 library has structured mcpp's level 2 document, GCC arguments translated for clangd (P1), libstdc++'s `std` from its manifest, a test that imports the package's module across sets, and the workspace unchanged |
@@ -66,6 +66,7 @@ checks fail at once with that reason instead of each waiting out its timeout.
 | `clangd-cannot-load` | 0.0.3 plan B1: its `prepare` step puts a stand-in clangd in the workspace (mcppls-mock-mcpp with an `unavailable` config) that writes a loader's message, a `GLIBCXX` version not found, to standard error and exits 1; `--clangd` points the server at it. `initialize` must be answered within 20 s (it used to wait for good), the status must reach `error` with issue `engine-incompatible`, and mcppls's own module features must work |
 | `typing-import` | Import-hang plan §8: `import hello.greet;` in `main.cpp` and `export module hello.greet;` in its interface typed one key at a time, through `import hello.` and `export module hello.`, which clangd 23.1 never finishes building (WA-CLANGD-001); again with every step saved, as autosave does. Every request is answered within 5 s, the status never turns `degraded`, hover works right after, and nothing restarts clangd or is set aside |
 | `typing-import-spin` | The same typing with WA-CLANGD-001 turned off (`--disable-workaround`), so clangd really spins (Linux, macOS; on Windows the same text crashes it instead): a spin is found within its 20 s budget (event `engine-spin`), the file set aside with that text remembered and clangd restarted, a crash is restarted as before (`engine-exit`), and either way features come back while typing goes on (import-hang plan §4). If a clangd update removes the defect, its T2 check fails as well |
+| `completion-keywords` | Fix plan 2026-09-26 F9 and F15, as VS Code (`client-info`): the space is a completion trigger character; a space after `import ` or `export import ` opens the module list from mcppls's own index, and one typed anywhere else, or after `import  ` or `export module `, is answered at once with nothing. The module-syntax keywords are offered where each can begin a declaration and not inside a function body, merged with clangd's answer, and on their own within 1.5 s for a file clangd cannot answer for yet (a new file waiting for clangd to read a database that has it); the report counts what the space trigger cost (S3-6.2-1 to S3-6.2-5) |
 | `workaround-canaries` | Import-hang plan §9: one `clangd-check` per registered workaround with a canary, run against the payload's clangd. A failure here means a clangd update fixed that defect and the workaround it names can be removed |
 | `payload-corrupt` | Its `prepare` step copies the payload the runner was given and truncates clangd in the copy (usable plan W9.4); `server-arguments` then points `--payload` at that broken copy, and status must reach `error` with issue `payload-corrupt` |
 | `multi-root` | Two workspace folders (usable plan W9.1): an `inferred` root and an mcpp-built `mcpp-llvm` root (level 3, from mcpp's own build database), each getting its own project model and clangd, each `cxxModules/status` telling them apart by `project.root` |
@@ -125,6 +126,8 @@ scenario names, are relative to the fixture's own root, never to a specific work
 `initializationOptions` (over whatever `--client` profile set), so a fixture can ask for something
 `--client` does not, such as `{"semanticTokens": {"moduleType": true}}` (design doc 2026-09-25
 K/§7).
+`"client-info"` on the scenario is the `clientInfo` the runner sends in `initialize` (none otherwise):
+what a server tells VS Code can differ from what it tells other clients (fix plan 2026-09-26 F9).
 `"initialize-within": SECONDS` on the scenario fails the run when `initialize` is answered later
 than that (the runner itself waits up to 120 s): a server that answers eventually is not enough
 where the point is that it answers at once (`clangd-cannot-load`).
@@ -160,7 +163,9 @@ always has been.
 | `definition` / `declaration` | a location ends with `expect` |
 | `definition-any` | there is at least one location |
 | `hover-contains` | the hover text contains `expect`, or any one of them when `expect` is a list |
-| `completion-contains` | a completion label starts with `expect`; `insert: [line, text]` adds a line first, `edit` changes another open buffer without saving it |
+| `completion-contains` | a completion label starts with `expect` (with a list, every one does; with `"exact": true`, a label is it), and none is one of `"absent"`; `insert: [line, text]` adds a line first, `edit` changes another open buffer without saving it; `"trigger"` sends the request as typing that character asked for it (`context.triggerKind` 2) |
+| `completion-empty` | the completion (with `"trigger"` as above) has no items, within `"within-ms"` when given (fix plan 2026-09-26 F9: a space off an import line) |
+| `capabilities` | the server capabilities `initialize` answered with meet `"expect"` (expectations as for `report`) |
 | `references-span` | the references include every path in `expect` |
 | `document-symbol-contains` | the outline has a top-level symbol named `expect` |
 | `semantic-tokens` | `textDocument/semanticTokens/full` (or `/range`, with `"range"`) for `"file"` (optionally with an unsaved `"text"`), decoded with the legend `initialize` gave, has every entry of `"expect"` (`{"line", "text", "type", "modifiers"?}`; `"modifiers"` is a list, and optional) among its tokens (design doc 2026-09-25 K/§7) |
@@ -178,8 +183,8 @@ always has been.
 
 An expectation of `mcp`, `cli` and `report` names a JSON pointer in `"path"`, where a `*` segment stands for every
 element of an array, and one of `"equals"` (a value the pointer names equals it), `"contains"` (a string
-contains it, or an array has an element that includes all its members), `"min-items"`, `"max-items"`, `"exists"` or
-`"absent"`; it holds when any value the pointer names satisfies it. `"each-contains"` is the one that
+contains it, or an array has an element that includes all its members), `"min-items"`, `"max-items"`, `"at-least"`
+(a number at least it), `"exists"` or `"absent"`; it holds when any value the pointer names satisfies it. `"each-contains"` is the one that
 every value the pointer names must satisfy instead (each is a string containing it), and it holds when
 the pointer names none.
 

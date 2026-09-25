@@ -1,0 +1,226 @@
+{
+  "name": "completion-keywords",
+  "description": "Fix plan 2026-09-26 F9 and F15 (decisions D4, D5), as VS Code: a space is a trigger character; a space typed after `import` opens the module list from mcppls's own index, and one typed anywhere else is answered at once with nothing, never reaching clangd. The module-syntax keywords (`import`, `export import`, `module;`, `export module`, `module`, `module :private;`) come from mcppls where each can begin a declaration, merged with clangd's answer, and on their own when clangd cannot answer for the file yet: a file just opened waits for clangd to read a database that has it, and its keywords do not.",
+  "server-arguments": [
+    "--no-discover"
+  ],
+  "client-info": {
+    "name": "Visual Studio Code",
+    "version": "1.105.0"
+  },
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "inferred",
+      "state": "ready",
+      "engine-name": "clangd"
+    },
+    {
+      "id": "C0-space-is-a-trigger",
+      "kind": "capabilities",
+      "expect": [
+        {
+          "path": "/completionProvider/triggerCharacters",
+          "contains": " "
+        },
+        {
+          "path": "/completionProvider/triggerCharacters",
+          "contains": "."
+        }
+      ]
+    },
+    {
+      "id": "T0-clangd-answers",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet",
+      "timeout": 90
+    },
+    {
+      "id": "K5-not-in-a-body",
+      "kind": "completion-contains",
+      "file": "src/main.cpp",
+      "insert": [
+        4,
+        "    i"
+      ],
+      "at": [
+        4,
+        5
+      ],
+      "expect": [
+        "int"
+      ],
+      "absent": [
+        "import",
+        "export module",
+        "module;"
+      ]
+    },
+    {
+      "id": "K1-import",
+      "kind": "completion-contains",
+      "file": "src/main.cpp",
+      "insert": [
+        2,
+        "i"
+      ],
+      "at": [
+        2,
+        1
+      ],
+      "expect": [
+        "import",
+        "int"
+      ],
+      "absent": [
+        "export import",
+        "module;"
+      ],
+      "exact": true
+    },
+    {
+      "id": "K2-module-declarations",
+      "kind": "completion-contains",
+      "file": "src/scratch.cppm",
+      "text": "// a new unit\ne",
+      "at": [
+        1,
+        1
+      ],
+      "expect": [
+        "export module"
+      ],
+      "absent": [
+        "export import"
+      ],
+      "exact": true
+    },
+    {
+      "id": "K3-export-import",
+      "kind": "completion-contains",
+      "file": "src/iface.cppm",
+      "text": "export module scratch.iface;\nimport std;\nexport i",
+      "at": [
+        2,
+        8
+      ],
+      "expect": [
+        "export import"
+      ],
+      "absent": [
+        "export module"
+      ],
+      "exact": true
+    },
+    {
+      "id": "K4-private-fragment",
+      "kind": "completion-contains",
+      "file": "src/iface.cppm",
+      "text": "export module scratch.iface;\nimport std;\nexport int f();\nmod",
+      "at": [
+        3,
+        3
+      ],
+      "expect": [
+        "module :private;"
+      ],
+      "absent": [
+        "module;",
+        "export module"
+      ],
+      "exact": true
+    },
+    {
+      "id": "P1-space-elsewhere",
+      "kind": "completion-empty",
+      "file": "src/space.cpp",
+      "text": "int x = ",
+      "at": [
+        0,
+        8
+      ],
+      "trigger": " ",
+      "within-ms": 2000
+    },
+    {
+      "id": "P2-space-after-import",
+      "kind": "completion-contains",
+      "file": "src/space.cpp",
+      "text": "import std;\nimport ",
+      "at": [
+        1,
+        7
+      ],
+      "trigger": " ",
+      "expect": [
+        "hello.greet"
+      ]
+    },
+    {
+      "id": "P3-space-after-export-import",
+      "kind": "completion-contains",
+      "file": "src/space.cppm",
+      "text": "export module space;\nexport import ",
+      "at": [
+        1,
+        14
+      ],
+      "trigger": " ",
+      "expect": [
+        "hello.greet"
+      ]
+    },
+    {
+      "id": "P4-two-spaces",
+      "kind": "completion-empty",
+      "file": "src/space.cpp",
+      "text": "import  ",
+      "at": [
+        0,
+        8
+      ],
+      "trigger": " ",
+      "within-ms": 2000
+    },
+    {
+      "id": "P5-export-module-names-nothing",
+      "kind": "completion-empty",
+      "file": "src/space.cppm",
+      "text": "export module ",
+      "at": [
+        0,
+        14
+      ],
+      "trigger": " ",
+      "within-ms": 2000
+    },
+    {
+      "id": "R1-costs-counted",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/completion/spaceTrigger/count",
+          "at-least": 5
+        },
+        {
+          "path": "/roots/0/completion/spaceTrigger/passed",
+          "at-least": 2
+        },
+        {
+          "path": "/roots/0/completion/spaceTrigger/maxMicros",
+          "exists": true
+        },
+        {
+          "path": "/roots/0/completion/keywordsWithoutEngine",
+          "at-least": 1
+        }
+      ]
+    }
+  ]
+}

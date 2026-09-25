@@ -26,6 +26,7 @@ import {
 } from 'vscode-languageclient/node';
 import { CommandLineToolsController, withInstallCommandFallback } from './commandLineTools';
 import { registerCommands, reloadBuildDescription } from './commands';
+import { sendTriggeredCompletion } from './completionGate';
 import { checkConflicts, ConflictCheck, watchForNewConflicts } from './conflicts';
 import { resolveLaunch } from './payload';
 import { ServerLogLevel, ServerLogRouter } from './serverLog';
@@ -259,6 +260,20 @@ class ServerHost implements vscode.Disposable {
                     modules: configuration.get<boolean>('semanticTokens.modules', true),
                     moduleType: true,
                 },
+                // Fix plan 2026-09-26 F9: a space after `import` opens the module list. The server
+                // advertises the space as a trigger character to this client unless this is off.
+                completion: {
+                    triggerOnSpace: configuration.get<boolean>('completion.triggerOnSpace', true),
+                },
+            },
+            middleware: {
+                // Fix plan 2026-09-26 F9 (D4 layer 1): of the completions a typed space asks for, only
+                // the one after `import` or `export import` is sent; every other is answered here, with
+                // nothing, before it costs a message.
+                provideCompletionItem: (document, position, context, token, next) =>
+                    sendTriggeredCompletion(context.triggerCharacter, document.lineAt(position.line).text, position.character)
+                        ? next(document, position, context, token)
+                        : [],
             },
             errorHandler: {
                 error: () => ({ action: ErrorAction.Continue, handled: true }),
@@ -496,7 +511,8 @@ export function activate(context: vscode.ExtensionContext): TestApi {
         vscode.workspace.onDidChangeConfiguration((event) => {
             if (event.affectsConfiguration('mcppls.compiler') || event.affectsConfiguration('mcppls.semanticKit')
                 || event.affectsConfiguration('mcppls.engine') || event.affectsConfiguration('mcppls.buildTool')
-                || event.affectsConfiguration('mcppls.toolEnvironment') || event.affectsConfiguration('mcppls.semanticTokens.modules')) {
+                || event.affectsConfiguration('mcppls.toolEnvironment') || event.affectsConfiguration('mcppls.semanticTokens.modules')
+                || event.affectsConfiguration('mcppls.completion.triggerOnSpace')) {
                 void host.restart();
             }
         }),

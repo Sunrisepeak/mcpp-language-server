@@ -614,7 +614,7 @@ bool includes(const Json& candidate, const Json& expected) {
 }
 
 // A fixture's expectations of a JSON result (conformance/README.md, S5 checks): each names a pointer and
-// one of equals, contains, min-items, max-items, exists or absent, and holds when any value the pointer names satisfies it --
+// one of equals, contains, min-items, max-items, at-least (a number), exists or absent, and holds when any value the pointer names satisfies it --
 // except each-contains, which every value the pointer names must satisfy (and holds when it names none).
 std::pair<bool, std::string> expectations_hold(const Json& value, const Json& expectations) {
     for (const auto& expectation : expectations) {
@@ -643,6 +643,9 @@ std::pair<bool, std::string> expectations_hold(const Json& value, const Json& ex
         } else if (expectation.contains("max-items")) {
             const std::size_t wanted { expectation.value("max-items", std::size_t { 0 }) };
             held = std::ranges::any_of(matches, [&](const Json* match) { return (match->is_array() || match->is_object()) && match->size() <= wanted; });
+        } else if (expectation.contains("at-least")) {
+            const double wanted { expectation.value("at-least", 0.0) };
+            held = std::ranges::any_of(matches, [&](const Json* match) { return match->is_number() && match->get<double>() >= wanted; });
         }
         if (!held) {
             std::string found { matches.empty() ? std::string { "nothing" } : lsp::dump(*matches.front()) };
@@ -933,6 +936,7 @@ private:
     std::unique_ptr<McpClient> mcpDaemon_;                      // the first mcp check "via": "daemon"
     std::string mcpFailure_;
     Json semanticTokensLegend_ = Json::object();                // initialize's capabilities.semanticTokensProvider.legend
+    Json capabilities_ = Json::object();                        // initialize's capabilities, for "capabilities" checks
 
     McpClient* mcp_client(bool daemon) {
         auto& kept = daemon ? mcpDaemon_ : mcp_;
@@ -956,12 +960,23 @@ public:
 
     Scenario(Client& client, const Options& options, std::vector<std::string> serverArguments, std::string workspace, std::chrono::seconds timeout,
              std::map<std::string, std::string> prepared, std::string cacheDirectory, bool expectWarm,
-             std::map<std::string, std::map<std::string, std::string>> moduleFilesBefore, Json semanticTokensLegend = Json::object())
+             std::map<std::string, std::map<std::string, std::string>> moduleFilesBefore, Json semanticTokensLegend = Json::object(),
+             Json capabilities = Json::object())
         : client_ { client }, options_ { options }, serverArguments_ { std::move(serverArguments) }, workspace_ { std::move(workspace) }, timeout_ { timeout }, prepared_ { std::move(prepared) },
           cacheDirectory_ { std::move(cacheDirectory) }, expectWarm_ { expectWarm }, moduleFilesBefore_ { std::move(moduleFilesBefore) },
-          semanticTokensLegend_ ( std::move(semanticTokensLegend) ) {}
+          semanticTokensLegend_ ( std::move(semanticTokensLegend) ), capabilities_ ( std::move(capabilities) ) {}
 
     std::string uri(std::string_view relative) const { return base::path_to_uri(base::join_path(workspace_, relative)); }
+
+    // A completion request at the check's "at"; "trigger" sends it as typing that character asked for it
+    // (CompletionTriggerKind.TriggerCharacter), the way an editor does for a trigger character.
+    Json completion_params(const Json& check, std::string_view file) const {
+        Json params { { "textDocument", Json { { "uri", uri(file) } } }, { "position", position(check.at("at")) } };
+        if (const auto trigger = check.find("trigger"); trigger != check.end() && trigger->is_string()) {
+            params["context"] = Json { { "triggerKind", 2 }, { "triggerCharacter", trigger->get<std::string>() } };
+        }
+        return params;
+    }
 
     std::string text_of(std::string_view relative) {
         if (auto it = open_.find(std::string { relative }); it != open_.end()) return it->second.first;
@@ -1490,16 +1505,45 @@ public:
                 // Touch the importing buffer so it is rebuilt against the edited module.
                 change(file, text_of(file) + " ");
             }
-            const std::string expected { check.value("expect", std::string {}) };
-            auto [ok, result] = retry("textDocument/completion",
-                [&] { return Json { { "textDocument", Json { { "uri", uri(file) } } }, { "position", position(check.at("at")) } }; },
+            // "expect": a label prefix, or several that must all be there ("exact": whole labels); "absent": labels that must not be.
+            const bool exact { check.value("exact", false) };
+            std::vector<std::string> expected;
+            if (const auto wanted = check.find("expect"); wanted != check.end() && wanted->is_array()) {
+                for (const auto& one : *wanted) expected.push_back(one.get<std::string>());
+            } else {
+                expected.push_back(check.value("expect", std::string {}));
+            }
+            std::vector<std::string> absent;
+            for (const auto& one : check.value("absent", Json::array())) absent.push_back(one.get<std::string>());
+            auto [ok, result] = retry("textDocument/completion", [&] { return completion_params(check, file); },
                 [&](const Json& value) {
                     const auto labels = completion_labels(value);
-                    return std::ranges::any_of(labels, [&](const std::string& label) { return label.starts_with(expected); });
+                    const auto present = [&](const std::string& prefix) {
+                        return std::ranges::any_of(labels, [&](const std::string& label) { return exact ? label == prefix : label.starts_with(prefix); });
+                    };
+                    return std::ranges::all_of(expected, present)
+                           && std::ranges::none_of(absent, [&](const std::string& label) { return std::ranges::find(labels, label) != labels.end(); });
                 });
             auto labels = completion_labels(result);
             if (labels.size() > 12) labels.resize(12);
             return { ok, lsp::dump(labels) };
+        }
+        if (kind == "completion-empty") {
+            // F9 (fix plan 2026-09-26, D4): a completion answered with no items, within "within-ms" when given --
+            // a space typed outside an import line is answered at once, without asking the core engine.
+            open(file);
+            const auto start = Clock::now();
+            auto answer = client_.request("textDocument/completion", completion_params(check, file), timeout_);
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start).count();
+            if (!answer) return { false, "no answer" };
+            const bool empty { completion_labels(*answer).empty() };
+            const bool inTime { !check.contains("within-ms") || elapsed <= check.value("within-ms", std::int64_t { 0 }) };
+            return { empty && inTime, std::format("{} in {} ms", lsp::dump(*answer).substr(0, 120), elapsed) };
+        }
+        if (kind == "capabilities") {
+            // The server capabilities initialize answered with, held to "expect" like a tool's result.
+            auto [held, detail] = expectations_hold(capabilities_, check.value("expect", Json::array()));
+            return { held, held ? lsp::dump(capabilities_.value("completionProvider", Json::object())).substr(0, 160) : detail };
         }
         if (kind == "references-span") {
             open(file);
@@ -1880,6 +1924,9 @@ int run(Options options) {
     Json initializeParams { { "processId", nullptr }, { "rootUri", base::path_to_uri(workspace) },
                             { "workspaceFolders", workspaceFolders }, { "capabilities", capabilities } };
     if (!initializationOptions.empty()) initializeParams["initializationOptions"] = initializationOptions;
+    // A scenario's own "client-info": the client this runner says it is (fix plan 2026-09-26 F9: what a
+    // server tells VS Code differs from what it tells any other client).
+    if (const auto info = scenario.find("client-info"); info != scenario.end() && info->is_object()) initializeParams["clientInfo"] = *info;
     auto initialized = client.request("initialize", std::move(initializeParams), std::chrono::seconds { 120 });
     if (!initialized || !initialized->is_object()) {
         say("FAIL initialize: no result");
@@ -1902,7 +1949,7 @@ int run(Options options) {
                                           ? (*initialized)["capabilities"]["semanticTokensProvider"]["legend"]
                                           : Json::object();
     Scenario runner { client, options, serverArguments, workspace, options.timeout, std::move(prepared), cacheDirectory, options.expectWarm,
-                      std::move(moduleFilesBefore), semanticTokensLegend };
+                      std::move(moduleFilesBefore), semanticTokensLegend, initialized->value("capabilities", Json::object()) };
     int failures { advertised ? 0 : 1 };
     // "initialize-within": seconds. The handshake is answered at all, and in time (0.0.3 plan B1).
     if (const auto within = scenario.find("initialize-within"); within != scenario.end() && within->is_number()) {
