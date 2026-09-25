@@ -1443,11 +1443,23 @@ public:
             open(file);
             const std::string documentUri { uri(file) };
             const std::string code { check.value("expect", std::string {}) };
+            // Fix plan F11, F12: where the diagnostic is (`line`, 0-based), how severe (`severity`), and which codes
+            // must not be there with it (`absent`).
+            const std::optional<int> line { check.contains("line") ? std::optional<int> { check.value("line", 0) } : std::nullopt };
+            const std::optional<int> severity { check.contains("severity") ? std::optional<int> { check.value("severity", 1) } : std::nullopt };
+            const Json absent = check.value("absent", Json::array());
             const bool found { client_.wait_for([&] {
+                bool hit { false };
                 for (const auto& diagnostic : client_.diagnostics[documentUri]) {
-                    if (diagnostic.value("code", Json {}) == Json(code)) return true;
+                    const Json& diagnosticCode { diagnostic.value("code", Json {}) };
+                    if (std::ranges::find(absent, diagnosticCode) != absent.end()) return false;
+                    if (diagnosticCode != Json(code)) continue;
+                    const Json* start { lsp::find_path(diagnostic, { "range", "start" }) };
+                    if (line && (start == nullptr || start->value("line", -1) != *line)) continue;
+                    if (severity && diagnostic.value("severity", 1) != *severity) continue;
+                    hit = true;
                 }
-                return false;
+                return hit;
             }, timeout_) };
             return { found, lsp::dump(client_.diagnostics[documentUri]) };
         }

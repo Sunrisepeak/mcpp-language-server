@@ -159,7 +159,7 @@ always has been.
 | `responds` | a request (`method`, default `textDocument/definition`) at `at` is answered, empty answers included, within the check's time |
 | `module-cache-reused` | every file clangd published for `module` (default `std`) before the server started is still there unchanged, and none was added (SC4); passes on a cold start unless `--expect-warm` |
 | `diagnostics-empty` | the file's diagnostics, after the engine has published them, contain no errors |
-| `diagnostic-code` | a diagnostic with code `expect` is published for the file |
+| `diagnostic-code` | a diagnostic with code `expect` is published for the file; with `"line"` (0-based) it starts on that line, with `"severity"` it has that severity, and none of the codes in `"absent"` is published with it (fix plan 2026-09-26 F11, F12) |
 | `definition` / `declaration` | a location ends with `expect` |
 | `definition-any` | there is at least one location |
 | `hover-contains` | the hover text contains `expect`, or any one of them when `expect` is a list |

@@ -93,6 +93,11 @@ struct PlanInput {
     // most likely still being typed, so it gets no stand-in yet, unless the file provides a module itself (building
     // such a unit with an unresolved import is what stalls clangd).
     std::vector<std::string> editingSources;
+    // Of those, the modules each imports in its text ON DISK (fix plan F13, WA-CLANGD-002's premise). clangd reads a file's
+    // imports from disk (UP-14): an import an autosave has already written there gets its stand-in at once, since clangd
+    // builds with it now and stalls on it unresolved (UP-02); only an import in the buffer alone waits for the file to be
+    // quiet. A file without an entry here: all of its imports wait, as before.
+    std::map<std::string, std::vector<std::string>, std::less<>> editingDiskImports;
     // Engine decisions (overall design 5.4), set by the core engine's configure_plan. Providers whose
     // imports cannot resolve, and providers importing them, stay out of the database: clangd 23.1
     // deadlocks building them (robustness design, experiments S2, S6). Other units always stay.

@@ -341,8 +341,13 @@ EnginePlan plan_engine(const PlanInput& input) {
     //    nothing usable provides gets an empty unit (step 5b), every import resolves and no unit leaves;
     //    without one, the providers that cannot be built leave and every other unit stays.
     const bool standIns { !input.stubDirectory.empty() };
-    const auto editing = [&](std::string_view source) {
-        return std::ranges::any_of(input.editingSources, [&](const std::string& path) { return base::same_path(path, source); });
+    // Whether the stand-in for `name`, imported by `source`, waits for the file to be quiet (import-hang plan §5): the file
+    // is being edited, and the import is not in its text on disk yet (fix plan F13).
+    const auto editing = [&](std::string_view source, std::string_view name) {
+        const auto path = std::ranges::find_if(input.editingSources, [&](const std::string& each) { return base::same_path(each, source); });
+        if (path == input.editingSources.end()) return false;
+        const auto disk = input.editingDiskImports.find(*path);
+        return disk == input.editingDiskImports.end() || std::ranges::find(disk->second, name) == disk->second.end();
     };
     std::set<std::string, std::less<>> stubbed;              // modules that get a stand-in
     std::set<std::string, std::less<>> unusableProviders;    // modules whose planned providers clangd cannot find
@@ -377,7 +382,7 @@ EnginePlan plan_engine(const PlanInput& input) {
                 // import-hang plan §5: a name nothing provides, imported by a file being edited, is most likely still being
                 // typed: no stand-in until the file is quiet. A unit that provides a module gets one at once, since building
                 // it with an import it cannot resolve is what stalls clangd.
-                const bool deferred { standIns && !provider && !providers.contains(name) && editing(candidates[i].source) };
+                const bool deferred { standIns && !provider && !providers.contains(name) && editing(candidates[i].source, name) };
                 if (deferred) {
                     plan.standInsDeferred = true;
                 } else if (standIns) {
@@ -403,7 +408,7 @@ EnginePlan plan_engine(const PlanInput& input) {
             if (resolved) continue;
             // A provider with an import that cannot resolve cannot be built, and building it is what deadlocks. A file
             // being edited waits for its stand-in until it is quiet (import-hang plan §5).
-            const bool deferred { standIns && !provider && editing(candidates[i].source) };
+            const bool deferred { standIns && !provider && editing(candidates[i].source, name) };
             if (deferred) plan.standInsDeferred = true;
             const bool standIn { standIns && !deferred };
             if (standIn) stubbed.insert(name);

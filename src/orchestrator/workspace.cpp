@@ -1237,6 +1237,8 @@ struct Workspace::Impl final : engine::Host {
             const auto edited = editedAt.find(base::path_key(document->path));
             if (edited == editedAt.end() || now - edited->second >= EDITING_WINDOW) continue;
             input.editingSources.push_back(document->path);
+            // Fix plan F13: what an autosave already put on disk is what clangd builds with.
+            if (auto disk = platform::fs::read_file(document->path)) input.editingDiskImports[document->path] = project::required_names(project::scan_source(*disk));
             if (!lastEdit || edited->second > *lastEdit) lastEdit = edited->second;
         }
         if (coreEngine != nullptr) coreEngine->configure_plan(input);
@@ -1790,6 +1792,12 @@ void Workspace::did_save(const Json& message, const Json& params) {
         saved.path = path;
     }
     impl_->document_event(engine::DocumentChange::saved, saved, &message);
+    // Fix plan F13: an import of a file being edited that the save just put on disk gets its stand-in now, not once the
+    // file is quiet (clangd builds with what is on disk).
+    if (!saved.path.empty()) {
+        const auto edited = impl_->editedAt.find(base::path_key(saved.path));
+        if (edited != impl_->editedAt.end() && Clock::now() - edited->second < Impl::EDITING_WINDOW) impl_->schedule_replan();
+    }
 }
 
 void Workspace::handle_watched_files(const Json& changes) {

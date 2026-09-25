@@ -219,6 +219,10 @@ private:
     // end of its line. clangd reads a file's imports from disk to build what it needs (UP-14), so the
     // rewrite of the text it is given does not reach there, and it spins as it would on the text itself.
     std::set<std::string, std::less<>> diskTrailingDot_;   // path keys
+    // Such a file set aside while clangd was building it: closed once that build ends, or clangd restarted without it at
+    // the deadline, since a build that read the disk never ends (the conformance runner, and a Ctrl+S right after the dot).
+    static constexpr std::chrono::milliseconds DISK_SETTLE { 1500 };
+    std::map<std::string, std::pair<std::string, Clock::time_point>, std::less<>> closingAfterBuild_;   // client URI -> (path, deadline)
     // robustness design C4, C6: restarts spaced out; files clangd stopped answering for set aside one by one.
     RestartGate restartGate_;
     Quarantine quarantine_;                                   // path keys
@@ -739,6 +743,7 @@ public:
             diagnosed_.erase(document.uri);
             fileStatus_.erase(document.uri);
             statusTimeline_.erase(document.uri);
+            closingAfterBuild_.erase(document.uri);
             rewritten_.erase(document.uri);
             spin_.forget(document.uri);
             if (accepting_ && !wasExcluded && event.message != nullptr) (void)send_(*event.message);
@@ -988,6 +993,7 @@ public:
         consider(restartAt_);
         consider(stuckCheckAt_);
         if (pendingExit_) consider(pendingExit_->at + EXIT_CONTEXT_WAIT);
+        for (const auto& [uri, closing] : closingAfterBuild_) consider(closing.second);
         if (accepting_) consider(spin_.next_due());   // only acted on while accepting (handle_spins_)
         // While a reading of clangd's CPU is on its way, its event is what wakes the loop.
         if (!cpuReadInFlight_) {
@@ -1016,6 +1022,7 @@ public:
     void handle_timers() override {
         const auto now = Clock::now();
         if (pendingExit_ && now >= pendingExit_->at + EXIT_CONTEXT_WAIT) settle_exit_();
+        if (!closingAfterBuild_.empty()) settle_disk_builds_(now);
         // Before the requests that expire now are answered: they are part of what clangd left unanswered.
         watch_for_stuck_(now);
         if (accepting_) handle_spins_(now);
@@ -1202,6 +1209,7 @@ private:
         databaseRead_ = false;
         joinedAt_.clear();
         fileStatus_.clear();
+        closingAfterBuild_.clear();
         background_.clear();
         closedBackground_.clear();
         if (options_.payloadCorrupt) {
@@ -1726,6 +1734,7 @@ private:
                 if (host_->has_document(uri)) {
                     fileStatus_[uri] = params->value("state", std::string {});
                     spin_.state(uri, fileStatus_[uri], Clock::now());
+                    if (closingAfterBuild_.contains(uri) && !engine_working(fileStatus_[uri])) settle_disk_builds_(Clock::now());
                     // Fix plan F17.2: what clangd said about the file lately, for an incident.
                     auto& timeline = statusTimeline_[uri];
                     if (timeline.empty() || timeline.back().second != fileStatus_[uri]) {
@@ -2276,7 +2285,9 @@ private:
 
     // Whether a restart gets back what clangd spends on a file it is no longer given.
     // `now`: what clangd spends on it is never coming back (SpinWatch): restart at once, past the gate and the cap.
-    enum class Reclaim { no, if_busy, now };
+    // `after_build` (fix plan F16): a build clangd started before the file was set aside may be reading what is on disk;
+    // it is let finish for DISK_SETTLE, and clangd is restarted without the file if it has not by then.
+    enum class Reclaim { no, if_busy, now, after_build };
 
     void set_aside_(const std::string& path, std::string_view why, Reclaim reclaim, bool moduleFailed = false,
                     std::optional<std::size_t> spunOn = std::nullopt, bool onDisk = false) {
@@ -2294,7 +2305,12 @@ private:
             if (const auto status = fileStatus_.find(document.uri); status != fileStatus_.end()) state = status->second;
             awaitingDiagnostics_.erase(document.uri);
             awaitingSince_.erase(document.uri);
-            if (accepting_) (void)send_(lsp::make_notification("textDocument/didClose", Json { { "textDocument", Json { { "uri", document.uri } } } }));
+            if (!accepting_) continue;
+            if (reclaim == Reclaim::after_build && state && engine_working(*state)) {
+                closingAfterBuild_[document.uri] = { path, Clock::now() + DISK_SETTLE };
+            } else {
+                (void)send_(lsp::make_notification("textDocument/didClose", Json { { "textDocument", Json { { "uri", document.uri } } } }));
+            }
         }
         aside_[key] = std::move(aside);
         log::warning("setting {} aside from clangd for a while ({}): {}; clangd was {}; mcppls's engine answers for it", path, host_->root_directory(), why,
@@ -2424,7 +2440,7 @@ private:
             const auto aside = aside_.find(key);
             if (aside == aside_.end() || !quarantine_.contains(key)) {
                 set_aside_(std::string { path }, "the file on disk has a module name that ends in '.', which clangd 23.1 spins on (UP-01)",
-                           Reclaim::if_busy, false, std::nullopt, true);
+                           Reclaim::after_build, false, std::nullopt, true);
             } else {
                 aside->second.onDisk = true;
             }
@@ -2443,7 +2459,35 @@ private:
         update_quarantine_issue_();
         for (const auto& document : host_->documents()) {
             if (document.path.empty() || base::path_key(document.path) != key) continue;
+            // Still open in clangd, with the text it had then: given again, with the text it has now.
+            if (closingAfterBuild_.erase(document.uri) > 0 && accepting_) {
+                (void)send_(lsp::make_notification("textDocument/didClose", Json { { "textDocument", Json { { "uri", document.uri } } } }));
+            }
             if (accepting_ && !excluded_path_(document.path) && !doomed_path_(document.path)) open_or_hold_(document, true);
+        }
+    }
+
+    // The builds clangd was running on files set aside for their disk text (Reclaim::after_build): a file whose build ended
+    // is closed; one still building at its deadline read the disk, and clangd is restarted without it.
+    void settle_disk_builds_(Clock::time_point now) {
+        for (auto it = closingAfterBuild_.begin(); it != closingAfterBuild_.end();) {
+            const auto status = fileStatus_.find(it->first);
+            const bool working { status != fileStatus_.end() && engine_working(status->second) };
+            if (working && now < it->second.second) {
+                ++it;
+                continue;
+            }
+            const std::string uri { it->first };
+            const std::string path { it->second.first };
+            it = closingAfterBuild_.erase(it);
+            if (!accepting_) continue;
+            (void)send_(lsp::make_notification("textDocument/didClose", Json { { "textDocument", Json { { "uri", uri } } } }));
+            if (working) {
+                log::warning("clangd ({}) is still building {} {} ms after its text on disk was found to spin it: restarting clangd without it",
+                             host_->root_directory(), base::file_name(path), DISK_SETTLE.count());
+                reclaim_spin_(path);
+                return;   // a new clangd: nothing else is open in the old one
+            }
         }
     }
 
