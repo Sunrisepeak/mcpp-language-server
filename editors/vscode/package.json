@@ -221,6 +221,11 @@
           "default": true,
           "description": "Module keywords and names from the server's semantic tokens. Turn this off to use only your own grammar or tree-sitter colors for module syntax."
         },
+        "mcppls.completion.triggerOnSpace": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show the module list as soon as a space is typed after `import` or `export import`. A space anywhere else never asks the server for anything."
+        },
         "mcppls.trace.server": {
           "type": "string",
           "enum": [

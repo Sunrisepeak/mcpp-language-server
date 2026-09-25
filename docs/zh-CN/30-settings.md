@@ -14,6 +14,7 @@
 | `mcppls.ai.enabled` | `false`（默认） | 是否启用变更审查里依赖模型的那部分。关闭时服务端不发起任何模型调用 |
 | `mcppls.detectConflicts` | `true`（默认） | 在此工作区中提议关闭另一个 C++ 扩展的语言功能（只提议一次），之后又有冲突扩展启用时会提示 |
 | `mcppls.semanticTokens.modules` | `true`（默认） | 用服务端的语义 token 给 `import`、`module`、`export` 和模块名上色。关闭后只用语法文件的颜色 |
+| `mcppls.completion.triggerOnSpace` | `true`（默认） | 在 `import` 或 `export import` 后输入空格时立即弹出模块列表；其他位置的空格不会发给服务端。其他编辑器用 `initializationOptions.completion.triggerOnSpace` 开启同样的行为 |
 | `mcppls.trace.server` | `off`（默认）, `messages`, `verbose` | 把 LSP 通信记录到 C++ Modules 输出通道（Trace 级别）；`verbose` 还会打开服务端的 debug 日志（Debug 级别）。要看到它们，需把该输出通道的日志级别调到对应级别 |
 
 ## 命令

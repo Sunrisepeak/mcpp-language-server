@@ -59,6 +59,7 @@ All settings are optional.
 | `mcppls.ai.enabled` | `false` | Show the review commands |
 | `mcppls.detectConflicts` | `true` | Offer once to turn off other C++ extensions' language features in the workspace, and notice again if one becomes active later |
 | `mcppls.semanticTokens.modules` | `true` | Module keywords and names from the server's semantic tokens; turn off to use only your own grammar or tree-sitter colors for module syntax |
+| `mcppls.completion.triggerOnSpace` | `true` | Show the module list as soon as a space is typed after `import` or `export import`; a space anywhere else never reaches the server |
 | `mcppls.trace.server` | `off` | Trace the language server protocol in the log |
 | `mcppls.buildTool` | `offline` | How mcppls may run the project's build tool (mcpp, CMake) to learn how it is built: `offline` runs it without the network, offering to run it in a terminal when it needs a download; `online` lets it reach the network, with up to ten minutes; `off` never runs it, using only the cache or scanned sources |
 | `mcppls.toolEnvironment` | `auto` | Which environment build tools are started in: `auto` reads the login shell's environment once in the background on Linux and macOS (Windows always matches the editor); `editor` always uses the editor process's own environment |
