@@ -88,7 +88,9 @@ function barFor(state: ModuleState | 'starting', detail: string | undefined):
 const PULSE_MS = 900;
 
 const SHOW_LOGS: vscode.Command = { title: 'Show Logs', command: 'mcppls.showLogs' };
-const COLLECT_REPORT: vscode.Command = { title: 'Collect Report', command: 'mcppls.collectReport' };
+// Issue #23 fix plan F18: what a limited state without a fix of its own offers is the bundle a report of the
+// problem needs, which also carries the report.
+const EXPORT_BUNDLE: vscode.Command = { title: 'Export Diagnostic Bundle', command: 'mcppls.exportDiagnosticBundle' };
 const RESTART: vscode.Command = { title: 'Restart', command: 'mcppls.restartServer' };
 const BUSY_STATES: readonly ModuleState[] = ['starting', 'loading', 'preparing'];
 
@@ -240,10 +242,10 @@ export class StatusController implements vscode.Disposable {
                 ? vscode.LanguageStatusSeverity.Warning
                 : vscode.LanguageStatusSeverity.Information;
         const withCommand = issues.find((issue) => issue.command !== undefined);
-        // A limited state without a fix of its own offers the report a bug report needs (robustness design O4).
+        // A limited state without a fix of its own offers what a bug report needs (robustness design O4).
         this.item.command = withCommand?.command
             ? { title: withCommand.command.title, command: withCommand.command.command, arguments: withCommand.command.arguments }
-            : status.state === 'degraded' || status.state === 'error' ? COLLECT_REPORT : SHOW_LOGS;
+            : status.state === 'degraded' || status.state === 'error' ? EXPORT_BUNDLE : SHOW_LOGS;
 
         // The status bar says the one thing that matters now, shortened when there is a fuller
         // version in the tooltip; the item behind `{}` keeps the rest.
