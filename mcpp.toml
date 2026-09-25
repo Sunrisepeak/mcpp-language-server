@@ -42,6 +42,9 @@ repo        = "https://github.com/Sunrisepeak/mcpp-language-server"
 
 [build]
 sources = ["src/**/*.cppm", "src/**/*.cpp"]
+# The server imports three libSystem symbols, all of them macOS 10.12+; clangd in the payload is
+# built for 11.0. Honoured when cross-compiling from Linux since mcpp 2026.9.24.1 (mcpp#685).
+macos_deployment_target = "11.0"
 
 # Every executable shares every module under src/.
 [targets.mcppls]
