@@ -57,7 +57,7 @@ bundle::Identity windows_user() {
 // The child a whole bundle is written in: another HOME, another user, another cache.
 constexpr std::string_view LONG_USER { "averylongusernameforbundles" };
 
-int write_bundle_as_child(const std::string& directory, bool excerpts) {
+int write_bundle_as_child(const std::string& directory, std::string_view mode) {
     const std::string home { mcppls::platform::dirs::home_directory() };
     const std::string cache { mcppls::platform::dirs::cache_directory() };
     const std::string root { base::join_path(home, "projects/hello") };
@@ -101,8 +101,20 @@ int write_bundle_as_child(const std::string& directory, bool excerpts) {
     input.client = Json { { "extension", Json { { "version", "0.0.5" } } }, { "otherCppExtensions", Json::array() } };
     input.clientLog = std::format("[10:00:00] Starting {}/.vscode/extensions/mcppls/payload/bin/mcppls serve\n", home);
     bundle::BundleOptions options;
-    options.output = base::join_path(directory, excerpts ? "with-excerpts.zip" : "without-excerpts.zip");
-    options.sourceExcerpts = excerpts;
+    options.output = base::join_path(directory, mode == "excerpts" ? "with-excerpts.zip" : mode == "cap" ? "capped.zip" : "without-excerpts.zip");
+    options.sourceExcerpts = mode != "none";
+    if (mode == "cap") {
+        // An older session's log that compresses badly and does not fit a bundle capped at 512 KiB.
+        std::string noise;
+        std::uint32_t state { 7 };
+        while (noise.size() < 3 * 1024 * 1024) {
+            state = state * 1103515245U + 12345U;
+            noise += std::format("{:08x}", state);
+            if (noise.size() % 64 == 0) noise += '\n';
+        }
+        (void)fs::write_file(base::join_path(cache, "logs/server-20260925-010203-cd34.log"), noise);
+        options.sizeCap = 512 * 1024;
+    }
     auto written = bundle::write_bundle(input, options);
     if (!written) {
         std::println("{}", Json { { "error", written.error().message }, { "residue", written.error().residue } }.dump());
@@ -117,7 +129,7 @@ int write_bundle_as_child(const std::string& directory, bool excerpts) {
 int main() {
     {
         const auto arguments = mcppls::platform::env::arguments();
-        if (arguments.size() == 4 && arguments[1] == "bundle-child") std::_Exit(write_bundle_as_child(arguments[2], arguments[3] == "excerpts"));
+        if (arguments.size() == 4 && arguments[1] == "bundle-child") std::_Exit(write_bundle_as_child(arguments[2], arguments[3]));
     }
     using namespace mcppls::testing;
 
@@ -189,6 +201,10 @@ int main() {
         expect(redactor.redact("/opt/runner/x") == "/opt/<user>/x");
         expect(redactor.redact("the runner is idle on ubuntu") == "the runner is idle on ubuntu");
         expect(redactor.residue("the runner is idle on ubuntu").empty()) << "a bundle of a user called runner can still be written";
+        bundle::Redactor root { bundle::Identity { { "/root" }, { "root" }, {}, {} } };
+        const std::string redacted { root.redact("/root/.cache/mcppls and /usr/share/rootcerts and /opt/root-6/bin") };
+        expect(redacted == "~/.cache/mcppls and /usr/share/rootcerts and /opt/root-6/bin") << redacted;
+        expect(root.residue(redacted).empty()) << "a container's root user can export a bundle";
         expect(!bundle::distinctive_name("a"));
         expect(!bundle::distinctive_name("bob"));
         expect(!bundle::distinctive_name("admin"));
@@ -378,6 +394,24 @@ int main() {
             const bool excerptsKept { files.at("incidents/root-1/20260926T010207.000Z-spin/incident.json").contains("\"excerpts\"") };
             expect(excerptsKept == excerpts) << "source excerpts only when asked";
             expect(files.at("engine/root-1/compile_commands.json").contains("-DVERSION=3"));
+        }
+        // Over its cap, a bundle leaves out the oldest log first, says so, and keeps what matters most.
+        {
+            auto run = mcppls::platform::run(mcppls::platform::SpawnOptions { .program = self, .arguments = { "bundle-child", directory, "cap" }, .environment = environment },
+                                             mcppls::platform::RunBounds { .hard = std::chrono::seconds { 60 } }, "");
+            expect(fatal(run.has_value() && run->exitCode == 0)) << (run ? run->output + run->error : std::string {});
+            const Json result = Json::parse(run->output);
+            const auto archive = fs::read_file(result.value("path", std::string {}));
+            expect(fatal(archive.has_value()));
+            expect(archive->size() <= 512 * 1024) << archive->size();
+            const auto files = unzip(*archive);
+            const Json manifest = Json::parse(files.at("manifest.json"));
+            expect(!files.contains("logs/server-20260925-010203-cd34.log"));
+            expect(manifest["omitted"].dump().contains("logs/server-20260925-010203-cd34.log")) << manifest["omitted"].dump();
+            for (const std::string_view kept : { "report.json", "environment.json", "incidents/root-1/20260926T010207.000Z-spin/incident.json",
+                                                  "logs/server-20260926-010203-ab12.log" }) {
+                expect(files.contains(std::string { kept })) << kept;
+            }
         }
         fs::remove_all(directory);
     };

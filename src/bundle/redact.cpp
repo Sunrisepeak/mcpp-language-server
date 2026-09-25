@@ -619,6 +619,9 @@ struct Redactor::Impl {
         for (const auto& home : identity.homes) {
             if (segments_of(home).empty()) continue;   // "/" or "C:/": nothing personal to hide
             for (auto& pattern : path_patterns(home, RULE_HOME, "~")) homePatterns.push_back(std::move(pattern));
+            // Only a home named for a distinctive user is looked for as a plain string too: "/root" is in
+            // "/usr/lib/root/x" and "/home/runner" in "/opt/home/runner", which are nobody's home.
+            if (!distinctive_name(segments_of(home).back())) continue;
             std::string backslashed { home };
             std::ranges::replace(backslashed, '/', '\\');
             homeTexts.push_back(home);
@@ -783,10 +786,16 @@ std::vector<Residue> Redactor::residue(std::string_view text, std::size_t limit)
     for (const auto& pattern : impl.homePatterns) {
         if (const auto at = find_path(text, pattern)) add(RULE_HOME, *at);
     }
-    // The home as a plain string, whatever follows it: stricter than the rule that replaced it, so a
-    // spelling that rule does not know is found here rather than shipped.
+    // The home as a plain string, whatever comes before it: stricter than the rule that replaced it, so
+    // a spelling that rule does not know is found here rather than shipped. Not "/home/speaker" for
+    // "/home/speak", which is another directory.
     for (const auto& home : impl.homeTexts) {
-        if (const auto at = ifind(text, home); at != std::string_view::npos) add(RULE_HOME, at);
+        for (std::size_t at { ifind(text, home) }; at != std::string_view::npos; at = ifind(text, home, at + 1)) {
+            const std::size_t end { at + home.size() };
+            if (end < text.size() && (is_word(static_cast<unsigned char>(text[end])) || text[end] == '_')) continue;
+            add(RULE_HOME, at);
+            break;
+        }
     }
     for (const auto& pattern : impl.workspacePatterns) {
         if (const auto at = find_path(text, pattern)) add(RULE_WORKSPACE, *at);
