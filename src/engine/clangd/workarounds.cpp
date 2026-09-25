@@ -7,7 +7,7 @@ namespace mcppls::engine::clangd {
 
 namespace {
 
-constexpr std::array<Workaround, 5> REGISTRY { {
+constexpr std::array<Workaround, 7> REGISTRY { {
     {
         .id = TRAILING_DOT_MODULE_NAME,
         .title = "a module name ending in '.' at the end of its line spins clangd forever; clangd is given the line with ';' after the dot",
@@ -17,6 +17,7 @@ constexpr std::array<Workaround, 5> REGISTRY { {
         .added = "0.0.4",
         .removeWhen = "the bundled clangd and the oldest clangd the server supports finish `import a.` at once",
         .canary = "conformance/fixtures/workaround-canaries: clangd --check on `import hello.` does not finish",
+        .premise = "clangd reads a file only as it is given; it also reads the file's imports from disk (UP-14), so the server checks what is on disk on every save and watched change (fix plan F16)",
     },
     {
         .id = UNRESOLVED_IMPORT_STAND_INS,
@@ -27,6 +28,7 @@ constexpr std::array<Workaround, 5> REGISTRY { {
         .added = "0.0.1",
         .removeWhen = "clangd builds a unit with an unresolved import to a diagnostic instead of stalling",
         .canary = "",
+        .premise = "every module a unit imports has a unit in the engine database, real or a stand-in",
     },
     {
         .id = MODULE_PREPARATION,
@@ -37,6 +39,7 @@ constexpr std::array<Workaround, 5> REGISTRY { {
         .added = "0.0.1",
         .removeWhen = "clangd builds independent modules concurrently on its own",
         .canary = "",
+        .premise = "clangd builds a module once and reuses its BMI for every file that imports it",
     },
     {
         .id = MODULE_HINTS,
@@ -47,6 +50,7 @@ constexpr std::array<Workaround, 5> REGISTRY { {
         .added = "0.0.1",
         .removeWhen = "clangd looks a module's unit up without scanning the whole database",
         .canary = "",
+        .premise = "clangd finds a module's unit through the -fmodule-file hint in the importing unit's command",
     },
     {
         .id = MSVC_STL_ALIGNED_ALLOCATION,
@@ -57,6 +61,29 @@ constexpr std::array<Workaround, 5> REGISTRY { {
         .added = "0.0.1",
         .removeWhen = "the bundled clangd is 23.1.1 or later",
         .canary = "",
+        .premise = "the unit is compiled against the MSVC STL",
+    },
+    {
+        .id = DIRECTIVE_SEMICOLON_POSITION,
+        .title = "an import or module directive missing its ';' is reported on the next line of code; the diagnostic is moved back to the directive",
+        .fixedIn = "",
+        .upstream = "unfiled (UP-15 in issue #24)",
+        .evidence = ".agents/docs/2026-09-26-issue-23-fix-plan.md F12; tests/test_workarounds.cpp",
+        .added = "0.0.5",
+        .removeWhen = "clangd reports expected_semi_after_module_or_import and pp_unexpected_tok_after_module_name on the directive's own line",
+        .canary = "",
+        .premise = "the nearest non-blank line above the diagnostic is the directive that lacks the ';'",
+    },
+    {
+        .id = UNSAVED_IMPORT_NOT_FOUND,
+        .title = "clangd reads an open file's imports from disk, so an import only in the unsaved buffer is 'not found'; told as information while the module is in the project",
+        .fixedIn = "",
+        .upstream = "unfiled (UP-14 in issue #24)",
+        .evidence = ".agents/docs/2026-09-26-issue-23-fix-plan.md F11; tests/test_workarounds.cpp",
+        .added = "0.0.5",
+        .removeWhen = "clangd scans an open file's imports from its buffer (ModuleDependencyScanner through the dirty-buffer file system)",
+        .canary = "",
+        .premise = "the module is provided by a unit of the engine database, and the import is in the buffer but not on disk",
     },
 } };
 
@@ -202,6 +229,43 @@ TextPosition to_original(std::span<const Insertion> insertions, TextPosition pos
         if (insertion.line == position.line && position.character > insertion.character) ++shift;
     }
     return TextPosition { position.line, position.character - shift };
+}
+
+namespace {
+
+// Whether `line`, without its leading blanks, is an import or module directive (P1857: `export` may come first).
+bool directive_line(std::string_view line) {
+    std::size_t at { skip_blanks(line, 0) };
+    if (keyword_at(line, at, "export")) at = skip_blanks(line, at + 6);
+    return keyword_at(line, at, "import") || keyword_at(line, at, "module");
+}
+
+} // namespace
+
+std::optional<LineRange> directive_missing_semicolon(std::string_view text, int line) {
+    const auto lines = base::split_lines(text);
+    if (line < 0 || lines.empty()) return std::nullopt;
+    // The directive is above the line the diagnostic is on; on that line itself, the diagnostic is already right.
+    for (int at { std::min(line - 1, static_cast<int>(lines.size()) - 1) }; at >= 0; --at) {
+        std::string_view current { lines[static_cast<std::size_t>(at)] };
+        // A line comment after the directive is not part of it.
+        if (const std::size_t comment { current.find("//") }; comment != std::string_view::npos) current = current.substr(0, comment);
+        const std::string_view trimmed { base::trim(current) };
+        if (trimmed.empty()) continue;   // blank, or only a comment: look further up
+        if (!directive_line(current) || trimmed.ends_with(';')) return std::nullopt;
+        const std::size_t end { current.find_last_not_of(" \t\r") + 1 };
+        const int endCharacter { static_cast<int>(base::utf16_length(current.substr(0, end))) };
+        return LineRange { at, std::max(0, endCharacter - 1), endCharacter };
+    }
+    return std::nullopt;
+}
+
+std::optional<std::string> module_not_found_name(std::string_view message) {
+    static constexpr std::string_view TAIL { "' not found" };
+    if (message.size() < 8 || (message[0] != 'm' && message[0] != 'M') || !message.substr(1).starts_with("odule '") || !message.ends_with(TAIL)) return std::nullopt;
+    const std::string_view name { message.substr(8, message.size() - 8 - TAIL.size()) };
+    if (name.empty() || name.find('\'') != std::string_view::npos) return std::nullopt;
+    return std::string { name };
 }
 
 } // namespace mcppls::engine::clangd

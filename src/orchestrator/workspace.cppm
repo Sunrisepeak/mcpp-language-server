@@ -134,6 +134,8 @@ public:
     Json report() const;
     // Replies to `id` itself, then replans if it changed anything.
     void set_context(const Json& id, std::string_view context);
+    // The person asked for clangd to start over (fix plan F14): false when this root has no core engine to restart.
+    bool restart_core_engine();
 
     // ---- the review an editor asks for (overall design 7.7) ----------------------------
     // Runs `mcppls review` on this root in the background; its findings are published as

@@ -59,6 +59,11 @@ struct EnginePlan {
     std::vector<std::string> excludedFiles;   // providers left out because they cannot be built
     std::string contextSet;                   // empty: every set
     std::size_t stdUnits { 0 };
+    // Set by the workspace, not by plan_engine (fix plan F4, F14): what the model's toolchain, profile and
+    // context are, and where the model came from. A restart for a plan whose toolchain key changed is
+    // the person's doing (they switched the toolchain or the context) and is never counted against clangd.
+    std::string toolchainKey;
+    std::string modelOrigin;                  // cache-fresh | cache-stale | cache-confirmed | producer | inferred
 };
 
 struct PlanInput {

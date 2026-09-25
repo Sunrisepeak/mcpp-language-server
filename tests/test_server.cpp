@@ -23,6 +23,7 @@ import mcppls.engine.clangd.guard;
 import mcppls.engine.clangd.primer;
 import mcppls.orchestrator.client;
 import mcppls.orchestrator.documents;
+import mcppls.orchestrator.incidents;
 import mcppls.orchestrator.journal;
 import mcppls.orchestrator.routing;
 import mcppls.orchestrator.tokens;
@@ -451,9 +452,35 @@ int main() {
         expect(gate.earliest(t0 + 1s) == t0 + 10s) << "the next one waits ten seconds";
         gate.record(t0 + 10s);
         expect(gate.earliest(t0 + 11s) == t0 + 30s) << "then twenty";
-        for (int i { 0 }; i < 10; ++i) gate.record(t0 + 30s + std::chrono::seconds { i });
-        expect(gate.earliest(t0 + 40s) == t0 + 39s + 5min) << "never more than five minutes apart";
+        expect(gate.earliest(t0 + 31s, cld::RestartCause::plan) == t0 + 31s) << "another cause is spaced out on its own";
+        expect(gate.earliest(t0 + 31s, cld::RestartCause::user) == t0 + 31s) << "the person's restart is never held back";
+        gate.record(t0 + 31s, cld::RestartCause::user);
+        expect(gate.recent(t0 + 32s) == 2u && gate.recent(t0 + 32s, cld::RestartCause::user) == 0u) << "nor counted";
         expect(gate.earliest(t0 + 30min) == t0 + 30min) << "a quiet ten minutes starts over";
+    };
+
+    "past the cap a cause backs off, 1, 2, 4, then 8 minutes, and is never refused (fix plan F14)"_test = [] {
+        using namespace std::chrono_literals;
+        cld::RestartGate gate;
+        const auto t0 = cld::GuardClock::now();
+        gate.record(t0);
+        gate.record(t0 + 10s);
+        gate.record(t0 + 30s);
+        expect(gate.at_cap(t0 + 31s));
+        expect(gate.earliest(t0 + 31s) == t0 + 90s) << "the spacing says 40 s after the last, the first backoff a minute: the later wins";
+        expect(!gate.at_cap(t0 + 31s, cld::RestartCause::plan)) << "the plan's budget is its own";
+        expect(gate.earliest(t0 + 31s, cld::RestartCause::plan) == t0 + 31s);
+        gate.record(t0 + 90s);
+        expect(gate.earliest(t0 + 91s) == t0 + 90s + 2min);
+        gate.record(t0 + 90s + 2min);
+        expect(gate.earliest(t0 + 91s + 2min) == t0 + 90s + 2min + 4min);
+        gate.record(t0 + 90s + 6min);
+        expect(gate.earliest(t0 + 91s + 6min) == t0 + 90s + 6min + 8min);
+        gate.record(t0 + 90s + 14min);
+        expect(gate.earliest(t0 + 91s + 14min) <= t0 + 90s + 14min + 8min) << "never longer than eight minutes";
+        expect(!gate.at_cap(t0, cld::RestartCause::crash)) << "exits have their own accounting";
+        gate.reset();
+        expect(!gate.at_cap(t0 + 91s + 14min) && gate.earliest(t0 + 91s + 14min) == t0 + 91s + 14min) << "a model from another source starts over";
     };
 
     "a file clangd stops answering is set aside; an engine answering nobody is stalled"_test = [] {
@@ -616,6 +643,104 @@ int main() {
         config.extraArguments = { "-j=16" };
         const auto arguments = cld::clangd_arguments(config);
         expect(std::ranges::count_if(arguments, [](const std::string& argument) { return argument.starts_with("-j"); }) == 1) << "an explicit -j wins";
+    };
+
+    "clangd runs at info, not error, so an incident says what it was doing (fix plan F17.1)"_test = [] {
+        cld::ProcessConfig config;
+        const auto arguments = cld::clangd_arguments(config);
+        expect(std::ranges::find(arguments, std::string { "--log=info" }) != arguments.end());
+        config.verboseLog = true;
+        const auto verbose = cld::clangd_arguments(config);
+        expect(std::ranges::find(verbose, std::string { "--log=verbose" }) != verbose.end());
+    };
+
+    "clangd's crash context names the file it crashed on (fix plan F3)"_test = [] {
+        // As the Windows CI of issue #23 printed it (GalTranslPP, clangd 23.1.0).
+        cld::LogReader reader;
+        expect(reader.read("I[18:14:51.802] Built prerequisite modules for file D:\\a\\G\\N.Core.cpp in 0.01 seconds").important == false);
+        expect(reader.read("PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace.").important);
+        auto read = reader.read("Signalled during AST worker action: Build AST");
+        expect(read.important && !read.crash) << "not before its file is known";
+        read = reader.read("  Filename: D:/a/G/G/NormalJsonTranslator.Core.cpp");
+        expect(fatal(read.crash.has_value()));
+        expect(read.crash->action == "Build AST" && read.crash->file == "D:/a/G/G/NormalJsonTranslator.Core.cpp" && read.crash->exception.empty());
+        expect(reader.read("  Directory: D:/a/G").important && !reader.read("  Command Line: clang++ --driver-mode=g++ -- x.cpp").crash);
+        expect(!reader.read("  Version: 1").crash);
+        read = reader.read("Exception Code: 0x80000003");
+        expect(fatal(read.crash.has_value()));
+        expect(read.crash->exception == "0x80000003" && read.crash->file == "D:/a/G/G/NormalJsonTranslator.Core.cpp");
+        // A preamble build, POSIX: no exception code, the context is complete with its file.
+        cld::LogReader posix;
+        expect(!posix.read("Signalled while building preamble").crash);
+        read = posix.read("  Filename: /p/src/main.cpp");
+        expect(fatal(read.crash.has_value()));
+        expect(read.crash->action == "building preamble" && read.crash->file == "/p/src/main.cpp");
+        expect(!posix.read("  Filename: /p/other.cpp").crash) << "one file per context";
+    };
+
+    "a failed module scan is read with its reason, whether the driver's or the source's (fix plan F6)"_test = [] {
+        cld::LogReader reader;
+        // #23: a command without -c, with -flto, for windows-msvc.
+        auto read = reader.read("E[17:58:04.111] Scanning modules dependencies for D:\\a\\G\\GPPDefines.ixx failed: clang++: error: LTO requires -fuse-ld=lld");
+        expect(read.important && !read.scanFailure) << "it lasts until its closing line";
+        read = reader.read("E[17:58:04.111] The command line the scanning tool use is: clang++ --driver-mode=g++ -flto -- GPPDefines.ixx");
+        expect(fatal(read.scanFailure.has_value()));
+        expect(read.scanFailure->file == "D:\\a\\G\\GPPDefines.ixx" && read.scanFailure->reason == "error: LTO requires -fuse-ld=lld" && read.scanFailure->driver);
+        // A header not found: the reason is on a continuation line, after an "In file included from".
+        expect(!reader.read("E[17:58:04.112] Scanning modules dependencies for /p/a.cpp failed: In file included from /p/a.cpp:1:").scanFailure);
+        expect(reader.read("In file included from /p/a.h:4:").important);
+        expect(!reader.read("/p/b.h:4:10: fatal error: 'ElaScrollPage.h' file not found").scanFailure);
+        expect(!reader.read("").scanFailure);
+        read = reader.read("E[17:58:04.114] The command line the scanning tool use is: clang++ -- /p/a.cpp");
+        expect(fatal(read.scanFailure.has_value()));
+        expect(read.scanFailure->reason == "fatal error: 'ElaScrollPage.h' file not found" && !read.scanFailure->driver);
+        // A scan that never got its closing line ends with the next line that has a severity, or the stream.
+        expect(!reader.read("E[1] Scanning modules dependencies for /p/c.cppm failed: /p/c.cppm:1:26: error: expected identifier after '.' in module name").scanFailure);
+        read = reader.read("I[2] ASTWorker building file /p/c.cppm");
+        expect(fatal(read.scanFailure.has_value()));
+        expect(read.scanFailure->file == "/p/c.cppm" && read.scanFailure->reason == "error: expected identifier after '.' in module name" && !read.scanFailure->driver);
+        expect(!reader.read("E[3] Scanning modules dependencies for /p/d.cpp failed: x").scanFailure);
+        expect(reader.finish().has_value() && !reader.finish().has_value());
+        expect(!reader.read("I[4] Failed to build module greet").important) << "an everyday line is not important";
+    };
+
+    "the log ring keeps the latest lines within its bounds (fix plan F17.1)"_test = [] {
+        cld::LogRing ring { 3, 1000 };
+        for (int i { 0 }; i < 5; ++i) ring.add(std::format("line {}", i));
+        expect(ring.size() == 3u);
+        const std::string text { ring.text() };
+        expect(text.starts_with("[2 earlier lines are not kept]\n") && text.ends_with("line 4\n") && !text.contains("line 1\n")) << text;
+        cld::LogRing small { 100, 12 };
+        small.add("0123456789");
+        small.add("abc");
+        expect(small.size() == 1u && small.text().ends_with("abc\n")) << "bytes bound it too";
+    };
+
+    "incidents are named by their time and kind, and only the newest stay (fix plan F17.2, F17.7)"_test = [] {
+        namespace incidents = mcppls::orchestrator::incidents;
+        namespace fs = mcppls::platform::fs;
+        using namespace std::chrono_literals;
+        const auto at = std::chrono::sys_days { std::chrono::year { 2026 } / 9 / 26 } + 7h + 19min + 46s + 638ms;
+        const std::string name { incidents::directory_name("engine crash/x", at) };
+        expect(name == "20260926T071946.638Z-engine-crash-x") << name;
+        expect(incidents::time_of(name) == std::optional<std::chrono::system_clock::time_point> { std::chrono::floor<std::chrono::seconds>(at) });
+        expect(!incidents::time_of("notes").has_value() && !incidents::time_of("20261399T071946.638Z-x").has_value());
+        const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+            std::format("mcppls-test-incidents-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+        const std::string directory { mcppls::base::join_path(root, "incidents") };
+        for (int i { 0 }; i < 25; ++i) (void)fs::create_directories(mcppls::base::join_path(directory, incidents::directory_name("spin", at + std::chrono::minutes { i })));
+        (void)fs::create_directories(mcppls::base::join_path(directory, "not-an-incident"));
+        incidents::prune(directory, at + 30min);
+        expect(fs::list_directory(directory).size() == incidents::KEEP + 1) << "the newest twenty, and what is not an incident";
+        incidents::prune(directory, at + 24h * 7 + 10min);
+        expect(fs::list_directory(directory).size() == 1u + 14u) << "none older than a week";
+        auto written = incidents::write(root, "file-set-aside", Json { { "kind", "file-set-aside" } },
+                                        { mcppls::engine::IncidentFile { "clangd.log", "E[1] x\n" }, mcppls::engine::IncidentFile { "../escape.txt", "no" } }, std::nullopt);
+        expect(fatal(written.has_value()));
+        const auto incident = Json::parse(fs::read_file(mcppls::base::join_path(*written, "incident.json")).value_or("{}"));
+        expect(incident["attached"] == Json::array({ "clangd.log", "escape.txt" }) && fs::exists(mcppls::base::join_path(*written, "clangd.log")));
+        expect(!fs::exists(mcppls::base::join_path(root, "escape.txt"))) << "a file never lands outside its incident";
+        fs::remove_all(root);
     };
 
     "merging"_test = [] {

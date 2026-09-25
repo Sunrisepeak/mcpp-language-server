@@ -31,6 +31,7 @@ import mcppls.normalize.plan;
 import mcppls.engine;
 import mcppls.engine.payload;
 import mcppls.engine.native.index;
+import mcppls.orchestrator.incidents;
 import mcppls.orchestrator.journal;
 import mcppls.orchestrator.client;
 import mcppls.orchestrator.documents;
@@ -247,6 +248,9 @@ struct Workspace::Impl final : engine::Host {
     // provides in a file changed within EDITING_WINDOW is most likely still being typed.
     std::map<std::string, Clock::time_point, std::less<>> editedAt;
     static constexpr std::chrono::seconds EDITING_WINDOW { 5 };
+    // Fix plan F13: a change to a file's imports or module declaration made in the editor is planned once the file
+    // has been quiet this long, so a name being typed is not planned letter by letter.
+    static constexpr std::chrono::milliseconds EDIT_SETTLE { 2000 };
     std::optional<Clock::time_point> loadGiveUpAt;       // the producer has not answered: take what there is (design 4.1)
     std::optional<Clock::time_point> lastResortAt;       // nothing at all came: serve without a database rather than nothing
     std::optional<Clock::time_point> sdkCheckAt;
@@ -262,6 +266,12 @@ struct Workspace::Impl final : engine::Host {
     std::string producerVersion;
     std::string needsDownload;                           // the producer, run offline, cannot go on without a download
     bool inferredLoadStarted { false };
+    // Fix plan F4 (D1): a project whose build system was detected gets clangd with the build tool's model, not a
+    // provisional one scanned from its sources: until the producer answers, or CORE_WAIT_LIMIT has passed, the
+    // core engine is given no plan and asked nothing, and mcppls's own engine answers what it can.
+    static constexpr std::chrono::seconds CORE_WAIT_LIMIT { 60 };
+    std::optional<Clock::time_point> coreWaitUntil;
+    bool coreWaitOver { false };
     std::optional<std::chrono::milliseconds> producerElapsed;   // set while the producer is past its soft bound
     // Written by the load thread, read by the event loop: how long the producer has been running
     // once it passed its soft bound. Nothing else crosses that boundary.
@@ -356,6 +366,33 @@ struct Workspace::Impl final : engine::Host {
     void request_replan() override { schedule_replan(); }
     void record_event(std::string_view kind, Json detail) override { journal.add(kind, std::move(detail)); }
 
+    // Fix plan F17.2: an engine's incident, with what led up to it from this workspace's side (its latest events,
+    // the model and the plan), written to the cache directory off the event loop.
+    void record_incident(std::string_view kind, Json detail, std::vector<engine::IncidentFile> files, std::optional<std::int64_t> pid) override {
+        Json incident {
+            { "format", 1 },
+            { "kind", std::string { kind } },
+            { "at", std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now())) },
+            { "server", std::string { base::VERSION } },
+            { "root", root },
+            { "model", model ? Json { { "source", std::string { project::to_string(model->source) } }, { "level", model->level }, { "origin", modelOrigin },
+                                      { "profile", profile_json() }, { "stale", staleModelReason } }
+                             : Json(nullptr) },
+            { "plan", Json { { "entries", plan.entries.size() }, { "standIns", plan.stubModules }, { "openSources", plan.openSources },
+                             { "leftOut", plan.excludedFiles.size() }, { "issues", plan.issues.size() } } },
+            { "detail", std::move(detail) },
+            { "events", journal.recent(60) },
+        };
+        journal.add("incident", Json { { "kind", std::string { kind } } });
+        std::thread { [cache = cacheDirectory, kind = std::string { kind }, incident = std::move(incident), files = std::move(files), pid]() mutable {
+            if (auto written = incidents::write(cache, kind, std::move(incident), std::move(files), pid)) {
+                log::info("incident {} written to {}", kind, *written);
+            } else {
+                log::warning("incident {} could not be written: {}", kind, written.error().message);
+            }
+        } }.detach();
+    }
+
     // Semantic tokens (design doc 2026-09-25 K/§7): coalesced to at most one
     // workspace/semanticTokens/refresh every ~500ms, and never before this root's own initialize
     // was answered (the same gate update_status uses).
@@ -444,6 +481,7 @@ struct Workspace::Impl final : engine::Host {
         };
         consider(reloadAt);
         consider(replanAt);
+        if (!coreWaitOver) consider(coreWaitUntil);
         consider(loadGiveUpAt);
         consider(lastResortAt);
         consider(producerSoftAt);
@@ -530,7 +568,10 @@ struct Workspace::Impl final : engine::Host {
         job.view = engine::RequestView { job.method, &job.params, job.path, job.text };
 
         std::vector<engine::Engine*> candidates;
-        for (const auto& engine : engines) candidates.push_back(engine.get());
+        const bool coreWaits { core_waits_for_producer() };
+        for (const auto& engine : engines) {
+            if (!(coreWaits && engine.get() == coreEngine)) candidates.push_back(engine.get());
+        }
         Selection selection { select_engines(candidates, job.view) };
         if (!selection.mergers.empty()) {
             job.merging = true;
@@ -690,11 +731,13 @@ struct Workspace::Impl final : engine::Host {
 
     // A unit of the model whose module declaration or imports changed needs a new plan; a new
     // source file of an inferred model needs a new model.
-    void note_structure_change(std::string_view path) {
+    void note_structure_change(std::string_view path, bool edited = false) {
         if (!model) return;
         const auto it = structures.find(base::path_key(path));
         if (it != structures.end()) {
-            if (const auto* scan = index.scan_of(path); scan != nullptr && it->second != structure_of(*scan)) schedule_replan();
+            if (const auto* scan = index.scan_of(path); scan != nullptr && it->second != structure_of(*scan)) {
+                schedule_replan(edited ? EDIT_SETTLE : REPLAN_DELAY);
+            }
             return;
         }
         if (model->source == project::SourceKind::inferred && project::is_cxx_source_name(path) && base::is_within(path, root)) schedule_reload();
@@ -929,6 +972,12 @@ struct Workspace::Impl final : engine::Host {
         loading = false;
         loadGiveUpAt.reset();
         producerElapsed.reset();
+        // Fix plan F4: the build tool answered, whatever it said; clangd waits no longer. A model kept below
+        // (a failed or poorer reload) is planned again for it.
+        if (coreWaitUntil && !coreWaitOver) {
+            coreWaitOver = true;
+            if (model) replanAt = Clock::now();
+        }
         ++snapshotGeneration;
         needsDownload.clear();
         for (const auto& issue : loadedModel->issues) {
@@ -1112,16 +1161,35 @@ struct Workspace::Impl final : engine::Host {
             if (const auto* scan = index.scan_of(path)) structures[base::path_key(path)] = structure_of(*scan);
         }
         firstPlanWritten = true;
+        // Fix plan F14: what the person chose; a change of it restarts clangd without counting against it.
+        plan.toolchainKey = std::format("{}|{}|{}|{}|{}", model->profile.kind, model->profile.compiler, model->profile.stdlib, model->profile.target, contextSet);
+        plan.modelOrigin = modelOrigin;
         journal.add("plan", Json { { "context", contextSet.empty() ? std::string { "default" } : contextSet }, { "entries", plan.entries.size() },
                                    { "stdUnits", plan.stdUnits }, { "standIns", plan.stubModules }, { "openSources", plan.openSources },
                                    { "leftOut", plan.excludedFiles.size() },
                                    { "issues", plan.issues.size() } });
-        for (const auto& engine : engines) engine->apply(&plan);
+        const bool coreWaits { core_waits_for_producer() };
+        if (coreWaits && !coreWaitUntil) {
+            coreWaitUntil = Clock::now() + CORE_WAIT_LIMIT;
+            log::info("clangd waits for {} to describe {} (at most {} s); mcppls's own engine answers meanwhile", project::to_string(detectedSource), root,
+                      CORE_WAIT_LIMIT.count());
+            journal.add("engine-waits-for-producer", Json { { "detected", std::string { project::to_string(detectedSource) } } });
+        }
+        for (const auto& engine : engines) {
+            if (coreWaits && engine.get() == coreEngine) continue;
+            engine->apply(&plan);
+        }
         for (const Document* document : documents_.all()) publish_diagnostics(document->uri);
         update_status();
     }
 
-    void schedule_replan() { replanAt = Clock::now() + std::chrono::milliseconds { 800 }; }
+    static constexpr std::chrono::milliseconds REPLAN_DELAY { 800 };
+    void schedule_replan(std::chrono::milliseconds delay = REPLAN_DELAY) { replanAt = Clock::now() + delay; }
+
+    bool core_waits_for_producer() const {
+        return coreEngine != nullptr && model && modelOrigin == "inferred" && loading && !coreWaitOver
+               && detectedSource != project::SourceKind::inferred && options.trusted && options.buildTool != "off";
+    }
     void schedule_reload() { reloadAt = Clock::now() + std::chrono::milliseconds { 1500 }; }
 
     // ---- diagnostics and status -------------------------------------------------------
@@ -1428,6 +1496,15 @@ struct Workspace::Impl final : engine::Host {
             start_model_load();
         }
         if (replanAt && *replanAt <= now) replan();
+        if (coreWaitUntil && !coreWaitOver && *coreWaitUntil <= now) {
+            coreWaitOver = true;
+            if (modelOrigin == "inferred" && model) {
+                log::warning("{} has not described {} in {} s; clangd starts with the model scanned from its sources", project::to_string(detectedSource), root,
+                             CORE_WAIT_LIMIT.count());
+                journal.add("engine-wait-over", Json { { "seconds", CORE_WAIT_LIMIT.count() } });
+                replan();
+            }
+        }
         if (statusFlushAt && *statusFlushAt <= now) {
             statusFlushAt.reset();
             update_status();
@@ -1570,7 +1647,7 @@ void Workspace::did_change(const Json& message, const Json& params) {
     if (!document->path.empty()) {
         impl_->editedAt[base::path_key(document->path)] = Clock::now();
         impl_->index.update(document->path, document->text);
-        impl_->note_structure_change(document->path);
+        impl_->note_structure_change(document->path, true);
     }
     impl_->publish_diagnostics(uri);
     impl_->document_event(engine::DocumentChange::changed, *document, &message);
@@ -1779,6 +1856,12 @@ Json Workspace::report() const {
                   { "toolEnvironment", std::move(environment) }, { "toolRuns", std::move(toolRuns) },
                   { "plan", std::move(plan) }, { "engines", std::move(engines) }, { "requests", std::move(requests) },
                   { "eventTotals", impl.journal.totals() }, { "events", impl.journal.recent(300) } };
+}
+
+bool Workspace::restart_core_engine() {
+    if (impl_->coreEngine == nullptr) return false;
+    impl_->journal.add("engine-restart-requested");
+    return impl_->coreEngine->restart_on_request();
 }
 
 void Workspace::set_context(const Json& id, std::string_view context) {

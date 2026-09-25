@@ -38,6 +38,8 @@ EngineTraits traits_for_version(std::string_view version, std::span<const std::s
         .needsModuleHints = on(MODULE_HINTS),
         .msvcStlNeedsNoAlignedAllocation = on(MSVC_STL_ALIGNED_ALLOCATION),
         .hangsOnTrailingDotModuleName = on(TRAILING_DOT_MODULE_NAME),
+        .misplacesDirectiveSemicolon = on(DIRECTIVE_SEMICOLON_POSITION),
+        .readsImportsFromDisk = on(UNSAVED_IMPORT_NOT_FOUND),
         .kitStdlibVersion = std::string { version },
         .tested = version == "23.1.0",
     };
@@ -177,6 +179,46 @@ private:
     std::vector<Issue> issues_;
     std::optional<Clock::time_point> restartAt_;
     std::string restartReason_;
+    RestartCause restartCause_ { RestartCause::recovery };
+    // Fix plan F13: a restart the plan asks for waits PLAN_RESTART_SETTLE, so a plan that changes again
+    // meanwhile is served by the same restart, and one that changes back needs none. What the running
+    // clangd started with is kept to tell.
+    static constexpr std::chrono::seconds PLAN_RESTART_SETTLE { 2 };
+    // Fix plan F4, F14: what the last plan's model was, to tell a switch of toolchain, profile or context
+    // (the person's doing) and a model from another source (crash accounting starts over) from the rest.
+    std::string toolchainKey_;
+    std::string modelOrigin_;
+    // Fix plan F3: how the last clangd exit went. The exit and clangd's crash context arrive on different
+    // threads, in either order; the exit is settled EXIT_CONTEXT_WAIT later, with whatever came by then.
+    static constexpr std::chrono::milliseconds EXIT_CONTEXT_WAIT { 500 };
+    struct PendingExit {
+        int generation { 0 };
+        Clock::time_point at;
+        std::set<std::string> suspects;   // what was asked about or changed just before: used when clangd did not say
+        std::vector<std::string> unanswered;
+    };
+    std::optional<PendingExit> pendingExit_;
+    std::map<int, CrashContext> crashContexts_;   // by generation, the latest few
+    Json lastExit_ = nullptr;
+    // Fix plan F6: files clangd could not scan for their modules, and why.
+    struct ScanFailures {
+        std::size_t count { 0 };
+        std::vector<std::string> files;   // the first few
+        std::string firstFile;
+        std::string firstReason;
+    };
+    ScanFailures scanFailures_;
+    // Fix plan F17: clangd's latest log lines (in memory only), what clangd said about each file lately,
+    // the last plan's differences, and when an incident of each kind was last written.
+    std::shared_ptr<LogRing> logRing_ { std::make_shared<LogRing>(4000, 4 * 1024 * 1024) };
+    std::map<std::string, std::deque<std::pair<std::string, std::string>>, std::less<>> statusTimeline_;   // client URI -> (UTC time, state)
+    Json lastPlanDiff_ = nullptr;
+    std::map<std::string, Clock::time_point, std::less<>> lastIncidentAt_;
+    static constexpr std::chrono::seconds INCIDENT_SPACING { 60 };
+    // Fix plan F16 (WA-CLANGD-001 on disk): files whose text ON DISK has a module name ending in '.' at the
+    // end of its line. clangd reads a file's imports from disk to build what it needs (UP-14), so the
+    // rewrite of the text it is given does not reach there, and it spins as it would on the text itself.
+    std::set<std::string, std::less<>> diskTrailingDot_;   // path keys
     // robustness design C4, C6: restarts spaced out; files clangd stopped answering for set aside one by one.
     RestartGate restartGate_;
     Quarantine quarantine_;                                   // path keys
@@ -229,6 +271,9 @@ private:
         bool moduleFailed { false };
         // The text clangd spun on (SpinWatch): that exact text never goes back to clangd, and any other does at once.
         std::optional<std::size_t> spunOn;
+        // Fix plan F16: set aside for what is on disk, not in the editor: it goes back when the disk is fixed.
+        bool onDisk { false };
+        std::string modelOrigin;    // the model's source then (fix plan F4: a provisional model's verdicts do not outlive it)
     };
     std::map<std::string, Aside, std::less<>> aside_;                  // path key
     std::map<std::string, std::string, std::less<>> fileStatus_;       // client URI -> clangd's last textDocument/clangd.fileStatus state
@@ -357,7 +402,27 @@ public:
             { "logLinesLeftOut", linesLeftOut_ },
             { "databaseDirectory", databaseDirectory_ },
             { "workarounds", workarounds_json_() },
+            // Fix plan F3, F6, F14, F16, F17.
+            { "lastExit", lastExit_ },
+            { "scanFailures", Json { { "count", scanFailures_.count }, { "files", scanFailures_.files }, { "firstReason", scanFailures_.firstReason } } },
+            { "restartBudget", restart_budget_json_() },
+            { "filesTrailingDotOnDisk", Json(std::vector<std::string> { diskTrailingDot_.begin(), diskTrailingDot_.end() }) },
+            { "lastPlanDiff", lastPlanDiff_ },
+            { "logRingLines", logRing_->size() },
         };
+    }
+
+    Json restart_budget_json_() const {
+        const auto now = Clock::now();
+        Json budget = Json::object();
+        for (const auto cause : { RestartCause::plan, RestartCause::recovery, RestartCause::crash }) {
+            Json entry { { "recent", restartGate_.recent(now, cause) }, { "atCap", restartGate_.at_cap(now, cause) } };
+            if (restartGate_.at_cap(now, cause)) {
+                entry["nextInSeconds"] = std::chrono::duration_cast<std::chrono::seconds>(restartGate_.earliest(now, cause) - now).count();
+            }
+            budget[std::string { to_string(cause) }] = std::move(entry);
+        }
+        return budget;
     }
 
     // import-hang plan §9: the registered workarounds this clangd needs, as the report shows them.
@@ -367,7 +432,7 @@ public:
             if (!needs(workaround, options_.version)) continue;
             const bool off { std::ranges::find(options_.disabledWorkarounds, workaround.id) != options_.disabledWorkarounds.end() };
             list.push_back(Json { { "id", workaround.id }, { "title", workaround.title }, { "upstream", workaround.upstream },
-                                  { "removeWhen", workaround.removeWhen }, { "turnedOff", off } });
+                                  { "removeWhen", workaround.removeWhen }, { "premise", workaround.premise }, { "turnedOff", off } });
         }
         return list;
     }
@@ -429,6 +494,13 @@ public:
             }
             return;
         }
+        // Fix plan F4, F14: the person switched toolchain, profile or context, or the build tool answered after a
+        // provisional model served meanwhile. What clangd did with the provisional model says nothing about this one.
+        const bool toolchainChanged { !toolchainKey_.empty() && !plan->toolchainKey.empty() && plan->toolchainKey != toolchainKey_ };
+        const bool fromProvisional { modelOrigin_ == "inferred" && !plan->modelOrigin.empty() && plan->modelOrigin != "inferred" };
+        toolchainKey_ = plan->toolchainKey;
+        modelOrigin_ = plan->modelOrigin;
+        if (fromProvisional) forget_provisional_verdicts_();
         write_prime_sources_(*plan);
         const std::string database { normalize::to_compile_commands(*plan).dump(1) };
         const std::string structure { normalize::to_compile_commands(*plan, false).dump(1) };
@@ -442,6 +514,7 @@ public:
                 log::error("cannot write the engine database ({}): {}", host_->root_directory(), written.error().message);
             }
             writtenDatabase_ = database;
+            forget_scan_failures_();
             log::info("engine database ({}): {} entries ({} standard library units, {} stand-ins), {} left out, {} issues", host_->root_directory(),
                       plan->entries.size(), plan->stdUnits, plan->stubModules.size(), plan->excludedFiles.size(), plan->issues.size());
             host_->record_event("engine-database", Json { { "entries", plan->entries.size() }, { "standIns", plan->stubModules.size() },
@@ -479,23 +552,35 @@ public:
         // fresh clangd; new units, units coming back and every other change are read from the database as it is.
         std::set<std::string, std::less<>> imported;
         for (const auto& entry : plan->entries) imported.insert(entry.imports.begin(), entry.imports.end());
-        bool providerLeft { false };
+        std::vector<std::string> providersMoved;
         for (const auto& [name, source] : moduleSources_) {
             const auto now = newModuleSources.find(name);
             const bool moved { now == newModuleSources.end() || !base::same_path(now->second, source) };
-            // A module nothing imports any more cannot be built by mistake.
-            if (moved && imported.contains(name)) providerLeft = true;
+            // A module nothing imports any more cannot be built by mistake. Nor can a stand-in do harm (fix plan
+            // F13): it is an empty unit that imports nothing, so building it after it left is what building it
+            // before was. In the hello project a stand-in coming and going as an import was typed restarted clangd.
+            if (moved && imported.contains(name) && !generated_path_(source)) providersMoved.push_back(name);
         }
+        const bool providerLeft { !providersMoved.empty() };
         // A unit of the project compiled with other arguments (another context, changed build flags): clangd
-        // does not rebuild a document it has open for a changed database, so a fresh clangd applies them.
+        // does not rebuild a document it has open for a changed database, so a fresh clangd applies them. Only a
+        // unit clangd has open, or one that provides a module (clangd may keep its BMI), needs it (fix plan F13):
+        // a file the editor just opened and clangd has not been given yet reads the database as it is.
         std::map<std::string, std::string, std::less<>> newArguments;
-        for (const auto& entry : plan->entries) newArguments.emplace(base::path_key(entry.file), lsp::dump(Json(entry.arguments)));
-        bool argumentsChanged { false };
-        for (const auto& [file, arguments] : writtenArguments_) {
-            if ((!stubDirectory_.empty() && base::is_within(file, base::path_key(stubDirectory_)))
-                || (!primeDirectory_.empty() && base::is_within(file, base::path_key(primeDirectory_)))) continue;
-            if (const auto now = newArguments.find(file); now != newArguments.end() && now->second != arguments) argumentsChanged = true;
+        std::set<std::string, std::less<>> newProviders;
+        for (const auto& entry : plan->entries) {
+            newArguments.emplace(base::path_key(entry.file), lsp::dump(Json(entry.arguments)));
+            if (!entry.provides.empty()) newProviders.insert(base::path_key(entry.file));
         }
+        std::vector<std::string> argumentsChangedFor;
+        for (const auto& [file, arguments] : writtenArguments_) {
+            if (generated_path_(file)) continue;
+            const auto now = newArguments.find(file);
+            if (now == newArguments.end() || now->second == arguments) continue;
+            if (open_in_engine_key_(file) || newProviders.contains(file)) argumentsChangedFor.push_back(file);
+        }
+        const bool argumentsChanged { !argumentsChangedFor.empty() };
+        note_plan_diff_(newArguments, newModuleSources, providersMoved, argumentsChangedFor, *plan);
         const auto appliedAt = Clock::now();
         std::vector<std::string> commandChanged;   // path keys whose command the database gained or changed
         for (const auto& [file, arguments] : newArguments) {
@@ -573,7 +658,17 @@ public:
         const bool doomForgot { forget_changed_doom_() };
         recompute_doom_();
         if (restartNeeded) {
-            request_restart_(providerLeft ? "a module's unit left the engine database" : "units are compiled with other arguments");
+            const std::string reason { providerLeft
+                ? std::format("a module's unit left the engine database ({})", providersMoved.front())
+                : std::format("units are compiled with other arguments ({})", base::file_name(argumentsChangedFor.front())) };
+            // Fix plan F14: a switch of toolchain, profile or context is the person's own doing, and so is the build
+            // tool's model replacing the provisional one (F4): at once, and never counted against clangd.
+            if (toolchainChanged || fromProvisional) {
+                request_restart_(std::format("{}: {}", toolchainChanged ? "the toolchain, profile or context changed" : "the build tool's model replaced the provisional one",
+                                             reason), RestartCause::user);
+            } else {
+                schedule_plan_restart_(reason);
+            }
         } else {
             accept_traffic_if_ready_();
             open_held_files_(appliedAt);
@@ -597,6 +692,8 @@ public:
                 }
             }
             if (excluded_path_(document.path) || quarantined_(document.path)) break;
+            // Fix plan F16: what is on disk is what clangd reads the file's imports from.
+            if (check_disk_(document.path, &document)) break;
             if (accepting_) {
                 open_or_hold_(document, false);
                 prepare_imports_of_(document);
@@ -614,8 +711,10 @@ public:
             if (quarantined_(document.path)) {
                 const std::string key { base::path_key(document.path) };
                 // What clangd stopped on is still there: the file stays aside until its time is up or what it imports changes.
-                // A file clangd spun on goes back as soon as its text is any other than the one it spun on.
+                // A file clangd spun on goes back as soon as its text is any other than the one it spun on; one set aside
+                // for what is on disk goes back only once the disk is fixed (fix plan F16), whatever the editor has.
                 if (const auto aside = aside_.find(key); aside != aside_.end()) {
+                    if (aside->second.onDisk) break;
                     if (aside->second.spunOn ? *aside->second.spunOn == text_hash_(document.text)
                                              : aside->second.structure == structure_of_text_(document.text)) break;
                 }
@@ -639,6 +738,7 @@ public:
             awaitingSince_.erase(document.uri);
             diagnosed_.erase(document.uri);
             fileStatus_.erase(document.uri);
+            statusTimeline_.erase(document.uri);
             rewritten_.erase(document.uri);
             spin_.forget(document.uri);
             if (accepting_ && !wasExcluded && event.message != nullptr) (void)send_(*event.message);
@@ -646,6 +746,13 @@ public:
             break;
         }
         case DocumentChange::saved:
+            // Fix plan F16: an autosave can put a half-typed `import hello.` on disk. clangd is not told of that
+            // save; the file is set aside before clangd builds it from what is on disk, and handed back once the
+            // disk is fixed (the save that fixes it is then passed on as usual).
+            if (check_disk_(document.path, &document)) {
+                sources_changed();
+                break;
+            }
             if (!document.path.empty() && !excluded_path_(document.path) && !quarantined_(document.path) && !held_path_(document.path)
                 && !doomed_path_(document.path) && accepting_ && event.message != nullptr) {
                 (void)send_(*event.message);
@@ -656,6 +763,29 @@ public:
     }
 
     void notify(const Json& message) override {
+        if (message.value("method", std::string {}) == lsp::method::WORKSPACE_DID_CHANGE_WATCHED_FILES) {
+            // Fix plan F16: a change on disk (from another program, or an editor that does not send didSave) is
+            // looked at the same way, and a file whose disk text would spin clangd is left out of what it is told.
+            if (const Json* changes = lsp::find_path(message, { "params", "changes" }); changes != nullptr && changes->is_array()) {
+                Json kept = Json::array();
+                for (const auto& change : *changes) {
+                    const std::string path { change.is_object() ? host_->path_of_uri(change.value("uri", std::string {})) : std::string {} };
+                    if (!path.empty() && project::is_cxx_source_name(path) && check_disk_(path, nullptr)) continue;
+                    kept.push_back(change);
+                }
+                if (kept.size() != changes->size()) {
+                    if (kept.empty()) return;
+                    Json forwarded = message;
+                    forwarded["params"]["changes"] = std::move(kept);
+                    notify_(forwarded);
+                    return;
+                }
+            }
+        }
+        notify_(message);
+    }
+
+    void notify_(const Json& message) {
         if (accepting_) {
             (void)send_(message);
         } else if (!unavailable_ && message.value("method", std::string {}) != lsp::method::WORKSPACE_DID_CHANGE_WATCHED_FILES) {
@@ -808,7 +938,44 @@ public:
         } else if (kind == "log-left-out") {
             linesLeftOut_ += event.value("count", std::size_t { 0 });
             host_->record_event("engine-log-left-out", Json { { "count", event.value("count", std::size_t { 0 }) } });
+        } else if (kind == "crash-context") {
+            // Fix plan F3: which file clangd crashed on, in its own words. The exit may have come first.
+            crashContexts_[generation_] = CrashContext { event.value("action", std::string {}), event.value("file", std::string {}), event.value("exception", std::string {}) };
+            while (crashContexts_.size() > 4) crashContexts_.erase(crashContexts_.begin());
+        } else if (kind == "scan-failed") {
+            note_scan_failure_(event.value("file", std::string {}), event.value("reason", std::string {}), event.value("driver", false));
         }
+    }
+
+    // Fix plan F6: a file clangd could not scan for its modules is a file whose modules are never built, and
+    // whose importers then cannot be read. Every one is counted and logged; an issue is raised only for what is
+    // not the code being typed: a compile command clangd rejects (#23: `LTO requires -fuse-ld=lld`), which is the
+    // environment's, or a header the command cannot find, which is the project's. A syntax error in the file is
+    // the editor's to show, as its own diagnostic, and a scan of a half-typed file fails all the time.
+    void note_scan_failure_(const std::string& file, const std::string& reason, bool driver) {
+        if (file.empty()) return;
+        ++scanFailures_.count;
+        if (scanFailures_.files.size() < 5 && std::ranges::find(scanFailures_.files, file) == scanFailures_.files.end()) scanFailures_.files.push_back(file);
+        const bool notFound { reason.find("file not found") != std::string::npos };
+        host_->record_event("scan-failed", Json { { "file", file }, { "reason", reason }, { "driver", driver } });
+        if (!driver && !notFound) return;
+        if (!scanFailures_.firstReason.empty()) return;
+        scanFailures_.firstFile = file;
+        scanFailures_.firstReason = reason;
+        log::warning("clangd could not scan {} for its modules ({}): {}", file, host_->root_directory(), reason);
+        std::erase_if(issues_, [](const Issue& issue) { return issue.code == "module-scan-failed"; });
+        issues_.push_back(Issue { "module-scan-failed",
+            driver ? std::format("clangd rejected the compile command for module scanning: {} (first seen for {})", reason, base::file_name(file))
+                   : std::format("clangd could not scan {} for its modules: {}", base::file_name(file), reason),
+            "mcppls.showLogs", driver ? "environment" : "project" });
+        host_->status_changed();
+    }
+
+    // A new database or a new clangd: whatever made scans fail may be gone; one that is not says so again.
+    void forget_scan_failures_() {
+        if (scanFailures_.firstReason.empty()) return;
+        scanFailures_ = ScanFailures {};
+        std::erase_if(issues_, [](const Issue& issue) { return issue.code == "module-scan-failed"; });
     }
 
     std::optional<Clock::time_point> next_deadline() const override {
@@ -820,6 +987,7 @@ public:
         for (const auto& [module, at] : primeDeadlines_) consider(at);
         consider(restartAt_);
         consider(stuckCheckAt_);
+        if (pendingExit_) consider(pendingExit_->at + EXIT_CONTEXT_WAIT);
         if (accepting_) consider(spin_.next_due());   // only acted on while accepting (handle_spins_)
         // While a reading of clangd's CPU is on its way, its event is what wakes the loop.
         if (!cpuReadInFlight_) {
@@ -847,6 +1015,7 @@ public:
 
     void handle_timers() override {
         const auto now = Clock::now();
+        if (pendingExit_ && now >= pendingExit_->at + EXIT_CONTEXT_WAIT) settle_exit_();
         // Before the requests that expire now are answered: they are part of what clangd left unanswered.
         watch_for_stuck_(now);
         if (accepting_) handle_spins_(now);
@@ -902,6 +1071,7 @@ public:
         if (stalled) {
             // clangd answered nobody: the engine is stuck. The file asked about first is the likeliest cause.
             host_->record_event("engine-stalled", Json { { "firstFile", quarantine_.first_stalled().value_or(std::string {}) } });
+            incident_("engine-stalled", Json { { "firstFile", quarantine_.first_stalled().value_or(std::string {}) } }, pending_files_(), true);
             if (auto first = quarantine_.first_stalled()) {
                 for (const auto& document : host_->documents()) {
                     if (!document.path.empty() && base::path_key(document.path) == *first) set_aside_(document.path, "clangd stopped answering after it", Reclaim::no);
@@ -913,6 +1083,15 @@ public:
             request_restart_("clangd did not answer initialize");
         }
         for (const auto& key : quarantine_.due(now)) {
+            // Nor is a file whose text on disk clangd would spin on (fix plan F16): it waits for the disk to be fixed.
+            if (const auto aside = aside_.find(key); aside != aside_.end() && aside->second.onDisk) {
+                const auto disk = platform::fs::read_file(aside->first);
+                if (diskTrailingDot_.contains(key) && (!disk || sanitize_module_names(*disk).changed())) {
+                    quarantine_.put(key, now);
+                    continue;
+                }
+                diskTrailingDot_.erase(key);
+            }
             // The text clangd spun on is never given back to it, however long it has been aside.
             if (const auto aside = aside_.find(key); aside != aside_.end() && aside->second.spunOn) {
                 const auto documents = host_->documents();
@@ -949,7 +1128,7 @@ public:
         reconsider_deferred_reclaims_(now);
         if (restartAt_ && *restartAt_ <= now) {
             restartAt_.reset();
-            restart_(restartReason_.empty() ? std::string_view { "recovering from an exit" } : std::string_view { restartReason_ });
+            restart_(restartReason_.empty() ? std::string_view { "recovering from an exit" } : std::string_view { restartReason_ }, restartCause_);
         }
         // The status settles once preparation has made no progress for a minute (real-project plan RP1.4,
         // design P7), so a client polling only when told to is told, even with nothing else happening.
@@ -1069,29 +1248,50 @@ private:
             LineLimiter limiter;
         };
         auto limited = std::make_shared<LimitedLog>(options_.verboseLog ? std::numeric_limits<std::size_t>::max() : std::size_t { 40 });
+        auto reader = std::make_shared<LogReader>();   // only ever used on the thread reading clangd's standard error
+        auto ring = logRing_;
+        ring->add(std::format("--- clangd {} started (generation {}) ---", options_.version, generation));
         auto started = process_->start(
             config,
             [sink, generation](Json message) { sink(Json { { "kind", "message" }, { "generation", generation }, { "message", std::move(message) } }); },
             [sink, generation] { sink(Json { { "kind", "closed" }, { "generation", generation } }); },
-            [sink, generation, root, limited](std::string_view line) {
-                LineLimiter::Decision decision;
-                {
-                    const std::lock_guard lock { limited->mutex };
-                    decision = limited->limiter.admit(GuardClock::now());
-                }
-                if (decision.suppressedBefore > 0) {
-                    log::info("clangd ({}): {} more lines left out of this log", root, decision.suppressedBefore);
-                    sink(Json { { "kind", "log-left-out" }, { "generation", generation }, { "count", decision.suppressedBefore } });
-                }
+            [sink, generation, root, limited, reader, ring](std::string_view line) {
+                // Fix plan F17.1: every line is kept in memory for an incident, whatever reaches the log.
+                ring->add(line);
+                const auto read = reader->read(line);
+                const log::Level level { clangd_log_level(line) };
                 // Forwarded at clangd's own severity (robustness design C7, real-project plan RP3.3): a
                 // problem worth someone's attention (E[..]) is not lost among the chatter (I[..]/V[..]/
-                // D[..]), which stays at debug instead of crowding the default log at info.
-                if (decision.forward) {
-                    switch (clangd_log_level(line)) {
-                    case log::Level::warning: log::warning("clangd ({}): {}", root, line); break;
-                    case log::Level::debug: log::debug("clangd ({}): {}", root, line); break;
-                    default: log::info("clangd ({}): {}", root, line); break;
+                // D[..]), which stays at debug instead of crowding the default log at info, and does not
+                // count against the limit either. A crash context, a failed scan and a module that did not
+                // build are never left out (fix plan F6).
+                if (read.important || parse_module_failure(line)) {
+                    if (level == log::Level::warning) log::warning("clangd ({}): {}", root, line);
+                    else log::info("clangd ({}): {}", root, line);
+                } else if (level == log::Level::debug) {
+                    log::debug("clangd ({}): {}", root, line);
+                } else {
+                    LineLimiter::Decision decision;
+                    {
+                        const std::lock_guard lock { limited->mutex };
+                        decision = limited->limiter.admit(GuardClock::now());
                     }
+                    if (decision.suppressedBefore > 0) {
+                        log::info("clangd ({}): {} more lines left out of this log", root, decision.suppressedBefore);
+                        sink(Json { { "kind", "log-left-out" }, { "generation", generation }, { "count", decision.suppressedBefore } });
+                    }
+                    if (decision.forward) {
+                        if (level == log::Level::warning) log::warning("clangd ({}): {}", root, line);
+                        else log::info("clangd ({}): {}", root, line);
+                    }
+                }
+                if (read.crash) {
+                    sink(Json { { "kind", "crash-context" }, { "generation", generation }, { "action", read.crash->action },
+                                { "file", read.crash->file }, { "exception", read.crash->exception } });
+                }
+                if (read.scanFailure) {
+                    sink(Json { { "kind", "scan-failed" }, { "generation", generation }, { "file", read.scanFailure->file },
+                                { "reason", read.scanFailure->reason }, { "driver", read.scanFailure->driver } });
                 }
                 if (loader_failure(line)) {
                     sink(Json { { "kind", "load-failure" }, { "generation", generation }, { "line", std::string { base::trim(line) } } });
@@ -1126,14 +1326,18 @@ private:
         (void)send_(lsp::make_request(engineId, "initialize", std::move(params)));
     }
 
-    void restart_(std::string_view reason) {
+    void restart_(std::string_view reason, RestartCause cause = RestartCause::recovery) {
         if (incompatible_) return;   // it cannot run on this machine; another start changes nothing
-        log::info("restarting clangd ({}): {}", host_->root_directory(), reason);
-        restartGate_.record(Clock::now());
+        settle_exit_();   // the verdict on the last exit comes first, whatever brings the restart forward
+        log::info("restarting clangd ({}): {} ({})", host_->root_directory(), reason, to_string(cause));
+        restartGate_.record(Clock::now(), cause);
         restartHistory_.emplace_back(std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now())), std::string { reason });
         if (restartHistory_.size() > 20) restartHistory_.pop_front();
-        host_->record_event("engine-restart", Json { { "reason", std::string { reason } } });
+        host_->record_event("engine-restart", Json { { "reason", std::string { reason } }, { "cause", std::string { to_string(cause) } } });
         restartAt_.reset();
+        // The budget no longer holds anything back once a restart happens; a new backoff is said when it comes.
+        std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-restart-capped"; });
+        forget_scan_failures_();
         spin_.restarted();
         // Requests to the old process are answered by the other engines.
         auto old = std::move(pending_);
@@ -1158,6 +1362,16 @@ private:
         }
         if (!oldest || (lastAnswerAt_ && *lastAnswerAt_ >= *oldest)) return std::nullopt;
         return oldest;
+    }
+
+    // The files of the requests clangd still owes an answer.
+    std::vector<std::string> pending_files_() const {
+        std::set<std::string> files;
+        for (const auto& [id, request] : pending_) {
+            if (request.purpose != Purpose::client) continue;
+            if (const std::string path { host_->path_of_uri(request.uri) }; !path.empty()) files.insert(path);
+        }
+        return { files.begin(), files.end() };
     }
 
     // A request unanswered for options_.stuckAfter, with nothing answered since it was sent, starts a
@@ -1225,10 +1439,12 @@ private:
         }
         host_->record_event("engine-stuck", Json { { "unansweredSeconds", std::chrono::duration<double>(now - *oldest).count() },
                                                    { "watchedSeconds", verdict.seconds }, { "cpuSeconds", verdict.cpuSeconds } });
-        // At the restart cap, clangd stays as it is until the window frees up; that is said once
-        // (restart_capped_), not again at the end of every watch meanwhile.
-        if (restartGate_.at_cap(now)) {
-            if (!stuckAtCap_) (void)restart_capped_("clangd stopped answering and used no CPU");
+        incident_("engine-stuck", Json { { "unansweredSeconds", std::chrono::duration<double>(now - *oldest).count() },
+                                         { "watchedSeconds", verdict.seconds }, { "cpuSeconds", verdict.cpuSeconds } }, pending_files_(), true);
+        // At the restart cap the restart is backed off (fix plan F14), said once (note_backoff_), not again at
+        // the end of every watch meanwhile; it still comes.
+        if (restartGate_.at_cap(now, RestartCause::recovery)) {
+            if (!stuckAtCap_) request_restart_("clangd stopped answering and used no CPU: it was stuck");
             stuckAtCap_ = true;
             return;
         }
@@ -1320,6 +1536,51 @@ private:
             if (!diagnostic.is_object() || !diagnostic.contains("range")) continue;
             map_position(diagnostic["range"]["start"]);
             map_position(diagnostic["range"]["end"]);
+        }
+    }
+
+    // clangd's diagnostics for an open document as the editor should get them.
+    // WA-CLANGD-006: a directive missing its `;` is reported on the code after it; it is moved back to the directive.
+    // WA-CLANGD-007: clangd scans an open file's imports from disk (UP-14), so an import typed into the buffer and not
+    // saved yet is "not found" although the project provides it; that is information, not an error, until the save.
+    void rewrite_diagnostics_(const std::string& uri, Json& diagnostics) const {
+        if ((!traits_.misplacesDirectiveSemicolon && !traits_.readsImportsFromDisk) || !diagnostics.is_array()) return;
+        std::optional<DocumentView> document;
+        for (const auto& each : host_->documents()) {
+            if (each.uri == uri) document = each;
+        }
+        if (!document) return;
+        std::optional<std::vector<std::string>> bufferImports;
+        std::optional<std::vector<std::string>> diskImports;
+        for (auto& diagnostic : diagnostics) {
+            if (!diagnostic.is_object()) continue;
+            const Json* codeValue { lsp::find(diagnostic, "code") };
+            const std::string code { codeValue != nullptr && codeValue->is_string() ? codeValue->get<std::string>() : std::string {} };
+            const Json* start { lsp::find_path(diagnostic, { "range", "start" }) };
+            const auto line = start != nullptr ? lsp::int_at(*start, "line") : std::nullopt;
+            if (traits_.misplacesDirectiveSemicolon && line
+                && (code == "expected_semi_after_module_or_import" || code == "pp_unexpected_tok_after_module_name")) {
+                if (const auto moved = directive_missing_semicolon(document->text, static_cast<int>(*line))) {
+                    diagnostic["range"] = Json { { "start", Json { { "line", moved->line }, { "character", moved->startCharacter } } },
+                                                 { "end", Json { { "line", moved->line }, { "character", moved->endCharacter } } } };
+                }
+                continue;
+            }
+            if (!traits_.readsImportsFromDisk || code != "module_not_found") continue;
+            const auto name = module_not_found_name(diagnostic.value("message", std::string {}));
+            if (!name) continue;
+            const auto provider = moduleSources_.find(*name);
+            if (provider == moduleSources_.end() || generated_path_(provider->second) || document->path.empty()) continue;
+            if (!bufferImports) bufferImports = project::required_names(project::scan_source(document->text));
+            if (!diskImports) {
+                const auto disk = platform::fs::read_file(document->path);
+                diskImports = disk ? project::required_names(project::scan_source(*disk)) : std::vector<std::string> {};
+            }
+            if (std::ranges::find(*bufferImports, *name) == bufferImports->end() || std::ranges::find(*diskImports, *name) != diskImports->end()) continue;
+            diagnostic["severity"] = 3;   // information
+            diagnostic["code"] = "unsaved-import";
+            diagnostic["source"] = "mcppls";
+            diagnostic["message"] = std::format("module '{}' is in the project; clangd loads it once the file is saved", *name);
         }
     }
 
@@ -1465,6 +1726,12 @@ private:
                 if (host_->has_document(uri)) {
                     fileStatus_[uri] = params->value("state", std::string {});
                     spin_.state(uri, fileStatus_[uri], Clock::now());
+                    // Fix plan F17.2: what clangd said about the file lately, for an incident.
+                    auto& timeline = statusTimeline_[uri];
+                    if (timeline.empty() || timeline.back().second != fileStatus_[uri]) {
+                        timeline.emplace_back(std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now())), fileStatus_[uri]);
+                        if (timeline.size() > 24) timeline.pop_front();
+                    }
                 } else if (const std::string path { host_->path_of_uri(uri) }; !path.empty()) {
                     if (const auto unit = background_.find(base::path_key(path)); unit != background_.end()) unit->second.state = params->value("state", std::string {});
                 }
@@ -1510,6 +1777,7 @@ private:
                 const auto version = lsp::int_at(params, "version");
                 Json diagnostics = params.value("diagnostics", Json::array());
                 if (const auto rewritten = rewritten_.find(uri); rewritten != rewritten_.end()) map_out_of_rewrite_(rewritten->second, diagnostics);
+                rewrite_diagnostics_(uri, diagnostics);
                 host_->publish_engine_diagnostics(ENGINE_ID, uri, std::move(diagnostics), version);
             }
             host_->status_changed();
@@ -1545,21 +1813,24 @@ private:
         const auto now = Clock::now();
         crashes_.push_back(now);
         while (!crashes_.empty() && now - crashes_.front() > std::chrono::minutes { 5 }) crashes_.pop_front();
-        add_issue_(Issue { "engine-crashed", "clangd exited unexpectedly", "mcppls.restartServer" });
+        add_issue_(Issue { "engine-crashed", "clangd exited unexpectedly", "mcppls.exportDiagnosticBundle" });
         // robustness design C6: what clangd was asked about, or given, just before it exited is set aside, so
-        // one file that crashes it does not take clangd away from the others.
+        // one file that crashes it does not take clangd away from the others. Fix plan F3: clangd usually says
+        // which file it crashed on; that says it better than any guess, so the verdict waits EXIT_CONTEXT_WAIT
+        // for it (settle_exit_), well before the restart below.
         std::set<std::string> suspects;
+        std::vector<std::string> unanswered;
         for (const auto& [id, request] : old) {
             if (request.purpose == Purpose::client) {
                 if (const std::string path { host_->path_of_uri(request.uri) }; !path.empty()) suspects.insert(path);
+                unanswered.push_back(request.method);
             }
         }
         for (const auto& document : host_->documents()) {
             const auto touched = touchedAt_.find(base::path_key(document.path));
             if (!document.path.empty() && touched != touchedAt_.end() && now - touched->second < std::chrono::seconds { 10 }) suspects.insert(document.path);
         }
-        host_->record_event("engine-exit", Json { { "recentExits", crashes_.size() }, { "suspects", Json(std::vector<std::string> { suspects.begin(), suspects.end() }) } });
-        for (const auto& path : suspects) set_aside_(path, "clangd exited while working on it", Reclaim::no);
+        pendingExit_ = PendingExit { generation_, now, std::move(suspects), std::move(unanswered) };
         // An exit before the handshake leaves the server's own initialize waiting on this engine. One
         // may be a fluke the restart below mends; a second is not, and the editor is not kept
         // waiting for the restarts after it: initialize is answered with mcppls's own capabilities.
@@ -1572,7 +1843,57 @@ private:
             host_->engine_settled(ENGINE_ID, Json::object());
         } else {
             restartReason_ = "recovering from an exit";
-            restartAt_ = std::max(now + std::chrono::seconds { 1 << std::min<std::size_t>(crashes_.size() - 1, 6) }, restartGate_.earliest(now));
+            restartCause_ = RestartCause::crash;
+            restartAt_ = std::max(now + std::chrono::seconds { 1 << std::min<std::size_t>(crashes_.size() - 1, 6) }, restartGate_.earliest(now, RestartCause::crash));
+        }
+        host_->status_changed();
+    }
+
+    // Fix plan F3: an exit settled with what clangd said about it. Its crash context names the file it crashed
+    // on, and only that file is set aside; without one (a signal with no context, an exit code), what it was
+    // asked about or given just before is, as before. The exit code is read now, when the process is surely gone.
+    void settle_exit_() {
+        if (!pendingExit_) return;
+        PendingExit exit { std::move(*pendingExit_) };
+        pendingExit_.reset();
+        const std::optional<int> code { process_ ? process_->exit_code() : std::nullopt };
+        const auto context = crashContexts_.find(exit.generation);
+        const bool known { context != crashContexts_.end() && !context->second.file.empty() };
+        std::set<std::string> suspects;
+        if (known) {
+            std::string path { platform::fs::canonical_path(context->second.file) };
+            if (path.empty()) path = context->second.file;
+            for (const auto& document : host_->documents()) {
+                if (!document.path.empty() && base::same_path(document.path, path)) path = document.path;
+            }
+            suspects.insert(path);
+        } else {
+            suspects = std::move(exit.suspects);
+        }
+        lastExit_ = Json { { "at", std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now())) },
+                           { "exitCode", code ? Json(*code) : Json(nullptr) },
+                           { "crashFile", known ? Json(context->second.file) : Json(nullptr) },
+                           { "crashAction", known ? Json(context->second.action) : Json(nullptr) },
+                           { "exception", known && !context->second.exception.empty() ? Json(context->second.exception) : Json(nullptr) },
+                           { "unansweredRequests", exit.unanswered },
+                           { "suspects", Json(std::vector<std::string> { suspects.begin(), suspects.end() }) } };
+        host_->record_event("engine-exit", Json { { "recentExits", crashes_.size() }, { "suspects", lastExit_["suspects"] }, { "exitCode", lastExit_["exitCode"] },
+                                                  { "crashFile", lastExit_["crashFile"] }, { "crashAction", lastExit_["crashAction"] },
+                                                  { "exception", lastExit_["exception"] } });
+        if (known) {
+            log::warning("clangd crashed while building {} ({}; {}{})", context->second.file, host_->root_directory(), context->second.action,
+                         context->second.exception.empty() ? std::string {} : std::format(", exception {}", context->second.exception));
+            std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-crashed"; });
+            add_issue_(Issue { "engine-crashed",
+                std::format("clangd crashed while building {}; it was restarted without it", base::file_name(context->second.file)),
+                "mcppls.exportDiagnosticBundle" });
+        } else if (code) {
+            log::warning("clangd exited with {} ({})", *code, host_->root_directory());
+        }
+        incident_("engine-crash", lastExit_, std::vector<std::string> { suspects.begin(), suspects.end() });
+        for (const auto& path : suspects) {
+            set_aside_(path, known ? std::format("clangd crashed while building it ({})", context->second.action) : std::string { "clangd exited while working on it" },
+                       Reclaim::no);
         }
         host_->status_changed();
     }
@@ -1671,7 +1992,10 @@ private:
         bool forgot { false };
         for (auto it = unresolvedModules_.begin(); it != unresolvedModules_.end();) {
             const auto provider = moduleSources_.find(it->first);
-            const std::string current { provider == moduleSources_.end() ? std::string {} : provider->second };
+            // The stand-in the plan gave the module is not a provider coming (fix plan F13): taking it for one
+            // forgot the module at once, the next plan dropped the stand-in again, and its leaving restarted clangd
+            // (the hello project's `import h`, typed and autosaved).
+            const std::string current { provider == moduleSources_.end() || generated_path_(provider->second) ? std::string {} : provider->second };
             const auto command = moduleCommands_.find(it->first);
             const bool changed { !base::same_path(current, it->second.provider) || (!current.empty() && platform::fs::stamp(current) != it->second.stamp)
                                  || (!current.empty() && (command == moduleCommands_.end() ? std::string {} : command->second) != it->second.command) };
@@ -1924,6 +2248,7 @@ private:
             log::warning("clangd ({}) has built {} for {:.0f} s, past its {:.0f} s budget, while the editor waited on it: it will not finish it",
                          host_->root_directory(), base::file_name(path), seconds(spin.building), seconds(spin.budget));
             host_->record_event("engine-spin", Json { { "file", path }, { "buildingSeconds", seconds(spin.building) }, { "budgetSeconds", seconds(spin.budget) } });
+            incident_("engine-spin", Json { { "file", path }, { "buildingSeconds", seconds(spin.building) }, { "budgetSeconds", seconds(spin.budget) } }, { path }, true);
             if (quarantined_(path)) {
                 // Set aside already, by the timeouts of its requests, which may have put the restart off: the same build is
                 // now known to be a spin, so its text is remembered and clangd is restarted at once all the same.
@@ -1941,12 +2266,12 @@ private:
     // the file it spun on stays with mcppls's engine, so the new clangd cannot be sent the same way.
     void reclaim_spin_(const std::string& path) {
         if (!accepting_) return;
-        if (restartGate_.at_cap(Clock::now())) {
+        if (restartGate_.at_cap(Clock::now(), RestartCause::recovery)) {
             log::warning("restarting clangd ({}) past the restart cap: it cannot be left spinning on {}, which stays with mcppls's engine",
                          host_->root_directory(), base::file_name(path));
             host_->record_event("engine-restart-past-cap", Json { { "file", path } });
         }
-        restart_(std::format("clangd would not finish {}", base::file_name(path)));
+        restart_(std::format("clangd would not finish {}", base::file_name(path)), RestartCause::recovery);
     }
 
     // Whether a restart gets back what clangd spends on a file it is no longer given.
@@ -1954,11 +2279,14 @@ private:
     enum class Reclaim { no, if_busy, now };
 
     void set_aside_(const std::string& path, std::string_view why, Reclaim reclaim, bool moduleFailed = false,
-                    std::optional<std::size_t> spunOn = std::nullopt) {
+                    std::optional<std::size_t> spunOn = std::nullopt, bool onDisk = false) {
         const std::string key { base::path_key(path) };
-        if (aside_.contains(key) && quarantine_.contains(key)) return;   // set aside already
+        if (aside_.contains(key) && quarantine_.contains(key)) {   // set aside already
+            if (onDisk) aside_[key].onDisk = true;
+            return;
+        }
         if (!quarantine_.contains(key)) quarantine_.put(key, Clock::now());
-        Aside aside { {}, moduleFailed, spunOn };
+        Aside aside { {}, moduleFailed, spunOn, onDisk, modelOrigin_ };
         std::optional<std::string> state;
         for (const auto& document : host_->documents()) {
             if (document.path.empty() || base::path_key(document.path) != key) continue;
@@ -1972,6 +2300,7 @@ private:
         log::warning("setting {} aside from clangd for a while ({}): {}; clangd was {}; mcppls's engine answers for it", path, host_->root_directory(), why,
                      state.value_or("in an unknown state"));
         host_->record_event("file-set-aside", Json { { "file", path }, { "why", std::string { why } }, { "clangdState", state.value_or("") } });
+        incident_("file-set-aside", Json { { "file", path }, { "why", std::string { why } }, { "clangdState", state.value_or("") } }, { path }, true);
         update_quarantine_issue_();
         // clangd does not stop building a file it is no longer given: a build that never ends (the spin in experiment S17) keeps a
         // core and one of clangd's workers for as long as clangd runs. A fresh clangd, without the file, gets both back.
@@ -1991,6 +2320,251 @@ private:
                 return;
             }
             schedule_restart_(std::format("clangd kept working on {} after it was set aside", base::file_name(path)));
+        }
+    }
+
+    // ---- fix plan F17.2: incidents ------------------------------------------------------------
+
+    // An incident of `kind`, at most one of a kind every INCIDENT_SPACING, so a condition that repeats does not
+    // fill the disk. It carries what the engine knows then: clangd's latest log lines, what clangd said about each
+    // file lately, for each file involved its engine command and the lines where the editor's text and the disk's
+    // differ, the last plan's differences, the restarts and the budget, the last exit; and with `threads`, clangd's
+    // process id, so the workspace can say which of its threads is using the CPU.
+    void incident_(std::string_view kind, Json detail, const std::vector<std::string>& files, bool threads = false) {
+        const auto now = Clock::now();
+        if (const auto last = lastIncidentAt_.find(kind); last != lastIncidentAt_.end() && now - last->second < INCIDENT_SPACING) return;
+        lastIncidentAt_[std::string { kind }] = now;
+        Json involved = Json::array();
+        for (const auto& path : files) {
+            const std::string key { base::path_key(path) };
+            Json file { { "file", path } };
+            if (const auto arguments = writtenArguments_.find(key); arguments != writtenArguments_.end()) file["command"] = Json::parse(arguments->second, nullptr, false);
+            if (const auto aside = aside_.find(key); aside != aside_.end()) file["setAsideOnDisk"] = aside->second.onDisk;
+            for (const auto& document : host_->documents()) {
+                if (document.path.empty() || base::path_key(document.path) != key) continue;
+                file["version"] = document.version;
+                file["excerpts"] = text_differences_(document.text, platform::fs::read_file(document.path));
+                if (const auto timeline = statusTimeline_.find(document.uri); timeline != statusTimeline_.end()) {
+                    Json states = Json::array();
+                    for (const auto& [at, state] : timeline->second) states.push_back(Json { { "at", at }, { "state", state } });
+                    file["clangdStates"] = std::move(states);
+                }
+            }
+            involved.push_back(std::move(file));
+        }
+        Json restarts = Json::array();
+        for (const auto& [at, reason] : restartHistory_) restarts.push_back(Json { { "at", at }, { "reason", reason } });
+        detail["files"] = std::move(involved);
+        detail["generation"] = generation_;
+        detail["clangdVersion"] = options_.version;
+        detail["restarts"] = std::move(restarts);
+        detail["restartBudget"] = restart_budget_json_();
+        detail["filesSetAside"] = quarantine_.members();
+        detail["lastExit"] = lastExit_;
+        detail["lastPlanDiff"] = lastPlanDiff_;
+        detail["scanFailures"] = Json { { "count", scanFailures_.count }, { "files", scanFailures_.files }, { "firstReason", scanFailures_.firstReason } };
+        std::vector<IncidentFile> attached { IncidentFile { "clangd.log", logRing_->text() } };
+        host_->record_incident(kind, std::move(detail), std::move(attached), threads && process_ ? process_->pid() : std::nullopt);
+    }
+
+    // The lines where the editor's text and the disk's differ, at most a few, each cut short: an incident says
+    // what clangd was given and what it read, not the file.
+    static Json text_differences_(std::string_view editor, const base::Result<std::string>& disk) {
+        static constexpr std::size_t MAX_LINES { 8 };
+        static constexpr std::size_t MAX_CHARS { 200 };
+        const auto cut = [](std::string_view line) { return std::string { line.substr(0, MAX_CHARS) }; };
+        Json lines = Json::array();
+        const auto editorLines = base::split_lines(editor);
+        if (!disk) return Json { { "disk", "unreadable" } };
+        const auto diskLines = base::split_lines(*disk);
+        for (std::size_t i { 0 }; i < std::max(editorLines.size(), diskLines.size()) && lines.size() < MAX_LINES; ++i) {
+            const std::string_view a { i < editorLines.size() ? editorLines[i] : std::string_view {} };
+            const std::string_view b { i < diskLines.size() ? diskLines[i] : std::string_view {} };
+            if (a == b && !sanitize_module_names(a).changed()) continue;
+            lines.push_back(Json { { "line", i + 1 }, { "editor", i < editorLines.size() ? Json(cut(a)) : Json(nullptr) },
+                                   { "disk", i < diskLines.size() ? Json(cut(b)) : Json(nullptr) } });
+        }
+        return lines;
+    }
+
+    // ---- fix plan F16: WA-CLANGD-001 on disk ---------------------------------------------------
+
+    // Whether the text of `path` ON DISK has a module name ending in '.' at the end of its line. clangd reads a
+    // file's imports from disk to build what it needs (UP-14), so rewriting the text it is given (WA-CLANGD-001)
+    // does not keep it from spinning on such a file; an autosave while `import hello.` is being typed is enough.
+    // A file that newly has one is set aside before clangd reads it (it is open in the editor) or left out of
+    // what clangd is told (it is not); one that no longer has one goes back. `document`: the editor's, if open.
+    bool check_disk_(std::string_view path, const DocumentView* document) {
+        if (path.empty() || !traits_.hangsOnTrailingDotModuleName || !project::is_cxx_source_name(path)) return false;
+        const std::string key { base::path_key(path) };
+        const auto text = platform::fs::read_file(path);
+        if (!text || !sanitize_module_names(*text).changed()) {
+            if (diskTrailingDot_.erase(key) > 0) hand_back_from_disk_(key);
+            return false;
+        }
+        if (diskTrailingDot_.insert(key).second) {
+            std::string line;
+            for (const auto each : base::split_lines(*text)) {
+                if (sanitize_module_names(each).changed()) {
+                    line = std::string { base::trim(each) };
+                    break;
+                }
+            }
+            log::info("{} on disk has a module name that ends in '.' ({}): clangd would spin reading it (UP-01, {}); it is not given to clangd until that changes",
+                      path, line, TRAILING_DOT_MODULE_NAME);
+            host_->record_event("disk-trailing-dot", Json { { "file", std::string { path } }, { "line", line } });
+            // Fix plan F17.4: WA-CLANGD-001's premise, that clangd reads only the text it is given, does not hold here.
+            incident_("workaround-premise", Json { { "workaround", std::string { TRAILING_DOT_MODULE_NAME } }, { "file", std::string { path } }, { "line", line },
+                                                   { "premise", std::string { find_workaround(TRAILING_DOT_MODULE_NAME)->premise } } },
+                      { std::string { path } }, true);
+        }
+        bool open { document != nullptr };
+        for (const auto& each : host_->documents()) open = open || (!each.path.empty() && base::path_key(each.path) == key);
+        if (open && !doomed_path_(path) && !excluded_path_(path)) {
+            const auto aside = aside_.find(key);
+            if (aside == aside_.end() || !quarantine_.contains(key)) {
+                set_aside_(std::string { path }, "the file on disk has a module name that ends in '.', which clangd 23.1 spins on (UP-01)",
+                           Reclaim::if_busy, false, std::nullopt, true);
+            } else {
+                aside->second.onDisk = true;
+            }
+        }
+        return true;
+    }
+
+    void hand_back_from_disk_(const std::string& key) {
+        const auto aside = aside_.find(key);
+        if (aside == aside_.end() || !aside->second.onDisk) return;
+        aside_.erase(aside);
+        quarantine_.release(key);
+        deferredReclaims_.erase(key);
+        log::info("handing {} back to clangd ({}): the file on disk no longer has a module name that ends in '.'", key, host_->root_directory());
+        host_->record_event("file-handed-back", Json { { "file", key }, { "why", "the file on disk was fixed" } });
+        update_quarantine_issue_();
+        for (const auto& document : host_->documents()) {
+            if (document.path.empty() || base::path_key(document.path) != key) continue;
+            if (accepting_ && !excluded_path_(document.path) && !doomed_path_(document.path)) open_or_hold_(document, true);
+        }
+    }
+
+    // ---- fix plan F13, F17.3: what a plan changed ------------------------------------------------
+
+    // Stand-ins and prime units: files this server writes, which nothing but clangd's own lookups ever builds.
+    bool generated_path_(std::string_view path) const {
+        const auto within = [&](const std::string& directory) {
+            return !directory.empty() && (base::is_within(path, directory) || base::is_within(path, base::path_key(directory)));
+        };
+        return within(stubDirectory_) || within(primeDirectory_);
+    }
+
+    // Whether clangd has the file open: a document given to it, or a unit it was given without the editor.
+    bool open_in_engine_key_(std::string_view key) const {
+        if (background_.contains(std::string { key })) return true;
+        if (excluded_.contains(std::string { key }) || quarantine_.contains(key) || held_.contains(key) || doomedFiles_.contains(key)) return false;
+        return std::ranges::any_of(host_->documents(), [&](const DocumentView& document) { return !document.path.empty() && base::path_key(document.path) == key; });
+    }
+
+    // The differences between the database clangd has and the one just planned, logged and kept for an
+    // incident: which units came and went, which are compiled otherwise (and the first argument that differs),
+    // and which modules' providers moved. A plan that restarts clangd says exactly why.
+    void note_plan_diff_(const std::map<std::string, std::string, std::less<>>& newArguments, const std::map<std::string, std::string, std::less<>>& newSources,
+                         const std::vector<std::string>& providersMoved, const std::vector<std::string>& restartingFor, const normalize::EnginePlan& plan) {
+        if (writtenArguments_.empty()) return;   // the first plan of this engine: nothing to compare with
+        std::vector<std::string> added;
+        std::vector<std::string> removed;
+        Json changed = Json::array();
+        for (const auto& [file, arguments] : newArguments) {
+            if (generated_path_(file)) continue;
+            const auto before = writtenArguments_.find(file);
+            if (before == writtenArguments_.end()) {
+                added.push_back(file);
+                continue;
+            }
+            if (before->second == arguments) continue;
+            const Json was = Json::parse(before->second, nullptr, false);
+            const Json now = Json::parse(arguments, nullptr, false);
+            std::string first;
+            if (was.is_array() && now.is_array()) {
+                for (std::size_t i { 0 }; i < std::max(was.size(), now.size()); ++i) {
+                    const std::string a { i < was.size() && was[i].is_string() ? was[i].get<std::string>() : std::string { "(none)" } };
+                    const std::string b { i < now.size() && now[i].is_string() ? now[i].get<std::string>() : std::string { "(none)" } };
+                    if (a != b) {
+                        first = std::format("argument {}: {} -> {}", i, a, b);
+                        break;
+                    }
+                }
+            }
+            changed.push_back(Json { { "file", file }, { "firstDifference", first },
+                                     { "restarts", std::ranges::find(restartingFor, file) != restartingFor.end() } });
+        }
+        for (const auto& [file, arguments] : writtenArguments_) {
+            if (!generated_path_(file) && !newArguments.contains(file)) removed.push_back(file);
+        }
+        Json moved = Json::array();
+        for (const auto& [name, source] : moduleSources_) {
+            const auto now = newSources.find(name);
+            if (now != newSources.end() && base::same_path(now->second, source)) continue;
+            moved.push_back(Json { { "module", name }, { "from", source }, { "to", now == newSources.end() ? std::string {} : now->second },
+                                   { "restarts", std::ranges::find(providersMoved, name) != providersMoved.end() } });
+        }
+        if (added.empty() && removed.empty() && changed.empty() && moved.empty()) return;
+        lastPlanDiff_ = Json { { "entries", plan.entries.size() }, { "added", added }, { "removed", removed }, { "otherArguments", changed },
+                               { "providersMoved", moved }, { "standIns", plan.stubModules } };
+        const auto names = [](const std::vector<std::string>& files) {
+            std::string text;
+            for (std::size_t i { 0 }; i < files.size() && i < 3; ++i) text += std::format("{}{}", i == 0 ? "" : ", ", base::file_name(files[i]));
+            if (files.size() > 3) text += std::format(" and {} more", files.size() - 3);
+            return text;
+        };
+        log::info("engine database changed ({}): {} added{}{}, {} removed{}{}, {} compiled otherwise{}, {} providers moved", host_->root_directory(),
+                  added.size(), added.empty() ? "" : " ", names(added), removed.size(), removed.empty() ? "" : " ", names(removed), changed.size(),
+                  changed.empty() ? std::string {} : std::format(" ({}: {})", base::file_name(changed[0].value("file", std::string {})), changed[0].value("firstDifference", std::string {})),
+                  moved.size());
+        host_->record_event("engine-plan-diff", lastPlanDiff_);
+    }
+
+    // Fix plan F13: a restart the plan asks for waits PLAN_RESTART_SETTLE (and the gate), so the plans that
+    // follow while an import or a module declaration is still being typed are served by the same restart.
+    void schedule_plan_restart_(std::string_view reason) {
+        const auto now = Clock::now();
+        const auto at = std::max(now + PLAN_RESTART_SETTLE, restartGate_.earliest(now, RestartCause::plan));
+        if (restartGate_.at_cap(now, RestartCause::plan)) note_backoff_(reason, RestartCause::plan, at);
+        if (restartAt_ && *restartAt_ <= at) return;
+        restartAt_ = at;
+        restartReason_ = std::string { reason };
+        restartCause_ = RestartCause::plan;
+        host_->record_event("engine-restart-scheduled", Json { { "reason", std::string { reason } }, { "cause", "plan" },
+                                                               { "seconds", std::chrono::duration_cast<std::chrono::seconds>(at - now).count() } });
+        log::info("restarting clangd ({}) in {} s: {}", host_->root_directory(), std::chrono::duration_cast<std::chrono::seconds>(at - now).count(), reason);
+    }
+
+    // Fix plan F4: the build tool's model replaced the provisional one clangd was given meanwhile. What went
+    // wrong with that one -- exits, restarts, files set aside -- says nothing about this one.
+    void forget_provisional_verdicts_() {
+        crashes_.clear();
+        earlyExits_ = 0;
+        restartGate_.reset();
+        std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-crashed" || issue.code == "engine-restart-capped"; });
+        std::vector<std::string> released;
+        for (auto it = aside_.begin(); it != aside_.end();) {
+            if (it->second.modelOrigin == "inferred" && !it->second.onDisk && !it->second.spunOn) {
+                quarantine_.release(it->first);
+                released.push_back(it->first);
+                it = aside_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        log::info("the build tool's model replaced the provisional one ({}): {} files set aside meanwhile go back to clangd, and its exits and restarts start over",
+                  host_->root_directory(), released.size());
+        host_->record_event("provisional-model-replaced", Json { { "filesHandedBack", released } });
+        if (released.empty()) return;
+        update_quarantine_issue_();
+        if (!accepting_) return;
+        for (const auto& document : host_->documents()) {
+            if (!document.path.empty() && std::ranges::find(released, base::path_key(document.path)) != released.end() && !excluded_path_(document.path)) {
+                open_or_hold_(document, true);
+            }
         }
     }
 
@@ -2090,31 +2664,39 @@ private:
         release_prime_units_if_idle_();
     }
 
-    // A restart at the next timer, as soon as the gate allows: for callers in the middle of work on the requests a restart ends.
-    // Restarts are capped, not merely spaced out (real-project plan RP1.2): past RestartGate::
-    // MAX_RESTARTS_PER_WINDOW in RestartGate::WINDOW, clangd stays down for whatever it cannot answer
-    // until the window ages out, rather than restarting forever for reasons that keep recurring.
-    bool restart_capped_(std::string_view reason) {
+    // Fix plan F14: a cause at its cap is backed off, not refused. Said once per backoff, with when the next
+    // restart comes and the person's way past it: "Restart clangd" (mcppls.restartClangd), which is never counted.
+    void note_backoff_(std::string_view reason, RestartCause cause, Clock::time_point at) {
         const auto now = Clock::now();
-        if (!restartGate_.at_cap(now)) return false;
-        add_issue_(Issue { "engine-restart-capped",
-            std::format("clangd was restarted {} times in the last {} minutes; it stays down for the files it cannot answer for until that passes",
-                        RestartGate::MAX_RESTARTS_PER_WINDOW, RestartGate::WINDOW.count()), "mcppls.showLogs" });
-        log::warning("not restarting clangd again ({}): already {} restarts in the last {} minutes ({})", host_->root_directory(),
-                     RestartGate::MAX_RESTARTS_PER_WINDOW, RestartGate::WINDOW.count(), reason);
-        host_->record_event("engine-restart-capped", Json { { "reason", std::string { reason } } });
+        const auto minutes = std::max<std::int64_t>(1, std::chrono::duration_cast<std::chrono::seconds>(at - now).count() / 60 + 1);
+        const std::string message { std::format("clangd was restarted {} times in the last {} minutes ({}); the next restart waits about {} minute{}. "
+                                                "Restart clangd to try now",
+                                                restartGate_.recent(now, cause), RestartGate::WINDOW.count(),
+                                                cause == RestartCause::plan ? "the engine database kept changing" : "clangd kept stopping",
+                                                minutes, minutes == 1 ? "" : "s") };
+        const bool known { std::ranges::any_of(issues_, [](const Issue& issue) { return issue.code == "engine-restart-capped"; }) };
+        std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-restart-capped"; });
+        issues_.push_back(Issue { "engine-restart-capped", message, "mcppls.restartClangd" });
+        if (known) return;
+        log::warning("restarting clangd ({}) only in {} s: already {} restarts in the last {} minutes ({})", host_->root_directory(),
+                     std::chrono::duration_cast<std::chrono::seconds>(at - now).count(), restartGate_.recent(now, cause), RestartGate::WINDOW.count(), reason);
+        host_->record_event("engine-restart-capped", Json { { "reason", std::string { reason } }, { "cause", std::string { to_string(cause) } },
+                                                            { "seconds", std::chrono::duration_cast<std::chrono::seconds>(at - now).count() } });
+        incident_("restart-backoff", Json { { "reason", std::string { reason } }, { "cause", std::string { to_string(cause) } },
+                                            { "seconds", std::chrono::duration_cast<std::chrono::seconds>(at - now).count() } }, {});
         host_->status_changed();
-        return true;
     }
 
-    void schedule_restart_(std::string_view reason) {
-        if (restart_capped_(reason)) return;
+    // A restart at the next timer, as soon as the gate allows: for callers in the middle of work on the requests a restart ends.
+    void schedule_restart_(std::string_view reason, RestartCause cause = RestartCause::recovery) {
         const auto now = Clock::now();
-        const auto at = restartGate_.earliest(now);
+        const auto at = restartGate_.earliest(now, cause);
+        if (restartGate_.at_cap(now, cause)) note_backoff_(reason, cause, at);
         if (restartAt_ && *restartAt_ <= at) return;
         restartAt_ = at;
         restartReason_ = std::string { reason };
-        host_->record_event("engine-restart-scheduled", Json { { "reason", std::string { reason } },
+        restartCause_ = cause;
+        host_->record_event("engine-restart-scheduled", Json { { "reason", std::string { reason } }, { "cause", std::string { to_string(cause) } },
                                                                { "seconds", std::chrono::duration_cast<std::chrono::seconds>(at - now).count() } });
         log::info("restarting clangd ({}) in {} s: {}", host_->root_directory(), std::chrono::duration_cast<std::chrono::seconds>(at - now).count(), reason);
     }
@@ -2136,23 +2718,52 @@ private:
         host_->semantic_tokens_changed();
     }
 
-    // A restart now, or as soon as the gate allows (robustness design C4).
-    void request_restart_(std::string_view reason) {
-        if (restart_capped_(reason)) return;
+    // A restart now, or as soon as the gate allows (robustness design C4), backed off past the cap (fix plan F14).
+    void request_restart_(std::string_view reason, RestartCause cause = RestartCause::recovery) {
         const auto now = Clock::now();
-        const auto at = restartGate_.earliest(now);
+        const auto at = restartGate_.earliest(now, cause);
         if (at <= now) {
-            restart_(reason);
+            restart_(reason, cause);
             return;
         }
+        if (restartGate_.at_cap(now, cause)) note_backoff_(reason, cause, at);
         if (!restartAt_ || at < *restartAt_) {
             restartAt_ = at;
             restartReason_ = std::string { reason };
-            host_->record_event("engine-restart-deferred", Json { { "reason", std::string { reason } },
+            restartCause_ = cause;
+            host_->record_event("engine-restart-deferred", Json { { "reason", std::string { reason } }, { "cause", std::string { to_string(cause) } },
                                                                   { "seconds", std::chrono::duration_cast<std::chrono::seconds>(at - now).count() } });
             log::info("restarting clangd ({}) in {} s: {}", host_->root_directory(),
                       std::chrono::duration_cast<std::chrono::seconds>(at - now).count(), reason);
         }
+    }
+
+    // Fix plan F14: the person asked (mcppls.restartClangd). At once, past every budget and never counted; what
+    // was set aside goes back, except a file whose text on disk clangd would spin on (fix plan F16).
+    bool restart_on_request() override {
+        if (options_.payloadCorrupt || incompatible_ || options_.executable.empty()) return false;
+        std::vector<std::string> released;
+        for (auto it = aside_.begin(); it != aside_.end();) {
+            if (it->second.onDisk) {
+                ++it;
+                continue;
+            }
+            quarantine_.release(it->first);
+            released.push_back(it->first);
+            it = aside_.erase(it);
+        }
+        for (const auto& key : quarantine_.members()) {
+            if (!aside_.contains(key)) quarantine_.release(key);
+        }
+        deferredReclaims_.clear();
+        stuckAtCap_ = false;
+        std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-crashed" || issue.code == "engine-timeout"; });
+        crashes_.clear();
+        if (unavailable_ && !incompatible_) unavailable_ = false;
+        host_->record_event("engine-restart-requested", Json { { "filesHandedBack", released } });
+        update_quarantine_issue_();
+        restart_("the user asked for it", RestartCause::user);
+        return true;
     }
 
     // ---- definitions in implementation units (robustness design C10) ---------------------------

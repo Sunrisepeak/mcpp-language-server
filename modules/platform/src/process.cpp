@@ -549,6 +549,34 @@ std::optional<double> cpu_seconds(std::int64_t pid) {
     }
 }
 
+std::vector<ThreadCpu> thread_cpu(std::int64_t pid) {
+    std::vector<ThreadCpu> threads;
+    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
+        if (pid <= 0) return threads;
+        constexpr double TICKS_PER_SECOND { 100 };
+        for (const auto& task : fs::list_directory(std::format("/proc/{}/task", pid))) {
+            const auto stat = fs::read_file(task + "/stat");
+            if (!stat) continue;
+            // "<tid> (<comm>) <state> ...": comm may hold spaces and parentheses, so the last ')' ends it.
+            const auto open = stat->find('(');
+            const auto close = stat->rfind(')');
+            if (open == std::string::npos || close == std::string::npos || close < open || close + 2 >= stat->size()) continue;
+            std::vector<std::string_view> fields;
+            for (auto field : base::split(std::string_view { *stat }.substr(close + 2), ' ')) {
+                if (!field.empty()) fields.push_back(field);
+            }
+            if (fields.size() < 13) continue;
+            const auto id = parse_count(std::string_view { *stat }.substr(0, open > 0 ? open - 1 : 0));
+            const auto user = parse_count(fields[11]);
+            const auto system = parse_count(fields[12]);
+            if (!id || !user || !system) continue;
+            threads.push_back(ThreadCpu { *id, stat->substr(open + 1, close - open - 1), static_cast<double>(*user + *system) / TICKS_PER_SECOND });
+        }
+    }
+    (void)pid;
+    return threads;
+}
+
 std::string last_lines(std::string_view text, std::size_t lines) {
     if (lines == 0 || text.empty()) return std::string {};
     std::size_t end { text.size() };

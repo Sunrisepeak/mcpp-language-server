@@ -9,28 +9,43 @@ export namespace mcppls::engine::clangd {
 
 using GuardClock = std::chrono::steady_clock;
 
+// Why clangd is restarted (fix plan F14). Each cause has its own budget, so a project whose plan keeps
+// changing cannot use up the restarts that recover a stuck clangd, and the other way round.
+enum class RestartCause {
+    plan,       // the engine database changed in a way a running clangd does not pick up
+    recovery,   // clangd stopped answering, spun, or kept working on a file set aside
+    crash,      // clangd exited; its own accounting (five exits in five minutes) decides when it is given up
+    user,       // the person asked for it, or changed the toolchain, the profile or the context: never counted
+};
+std::string_view to_string(RestartCause cause);
+
 // Restarts in a row are spaced out: the first at once, then at least FIRST_GAP after the previous
-// one, doubling while restarts keep coming within WINDOW, never more than MAX_GAP apart.
+// one of the same cause, doubling while they keep coming within WINDOW, never more than MAX_GAP apart.
+// A cause that reaches MAX_RESTARTS_PER_WINDOW is backed off rather than refused (fix plan F14): its
+// next restart waits BACKOFF after its last one, 1, 2, 4, then 8 minutes, so a stuck clangd is always
+// recovered in the end, and a machine that keeps finding reasons to restart does so at most every
+// eight minutes. The user cause is never spaced out, capped or counted.
 class RestartGate {
 public:
     static constexpr std::chrono::seconds FIRST_GAP { 10 };
     static constexpr std::chrono::minutes MAX_GAP { 5 };
     static constexpr std::chrono::minutes WINDOW { 10 };
-    // A stuck file whose closure contains a module that failed to compile is never a reason to
-    // restart (P1: a fault only affects where it is); every other reason is still capped, so a
-    // machine that keeps finding new reasons to restart does not keep doing it forever either.
     static constexpr std::size_t MAX_RESTARTS_PER_WINDOW { 3 };
+    static constexpr std::array<std::chrono::minutes, 4> BACKOFF { std::chrono::minutes { 1 }, std::chrono::minutes { 2 },
+                                                                   std::chrono::minutes { 4 }, std::chrono::minutes { 8 } };
 
-    // When the next restart may happen.
-    GuardClock::time_point earliest(GuardClock::time_point now) const;
-    void record(GuardClock::time_point now);
-    std::size_t recent(GuardClock::time_point now) const;
-    // WINDOW already has MAX_RESTARTS_PER_WINDOW restarts in it: no more until it ages out. The
-    // caller stays down to its own engine for whatever a restart would have tried to fix.
-    bool at_cap(GuardClock::time_point now) const;
+    // When the next restart of `cause` may happen.
+    GuardClock::time_point earliest(GuardClock::time_point now, RestartCause cause = RestartCause::recovery) const;
+    void record(GuardClock::time_point now, RestartCause cause = RestartCause::recovery);
+    // Restarts of `cause` within WINDOW.
+    std::size_t recent(GuardClock::time_point now, RestartCause cause = RestartCause::recovery) const;
+    // `cause` has MAX_RESTARTS_PER_WINDOW restarts in WINDOW: its next one is backed off (earliest).
+    bool at_cap(GuardClock::time_point now, RestartCause cause = RestartCause::recovery) const;
+    // A model from another source (fix plan F4): restarts that served the one before do not count.
+    void reset();
 
 private:
-    std::deque<GuardClock::time_point> restarts_;
+    std::map<RestartCause, std::deque<GuardClock::time_point>> restarts_;
 };
 
 // Files whose requests clangd stopped answering. clangd 23.1 can stop answering for one file while it
