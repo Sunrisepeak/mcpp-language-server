@@ -55,6 +55,25 @@ Conformance needs a payload; `CONTRIBUTING.md` has the exact command and how to 
 - **The version lives in `mcpp.toml`** and is written everywhere else by
   `mcpp run -p devtools -- version --set`, never by hand.
 
+## Upstream defects (clangd, mcpp, …)
+
+**Issue #24 is the single register of upstream defects** (pinned, English). Its body is only an
+index; **each comment is one problem**, `UP-<nn>` (clangd/LLVM) or `UP-M<n>` (mcpp): symptom,
+affected versions, upstream status, what mcppls does, when that can go, evidence, TODO. Read it
+before calling something "a clangd bug", and before working around one.
+
+- **Found a new one?** Post one comment in that shape (`unfiled` is a status) and add its row to
+  the index — then decide what mcppls does.
+- **Compensating in code?** It is a registered workaround: an entry in
+  `src/engine/clangd/workarounds.cpp` (`WA-CLANGD-<n>`: upstream, evidence, `removeWhen`, a canary
+  where one can exist), and its #24 comment names the ID. A limit mcppls deliberately does not work around
+  goes in `.agents/docs/design.md` §7 and in #24.
+- **Filed or fixed upstream?** Put the link in that comment and the index. Bumping the bundled clangd
+  (`packaging/payload.lock.json`) means walking #24: run the canaries, remove what they say is gone,
+  update the comments.
+- **Not upstream:** a defect in how mcppls drives an upstream tool (for example the arguments it
+  generates) is an mcppls bug, fixed here; #24 records only the upstream side of it.
+
 ## Commit messages
 
 Lowercase `type(scope): a sentence that says what is now true`, not an imperative. The body is
