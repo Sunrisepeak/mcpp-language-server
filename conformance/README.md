@@ -46,6 +46,7 @@ checks fail at once with that reason instead of each waiting out its timeout.
 | `cmake-clang-cl` | CMake 4.4 modules built by clang-cl (P6), the first CMake that scans clang-cl module sources |
 | `compdb-clangxx-msvc-std` | clang++ for the MSVC ABI with `import std`, built by the fixture's own script (P5) |
 | `compdb-clang-cl-std` | clang-cl with `import std`, built by the fixture's own script (P6) |
+| `compdb-lto-msvc` | Issue #23: a `compile_commands.json` of clang++ for the MSVC ABI with `-flto` (the runner's `prepare compdb-lto-msvc`, no configuration file choosing lld). Every command the server gives clangd carries `-c`, so clangd's module scan does not stop at the driver's `LTO requires -fuse-ld=lld`: the module is built, the importer's import resolves and a hover across it answers. The driver raises that for the windows-msvc target on any host, so this runs on Linux |
 | `mcpp-msvc` | mcpp with `msvc@system` and `import std`, described by mcpp's own `emit build-database`: level 3, a test across sets, the workspace unchanged |
 | `mcpp-llvm-msvc` | mcpp's default Windows toolchain, LLVM for `x86_64-windows-msvc`, with the MSVC STL (P5), described the same way |
 | `inferred-msvc` | Loose module sources on a machine with Visual Studio: MSVC STL semantics without a build system (design 9.3, D27) |

@@ -67,7 +67,8 @@ int main() {
         const auto out = n::translate_gnu(n::GnuInput { arguments, "/p/src/greet/greet.cppm", "/p", &facts, true });
         expect(contains(out, "-std=c++23") && contains(out, "-O0") && contains(out, "--sysroot=/opt/subos"));
         expect(!contains(out, "-fmodules") && !contains_prefix(out, "-fmodule-mapper") && !contains_prefix(out, "-B") && !contains_prefix(out, "-fdeps"));
-        expect(!contains(out, "-c") && !contains(out, "-o") && !contains(out, "obj/greet.o") && !contains(out, "src/greet/greet.cppm"));
+        expect(std::ranges::count(out, std::string { "-c" }) == 1) << "the build's -c is replaced by the engine's own, once: " << std::format("{}", out);
+        expect(!contains(out, "-o") && !contains(out, "obj/greet.o") && !contains(out, "src/greet/greet.cppm"));
         expect(!contains(out, "-MD") && !contains(out, "-MF") && !contains(out, "x.d"));
         expect(contains(out, "--no-default-config") && contains(out, "--target=x86_64-linux-gnu") && contains(out, "-stdlib=libstdc++"));
         expect(contains(out, "--gcc-install-dir=/opt/gcc/lib/gcc/x86_64-linux-gnu/16.1.0"));
@@ -111,7 +112,7 @@ int main() {
         expect(!contains_prefix(out, "/") && !contains_prefix(out, "-interface") && !contains_prefix(out, "-ifc") && !contains_prefix(out, "-reference"))
             << std::format("{}", out);
         expect(!contains(out, "std=CMakeFiles\\__cmake_cxx23.dir\\std.ifc") && !contains(out, "CMakeFiles\\greet.dir\\greet.ifc"));
-        expect(!contains(out, "C:\\p\\src\\greet.ixx") && !contains(out, "-c") && !contains_prefix(out, "-Zi"));
+        expect(!contains(out, "C:\\p\\src\\greet.ixx") && std::ranges::count(out, std::string { "-c" }) == 1 && !contains_prefix(out, "-Zi"));
         expect(contains(out, "--no-default-config") && contains(out, "--target=x86_64-pc-windows-msvc"));
         expect(contains(out, "-fms-compatibility-version=19.44.35228"));
         expect(contains(out, "-Xmicrosoft-visualc-tools-root") && contains(out, "C:/VS/VC/Tools/MSVC/14.44.35207"));
@@ -163,13 +164,88 @@ int main() {
         kit.systemIncludeDirectories = { "/kit/include/c++/v1", "/kit/include" };
         const auto out = n::kit_arguments(kit, "c++26", "");
         const std::vector<std::string> expected { "--no-default-config", "--target=x86_64-w64-mingw32", "-std=c++26", "-nostdinc++",
-                                                  "-nostdlibinc", "-isystem", "/kit/include/c++/v1", "-isystem", "/kit/include" };
+                                                  "-nostdlibinc", "-isystem", "/kit/include/c++/v1", "-isystem", "/kit/include", "-c" };
         expect(out == expected) << std::format("{}", out);
         const std::vector<std::string> command { "cl.exe", "/IC:/inc", "/DA=1", "/std:c++20", "-O2", "/FIpch.h", "-I", "x" };
         const auto subset = n::semantic_subset(command);
         const std::vector<std::string> wanted { "-IC:/inc", "-DA=1", "-std=c++20", "-includepch.h", "-I", "x" };
         expect(subset == wanted) << std::format("{}", subset);
         expect(n::language_standard_of(command) == "c++20");
+    };
+
+    // Fix plan F1 (issue #23): a windows-msvc command with -flto and without -c makes the driver plan a link, and
+    // its `LTO requires -fuse-ld=lld` fails clangd's module scan, so no module is built. Every engine command
+    // carries exactly one -c, and the link arguments stay: the project's LTO is not the engine's business.
+    "every engine command stops before linking, and keeps -flto"_test = [] {
+        const auto once = [](const std::vector<std::string>& out) { return std::ranges::count(out, std::string { "-c" }) == 1; };
+        auto clangxx = msvc_facts(s::Family::clang);
+        clangxx.toolchain.driver = "C:/LLVM/bin/clang++.exe";
+        const std::vector<std::string> gnu { "C:/LLVM/bin/clang++.exe", "--target=x86_64-pc-windows-msvc", "-std=c++23", "-flto", "-O2",
+                                             "-c", "-c", "D:/w/src/m.cppm", "-o", "D:/w/obj/m.obj" };
+        for (const bool importable : { true, false }) {
+            const auto out = n::translate_gnu(n::GnuInput { gnu, "D:/w/src/m.cppm", "D:/w", &clangxx, importable });
+            expect(once(out) && contains(out, "-flto") && contains(out, "--target=x86_64-pc-windows-msvc")) << std::format("{}", out);
+            expect(importable ? out.back() == "c++-module" : !contains(out, "c++-module")) << std::format("{}", out);
+        }
+        const auto clangCl = msvc_facts(s::Family::clang_cl);
+        const std::vector<std::string> cl { "C:/LLVM/bin/clang-cl.exe", "/std:c++latest", "-flto", "/GL", "/MD", "/c", "-c", "C:/p/src/m.ixx",
+                                            "/FoC:/p/obj/m.obj" };
+        const auto fromCl = n::translate_msvc(n::MsvcInput { cl, "C:/p/src/m.ixx", "C:/p", &clangCl, true });
+        expect(once(fromCl) && contains(fromCl, "-flto") && !contains(fromCl, "/c") && !contains_prefix(fromCl, "/")) << std::format("{}", fromCl);
+        const auto cmsvc = msvc_facts(s::Family::msvc);
+        const std::vector<std::string> msvc { "cl.exe", "/std:c++latest", "/GL", "/c", "C:/p/src/main.cpp" };
+        expect(once(n::translate_msvc(n::MsvcInput { msvc, "C:/p/src/main.cpp", "C:/p", &cmsvc, false })));
+        s::Kit kit;
+        kit.target = "x86_64-pc-windows-msvc";
+        expect(once(n::kit_arguments(kit, "c++23", "")));
+
+        // The plan: project units, a file the editor opened outside the model, a stand-in, prime units and std all
+        // come from these arguments, and each carries the one -c.
+        const std::map<std::string, std::string> sources {
+            { "/w/src/main.cpp", "import std;\nimport app.core;\nimport missing.module;\nint main() {}\n" },
+            { "/w/src/core.cppm", "export module app.core;\nimport std;\n" },
+            { "/w/apps/tool.cpp", "import app.core;\nint tool() { return 0; }\n" },
+        };
+        s::Database database;
+        database.hasIde = true;
+        s::Set set;
+        set.name = "app";
+        set.hasIde = true;
+        set.toolchain = "llvm-22.1.8-x86_64-pc-windows-msvc";
+        for (const std::string path : { "/w/src/main.cpp", "/w/src/core.cppm" }) {
+            s::TranslationUnit unit;
+            unit.source = path;
+            unit.workDirectory = "/w";
+            unit.arguments = { "clang++", "--target=x86_64-pc-windows-msvc", "-std=c++23", "-flto", "-c", path, "-o", path + ".obj" };
+            set.units.push_back(std::move(unit));
+        }
+        database.sets.push_back(set);
+        std::map<std::string, ToolchainFacts, std::less<>> facts { { set.toolchain, clangxx } };
+        n::PlanInput input;
+        input.database = &database;
+        input.facts = &facts;
+        input.engineDriverDirectory = "/payload/clangd/bin";
+        input.primeDirectory = "/cache/prime";
+        input.stubDirectory = "/cache/stubs";
+        input.openSources = { "/w/apps/tool.cpp" };
+        input.scanner = [&](std::string_view path) {
+            const auto it = sources.find(std::string { path });
+            return it == sources.end() ? p::ScanResult {} : p::scan_source(it->second);
+        };
+        input.metadataReader = [](std::string_view) {
+            return std::vector<s::ModuleEntry> { { "std", "C:/VS/VC/Tools/MSVC/14.44.35207/modules/std.ixx", true, {}, {} } };
+        };
+        const auto plan = n::plan_engine(input);
+        std::set<std::string> kinds;
+        for (const auto& entry : plan.entries) {
+            expect(once(entry.arguments) && contains(entry.arguments, "-flto")) << entry.file << ": " << std::format("{}", entry.arguments);
+            if (entry.file.starts_with("/cache/prime/")) kinds.insert("prime");
+            else if (entry.file.starts_with("/cache/stubs/")) kinds.insert("stand-in");
+            else if (entry.file.ends_with("std.ixx")) kinds.insert("std");
+            else if (entry.file == "/w/apps/tool.cpp") kinds.insert("opened");
+            else kinds.insert("unit");
+        }
+        expect(kinds == std::set<std::string> { "opened", "prime", "stand-in", "std", "unit" }) << std::format("{}", kinds);
     };
 
     "a plan resolves, injects std once and leaves out what cannot resolve"_test = [] {

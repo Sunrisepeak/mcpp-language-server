@@ -1,0 +1,40 @@
+{
+  "name": "compdb-lto-msvc",
+  "description": "Issue #23, fix plan F1: a compile_commands.json of a project built with LTO for the MSVC ABI (clang++ --target=x86_64-pc-windows-msvc -flto -c, written by the runner's `prepare compdb-lto-msvc`). Every command the server gives clangd must carry -c: without it clangd's module dependency scan fails on the driver's `LTO requires -fuse-ld=lld`, no module is built, and the importer reports its import as not found and hovers across it answer nothing. The driver raises that for the windows-msvc target on any host, so this runs on Linux.",
+  "prepare": [
+    [
+      "{conformance}",
+      "prepare",
+      "compdb-lto-msvc",
+      "{env:CONFORMANCE_CLANGXX|clang++}"
+    ]
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "compile-commands",
+      "profile-kind": "build-toolchain"
+    },
+    {
+      "id": "L1-the-module-is-built",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        3,
+        12
+      ],
+      "expect": "answer_of_everything",
+      "timeout": 60
+    },
+    {
+      "id": "L2-the-import-resolves",
+      "kind": "diagnostics-empty",
+      "file": "src/main.cpp"
+    },
+    {
+      "id": "W1",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}
