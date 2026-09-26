@@ -53,6 +53,11 @@ clangd's own defects behind all of this are registered in issue #24.
   gives clangd a model guessed from its sources while the build tool runs, which clangd then had to
   unlearn (in #23, three crashes on it before the real model came). mcppls's own engine answers
   module features meanwhile, for up to a minute.
+- **A build tool's partial answer is used.** mcpp now describes every workspace member it can plan,
+  with an `error` naming each one it could not (S2 0.3.0; mcpp-community/mcpp#699). Before, one
+  member's failure lost the whole database, which is why issue #23's CI read GalTranslPP from scanned
+  sources. The rest is used, and the status names the missing member by its build description
+  (`producer-partial`).
 - **A command clangd rejects is said so.** When clangd's module scan fails on a command, the status
   names the first rejection in the compiler's words, as an environment problem; a missing header, as
   the project's.
@@ -124,7 +129,7 @@ clangd's own defects behind all of this are registered in issue #24.
 
 - New conformance fixtures, each failing on 0.0.4: `typing-autosave`, `clangd-crash-context`,
   `compdb-rejected-command`, `mcpp-emit-wait`, `compdb-lto-msvc`, `inferred-bom`, `inferred-cxx26`,
-  `compdb-mixed-standards`, `completion-keywords` and `diagnostic-bundle`.
+  `compdb-mixed-standards`, `mcpp-emit-partial`, `completion-keywords` and `diagnostic-bundle`.
 - `diagnostic-code` checks take a line, a severity and codes that must be absent; `completion-contains`
   takes a trigger character.
 

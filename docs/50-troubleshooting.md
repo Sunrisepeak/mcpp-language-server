@@ -144,6 +144,11 @@ restarted without it. `engines[].details.lastExit` in the report has the exit co
 clangd was doing and, on Windows, the exception code. Five exits in five minutes and clangd is given
 up until the next server start; the status offers **Export Diagnostic Bundle**.
 
+**"mcpp could not describe tools/updater/mcpp.toml".** The build tool described the rest of the
+workspace and said which part it could not (a member whose build program failed, say); that part's
+files are read with what the rest gives them, and the rest works as usual (`producer-partial`, S2
+0.3.0). Fix what the message names, and the next reload describes it too.
+
 **"clangd rejected the compile command for module scanning".** Before it builds a module, clangd
 scans each unit of the database for its imports, with that unit's compile command; a command the
 compiler driver rejects fails the scan, and no module is built — issue #23's `LTO requires

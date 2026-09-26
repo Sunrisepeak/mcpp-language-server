@@ -419,7 +419,7 @@ payload 验证；最后报告产物目录。
 
 ## 8. 实施记录（0.0.5，2026-09-26）
 
-一个 PR（分支 `release/0.0.5`）完成 §7 的全部工作包：A、C、D 由三个并行分支各自实现、单测与夹具验证后合入，B、E、F 在主线实现。
+一个 PR（#26，分支 `release/0.0.5`；并入 #25 的 S2 0.3.0，F10 因此不再推迟）完成 §7 的全部工作包：A、C、D 由三个并行分支各自实现、单测与夹具验证后合入，B、E、F 在主线实现。
 各条的落点与验证：
 
 | # | 实现 | 证据（在 0.0.4 上失败、在 0.0.5 上通过） |
@@ -438,6 +438,7 @@ payload 验证；最后报告产物目录。
 | F14 | `RestartGate` 按原因分预算，超限退避 1/2/4/8 分钟；用户重启与工具链切换不计 | `test_server` |
 | F16 | 见下文"与方案的差异"1 | `typing-autosave`（0.0.4 在 T1 即全部请求无应答）；hello 副本线程 CPU 0 tick |
 | F17 | clangd `--log=info` 进 4000 行内存环；事故目录（保留 20 个、7 天）含日志、编辑器/磁盘差异行、命令、fileStatus 时间线、线程 CPU；计划差异日志；workaround 前提守卫（WA-001/002）；状态按钮标题 | `test_server`、`test_process`；`typing-autosave` T3 |
+| F10 | 并入 PR #25（S2 0.3.0，speak-agent）：`EnvelopeDiagnostic.path`；有 `data` 又有 `error` 的文档照常使用，每个未能描述的部分记为模型 issue `producer-partial`；mock mcpp 可给出这种文档；traceability S2-3.4-12/13 | `test_spec`；夹具 `mcpp-emit-partial`（0.0.4：用了数据但不报告） |
 | F18 | 见 D 分支：`src/bundle/`（脱敏、zip、打包）、CLI/服务端/VS Code 入口、Collect Report 与 `cxxModules/report` 默认脱敏（S3-5.5-3） | `test_bundle`；夹具 `diagnostic-bundle`；CI 上传各平台问题包 |
 
 **与方案的差异**（实现中发现，已按根因处理）：

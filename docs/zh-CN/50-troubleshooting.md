@@ -72,6 +72,8 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **“clangd crashed while building NormalJsonTranslator.Core.cpp”。** clangd 会说明它在哪个文件上崩溃（崩溃上下文），隔离的就是这个文件：它改由 mcppls 自己的引擎应答，同时重启一个不带它的 clangd。报告里的 `engines[].details.lastExit` 有退出码、文件、clangd 当时在做什么，Windows 上还有异常码。五分钟内退出五次，clangd 在下次服务启动前不再使用；状态会提供 **Export Diagnostic Bundle**。
 
+**“mcpp could not describe tools/updater/mcpp.toml”。** 构建工具描述了工作区的其余部分，并说明了它没能描述的那一部分（例如某个成员的构建程序失败）；那部分的文件按其余部分提供的信息来读，其余部分照常工作（`producer-partial`，S2 0.3.0）。修好消息里指出的问题，下次重新加载就会一并描述它。
+
 **“clangd rejected the compile command for module scanning”。** clangd 在构建模块之前，会用数据库里每个单元自己的编译命令扫描它的 import；编译器驱动拒绝的命令会让扫描失败，模块也就一个都不会构建——issue #23 的 `LTO requires -fuse-ld=lld` 就是这种情况。状态会用驱动的原话写出第一处拒绝（类别 `environment`），`engines[].details.scanFailures` 记录次数。命令找不到头文件时也这样说明（类别 `project`）。正在输入的文件扫描失败是常态，只计数。
 
 **“C++26 was disabled in precompiled file”。** 某个模块用一种 C++ 标准构建，却在另一种标准下被导入；clang 会拒绝。mcppls 对同一上下文中的模块单元统一按其中最新的标准来读（报告里的 `plan.languageStandard`、状态 profile 里的 `standard`），所以这条错误只应来自 0.0.5 之前 clangd 构建的模块（下次改动时会重建），或者构建本身就混用了标准——那样构建工具自己的编译器也会拒绝。
