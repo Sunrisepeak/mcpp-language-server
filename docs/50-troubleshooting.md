@@ -132,7 +132,7 @@ journal. Each reason has its own budget of three restarts in ten minutes: the en
 changing (`plan`), recovering a clangd that stopped answering or spun (`recovery`), and clangd
 exiting (`crash`). Past it, the next restart of that kind waits one, two, four, then eight minutes
 — it is backed off, not refused, so a stuck clangd always comes back — and the status says so
-(`engine-restart-capped`) with a **Restart clangd** button (`mcppls.restartClangd`), which restarts
+(`engine-restart-capped`) with a **Restart clangd** button (other editors: `workspace/executeCommand` `mcppls.restartEngine`), which restarts
 at once and is never counted. Switching the toolchain, the profile or the context is never counted
 either, and a module that does not compile is never a reason to restart. Every change of the engine
 database is logged with what it changed (`engine database changed: … compiled otherwise (main.cpp:

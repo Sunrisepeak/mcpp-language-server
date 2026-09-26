@@ -330,10 +330,10 @@ async function restartClangd(access: ServerAccess): Promise<void> {
         return;
     }
     try {
-        await client.sendRequest('workspace/executeCommand', { command: 'mcppls.restartClangd', arguments: [] });
+        await client.sendRequest('workspace/executeCommand', { command: 'mcppls.restartEngine', arguments: [] });
         access.log('clangd restart requested');
     } catch (error) {
-        access.log(`mcppls.restartClangd failed: ${errorText(error)}`);
+        access.log(`mcppls.restartEngine failed: ${errorText(error)}`);
         void vscode.window.showWarningMessage(`C++ Modules: clangd could not be restarted: ${errorText(error)}`);
     }
 }

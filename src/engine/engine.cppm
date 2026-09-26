@@ -207,7 +207,7 @@ public:
     // What this engine knows that a report of a problem needs (robustness design O3).
     virtual Json report() const { return Json::object(); }
 
-    // The person asked for the engine to start over (`mcppls.restartClangd`, fix plan F14): at once,
+    // The person asked for the engine to start over (`workspace/executeCommand mcppls.restartEngine`, fix plan F14): at once,
     // whatever its restart budget says, and not counted in it. False when there is nothing to restart.
     virtual bool restart_on_request() { return false; }
 };

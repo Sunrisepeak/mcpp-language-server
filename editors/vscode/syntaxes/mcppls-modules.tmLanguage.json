@@ -39,8 +39,8 @@
       }
     },
     "contract-assert": {
-      "comment": "C++26 contracts (P2900): contract_assert is a keyword, which VS Code's built-in grammar does not know yet. Colored like static_assert.",
-      "match": "\\b(contract_assert)\\b",
+      "comment": "C++26 contracts (P2900): contract_assert is a keyword, which VS Code's built-in grammar does not know yet. Colored like static_assert. The leading blanks are part of the match: the built-in grammar's function-call rule starts at them, and a match that starts where it does wins, being injected on the left.",
+      "match": "\\s*\\b(contract_assert)\\b",
       "captures": {
         "1": { "name": "keyword.other.contract_assert.cpp" }
       }

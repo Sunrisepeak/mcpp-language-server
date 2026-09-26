@@ -234,8 +234,9 @@ private:
             reply_(id, nullptr);
             return;
         }
-        // Fix plan F14: the person's way past a restart held back by its budget; never counted in it.
-        if (method == lsp::method::WORKSPACE_EXECUTE_COMMAND && params.value("command", std::string {}) == "mcppls.restartClangd") {
+        // Fix plan F14: the person's way past a restart held back by its budget; never counted in it. Not the name of
+        // the editor's own command (mcppls.restartClangd): a client registers every command a server declares.
+        if (method == lsp::method::WORKSPACE_EXECUTE_COMMAND && params.value("command", std::string {}) == "mcppls.restartEngine") {
             std::size_t restarted { 0 };
             for (auto& root : roots_) restarted += root->restart_core_engine() ? 1 : 0;
             reply_(id, Json { { "restarted", restarted } });

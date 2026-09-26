@@ -408,7 +408,7 @@ mcpp#699（仍 open），F16.3 按 D2 推迟。
   涉及文件与其缓冲区/磁盘差异的相关行、fileStatus 时间线、线程 CPU、退出码与崩溃上下文、最近计划差异、重启历史）与
   `clangd.log`（环形缓冲落盘）。保留最近 20 个或 7 天。
 - 服务端日志：`<缓存>/logs/server-*.log`（`open_log_file`）；工作区缓存目录在报告的 `roots[].cacheDirectory`。
-- 服务端命令：`mcppls.exportBundle`（D）、`mcppls.restartClangd`（B：绕过预算重启一次，记为用户操作、不计入预算）；VS Code 命令
+- 服务端命令：`mcppls.exportBundle`（D）、`mcppls.restartEngine`（B：绕过预算重启一次，记为用户操作、不计入预算）；VS Code 命令
   `mcppls.exportDiagnosticBundle`、`mcppls.restartClangd`（D）。状态 issue 的 `command` 可指向这两个（B）。
 
 ### 7.4 完成标准
