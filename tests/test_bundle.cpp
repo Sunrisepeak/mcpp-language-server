@@ -161,6 +161,13 @@ int main() {
         hidden.workspaces = { "/tmp/work/proj" };
         bundle::Redactor workspace { hidden };
         expect(workspace.redact(R"(["-I/tmp/work/proj/include", "-fmodule-file=a=/tmp/work/proj/a.pcm"])") == R"(["-I<workspace>/include", "-fmodule-file=a=<workspace>/a.pcm"])");
+        // macOS gives /var, /tmp and /etc a second spelling under /private: the same directory either way.
+        expect(workspace.redact("/private/tmp/work/proj/src/a.cpp") == "<workspace>/src/a.cpp");
+        auto mac = linux_user();
+        mac.workspaces = { "/private/var/folders/s6/T/proj" };
+        bundle::Redactor macos { mac };
+        expect(macos.redact("/var/folders/s6/T/proj/src/a.cpp and /private/var/folders/s6/T/proj/b.cpp") == "<workspace>/src/a.cpp and <workspace>/b.cpp");
+        expect(macos.redact("/var/folders/s6/T/project2/c.cpp") == "/var/folders/s6/T/project2/c.cpp") << "another directory";
     };
 
     "a Windows profile is ~ with either separator, escaped, encoded, from WSL and by its 8.3 name"_test = [] {

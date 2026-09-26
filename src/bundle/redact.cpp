@@ -594,6 +594,19 @@ bool secret_name(std::string_view name) {
     return false;
 }
 
+// A path and the other spelling macOS gives the same directory: /var, /tmp and /etc are links into /private, so a
+// workspace the server knows as /private/var/folders/.../T/x is /var/folders/.../T/x to the editor (CI, 2026-09-26).
+std::vector<std::string> spellings_of(const std::string& path) {
+    std::vector<std::string> spellings { path };
+    for (const std::string_view top : { std::string_view { "/var" }, std::string_view { "/tmp" }, std::string_view { "/etc" } }) {
+        const std::string privateTop { std::format("/private{}", top) };
+        const auto under = [&](std::string_view root) { return path == root || (path.starts_with(root) && path[root.size()] == '/'); };
+        if (under(privateTop)) spellings.push_back(path.substr(8));
+        else if (under(top)) spellings.push_back("/private" + path);
+    }
+    return spellings;
+}
+
 struct Redactor::Impl {
     Identity identity;
     std::vector<PathPattern> workspacePatterns;   // longest first
@@ -610,10 +623,18 @@ struct Redactor::Impl {
         for (std::size_t i { 0 }; i < identity.workspaces.size(); ++i) {
             if (identity.workspaces[i].empty()) continue;
             const std::string placeholder { i == 0 ? std::string { "<workspace>" } : std::format("<workspace-{}>", i + 1) };
-            for (auto& pattern : path_patterns(identity.workspaces[i], RULE_WORKSPACE, placeholder)) workspacePatterns.push_back(std::move(pattern));
+            for (const auto& spelling : spellings_of(identity.workspaces[i])) {
+                for (auto& pattern : path_patterns(spelling, RULE_WORKSPACE, placeholder)) workspacePatterns.push_back(std::move(pattern));
+            }
         }
         std::ranges::stable_sort(workspacePatterns, byLength);
+        std::vector<std::string> homes;
         for (const auto& home : identity.homes) {
+            for (auto& spelling : spellings_of(home)) {
+                if (std::ranges::find(homes, spelling) == homes.end()) homes.push_back(std::move(spelling));
+            }
+        }
+        for (const auto& home : homes) {
             if (segments_of(home).empty()) continue;   // "/" or "C:/": nothing personal to hide
             for (auto& pattern : path_patterns(home, RULE_HOME, "~")) homePatterns.push_back(std::move(pattern));
             // Only a home named for a distinctive user is looked for as a plain string too: "/root" is in
