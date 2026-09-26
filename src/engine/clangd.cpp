@@ -220,7 +220,11 @@ private:
     // name ending in '.' spins it (UP-01, which WA-CLANGD-001 keeps out of the text), and an import of a module the
     // database clangd has read has no unit for can deadlock it (UP-02, which WA-CLANGD-002's stand-ins keep out of the
     // database). An autosave while an import is typed puts either on disk.
-    std::map<std::string, std::string, std::less<>> diskHazards_;   // path key -> why
+    struct DiskHazard {
+        std::string path;   // as the file system spells it: a path key is lower case on Windows, and no file's name there
+        std::string why;
+    };
+    std::map<std::string, DiskHazard, std::less<>> diskHazards_;   // path key -> the file, and why
     // When each module the database provides joined it (fix plan F16): a module is of use to clangd only once it
     // has read that database, DATABASE_REREAD later, or a clangd started after it did.
     std::map<std::string, Clock::time_point, std::less<>> moduleJoinedAt_;
@@ -432,7 +436,7 @@ public:
 
     Json disk_hazards_json_() const {
         Json files = Json::array();
-        for (const auto& [key, why] : diskHazards_) files.push_back(Json { { "file", key }, { "why", why } });
+        for (const auto& [key, hazard] : diskHazards_) files.push_back(Json { { "file", hazard.path }, { "why", hazard.why } });
         return files;
     }
 
@@ -1132,12 +1136,15 @@ public:
         for (const auto& key : quarantine_.due(now)) {
             // Nor is a file whose text on disk would stall clangd (fix plan F16): it waits for the disk, or the database.
             if (const auto aside = aside_.find(key); aside != aside_.end() && aside->second.onDisk) {
-                const auto disk = platform::fs::read_file(aside->first);
-                if (!disk || disk_hazard_(*disk, now, key)) {
-                    quarantine_.put(key, now);
-                    continue;
+                if (const auto hazard = diskHazards_.find(key); hazard != diskHazards_.end()) {
+                    const auto disk = platform::fs::read_file(hazard->second.path);
+                    if (!disk || disk_hazard_(*disk, now, key)) {
+                        quarantine_.put(key, now);
+                        continue;
+                    }
+                    diskHazards_.erase(hazard);
+                    unresolvedOnDiskSince_.erase(key);
                 }
-                diskHazards_.erase(key);
             }
             // The text clangd spun on is never given back to it, however long it has been aside.
             if (const auto aside = aside_.find(key); aside != aside_.end() && aside->second.spunOn) {
@@ -2499,7 +2506,7 @@ private:
         }
         if (hazard->contains("UP-02")) unresolvedOnDiskSince_.try_emplace(key, now);
         else unresolvedOnDiskSince_.erase(key);
-        const auto [known, fresh] = diskHazards_.insert_or_assign(key, *hazard);
+        const auto [known, fresh] = diskHazards_.insert_or_assign(key, DiskHazard { std::string { path }, *hazard });
         (void)known;
         if (fresh) {
             log::info("{} on disk would stall clangd ({}): {}; it is not given to clangd until that changes", path, host_->root_directory(), *hazard);
@@ -2545,11 +2552,12 @@ private:
 
     void recheck_disk_(Clock::time_point now) {
         diskRecheckAt_.reset();
-        std::vector<std::string> keys;
-        for (const auto& [key, why] : diskHazards_) keys.push_back(key);
-        for (const auto& key : keys) {
-            const auto text = platform::fs::read_file(key);
-            const auto hazard = text ? disk_hazard_(*text, now, key) : std::nullopt;
+        std::vector<std::pair<std::string, std::string>> files;
+        for (const auto& [key, hazard] : diskHazards_) files.emplace_back(key, hazard.path);
+        for (const auto& [key, path] : files) {
+            const auto text = platform::fs::read_file(path);
+            if (!text) continue;   // not readable now: what was on disk is what clangd would read
+            const auto hazard = disk_hazard_(*text, now, key);
             const auto since = unresolvedOnDiskSince_.find(key);
             const bool givenUp { hazard && hazard->contains("UP-02") && since != unresolvedOnDiskSince_.end() && now - since->second >= UNRESOLVED_DISK_LIMIT };
             if (givenUp) {
@@ -2562,7 +2570,7 @@ private:
                 unresolvedOnDiskSince_.erase(key);
                 hand_back_from_disk_(key);
             } else {
-                diskHazards_[key] = *hazard;
+                diskHazards_[key].why = *hazard;
             }
         }
         if (!diskHazards_.empty()) schedule_disk_recheck_(now);
@@ -2873,7 +2881,7 @@ private:
             // typed, not the server losing anything: said as such, with why, and never a degraded status.
             if (const auto hazard = diskHazards_.find(key); hazard != diskHazards_.end()) {
                 issues_.push_back(Issue { "file-unsafe-on-disk",
-                    std::format("{} is answered by mcppls's own engine until it is saved again: {}", base::file_name(key), hazard->second), "", "code" });
+                    std::format("{} is answered by mcppls's own engine until it is saved again: {}", base::file_name(hazard->second.path), hazard->second.why), "", "code" });
                 continue;
             }
             members.push_back(key);
