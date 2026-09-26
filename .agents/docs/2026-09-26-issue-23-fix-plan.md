@@ -417,6 +417,49 @@ mcpp#699（仍 open），F16.3 按 D2 推迟。
 自我 review（含一次独立 review agent）后无遗留问题；squash 合入；Release 工作流发布 0.0.5；下载发布产物、校验哈希、本地装 VSIX 与
 payload 验证；最后报告产物目录。
 
+## 8. 实施记录（0.0.5，2026-09-26）
+
+一个 PR（分支 `release/0.0.5`）完成 §7 的全部工作包：A、C、D 由三个并行分支各自实现、单测与夹具验证后合入，B、E、F 在主线实现。
+各条的落点与验证：
+
+| # | 实现 | 证据（在 0.0.4 上失败、在 0.0.5 上通过） |
+|---|---|---|
+| F1 | `translate_gnu`/`translate_msvc`/`kit_arguments` 末尾恰好一个 `-c`（在 `-x c++-module` 前），`-flto` 保留 | `test_normalize`；夹具 `compdb-lto-msvc`（Linux 上复现 `LTO requires -fuse-ld=lld`） |
+| F2 | `base::byte_order_mark_size`；两个词法器从 BOM 之后开始，位置按原文；WA-CLANGD-001 的改写也跳过 BOM | `test_scan`、`test_exports`、`test_workarounds`；夹具 `inferred-bom` |
+| F3 | `LogReader` 解析崩溃上下文（含 Windows 异常码）；退出在 500 ms 后结算，只隔离 clangd 点名的文件；`lastExit` 进报告与状态 | `test_server`（#23 的原始日志行）；夹具 `clangd-crash-context`（替身 clangd） |
+| F4 | 识别出构建系统时，clangd 在 producer 回答或 60 s 前不接收计划、不被路由请求；临时模型被替换时清零其崩溃/重启/隔离记账 | 夹具 `mcpp-emit-wait` |
+| F5 | `SKIPPED_DIRECTORIES` 与子目录 `vcpkg.json` | `test_project` |
+| F6 | 扫描失败按驱动错误（environment）/缺头文件（project）/代码错误（仅计数）分类；关键行不受限流 | `test_server`；夹具 `compdb-rejected-command` |
+| F7 | `MCPP_VERSION=2026.9.26.1`、`macos_deployment_target = "11.0"`；本机交叉编译读出 `minos 11.0` | 本机验证 |
+| F8 | 模块单元中每个 `export` 都是 keyword；VS Code 注入语法新增规则 | `test_scan`/`test_tokens`、`grammar.test.ts`、`inferred` 夹具 |
+| F9、F15 | 见 C 分支：四层防频繁、关键字合并、`mcppls.completion.triggerOnSpace`、S3 §6.2 | `test_completion`、夹具 `completion-keywords`、VS Code 单测；门槛开销均值 77 µs |
+| F11、F12 | `WA-CLANGD-007`（未保存的 import 改为信息）、`WA-CLANGD-006`（缺 `;` 的诊断移回指令行），均在注册表内、可关闭 | `test_workarounds`；`typing-autosave` 的 D1、D2 |
+| F13 | 编辑中的结构变化 2 s 静默后再计划；计划重启 2 s 合并；stand-in 进出不重启；clangd 未打开的文件改参数不重启；替身不被当作新提供者（hello 日志里第 1 次重启的真因） | `test_server`；`typing-autosave` 的 T6–T11 |
+| F14 | `RestartGate` 按原因分预算，超限退避 1/2/4/8 分钟；用户重启与工具链切换不计 | `test_server` |
+| F16 | 见下文"与方案的差异"1 | `typing-autosave`（0.0.4 在 T1 即全部请求无应答）；hello 副本线程 CPU 0 tick |
+| F17 | clangd `--log=info` 进 4000 行内存环；事故目录（保留 20 个、7 天）含日志、编辑器/磁盘差异行、命令、fileStatus 时间线、线程 CPU；计划差异日志；workaround 前提守卫（WA-001/002）；状态按钮标题 | `test_server`、`test_process`；`typing-autosave` T3 |
+| F18 | 见 D 分支：`src/bundle/`（脱敏、zip、打包）、CLI/服务端/VS Code 入口、Collect Report 与 `cxxModules/report` 默认脱敏（S3-5.5-3） | `test_bundle`；夹具 `diagnostic-bundle`；CI 上传各平台问题包 |
+
+**与方案的差异**（实现中发现，已按根因处理）：
+
+1. **F16 扩为"磁盘文本对 clangd 是否安全"。** 按方案只查 `import hello.` 时，夹具暴露了第二种情况：自动保存把尚不存在的模块名
+   （`import hello.e`）写到磁盘，clangd 从磁盘读到后同样卡死（UP-02 经 UP-14 的路径）。根因有三：H3 推迟 stand-in 的前提"正在输入的
+   import 只在缓冲区里"被自动保存打破；计划对 inferred 模型的单元沿用加载时的 `requiredModules`，看不到正在编辑的 import；扫描器不认
+   缺 `;` 的 import，而 clang 认（P1857）。已分别修正：编辑中的文件以缓冲区与磁盘的 import 合并计划，磁盘上已有的 import 立即得到
+   stand-in；扫描器记录 `unterminatedImports`；磁盘检查同时覆盖"数据库里还没有、或 clangd 还没重读到"的模块，文件在 stand-in 被
+   读到后（约 6 s）交还。
+2. **F16 的"保存前已开始的构建"。** 夹具的输入方式（改动与保存几乎同时）让 clangd 在保存前开始的构建读到新磁盘内容。按方案的
+   "隔离即可"不够：已开始的构建停不下来。现为先让它结束（1.5 s），仍未结束则重启 clangd 且不带该文件；Windows 上这一情形是崩溃，
+   崩溃文件若已知磁盘不安全，同样只隔离到磁盘修好。
+3. **F17.1 的"出事后临时切到 verbose"未做**：clangd 运行中不能改日志级别，需要重启；事故带 `info` 日志，需要 verbose 时按文档用
+   `--log-level debug` 启动（design.md §7 已写明）。
+4. F13 的"计划变回原样则取消重启"未做：取消需要让旧 clangd 重新与计划同步（打开/关闭文件），复杂度与收益不相称；以 2 s 合并、
+   stand-in 与未打开文件不触发重启代替。
+
+**验证**：dev 与 release profile 单测 29/29；`devtools check all`、`validate.py` 通过；Windows/macOS 交叉编译通过；本机 Linux
+全部 conformance（CI 两部分清单 + 新夹具，共 50 个）通过；新夹具逐个对照 0.0.4 确认失败。hello 项目副本：`impo`/`expo` 从第一个字母起
+有 `import`/`export module`；`import hello.` 写盘后 clangd 各线程 20 s 内 0 tick（0.0.4 约 2000）。
+
 ## 不做的事
 
 - 不删除 `-flto` 或其他链接参数（F1）。

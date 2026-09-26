@@ -115,6 +115,27 @@ has a deadline and a fallback; an unknown stall isolates one file, not the engin
 by construction, with the kit as fallback for a failing toolchain `std` (P5). Bounded resources (P6).
 Visible degradation: the status says which modules, how many files, and why (P7).
 
+**What clangd reads is not only what it is given** (0.0.5, `.agents/docs/2026-09-26-issue-23-fix-plan.md`).
+clangd reads a file's imports from disk (UP-14 in issue #24), so every save and watched change is
+checked: a file whose text on disk would stall clangd (a module name ending in `.`, an import the
+database clangd has read has no unit for) is set aside before clangd builds it and handed back when
+the disk or the database makes it safe. Every command clangd is given compiles only (`-c`), so no
+link-phase check of the driver can fail its module scan (issue #23). Restarts have a budget per
+cause (plan, recovery, crash) and are backed off past it, never refused (refining P3); a person's
+own restart and a switch of toolchain, profile or context are never counted. A crash sets aside the
+file clangd names in its crash context. A project whose build system was found gets clangd only
+with the build tool's model (within its bound), never with a provisional one it would have to
+unlearn.
+
+**Observability.** One occurrence must be enough to see why. clangd logs at `info` into a ring in
+memory; crashes, stuck or spinning clangd, files set aside, backed-off restarts and a workaround
+whose premise is seen broken each write an incident under the workspace's cache (the newest twenty,
+for a week): what led up to it, clangd's log, each file's editor-versus-disk lines, their commands,
+clangd's recent states per file, and which of its threads used the CPU. Every change of the engine
+database is logged with what changed. A diagnostic bundle (`mcppls.exportBundle`, `mcppls report
+--bundle`) zips the report, environment, logs, incidents and engine database, with the user's home,
+names and secrets replaced, and is not written at all when any is left; it is never uploaded.
+
 **External programs** (build tools, compiler probes, CMake, git) all go through one runner: each run
 gets its own process unit, soft and hard deadlines end the unit with everything it started, reads
 are bounded, and every run is recorded (command, environment source, offline or not, duration,
@@ -167,6 +188,12 @@ before anything is published (`docs/92-release.md`).
 | T1 | Tooling: the server is not split internally; devtools depends on no server code and is the one entry for repository work (`mcpp run -p devtools -- ...`) |
 | T3 | Cache inspection belongs to the server (`mcppls cache`), since only the server knows its cache layout |
 | T5 | The specification schema check (`docs/specs/tools/validate.py`) is the one script kept, until a C++ JSON Schema 2020-12 validator exists |
+| RD1 | A project whose build system was found gets clangd with the build tool's model only, within the producer's bound (fix plan 2026-09-26 D1) |
+| RD2 | clangd's upstream defect behind `import a.` (UP-01) is worked around, not fixed in a clangd of our own, until upstream settles (D2) |
+| RD3 | clangd logs at `info` into memory; incidents on disk; nothing ever uploaded (D3, F17, F18) |
+| RD4 | The space is a completion trigger only after `import `, dropped by the editor elsewhere, and advertised only to clients known to drop it (D4) |
+| RD5 | Reports and bundles are redacted by default; a bundle with anything left is not written (F18) |
+| RD6 | Restarts are budgeted per cause and backed off past it, never refused; the person's restart is never counted (F14) |
 
 ## 7. Known limits
 
@@ -184,6 +211,13 @@ before anything is published (`docs/92-release.md`).
   outside the database gets such a command, the one clangd interpolates from its nearest unit, so
   only a stray file with ill-formed code reaches it. The first-diagnostics guard sets it aside after
   two minutes (import-hang plan §13).
+- clangd 23.1 reads an open file's imports from disk (UP-14): an import typed and not saved is not
+  built until the save (told as information, `WA-CLANGD-007`), and a file whose disk text would stall
+  clangd is answered by mcppls's own engine until it is saved again (fix plan F16). The upstream fix
+  — scanning with the editor's buffer — is tracked in issue #24.
+- clangd cannot change its log level while it runs; an incident carries its `info` log, and the
+  `verbose` one needs the server started at `--log-level debug` (in VS Code, the trace setting at
+  `verbose`), a restart away.
 - An mcpp project built for Windows through openkal needs `--target x86_64-windows-gnu`, which no
   editor setting passes to mcpp yet.
 - openkal cannot lower a child's scheduling priority, so clangd's cold-start module builds compete

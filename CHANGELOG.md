@@ -7,6 +7,114 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.5] — 2026-09-26
+
+Issue #23 is fixed: modules are built again for projects compiled with LTO for the MSVC ABI. An
+autosave of a half-typed `import` no longer stalls clangd, restarts can no longer leave it stuck, and
+one command exports everything a problem report needs, with your name, paths and secrets replaced.
+The analysis of #23 with its Windows measurements is `.agents/docs/2026-09-26-issue-23-lto-module-scan.md`;
+the plan, its decisions and what was measured is `.agents/docs/2026-09-26-issue-23-fix-plan.md`.
+clangd's own defects behind all of this are registered in issue #24.
+
+### Engine
+
+- **Modules are built again under LTO for the MSVC ABI (issue #23).** clangd's module scan failed on
+  every unit with the driver's `LTO requires -fuse-ld=lld`, so no module was built, imports were not
+  found, and on Windows clangd then crashed until it was given up on. Every command mcppls gives
+  clangd now compiles only (`-c`), which no link-phase check can fail; `-flto` and the rest of your
+  command stay as they are. clangd rebuilds its module cache once, the first time a project is opened.
+- **An autosave of a half-typed import no longer stalls clangd.** clangd reads a file's imports from
+  its text on disk, not from the editor, so `import hello.` saved by `files.autoSave` spun a clangd
+  worker at a full core (it crashed clangd on Windows), past the 0.0.4 workaround, and every request
+  for the file waited behind it until clangd was restarted; an import of a module that does not exist
+  yet, saved, deadlocked it the same way.
+  - Every save and watched change is checked: such a file is answered by mcppls's own engine until it
+    is saved again, and the status says so as a problem of the code being typed, staying *ready*.
+  - A build clangd began on it just before is given 1.5 s to finish, else clangd restarts without it.
+  - A module nothing provides that a save put on disk gets its stand-in within a second.
+  - Measured on the hello project: 0 CPU for every clangd thread over 20 s with `import hello.` on
+    disk, where 0.0.4 used a full core.
+- **A crash sets aside the file clangd names.** clangd says which file it crashed on; that one is set
+  aside, instead of whatever was asked about or edited in the last ten seconds (in #23, the wrong
+  file). The exit code, the file and, on Windows, the exception code are in the report and the status.
+- **Restarts are backed off, never refused.** Each reason has its own budget of three restarts in ten
+  minutes: the database changing, recovering a clangd that stopped answering, and clangd exiting. Past
+  it, the next one waits 1, 2, 4, then 8 minutes, so a stuck clangd always comes back; in 0.0.4 it
+  stayed stuck until the window aged out.
+  - **C++ Modules: Restart clangd** restarts it at once and is never counted.
+  - Switching the toolchain, the profile or the context is not counted either.
+- **Fewer restarts while typing.** A stand-in coming or going no longer restarts clangd, nor does a
+  changed command of a file clangd does not have, and a restart the database asks for waits two seconds
+  so the changes that follow share it. The stand-in given to a module clangd could not find is no
+  longer taken for a new provider, which dropped it again and restarted clangd. A change to a file's
+  imports is planned once the file has been quiet for two seconds.
+- **clangd starts with the build tool's model.** A project whose build system was found no longer
+  gives clangd a model guessed from its sources while the build tool runs, which clangd then had to
+  unlearn (in #23, three crashes on it before the real model came). mcppls's own engine answers
+  module features meanwhile, for up to a minute.
+- **A command clangd rejects is said so.** When clangd's module scan fails on a command, the status
+  names the first rejection in the compiler's words, as an environment problem; a missing header, as
+  the project's.
+- A source saved with a UTF-8 byte order mark still declares its module. When no build tool describes
+  a project, `vcpkg_installed/`, `vcpkg/`, Conan and xmake caches and vendored vcpkg packages are not
+  scanned, so their modules no longer show up as ambiguous.
+
+### Diagnostics
+
+- A directive missing its `;` is reported on the directive, not on the code after it
+  (`WA-CLANGD-006`).
+- An import typed and not saved yet, of a module in the project, is information ("module 'X' is in
+  the project; clangd loads it once the file is saved"), not a `module not found` error
+  (`WA-CLANGD-007`).
+
+### Completion and coloring
+
+- **A space after `import ` or `export import ` opens the module list** in VS Code; spaces anywhere
+  else never reach the server. Setting `mcppls.completion.triggerOnSpace` (default on). Other editors
+  can opt in with `initializationOptions.completion.triggerOnSpace: true`.
+- **Module keywords come from mcppls**, merged with clangd's: `import`, `export import`, `module;`,
+  `export module`, `module` and `module :private;`, each where it can start a declaration, and still
+  there when clangd is stuck or restarting. Accepting `import` opens the module list. No name is
+  suggested after `export module `.
+- The `export` of every export declaration (`export namespace`, `export {`, `export int f()`) is
+  colored like the one of `export module`.
+
+### Reports and diagnostics bundle
+
+- **C++ Modules: Export Diagnostic Bundle** (`mcppls report --bundle out.zip`, `workspace/executeCommand`
+  `mcppls.exportBundle`): one zip with the report, the environment, recent server logs, incidents and
+  the engine database, written locally and never uploaded.
+  - Your home directory becomes `~`, your user and host names `<user>` and `<host>`, and tokens,
+    passwords, keys and e-mail addresses `<redacted>`.
+  - If anything is left after that, the bundle is not written at all, and the editor offers to retry
+    with project paths hidden.
+  - Source files are never included; crash dumps only on request.
+- The diagnostic report is redacted the same way by default (`cxxModules/report` `redact`, S3-5.5-3).
+- **Incidents.** A crash, a stuck or spinning clangd, a file set aside, a restart held back and a
+  broken workaround premise each leave a directory under the workspace's cache (`incidents/`, the
+  newest twenty, for a week). It holds clangd's latest log (clangd now logs at `info`, into memory
+  only), the files' editor-versus-disk lines and which clangd thread was busy.
+- Every change of the engine database is logged with what changed. The status buttons say what they
+  do (Restart clangd, Export Diagnostic Bundle).
+
+### Build
+
+- The macOS server runs on macOS 11 again (it said 14.0), built with mcpp 2026.9.26.1.
+
+### Known limits
+
+- clangd's own defects are worked around, not fixed: `import a.` (UP-01, whose upstream fix is
+  deferred), imports read from disk (UP-14), and a Windows crash on some units with correct commands
+  (UP-13). The last one is contained: the file clangd names is set aside. Issue #24 tracks each.
+
+### Testing
+
+- New conformance fixtures, each failing on 0.0.4: `typing-autosave`, `clangd-crash-context`,
+  `compdb-rejected-command`, `mcpp-emit-wait`, `compdb-lto-msvc`, `inferred-bom`,
+  `completion-keywords` and `diagnostic-bundle`.
+- `diagnostic-code` checks take a line, a severity and codes that must be absent; `completion-contains`
+  takes a trigger character.
+
 ## [0.0.4] — 2026-09-25
 
 Typing an `import` no longer freezes the editor, the status bar says whose problem it is, and
