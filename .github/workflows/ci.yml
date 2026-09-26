@@ -277,35 +277,35 @@ jobs:
           - platform: linux-x64
             part: 1 of 2
             os: ubuntu-24.04
-            fixtures: mcpp-split mcpp-all-cppm verify-changes mingw mcpp-split-gcc mcpp-watch multi-root mcpp-llvm mcpp-watch@polling mcpp-emit s1-two-sets failure-at-base@vscode generated-module-negotiated typing-import typing-import-spin workaround-canaries
+            fixtures: mcpp-split mcpp-all-cppm verify-changes mingw mcpp-split-gcc mcpp-watch multi-root mcpp-llvm mcpp-watch@polling mcpp-emit s1-two-sets compdb-lto-msvc failure-at-base@vscode generated-module-negotiated typing-import typing-import-spin workaround-canaries typing-autosave compdb-rejected-command compdb-mixed-standards mcpp-emit-partial
           - platform: linux-x64
             part: 2 of 2
             os: ubuntu-24.04
             extras: true
-            fixtures: inferred engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-watch mcpp-emit-watch@polling cmake-clang cmake-clang-bdb watch-polling payload-corrupt clangd-cannot-load generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed failure-at-base failure-at-base@neovim
+            fixtures: inferred inferred-bom engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-watch mcpp-emit-watch@polling cmake-clang cmake-clang-bdb watch-polling payload-corrupt clangd-cannot-load generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed failure-at-base failure-at-base@neovim completion-keywords diagnostic-bundle clangd-crash-context mcpp-emit-wait inferred-cxx26
           # generated-module{,-old-mcpp,-negotiated}'s mcpp-mock.json bakes in a POSIX driver path
           # (${env:HOME}/.mcpp/registry/..., no {exe}); it resolves the same way here as on Linux, so
           # these run on macOS but are left off win32-x64 below rather than fixed unverified.
           - platform: darwin-arm64
             os: macos-14
             extras: true
-            fixtures: inferred engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries
+            fixtures: inferred inferred-bom engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave clangd-crash-context mcpp-emit-wait inferred-cxx26
           # No mcpp on the arm64 runner (its tools are the cross-built ones), so the fixtures that
           # need no build tool and no compiler of their own: the semantic kit, clangd and the server
           # on aarch64, with module faults, a corrupt payload and polling included.
           - platform: linux-arm64
             os: ubuntu-24.04-arm
             cross-tools: true
-            fixtures: inferred engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling typing-import typing-import-spin workaround-canaries
+            fixtures: inferred inferred-bom engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave clangd-crash-context inferred-cxx26
           - platform: win32-x64
             part: 1 of 2
             os: windows-2022
-            fixtures: mcpp-split mcpp-all-cppm verify-changes mcpp-split-msvc cmake-msvc-std compdb-clangxx-msvc-std multi-root compdb-clang-cl-std mcpp-llvm-msvc failure-at-base@vscode typing-import typing-import-spin workaround-canaries
+            fixtures: mcpp-split mcpp-all-cppm verify-changes mcpp-split-msvc cmake-msvc-std compdb-clangxx-msvc-std multi-root compdb-clang-cl-std mcpp-llvm-msvc failure-at-base@vscode typing-import typing-import-spin workaround-canaries typing-autosave
           - platform: win32-x64
             part: 2 of 2
             os: windows-2022
             extras: true
-            fixtures: inferred engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-clangxx-msvc cmake-clang-cl mcpp-msvc mcpp-watch failure-at-base clangd-cannot-load
+            fixtures: inferred inferred-bom engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-clangxx-msvc cmake-clang-cl mcpp-msvc mcpp-watch failure-at-base clangd-cannot-load completion-keywords diagnostic-bundle mcpp-emit-wait inferred-cxx26
     defaults:
       run:
         shell: bash
@@ -436,7 +436,9 @@ jobs:
               *@neovim) fixture_extra+=(--client neovim) ;;
               *@zed) fixture_extra+=(--client zed) ;;
             esac
+            # Issue #23 fix plan F18: the diagnostic bundles the bundle checks exported, kept for the artifact below.
             PATH="$path_prefix$PATH" "stage/mcppls-conformance$exe" run --server "payload/bin/mcppls$exe" --payload payload \
+                --keep-bundles "$RUNNER_TEMP/bundles" \
                 ${fixture_extra[@]+"${fixture_extra[@]}"} --fixture "conformance/fixtures/${fixture%@*}" "$@"
           }
           failed=''
@@ -454,6 +456,29 @@ jobs:
             run_fixture "$first" --timeout 60 --verbose 2>&1 | tail -200 || true
             exit 1
           fi
+
+      # Issue #23 fix plan F18: the bundles diagnostic-bundle exported on this runner's own account, whose
+      # name is in every path of it (runneradmin and RUNNER~1 on Windows). The fixture already held each
+      # to its manifest and found no user name and no home directory in it; here another program's zip
+      # reader opens them and checks every entry's CRC, and they are kept to look at.
+      - name: The diagnostic bundles open with another program's zip reader
+        if: always() && contains(matrix.fixtures, 'diagnostic-bundle')
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          set -euo pipefail
+          temp="$RUNNER_TEMP"; python=python3
+          if [ "$RUNNER_OS" = Windows ]; then temp=$(cygpath -u "$RUNNER_TEMP"); python=python; fi
+          shopt -s nullglob
+          bundles=("$temp"/bundles/*.zip)
+          [ ${#bundles[@]} -gt 0 ] || { echo "::error::diagnostic-bundle left no bundle"; exit 1; }
+          for bundle in "${bundles[@]}"; do "$python" -m zipfile -t "$bundle"; "$python" -m zipfile -l "$bundle"; done
+      - uses: actions/upload-artifact@v7
+        if: always() && contains(matrix.fixtures, 'diagnostic-bundle')
+        with:
+          name: diagnostic-bundle-${{ matrix.platform }}
+          path: ${{ runner.temp }}/bundles/*.zip
+          if-no-files-found: ignore
 
       # The review of changes (overall design 7.4, 10.3, work item RV5): every tools/bench/review fixture's change
       # reviewed by the payload's server; a missing finding or one a fixture rules out fails the job, and

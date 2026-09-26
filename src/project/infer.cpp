@@ -18,7 +18,47 @@ constexpr std::array<std::string_view, 16> SOURCE_EXTENSIONS {
     ".cpp", ".cc", ".cxx", ".c++", ".cppm", ".ccm", ".cxxm", ".c++m", ".ixx", ".mpp", ".mxx", ".cp",
     ".CPP", ".CC", ".CXX", ".C",
 };
-constexpr std::array<std::string_view, 7> SKIPPED_DIRECTORIES { "target", "build", "node_modules", "out", "_build", "cmake-build-debug", "cmake-build-release" };
+// Build output, and what package managers install or cache (fix plan F5): their packages' sources are not
+// this project's. Issue #23's fallback scan of GalTranslPP took 166 of its 349 units from vcpkg_installed/
+// and reported the modules there as ambiguous. list_files skips hidden directories already; they are
+// named here too, so the list says everything it leaves out.
+constexpr std::array<std::string_view, 14> SKIPPED_DIRECTORIES { "target", "build", "node_modules", "out", "_build", "cmake-build-debug",
+                                                                 "cmake-build-release", "vcpkg_installed", "vcpkg", ".conan", ".conan2",
+                                                                 ".xmake", ".cache", ".git" };
+
+// A directory below the root with a vcpkg.json of its own is a vcpkg package -- a port, an overlay, a
+// vendored library -- and not part of this project (fix plan F5). Each directory is looked at once.
+class VcpkgPackages {
+public:
+    explicit VcpkgPackages(std::string_view root) : rootKey_ { base::path_key(root) } {}
+
+    bool contains(std::string_view file) {
+        std::string directory { base::parent_path(file) };
+        std::vector<std::string> walked;
+        bool found { false };
+        while (!directory.empty() && base::path_key(directory) != rootKey_ && base::is_within(directory, rootKey_)) {
+            if (const auto known = package_.find(directory); known != package_.end()) {
+                found = known->second;
+                break;
+            }
+            walked.push_back(directory);
+            if (platform::fs::is_regular_file(base::join_path(directory, "vcpkg.json"))) {
+                found = true;
+                break;
+            }
+            const std::string parent { base::parent_path(directory) };
+            if (parent == directory) break;
+            directory = parent;
+        }
+        for (auto& visited : walked) package_.insert_or_assign(std::move(visited), found);
+        return found;
+    }
+
+private:
+    std::string rootKey_;
+    std::map<std::string, bool, std::less<>> package_;   // directory -> whether it is inside a vcpkg package
+};
+
 void fill_modules(spec::TranslationUnit& unit, const ScanResult& scanned) {
     unit.role = role_of(scanned);
     if (const std::string provided { provided_name(scanned) }; !provided.empty()) unit.providedModules.emplace_back(provided, std::string {});
@@ -140,6 +180,18 @@ InferredDatabase enrich_database(spec::Database database, const Scanner& scanner
     return result;
 }
 
+std::string inferred_language_standard(const std::optional<toolchain::ToolchainFacts>& facts) {
+    if (!facts) return "c++26";
+    const std::string_view version { facts->toolchain.version };
+    int major { 0 };
+    (void)std::from_chars(version.data(), version.data() + version.size(), major);
+    switch (facts->toolchain.family) {
+    case spec::Family::gcc: return major >= 14 ? "c++26" : "c++23";
+    case spec::Family::clang: return major >= 20 ? "c++26" : major >= 17 ? "c++2c" : "c++23";
+    default: return "c++26";   // the MSVC family is given /std:c++latest, which is C++26 to the engine
+    }
+}
+
 InferredDatabase infer_database(std::string_view rootInput, const InferOptions& options, const Scanner& scanner) {
     InferredDatabase result;
     const std::string root { base::normalize_path(rootInput) };
@@ -172,8 +224,9 @@ InferredDatabase infer_database(std::string_view rootInput, const InferOptions& 
 
     // A nested project's own sources are not this one's (real-project plan RP3.4).
     const ProjectBoundaries boundaries { root };
+    VcpkgPackages vcpkgPackages { root };
     for (const auto& file : platform::fs::list_files(root, SOURCE_EXTENSIONS, SKIPPED_DIRECTORIES)) {
-        if (boundaries.crossed(file, root)) continue;
+        if (boundaries.crossed(file, root) || vcpkgPackages.contains(file)) continue;
         spec::TranslationUnit unit;
         unit.source = file;
         unit.workDirectory = root;

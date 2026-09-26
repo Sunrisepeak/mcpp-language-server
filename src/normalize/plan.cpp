@@ -149,6 +149,79 @@ std::string prime_file_name(std::size_t index, std::string_view module) {
 
 } // namespace
 
+std::optional<std::pair<int, bool>> cxx_standard(std::string_view standard) {
+    bool gnu { false };
+    if (standard.starts_with("gnu++")) {
+        gnu = true;
+        standard.remove_prefix(5);
+    } else if (standard.starts_with("c++")) {
+        standard.remove_prefix(3);
+    } else {
+        return std::nullopt;
+    }
+    static constexpr std::array<std::pair<std::string_view, int>, 15> YEARS { {
+        { "98", 1998 }, { "03", 2003 }, { "0x", 2011 }, { "11", 2011 }, { "1y", 2014 }, { "14", 2014 }, { "1z", 2017 }, { "17", 2017 },
+        { "2a", 2020 }, { "20", 2020 }, { "2b", 2023 }, { "23", 2023 }, { "2c", 2026 }, { "26", 2026 }, { "latest", 2026 },
+    } };
+    for (const auto& [spelling, year] : YEARS) {
+        if (standard == spelling) return std::pair { year, gnu };
+    }
+    return std::nullopt;
+}
+
+namespace {
+
+// Where an entry's command names its standard: the index of its -std= (or --std=) argument.
+std::optional<std::size_t> standard_argument(const EngineEntry& entry) {
+    for (std::size_t i { entry.arguments.size() }; i-- > 1;) {
+        if (entry.arguments[i].starts_with("-std=") || entry.arguments[i].starts_with("--std=")) return i;
+    }
+    return std::nullopt;
+}
+
+std::string_view standard_of(std::string_view argument) { return argument.substr(argument.find('=') + 1); }
+
+// Step 5c of plan_engine: one C++ standard for the units of the context that take part in modules.
+void unify_language_standard(EnginePlan& plan) {
+    std::optional<std::pair<int, bool>> best;
+    std::string bestSpelling;
+    std::set<std::string> seen;
+    const auto modular = [](const EngineEntry& entry) { return !entry.imports.empty() || !entry.provides.empty() || !entry.module.empty(); };
+    // Only units that take part in modules share BMIs; a plain unit keeps its own standard.
+    for (const auto& entry : plan.entries) {
+        const auto at = standard_argument(entry);
+        if (!at || !modular(entry)) continue;
+        const std::string_view spelling { standard_of(entry.arguments[*at]) };
+        const auto standard = cxx_standard(spelling);
+        if (!standard) continue;   // a C unit's own
+        seen.emplace(spelling);
+        if (!best || standard->first > best->first) {
+            best = standard;
+            bestSpelling = std::string { spelling };
+        }
+    }
+    plan.standardsSeen.assign(seen.begin(), seen.end());
+    if (!best) return;
+    plan.languageStandard = bestSpelling;
+    for (auto& entry : plan.entries) {
+        if (!modular(entry)) continue;
+        const auto at = standard_argument(entry);
+        if (at) {
+            const auto standard = cxx_standard(standard_of(entry.arguments[*at]));
+            if (!standard || *standard == *best) continue;
+            entry.arguments[*at] = "-std=" + bestSpelling;
+            ++plan.standardsRaised;
+        } else if (entry.arguments.size() > 1) {
+            // A module unit with no standard of its own would be read with the driver's default, older than any
+            // that has modules.
+            entry.arguments.insert(entry.arguments.begin() + 1, "-std=" + bestSpelling);
+            ++plan.standardsRaised;
+        }
+    }
+}
+
+} // namespace
+
 EnginePlan plan_engine(const PlanInput& input) {
     EnginePlan plan;
     plan.contextSet = input.contextSet;
@@ -204,6 +277,20 @@ EnginePlan plan_engine(const PlanInput& input) {
             }
             candidate.required = unit.requiredModules;
             if (candidate.required.empty()) candidate.required = project::required_names(scan());
+            // A file being edited imports what its buffer and, after an autosave, its text on disk import, whatever the
+            // model said when it was loaded (fix plan F13): clangd builds with what is on disk, and a module it cannot
+            // find there stalls it unless the plan gives it a stand-in (UP-02). Only such files: the model's own list
+            // stays the word for the rest, where a scan cannot tell a conditional import.
+            const auto editedPath = std::ranges::find_if(input.editingSources, [&](const std::string& each) { return base::same_path(each, candidate.source); });
+            if (editedPath != input.editingSources.end()) {
+                const auto add = [&](const std::string& name) {
+                    if (std::ranges::find(candidate.required, name) == candidate.required.end()) candidate.required.push_back(name);
+                };
+                for (const auto& name : project::required_names(scan())) add(name);
+                if (const auto disk = input.editingDiskImports.find(*editedPath); disk != input.editingDiskImports.end()) {
+                    for (const auto& name : disk->second) add(name);
+                }
+            }
             drop_invalid_module_names(candidate.required, candidate.source);
             if (!candidate.provided.empty()) {
                 candidate.module = candidate.provided.substr(0, candidate.provided.find(':'));
@@ -341,8 +428,13 @@ EnginePlan plan_engine(const PlanInput& input) {
     //    nothing usable provides gets an empty unit (step 5b), every import resolves and no unit leaves;
     //    without one, the providers that cannot be built leave and every other unit stays.
     const bool standIns { !input.stubDirectory.empty() };
-    const auto editing = [&](std::string_view source) {
-        return std::ranges::any_of(input.editingSources, [&](const std::string& path) { return base::same_path(path, source); });
+    // Whether the stand-in for `name`, imported by `source`, waits for the file to be quiet (import-hang plan §5): the file
+    // is being edited, and the import is not in its text on disk yet (fix plan F13).
+    const auto editing = [&](std::string_view source, std::string_view name) {
+        const auto path = std::ranges::find_if(input.editingSources, [&](const std::string& each) { return base::same_path(each, source); });
+        if (path == input.editingSources.end()) return false;
+        const auto disk = input.editingDiskImports.find(*path);
+        return disk == input.editingDiskImports.end() || std::ranges::find(disk->second, name) == disk->second.end();
     };
     std::set<std::string, std::less<>> stubbed;              // modules that get a stand-in
     std::set<std::string, std::less<>> unusableProviders;    // modules whose planned providers clangd cannot find
@@ -377,7 +469,7 @@ EnginePlan plan_engine(const PlanInput& input) {
                 // import-hang plan §5: a name nothing provides, imported by a file being edited, is most likely still being
                 // typed: no stand-in until the file is quiet. A unit that provides a module gets one at once, since building
                 // it with an import it cannot resolve is what stalls clangd.
-                const bool deferred { standIns && !provider && !providers.contains(name) && editing(candidates[i].source) };
+                const bool deferred { standIns && !provider && !providers.contains(name) && editing(candidates[i].source, name) };
                 if (deferred) {
                     plan.standInsDeferred = true;
                 } else if (standIns) {
@@ -403,7 +495,7 @@ EnginePlan plan_engine(const PlanInput& input) {
             if (resolved) continue;
             // A provider with an import that cannot resolve cannot be built, and building it is what deadlocks. A file
             // being edited waits for its stand-in until it is quiet (import-hang plan §5).
-            const bool deferred { standIns && !provider && editing(candidates[i].source) };
+            const bool deferred { standIns && !provider && editing(candidates[i].source, name) };
             if (deferred) plan.standInsDeferred = true;
             const bool standIn { standIns && !deferred };
             if (standIn) stubbed.insert(name);
@@ -585,6 +677,12 @@ EnginePlan plan_engine(const PlanInput& input) {
         plan.stubModules.push_back(name);
         plan.modules.push_back(PlannedModule { name, {}, {} });
     }
+
+    // 5c. One C++ standard for the context (C++26 alignment, fix plan 2026-09-26 §9). A BMI can only be imported by a
+    //     unit read with the standard it was built with: clang refuses `import std;` in a C++26 unit whose std was
+    //     built as C++23 ("C++26 was disabled in precompiled file ... but is currently enabled"), and so for every
+    //     module along an import graph. A context whose units name several C++ standards is read with the newest.
+    unify_language_standard(plan);
 
     // 6. Module hints (usable plan W7). To find the unit that provides a module, clangd 23.1
     //    scans every file of the database, one after another, each time it prepares a file whose

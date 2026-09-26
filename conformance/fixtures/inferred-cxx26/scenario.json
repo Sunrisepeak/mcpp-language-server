@@ -1,0 +1,52 @@
+{
+  "name": "inferred-cxx26",
+  "description": "C++26 alignment (fix plan 2026-09-26 §9): sources nothing describes are read with the newest standard the compiler reading them takes, C++26 for the semantic kit (clang 23, libc++ 23), where 0.0.4 read them as C++23 and C++26 library names were missing (`std::saturating_add`). C++26 language features in a module's interface and in its importer, `import std` under C++26, and the standard in the status. (Contracts, P2900, are not in clang 23: `contract_assert` is colored by the VS Code grammar only, and code using contracts shows clang's errors.)",
+  "server-arguments": [
+    "--no-discover"
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "inferred",
+      "state": "ready"
+    },
+    {
+      "id": "D1-interface-under-cxx26",
+      "kind": "diagnostics-empty",
+      "file": "src/sat.cppm",
+      "timeout": 90
+    },
+    {
+      "id": "D2-importer-under-cxx26",
+      "kind": "diagnostics-empty",
+      "file": "src/main.cpp",
+      "timeout": 90
+    },
+    {
+      "id": "H1-across-the-module",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        8,
+        32
+      ],
+      "expect": "clamp_add",
+      "timeout": 60
+    },
+    {
+      "id": "R1-the-standard-is-said",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/project/profile/standard",
+          "equals": "c++26"
+        },
+        {
+          "path": "/roots/0/plan/languageStandard",
+          "equals": "c++26"
+        }
+      ]
+    }
+  ]
+}

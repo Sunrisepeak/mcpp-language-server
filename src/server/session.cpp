@@ -20,8 +20,10 @@ import mcppls.lsp.protocol;
 import mcppls.engine.payload;
 import mcppls.orchestrator.report;
 import mcppls.orchestrator.client;
+import mcppls.orchestrator.completion;
 import mcppls.orchestrator.routing;
 import mcppls.orchestrator.workspace;
+import mcppls.bundle.writer;
 
 namespace mcppls::server {
 
@@ -68,6 +70,9 @@ private:
     orchestrator::StdioSink client_;
     // usable plan W9.1: one project model and one set of engines per workspace root.
     std::vector<std::unique_ptr<Workspace>> roots_;
+
+    // issue #23 fix plan F18: the mcppls.exportBundle request being answered; the bundle is written off the loop.
+    std::optional<Json> bundleRequest_;
 
 public:
     explicit Session(SessionOptions options) : options_ { std::move(options) } {}
@@ -179,6 +184,7 @@ private:
         case EventKind::review_finished:
             if (auto* root = root_by_key_(event.rootKey)) root->handle_review_finished(event.message);
             break;
+        case EventKind::bundle_written: finish_bundle_(event.message); break;
         }
     }
 
@@ -219,9 +225,21 @@ private:
         }
         // Build description design 4.4: the build description needed a download, the user has gone
         // and fetched it, and the window is theirs again. Reading it again is cheap and offline.
+        if (method == lsp::method::WORKSPACE_EXECUTE_COMMAND && params.value("command", std::string {}) == "mcppls.exportBundle") {
+            export_bundle_(id, params.value("arguments", Json::array()));
+            return;
+        }
         if (method == lsp::method::WORKSPACE_EXECUTE_COMMAND && params.value("command", std::string {}) == "mcppls.reloadBuildDescription") {
             for (auto& root : roots_) root->reload_build_description();
             reply_(id, nullptr);
+            return;
+        }
+        // Fix plan F14: the person's way past a restart held back by its budget; never counted in it. Not the name of
+        // the editor's own command (mcppls.restartClangd): a client registers every command a server declares.
+        if (method == lsp::method::WORKSPACE_EXECUTE_COMMAND && params.value("command", std::string {}) == "mcppls.restartEngine") {
+            std::size_t restarted { 0 };
+            for (auto& root : roots_) restarted += root->restart_core_engine() ? 1 : 0;
+            reply_(id, Json { { "restarted", restarted } });
             return;
         }
         // overall design 7.7: the review of the workspace's changes, run in the background, its findings published as diagnostics.
@@ -370,6 +388,9 @@ private:
             { "capabilities", capabilities.empty() ? orchestrator::merge_capabilities(Json::object()) : capabilities },
             { "serverInfo", Json { { "name", "mcppls" }, { "version", std::string { base::VERSION } } } },
         };
+        // F9 (D4 layer 4): a space opens the module list after `import`, for a client that drops the
+        // other spaces itself (VS Code's middleware) or asked for it (completion.triggerOnSpace).
+        if (orchestrator::completion::space_trigger_wanted(clientParams_)) orchestrator::completion::add_space_trigger(result["capabilities"]);
         reply_(clientInitializeId_, std::move(result));
         for (auto& root : roots_) root->allow_status_notifications();
     }
@@ -379,6 +400,65 @@ private:
         // exactly as a single engine's shutdown+exit pair used to be, so this needs only reply.
         shutdownRequested_ = true;
         reply_(id, nullptr);
+    }
+
+    Json full_report_() const {
+        Json roots = Json::array();
+        for (const auto& root : roots_) roots.push_back(root->report());
+        const Json* clientInfo { lsp::find(clientParams_, "clientInfo") };
+        return orchestrator::make_report(std::move(roots), clientInfo != nullptr ? *clientInfo : Json(nullptr), options_.engine, payload_, payloadCorrupt_,
+                                         std::chrono::steady_clock::now() - started_);
+    }
+
+    // issue #23 fix plan F18: `mcppls.exportBundle [{hideProjectPaths, noSourceExcerpts, includeDumps,
+    // output, client: {..., log}}]`. The report is taken now, on the loop; reading the logs, redacting
+    // and compressing happen on a thread of their own, and the request is answered when it is done
+    // with {path, bytes, redactions}, or with an error whose data lists what the check found.
+    void export_bundle_(const Json& id, const Json& arguments) {
+        if (bundleRequest_) {
+            reply_error_(id, lsp::REQUEST_FAILED, "a diagnostic bundle is being written already");
+            return;
+        }
+        const Json settings = arguments.is_array() && !arguments.empty() && arguments[0].is_object() ? arguments[0] : Json::object();
+        bundle::BundleInput input;
+        input.report = full_report_();
+        input.client = settings.value("client", Json::object());
+        if (input.client.is_object()) {
+            if (const auto log = input.client.find("log"); log != input.client.end()) {
+                if (log->is_string()) input.clientLog = log->get<std::string>();
+                input.client.erase(log);
+            }
+        } else {
+            input.client = Json::object();
+        }
+        if (const Json* initialization = lsp::find(clientParams_, "initializationOptions")) input.initializationOptions = *initialization;
+        bundle::BundleOptions options;
+        options.hideProjectPaths = settings.value("hideProjectPaths", false);
+        options.sourceExcerpts = !settings.value("noSourceExcerpts", false);
+        options.includeDumps = settings.value("includeDumps", false);
+        // Where the client wants it, when it says; the cache's bundles/ otherwise. Never unredacted: that is the command line's alone.
+        if (auto output = lsp::string_at(settings, "output"); output && base::is_absolute_path(*output)) options.output = *output;
+        bundleRequest_ = id;
+        log::info("writing a diagnostic bundle");
+        std::thread { [events = events_, input = std::move(input), options] {
+            auto written = bundle::write_bundle(input, options);
+            Json outcome = written ? Json { { "path", written->path }, { "bytes", written->bytes }, { "redactions", written->redactions } }
+                                   : Json { { "error", written.error().message }, { "residue", written.error().residue } };
+            events->push(Event { EventKind::bundle_written, std::move(outcome) });
+        } }.detach();
+    }
+
+    void finish_bundle_(const Json& outcome) {
+        if (!bundleRequest_) return;
+        const Json id = std::move(*bundleRequest_);
+        bundleRequest_.reset();
+        if (outcome.contains("error")) {
+            client_.send(Json { { "jsonrpc", "2.0" }, { "id", id },
+                                { "error", Json { { "code", lsp::REQUEST_FAILED }, { "message", outcome.value("error", std::string {}) },
+                                                  { "data", Json { { "residue", outcome.value("residue", Json::array()) } } } } } });
+            return;
+        }
+        reply_(id, outcome);
     }
 
     void handle_modules_request_(const Json& id, std::string_view method, const Json& params) {
@@ -405,12 +485,10 @@ private:
             Workspace* root { root_for_path_(path) };
             reply_(id, root ? root->module_info_at(path, at) : Json(nullptr));
         } else if (method == "cxxModules/report") {
-            // robustness design O3: what a bug report needs, for every root.
-            Json roots = Json::array();
-            for (const auto& root : roots_) roots.push_back(root->report());
-            const Json* clientInfo { lsp::find(clientParams_, "clientInfo") };
-            reply_(id, orchestrator::make_report(std::move(roots), clientInfo != nullptr ? *clientInfo : Json(nullptr), options_.engine, payload_, payloadCorrupt_,
-                                                 std::chrono::steady_clock::now() - started_));
+            // robustness design O3: what a bug report needs, for every root. A report is made to be
+            // shared, so it names no one (S3-5.5-3, issue #23 fix plan F18) unless asked not to redact.
+            const bool redact { !params.is_object() || params.value("redact", true) };
+            reply_(id, redact ? bundle::redact_report(full_report_()) : full_report_());
         } else if (method == "cxxModules/contexts") {
             Workspace* root { root_for_message_(params) };
             reply_(id, root ? root->contexts() : Json(nullptr));

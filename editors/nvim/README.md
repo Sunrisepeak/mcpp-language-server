@@ -113,6 +113,15 @@ vim.api.nvim_set_hl(0, '@lsp.mod.partition', { italic = true })  -- only the par
 vim.api.nvim_set_hl(0, '@lsp.type.keyword', { link = 'Keyword' })  -- import / module / export
 ```
 
+## Completing `import`
+
+The server completes module names after `import ` and offers the module keywords (`import`,
+`export import`, `module;`, `export module`, `module`, `module :private;`) where each can begin a
+declaration. It does not make a space a trigger character for Neovim, since every space typed
+would then ask for a completion; to have the module list open on the space after `import`, ask for
+it with `init_options = { completion = { triggerOnSpace = true } }` — the server answers the other
+spaces with nothing, at once.
+
 ## Commands and statusline
 
 | Command | |

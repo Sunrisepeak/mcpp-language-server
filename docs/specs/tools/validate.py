@@ -252,6 +252,13 @@ for label, mutate in [
 envelope = copy.deepcopy(base_envelope); envelope.pop("data")
 envelope["diagnostics"] = [{"code": "E_TOOLCHAIN", "severity": "error", "message": "no compiler"}]
 validate("S2 schema accepts a failed command without data", s2, envelope)
+# S2 0.3.0: a document that describes the workspace in part carries data and an error naming what it left out.
+envelope = copy.deepcopy(base_envelope)
+envelope["diagnostics"] = [{"code": "MCPP_MEMBER_PLAN_FAILED", "severity": "error", "message": "member updater could not be planned",
+                            "path": "tools/updater/mcpp.toml"}]
+validate("S2 schema accepts a partial document: data and an error naming a path", s2, envelope)
+envelope["diagnostics"][0]["path"] = 7
+validate("S2 schema rejects a diagnostic path that is not a string", s2, envelope, expect_valid=False)
 s2_request_only = Draft202012Validator({"$ref": "#/$defs/request",
                                         "$defs": load(root / "schema" / "s2-discovery.schema.json")["$defs"]})
 validate("S2 request definition rejects a request carrying kind", s2_request_only,

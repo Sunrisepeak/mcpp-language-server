@@ -39,9 +39,72 @@ public:
     // or restarted (a reading of a process that is gone is nullopt). It can take a while (ps(1) on
     // macOS), so it is never run on the event loop.
     virtual std::function<std::optional<double>()> cpu_reader() const { return {}; }
+    // The OS process id, where the platform can say (for the per-thread CPU of an incident, fix plan F17).
+    virtual std::optional<std::int64_t> pid() const { return std::nullopt; }
+    // How the process ended, once it has: its exit status, -1 when a signal ended it; nullopt while it
+    // runs or where nothing can say (fix plan F3). Never blocks.
+    virtual std::optional<int> exit_code() { return std::nullopt; }
 };
 
 std::vector<std::string> clangd_arguments(const ProcessConfig& config);
+
+// What clangd prints when it crashes (fix plan F3), from its own crash handler, whatever --log says:
+//   Signalled during AST worker action: Build AST        (or: Signalled while building preamble)
+//     Filename: D:/p/NormalJsonTranslator.Core.cpp
+//     Directory: ... / Command Line: ... / Version: 1
+//   Exception Code: 0x80000003                            (Windows only)
+struct CrashContext {
+    std::string action;      // "Build AST", "building preamble", ...
+    std::string file;        // the file clangd was working on
+    std::string exception;   // Windows' exception code; empty elsewhere
+};
+
+// "E[..] Scanning modules dependencies for <file> failed: <first line>", continued by lines without a
+// severity and ended by "E[..] The command line the scanning tool use is: ..." (fix plan F6). A failed
+// scan is how a command clangd rejects shows (#23: `LTO requires -fuse-ld=lld`): no module is built.
+struct ScanFailure {
+    std::string file;
+    std::string reason;   // the first line that says `error:`, from there on, else the header's own text
+    bool driver { false };   // the error is the compiler driver's ("clang++: error: ..."), about the command, not a source
+};
+
+// Reads clangd's standard error line by line, keeping what spans several lines (fix plan F3, F6).
+// One per clangd process; not thread-safe, like the stream it reads.
+class LogReader {
+public:
+    struct Read {
+        std::optional<CrashContext> crash;        // a crash context, as soon as its file is known, and again with the exception code
+        std::optional<ScanFailure> scanFailure;   // a finished scan failure
+        bool important { false };                 // a line the log never leaves out, whatever the limiter says
+    };
+    Read read(std::string_view line);
+    // The stream ended: a scan failure whose closing line never came.
+    std::optional<ScanFailure> finish();
+
+private:
+    std::optional<CrashContext> crash_;
+    bool inCrash_ { false };
+    std::optional<ScanFailure> scan_;
+    bool scanHasError_ { false };
+};
+
+// The latest lines clangd wrote (fix plan F17.1), kept in memory only, and written out with an incident.
+// Thread-safe: clangd's standard error is read on a thread of its own.
+class LogRing {
+public:
+    LogRing(std::size_t maxLines, std::size_t maxBytes) : maxLines_ { maxLines }, maxBytes_ { maxBytes } {}
+    void add(std::string_view line);
+    std::string text() const;
+    std::size_t size() const;
+
+private:
+    std::size_t maxLines_;
+    std::size_t maxBytes_;
+    mutable std::mutex mutex_;
+    std::deque<std::string> lines_;
+    std::size_t bytes_ { 0 };
+    std::size_t dropped_ { 0 };
+};
 
 // clangd's log line for a module it could not build:
 // "E[..] Failed to build module greet; due to Failed to compile C:/.../std.ixx. Use '--log=verbose' ..."
@@ -78,6 +141,8 @@ public:
     void stop(std::chrono::milliseconds grace) override;
     bool running() const override;
     std::function<std::optional<double>()> cpu_reader() const override;
+    std::optional<std::int64_t> pid() const override;
+    std::optional<int> exit_code() override;
 };
 
 } // namespace mcppls::engine::clangd

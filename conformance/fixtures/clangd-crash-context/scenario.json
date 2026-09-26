@@ -1,0 +1,135 @@
+{
+  "name": "clangd-crash-context",
+  "description": "Fix plan 2026-09-26 F3 (issue #23): clangd names the file it crashed on. Its `prepare` step puts a stand-in clangd in the workspace that runs the payload's clangd and, 25 seconds in, prints a crash context naming src/crasher.cpp -- a file nobody opened -- the way clangd 23.1 did on Windows, and kills it; later starts are the real clangd. Meanwhile the editor types in src/main.cpp. 0.0.4 set aside what it had been given or asked about in the last ten seconds, main.cpp, and not the file clangd named; now only src/crasher.cpp is set aside, the exit is reported with its crash context, and main.cpp keeps clangd once it is back.",
+  "prepare": [
+    [
+      "{conformance}",
+      "prepare",
+      "clangd-crash-context",
+      "{payload}"
+    ]
+  ],
+  "server-arguments": [
+    "--clangd",
+    "{workspace}/stand-in/clangd",
+    "--no-discover"
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "state": "ready",
+      "engine-name": "clangd"
+    },
+    {
+      "id": "T1-editing-when-it-crashes",
+      "kind": "type-text",
+      "file": "src/main.cpp",
+      "line": 2,
+      "steps": [
+        "i",
+        "in",
+        "int",
+        "int x",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        ""
+      ],
+      "interval-ms": 500,
+      "answer-within": 15
+    },
+    {
+      "id": "R1-the-file-it-named",
+      "kind": "report",
+      "timeout": 30,
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/lastExit/crashFile",
+          "contains": "crasher.cpp"
+        },
+        {
+          "path": "/roots/0/engines/*/details/lastExit/crashAction",
+          "equals": "Build AST"
+        },
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside",
+          "min-items": 1
+        },
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside/*",
+          "each-contains": "crasher.cpp"
+        },
+        {
+          "path": "/roots/0/events/*/kind",
+          "equals": "engine-exit"
+        }
+      ]
+    },
+    {
+      "id": "T2-main-keeps-clangd",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet",
+      "timeout": 90
+    },
+    {
+      "id": "R2-status-names-it",
+      "kind": "status",
+      "issue-code": "engine-crashed",
+      "issue-message": "crasher.cpp"
+    }
+  ]
+}

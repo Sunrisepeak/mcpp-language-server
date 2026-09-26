@@ -1,8 +1,12 @@
-// The commands: select context, show module graph, restart, show logs, collect a diagnostic report.
+// The commands: select context, show module graph, restart, show logs, collect a diagnostic report,
+// export a diagnostic bundle, restart clangd.
 
+import * as os from 'os';
 import * as vscode from 'vscode';
 import type { LanguageClient } from 'vscode-languageclient/node';
+import { SETTABLE_CANDIDATES, UNSETTABLE_CANDIDATES } from './conflictCandidates';
 import { restoreOtherCppFeatures, turnOffOtherCppFeatures } from './conflicts';
+import { redactJson, Who } from './redact';
 import { describeProfile, SemanticProfile } from './status';
 
 export interface ServerAccess {
@@ -11,6 +15,18 @@ export interface ServerAccess {
     restart(): Promise<void>;
     showLogs(): void;
     log(line: string): void;
+    // The extension's own latest log lines, oldest first (the server keeps its own log in a file).
+    recentLog(): string[];
+}
+
+function whoAmI(): Who {
+    let user = '';
+    try {
+        user = os.userInfo().username;
+    } catch {
+        // No user database entry: the home directory still goes.
+    }
+    return { home: os.homedir(), user };
 }
 
 interface ProtocolRange {
@@ -158,29 +174,65 @@ function withTimeout<T>(promise: Thenable<T>, milliseconds: number, what: string
     });
 }
 
+function extensionVersion(): string | undefined {
+    const extension = vscode.extensions.getExtension('sunrisepeak.mcpp-language-server');
+    return (extension?.packageJSON as { version?: string } | undefined)?.version;
+}
+
+function mcpplsSettings(): Record<string, unknown> {
+    const settings = vscode.workspace.getConfiguration('mcppls');
+    return {
+        compiler: settings.get('compiler'),
+        semanticKit: settings.get('semanticKit'),
+        engine: settings.get('engine'),
+        buildTool: settings.get('buildTool'),
+        toolEnvironment: settings.get('toolEnvironment'),
+        semanticTokensModules: settings.get('semanticTokens.modules'),
+        traceServer: settings.get('trace.server'),
+        aiEnabled: settings.get('ai.enabled'),
+        detectConflicts: settings.get('detectConflicts'),
+    };
+}
+
+// The other C/C++ extensions a report of a problem needs to know about: installed and enabled, active,
+// and for those with a setting for it, whether their language features are turned off.
+function otherCppExtensions(): Record<string, unknown>[] {
+    const described: Record<string, unknown>[] = [];
+    const describe = (extensionId: string, featuresOff?: boolean) => {
+        const extension = vscode.extensions.getExtension(extensionId);
+        if (!extension) return;
+        described.push({
+            id: extensionId,
+            version: (extension.packageJSON as { version?: string } | undefined)?.version,
+            active: extension.isActive,
+            ...(featuresOff === undefined ? {} : { languageFeaturesOff: featuresOff }),
+        });
+    };
+    for (const candidate of SETTABLE_CANDIDATES) {
+        describe(candidate.extensionId, vscode.workspace.getConfiguration(candidate.section).get(candidate.key) === candidate.disabledValue);
+    }
+    for (const candidate of UNSETTABLE_CANDIDATES) {
+        describe(candidate.extensionId);
+    }
+    describe('mcpp-community.mcpp-vscode');
+    return described;
+}
+
 // robustness design O3: what a bug report needs, in one document a person can read, copy or save. The
 // server's part (cxxModules/report) comes with the extension's own: versions, settings, other C++ extensions.
+// The server redacts its part (S3-5.5-3); the extension's own is redacted here by the same rules.
 async function collectReport(access: ServerAccess): Promise<void> {
     const client = access.runningClient();
-    const extension = vscode.extensions.getExtension('sunrisepeak.mcpp-language-server');
-    const settings = vscode.workspace.getConfiguration('mcppls');
-    const report: Record<string, unknown> = {
+    const report: Record<string, unknown> = redactJson({
         extension: {
-            version: (extension?.packageJSON as { version?: string } | undefined)?.version,
+            version: extensionVersion(),
             vscode: vscode.version,
             platform: `${process.platform}-${process.arch}`,
-            otherCppExtensions: ['ms-vscode.cpptools', 'llvm-vs-code-extensions.vscode-clangd', 'mcpp-community.mcpp-vscode']
-                .filter((id) => vscode.extensions.getExtension(id) !== undefined),
-            settings: {
-                compiler: settings.get('compiler'),
-                semanticKit: settings.get('semanticKit'),
-                engine: settings.get('engine'),
-                aiEnabled: settings.get('ai.enabled'),
-                detectConflicts: settings.get('detectConflicts'),
-            },
+            otherCppExtensions: otherCppExtensions(),
+            settings: mcpplsSettings(),
         },
         workspaceFolders: (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath),
-    };
+    }, whoAmI());
     if (!client) {
         report.server = 'not running';
     } else if (!declaresModules(client.initializeResult?.capabilities)) {
@@ -197,12 +249,92 @@ async function collectReport(access: ServerAccess): Promise<void> {
     const document = await vscode.workspace.openTextDocument({ language: 'json', content });
     await vscode.window.showTextDocument(document, { preview: false });
     const choice = await vscode.window.showInformationMessage(
-        'C++ Modules: the diagnostic report is open. It names paths on this machine; attach it to an issue as it is or after editing.',
-        'Copy to Clipboard', 'Show Logs');
+        'C++ Modules: the diagnostic report is open. Your user name, home directory, host name and anything that looks like a '
+        + 'secret were replaced; the project\'s own paths are kept. Export Diagnostic Bundle packs it with the logs and the environment.',
+        'Copy to Clipboard', 'Export Diagnostic Bundle', 'Show Logs');
     if (choice === 'Copy to Clipboard') {
         await vscode.env.clipboard.writeText(content);
+    } else if (choice === 'Export Diagnostic Bundle') {
+        await exportDiagnosticBundle(access);
     } else if (choice === 'Show Logs') {
         access.showLogs();
+    }
+}
+
+interface BundleWritten {
+    path: string;
+    bytes: number;
+    redactions?: Record<string, number>;
+}
+
+function sizeText(bytes: number): string {
+    return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+// Issue #23 fix plan F18: one zip with what a report of a problem needs -- the server's report, the
+// environment, the logs of the last sessions, the incidents, the engine databases -- written by the
+// server with user names, paths and secrets replaced, and never uploaded. When the server's check
+// finds something its rules left, nothing is written, and hiding the project's paths too is offered.
+export async function exportDiagnosticBundle(access: ServerAccess, hideProjectPaths = false): Promise<void> {
+    const client = access.runningClient();
+    if (!client) {
+        void vscode.window.showWarningMessage(
+            'C++ Modules: the language server is not running. `mcppls report --bundle <file.zip>` in a terminal writes the same bundle.');
+        return;
+    }
+    const argument = {
+        hideProjectPaths,
+        client: {
+            extension: { version: extensionVersion(), vscode: vscode.version, platform: `${process.platform}-${process.arch}`, remote: vscode.env.remoteName ?? null },
+            otherCppExtensions: otherCppExtensions(),
+            settings: mcpplsSettings(),
+            log: access.recentLog().join('\n'),
+        },
+    };
+    let written: BundleWritten;
+    try {
+        written = await vscode.window.withProgress(
+            { location: vscode.ProgressLocation.Notification, title: 'C++ Modules: writing a diagnostic bundle' },
+            () => withTimeout(client.sendRequest<BundleWritten>('workspace/executeCommand', { command: 'mcppls.exportBundle', arguments: [argument] }),
+                120000, 'mcppls.exportBundle'));
+    } catch (error) {
+        const message = errorText(error);
+        access.log(`mcppls.exportBundle failed: ${message}`);
+        const offer = hideProjectPaths ? [] : ['Retry with Project Paths Hidden'];
+        const choice = await vscode.window.showWarningMessage(`C++ Modules: no diagnostic bundle was written. ${message}`, ...offer, 'Show Logs');
+        if (choice === 'Retry with Project Paths Hidden') {
+            await exportDiagnosticBundle(access, true);
+        } else if (choice === 'Show Logs') {
+            access.showLogs();
+        }
+        return;
+    }
+    access.log(`diagnostic bundle written: ${written.path} (${written.bytes} bytes)`);
+    const choice = await vscode.window.showInformationMessage(
+        `C++ Modules: diagnostic bundle written (${sizeText(written.bytes)}). Your user name, home directory, host name and secrets were `
+        + 'replaced; nothing was uploaded. Attach it to an issue if you choose to.',
+        'Reveal in Folder', 'Copy Path');
+    if (choice === 'Reveal in Folder') {
+        await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(written.path));
+    } else if (choice === 'Copy Path') {
+        await vscode.env.clipboard.writeText(written.path);
+    }
+}
+
+// Issue #23 fix plan F14: clangd restarted now, whatever its restart budget says; the server counts it
+// as the user's own restart, not against that budget. Nothing else about the session changes.
+async function restartClangd(access: ServerAccess): Promise<void> {
+    const client = access.runningClient();
+    if (!client) {
+        void vscode.window.showWarningMessage('C++ Modules: the language server is not running.');
+        return;
+    }
+    try {
+        await client.sendRequest('workspace/executeCommand', { command: 'mcppls.restartEngine', arguments: [] });
+        access.log('clangd restart requested');
+    } catch (error) {
+        access.log(`mcppls.restartEngine failed: ${errorText(error)}`);
+        void vscode.window.showWarningMessage(`C++ Modules: clangd could not be restarted: ${errorText(error)}`);
     }
 }
 
@@ -276,6 +408,8 @@ export function registerCommands(context: vscode.ExtensionContext, access: Serve
         vscode.commands.registerCommand('mcppls.restartServer', () => access.restart()),
         vscode.commands.registerCommand('mcppls.showLogs', () => access.showLogs()),
         vscode.commands.registerCommand('mcppls.collectReport', () => collectReport(access)),
+        vscode.commands.registerCommand('mcppls.exportDiagnosticBundle', () => exportDiagnosticBundle(access)),
+        vscode.commands.registerCommand('mcppls.restartClangd', () => restartClangd(access)),
         vscode.commands.registerCommand('mcppls.runBuildToolInTerminal', () => runBuildToolInTerminal(access)),
         vscode.commands.registerCommand('mcppls.turnOffOtherCppFeatures', () => turnOffOtherCppFeatures(context, access.log)),
         vscode.commands.registerCommand('mcppls.restoreOtherCppFeatures', () => restoreOtherCppFeatures(context, access.log)),

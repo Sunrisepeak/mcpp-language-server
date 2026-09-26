@@ -88,6 +88,7 @@ interface SemanticProfile {
   compiler?: string;               // e.g. "gcc 16.1.0"; absent for a semantic kit
   stdlib: string;                  // e.g. "libstdc++ 16.1.0" or "libc++ 23.1.0"
   target: string;                  // e.g. "x86_64-linux-gnu"
+  standard?: string;               // the C++ standard the context's module units are read with, e.g. "c++26"
 }
 
 interface CxxModulesIssue {
@@ -209,7 +210,7 @@ After answering, the server rewrites the engine's input for the new context and 
 Direction: client → server. What a report of a problem needs, gathered by the server for a person or a bug report.
 
 ```ts
-// Params: {}
+interface CxxModulesReportParams { redact?: boolean }   // default true
 interface CxxModulesReport {
   generatedAt: string;             // UTC, ISO 8601
   server: { name: string; version: string; platform: string; uptimeSeconds: number; logLevel: string; logFile: string };
@@ -223,12 +224,15 @@ A server **SHOULD** answer at once with what it knows rather than wait for its e
 
 The content of each `roots` entry is the server's own and may change between server versions: a client **MUST NOT** base features on it. <a id="S3-5.5-2"></a><sup>S3-5.5-2</sup>
 
+A report is made to be shared, so unless `redact` is `false` a server **SHOULD** replace in it the user's home directory (by `~`), the user's and the machine's names and anything it recognizes as a secret (by placeholders such as `<user>` and `<redacted>`), in every spelling a path takes in it, and use the same placeholder for the same original throughout. <a id="S3-5.5-3"></a><sup>S3-5.5-3</sup> Paths of the project itself are kept: they are what a report is read for.
+
 ## 6. Module features through standard LSP
 
 | Feature | Standard message | Answered by |
 |---|---|---|
 | Go to the primary interface unit or partition declaration from a module name | `textDocument/definition` | the server's module index |
 | Import completion: module names and partitions of the same module | `textDocument/completion` | the server's module index |
+| Module-syntax keywords where a declaration can begin (6.2) | `textDocument/completion` | the server, merged with the semantic engine's result |
 | Module-name hover: providers, role, semantic profile | `textDocument/hover` | the server's module index |
 | Module declaration as a top-level outline node | `textDocument/documentSymbol` | merged with the semantic engine's result |
 | Search by module name | `workspace/symbol` | merged with the semantic engine's result |
@@ -252,6 +256,23 @@ interface CxxModulesInitializationOptions {
 ```
 
 A module name is sent with the token type `module`, and a partition name also with the modifier `partition`, only to a client that declared `moduleType: true`; to any other client a server **MUST** send module and partition names as `namespace`, so that a theme that knows only the standard types still colors them. A server **MUST NOT** add module-syntax tokens for a client that declared `modules: false`. The legend is the server's: it maps the core engine's token types and modifiers into it by name. <a id="S3-6.1-2"></a><a id="S3-6.1-3"></a><sup>S3-6.1-2, S3-6.1-3</sup>
+
+### 6.2 Completion of module syntax
+
+A space typed after `import` is where a person expects the module names. A server **MAY** add `" "` to `completionProvider.triggerCharacters` for it. A server that does **MUST** answer a completion request triggered by a space (`context.triggerKind` 2, `context.triggerCharacter` `" "`) whose line, up to the position, is anything but optional white space, an optional `export` and white space, `import` and exactly one white-space character, at once with an empty result, without giving it to the semantic engine. <a id="S3-6.2-1"></a><sup>S3-6.2-1</sup>
+
+Every space typed anywhere reaches the server as such a request, so a client that is sent the trigger should drop the others itself before they are sent. A server **MUST NOT** add `" "` for a client that declared `completion.triggerOnSpace: false`, and **SHOULD NOT** add it for a client that did not declare `true`, unless the server knows that client drops them. <a id="S3-6.2-2"></a><a id="S3-6.2-3"></a><sup>S3-6.2-2, S3-6.2-3</sup>
+
+```ts
+// Client → server: InitializeParams.initializationOptions
+interface CxxModulesInitializationOptions {
+  completion?: {
+    triggerOnSpace?: boolean;   // true: a space after `import` triggers completion; false: never
+  };
+}
+```
+
+A semantic engine may offer some module-syntax keywords, not their combined forms, and nothing while it cannot answer for a file. Where a module declaration or an import declaration can begin, a server **SHOULD** offer the keywords that can appear there — `import`; `export import` in a module interface unit; `module;` before anything else in the file; `export module` and `module` in a file with no module declaration; `module :private;` in a primary module interface unit without one — merged with the semantic engine's result without duplicate labels, and **SHOULD** still offer them when the semantic engine gives no result in time. <a id="S3-6.2-4"></a><a id="S3-6.2-5"></a><sup>S3-6.2-4, S3-6.2-5</sup> No module name is offered after `export module`: the name is being declared, not referred to.
 
 ## 7. Versioning
 

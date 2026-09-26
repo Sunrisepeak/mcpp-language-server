@@ -31,6 +31,9 @@ import mcppls.normalize.plan;
 import mcppls.engine;
 import mcppls.engine.payload;
 import mcppls.engine.native.index;
+import mcppls.engine.native.keywords;
+import mcppls.orchestrator.completion;
+import mcppls.orchestrator.incidents;
 import mcppls.orchestrator.journal;
 import mcppls.orchestrator.client;
 import mcppls.orchestrator.documents;
@@ -61,6 +64,11 @@ constexpr std::array<std::string_view, 6> BUILD_FILES { "mcpp.toml", "mcpp.lock"
 
 constexpr std::array<std::string_view, 7> WATCH_POLL_SKIP_DIRECTORIES { "target", "build", "node_modules", "out",
                                                                         "_build", "cmake-build-debug", "cmake-build-release" };
+
+// F15 (fix plan 2026-09-26): a completion at the start of a declaration waits this long for the core
+// engine; past it the module-syntax keywords go out alone, as an incomplete list the client asks
+// again for as the person types on. A clangd stuck on the file no longer takes `import` with it.
+constexpr std::chrono::milliseconds KEYWORD_PATIENCE { 1500 };
 
 // Changes to cxxModules/status that keep its state are sent at most this often (S3 4).
 constexpr std::chrono::milliseconds STATUS_COALESCE { 250 };
@@ -115,6 +123,19 @@ std::map<std::string, platform::fs::FileStamp> watched_files_snapshot_of(std::st
 std::string uri_of_params(const Json& params) {
     const Json* uri { lsp::find_path(params, { "textDocument", "uri" }) };
     return uri != nullptr && uri->is_string() ? uri->get<std::string>() : std::string {};
+}
+
+} // namespace
+
+namespace {
+
+// What the button of a status issue says (fix plan F17.5): what its command does, where the server knows it.
+std::string_view command_title(std::string_view command) {
+    if (command == "mcppls.showLogs") return "Show Logs";
+    if (command == "mcppls.restartServer") return "Restart Server";
+    if (command == "mcppls.restartClangd") return "Restart clangd";
+    if (command == "mcppls.exportDiagnosticBundle") return "Export Diagnostic Bundle";
+    return "Fix";
 }
 
 } // namespace
@@ -200,6 +221,16 @@ struct Workspace::Impl final : engine::Host {
         std::map<std::string, std::size_t, std::less<>> answeredBy;
     };
     std::map<std::string, MethodStats, std::less<>> requestStats;
+    // F9 (D4): what space-triggered completion costs. Most never pass the gate and cost one look at a line.
+    struct SpaceTriggerStats {
+        std::size_t count { 0 };
+        std::size_t passed { 0 };
+        std::int64_t maxMicros { 0 };
+        std::int64_t totalMicros { 0 };
+    };
+    SpaceTriggerStats spaceTrigger;
+    std::size_t keywordsWithoutEngine { 0 };   // F15: keyword completions answered before the core engine did
+    bool vscodeLike { false };                 // the client runs VS Code's commands (completion::vscode_like)
 
     // Requests in flight across engines.
     struct Job {
@@ -219,6 +250,10 @@ struct Workspace::Impl final : engine::Host {
         std::string path;
         std::string text;
         Json message;
+        // F15: a completion's module-syntax keywords, merged into whatever the engines answer, and
+        // when they go out without the core engine.
+        Json keywords;
+        std::optional<Clock::time_point> keywordsBy;
     };
     std::map<std::uint64_t, Job> jobs;
     std::uint64_t nextJob { 1 };
@@ -237,6 +272,7 @@ struct Workspace::Impl final : engine::Host {
     // database with the nearest unit's arguments and stay for the session, so opening one again leaves the database as it is.
     std::set<std::string> openedOutsideModel;
     std::set<std::string> plannedFiles;      // path keys of the plan's units and of the files it left out
+    std::vector<std::string> loggedStandards;   // the standards the last log line about raising them named
     // S5 2.2: advanced whenever a document, a watched file, the model or the plan changes.
     std::uint64_t snapshotGeneration { 0 };
 
@@ -247,6 +283,9 @@ struct Workspace::Impl final : engine::Host {
     // provides in a file changed within EDITING_WINDOW is most likely still being typed.
     std::map<std::string, Clock::time_point, std::less<>> editedAt;
     static constexpr std::chrono::seconds EDITING_WINDOW { 5 };
+    // Fix plan F13: a change to a file's imports or module declaration made in the editor is planned once the file
+    // has been quiet this long, so a name being typed is not planned letter by letter.
+    static constexpr std::chrono::milliseconds EDIT_SETTLE { 2000 };
     std::optional<Clock::time_point> loadGiveUpAt;       // the producer has not answered: take what there is (design 4.1)
     std::optional<Clock::time_point> lastResortAt;       // nothing at all came: serve without a database rather than nothing
     std::optional<Clock::time_point> sdkCheckAt;
@@ -262,6 +301,12 @@ struct Workspace::Impl final : engine::Host {
     std::string producerVersion;
     std::string needsDownload;                           // the producer, run offline, cannot go on without a download
     bool inferredLoadStarted { false };
+    // Fix plan F4 (D1): a project whose build system was detected gets clangd with the build tool's model, not a
+    // provisional one scanned from its sources: until the producer answers, or CORE_WAIT_LIMIT has passed, the
+    // core engine is given no plan and asked nothing, and mcppls's own engine answers what it can.
+    static constexpr std::chrono::seconds CORE_WAIT_LIMIT { 60 };
+    std::optional<Clock::time_point> coreWaitUntil;
+    bool coreWaitOver { false };
     std::optional<std::chrono::milliseconds> producerElapsed;   // set while the producer is past its soft bound
     // Written by the load thread, read by the event loop: how long the producer has been running
     // once it passed its soft bound. Nothing else crosses that boundary.
@@ -356,6 +401,33 @@ struct Workspace::Impl final : engine::Host {
     void request_replan() override { schedule_replan(); }
     void record_event(std::string_view kind, Json detail) override { journal.add(kind, std::move(detail)); }
 
+    // Fix plan F17.2: an engine's incident, with what led up to it from this workspace's side (its latest events,
+    // the model and the plan), written to the cache directory off the event loop.
+    void record_incident(std::string_view kind, Json detail, std::vector<engine::IncidentFile> files, std::optional<std::int64_t> pid) override {
+        Json incident {
+            { "format", 1 },
+            { "kind", std::string { kind } },
+            { "at", std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now())) },
+            { "server", std::string { base::VERSION } },
+            { "root", root },
+            { "model", model ? Json { { "source", std::string { project::to_string(model->source) } }, { "level", model->level }, { "origin", modelOrigin },
+                                      { "profile", profile_json() }, { "stale", staleModelReason } }
+                             : Json(nullptr) },
+            { "plan", Json { { "entries", plan.entries.size() }, { "standIns", plan.stubModules }, { "openSources", plan.openSources },
+                             { "leftOut", plan.excludedFiles.size() }, { "issues", plan.issues.size() } } },
+            { "detail", std::move(detail) },
+            { "events", journal.recent(60) },
+        };
+        journal.add("incident", Json { { "kind", std::string { kind } } });
+        std::thread { [cache = cacheDirectory, kind = std::string { kind }, incident = std::move(incident), files = std::move(files), pid]() mutable {
+            if (auto written = incidents::write(cache, kind, std::move(incident), std::move(files), pid)) {
+                log::info("incident {} written to {}", kind, *written);
+            } else {
+                log::warning("incident {} could not be written: {}", kind, written.error().message);
+            }
+        } }.detach();
+    }
+
     // Semantic tokens (design doc 2026-09-25 K/§7): coalesced to at most one
     // workspace/semanticTokens/refresh every ~500ms, and never before this root's own initialize
     // was answered (the same gate update_status uses).
@@ -444,6 +516,7 @@ struct Workspace::Impl final : engine::Host {
         };
         consider(reloadAt);
         consider(replanAt);
+        if (!coreWaitOver) consider(coreWaitUntil);
         consider(loadGiveUpAt);
         consider(lastResortAt);
         consider(producerSoftAt);
@@ -451,6 +524,7 @@ struct Workspace::Impl final : engine::Host {
         consider(statusFlushAt);
         consider(leaseRenewAt);
         consider(tokensRefreshAt);
+        for (const auto& [id, job] : jobs) consider(job.keywordsBy);
         for (const auto& engine : engines) consider(engine->next_deadline());
         return deadline;
     }
@@ -528,9 +602,24 @@ struct Workspace::Impl final : engine::Host {
         const Document* document { uri.empty() ? nullptr : documents_.find(uri) };
         if (document != nullptr) job.text = document->text;
         job.view = engine::RequestView { job.method, &job.params, job.path, job.text };
+        if (job.method == lsp::method::TEXT_DOCUMENT_COMPLETION) {
+            if (completion::is_space_trigger(job.params)) {
+                route_space_triggered(jobId);
+                return;
+            }
+            if (document != nullptr && !job.path.empty()) {
+                if (const auto position = position_of(job.params)) {
+                    job.keywords = index::keyword_completion(job.text, *position, index.scan_of(job.path),
+                                                             index::KeywordOptions { .suggestModulesAfterImport = vscodeLike });
+                }
+            }
+        }
 
         std::vector<engine::Engine*> candidates;
-        for (const auto& engine : engines) candidates.push_back(engine.get());
+        const bool coreWaits { core_waits_for_producer() };
+        for (const auto& engine : engines) {
+            if (!(coreWaits && engine.get() == coreEngine)) candidates.push_back(engine.get());
+        }
         Selection selection { select_engines(candidates, job.view) };
         if (!selection.mergers.empty()) {
             job.merging = true;
@@ -560,7 +649,59 @@ struct Workspace::Impl final : engine::Host {
             return;
         }
         job.answerers = std::move(selection.answerers);
+        if (job.keywords.is_array() && !job.keywords.empty() && coreEngine != nullptr
+            && std::ranges::find(job.answerers, coreEngine) != job.answerers.end()) {
+            job.keywordsBy = job.started + KEYWORD_PATIENCE;
+        }
         ask_next(jobId);
+    }
+
+    static std::optional<base::Position> position_of(const Json& params) {
+        const Json* position { lsp::find(params, "position") };
+        if (position == nullptr || !position->is_object()) return std::nullopt;
+        const auto line = lsp::int_at(*position, "line");
+        const auto character = lsp::int_at(*position, "character");
+        if (!line || !character) return std::nullopt;
+        return base::Position { static_cast<int>(*line), static_cast<int>(*character) };
+    }
+
+    // F9 (D4 layer 2): a completion the client asked for because a space was typed. Only the line
+    // before the cursor is looked at: anything but `[export] import ` is answered at once, empty,
+    // without an engine, a lookup or a log line; an import line gets the module names from mcppls's
+    // own engine, never from the core engine.
+    void route_space_triggered(std::uint64_t jobId) {
+        Job& job = jobs.at(jobId);
+        const auto gateStart = Clock::now();
+        std::optional<std::string_view> prefix;
+        if (const auto position = position_of(job.params)) prefix = completion::line_prefix(job.text, *position);
+        const bool passed { prefix && completion::is_import_line_prefix(*prefix) };
+        const std::int64_t micros { std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - gateStart).count() };
+        ++spaceTrigger.count;
+        spaceTrigger.maxMicros = std::max(spaceTrigger.maxMicros, micros);
+        spaceTrigger.totalMicros += micros;
+        if (!passed) {
+            const Json id = job.clientId;
+            jobs.erase(jobId);
+            client.reply(id, completion::empty_list());
+            return;
+        }
+        ++spaceTrigger.passed;
+        if (moduleEngine != nullptr && moduleEngine->claims(job.view)) job.answerers = { moduleEngine };
+        if (job.answerers.empty()) {
+            finish_job(jobId, completion::empty_list());
+            return;
+        }
+        ask_next(jobId);
+    }
+
+    // F15: the keywords go out without the core engine, which has not answered in KEYWORD_PATIENCE.
+    // The job is finished first, so the engines' answers to the cancellation find nothing to finish.
+    void answer_keywords_without_engine(std::uint64_t jobId) {
+        const Json clientId { jobs.at(jobId).clientId };
+        ++keywordsWithoutEngine;
+        jobs.at(jobId).answeredBy = "mcppls";
+        finish_job(jobId, Json(nullptr));
+        for (const auto& engine : engines) engine->cancel(clientId);
     }
 
     void ask_next(std::uint64_t jobId) {
@@ -585,7 +726,11 @@ struct Workspace::Impl final : engine::Host {
                 ask_next(jobId);
                 return;
             case engine::Answer::Kind::unavailable: ask_next(jobId); return;
-            case engine::Answer::Kind::error: finish_job_with_error(jobId, std::move(answer.value)); return;
+            case engine::Answer::Kind::error:
+                // F15: a completion that has keywords to give gives them rather than the engine's error.
+                if (current->second.keywords.is_array() && !current->second.keywords.empty()) finish_job(jobId, Json(nullptr));
+                else finish_job_with_error(jobId, std::move(answer.value));
+                return;
             case engine::Answer::Kind::cancelled: finish_job_cancelled(jobId); return;
             }
         });
@@ -663,6 +808,11 @@ struct Workspace::Impl final : engine::Host {
     void finish_job(std::uint64_t jobId, Json result) {
         auto it = jobs.find(jobId);
         if (it == jobs.end()) return;
+        // F15: the module-syntax keywords, with the engine's items, or alone (and incomplete, so the
+        // client asks again) when the engine gave none.
+        if (it->second.keywords.is_array() && !it->second.keywords.empty()) {
+            result = result.is_null() ? completion::keywords_only(it->second.keywords) : completion::merge(result, it->second.keywords);
+        }
         result = explain_if_preparing(it->second, std::move(result));
         note_request(it->second, result.is_null() ? "empty" : "result");
         const Json id = it->second.clientId;
@@ -690,11 +840,13 @@ struct Workspace::Impl final : engine::Host {
 
     // A unit of the model whose module declaration or imports changed needs a new plan; a new
     // source file of an inferred model needs a new model.
-    void note_structure_change(std::string_view path) {
+    void note_structure_change(std::string_view path, bool edited = false) {
         if (!model) return;
         const auto it = structures.find(base::path_key(path));
         if (it != structures.end()) {
-            if (const auto* scan = index.scan_of(path); scan != nullptr && it->second != structure_of(*scan)) schedule_replan();
+            if (const auto* scan = index.scan_of(path); scan != nullptr && it->second != structure_of(*scan)) {
+                schedule_replan(edited ? EDIT_SETTLE : REPLAN_DELAY);
+            }
             return;
         }
         if (model->source == project::SourceKind::inferred && project::is_cxx_source_name(path) && base::is_within(path, root)) schedule_reload();
@@ -929,6 +1081,12 @@ struct Workspace::Impl final : engine::Host {
         loading = false;
         loadGiveUpAt.reset();
         producerElapsed.reset();
+        // Fix plan F4: the build tool answered, whatever it said; clangd waits no longer. A model kept below
+        // (a failed or poorer reload) is planned again for it.
+        if (coreWaitUntil && !coreWaitOver) {
+            coreWaitOver = true;
+            if (model) replanAt = Clock::now();
+        }
         ++snapshotGeneration;
         needsDownload.clear();
         for (const auto& issue : loadedModel->issues) {
@@ -1093,6 +1251,8 @@ struct Workspace::Impl final : engine::Host {
             const auto edited = editedAt.find(base::path_key(document->path));
             if (edited == editedAt.end() || now - edited->second >= EDITING_WINDOW) continue;
             input.editingSources.push_back(document->path);
+            // Fix plan F13: what an autosave already put on disk is what clangd builds with.
+            if (auto disk = platform::fs::read_file(document->path)) input.editingDiskImports[document->path] = project::required_names(project::scan_source(*disk));
             if (!lastEdit || edited->second > *lastEdit) lastEdit = edited->second;
         }
         if (coreEngine != nullptr) coreEngine->configure_plan(input);
@@ -1112,16 +1272,43 @@ struct Workspace::Impl final : engine::Host {
             if (const auto* scan = index.scan_of(path)) structures[base::path_key(path)] = structure_of(*scan);
         }
         firstPlanWritten = true;
+        // Fix plan F14: what the person chose; a change of it restarts clangd without counting against it.
+        plan.toolchainKey = std::format("{}|{}|{}|{}|{}", model->profile.kind, model->profile.compiler, model->profile.stdlib, model->profile.target, contextSet);
+        plan.modelOrigin = modelOrigin;
         journal.add("plan", Json { { "context", contextSet.empty() ? std::string { "default" } : contextSet }, { "entries", plan.entries.size() },
                                    { "stdUnits", plan.stdUnits }, { "standIns", plan.stubModules }, { "openSources", plan.openSources },
                                    { "leftOut", plan.excludedFiles.size() },
-                                   { "issues", plan.issues.size() } });
-        for (const auto& engine : engines) engine->apply(&plan);
+                                   { "issues", plan.issues.size() }, { "languageStandard", plan.languageStandard },
+                                   { "standardsRaised", plan.standardsRaised } });
+        if (plan.standardsRaised > 0 && loggedStandards != plan.standardsSeen) {
+            loggedStandards = plan.standardsSeen;
+            std::string seen;
+            for (const auto& each : plan.standardsSeen) seen += (seen.empty() ? "" : ", ") + each;
+            log::info("the module units of {} name {}; {} of them are read as {}, since every module they import must be built with one standard",
+                      root, seen, plan.standardsRaised, plan.languageStandard);
+        }
+        const bool coreWaits { core_waits_for_producer() };
+        if (coreWaits && !coreWaitUntil) {
+            coreWaitUntil = Clock::now() + CORE_WAIT_LIMIT;
+            log::info("clangd waits for {} to describe {} (at most {} s); mcppls's own engine answers meanwhile", project::to_string(detectedSource), root,
+                      CORE_WAIT_LIMIT.count());
+            journal.add("engine-waits-for-producer", Json { { "detected", std::string { project::to_string(detectedSource) } } });
+        }
+        for (const auto& engine : engines) {
+            if (coreWaits && engine.get() == coreEngine) continue;
+            engine->apply(&plan);
+        }
         for (const Document* document : documents_.all()) publish_diagnostics(document->uri);
         update_status();
     }
 
-    void schedule_replan() { replanAt = Clock::now() + std::chrono::milliseconds { 800 }; }
+    static constexpr std::chrono::milliseconds REPLAN_DELAY { 800 };
+    void schedule_replan(std::chrono::milliseconds delay = REPLAN_DELAY) { replanAt = Clock::now() + delay; }
+
+    bool core_waits_for_producer() const {
+        return coreEngine != nullptr && model && modelOrigin == "inferred" && loading && !coreWaitOver
+               && detectedSource != project::SourceKind::inferred && options.trusted && options.buildTool != "off";
+    }
     void schedule_reload() { reloadAt = Clock::now() + std::chrono::milliseconds { 1500 }; }
 
     // ---- diagnostics and status -------------------------------------------------------
@@ -1163,6 +1350,8 @@ struct Workspace::Impl final : engine::Host {
             if (!model->profile.compiler.empty()) profile["compiler"] = model->profile.compiler;
             profile["stdlib"] = model->profile.stdlib;
             profile["target"] = model->profile.target;
+            // C++26 alignment: the standard the context's module units are read with (S3 SemanticProfile.standard).
+            if (!plan.languageStandard.empty()) profile["standard"] = plan.languageStandard;
         } else if (kit) {
             profile = Json { { "kind", "semantic-kit" }, { "stdlib", std::format("{} {}", kit->stdlibName, kit->stdlibVersion) }, { "target", kit->target } };
         } else {
@@ -1320,7 +1509,7 @@ struct Workspace::Impl final : engine::Host {
             issues.push_back(std::move(issue));
         };
         for (const auto& engine : engines) {
-            for (const auto& issue : engine->status().issues) add(issue.code, issue.message, issue.command, "Fix", issue.category);
+            for (const auto& issue : engine->status().issues) add(issue.code, issue.message, issue.command, command_title(issue.command), issue.category);
         }
         if (!staleModelReason.empty()) {
             // Decision 8: no version table, no comparison --- one sentence that points at the one
@@ -1419,6 +1608,15 @@ struct Workspace::Impl final : engine::Host {
     void handle_timers() {
         const auto now = Clock::now();
         for (const auto& engine : engines) engine->handle_timers();
+        {
+            std::vector<std::uint64_t> due;
+            for (const auto& [id, job] : jobs) {
+                if (job.keywordsBy && *job.keywordsBy <= now) due.push_back(id);
+            }
+            for (const auto id : due) {
+                if (jobs.contains(id)) answer_keywords_without_engine(id);
+            }
+        }
         if (leaseRenewAt && *leaseRenewAt <= now) {
             lease->renew(std::chrono::system_clock::now());
             leaseRenewAt = now + LEASE_RENEWAL;
@@ -1428,6 +1626,15 @@ struct Workspace::Impl final : engine::Host {
             start_model_load();
         }
         if (replanAt && *replanAt <= now) replan();
+        if (coreWaitUntil && !coreWaitOver && *coreWaitUntil <= now) {
+            coreWaitOver = true;
+            if (modelOrigin == "inferred" && model) {
+                log::warning("{} has not described {} in {} s; clangd starts with the model scanned from its sources", project::to_string(detectedSource), root,
+                             CORE_WAIT_LIMIT.count());
+                journal.add("engine-wait-over", Json { { "seconds", CORE_WAIT_LIMIT.count() } });
+                replan();
+            }
+        }
         if (statusFlushAt && *statusFlushAt <= now) {
             statusFlushAt.reset();
             update_status();
@@ -1499,6 +1706,7 @@ void Workspace::start(Json clientParams, bool clientSupportsStatus, bool usePoll
         impl_->clientSupportsTokensRefresh = supported->get<bool>();
     }
     impl_->onEngineSettled = std::move(onEngineSettled);
+    impl_->vscodeLike = completion::vscode_like(impl_->clientParams);
     impl_->dynamicWatch = !usePolling;
     if (usePolling) impl_->start_watch_polling();
     log::info("mcppls {} ({}) root {}", base::VERSION, mcppls::os::FAMILY_NAME, root_);
@@ -1570,7 +1778,7 @@ void Workspace::did_change(const Json& message, const Json& params) {
     if (!document->path.empty()) {
         impl_->editedAt[base::path_key(document->path)] = Clock::now();
         impl_->index.update(document->path, document->text);
-        impl_->note_structure_change(document->path);
+        impl_->note_structure_change(document->path, true);
     }
     impl_->publish_diagnostics(uri);
     impl_->document_event(engine::DocumentChange::changed, *document, &message);
@@ -1608,6 +1816,12 @@ void Workspace::did_save(const Json& message, const Json& params) {
         saved.path = path;
     }
     impl_->document_event(engine::DocumentChange::saved, saved, &message);
+    // Fix plan F13: an import of a file being edited that the save just put on disk gets its stand-in now, not once the
+    // file is quiet (clangd builds with what is on disk).
+    if (!saved.path.empty()) {
+        const auto edited = impl_->editedAt.find(base::path_key(saved.path));
+        if (edited != impl_->editedAt.end() && Clock::now() - edited->second < Impl::EDITING_WINDOW) impl_->schedule_replan();
+    }
 }
 
 void Workspace::handle_watched_files(const Json& changes) {
@@ -1746,6 +1960,7 @@ Json Workspace::report() const {
         planIssues.push_back(Json { { "code", issue.code }, { "message", issue.message }, { "file", issue.file }, { "module", issue.module } });
     }
     Json plan { { "context", impl.contextSet.empty() ? std::string { "default" } : impl.contextSet }, { "entries", impl.plan.entries.size() },
+                { "languageStandard", impl.plan.languageStandard }, { "standardsSeen", impl.plan.standardsSeen }, { "standardsRaised", impl.plan.standardsRaised },
                 { "stdUnits", impl.plan.stdUnits }, { "standIns", impl.plan.stubModules }, { "openSources", impl.plan.openSources },
                 { "leftOutCount", impl.plan.excludedFiles.size() },
                 { "leftOut", std::move(leftOut) }, { "issueCount", impl.plan.issues.size() }, { "issues", std::move(planIssues) } };
@@ -1774,11 +1989,22 @@ Json Workspace::report() const {
                                   { "p50Ms", percentile(0.5) }, { "p95Ms", percentile(0.95) }, { "maxMs", static_cast<std::int64_t>(stats.maxMs) },
                                   { "answeredBy", std::move(answeredBy) } };
     }
+    // F9, F15: what space-triggered completion cost, and how often keywords answered without the core engine.
+    Json completionCosts { { "spaceTrigger", Json { { "count", impl.spaceTrigger.count }, { "passed", impl.spaceTrigger.passed },
+                                                     { "maxMicros", impl.spaceTrigger.maxMicros }, { "totalMicros", impl.spaceTrigger.totalMicros } } },
+                           { "keywordsWithoutEngine", impl.keywordsWithoutEngine } };
     return Json { { "root", root_ }, { "key", key_ }, { "cacheDirectory", impl.cacheDirectory },
                   { "trusted", impl.options.trusted }, { "state", std::string { to_string(impl.compute_state()) } }, { "project", std::move(project) },
                   { "toolEnvironment", std::move(environment) }, { "toolRuns", std::move(toolRuns) },
                   { "plan", std::move(plan) }, { "engines", std::move(engines) }, { "requests", std::move(requests) },
+                  { "completion", std::move(completionCosts) },
                   { "eventTotals", impl.journal.totals() }, { "events", impl.journal.recent(300) } };
+}
+
+bool Workspace::restart_core_engine() {
+    if (impl_->coreEngine == nullptr) return false;
+    impl_->journal.add("engine-restart-requested");
+    return impl_->coreEngine->restart_on_request();
 }
 
 void Workspace::set_context(const Json& id, std::string_view context) {

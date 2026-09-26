@@ -116,6 +116,16 @@ std::optional<double> cpu_seconds(std::int64_t pid);
 // ps(1)'s cumulative "time" column, "[[dd-]hh:]mm:ss[.ss]", in seconds.
 std::optional<double> parse_cpu_time(std::string_view text);
 
+// One thread of a process and the CPU time it has used so far (an incident's "which thread spins").
+struct ThreadCpu {
+    std::int64_t id { 0 };
+    std::string name;
+    double seconds { 0 };
+};
+// Every thread of a running process, where the platform can say: /proc/<pid>/task on Linux; empty
+// elsewhere, where only the whole process's time is known (cpu_seconds).
+std::vector<ThreadCpu> thread_cpu(std::int64_t pid);
+
 // The openkal preopened directory that contains an absolute path, and the path
 // beneath it. Exposed for tests and for callers that need to explain a failure.
 struct PreopenMatch {

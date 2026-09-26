@@ -26,6 +26,8 @@ import mcppls.platform.task;
 import mcppls.lsp.jsonrpc;
 import mcppls.lsp.connection;
 import mcppls.orchestrator.tokens;
+import mcppls.bundle.redact;
+import mcppls.bundle.zip;
 
 namespace base = mcppls::base;
 namespace fs = mcppls::platform::fs;
@@ -78,6 +80,8 @@ struct Options {
     // under the real $HOME/%USERPROFILE%. Empty until `run()` reads the scenario; once set, every
     // process the runner starts for the server under test uses it as HOME (and USERPROFILE).
     std::string isolatedHome;
+    // issue #23 fix plan F18: where `bundle` checks leave a copy of the bundle they checked, for CI to keep; empty: nowhere.
+    std::string keepBundles;
 };
 
 // Replaces HOME (POSIX) and USERPROFILE (Windows) in a spawn's environment, so
@@ -614,7 +618,7 @@ bool includes(const Json& candidate, const Json& expected) {
 }
 
 // A fixture's expectations of a JSON result (conformance/README.md, S5 checks): each names a pointer and
-// one of equals, contains, min-items, max-items, exists or absent, and holds when any value the pointer names satisfies it --
+// one of equals, contains, min-items, max-items, at-least (a number), exists or absent, and holds when any value the pointer names satisfies it --
 // except each-contains, which every value the pointer names must satisfy (and holds when it names none).
 std::pair<bool, std::string> expectations_hold(const Json& value, const Json& expectations) {
     for (const auto& expectation : expectations) {
@@ -643,6 +647,9 @@ std::pair<bool, std::string> expectations_hold(const Json& value, const Json& ex
         } else if (expectation.contains("max-items")) {
             const std::size_t wanted { expectation.value("max-items", std::size_t { 0 }) };
             held = std::ranges::any_of(matches, [&](const Json* match) { return (match->is_array() || match->is_object()) && match->size() <= wanted; });
+        } else if (expectation.contains("at-least")) {
+            const double wanted { expectation.value("at-least", 0.0) };
+            held = std::ranges::any_of(matches, [&](const Json* match) { return match->is_number() && match->get<double>() >= wanted; });
         }
         if (!held) {
             std::string found { matches.empty() ? std::string { "nothing" } : lsp::dump(*matches.front()) };
@@ -933,6 +940,7 @@ private:
     std::unique_ptr<McpClient> mcpDaemon_;                      // the first mcp check "via": "daemon"
     std::string mcpFailure_;
     Json semanticTokensLegend_ = Json::object();                // initialize's capabilities.semanticTokensProvider.legend
+    Json capabilities_ = Json::object();                        // initialize's capabilities, for "capabilities" checks
 
     McpClient* mcp_client(bool daemon) {
         auto& kept = daemon ? mcpDaemon_ : mcp_;
@@ -956,12 +964,23 @@ public:
 
     Scenario(Client& client, const Options& options, std::vector<std::string> serverArguments, std::string workspace, std::chrono::seconds timeout,
              std::map<std::string, std::string> prepared, std::string cacheDirectory, bool expectWarm,
-             std::map<std::string, std::map<std::string, std::string>> moduleFilesBefore, Json semanticTokensLegend = Json::object())
+             std::map<std::string, std::map<std::string, std::string>> moduleFilesBefore, Json semanticTokensLegend = Json::object(),
+             Json capabilities = Json::object())
         : client_ { client }, options_ { options }, serverArguments_ { std::move(serverArguments) }, workspace_ { std::move(workspace) }, timeout_ { timeout }, prepared_ { std::move(prepared) },
           cacheDirectory_ { std::move(cacheDirectory) }, expectWarm_ { expectWarm }, moduleFilesBefore_ { std::move(moduleFilesBefore) },
-          semanticTokensLegend_ ( std::move(semanticTokensLegend) ) {}
+          semanticTokensLegend_ ( std::move(semanticTokensLegend) ), capabilities_ ( std::move(capabilities) ) {}
 
     std::string uri(std::string_view relative) const { return base::path_to_uri(base::join_path(workspace_, relative)); }
+
+    // A completion request at the check's "at"; "trigger" sends it as typing that character asked for it
+    // (CompletionTriggerKind.TriggerCharacter), the way an editor does for a trigger character.
+    Json completion_params(const Json& check, std::string_view file) const {
+        Json params { { "textDocument", Json { { "uri", uri(file) } } }, { "position", position(check.at("at")) } };
+        if (const auto trigger = check.find("trigger"); trigger != check.end() && trigger->is_string()) {
+            params["context"] = Json { { "triggerKind", 2 }, { "triggerCharacter", trigger->get<std::string>() } };
+        }
+        return params;
+    }
 
     std::string text_of(std::string_view relative) {
         if (auto it = open_.find(std::string { relative }); it != open_.end()) return it->second.first;
@@ -1428,11 +1447,23 @@ public:
             open(file);
             const std::string documentUri { uri(file) };
             const std::string code { check.value("expect", std::string {}) };
+            // Fix plan F11, F12: where the diagnostic is (`line`, 0-based), how severe (`severity`), and which codes
+            // must not be there with it (`absent`).
+            const std::optional<int> line { check.contains("line") ? std::optional<int> { check.value("line", 0) } : std::nullopt };
+            const std::optional<int> severity { check.contains("severity") ? std::optional<int> { check.value("severity", 1) } : std::nullopt };
+            const Json absent = check.value("absent", Json::array());
             const bool found { client_.wait_for([&] {
+                bool hit { false };
                 for (const auto& diagnostic : client_.diagnostics[documentUri]) {
-                    if (diagnostic.value("code", Json {}) == Json(code)) return true;
+                    const Json& diagnosticCode { diagnostic.value("code", Json {}) };
+                    if (std::ranges::find(absent, diagnosticCode) != absent.end()) return false;
+                    if (diagnosticCode != Json(code)) continue;
+                    const Json* start { lsp::find_path(diagnostic, { "range", "start" }) };
+                    if (line && (start == nullptr || start->value("line", -1) != *line)) continue;
+                    if (severity && diagnostic.value("severity", 1) != *severity) continue;
+                    hit = true;
                 }
-                return false;
+                return hit;
             }, timeout_) };
             return { found, lsp::dump(client_.diagnostics[documentUri]) };
         }
@@ -1490,16 +1521,45 @@ public:
                 // Touch the importing buffer so it is rebuilt against the edited module.
                 change(file, text_of(file) + " ");
             }
-            const std::string expected { check.value("expect", std::string {}) };
-            auto [ok, result] = retry("textDocument/completion",
-                [&] { return Json { { "textDocument", Json { { "uri", uri(file) } } }, { "position", position(check.at("at")) } }; },
+            // "expect": a label prefix, or several that must all be there ("exact": whole labels); "absent": labels that must not be.
+            const bool exact { check.value("exact", false) };
+            std::vector<std::string> expected;
+            if (const auto wanted = check.find("expect"); wanted != check.end() && wanted->is_array()) {
+                for (const auto& one : *wanted) expected.push_back(one.get<std::string>());
+            } else {
+                expected.push_back(check.value("expect", std::string {}));
+            }
+            std::vector<std::string> absent;
+            for (const auto& one : check.value("absent", Json::array())) absent.push_back(one.get<std::string>());
+            auto [ok, result] = retry("textDocument/completion", [&] { return completion_params(check, file); },
                 [&](const Json& value) {
                     const auto labels = completion_labels(value);
-                    return std::ranges::any_of(labels, [&](const std::string& label) { return label.starts_with(expected); });
+                    const auto present = [&](const std::string& prefix) {
+                        return std::ranges::any_of(labels, [&](const std::string& label) { return exact ? label == prefix : label.starts_with(prefix); });
+                    };
+                    return std::ranges::all_of(expected, present)
+                           && std::ranges::none_of(absent, [&](const std::string& label) { return std::ranges::find(labels, label) != labels.end(); });
                 });
             auto labels = completion_labels(result);
             if (labels.size() > 12) labels.resize(12);
             return { ok, lsp::dump(labels) };
+        }
+        if (kind == "completion-empty") {
+            // F9 (fix plan 2026-09-26, D4): a completion answered with no items, within "within-ms" when given --
+            // a space typed outside an import line is answered at once, without asking the core engine.
+            open(file);
+            const auto start = Clock::now();
+            auto answer = client_.request("textDocument/completion", completion_params(check, file), timeout_);
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start).count();
+            if (!answer) return { false, "no answer" };
+            const bool empty { completion_labels(*answer).empty() };
+            const bool inTime { !check.contains("within-ms") || elapsed <= check.value("within-ms", std::int64_t { 0 }) };
+            return { empty && inTime, std::format("{} in {} ms", lsp::dump(*answer).substr(0, 120), elapsed) };
+        }
+        if (kind == "capabilities") {
+            // The server capabilities initialize answered with, held to "expect" like a tool's result.
+            auto [held, detail] = expectations_hold(capabilities_, check.value("expect", Json::array()));
+            return { held, held ? lsp::dump(capabilities_.value("completionProvider", Json::object())).substr(0, 160) : detail };
         }
         if (kind == "references-span") {
             open(file);
@@ -1561,6 +1621,91 @@ public:
                 detail += std::format("[{}:{} '{}' {} {}] ", token.line, token.startChar, token.text, token.type, lsp::dump(token.modifiers));
             }
             return { ok, detail.substr(0, std::min<std::size_t>(detail.size(), 200)) };
+        }
+        if (kind == "bundle") {
+            // issue #23 fix plan F18: `mcppls.exportBundle` writes a zip within its size cap whose manifest is its contents,
+            // digest for digest, and in which no file -- nor the report cxxModules/report answers -- names the home directory
+            // the server runs with or the user it runs as (S3-5.5-3). The client's log it is sent carries the home too.
+            const std::string home { base::normalize_path(options_.isolatedHome.empty() ? mcppls::platform::dirs::home_directory() : options_.isolatedHome) };
+            std::vector<std::string> forbidden { home };
+            forbidden.push_back(base::replace_all(home, "/", "\\"));
+            for (const std::string_view name : { "USER", "USERNAME", "LOGNAME" }) {
+                const auto user = mcppls::platform::env::get(name);
+                if (!user || !mcppls::bundle::distinctive_name(*user)) continue;
+                forbidden.push_back(*user);
+                // Its 8.3 form (RUNNER~1 for runneradmin), which a Windows temporary directory is spelled with.
+                if (user->size() > 8) forbidden.push_back(base::to_lower_ascii(user->substr(0, 6)) + "~");
+            }
+            // The report is redacted but keeps the project's own paths; only a bundle can be asked to hide them.
+            const std::size_t forbiddenInReport { forbidden.size() };
+            if (check.value("forbid-workspace", false)) forbidden.push_back(base::normalize_path(workspace_));
+            const auto named = [&](std::string_view text, std::size_t count) -> std::string {
+                const std::string lower { base::to_lower_ascii(text) };
+                for (const auto& needle : std::span { forbidden }.first(count)) {
+                    if (!needle.empty() && lower.contains(base::to_lower_ascii(needle))) return needle == home ? std::string { "the home directory" } : std::format("'{}'", needle);
+                }
+                return {};
+            };
+            std::string path;
+            if (check.value("via", std::string { "command" }) == "cli") {
+                // `mcppls report --bundle`, the way CI and a person without an editor export one.
+                path = base::join_path(cacheDirectory_, std::format("{}.zip", check.value("id", std::string { "bundle" })));
+                mcppls::platform::SpawnOptions spawn;
+                spawn.program = options_.server;
+                spawn.arguments = { "report", "--root", workspace_, "--settle", "30", "--bundle", path };
+                for (const auto& argument : check.value("args", Json::array())) spawn.arguments.push_back(argument.get<std::string>());
+                if (!options_.payload.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--payload", options_.payload });
+                if (!options_.clangd.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--clangd", options_.clangd });
+                if (!options_.kit.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--kit", options_.kit });
+                spawn.arguments.insert(spawn.arguments.end(), serverArguments_.begin(), serverArguments_.end());
+                spawn.workDirectory = workspace_;
+                auto environment = mcppls::platform::env::variables();
+                environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory_);
+                apply_isolated_home(environment, options_);
+                spawn.environment = std::move(environment);
+                auto running = std::async(std::launch::async, [spawn, timeout = timeout_]() mutable { return mcppls::platform::run(std::move(spawn), timeout); });
+                while (running.wait_for(std::chrono::milliseconds { 200 }) != std::future_status::ready) client_.drain(std::chrono::milliseconds { 0 });
+                auto result = running.get();
+                if (!result) return { false, result.error().message };
+                if (result->timedOut || result->exitCode != 0) return { false, std::format("mcppls report --bundle: exit {}: {}", result->exitCode, (result->output + result->error).substr(0, 300)) };
+            } else {
+                Json arguments = check.value("arguments", Json::object());
+                arguments["client"] = Json { { "name", "mcppls-conformance" }, { "log", std::format("started in {}\nworkspace {}\n", home, workspace_) } };
+                const auto answer = client_.request("workspace/executeCommand", Json { { "command", "mcppls.exportBundle" }, { "arguments", Json::array({ arguments }) } },
+                                                    timeout_);
+                if (!answer || !answer->is_object() || !answer->contains("path")) return { false, "mcppls.exportBundle: no answer, or an error" };
+                path = answer->value("path", std::string {});
+            }
+            auto archive = fs::read_file(path);
+            if (archive && !options_.keepBundles.empty()) {
+                (void)fs::create_directories(options_.keepBundles);
+                (void)fs::write_file(base::join_path(options_.keepBundles, std::format("{}-{}.zip", base::file_name(options_.fixture), check.value("id", std::string { "bundle" }))), *archive);
+            }
+            fs::remove_all(path);
+            if (!archive) return { false, std::format("no bundle at {}", path) };
+            if (archive->size() > 25 * 1024 * 1024) return { false, std::format("the bundle is {} bytes, over its 25 MB cap", archive->size()) };
+            auto files = mcppls::bundle::read_archive(*archive);
+            if (!files) return { false, files.error() };
+            if (!files->contains("manifest.json")) return { false, "no manifest.json" };
+            const Json manifest = Json::parse(files->at("manifest.json"), nullptr, false);
+            if (!manifest.is_object() || !manifest.contains("files")) return { false, "manifest.json is not a manifest" };
+            if (manifest["files"].size() + 1 != files->size()) return { false, std::format("the manifest lists {} files, the bundle has {}", manifest["files"].size(), files->size() - 1) };
+            for (const auto& file : manifest["files"]) {
+                const std::string name { file.value("path", std::string {}) };
+                const auto found = files->find(name);
+                if (found == files->end()) return { false, std::format("{} is in the manifest, not in the bundle", name) };
+                if (base::sha256_hex(found->second) != file.value("sha256", std::string {})) return { false, std::format("{} is not what the manifest's digest says", name) };
+            }
+            for (const auto& expected : check.value("expect-files", Json::array())) {
+                if (!files->contains(expected.get<std::string>())) return { false, std::format("no {} in the bundle", expected.get<std::string>()) };
+            }
+            for (const auto& [name, content] : *files) {
+                if (const auto what = named(content, forbidden.size()); !what.empty()) return { false, std::format("{} names {}", name, what) };
+            }
+            const auto report = client_.request("cxxModules/report", Json::object(), timeout_);
+            if (!report) return { false, "cxxModules/report: no answer" };
+            if (const auto what = named(lsp::dump(*report), forbiddenInReport); !what.empty()) return { false, std::format("cxxModules/report names {}", what) };
+            return { true, std::format("{} files, {} bytes, redactions {}", files->size(), archive->size(), lsp::dump(manifest["redaction"]["rules"])) };
         }
         if (kind == "report") {
             // robustness design O3: cxxModules/report, held to "expect" like a tool's result, retried within the check's time
@@ -1880,6 +2025,9 @@ int run(Options options) {
     Json initializeParams { { "processId", nullptr }, { "rootUri", base::path_to_uri(workspace) },
                             { "workspaceFolders", workspaceFolders }, { "capabilities", capabilities } };
     if (!initializationOptions.empty()) initializeParams["initializationOptions"] = initializationOptions;
+    // A scenario's own "client-info": the client this runner says it is (fix plan 2026-09-26 F9: what a
+    // server tells VS Code differs from what it tells any other client).
+    if (const auto info = scenario.find("client-info"); info != scenario.end() && info->is_object()) initializeParams["clientInfo"] = *info;
     auto initialized = client.request("initialize", std::move(initializeParams), std::chrono::seconds { 120 });
     if (!initialized || !initialized->is_object()) {
         say("FAIL initialize: no result");
@@ -1902,7 +2050,7 @@ int run(Options options) {
                                           ? (*initialized)["capabilities"]["semanticTokensProvider"]["legend"]
                                           : Json::object();
     Scenario runner { client, options, serverArguments, workspace, options.timeout, std::move(prepared), cacheDirectory, options.expectWarm,
-                      std::move(moduleFilesBefore), semanticTokensLegend };
+                      std::move(moduleFilesBefore), semanticTokensLegend, initialized->value("capabilities", Json::object()) };
     int failures { advertised ? 0 : 1 };
     // "initialize-within": seconds. The handshake is answered at all, and in time (0.0.3 plan B1).
     if (const auto within = scenario.find("initialize-within"); within != scenario.end() && within->is_number()) {
@@ -2220,6 +2368,80 @@ int prepare_generated_module_compdb(const std::string& compiler) {
     return 0;
 }
 
+// compdb-lto-msvc (issue #23, fix plan F1): the compile_commands.json of a project built with LTO for the
+// MSVC ABI, as CMake writes it for `-flto` with clang++ on Windows, with `compiler` (or clang++ on PATH)
+// as the driver. Nothing is compiled: the fixture is about the commands the server gives clangd, whose
+// module scan failed on `LTO requires -fuse-ld=lld` when they carried `-flto` and no `-c`. The driver
+// raises that for the windows-msvc target on any host, so the fixture runs on Linux. `--no-default-config`
+// makes the driver the one of the LLVM Windows installer, with no configuration file: an LLVM that
+// carries one choosing lld (as mcpp's does) would not plan the link that fails.
+int prepare_compdb_lto_msvc(const std::string& compiler) {
+    const std::string root { fs::current_directory() };
+    auto clangxx = on_path(compiler.empty() ? std::string { "clang++" } : compiler);
+    if (!clangxx) {
+        say("compdb-lto-msvc: {} is not on PATH", compiler);
+        return 1;
+    }
+    Json database = Json::array();
+    for (const std::string_view relative : { "src/answer.cppm", "src/main.cpp" }) {
+        const std::string source { native(base::join_path(root, relative)) };
+        database.push_back(Json { { "directory", native(root) }, { "file", source },
+                                  { "arguments", Json::array({ *clangxx, "--no-default-config", "--target=x86_64-pc-windows-msvc", "-std=c++23",
+                                                               "-flto", "-O2", "-c", source, "-o", source + ".obj" }) } });
+    }
+    if (auto written = fs::write_file(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
+        say("compdb-lto-msvc: {}", written.error().message);
+        return 1;
+    }
+    return 0;
+}
+
+// Fix plan F6: a compile_commands.json whose commands carry an option value the compiler rejects, the kind of
+// command #23's LTO one was: clangd's module scan fails on every unit, and the status says the command was rejected,
+// with the driver's own words, instead of leaving the user to find "Scanning modules dependencies ... failed" in a log.
+int prepare_compdb_rejected_command(const std::string& compiler) {
+    const std::string root { fs::current_directory() };
+    auto clangxx = on_path(compiler.empty() ? std::string { "clang++" } : compiler);
+    if (!clangxx) {
+        say("compdb-rejected-command: {} is not on PATH", compiler);
+        return 1;
+    }
+    Json database = Json::array();
+    for (const std::string_view relative : { "src/answer.cppm", "src/main.cpp" }) {
+        const std::string source { native(base::join_path(root, relative)) };
+        database.push_back(Json { { "directory", native(root) }, { "file", source },
+                                  { "arguments", Json::array({ *clangxx, "-std=c++99999", "-c", source, "-o", source + ".o" }) } });
+    }
+    if (auto written = fs::write_file(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
+        say("compdb-rejected-command: {}", written.error().message);
+        return 1;
+    }
+    return 0;
+}
+
+// C++26 alignment (fix plan 2026-09-26 §9): a compile_commands.json whose units name two standards -- a module and an
+// importer of std at C++23, an application at C++26 importing both. One std BMI cannot serve both standards.
+int prepare_compdb_mixed_standards(const std::string& compiler) {
+    const std::string root { fs::current_directory() };
+    auto clangxx = on_path(compiler.empty() ? std::string { "clang++" } : compiler);
+    if (!clangxx) {
+        say("compdb-mixed-standards: {} is not on PATH", compiler);
+        return 1;
+    }
+    Json database = Json::array();
+    for (const auto& [relative, standard] : { std::pair { "src/core.cppm", "-std=c++23" }, std::pair { "src/legacy.cpp", "-std=c++23" },
+                                              std::pair { "src/app.cpp", "-std=c++26" } }) {
+        const std::string source { native(base::join_path(root, relative)) };
+        database.push_back(Json { { "directory", native(root) }, { "file", source },
+                                  { "arguments", Json::array({ *clangxx, "-stdlib=libc++", standard, "-c", source, "-o", source + ".o" }) } });
+    }
+    if (auto written = fs::write_file(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
+        say("compdb-mixed-standards: {}", written.error().message);
+        return 1;
+    }
+    return 0;
+}
+
 // real-project plan RP2.1: a second, newer mock mcpp under a fixture's isolated HOME
 // (`"isolate-home": true`), at the path producer negotiation searches
 // (`mcppls::project::other_mcpp_executables`, `xim-x-mcpp/<version>/bin/mcpp`), so a fixture whose
@@ -2395,6 +2617,56 @@ int prepare_clangd_cannot_load() {
     return 0;
 }
 
+// Fix plan F3: a clangd that crashes the way clangd 23.1 did on Windows in issue #23 -- its crash context on standard
+// error, naming a file that is not the one being edited, and then gone -- once, 25 seconds after it starts; every
+// later start is the payload's real clangd. POSIX only: the stand-in is a shell script around the real one.
+int prepare_clangd_crash_context(const std::string& payload) {
+    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+        say("clangd-crash-context: POSIX only");
+        return 2;
+    }
+    const std::string workspace { fs::current_directory() };
+    const std::string real { base::join_path(payload, "clangd/bin/clangd") };
+    if (!fs::exists(real)) {
+        say("clangd-crash-context: no clangd at {}", real);
+        return 1;
+    }
+    const std::string directory { base::join_path(workspace, "stand-in") };
+    (void)fs::create_directories(directory);
+    const std::string crashed { base::join_path(directory, "crashed-once") };
+    const std::string crasher { base::join_path(workspace, "src/crasher.cpp") };
+    const std::string script { std::format(
+        "#!/bin/sh\n"
+        "real='{}'\n"
+        "case \"$1\" in --version|--help) exec \"$real\" \"$@\" ;; esac\n"
+        "[ -e '{}' ] && exec \"$real\" \"$@\"\n"
+        ": > '{}'\n"
+        // A background job of sh reads /dev/null: the editor's input goes to clangd through a descriptor kept first.
+        "exec 3<&0\n"
+        "\"$real\" \"$@\" <&3 3<&- &\n"
+        "child=$!\n"
+        "sleep 25\n"
+        "echo 'PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace.' >&2\n"
+        "echo 'Signalled during AST worker action: Build AST' >&2\n"
+        "echo '  Filename: {}' >&2\n"
+        "echo '  Directory: {}' >&2\n"
+        "echo '  Command Line: clang++ -std=c++23 -c -- {}' >&2\n"
+        "echo '  Version: 1' >&2\n"
+        "kill -KILL $child\n"
+        "exit 139\n",
+        real, crashed, crashed, crasher, workspace, crasher) };
+    const std::string clangd { base::join_path(directory, "clangd") };
+    if (auto written = fs::write_file(clangd, script); !written) {
+        say("clangd-crash-context: {}", written.error().message);
+        return 1;
+    }
+    if (auto marked = fs::make_executable(std::vector<std::string> { clangd }); !marked) {
+        say("clangd-crash-context: {}", marked.error().message);
+        return 1;
+    }
+    return 0;
+}
+
 int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "s1-two-sets") return prepare_s1_two_sets(argument);
     if (kind == "payload-corrupt") return prepare_payload_corrupt(argument);
@@ -2404,7 +2676,11 @@ int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "compdb-clangxx-msvc-std") return prepare_compdb_msvc_std(false);
     if (kind == "generated-module-old-mcpp") return prepare_generated_module_compdb(argument);
     if (kind == "clangd-cannot-load") return prepare_clangd_cannot_load();
-    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load)", kind);
+    if (kind == "clangd-crash-context") return prepare_clangd_crash_context(argument);
+    if (kind == "compdb-rejected-command") return prepare_compdb_rejected_command(argument);
+    if (kind == "compdb-mixed-standards") return prepare_compdb_mixed_standards(argument);
+    if (kind == "compdb-lto-msvc") return prepare_compdb_lto_msvc(argument);
+    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, compdb-rejected-command, compdb-mixed-standards)", kind);
     return 2;
 }
 
@@ -2437,6 +2713,7 @@ int main(int argc, char* argv[]) {
     (void)runCommand.option("plain-client").help("Alias for --client plain");
     (void)runCommand.option("client").takes_value().help("The capabilities a real editor sends: vscode, neovim, zed or plain (default: this runner's own, the full experimental.cxxModules block)");
     (void)runCommand.option("stress-seed").takes_value().help("Overrides every stress check's own \"seed\" (mcppls-devtools stress --seed)");
+    (void)runCommand.option("keep-bundles").takes_value().help("Directory a copy of every diagnostic bundle a bundle check exported is left in");
     (void)runCommand.action([&](const cmdline::ParsedArgs& args) {
         Options options;
         options.server = absolute(args.value("server").value_or(""));
@@ -2454,6 +2731,7 @@ int main(int argc, char* argv[]) {
         options.expectWarm = args.is_flag_set("expect-warm");
         options.noDynamicWatch = args.is_flag_set("no-dynamic-watch");
         options.plainClient = args.is_flag_set("plain-client");
+        options.keepBundles = args.value("keep-bundles") ? absolute(*args.value("keep-bundles")) : std::string {};
         if (auto clientName = args.value("client")) {
             if (*clientName == "vscode") options.client = Options::ClientProfile::vscode;
             else if (*clientName == "neovim") options.client = Options::ClientProfile::neovim;

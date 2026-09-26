@@ -30,6 +30,9 @@ std::string replace_all(std::string_view text, std::string_view from, std::strin
 std::size_t utf16_length(std::string_view utf8);
 Position position_at(std::string_view text, std::size_t byteOffset);
 std::optional<std::size_t> offset_at(std::string_view text, Position position);
+// A UTF-8 byte order mark that begins a file's text: its size, 3, or 0 when there is none. Editors do
+// not show it, so the scanners start after it and give it no column (fix plan F2).
+std::size_t byte_order_mark_size(std::string_view text);
 
 bool is_identifier_start(char c);
 bool is_identifier_char(char c);

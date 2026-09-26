@@ -1,0 +1,240 @@
+{
+  "name": "typing-autosave",
+  "description": "Fix plan 2026-09-26 F16, F13, F11, F12, F17 (the hello project, with files.autoSave afterDelay). Every step is also written to disk and reported as saved, as autosave does, and a new line below the imports stays on `import hello.` for twelve seconds, as in the hello project: clangd reads a file's imports from disk (UP-14), so WA-CLANGD-001's rewrite of the text it is given does not reach there, and 0.0.4 spun a clangd worker at a full core until clangd was restarted, every request for the file waiting behind it. The file is now set aside before clangd builds it, answered by mcppls's own engine, and handed back once the disk is fixed, with no restart and an incident recording the broken premise. Typing a module nothing provides, saved and left quiet long enough to get a stand-in, then changed back, restarts nothing. A directive missing its ';' is reported on the directive (WA-CLANGD-006), and an import only in the unsaved buffer is information, not an error (WA-CLANGD-007).",
+  "server-arguments": [
+    "--no-discover"
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "inferred",
+      "state": "ready",
+      "engine-name": "clangd"
+    },
+    {
+      "id": "T0-before",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet",
+      "timeout": 90
+    },
+    {
+      "id": "T1-type-to-the-dot-saved",
+      "kind": "type-text",
+      "file": "src/main.cpp",
+      "line": 2,
+      "steps": [
+        "i",
+        "im",
+        "imp",
+        "impo",
+        "impor",
+        "import",
+        "import ",
+        "import h",
+        "import he",
+        "import hel",
+        "import hell",
+        "import hello",
+        "import hello."
+      ],
+      "interval-ms": 150,
+      "answer-within": 5,
+      "save": true,
+      "states-never": [
+        "error"
+      ]
+    },
+    {
+      "id": "T2-stay-on-the-dot-saved",
+      "kind": "type-text",
+      "file": "src/main.cpp",
+      "line": 2,
+      "steps": [
+        "import hello.",
+        "import hello."
+      ],
+      "interval-ms": 6000,
+      "answer-within": 5,
+      "save": true,
+      "states-never": [
+        "error"
+      ]
+    },
+    {
+      "id": "T3-disk-seen",
+      "kind": "report",
+      "timeout": 20,
+      "expect": [
+        {
+          "path": "/roots/0/events/*/kind",
+          "equals": "disk-unsafe"
+        },
+        {
+          "path": "/roots/0/engines/*/details/filesUnsafeOnDisk",
+          "min-items": 1
+        },
+        {
+          "path": "/roots/0/events/*/detail/kind",
+          "equals": "workaround-premise"
+        }
+      ]
+    },
+    {
+      "id": "T4-keep-typing-saved",
+      "kind": "type-text",
+      "file": "src/main.cpp",
+      "line": 2,
+      "steps": [
+        "import hello.e",
+        "import hello.ex",
+        "import hello.ext",
+        "import hello.extr",
+        "import hello.extra",
+        "import hello.extra;"
+      ],
+      "interval-ms": 150,
+      "answer-within": 5,
+      "save": true,
+      "states-never": [
+        "error"
+      ]
+    },
+    {
+      "id": "T5-features-back",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet",
+      "timeout": 30
+    },
+    {
+      "id": "T6-nothing-provides-it",
+      "kind": "type-text",
+      "file": "src/main.cpp",
+      "line": 2,
+      "steps": [
+        "import hello.n",
+        "import hello.no",
+        "import hello.nos",
+        "import hello.nosu",
+        "import hello.nosuch",
+        "import hello.nosuch;"
+      ],
+      "interval-ms": 150,
+      "answer-within": 5,
+      "save": true,
+      "states-never": [
+        "error"
+      ]
+    },
+    {
+      "id": "T7-quiet-long-enough-for-a-stand-in",
+      "kind": "type-text",
+      "file": "src/main.cpp",
+      "line": 2,
+      "steps": [
+        "import hello.nosuch;",
+        "import hello.nosuch;"
+      ],
+      "interval-ms": 4000,
+      "answer-within": 5,
+      "save": true,
+      "states-never": [
+        "error"
+      ]
+    },
+    {
+      "id": "T8-back-to-the-module",
+      "kind": "type-text",
+      "file": "src/main.cpp",
+      "line": 2,
+      "steps": [
+        "import hello.nosuc",
+        "import hello.",
+        "import hello",
+        "import",
+        "",
+        ""
+      ],
+      "interval-ms": 400,
+      "answer-within": 5,
+      "save": true,
+      "states-never": [
+        "error"
+      ]
+    },
+    {
+      "id": "T9-features-after",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet",
+      "timeout": 30
+    },
+    {
+      "id": "T10-nothing-left-aside",
+      "kind": "report",
+      "timeout": 30,
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/filesUnsafeOnDisk",
+          "max-items": 0
+        },
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside",
+          "max-items": 0
+        },
+        {
+          "path": "/roots/0/events/*/kind",
+          "equals": "file-handed-back"
+        }
+      ]
+    },
+    {
+      "id": "T11-no-restart-but-for-a-spin",
+      "kind": "report",
+      "timeout": 10,
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/restarts/*/reason",
+          "each-contains": "would not finish"
+        }
+      ],
+      "only-on": [
+        "linux",
+        "macos"
+      ]
+    },
+    {
+      "id": "D1-missing-semicolon-on-its-directive",
+      "kind": "diagnostic-code",
+      "file": "src/main.cpp",
+      "text": "import std;\nimport hello.greet\n\nint main(int argc, char* argv[]) {\n    std::println(\"{}\", hello::greet(\"mcpp\"));\n    return 0;\n}\n",
+      "expect": "expected_semi_after_module_or_import",
+      "line": 1
+    },
+    {
+      "id": "D2-unsaved-import-is-information",
+      "kind": "diagnostic-code",
+      "file": "src/main.cpp",
+      "text": "import std;\nimport hello.greet;\nimport hello.extra;\n\nint main(int argc, char* argv[]) {\n    std::println(\"{} {}\", hello::greet(\"mcpp\"), hello::extra());\n    return 0;\n}\n",
+      "expect": "unsaved-import",
+      "severity": 3,
+      "absent": [
+        "module_not_found"
+      ]
+    }
+  ]
+}

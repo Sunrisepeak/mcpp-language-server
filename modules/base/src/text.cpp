@@ -151,6 +151,11 @@ std::optional<std::size_t> offset_at(std::string_view text, Position position) {
     return offset;
 }
 
+std::size_t byte_order_mark_size(std::string_view text) {
+    static constexpr std::string_view MARK { "\xEF\xBB\xBF" };
+    return text.starts_with(MARK) ? MARK.size() : 0;
+}
+
 bool is_identifier_start(char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || static_cast<unsigned char>(c) >= 0x80;
 }

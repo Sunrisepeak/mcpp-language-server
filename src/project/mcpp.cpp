@@ -309,6 +309,16 @@ std::optional<base::Result<InferredDatabase>> emit_build_database(const std::str
     }
     auto enriched = enrich_database(std::move(*database), context.scanner, context.prober);
     enriched.watch = std::move(document->watch);
+    // S2 0.3.0 (S2-3.4-12, S2-3.4-13; mcpp-community/mcpp#699): a document with `data` and `error` diagnostics describes
+    // everything but what they name. The rest is used, and each part mcpp could not describe is said, by its file.
+    for (const auto& diagnostic : document->diagnostics) {
+        if (diagnostic.severity != "error") continue;
+        const std::string where { diagnostic.path.empty() ? std::string {} : std::format("{}: ", diagnostic.path) };
+        base::log::warning("mcpp described the project in part: {}{}: {}", where, diagnostic.code, diagnostic.message);
+        enriched.issues.emplace_back("producer-partial", std::format("mcpp could not describe {}{}: {}; the rest of the project is used",
+                                                                       where.empty() ? std::string { "part of the project: " } : where, diagnostic.code,
+                                                                       diagnostic.message));
+    }
     return base::Result<InferredDatabase> { std::move(enriched) };
 }
 

@@ -39,6 +39,8 @@ struct EngineTraits {
     bool needsModuleHints { false };                  // its database names the unit of each module
     bool msvcStlNeedsNoAlignedAllocation { false };   // MSVC STL contexts turn aligned allocation off
     bool hangsOnTrailingDotModuleName { false };      // `import a.` at the end of a line spins it; it is given `import a.;`
+    bool misplacesDirectiveSemicolon { false };       // a directive missing its `;` is reported on the next line; moved back
+    bool readsImportsFromDisk { false };              // an import only in an unsaved buffer is "not found"; told as information
     std::string kitStdlibVersion;                     // the libc++ version a semantic kit must have for it (S4-4-5); empty: any
     bool tested { false };                            // a version this server's conformance suite runs against
 };
@@ -75,6 +77,12 @@ struct Answer {
 };
 
 using Reply = std::function<void(Answer)>;
+
+// A file an incident carries besides its description: a name inside the incident's directory, and its content.
+struct IncidentFile {
+    std::string name;
+    std::string content;
+};
 
 struct DocumentView {
     std::string uri;          // the client's URI
@@ -141,6 +149,17 @@ public:
         (void)kind;
         (void)detail;
     }
+    // Something went wrong that someone will want to look at afterwards (fix plan F17.2): a crash, a
+    // file set aside, a restart held back. The workspace writes it to its incidents directory with the
+    // files given (the engine's own log, say), what led up to it, and, when `pid` names the engine's
+    // process, what each of its threads was doing. Off the event loop; rate limits are the caller's.
+    virtual void record_incident(std::string_view kind, Json detail, std::vector<IncidentFile> files = {},
+                                 std::optional<std::int64_t> pid = std::nullopt) {
+        (void)kind;
+        (void)detail;
+        (void)files;
+        (void)pid;
+    }
 };
 
 class Engine {
@@ -187,6 +206,10 @@ public:
 
     // What this engine knows that a report of a problem needs (robustness design O3).
     virtual Json report() const { return Json::object(); }
+
+    // The person asked for the engine to start over (`workspace/executeCommand mcppls.restartEngine`, fix plan F14): at once,
+    // whatever its restart budget says, and not counted in it. False when there is nothing to restart.
+    virtual bool restart_on_request() { return false; }
 };
 
 } // namespace mcppls::engine

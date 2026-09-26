@@ -20,6 +20,15 @@ struct Token {
 
 bool is_space(char c) { return c == ' ' || c == '\t' || c == '\f' || c == '\v' || c == '\r'; }
 
+// Where a byte of `text` is, as an editor shows the text: a byte order mark at its start takes no
+// column (fix plan F2), so a file read from disk and the same file open in an editor get the same ranges.
+base::Position position_in(std::string_view text, std::size_t offset) {
+    const std::size_t mark { base::byte_order_mark_size(text) };
+    return base::position_at(text.substr(mark), offset < mark ? 0 : offset - mark);
+}
+
+// Offsets are the text's own; a byte order mark before `export module` is skipped like white space
+// (fix plan F2), or the declaration would not begin its line and the file would be no module.
 class Lexer {
 private:
     std::string_view text_;
@@ -28,7 +37,7 @@ private:
     int conditionalDepth_ { 0 };
 
 public:
-    explicit Lexer(std::string_view text) : text_ { text } {}
+    explicit Lexer(std::string_view text) : text_ { text }, at_ { base::byte_order_mark_size(text) } {}
 
     int conditional_depth() const { return conditionalDepth_; }
 
@@ -266,15 +275,34 @@ std::vector<SyntaxToken> scan_syntax_tokens(std::string_view text) {
     std::vector<SyntaxToken> tokens;
     Lexer lexer { text };
     int braceDepth { 0 };
+    // Fix plan F8: once a module declaration (`module;`, `module m;`, `export module m;`) has been read, the
+    // file is a module unit, and every `export` in it begins an export declaration -- `export namespace`,
+    // `export {`, `export int f()`, inside a namespace too -- and is colored like `export module`'s.
+    bool moduleUnit { false };
     std::optional<Token> token { lexer.next(false) };
     const auto push = [&](SyntaxTokenKind kind, std::size_t begin, std::size_t end, bool isDeclaration = false) {
         if (end <= begin) return;
-        tokens.push_back(SyntaxToken { kind, base::Range { base::position_at(text, begin), base::position_at(text, end) }, isDeclaration });
+        tokens.push_back(SyntaxToken { kind, base::Range { position_in(text, begin), position_in(text, end) }, isDeclaration });
+    };
+    const auto push_export = [&](const Token& exportToken) {
+        if (moduleUnit) push(SyntaxTokenKind::keyword, exportToken.offset, exportToken.offset + exportToken.text.size());
     };
     while (token) {
         if (token->kind == TokenKind::punctuation) {
             if (token->text == "{") ++braceDepth;
             if (token->text == "}" && braceDepth > 0) --braceDepth;
+            token = lexer.next(false);
+            continue;
+        }
+        // C++26 (P2900): `contract_assert` is a keyword wherever it is, and no editor grammar knows it yet.
+        if (token->kind == TokenKind::identifier && token->text == "contract_assert") {
+            push(SyntaxTokenKind::keyword, token->offset, token->offset + token->text.size());
+            token = lexer.next(false);
+            continue;
+        }
+        if (token->kind == TokenKind::identifier && token->text == "export" && (braceDepth != 0 || !token->startsLine)) {
+            // Inside a namespace, or after another declaration on its line: never module syntax.
+            push_export(*token);
             token = lexer.next(false);
             continue;
         }
@@ -286,16 +314,21 @@ std::vector<SyntaxToken> scan_syntax_tokens(std::string_view text) {
         std::size_t exportBegin { 0 };
         std::size_t exportEnd { 0 };
         if (token->text == "export" && token->startsLine) {
+            const Token exportToken { *token };
             exportBegin = token->offset;
             exportEnd = token->offset + token->text.size();
             token = lexer.next(false);
-            if (!token || token->kind != TokenKind::identifier || (token->text != "module" && token->text != "import")) continue;
+            if (!token || token->kind != TokenKind::identifier || (token->text != "module" && token->text != "import")) {
+                push_export(exportToken);   // a declaration's export; what follows it is read as usual
+                continue;
+            }
             exported = true;
         } else if (!token->startsLine || (token->text != "module" && token->text != "import")) {
             token = lexer.next(false);
             continue;
         }
         const bool isImport { token->text == "import" };
+        if (!isImport) moduleUnit = true;
         if (exported) push(SyntaxTokenKind::keyword, exportBegin, exportEnd);
         push(SyntaxTokenKind::keyword, token->offset, token->offset + token->text.size());
         token = lexer.next(isImport);
@@ -362,7 +395,7 @@ ScanResult scan_source(std::string_view text) {
             import.isHeaderUnit = true;
             import.header = std::string { token->text };
             import.conditional = conditional;
-            import.nameRange = base::Range { base::position_at(text, token->offset), base::position_at(text, token->offset + token->text.size()) };
+            import.nameRange = base::Range { position_in(text, token->offset), position_in(text, token->offset + token->text.size()) };
             token = lexer.next(false);
             skip_attributes(lexer, token);
             if (token && token->text == ";") {
@@ -378,10 +411,17 @@ ScanResult scan_source(std::string_view text) {
         NameParse name { parse_name(lexer, token, isImport) };
         if (!name.ok) continue;
         skip_attributes(lexer, token);
-        if (!token || token->kind != TokenKind::punctuation || token->text != ";") continue;
+        if (!token || token->kind != TokenKind::punctuation || token->text != ";") {
+            // The directive's line ended first: `import hello.greet` with its `;` not typed yet.
+            if (isImport && (!token || token->startsLine)) {
+                const base::Range range { position_in(text, name.begin), position_in(text, name.end) };
+                result.unterminatedImports.push_back(ImportDeclaration { name.module, name.partition, exported, false, {}, conditional, range });
+            }
+            continue;
+        }
         token = lexer.next(false);
 
-        const base::Range range { base::position_at(text, name.begin), base::position_at(text, name.end) };
+        const base::Range range { position_in(text, name.begin), position_in(text, name.end) };
         if (conditional) result.uncertain = true;
         if (isImport) {
             result.imports.push_back(ImportDeclaration { name.module, name.partition, exported, false, {}, conditional, range });
@@ -453,6 +493,7 @@ std::vector<std::string> required_names(const ScanResult& result) {
         if (import.isHeaderUnit) continue;
         add(imported_name(result, import));
     }
+    for (const auto& import : result.unterminatedImports) add(imported_name(result, import));
     return names;
 }
 

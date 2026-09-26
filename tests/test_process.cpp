@@ -195,6 +195,18 @@ int main() {
             expect(*busyAfter - *busyBefore > 0.5) << *busyBefore << " -> " << *busyAfter;
         }
         expect(!platform::cpu_seconds(0).has_value());
+        // Fix plan F17.2: an incident says which thread of the engine is busy, where the platform can say.
+        if (const auto pid = busy->native_pid()) {
+            const auto threads = platform::thread_cpu(*pid);
+            if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
+                expect(fatal(!threads.empty()));
+                const auto busiest = std::ranges::max_element(threads, {}, &platform::ThreadCpu::seconds);
+                expect(busiest->seconds > 0.5 && busiest->id > 0 && !busiest->name.empty()) << busiest->name << " " << busiest->seconds;
+            } else {
+                expect(threads.empty()) << "only Linux can say, per thread";
+            }
+        }
+        expect(platform::thread_cpu(0).empty());
         idle->kill();
         busy->kill();
         (void)idle->wait();

@@ -23,6 +23,9 @@ struct Workaround {
     std::string_view added;        // the mcppls version that added it
     std::string_view removeWhen;   // when the workaround can go
     std::string_view canary;       // the check that fails once the defect is gone; empty: none yet
+    // What the workaround takes for granted (fix plan F17.4). Where the server can see it broken, it records
+    // an incident rather than trusting a workaround that no longer holds.
+    std::string_view premise;
 };
 
 inline constexpr std::string_view TRAILING_DOT_MODULE_NAME { "WA-CLANGD-001" };
@@ -30,6 +33,8 @@ inline constexpr std::string_view UNRESOLVED_IMPORT_STAND_INS { "WA-CLANGD-002" 
 inline constexpr std::string_view MODULE_PREPARATION { "WA-CLANGD-003" };
 inline constexpr std::string_view MODULE_HINTS { "WA-CLANGD-004" };
 inline constexpr std::string_view MSVC_STL_ALIGNED_ALLOCATION { "WA-CLANGD-005" };
+inline constexpr std::string_view DIRECTIVE_SEMICOLON_POSITION { "WA-CLANGD-006" };
+inline constexpr std::string_view UNSAVED_IMPORT_NOT_FOUND { "WA-CLANGD-007" };
 
 std::span<const Workaround> workarounds();
 const Workaround* find_workaround(std::string_view id);
@@ -64,5 +69,20 @@ struct TextPosition {
     int character { 0 };
 };
 TextPosition to_original(std::span<const Insertion> insertions, TextPosition position);
+
+// WA-CLANGD-006. clangd reports a directive missing its `;` (expected_semi_after_module_or_import, and
+// pp_unexpected_tok_after_module_name for `export module m` with no `;`) at the next token, often lines
+// below, on the code that follows. Where it belongs: the end of the nearest non-blank line above `line`,
+// when that line is an `import` or `module` directive that does not end in `;`. The range covers the
+// directive's last character (UTF-16 columns).
+struct LineRange {
+    int line { 0 };
+    int startCharacter { 0 };
+    int endCharacter { 0 };
+};
+std::optional<LineRange> directive_missing_semicolon(std::string_view text, int line);
+
+// WA-CLANGD-007. The module of clangd's "module 'X' not found" (any capitalisation of the first letter).
+std::optional<std::string> module_not_found_name(std::string_view message);
 
 } // namespace mcppls::engine::clangd

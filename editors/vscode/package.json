@@ -2,7 +2,7 @@
   "name": "mcpp-language-server",
   "displayName": "C++ Modules Language Server",
   "description": "C++20/23 named modules that just work: go to definition, completion, hover and references across modules for any compiler, with clangd and a standard library kit built in. (mcppls)",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "publisher": "sunrisepeak",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -156,6 +156,16 @@
         "category": "C++ Modules"
       },
       {
+        "command": "mcppls.exportDiagnosticBundle",
+        "title": "Export Diagnostic Bundle",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.restartClangd",
+        "title": "Restart clangd",
+        "category": "C++ Modules"
+      },
+      {
         "command": "mcppls.runBuildToolInTerminal",
         "title": "Run the Build Tool in a Terminal",
         "category": "C++ Modules"
@@ -220,6 +230,11 @@
           "type": "boolean",
           "default": true,
           "description": "Module keywords and names from the server's semantic tokens. Turn this off to use only your own grammar or tree-sitter colors for module syntax."
+        },
+        "mcppls.completion.triggerOnSpace": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show the module list as soon as a space is typed after `import` or `export import`. A space anywhere else never asks the server for anything."
         },
         "mcppls.trace.server": {
           "type": "string",

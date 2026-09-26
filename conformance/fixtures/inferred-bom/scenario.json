@@ -1,0 +1,60 @@
+{
+  "name": "inferred-bom",
+  "description": "Issue #23, fix plan F2: loose module sources saved with a UTF-8 byte order mark, as editors on Windows can save them. The scanners skip the mark: `export module greet;` after it is the module's declaration, so mcppls reports no false `unresolved-module`, plans no stand-in for greet, and clangd builds the real module.",
+  "server-arguments": [
+    "--no-discover"
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "inferred",
+      "profile-kind": "semantic-kit",
+      "state": "ready"
+    },
+    {
+      "id": "B1-no-false-unresolved-module",
+      "kind": "diagnostics-empty",
+      "file": "src/main.cpp"
+    },
+    {
+      "id": "B2-import-goes-to-the-module",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        1,
+        9
+      ],
+      "expect": "src/greet.cppm",
+      "timeout": 30
+    },
+    {
+      "id": "B3-hover-across-the-module",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        14
+      ],
+      "expect": "greet_answer",
+      "timeout": 60
+    },
+    {
+      "id": "B4-graph",
+      "kind": "module-graph-contains",
+      "expect": "greet",
+      "timeout": 30
+    },
+    {
+      "id": "B5-outline",
+      "kind": "document-symbol-contains",
+      "file": "src/greet.cppm",
+      "expect": "greet",
+      "timeout": 30
+    },
+    {
+      "id": "W1",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}

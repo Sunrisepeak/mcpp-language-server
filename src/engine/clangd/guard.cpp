@@ -4,24 +4,49 @@ import std;
 
 namespace mcppls::engine::clangd {
 
-GuardClock::time_point RestartGate::earliest(GuardClock::time_point now) const {
-    const std::size_t count { recent(now) };
+std::string_view to_string(RestartCause cause) {
+    switch (cause) {
+    case RestartCause::plan: return "plan";
+    case RestartCause::recovery: return "recovery";
+    case RestartCause::crash: return "crash";
+    case RestartCause::user: return "user";
+    }
+    return "recovery";
+}
+
+GuardClock::time_point RestartGate::earliest(GuardClock::time_point now, RestartCause cause) const {
+    if (cause == RestartCause::user) return now;
+    const std::size_t count { recent(now, cause) };
     if (count == 0) return now;
+    const auto last = restarts_.at(cause).back();
     const std::chrono::seconds gap { std::min<std::chrono::seconds::rep>(FIRST_GAP.count() << std::min<std::size_t>(count - 1, 16),
                                                                          std::chrono::duration_cast<std::chrono::seconds>(MAX_GAP).count()) };
-    return std::max(now, restarts_.back() + gap);
+    auto at = std::max(now, last + gap);
+    if (cause != RestartCause::crash && count >= MAX_RESTARTS_PER_WINDOW) {
+        const std::size_t step { std::min(count - MAX_RESTARTS_PER_WINDOW, BACKOFF.size() - 1) };
+        at = std::max(at, last + BACKOFF[step]);
+    }
+    return at;
 }
 
-void RestartGate::record(GuardClock::time_point now) {
-    restarts_.push_back(now);
-    while (!restarts_.empty() && now - restarts_.front() > WINDOW) restarts_.pop_front();
+void RestartGate::record(GuardClock::time_point now, RestartCause cause) {
+    if (cause == RestartCause::user) return;
+    auto& restarts = restarts_[cause];
+    restarts.push_back(now);
+    while (!restarts.empty() && now - restarts.front() > WINDOW) restarts.pop_front();
 }
 
-std::size_t RestartGate::recent(GuardClock::time_point now) const {
-    return static_cast<std::size_t>(std::ranges::count_if(restarts_, [&](GuardClock::time_point at) { return now - at <= WINDOW; }));
+std::size_t RestartGate::recent(GuardClock::time_point now, RestartCause cause) const {
+    const auto restarts = restarts_.find(cause);
+    if (restarts == restarts_.end()) return 0;
+    return static_cast<std::size_t>(std::ranges::count_if(restarts->second, [&](GuardClock::time_point at) { return now - at <= WINDOW; }));
 }
 
-bool RestartGate::at_cap(GuardClock::time_point now) const { return recent(now) >= MAX_RESTARTS_PER_WINDOW; }
+bool RestartGate::at_cap(GuardClock::time_point now, RestartCause cause) const {
+    return cause != RestartCause::user && cause != RestartCause::crash && recent(now, cause) >= MAX_RESTARTS_PER_WINDOW;
+}
+
+void RestartGate::reset() { restarts_.clear(); }
 
 std::set<std::string> doomed_modules(const std::map<std::string, std::vector<std::string>, std::less<>>& imports, std::string_view failed) {
     // Each module's importers, then one breadth-first walk from the failed module up through them.

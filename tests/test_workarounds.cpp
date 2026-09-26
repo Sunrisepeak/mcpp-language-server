@@ -58,6 +58,7 @@ int main() {
             { "module a.\n", "module a.;\n" },
             { "module;\nexport module m.\n", "module;\nexport module m.;\n" },
             { "import hello. \n", "import hello.; \n" },
+            { "\xEF\xBB\xBFimport hello.\n", "\xEF\xBB\xBFimport hello.;\n" },
             { "import hello.\t\n", "import hello.;\t\n" },
             { "import hello.// c\n", "import hello.;// c\n" },
             { "import hello.\n;\n", "import hello.;\n;\n" },
@@ -95,5 +96,39 @@ int main() {
         expect(cld::to_original(insertions, { 1, 14 }).character == 13);
         expect(cld::to_original(insertions, { 0, 20 }).character == 20);
         expect(cld::to_original(insertions, { 3, 18 }).character == 17);
+    };
+
+    "every workaround says what it takes for granted"_test = [] {
+        for (const auto& workaround : cld::workarounds()) expect(!workaround.premise.empty()) << workaround.id;
+        const auto pinned = cld::traits_for_version("23.1.0");
+        expect(pinned.misplacesDirectiveSemicolon && pinned.readsImportsFromDisk);
+        const std::vector<std::string> off { std::string { cld::DIRECTIVE_SEMICOLON_POSITION }, std::string { cld::UNSAVED_IMPORT_NOT_FOUND } };
+        const auto disabled = cld::traits_for_version("23.1.0", off);
+        expect(!disabled.misplacesDirectiveSemicolon && !disabled.readsImportsFromDisk) << "each can be turned off";
+    };
+
+    "a directive missing its ';' is reported where it is (WA-CLANGD-006)"_test = [] {
+        // clangd reports `import hello` + blank line + code at the code (line 2).
+        auto moved = cld::directive_missing_semicolon("import std;\nimport hello\n\nauto main() -> int { return 0; }\n", 3);
+        expect(fatal(moved.has_value()));
+        expect(moved->line == 1 && moved->startCharacter == 11 && moved->endCharacter == 12) << moved->line << ":" << moved->startCharacter;
+        // `export module m` with no ';', trailing blanks and a comment after it.
+        moved = cld::directive_missing_semicolon("export module mé   // the module\n\n\nexport int f();\n", 3);
+        expect(fatal(moved.has_value()));
+        expect(moved->line == 0 && moved->endCharacter == 16) << "UTF-16 columns, blanks and the comment left out: " << moved->endCharacter;
+        // Only the nearest non-blank line counts, and only a directive without its ';'.
+        expect(!cld::directive_missing_semicolon("import hello;\nint x\nint y;\n", 2).has_value());
+        expect(!cld::directive_missing_semicolon("import hello;\n\nauto main() {}\n", 2).has_value());
+        expect(!cld::directive_missing_semicolon("import hello\n", 0).has_value()) << "on the directive's own line it is right already";
+        expect(!cld::directive_missing_semicolon("", 3).has_value());
+        expect(cld::directive_missing_semicolon("module a\n// only a comment\nint x;\n", 2).has_value()) << "a comment line is looked past";
+    };
+
+    "the module of a 'not found' is read back (WA-CLANGD-007)"_test = [] {
+        expect(cld::module_not_found_name("Module 'hello.greet' not found") == std::optional<std::string> { "hello.greet" });
+        expect(cld::module_not_found_name("module 'a:part' not found") == std::optional<std::string> { "a:part" });
+        expect(!cld::module_not_found_name("Module 'x' not found here").has_value());
+        expect(!cld::module_not_found_name("Header 'x' not found").has_value());
+        expect(!cld::module_not_found_name("Module '' not found").has_value());
     };
 }

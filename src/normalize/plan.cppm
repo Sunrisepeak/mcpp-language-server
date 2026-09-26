@@ -59,7 +59,22 @@ struct EnginePlan {
     std::vector<std::string> excludedFiles;   // providers left out because they cannot be built
     std::string contextSet;                   // empty: every set
     std::size_t stdUnits { 0 };
+    // Set by the workspace, not by plan_engine (fix plan F4, F14): what the model's toolchain, profile and
+    // context are, and where the model came from. A restart for a plan whose toolchain key changed is
+    // the person's doing (they switched the toolchain or the context) and is never counted against clangd.
+    std::string toolchainKey;
+    std::string modelOrigin;                  // cache-fresh | cache-stale | cache-confirmed | producer | inferred
+    // The C++ standard the context's module units are read with (C++26 alignment): one for the whole context, since
+    // every BMI a unit imports must have been built with its standard. When the units name several, the newest is
+    // taken and the others raised to it; `standardsSeen` lists what they named, `standardsRaised` how many were.
+    std::string languageStandard;
+    std::vector<std::string> standardsSeen;
+    std::size_t standardsRaised { 0 };
 };
+
+// "c++26", "gnu++2c", "c++latest": the year of the C++ standard (2026) and whether GNU extensions are on; nullopt for
+// anything that is not a C++ standard ("c17", "gnu11").
+std::optional<std::pair<int, bool>> cxx_standard(std::string_view standard);
 
 struct PlanInput {
     const spec::Database* database { nullptr };
@@ -88,6 +103,11 @@ struct PlanInput {
     // most likely still being typed, so it gets no stand-in yet, unless the file provides a module itself (building
     // such a unit with an unresolved import is what stalls clangd).
     std::vector<std::string> editingSources;
+    // Of those, the modules each imports in its text ON DISK (fix plan F13, WA-CLANGD-002's premise). clangd reads a file's
+    // imports from disk (UP-14): an import an autosave has already written there gets its stand-in at once, since clangd
+    // builds with it now and stalls on it unresolved (UP-02); only an import in the buffer alone waits for the file to be
+    // quiet. A file without an entry here: all of its imports wait, as before.
+    std::map<std::string, std::vector<std::string>, std::less<>> editingDiskImports;
     // Engine decisions (overall design 5.4), set by the core engine's configure_plan. Providers whose
     // imports cannot resolve, and providers importing them, stay out of the database: clangd 23.1
     // deadlocks building them (robustness design, experiments S2, S6). Other units always stay.

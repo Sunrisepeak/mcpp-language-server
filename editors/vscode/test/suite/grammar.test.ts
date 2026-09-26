@@ -81,7 +81,29 @@ suite('module-syntax highlighting: the injected grammar (WA-VSCODE-001)', functi
             'x = import;',
             'obj.import(1);',
             'int module = 5;',
+            // Fix plan F8: the export of an export declaration.
+            'export namespace ns {',
+            '  export int inner();',
+            '}',
+            'export {',
+            '}',
+            'export template <class T> T g(T);',
+            'exports = 1;',
+            // C++26 contracts (P2900).
+            'int f(int x) pre(x > 0) post(r: r > 0);',
+            'void h() const noexcept pre(ok());',
+            'void k() { contract_assert(ready); }',
+            'int pre(int post);',
         ]);
+    });
+
+    test('the export of an export declaration is colored like export module\'s (F8)', () => {
+        for (const index of [12, 13, 15, 17]) {
+            const token = findToken(lines[index], 'export');
+            assert.ok(token?.scopes.includes('keyword.control.export.cpp'), JSON.stringify(lines[index]));
+        }
+        const identifier = lines[18].find((token) => token.text.startsWith('exports'));
+        assert.ok(!identifier?.scopes.includes('keyword.control.export.cpp'), JSON.stringify(lines[18]));
     });
 
     test('bare "module;" colors the keyword', () => {
@@ -152,5 +174,18 @@ suite('module-syntax highlighting: the injected grammar (WA-VSCODE-001)', functi
         const token = findToken(lines[11], 'module');
         assert.ok(token, JSON.stringify(lines[11]));
         assert.ok(!token.scopes.includes('keyword.control.module.cpp'), JSON.stringify(lines[11]));
+    });
+
+    test('the C++26 contract keywords are colored, and pre and post only as contract specifiers', () => {
+        for (const [index, word] of [[19, 'pre'], [19, 'post'], [20, 'pre']] as const) {
+            const token = findToken(lines[index], word);
+            assert.ok(token?.scopes.includes('keyword.other.contract.cpp'), `${word}: ${JSON.stringify(lines[index])}`);
+        }
+        const assertion = findToken(lines[21], 'contract_assert');
+        assert.ok(assertion?.scopes.includes('keyword.other.contract_assert.cpp'), JSON.stringify(lines[21]));
+        for (const word of ['pre', 'post']) {
+            const name = lines[22].find((token) => token.text.includes(word));
+            assert.ok(!name?.scopes.includes('keyword.other.contract.cpp'), `${word} as a name: ${JSON.stringify(lines[22])}`);
+        }
     });
 });

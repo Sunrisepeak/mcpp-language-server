@@ -1,0 +1,44 @@
+{
+  "name": "mcpp-emit-partial",
+  "description": "S2 0.3.0 (S2-3.4-12, S2-3.4-13; mcpp-community/mcpp#699, fix plan 2026-09-26 F10): mcpp answers with the database of every member it could plan and an `error` diagnostic whose `path` names the one it could not (here a member whose build program failed, as GalTranslPP's Updater did in issue #23's CI), exiting 1. The rest of the document is used -- the project is mcpp's, not scanned sources -- and the status names the part that is missing, by its build description file. Simulated by mcppls-mock-mcpp.",
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}"
+  ],
+  "checks": [
+    {
+      "id": "P1-the-rest-is-used",
+      "kind": "status",
+      "source": "mcpp",
+      "level": 3,
+      "state": "degraded",
+      "issue-code": "producer-partial",
+      "issue-message": "tools/updater/mcpp.toml",
+      "timeout": 60
+    },
+    {
+      "id": "P2-features-from-it",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "src/greet/greet.cppm"
+    },
+    {
+      "id": "P3-in-the-report",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/project/issues/*/code",
+          "equals": "producer-partial"
+        },
+        {
+          "path": "/roots/0/project/source",
+          "equals": "mcpp"
+        }
+      ]
+    }
+  ]
+}

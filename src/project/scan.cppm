@@ -30,6 +30,11 @@ struct ImportDeclaration {
 struct ScanResult {
     std::optional<ModuleDeclaration> declaration;
     std::vector<ImportDeclaration> imports;
+    // An `import M` whose line ends before its `;` (fix plan F13): an error, and the module is still imported, since
+    // the directive ends with its line (P1857) -- clang reports the missing `;` and loads M all the same, and with
+    // an autosave, clangd reads it from disk while the name is still being typed. Not an import for navigation or
+    // diagnostics; a module a file needs all the same (required_names).
+    std::vector<ImportDeclaration> unterminatedImports;
     bool uncertain { false };
 };
 
@@ -39,7 +44,9 @@ ScanResult scan_source(std::string_view text);
 // K/§7): produced from the text alone, complete or not, so a person still typing `import hello.`
 // sees `import` and `hello` colored while they type. Unlike scan_source, this never requires a
 // terminating `;`, and a name cut short (a trailing dot, the end of a line, end of file) is given
-// the span of whatever was actually read -- never a token that spans two lines.
+// the span of whatever was actually read -- never a token that spans two lines. In a module unit, the
+// `export` of every export declaration (`export namespace`, `export {`, `export int f()`) is a keyword
+// token too, like the one of `export module` (fix plan F8).
 enum class SyntaxTokenKind { keyword, moduleName, partitionName };
 
 struct SyntaxToken {

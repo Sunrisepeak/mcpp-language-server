@@ -26,6 +26,7 @@ import {
 } from 'vscode-languageclient/node';
 import { CommandLineToolsController, withInstallCommandFallback } from './commandLineTools';
 import { registerCommands, reloadBuildDescription } from './commands';
+import { sendTriggeredCompletion } from './completionGate';
 import { checkConflicts, ConflictCheck, watchForNewConflicts } from './conflicts';
 import { resolveLaunch } from './payload';
 import { ServerLogLevel, ServerLogRouter } from './serverLog';
@@ -42,6 +43,7 @@ const CLIENT_ID = 'mcppls';
 const CLIENT_NAME = 'C++ Modules';
 const RESTART_WINDOW_MS = 3 * 60 * 1000;
 const MAX_RESTARTS = 4;
+const RECENT_LOG_LINES = 1000;
 
 export interface TestApi {
     waitForState(state: ModuleState | readonly ModuleState[], timeoutMs: number): Promise<CxxModulesStatus>;
@@ -119,6 +121,7 @@ class ServerHost implements vscode.Disposable {
     readonly serverLog = new ServerLogRouter();
     private restarts: number[] = [];
     private queue: Promise<void> = Promise.resolve();
+    private readonly recent: string[] = [];
 
     constructor(
         private readonly context: vscode.ExtensionContext,
@@ -144,7 +147,18 @@ class ServerHost implements vscode.Disposable {
     }
 
     log(line: string): void {
-        this.output().appendLine(`[${new Date().toLocaleTimeString()}] ${line}`);
+        const stamped = `[${new Date().toLocaleTimeString()}] ${line}`;
+        this.output().appendLine(stamped);
+        // A diagnostic bundle carries the extension's own log (issue #23 fix plan F18); the output
+        // channel cannot be read back, so its latest lines are kept here too.
+        this.recent.push(stamped);
+        if (this.recent.length > RECENT_LOG_LINES) {
+            this.recent.splice(0, this.recent.length - RECENT_LOG_LINES);
+        }
+    }
+
+    recentLog(): string[] {
+        return [...this.recent];
     }
 
     runningClient(): LanguageClient | undefined {
@@ -259,6 +273,20 @@ class ServerHost implements vscode.Disposable {
                     modules: configuration.get<boolean>('semanticTokens.modules', true),
                     moduleType: true,
                 },
+                // Fix plan 2026-09-26 F9: a space after `import` opens the module list. The server
+                // advertises the space as a trigger character to this client unless this is off.
+                completion: {
+                    triggerOnSpace: configuration.get<boolean>('completion.triggerOnSpace', true),
+                },
+            },
+            middleware: {
+                // Fix plan 2026-09-26 F9 (D4 layer 1): of the completions a typed space asks for, only
+                // the one after `import` or `export import` is sent; every other is answered here, with
+                // nothing, before it costs a message.
+                provideCompletionItem: (document, position, context, token, next) =>
+                    sendTriggeredCompletion(context.triggerCharacter, document.lineAt(position.line).text, position.character)
+                        ? next(document, position, context, token)
+                        : [],
             },
             errorHandler: {
                 error: () => ({ action: ErrorAction.Continue, handled: true }),
@@ -489,6 +517,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
         restart: () => host.restart(),
         showLogs: () => host.output().show(true),
         log: (line: string) => host.log(line),
+        recentLog: () => host.recentLog(),
     };
     registerCommands(context, serverAccess);
 
@@ -496,7 +525,8 @@ export function activate(context: vscode.ExtensionContext): TestApi {
         vscode.workspace.onDidChangeConfiguration((event) => {
             if (event.affectsConfiguration('mcppls.compiler') || event.affectsConfiguration('mcppls.semanticKit')
                 || event.affectsConfiguration('mcppls.engine') || event.affectsConfiguration('mcppls.buildTool')
-                || event.affectsConfiguration('mcppls.toolEnvironment') || event.affectsConfiguration('mcppls.semanticTokens.modules')) {
+                || event.affectsConfiguration('mcppls.toolEnvironment') || event.affectsConfiguration('mcppls.semanticTokens.modules')
+                || event.affectsConfiguration('mcppls.completion.triggerOnSpace')) {
                 void host.restart();
             }
         }),

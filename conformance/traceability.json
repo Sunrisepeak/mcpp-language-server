@@ -683,6 +683,33 @@
    "contains": "!spec::effects_acceptable(effects->second)"
   }
  ],
+ "S2-3.4-12": [
+  {
+   "validate": "S2 schema accepts a partial document: data and an error naming a path"
+  },
+  {
+   "validate": "S2 schema rejects a diagnostic path that is not a string"
+  },
+  {
+   "script": "src/bin/mockmcpp.cpp",
+   "contains": "return partial ? 1 : 0;"
+  }
+ ],
+ "S2-3.4-13": [
+  {
+   "check": "mcpp-emit-partial/P1-the-rest-is-used"
+  },
+  {
+   "check": "mcpp-emit-partial/P2-features-from-it"
+  },
+  {
+   "test": "tests/test_spec.cpp: a single-document envelope is read, and only a database answers"
+  },
+  {
+   "script": "src/project/mcpp.cpp",
+   "contains": "enriched.issues.emplace_back(\"producer-partial\""
+  }
+ ],
  "S2-4-1": [
   {
    "manual": "A producer requirement for mcpp (mcpp-community/mcpp#636); the simulated producer runs no build at all."
@@ -994,6 +1021,24 @@
    "manual": "The VS Code extension only shows the report as a document (editors/vscode/src/commands.ts, collectReport); no feature reads it."
   }
  ],
+ "S3-5.5-3": [
+  {
+   "check": "diagnostic-bundle/B1-bundle"
+  },
+  {
+   "test": "tests/test_bundle.cpp: a home directory is ~ in every spelling of a POSIX path"
+  },
+  {
+   "test": "tests/test_bundle.cpp: a Windows profile is ~ with either separator, escaped, encoded, from WSL and by its 8.3 name"
+  },
+  {
+   "test": "tests/test_bundle.cpp: other people's profile directories get their own placeholder, the same one every time"
+  },
+  {
+   "script": "src/server/session.cpp",
+   "contains": "reply_(id, redact ? bundle::redact_report(full_report_()) : full_report_());"
+  }
+ ],
  "S3-6-1": [
   {
    "test": "tests/test_server.cpp: merging"
@@ -1030,6 +1075,74 @@
   },
   {
    "test": "tests/test_tokens.cpp: clangd's legend, including its own duplicates, maps by name"
+  }
+ ],
+ "S3-6.2-1": [
+  {
+   "test": "tests/test_completion.cpp: the space gate passes an import directive's keyword and one blank, and nothing else"
+  },
+  {
+   "check": "completion-keywords/P1-space-elsewhere"
+  },
+  {
+   "check": "completion-keywords/P4-two-spaces"
+  },
+  {
+   "check": "engine-none/M4-space-elsewhere"
+  }
+ ],
+ "S3-6.2-2": [
+  {
+   "test": "tests/test_completion.cpp: the space is advertised to VS Code and its forks, or to a client that asks"
+  },
+  {
+   "script": "src/server/session.cpp",
+   "contains": "if (orchestrator::completion::space_trigger_wanted(clientParams_)) orchestrator::completion::add_space_trigger"
+  }
+ ],
+ "S3-6.2-3": [
+  {
+   "test": "tests/test_completion.cpp: the space is advertised to VS Code and its forks, or to a client that asks"
+  },
+  {
+   "check": "completion-keywords/C0-space-is-a-trigger"
+  }
+ ],
+ "S3-6.2-4": [
+  {
+   "test": "tests/test_completion.cpp: module keywords where a declaration can begin, filtered by what was typed"
+  },
+  {
+   "test": "tests/test_completion.cpp: no keywords inside braces, comments, literals, or the middle of a word"
+  },
+  {
+   "test": "tests/test_completion.cpp: keywords merge with the core engine's answer without duplicates"
+  },
+  {
+   "check": "completion-keywords/K1-import"
+  },
+  {
+   "check": "completion-keywords/K3-export-import"
+  },
+  {
+   "check": "completion-keywords/K4-private-fragment"
+  },
+  {
+   "check": "completion-keywords/K5-not-in-a-body"
+  }
+ ],
+ "S3-6.2-5": [
+  {
+   "check": "completion-keywords/K2-module-declarations"
+  },
+  {
+   "check": "completion-keywords/R1-costs-counted"
+  },
+  {
+   "check": "engine-none/M4-keywords"
+  },
+  {
+   "check": "engine-none/M4-export-import"
   }
  ],
  "S4-3-1": [

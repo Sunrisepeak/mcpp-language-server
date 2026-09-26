@@ -148,6 +148,7 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
             model.source = kind;
             for (const auto& problem : loaded->problems) model.issues.push_back(ModelIssue { "toolchain-not-found", problem });
             for (const auto& [code, message] : loaded->notices) model.notices.push_back(ModelIssue { code, message });
+            for (const auto& [code, message] : loaded->issues) model.issues.push_back(ModelIssue { code, message });
         } else {
             model.issues.push_back(ModelIssue { result.error().code, result.error().message });
         }
@@ -258,6 +259,7 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
                 }
             }
         }
+        infer.languageStandard = inferred_language_standard(infer.facts);
         loaded = infer_database(model.root, infer, scanner);
         if (model.source != SourceKind::inferred && detection.kind != SourceKind::inferred) {
             model.issues.push_back(ModelIssue { "model-fallback", std::format("{} data was not available; sources are scanned instead", to_string(detection.kind)) });

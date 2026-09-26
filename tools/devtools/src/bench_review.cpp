@@ -36,8 +36,10 @@ base::Result<void> git_run(const std::string& workspace, std::vector<std::string
     auto git = env::find_executable("git");
     if (!git) return base::fail("bench-review-git", "git is not on PATH");
     const std::string joined { base::join(arguments, " ") };
+    // No background maintenance or gc: a recent git detaches it after a commit, and its lock file coming and
+    // going under .git/ read as the review having changed the workspace (CI, 2026-09-26).
     std::vector<std::string> argv { "-c", "user.name=mcppls", "-c", "user.email=mcppls@example.invalid",
-                                    "-c", "commit.gpgsign=false" };
+                                    "-c", "commit.gpgsign=false", "-c", "maintenance.auto=false", "-c", "gc.auto=0" };
     std::ranges::move(arguments, std::back_inserter(argv));
     auto result = toolrun::run({
         .program = *git,

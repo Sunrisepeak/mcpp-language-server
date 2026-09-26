@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Specification | S2 |
-| Version | 0.2.0 |
+| Version | 0.3.0 |
 | Status | Draft |
 | Schema | [`schema/s2-discovery.schema.json`](schema/s2-discovery.schema.json) |
 | Examples | [`examples/s2-request.json`](examples/s2-request.json), [`examples/s2-messages.jsonl`](examples/s2-messages.jsonl), [`examples/s2-envelope.json`](examples/s2-envelope.json) |
@@ -92,10 +92,12 @@ A producer that already prints machine-readable envelopes offers discovery as on
 | `kind` | string | MUST | A name ending in `.build-database`, for example `mcpp.build-database`. <a id="S2-3.4-2"></a><sup>S2-3.4-2</sup> |
 | `kindVersion` | integer | MUST | `1`. <a id="S2-3.4-3"></a><sup>S2-3.4-3</sup> |
 | `effects` | string[] | MUST | What running the command did, for example `read-project`. <a id="S2-3.4-4"></a><sup>S2-3.4-4</sup> |
-| `data` | object | conditional MUST | Present when the command succeeded: `database` (object, MUST), the S1 document; `watch` (string[], MUST), as in section 3.3; `inputs-fingerprint` (string, SHOULD), a digest of the inputs `watch` names. <a id="S2-3.4-5"></a><a id="S2-3.4-6"></a><a id="S2-3.4-7"></a><a id="S2-3.4-8"></a><sup>S2-3.4-5, S2-3.4-6, S2-3.4-7, S2-3.4-8</sup> |
-| `diagnostics` | object[] | MUST | Each with `code`, `severity` (`error`, `warning` or `note`) and `message`. <a id="S2-3.4-9"></a><sup>S2-3.4-9</sup> |
+| `data` | object | conditional MUST | Present when the command described the workspace in whole or in part: `database` (object, MUST), the S1 document; `watch` (string[], MUST), as in section 3.3; `inputs-fingerprint` (string, SHOULD), a digest of the inputs `watch` names. <a id="S2-3.4-5"></a><a id="S2-3.4-6"></a><a id="S2-3.4-7"></a><a id="S2-3.4-8"></a><sup>S2-3.4-5, S2-3.4-6, S2-3.4-7, S2-3.4-8</sup> |
+| `diagnostics` | object[] | MUST | Each with `code`, `severity` (`error`, `warning` or `note`) and `message`; `path` (string, MAY) names the file the diagnostic concerns, relative to the workspace root. <a id="S2-3.4-9"></a><sup>S2-3.4-9</sup> |
 
 The consumer writes nothing to the command's standard input. Before running it, the consumer reads the producer's protocol description, `<producer> --protocol-version`: a JSON object whose `kinds` maps kind names to versions and whose `commands` maps command names to the `effects` they may have. A consumer **MUST** use single-document mode only when `kinds` contains the build-database kind, and **MUST** run the command only when the workspace is trusted and the listed effects are acceptable. A command without `data` has failed; its `diagnostics` say why. <a id="S2-3.4-10"></a><a id="S2-3.4-11"></a><sup>S2-3.4-10, S2-3.4-11</sup>
+
+A document may carry `data` together with `error` diagnostics. It describes everything except what those diagnostics name: the producer **MUST** name each part it could not describe, such as a workspace member or a package, in an `error` diagnostic whose `path` is that part's build description file, and a consumer **SHOULD** use the rest of the document and report the errors. The command's exit status is non-zero in this case. <a id="S2-3.4-12"></a><a id="S2-3.4-13"></a><sup>S2-3.4-12, S2-3.4-13</sup>
 
 In this mode the producer does not write a database file. The consumer keeps the document where it keeps its own state.
 

@@ -2,6 +2,42 @@
 
 Changes to the specifications in this directory. Each specification is versioned independently.
 
+## 2026-09-26 — S3: the standard a profile reads with
+
+`SemanticProfile` gains `standard` (optional): the C++ standard the context's module units are read
+with, for example `"c++26"`. A BMI can only be imported under the standard it was built with, so a
+server reads the module units of one context with one standard; this field says which. Additive:
+protocol version stays 1.
+
+## 2026-09-26 — S3: completion of module syntax
+
+Added section 6.2. A server may make a space a completion trigger character, for the module names
+after `import`; if it does, a space-triggered request anywhere but right after `import ` or
+`export import ` is answered at once, empty, without the semantic engine (S3-6.2-1), and the space is
+advertised only to a client that asks for it (`initializationOptions.completion.triggerOnSpace`) or
+that the server knows drops the other spaces itself; never to one that declared `false` (S3-6.2-2,
+S3-6.2-3). Servers offer the module-syntax keywords where each can begin a declaration, merged with
+the semantic engine's result, and without it when it does not answer in time (S3-6.2-4, S3-6.2-5).
+All additive: protocol version stays 1.
+
+## 2026-09-26 — S3: a report names no one
+
+`cxxModules/report` takes `redact` (optional, default `true`): a server replaces the user's home
+directory, the user's and the machine's names and recognizable secrets in its report with
+placeholders, the same placeholder for the same original, and keeps the project's own paths
+(S3-5.5-3). `redact: false` gets the report as before. Additive: protocol version stays 1.
+
+## 2026-09-26 — S2 0.3.0: a partial single-document answer
+
+In single-document mode a document may carry `data` together with `error` diagnostics. It describes
+everything except what those diagnostics name; the producer names each part it could not describe
+(a workspace member or a package) in the diagnostic's new optional `path` field, and a consumer uses
+the rest of the document (S2-3.4-12, S2-3.4-13). `data` is present when the command described the
+workspace in whole or in part; a command without `data` has still failed (S2-3.4-11). A consumer
+written for 0.2.0 reads such a document as a success with errors, which is the intended reading.
+mcpp implements it with mcpp-community/mcpp#699 (in #702); before, one workspace member's planning
+failure used to remove every member's sets.
+
 ## 2026-09-25 — S3: issue categories, the degraded hold, module syntax in semantic tokens
 
 Added `category` (optional) to `CxxModulesIssue`: `code`, `engine`, `environment` or `project`,

@@ -69,6 +69,7 @@ std::vector<std::string> translate_gnu(const GnuInput& input) {
     if (input.facts != nullptr && input.facts->toolchain.target.find("windows-msvc") != std::string::npos) {
         for (auto& argument : windows_msvc_arguments(*input.facts, out, input.noAlignedAllocationWithMsvcStl)) out.push_back(std::move(argument));
     }
+    out.emplace_back(COMPILE_ONLY);
     if (input.importable) {
         out.emplace_back("-x");
         out.emplace_back("c++-module");
@@ -146,7 +147,8 @@ std::string language_standard_of(std::span<const std::string> arguments) {
 
 std::vector<std::string> kit_arguments(const spec::Kit& kit, std::string_view languageStandard, std::string_view macosSdk) {
     std::vector<std::string> out { "--no-default-config", "--target=" + kit.target,
-                                   std::format("-std={}", languageStandard.empty() ? "c++23" : languageStandard) };
+                                   // The kit is libc++ with the engine's own clang: the newest standard, where a unit names none.
+                                   std::format("-std={}", languageStandard.empty() ? "c++26" : languageStandard) };
     for (const auto& argument : kit.arguments) out.push_back(argument);
     for (const auto& directory : kit.systemIncludeDirectories) {
         out.emplace_back("-isystem");
@@ -157,6 +159,7 @@ std::vector<std::string> kit_arguments(const spec::Kit& kit, std::string_view la
         out.emplace_back("-isysroot");
         out.emplace_back(macosSdk);
     }
+    out.emplace_back(COMPILE_ONLY);
     return out;
 }
 

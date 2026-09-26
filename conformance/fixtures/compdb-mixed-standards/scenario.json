@@ -1,0 +1,17 @@
+{
+  "name": "compdb-mixed-standards",
+  "description": "C++26 alignment (fix plan 2026-09-26 §9): a compile_commands.json (the runner's `prepare compdb-mixed-standards`) whose module `core` and a user of std are C++23 while the application importing both is C++26. A BMI can only be imported under the standard it was built with, so 0.0.4 built std as C++23 and the C++26 application lost everything that came through it (\"C++26 was disabled in precompiled file\"). The module units of a context are now read with one standard, the newest they name, and the report says which and how many were raised.",
+  "prepare": [
+    ["{conformance}", "prepare", "compdb-mixed-standards", "{env:CONFORMANCE_CLANGXX|clang++}"]
+  ],
+  "checks": [
+    { "id": "S1", "kind": "status", "source": "compile-commands" },
+    { "id": "D1-the-cxx26-application", "kind": "diagnostics-empty", "file": "src/app.cpp", "timeout": 90 },
+    { "id": "D2-the-cxx23-module", "kind": "diagnostics-empty", "file": "src/core.cppm", "timeout": 60 },
+    { "id": "D3-the-cxx23-user-of-std", "kind": "diagnostics-empty", "file": "src/legacy.cpp", "timeout": 60 },
+    { "id": "R1-one-standard", "kind": "report", "expect": [
+        { "path": "/roots/0/plan/languageStandard", "equals": "c++26" },
+        { "path": "/roots/0/plan/standardsRaised", "at-least": 1 },
+        { "path": "/roots/0/project/profile/standard", "equals": "c++26" } ] }
+  ]
+}
