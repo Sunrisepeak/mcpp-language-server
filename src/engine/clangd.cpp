@@ -1928,8 +1928,11 @@ private:
         }
         incident_("engine-crash", lastExit_, std::vector<std::string> { suspects.begin(), suspects.end() });
         for (const auto& path : suspects) {
+            // A file whose text on disk is known to stall clangd (fix plan F16) is what crashed it on Windows, where
+            // UP-01 crashes instead of spinning: it goes back when the disk is fixed, not when a crash's term is up.
+            const bool onDisk { diskHazards_.contains(base::path_key(path)) };
             set_aside_(path, known ? std::format("clangd crashed while building it ({})", context->second.action) : std::string { "clangd exited while working on it" },
-                       Reclaim::no);
+                       Reclaim::no, false, std::nullopt, onDisk);
         }
         host_->status_changed();
     }
@@ -2821,15 +2824,26 @@ private:
     }
 
     void update_quarantine_issue_() {
-        std::erase_if(issues_, [](const Issue& issue) { return issue.code == "file-quarantined"; });
-        if (const auto members = quarantine_.members(); !members.empty()) {
+        std::erase_if(issues_, [](const Issue& issue) { return issue.code == "file-quarantined" || issue.code == "file-unsafe-on-disk"; });
+        std::vector<std::string> members;
+        for (const auto& key : quarantine_.members()) {
+            // Fix plan F16, F17.5: set aside for what an autosave of a half-typed line put on disk. That is the code being
+            // typed, not the server losing anything: said as such, with why, and never a degraded status.
+            if (const auto hazard = diskHazards_.find(key); hazard != diskHazards_.end()) {
+                issues_.push_back(Issue { "file-unsafe-on-disk",
+                    std::format("{} is answered by mcppls's own engine until it is saved again: {}", base::file_name(key), hazard->second), "", "code" });
+                continue;
+            }
+            members.push_back(key);
+        }
+        if (!members.empty()) {
             // import-hang plan §6: the files by name, and what they still get.
             std::string names;
             for (std::size_t i { 0 }; i < members.size() && i < 3; ++i) names += std::format("{}{}", i == 0 ? "" : ", ", base::file_name(members[i]));
             if (members.size() > 3) names += std::format(" and {} more", members.size() - 3);
             issues_.push_back(Issue { "file-quarantined",
                 std::format("clangd stopped responding on {}; module-level features only for {} until {} changes", names,
-                            members.size() == 1 ? "it" : "them", members.size() == 1 ? "it" : "they"), "mcppls.restartServer" });
+                            members.size() == 1 ? "it" : "them", members.size() == 1 ? "it" : "they"), "mcppls.restartClangd" });
         }
         host_->status_changed();
         // design doc 2026-09-25 K/§7: called at every point a file is set aside or handed back, so

@@ -127,6 +127,19 @@ std::string uri_of_params(const Json& params) {
 
 } // namespace
 
+namespace {
+
+// What the button of a status issue says (fix plan F17.5): what its command does, where the server knows it.
+std::string_view command_title(std::string_view command) {
+    if (command == "mcppls.showLogs") return "Show Logs";
+    if (command == "mcppls.restartServer") return "Restart Server";
+    if (command == "mcppls.restartClangd") return "Restart clangd";
+    if (command == "mcppls.exportDiagnosticBundle") return "Export Diagnostic Bundle";
+    return "Fix";
+}
+
+} // namespace
+
 bool is_build_file(std::string_view name) {
     return std::ranges::find(BUILD_FILES, name) != BUILD_FILES.end() || name.ends_with(".cmake");
 }
@@ -1485,7 +1498,7 @@ struct Workspace::Impl final : engine::Host {
             issues.push_back(std::move(issue));
         };
         for (const auto& engine : engines) {
-            for (const auto& issue : engine->status().issues) add(issue.code, issue.message, issue.command, "Fix", issue.category);
+            for (const auto& issue : engine->status().issues) add(issue.code, issue.message, issue.command, command_title(issue.command), issue.category);
         }
         if (!staleModelReason.empty()) {
             // Decision 8: no version table, no comparison --- one sentence that points at the one

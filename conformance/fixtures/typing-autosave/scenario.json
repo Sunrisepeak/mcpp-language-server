@@ -184,7 +184,7 @@
       "timeout": 30
     },
     {
-      "id": "T10-no-restart-nothing-left-aside",
+      "id": "T10-nothing-left-aside",
       "kind": "report",
       "timeout": 30,
       "expect": [
@@ -197,13 +197,24 @@
           "max-items": 0
         },
         {
-          "path": "/roots/0/engines/*/details/restarts/*/reason",
-          "each-contains": "would not finish"
-        },
-        {
           "path": "/roots/0/events/*/kind",
           "equals": "file-handed-back"
         }
+      ]
+    },
+    {
+      "id": "T11-no-restart-but-for-a-spin",
+      "kind": "report",
+      "timeout": 10,
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/restarts/*/reason",
+          "each-contains": "would not finish"
+        }
+      ],
+      "only-on": [
+        "linux",
+        "macos"
       ]
     },
     {
