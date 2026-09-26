@@ -844,9 +844,29 @@ std::vector<Residue> Redactor::residue(std::string_view text, std::size_t limit)
             }
         }
     }
-    std::vector<Span> tokens;
-    find_prefixed_tokens(text, tokens);
-    for (const auto& token : tokens) add(RULE_SECRET, token.begin);
+    // Every detector redact() runs, again, on what it produced: the check is the last word on what leaves the
+    // machine, not the rules' own opinion of themselves. A match that is only a placeholder is what redact() left there.
+    const auto placeholder_only = [&](const Span& span) {
+        std::string_view matched { text.substr(span.begin, span.end - span.begin) };
+        while (!matched.empty() && (matched.front() == ' ' || matched.front() == '"' || matched.front() == '\'')) matched.remove_prefix(1);
+        while (!matched.empty() && (matched.back() == ' ' || matched.back() == '"' || matched.back() == '\'')) matched.remove_suffix(1);
+        return matched.empty() || matched == "<redacted>";
+    };
+    std::vector<Span> secrets;
+    find_prefixed_tokens(text, secrets);
+    find_url_credentials(text, secrets);
+    find_authorization_schemes(text, secrets);
+    find_json_secrets(text, secrets);
+    find_assigned_secrets(text, secrets);
+    find_header_secrets(text, secrets);
+    for (const auto& secret : secrets) {
+        if (!placeholder_only(secret)) add(RULE_SECRET, secret.begin);
+    }
+    std::vector<Span> emails;
+    find_emails(text, emails);
+    for (const auto& email : emails) {
+        if (!placeholder_only(email)) add(RULE_EMAIL, email.begin);
+    }
     std::ranges::sort(found, {}, &Residue::offset);
     return found;
 }

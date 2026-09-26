@@ -292,6 +292,14 @@ int main() {
         }
         bundle::Redactor redactor { linux_user() };
         expect(redactor.residue("ghp_abcdefghijklmnopqrstuvwxyz0123456789").size() == 1);
+        // The check runs every detector redact() does, so what one of them would catch is never shipped unseen ...
+        const auto email = redactor.residue("contact: jane.doe@corp.example");
+        expect(email.size() == 1u && email.front().rule == "email");
+        expect(!redactor.residue(R"({"api_key": "s3cr3t-value"})").empty());
+        expect(!redactor.residue("Authorization: Bearer abcdef0123456789").empty());
+        // ... and the placeholders redact() leaves are not taken for what they replaced.
+        const std::string redacted { redactor.redact(R"({"api_key": "s3cr3t-value", "contact": "jane.doe@corp.example"} Authorization: Bearer abcdef0123456789)") };
+        expect(redactor.residue(redacted).empty()) << redacted;
     };
 
     "a report is redacted as JSON and keeps its structure"_test = [] {

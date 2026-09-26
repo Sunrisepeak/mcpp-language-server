@@ -2579,6 +2579,13 @@ private:
     void hand_back_from_disk_(const std::string& key) {
         const auto aside = aside_.find(key);
         if (aside == aside_.end() || !aside->second.onDisk) return;
+        // Set aside for another reason too -- clangd spun on this very text, or its module does not compile: that reason
+        // still holds, and the file goes back when it is over (its term, its text, a save), not because the disk is safe.
+        if (aside->second.spunOn || aside->second.moduleFailed) {
+            aside->second.onDisk = false;
+            update_quarantine_issue_();
+            return;
+        }
         aside_.erase(aside);
         quarantine_.release(key);
         deferredReclaims_.erase(key);
