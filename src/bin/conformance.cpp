@@ -2419,6 +2419,29 @@ int prepare_compdb_rejected_command(const std::string& compiler) {
     return 0;
 }
 
+// C++26 alignment (fix plan 2026-09-26 §9): a compile_commands.json whose units name two standards -- a module and an
+// importer of std at C++23, an application at C++26 importing both. One std BMI cannot serve both standards.
+int prepare_compdb_mixed_standards(const std::string& compiler) {
+    const std::string root { fs::current_directory() };
+    auto clangxx = on_path(compiler.empty() ? std::string { "clang++" } : compiler);
+    if (!clangxx) {
+        say("compdb-mixed-standards: {} is not on PATH", compiler);
+        return 1;
+    }
+    Json database = Json::array();
+    for (const auto& [relative, standard] : { std::pair { "src/core.cppm", "-std=c++23" }, std::pair { "src/legacy.cpp", "-std=c++23" },
+                                              std::pair { "src/app.cpp", "-std=c++26" } }) {
+        const std::string source { native(base::join_path(root, relative)) };
+        database.push_back(Json { { "directory", native(root) }, { "file", source },
+                                  { "arguments", Json::array({ *clangxx, "-stdlib=libc++", standard, "-c", source, "-o", source + ".o" }) } });
+    }
+    if (auto written = fs::write_file(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
+        say("compdb-mixed-standards: {}", written.error().message);
+        return 1;
+    }
+    return 0;
+}
+
 // real-project plan RP2.1: a second, newer mock mcpp under a fixture's isolated HOME
 // (`"isolate-home": true`), at the path producer negotiation searches
 // (`mcppls::project::other_mcpp_executables`, `xim-x-mcpp/<version>/bin/mcpp`), so a fixture whose
@@ -2655,8 +2678,9 @@ int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "clangd-cannot-load") return prepare_clangd_cannot_load();
     if (kind == "clangd-crash-context") return prepare_clangd_crash_context(argument);
     if (kind == "compdb-rejected-command") return prepare_compdb_rejected_command(argument);
+    if (kind == "compdb-mixed-standards") return prepare_compdb_mixed_standards(argument);
     if (kind == "compdb-lto-msvc") return prepare_compdb_lto_msvc(argument);
-    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, compdb-rejected-command)", kind);
+    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, compdb-rejected-command, compdb-mixed-standards)", kind);
     return 2;
 }
 

@@ -258,6 +258,7 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
                 }
             }
         }
+        infer.languageStandard = inferred_language_standard(infer.facts);
         loaded = infer_database(model.root, infer, scanner);
         if (model.source != SourceKind::inferred && detection.kind != SourceKind::inferred) {
             model.issues.push_back(ModelIssue { "model-fallback", std::format("{} data was not available; sources are scanned instead", to_string(detection.kind)) });

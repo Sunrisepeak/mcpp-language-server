@@ -149,6 +149,79 @@ std::string prime_file_name(std::size_t index, std::string_view module) {
 
 } // namespace
 
+std::optional<std::pair<int, bool>> cxx_standard(std::string_view standard) {
+    bool gnu { false };
+    if (standard.starts_with("gnu++")) {
+        gnu = true;
+        standard.remove_prefix(5);
+    } else if (standard.starts_with("c++")) {
+        standard.remove_prefix(3);
+    } else {
+        return std::nullopt;
+    }
+    static constexpr std::array<std::pair<std::string_view, int>, 15> YEARS { {
+        { "98", 1998 }, { "03", 2003 }, { "0x", 2011 }, { "11", 2011 }, { "1y", 2014 }, { "14", 2014 }, { "1z", 2017 }, { "17", 2017 },
+        { "2a", 2020 }, { "20", 2020 }, { "2b", 2023 }, { "23", 2023 }, { "2c", 2026 }, { "26", 2026 }, { "latest", 2026 },
+    } };
+    for (const auto& [spelling, year] : YEARS) {
+        if (standard == spelling) return std::pair { year, gnu };
+    }
+    return std::nullopt;
+}
+
+namespace {
+
+// Where an entry's command names its standard: the index of its -std= (or --std=) argument.
+std::optional<std::size_t> standard_argument(const EngineEntry& entry) {
+    for (std::size_t i { entry.arguments.size() }; i-- > 1;) {
+        if (entry.arguments[i].starts_with("-std=") || entry.arguments[i].starts_with("--std=")) return i;
+    }
+    return std::nullopt;
+}
+
+std::string_view standard_of(std::string_view argument) { return argument.substr(argument.find('=') + 1); }
+
+// Step 5c of plan_engine: one C++ standard for the units of the context that take part in modules.
+void unify_language_standard(EnginePlan& plan) {
+    std::optional<std::pair<int, bool>> best;
+    std::string bestSpelling;
+    std::set<std::string> seen;
+    const auto modular = [](const EngineEntry& entry) { return !entry.imports.empty() || !entry.provides.empty() || !entry.module.empty(); };
+    // Only units that take part in modules share BMIs; a plain unit keeps its own standard.
+    for (const auto& entry : plan.entries) {
+        const auto at = standard_argument(entry);
+        if (!at || !modular(entry)) continue;
+        const std::string_view spelling { standard_of(entry.arguments[*at]) };
+        const auto standard = cxx_standard(spelling);
+        if (!standard) continue;   // a C unit's own
+        seen.emplace(spelling);
+        if (!best || standard->first > best->first) {
+            best = standard;
+            bestSpelling = std::string { spelling };
+        }
+    }
+    plan.standardsSeen.assign(seen.begin(), seen.end());
+    if (!best) return;
+    plan.languageStandard = bestSpelling;
+    for (auto& entry : plan.entries) {
+        if (!modular(entry)) continue;
+        const auto at = standard_argument(entry);
+        if (at) {
+            const auto standard = cxx_standard(standard_of(entry.arguments[*at]));
+            if (!standard || *standard == *best) continue;
+            entry.arguments[*at] = "-std=" + bestSpelling;
+            ++plan.standardsRaised;
+        } else if (entry.arguments.size() > 1) {
+            // A module unit with no standard of its own would be read with the driver's default, older than any
+            // that has modules.
+            entry.arguments.insert(entry.arguments.begin() + 1, "-std=" + bestSpelling);
+            ++plan.standardsRaised;
+        }
+    }
+}
+
+} // namespace
+
 EnginePlan plan_engine(const PlanInput& input) {
     EnginePlan plan;
     plan.contextSet = input.contextSet;
@@ -604,6 +677,12 @@ EnginePlan plan_engine(const PlanInput& input) {
         plan.stubModules.push_back(name);
         plan.modules.push_back(PlannedModule { name, {}, {} });
     }
+
+    // 5c. One C++ standard for the context (C++26 alignment, fix plan 2026-09-26 §9). A BMI can only be imported by a
+    //     unit read with the standard it was built with: clang refuses `import std;` in a C++26 unit whose std was
+    //     built as C++23 ("C++26 was disabled in precompiled file ... but is currently enabled"), and so for every
+    //     module along an import graph. A context whose units name several C++ standards is read with the newest.
+    unify_language_standard(plan);
 
     // 6. Module hints (usable plan W7). To find the unit that provides a module, clangd 23.1
     //    scans every file of the database, one after another, each time it prepares a file whose

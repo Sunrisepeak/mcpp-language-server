@@ -64,7 +64,17 @@ struct EnginePlan {
     // the person's doing (they switched the toolchain or the context) and is never counted against clangd.
     std::string toolchainKey;
     std::string modelOrigin;                  // cache-fresh | cache-stale | cache-confirmed | producer | inferred
+    // The C++ standard the context's module units are read with (C++26 alignment): one for the whole context, since
+    // every BMI a unit imports must have been built with its standard. When the units name several, the newest is
+    // taken and the others raised to it; `standardsSeen` lists what they named, `standardsRaised` how many were.
+    std::string languageStandard;
+    std::vector<std::string> standardsSeen;
+    std::size_t standardsRaised { 0 };
 };
+
+// "c++26", "gnu++2c", "c++latest": the year of the C++ standard (2026) and whether GNU extensions are on; nullopt for
+// anything that is not a C++ standard ("c17", "gnu11").
+std::optional<std::pair<int, bool>> cxx_standard(std::string_view standard);
 
 struct PlanInput {
     const spec::Database* database { nullptr };

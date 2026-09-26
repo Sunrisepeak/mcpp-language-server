@@ -152,6 +152,12 @@ compiler driver rejects fails the scan, and no module is built — issue #23's `
 told the same way (category `project`). A scan of a file you are typing fails all the time and is
 only counted.
 
+**"C++26 was disabled in precompiled file".** A module was built with one C++ standard and imported
+under another; clang refuses that. mcppls reads the module units of a context with one standard,
+the newest they name (`plan.languageStandard` in the report, `standard` in the status profile), so
+this should only come from a module clangd built before 0.0.5 — it rebuilds on the next change — or
+from the build itself mixing standards, which the build tool's own compiler will refuse too.
+
 **Right after opening a project, only module-level features for up to a minute.** A project whose
 build system was found gets clangd once its build tool has described it — up to a minute, the
 build tool's own limit — rather than with a guess from its sources that clangd would then have to

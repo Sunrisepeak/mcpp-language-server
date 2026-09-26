@@ -74,6 +74,8 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **“clangd rejected the compile command for module scanning”。** clangd 在构建模块之前，会用数据库里每个单元自己的编译命令扫描它的 import；编译器驱动拒绝的命令会让扫描失败，模块也就一个都不会构建——issue #23 的 `LTO requires -fuse-ld=lld` 就是这种情况。状态会用驱动的原话写出第一处拒绝（类别 `environment`），`engines[].details.scanFailures` 记录次数。命令找不到头文件时也这样说明（类别 `project`）。正在输入的文件扫描失败是常态，只计数。
 
+**“C++26 was disabled in precompiled file”。** 某个模块用一种 C++ 标准构建，却在另一种标准下被导入；clang 会拒绝。mcppls 对同一上下文中的模块单元统一按其中最新的标准来读（报告里的 `plan.languageStandard`、状态 profile 里的 `standard`），所以这条错误只应来自 0.0.5 之前 clangd 构建的模块（下次改动时会重建），或者构建本身就混用了标准——那样构建工具自己的编译器也会拒绝。
+
 **刚打开项目时，最长一分钟内只有模块层面的功能。** 识别出构建系统的项目，要等构建工具描述完项目（最长一分钟，即构建工具自身的时限）才把它交给 clangd，而不是先给 clangd 一个从源码猜出来、之后还要推翻的模型；这期间由 mcppls 自己的引擎提供模块跳转、import 上的悬停和 `import` 补全。第二次会话会直接从缓存的模型开始。
 
 **服务端把出错的现场记在哪里。** 崩溃、clangd 卡住或空转、文件被隔离、重启被推迟、某个规避措施的前提被发现不成立，每一种都会留下一份“事故”：工作区缓存下的一个目录（`incidents/<UTC 时间>-<类型>/`，保留最近二十份、一周内），里面有事发前的经过、clangd 最近的日志（clangd 以 `info` 级别记录到内存，从不写进默认日志）、每个相关文件在编辑器与磁盘上不同的那几行，以及 clangd 哪个线程在占用 CPU。诊断包会带上它们。

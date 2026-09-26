@@ -76,6 +76,27 @@ each module is. `import std` resolves, and so do the modules of your own code. D
 a standard library that is not the one you build with, so they can differ — the status bar says the
 profile is a semantic kit rather than a build toolchain.
 
+## Which C++ standard, and C++26
+
+The standard is the build's: whatever `-std=` (or `/std:`) a unit's command says, mcppls gives
+clangd; `/std:c++latest` is C++26. Two rules go further.
+
+- **One standard per context for module units.** A module's BMI can only be imported under the
+  standard it was built with — `import std` in a C++26 file fails outright when `std` was built as
+  C++23 ("C++26 was disabled in precompiled file"). So the units of one context that import, provide
+  or belong to a module are read with the newest standard among them, and a plain unit keeps its own;
+  the log says when some were raised, and the report's `plan.languageStandard`,
+  `plan.standardsSeen` and `plan.standardsRaised` say which. The status profile names the standard.
+- **Sources nothing describes are read with the newest standard their compiler takes**: C++26 with
+  the semantic kit (clang 23, libc++ 23), GCC 14 and later, and Clang 17 and later (spelled `c++2c`
+  before Clang 20); C++23, the oldest standard with `import std`, for older compilers.
+
+What C++26 gives you is clangd 23.1's: pack indexing, `= delete("reason")`, placeholder `_`,
+`static_assert` messages, `#embed`, variadic friends and the rest of what clang 23 implements, and
+the C++26 library of the standard library you build with (the kit's is libc++ 23). **Contracts
+(P2900) and reflection (P2996) are not in clang 23**: code using them shows clang's errors even
+where GCC compiles it; VS Code still colors `contract_assert`, `pre` and `post`.
+
 ## An untrusted workspace
 
 No build tool and no compiler is run at all — VS Code's workspace trust is respected before anything

@@ -248,6 +248,63 @@ int main() {
         expect(kinds == std::set<std::string> { "opened", "prime", "stand-in", "std", "unit" }) << std::format("{}", kinds);
     };
 
+    "a C++ standard is read the way every spelling names it"_test = [] {
+        expect(n::cxx_standard("c++26") == std::optional<std::pair<int, bool>> { std::pair { 2026, false } });
+        expect(n::cxx_standard("gnu++2c") == std::optional<std::pair<int, bool>> { std::pair { 2026, true } });
+        expect(n::cxx_standard("c++latest") == std::optional<std::pair<int, bool>> { std::pair { 2026, false } });
+        expect(n::cxx_standard("c++2b")->first == 2023 && n::cxx_standard("c++1z")->first == 2017 && n::cxx_standard("c++20")->first == 2020);
+        expect(!n::cxx_standard("c17") && !n::cxx_standard("gnu11") && !n::cxx_standard("c++99") && !n::cxx_standard(""));
+    };
+
+    "the module units of a context are read with one standard, the newest they name (C++26 alignment)"_test = [] {
+        // app.cpp at C++26 imports std and core; core.cppm at C++23: std built as either one cannot serve both.
+        const std::map<std::string, std::string> sources {
+            { "/p/src/app.cpp", "import std;\nimport core;\nint main() {}\n" },
+            { "/p/src/core.cppm", "export module core;\nimport std;\n" },
+            { "/p/src/old.cpp", "int old() { return 0; }\n" },
+            { "/p/src/plain.c", "int c(void) { return 0; }\n" },
+        };
+        s::Database database;
+        database.hasIde = true;
+        s::Set set;
+        set.name = "app";
+        set.hasIde = true;
+        set.toolchain = "gcc-16.1.0-x86_64-linux-gnu";
+        const std::map<std::string, std::string> standards { { "/p/src/app.cpp", "-std=c++26" }, { "/p/src/core.cppm", "-std=c++23" },
+                                                             { "/p/src/old.cpp", "-std=c++17" }, { "/p/src/plain.c", "-std=c17" } };
+        for (const auto& [path, standard] : standards) {
+            s::TranslationUnit unit;
+            unit.source = path;
+            unit.workDirectory = "/p";
+            unit.arguments = { path.ends_with(".c") ? "/opt/gcc/bin/gcc" : "/opt/gcc/bin/g++", standard, "-c", path };
+            set.units.push_back(std::move(unit));
+        }
+        database.sets.push_back(set);
+        std::map<std::string, ToolchainFacts, std::less<>> facts { { set.toolchain, gcc_facts() } };
+        n::PlanInput input;
+        input.database = &database;
+        input.facts = &facts;
+        input.engineDriverDirectory = "/payload/clangd/bin";
+        input.scanner = [&](std::string_view path) {
+            const auto it = sources.find(std::string { path });
+            return it == sources.end() ? p::ScanResult {} : p::scan_source(it->second);
+        };
+        input.metadataReader = [](std::string_view) {
+            return std::vector<s::ModuleEntry> { { "std", "/opt/gcc/include/c++/16/bits/std.cc", true, {}, {} } };
+        };
+        const auto plan = n::plan_engine(input);
+        expect(plan.languageStandard == "c++26") << plan.languageStandard;
+        expect(plan.standardsSeen == std::vector<std::string> { "c++23", "c++26" }) << std::format("{}", plan.standardsSeen);
+        expect(plan.standardsRaised >= 1u);
+        for (const auto& entry : plan.entries) {
+            const auto standard = std::ranges::find_if(entry.arguments, [](const std::string& argument) { return argument.starts_with("-std="); });
+            expect(fatal(standard != entry.arguments.end())) << entry.file;
+            if (entry.file == "/p/src/old.cpp") expect(*standard == "-std=c++17") << "a unit with no module keeps its own";
+            else if (entry.file == "/p/src/plain.c") expect(*standard == "-std=c17") << "a C unit keeps its own";
+            else expect(*standard == "-std=c++26") << entry.file << ": " << *standard << " -- std, core and app share one";
+        }
+    };
+
     "a plan resolves, injects std once and leaves out what cannot resolve"_test = [] {
         const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
             std::format("mcppls-test-plan-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };

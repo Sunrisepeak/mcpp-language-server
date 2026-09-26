@@ -294,6 +294,12 @@ std::vector<SyntaxToken> scan_syntax_tokens(std::string_view text) {
             token = lexer.next(false);
             continue;
         }
+        // C++26 (P2900): `contract_assert` is a keyword wherever it is, and no editor grammar knows it yet.
+        if (token->kind == TokenKind::identifier && token->text == "contract_assert") {
+            push(SyntaxTokenKind::keyword, token->offset, token->offset + token->text.size());
+            token = lexer.next(false);
+            continue;
+        }
         if (token->kind == TokenKind::identifier && token->text == "export" && (braceDepth != 0 || !token->startsLine)) {
             // Inside a namespace, or after another declaration on its line: never module syntax.
             push_export(*token);

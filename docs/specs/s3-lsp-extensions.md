@@ -88,6 +88,7 @@ interface SemanticProfile {
   compiler?: string;               // e.g. "gcc 16.1.0"; absent for a semantic kit
   stdlib: string;                  // e.g. "libstdc++ 16.1.0" or "libc++ 23.1.0"
   target: string;                  // e.g. "x86_64-linux-gnu"
+  standard?: string;               // the C++ standard the context's module units are read with, e.g. "c++26"
 }
 
 interface CxxModulesIssue {

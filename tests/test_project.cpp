@@ -694,4 +694,20 @@ version = "1"
     };
 
     return report();
+
+    "sources nothing describes are read with the newest standard their compiler takes (C++26 alignment)"_test = [] {
+        namespace project = mcppls::project;
+        expect(project::inferred_language_standard(std::nullopt) == "c++26") << "the semantic kit: clang 23 and libc++ 23";
+        const auto facts = [](mcppls::spec::Family family, std::string version) {
+            mcppls::toolchain::ToolchainFacts facts;
+            facts.toolchain.family = family;
+            facts.toolchain.version = std::move(version);
+            return std::optional<mcppls::toolchain::ToolchainFacts> { std::move(facts) };
+        };
+        expect(project::inferred_language_standard(facts(mcppls::spec::Family::gcc, "16.1.0")) == "c++26");
+        expect(project::inferred_language_standard(facts(mcppls::spec::Family::gcc, "13.3.0")) == "c++23");
+        expect(project::inferred_language_standard(facts(mcppls::spec::Family::clang, "22.1.8")) == "c++26");
+        expect(project::inferred_language_standard(facts(mcppls::spec::Family::clang, "18.1.3")) == "c++2c");
+        expect(project::inferred_language_standard(facts(mcppls::spec::Family::clang, "16.0.6")) == "c++23");
+    };
 }

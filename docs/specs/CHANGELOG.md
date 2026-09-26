@@ -2,6 +2,13 @@
 
 Changes to the specifications in this directory. Each specification is versioned independently.
 
+## 2026-09-26 — S3: the standard a profile reads with
+
+`SemanticProfile` gains `standard` (optional): the C++ standard the context's module units are read
+with, for example `"c++26"`. A BMI can only be imported under the standard it was built with, so a
+server reads the module units of one context with one standard; this field says which. Additive:
+protocol version stays 1.
+
 ## 2026-09-26 — S3: completion of module syntax
 
 Added section 6.2. A server may make a space a completion trigger character, for the module names

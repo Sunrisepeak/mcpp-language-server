@@ -265,4 +265,10 @@ import real;
         expect(scan_source("import hello.e").unterminatedImports.size() == 1u) << "the end of the file ends the line too";
         expect(scan_source("export module m\n").declaration == std::nullopt) << "a declaration still needs its ';'";
     };
+
+    "C++26's contract_assert is a keyword token wherever it is"_test = [] {
+        const auto tokens = scan_syntax_tokens("void f(bool ok) {\n    contract_assert(ok);\n}\nint contract_asserted;\n// contract_assert in a comment\n");
+        expect(fatal(tokens.size() == 1u));
+        expect(tokens[0].kind == SyntaxTokenKind::keyword && tokens[0].range.start.line == 1 && tokens[0].range.start.character == 4);
+    };
 }

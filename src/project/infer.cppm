@@ -34,9 +34,14 @@ InferredDatabase database_from_commands(std::span<const CompileCommand> commands
 
 struct InferOptions {
     std::optional<toolchain::ToolchainFacts> facts;   // a discovered compiler, or nullopt for kit semantics
-    std::string languageStandard { "c++23" };
+    std::string languageStandard { "c++26" };         // inferred_language_standard(facts), for sources nothing describes
     std::string engineDriver { "clang++" };           // written as argv[0] when there is no compiler
 };
+
+// The standard sources nothing describes are read with (C++26 alignment): the newest one the compiler that reads them
+// takes -- C++26 for the semantic kit (clang 23, libc++ 23), GCC 14 and later and Clang 17 and later (as `c++2c` before
+// Clang 20) -- and C++23 for older ones, the oldest standard `import std` has.
+std::string inferred_language_standard(const std::optional<toolchain::ToolchainFacts>& facts);
 
 // Every C++ source under `root` (build output and dot directories skipped).
 InferredDatabase infer_database(std::string_view root, const InferOptions& options, const Scanner& scanner);

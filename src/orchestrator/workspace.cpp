@@ -272,6 +272,7 @@ struct Workspace::Impl final : engine::Host {
     // database with the nearest unit's arguments and stay for the session, so opening one again leaves the database as it is.
     std::set<std::string> openedOutsideModel;
     std::set<std::string> plannedFiles;      // path keys of the plan's units and of the files it left out
+    std::vector<std::string> loggedStandards;   // the standards the last log line about raising them named
     // S5 2.2: advanced whenever a document, a watched file, the model or the plan changes.
     std::uint64_t snapshotGeneration { 0 };
 
@@ -1277,7 +1278,15 @@ struct Workspace::Impl final : engine::Host {
         journal.add("plan", Json { { "context", contextSet.empty() ? std::string { "default" } : contextSet }, { "entries", plan.entries.size() },
                                    { "stdUnits", plan.stdUnits }, { "standIns", plan.stubModules }, { "openSources", plan.openSources },
                                    { "leftOut", plan.excludedFiles.size() },
-                                   { "issues", plan.issues.size() } });
+                                   { "issues", plan.issues.size() }, { "languageStandard", plan.languageStandard },
+                                   { "standardsRaised", plan.standardsRaised } });
+        if (plan.standardsRaised > 0 && loggedStandards != plan.standardsSeen) {
+            loggedStandards = plan.standardsSeen;
+            std::string seen;
+            for (const auto& each : plan.standardsSeen) seen += (seen.empty() ? "" : ", ") + each;
+            log::info("the module units of {} name {}; {} of them are read as {}, since every module they import must be built with one standard",
+                      root, seen, plan.standardsRaised, plan.languageStandard);
+        }
         const bool coreWaits { core_waits_for_producer() };
         if (coreWaits && !coreWaitUntil) {
             coreWaitUntil = Clock::now() + CORE_WAIT_LIMIT;
@@ -1341,6 +1350,8 @@ struct Workspace::Impl final : engine::Host {
             if (!model->profile.compiler.empty()) profile["compiler"] = model->profile.compiler;
             profile["stdlib"] = model->profile.stdlib;
             profile["target"] = model->profile.target;
+            // C++26 alignment: the standard the context's module units are read with (S3 SemanticProfile.standard).
+            if (!plan.languageStandard.empty()) profile["standard"] = plan.languageStandard;
         } else if (kit) {
             profile = Json { { "kind", "semantic-kit" }, { "stdlib", std::format("{} {}", kit->stdlibName, kit->stdlibVersion) }, { "target", kit->target } };
         } else {
@@ -1949,6 +1960,7 @@ Json Workspace::report() const {
         planIssues.push_back(Json { { "code", issue.code }, { "message", issue.message }, { "file", issue.file }, { "module", issue.module } });
     }
     Json plan { { "context", impl.contextSet.empty() ? std::string { "default" } : impl.contextSet }, { "entries", impl.plan.entries.size() },
+                { "languageStandard", impl.plan.languageStandard }, { "standardsSeen", impl.plan.standardsSeen }, { "standardsRaised", impl.plan.standardsRaised },
                 { "stdUnits", impl.plan.stdUnits }, { "standIns", impl.plan.stubModules }, { "openSources", impl.plan.openSources },
                 { "leftOutCount", impl.plan.excludedFiles.size() },
                 { "leftOut", std::move(leftOut) }, { "issueCount", impl.plan.issues.size() }, { "issues", std::move(planIssues) } };

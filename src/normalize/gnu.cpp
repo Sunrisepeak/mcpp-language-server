@@ -147,7 +147,8 @@ std::string language_standard_of(std::span<const std::string> arguments) {
 
 std::vector<std::string> kit_arguments(const spec::Kit& kit, std::string_view languageStandard, std::string_view macosSdk) {
     std::vector<std::string> out { "--no-default-config", "--target=" + kit.target,
-                                   std::format("-std={}", languageStandard.empty() ? "c++23" : languageStandard) };
+                                   // The kit is libc++ with the engine's own clang: the newest standard, where a unit names none.
+                                   std::format("-std={}", languageStandard.empty() ? "c++26" : languageStandard) };
     for (const auto& argument : kit.arguments) out.push_back(argument);
     for (const auto& directory : kit.systemIncludeDirectories) {
         out.emplace_back("-isystem");

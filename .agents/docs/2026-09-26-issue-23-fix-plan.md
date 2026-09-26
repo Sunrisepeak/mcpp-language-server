@@ -460,6 +460,20 @@ payload 验证；最后报告产物目录。
 全部 conformance（CI 两部分清单 + 新夹具，共 50 个）通过；新夹具逐个对照 0.0.4 确认失败。hello 项目副本：`impo`/`expo` 从第一个字母起
 有 `import`/`export module`；`import hello.` 写盘后 clangd 各线程 20 s 内 0 tick（0.0.4 约 2000）。
 
+## 9. 追加：C++26 支持对齐（2026-09-26，用户要求并入 0.0.5）
+
+调查结论（本机实测，clangd 23.1 + 语义工具包 libc++ 23 / 工具链 clang 22 + libc++ 22）：
+
+| 问题 | 实测 | 处理 |
+|---|---|---|
+| 无构建描述的项目默认 `-std=c++23`（MSVC 族却是 `/std:c++latest` 即 C++26），C++26 库名（`std::saturating_add`）缺失 | `inferred-cxx26` 在 0.0.4 上失败 | 默认取读取它的编译器支持的最新标准：语义工具包、GCC ≥ 14、Clang ≥ 17（< 20 写作 `c++2c`）为 C++26，更老的为 C++23；工具包在单元未写标准时也取 C++26 |
+| 同一项目混用 C++23 与 C++26：`std` 按代表单元（C++23）构建，C++26 单元 `import std` 直接失败（"C++26 was disabled in precompiled file"），经它导入的一切都丢失 | `compdb-mixed-standards` 在 0.0.4 上失败 | 计划第 5c 步：同一上下文中涉及模块的单元统一为其中最新的标准，普通单元保留自己的；报告 `plan.languageStandard/standardsSeen/standardsRaised`，状态 profile 增加 `standard`（S3，附加字段） |
+| 用户看不到当前按哪个标准读 | — | 状态 profile 与报告给出；提升时写一行日志 |
+| 契约（P2900）、反射（P2996） | clang 22/23 不认 `pre`/`post`/`contract_assert`（`-fcontracts` 不存在） | 上游能力缺口，不在 mcppls 能补的范围：文档写明；VS Code 注入语法为 `contract_assert` 与合约说明符位置的 `pre`/`post` 着色（纯外观）；服务端对 `contract_assert` 发 keyword 语义 token（clangd 可用时以 clangd 为准） |
+
+其余 C++26 语言特性（包索引、`= delete("reason")`、占位符 `_`、`static_assert` 消息、`#embed` 等）以 clangd 23.1 的实现为准，mcppls
+无需额外处理；标准库部分以构建所用的标准库为准。
+
 ## 不做的事
 
 - 不删除 `-flto` 或其他链接参数（F1）。

@@ -180,6 +180,18 @@ InferredDatabase enrich_database(spec::Database database, const Scanner& scanner
     return result;
 }
 
+std::string inferred_language_standard(const std::optional<toolchain::ToolchainFacts>& facts) {
+    if (!facts) return "c++26";
+    const std::string_view version { facts->toolchain.version };
+    int major { 0 };
+    (void)std::from_chars(version.data(), version.data() + version.size(), major);
+    switch (facts->toolchain.family) {
+    case spec::Family::gcc: return major >= 14 ? "c++26" : "c++23";
+    case spec::Family::clang: return major >= 20 ? "c++26" : major >= 17 ? "c++2c" : "c++23";
+    default: return "c++26";   // the MSVC family is given /std:c++latest, which is C++26 to the engine
+    }
+}
+
 InferredDatabase infer_database(std::string_view rootInput, const InferOptions& options, const Scanner& scanner) {
     InferredDatabase result;
     const std::string root { base::normalize_path(rootInput) };

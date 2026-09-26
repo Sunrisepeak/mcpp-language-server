@@ -10,8 +10,9 @@ product version unchanged.
 ## [0.0.5] — 2026-09-26
 
 Issue #23 is fixed: modules are built again for projects compiled with LTO for the MSVC ABI. An
-autosave of a half-typed `import` no longer stalls clangd, restarts can no longer leave it stuck, and
-one command exports everything a problem report needs, with your name, paths and secrets replaced.
+autosave of a half-typed `import` no longer stalls clangd, restarts can no longer leave it stuck, a
+project mixing C++23 and C++26 reads both, and one command exports everything a problem report needs,
+with your name, paths and secrets replaced.
 The analysis of #23 with its Windows measurements is `.agents/docs/2026-09-26-issue-23-lto-module-scan.md`;
 the plan, its decisions and what was measured is `.agents/docs/2026-09-26-issue-23-fix-plan.md`.
 clangd's own defects behind all of this are registered in issue #24.
@@ -67,6 +68,18 @@ clangd's own defects behind all of this are registered in issue #24.
   the project; clangd loads it once the file is saved"), not a `module not found` error
   (`WA-CLANGD-007`).
 
+### C++26
+
+- **A C++26 file can import what a C++23 one built.** A module's BMI is only imported under the
+  standard it was built with, so in a project mixing C++23 and C++26 the C++26 files lost `import std`
+  and every module ("C++26 was disabled in precompiled file"). The module units of a context are now
+  read with one standard, the newest they name; plain units keep their own, and the status profile
+  names the standard (`standard`, S3).
+- **Sources nothing describes are read as C++26** with the semantic kit, GCC 14 and later, and Clang 17
+  and later (C++23 before), so C++26 library names such as `std::saturating_add` are there.
+- Contracts (P2900) and reflection (P2996) are not in clang 23 and show clang's errors; VS Code colors
+  `contract_assert`, and `pre` and `post` as contract specifiers.
+
 ### Completion and coloring
 
 - **A space after `import ` or `export import ` opens the module list** in VS Code; spaces anywhere
@@ -110,8 +123,8 @@ clangd's own defects behind all of this are registered in issue #24.
 ### Testing
 
 - New conformance fixtures, each failing on 0.0.4: `typing-autosave`, `clangd-crash-context`,
-  `compdb-rejected-command`, `mcpp-emit-wait`, `compdb-lto-msvc`, `inferred-bom`,
-  `completion-keywords` and `diagnostic-bundle`.
+  `compdb-rejected-command`, `mcpp-emit-wait`, `compdb-lto-msvc`, `inferred-bom`, `inferred-cxx26`,
+  `compdb-mixed-standards`, `completion-keywords` and `diagnostic-bundle`.
 - `diagnostic-code` checks take a line, a severity and codes that must be absent; `completion-contains`
   takes a trigger character.
 
