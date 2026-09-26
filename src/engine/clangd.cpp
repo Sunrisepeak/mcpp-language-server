@@ -226,6 +226,13 @@ private:
     std::map<std::string, Clock::time_point, std::less<>> moduleJoinedAt_;
     std::optional<Clock::time_point> databaseReadAt_;   // when this clangd first read the database (it was given a file)
     std::optional<Clock::time_point> diskRecheckAt_;
+    // Modules the plan's units import that no unit provides and no issue calls unresolved: resolved another way (a
+    // module manifest), which clangd finds by the importer's own command. Never a disk hazard.
+    std::set<std::string, std::less<>> resolvedElsewhere_;
+    // When each file was set aside for an import the database had no unit for (UP-02): a plan that never gives one
+    // does not keep it from clangd past UNRESOLVED_DISK_LIMIT, after which clangd reads it as 0.0.4 did.
+    std::map<std::string, Clock::time_point, std::less<>> unresolvedOnDiskSince_;
+    static constexpr std::chrono::seconds UNRESOLVED_DISK_LIMIT { 30 };
     // Such a file set aside while clangd was building it: closed once that build ends, or clangd restarted without it at
     // the deadline, since a build that read the disk never ends (the conformance runner, and a Ctrl+S right after the dot).
     static constexpr std::chrono::milliseconds DISK_SETTLE { 1500 };
@@ -650,6 +657,18 @@ public:
         }
         std::erase_if(moduleJoinedAt_, [&](const auto& item) { return !newModuleSources.contains(item.first); });
         moduleSources_ = std::move(newModuleSources);
+        {
+            std::set<std::string, std::less<>> reported;
+            for (const auto& issue : plan->issues) {
+                if (!issue.module.empty()) reported.insert(issue.module);
+            }
+            resolvedElsewhere_.clear();
+            for (const auto& entry : plan->entries) {
+                for (const auto& name : entry.imports) {
+                    if (!moduleSources_.contains(name) && !reported.contains(name)) resolvedElsewhere_.insert(name);
+                }
+            }
+        }
         if (!diskHazards_.empty()) schedule_disk_recheck_(appliedAt);
         moduleCommands_ = std::move(newModuleCommands);
         moduleUnits_.clear();
@@ -1114,7 +1133,7 @@ public:
             // Nor is a file whose text on disk would stall clangd (fix plan F16): it waits for the disk, or the database.
             if (const auto aside = aside_.find(key); aside != aside_.end() && aside->second.onDisk) {
                 const auto disk = platform::fs::read_file(aside->first);
-                if (!disk || disk_hazard_(*disk, now)) {
+                if (!disk || disk_hazard_(*disk, now, key)) {
                     quarantine_.put(key, now);
                     continue;
                 }
@@ -2436,18 +2455,25 @@ private:
 
     // ---- fix plan F16: WA-CLANGD-001 on disk ---------------------------------------------------
 
-    // What in `text`, a file's text on disk, would stall clangd if it built the file now (fix plan F16): a module name
-    // ending in '.' (UP-01), or an import of a module that the database clangd has read has no unit for -- none yet,
-    // or one added less than DATABASE_REREAD ago to a clangd started before (UP-02). The plan gives a file being
-    // edited a stand-in for every module its text on disk imports (F13), so the second passes within seconds.
-    std::optional<std::string> disk_hazard_(std::string_view text, Clock::time_point now) const {
+    // What in `text`, the text on disk of the file `key`, would stall clangd if it built the file now (fix plan F16): a
+    // module name ending in '.' (UP-01), or an import typed since the last plan of a module that the database clangd has
+    // read has no unit for -- none yet, or one added less than DATABASE_REREAD ago to a clangd that had read the
+    // database before (UP-02). The plan gives a file being edited a stand-in for every module its text on disk imports
+    // (F13), so the second passes within seconds. An import the plan has seen already is left to the plan, as before
+    // (its stand-in, or a failed module's closure), and so is `std`, and a module resolved another way.
+    std::optional<std::string> disk_hazard_(std::string_view text, Clock::time_point now, std::string_view key) const {
         if (traits_.hangsOnTrailingDotModuleName && sanitize_module_names(text).changed()) {
             for (const auto line : base::split_lines(text)) {
                 if (sanitize_module_names(line).changed()) return std::format("it has `{}`, a module name ending in '.', which clangd 23.1 spins on (UP-01)", base::trim(line));
             }
         }
         if (!traits_.hangsOnUnresolvedImports || writtenDatabase_.empty()) return std::nullopt;
+        const auto planned = fileImports_.find(key);
+        const bool watched { unresolvedOnDiskSince_.contains(key) };   // set aside for it already: back once clangd can build it
         for (const auto& name : project::required_names(project::scan_source(text))) {
+            if (name == "std" || name == "std.compat" || resolvedElsewhere_.contains(name)) continue;
+            const bool fresh { planned == fileImports_.end() || std::ranges::find(planned->second, name) == planned->second.end() };
+            if (!fresh && !watched) continue;
             const auto joined = moduleJoinedAt_.find(name);
             if (joined == moduleJoinedAt_.end()) return std::format("it imports {}, which the engine database has no unit for yet (UP-02)", name);
             // A clangd that has read no database yet reads this one, whole, when it is given its first file.
@@ -2465,11 +2491,14 @@ private:
         const std::string key { base::path_key(path) };
         const auto now = Clock::now();
         const auto text = platform::fs::read_file(path);
-        const auto hazard = text ? disk_hazard_(*text, now) : std::nullopt;
+        const auto hazard = text ? disk_hazard_(*text, now, key) : std::nullopt;
         if (!hazard) {
+            unresolvedOnDiskSince_.erase(key);
             if (diskHazards_.erase(key) > 0) hand_back_from_disk_(key);
             return false;
         }
+        if (hazard->contains("UP-02")) unresolvedOnDiskSince_.try_emplace(key, now);
+        else unresolvedOnDiskSince_.erase(key);
         const auto [known, fresh] = diskHazards_.insert_or_assign(key, *hazard);
         (void)known;
         if (fresh) {
@@ -2507,6 +2536,10 @@ private:
             const auto at = joined + DATABASE_REREAD;
             if (at > now && (!next || at < *next)) next = at;
         }
+        for (const auto& [key, since] : unresolvedOnDiskSince_) {
+            const auto at = since + UNRESOLVED_DISK_LIMIT;
+            if (at > now && (!next || at < *next)) next = at;
+        }
         diskRecheckAt_ = next.value_or(now + DATABASE_REREAD);
     }
 
@@ -2516,11 +2549,20 @@ private:
         for (const auto& [key, why] : diskHazards_) keys.push_back(key);
         for (const auto& key : keys) {
             const auto text = platform::fs::read_file(key);
-            if (text && !disk_hazard_(*text, now)) {
+            const auto hazard = text ? disk_hazard_(*text, now, key) : std::nullopt;
+            const auto since = unresolvedOnDiskSince_.find(key);
+            const bool givenUp { hazard && hazard->contains("UP-02") && since != unresolvedOnDiskSince_.end() && now - since->second >= UNRESOLVED_DISK_LIMIT };
+            if (givenUp) {
+                log::warning("{}: the plan has given no unit for what it imports in {} s; clangd reads it as it is ({})", key, UNRESOLVED_DISK_LIMIT.count(),
+                             host_->root_directory());
+                host_->record_event("disk-unsafe-given-up", Json { { "file", key }, { "why", *hazard } });
+            }
+            if (!hazard || givenUp) {
                 diskHazards_.erase(key);
+                unresolvedOnDiskSince_.erase(key);
                 hand_back_from_disk_(key);
-            } else if (text) {
-                diskHazards_[key] = *disk_hazard_(*text, now);
+            } else {
+                diskHazards_[key] = *hazard;
             }
         }
         if (!diskHazards_.empty()) schedule_disk_recheck_(now);
