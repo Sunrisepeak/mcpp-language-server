@@ -202,6 +202,10 @@
               },
               "message": {
                 "type": "string"
+              },
+              "path": {
+                "type": "string",
+                "description": "The file the diagnostic concerns, relative to the workspace root (section 3.4)."
               }
             }
           }

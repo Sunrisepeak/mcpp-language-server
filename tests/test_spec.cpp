@@ -333,6 +333,14 @@ int main(int argc, char* argv[]) {
         failure["diagnostics"] = Json::array({ Json { { "code", "E_TOOLCHAIN" }, { "severity", "error" }, { "message", "no compiler" } } });
         auto failed = spec::parse_database_envelope(failure.dump());
         expect(!failed.has_value() && failed.error().message.find("no compiler") != std::string::npos) << "a command without data has failed; its diagnostics say why";
+        // S2 0.3.0 (S2-3.4-12, S2-3.4-13): data with error diagnostics describes all but what they name, by `path`.
+        Json partial = Json::parse(*text);
+        partial["diagnostics"] = Json::array({ Json { { "code", "MCPP_MEMBER_FAILED" }, { "severity", "error" }, { "message", "lupdate failed" },
+                                                      { "path", "tools/updater/mcpp.toml" } } });
+        auto described = spec::parse_database_envelope(partial.dump());
+        expect(fatal(described.has_value())) << "the rest of the document is used";
+        expect(described->database.is_object() && described->diagnostics.size() == 1u);
+        expect(described->diagnostics[0].path == "tools/updater/mcpp.toml" && described->diagnostics[0].severity == "error");
 
         auto protocol = spec::parse_producer_protocol(R"({"schemaVersion":1,"kind":"mcpp.protocol","kinds":{"mcpp.build-database":1},
             "commands":{"emit build-database":{"effects":["read-project","network"]}},"future":{}})");

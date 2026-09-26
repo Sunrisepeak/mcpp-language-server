@@ -43,6 +43,7 @@ struct EnvelopeDiagnostic {
     std::string code;
     std::string severity;   // error | warning | note
     std::string message;
+    std::string path;       // S2 0.3.0: the file it concerns, relative to the workspace root; empty when it names none
 };
 
 struct DatabaseDocument {

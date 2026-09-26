@@ -9,7 +9,8 @@
 //
 // In mcpp-mock.json every string may use ${root} (the directory the command runs
 // in) and ${env:NAME} or ${env:NAME|fallback}. {"database": <S1>, "watch": [...]}
-// is answered as an envelope; {"diagnostics": [...]} as a failure with exit 1; {"unavailable": "..."}
+// is answered as an envelope; {"diagnostics": [...]} as a failure with exit 1, and both together as a partial
+// answer (S2 0.3.0) with exit 1; {"unavailable": "..."}
 // as xlings answers for an mcpp a project pins but that is not installed. {"hang": {...}} is the
 // failure the runner exists for: a producer that does not return, and that leaves something behind
 // holding the caller's pipe, which is what one hung index refresh did to an editor for twelve
@@ -189,8 +190,12 @@ int emit_build_database(std::span<const std::string> arguments) {
     data["database"] = recorded["database"];
     data["watch"] = recorded.value("watch", Json::array({ "mcpp.toml", "mcpp.lock", "src/**/*.cppm", "src/**/*.cpp" }));
     data["inputs-fingerprint"] = fingerprint(root);
-    std::println("{}", envelope("mcpp.build-database", std::move(data), Json::array(), Json::array({ "read-project" })).dump(2));
-    return 0;
+    // S2 0.3.0 (mcpp-community/mcpp#699): a database together with error diagnostics describes all but what they name,
+    // and the command exits non-zero.
+    const Json diagnostics = recorded.value("diagnostics", Json::array());
+    const bool partial { std::ranges::any_of(diagnostics, [](const Json& diagnostic) { return diagnostic.value("severity", std::string {}) == "error"; }) };
+    std::println("{}", envelope("mcpp.build-database", std::move(data), diagnostics, Json::array({ "read-project" })).dump(2));
+    return partial ? 1 : 0;
 }
 
 } // namespace

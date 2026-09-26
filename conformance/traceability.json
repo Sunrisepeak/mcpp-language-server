@@ -683,6 +683,33 @@
    "contains": "!spec::effects_acceptable(effects->second)"
   }
  ],
+ "S2-3.4-12": [
+  {
+   "validate": "S2 schema accepts a partial document: data and an error naming a path"
+  },
+  {
+   "validate": "S2 schema rejects a diagnostic path that is not a string"
+  },
+  {
+   "script": "src/bin/mockmcpp.cpp",
+   "contains": "return partial ? 1 : 0;"
+  }
+ ],
+ "S2-3.4-13": [
+  {
+   "check": "mcpp-emit-partial/P1-the-rest-is-used"
+  },
+  {
+   "check": "mcpp-emit-partial/P2-features-from-it"
+  },
+  {
+   "test": "tests/test_spec.cpp: a single-document envelope is read, and only a database answers"
+  },
+  {
+   "script": "src/project/mcpp.cpp",
+   "contains": "enriched.issues.emplace_back(\"producer-partial\""
+  }
+ ],
  "S2-4-1": [
   {
    "manual": "A producer requirement for mcpp (mcpp-community/mcpp#636); the simulated producer runs no build at all."

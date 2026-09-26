@@ -27,6 +27,17 @@ directory, the user's and the machine's names and recognizable secrets in its re
 placeholders, the same placeholder for the same original, and keeps the project's own paths
 (S3-5.5-3). `redact: false` gets the report as before. Additive: protocol version stays 1.
 
+## 2026-09-26 — S2 0.3.0: a partial single-document answer
+
+In single-document mode a document may carry `data` together with `error` diagnostics. It describes
+everything except what those diagnostics name; the producer names each part it could not describe
+(a workspace member or a package) in the diagnostic's new optional `path` field, and a consumer uses
+the rest of the document (S2-3.4-12, S2-3.4-13). `data` is present when the command described the
+workspace in whole or in part; a command without `data` has still failed (S2-3.4-11). A consumer
+written for 0.2.0 reads such a document as a success with errors, which is the intended reading.
+mcpp implements it with mcpp-community/mcpp#699 (in #702); before, one workspace member's planning
+failure used to remove every member's sets.
+
 ## 2026-09-25 — S3: issue categories, the degraded hold, module syntax in semantic tokens
 
 Added `category` (optional) to `CxxModulesIssue`: `code`, `engine`, `environment` or `project`,

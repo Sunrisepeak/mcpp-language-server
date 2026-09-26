@@ -148,6 +148,7 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
             model.source = kind;
             for (const auto& problem : loaded->problems) model.issues.push_back(ModelIssue { "toolchain-not-found", problem });
             for (const auto& [code, message] : loaded->notices) model.notices.push_back(ModelIssue { code, message });
+            for (const auto& [code, message] : loaded->issues) model.issues.push_back(ModelIssue { code, message });
         } else {
             model.issues.push_back(ModelIssue { result.error().code, result.error().message });
         }

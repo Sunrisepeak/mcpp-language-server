@@ -277,7 +277,7 @@ jobs:
           - platform: linux-x64
             part: 1 of 2
             os: ubuntu-24.04
-            fixtures: mcpp-split mcpp-all-cppm verify-changes mingw mcpp-split-gcc mcpp-watch multi-root mcpp-llvm mcpp-watch@polling mcpp-emit s1-two-sets compdb-lto-msvc failure-at-base@vscode generated-module-negotiated typing-import typing-import-spin workaround-canaries typing-autosave compdb-rejected-command compdb-mixed-standards
+            fixtures: mcpp-split mcpp-all-cppm verify-changes mingw mcpp-split-gcc mcpp-watch multi-root mcpp-llvm mcpp-watch@polling mcpp-emit s1-two-sets compdb-lto-msvc failure-at-base@vscode generated-module-negotiated typing-import typing-import-spin workaround-canaries typing-autosave compdb-rejected-command compdb-mixed-standards mcpp-emit-partial
           - platform: linux-x64
             part: 2 of 2
             os: ubuntu-24.04

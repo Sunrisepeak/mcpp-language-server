@@ -5,7 +5,7 @@ This directory holds the normative specifications that let C++ named modules be 
 | Spec | Title | Version | Status | Schema |
 |---|---|---|---|---|
 | [S1](s1-build-database.md) | C++ Build Database: IDE Profile | profile-version 0.2.0 | Draft | [s1-build-database.schema.json](schema/s1-build-database.schema.json) |
-| [S2](s2-discovery.md) | Build Database Discovery Protocol | 0.2.0 | Draft | [s2-discovery.schema.json](schema/s2-discovery.schema.json) |
+| [S2](s2-discovery.md) | Build Database Discovery Protocol | 0.3.0 | Draft | [s2-discovery.schema.json](schema/s2-discovery.schema.json) |
 | [S3](s3-lsp-extensions.md) | Language Server Protocol Extensions for C++ Modules | protocol version 1 | Draft | TypeScript interfaces in the text |
 | [S4](s4-semantic-kit.md) | Semantic Kit | kit-version 1 | Draft | [s4-kit.schema.json](schema/s4-kit.schema.json) |
 | [S5](s5-semantic-query.md) | Semantic Queries for C++ Code | 0.1.0 | Draft | TypeScript interfaces in the text |

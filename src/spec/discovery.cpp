@@ -31,7 +31,7 @@ std::vector<EnvelopeDiagnostic> parse_envelope_diagnostics(std::string_view outp
     for (const auto& diagnostic : envelope.value("diagnostics", nlohmann::json::array())) {
         if (!diagnostic.is_object()) continue;
         diagnostics.push_back(EnvelopeDiagnostic { diagnostic.value("code", std::string {}), diagnostic.value("severity", std::string {}),
-                                                   diagnostic.value("message", std::string {}) });
+                                                   diagnostic.value("message", std::string {}), diagnostic.value("path", std::string {}) });
     }
     return diagnostics;
 }
@@ -69,7 +69,7 @@ base::Result<DatabaseDocument> parse_database_envelope(std::string_view output) 
     for (const auto& diagnostic : envelope.value("diagnostics", nlohmann::json::array())) {
         if (!diagnostic.is_object()) continue;
         document.diagnostics.push_back(EnvelopeDiagnostic { diagnostic.value("code", std::string {}), diagnostic.value("severity", std::string {}),
-                                                            diagnostic.value("message", std::string {}) });
+                                                            diagnostic.value("message", std::string {}), diagnostic.value("path", std::string {}) });
     }
     const std::string kind { envelope.value("kind", std::string {}) };
     const auto data = envelope.find("data");

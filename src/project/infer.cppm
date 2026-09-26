@@ -22,6 +22,8 @@ struct InferredDatabase {
     std::vector<std::string> watch;   // extra paths to watch, from a discovery command
     // Facts a person may want to know that do not reduce any feature: (code, message).
     std::vector<std::pair<std::string, std::string>> notices;
+    // What the producer could not describe while it described the rest (S2 0.3.0, S2-3.4-13): (code, message).
+    std::vector<std::pair<std::string, std::string>> issues;
 };
 
 // Completes a database a producer wrote: probes each set's compiler when the
