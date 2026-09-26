@@ -2396,6 +2396,29 @@ int prepare_compdb_lto_msvc(const std::string& compiler) {
     return 0;
 }
 
+// Fix plan F6: a compile_commands.json whose commands carry an option value the compiler rejects, the kind of
+// command #23's LTO one was: clangd's module scan fails on every unit, and the status says the command was rejected,
+// with the driver's own words, instead of leaving the user to find "Scanning modules dependencies ... failed" in a log.
+int prepare_compdb_rejected_command(const std::string& compiler) {
+    const std::string root { fs::current_directory() };
+    auto clangxx = on_path(compiler.empty() ? std::string { "clang++" } : compiler);
+    if (!clangxx) {
+        say("compdb-rejected-command: {} is not on PATH", compiler);
+        return 1;
+    }
+    Json database = Json::array();
+    for (const std::string_view relative : { "src/answer.cppm", "src/main.cpp" }) {
+        const std::string source { native(base::join_path(root, relative)) };
+        database.push_back(Json { { "directory", native(root) }, { "file", source },
+                                  { "arguments", Json::array({ *clangxx, "-std=c++99999", "-c", source, "-o", source + ".o" }) } });
+    }
+    if (auto written = fs::write_file(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
+        say("compdb-rejected-command: {}", written.error().message);
+        return 1;
+    }
+    return 0;
+}
+
 // real-project plan RP2.1: a second, newer mock mcpp under a fixture's isolated HOME
 // (`"isolate-home": true`), at the path producer negotiation searches
 // (`mcppls::project::other_mcpp_executables`, `xim-x-mcpp/<version>/bin/mcpp`), so a fixture whose
@@ -2571,6 +2594,56 @@ int prepare_clangd_cannot_load() {
     return 0;
 }
 
+// Fix plan F3: a clangd that crashes the way clangd 23.1 did on Windows in issue #23 -- its crash context on standard
+// error, naming a file that is not the one being edited, and then gone -- once, 25 seconds after it starts; every
+// later start is the payload's real clangd. POSIX only: the stand-in is a shell script around the real one.
+int prepare_clangd_crash_context(const std::string& payload) {
+    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+        say("clangd-crash-context: POSIX only");
+        return 2;
+    }
+    const std::string workspace { fs::current_directory() };
+    const std::string real { base::join_path(payload, "clangd/bin/clangd") };
+    if (!fs::exists(real)) {
+        say("clangd-crash-context: no clangd at {}", real);
+        return 1;
+    }
+    const std::string directory { base::join_path(workspace, "stand-in") };
+    (void)fs::create_directories(directory);
+    const std::string crashed { base::join_path(directory, "crashed-once") };
+    const std::string crasher { base::join_path(workspace, "src/crasher.cpp") };
+    const std::string script { std::format(
+        "#!/bin/sh\n"
+        "real='{}'\n"
+        "case \"$1\" in --version|--help) exec \"$real\" \"$@\" ;; esac\n"
+        "[ -e '{}' ] && exec \"$real\" \"$@\"\n"
+        ": > '{}'\n"
+        // A background job of sh reads /dev/null: the editor's input goes to clangd through a descriptor kept first.
+        "exec 3<&0\n"
+        "\"$real\" \"$@\" <&3 3<&- &\n"
+        "child=$!\n"
+        "sleep 25\n"
+        "echo 'PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace.' >&2\n"
+        "echo 'Signalled during AST worker action: Build AST' >&2\n"
+        "echo '  Filename: {}' >&2\n"
+        "echo '  Directory: {}' >&2\n"
+        "echo '  Command Line: clang++ -std=c++23 -c -- {}' >&2\n"
+        "echo '  Version: 1' >&2\n"
+        "kill -KILL $child\n"
+        "exit 139\n",
+        real, crashed, crashed, crasher, workspace, crasher) };
+    const std::string clangd { base::join_path(directory, "clangd") };
+    if (auto written = fs::write_file(clangd, script); !written) {
+        say("clangd-crash-context: {}", written.error().message);
+        return 1;
+    }
+    if (auto marked = fs::make_executable(std::vector<std::string> { clangd }); !marked) {
+        say("clangd-crash-context: {}", marked.error().message);
+        return 1;
+    }
+    return 0;
+}
+
 int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "s1-two-sets") return prepare_s1_two_sets(argument);
     if (kind == "payload-corrupt") return prepare_payload_corrupt(argument);
@@ -2580,8 +2653,10 @@ int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "compdb-clangxx-msvc-std") return prepare_compdb_msvc_std(false);
     if (kind == "generated-module-old-mcpp") return prepare_generated_module_compdb(argument);
     if (kind == "clangd-cannot-load") return prepare_clangd_cannot_load();
+    if (kind == "clangd-crash-context") return prepare_clangd_crash_context(argument);
+    if (kind == "compdb-rejected-command") return prepare_compdb_rejected_command(argument);
     if (kind == "compdb-lto-msvc") return prepare_compdb_lto_msvc(argument);
-    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc)", kind);
+    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, compdb-rejected-command)", kind);
     return 2;
 }
 

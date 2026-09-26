@@ -1,0 +1,47 @@
+{
+  "name": "compdb-rejected-command",
+  "description": "Fix plan 2026-09-26 F6: a compile_commands.json whose commands carry an option value the compiler rejects (`-std=c++99999`) (written by the runner's `prepare compdb-rejected-command`), the kind of command issue #23's was. clangd's module scan fails on every unit; the status now says so as an environment issue, in the driver's own words, where 0.0.4 said nothing and the reason was one line among thousands of the log.",
+  "prepare": [
+    [
+      "{conformance}",
+      "prepare",
+      "compdb-rejected-command",
+      "{env:CONFORMANCE_CLANGXX|clang++}"
+    ]
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "compile-commands"
+    },
+    {
+      "id": "O1-open",
+      "kind": "open",
+      "file": "src/main.cpp"
+    },
+    {
+      "id": "F1-in-the-report",
+      "kind": "report",
+      "timeout": 30,
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/scanFailures/count",
+          "at-least": 1
+        },
+        {
+          "path": "/roots/0/engines/*/details/scanFailures/firstReason",
+          "contains": "c++99999"
+        }
+      ]
+    },
+    {
+      "id": "F2-the-status-says-why",
+      "kind": "status",
+      "issue-code": "module-scan-failed",
+      "issue-category": "environment",
+      "issue-message": "rejected the compile command",
+      "timeout": 60
+    }
+  ]
+}

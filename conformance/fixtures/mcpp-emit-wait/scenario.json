@@ -1,0 +1,14 @@
+{
+  "name": "mcpp-emit-wait",
+  "description": "Fix plan 2026-09-26 F4 (decision D1): a project whose build system was detected gets clangd with the build tool's model, not the one scanned from its sources that stands in meanwhile. The producer (mcppls-mock-mcpp) hangs past the ten seconds after which scanned sources are planned, and is ended at its 20 s bound: until then mcppls's own engine answers what it can and clangd is given no plan at all, where 0.0.4 gave clangd the provisional plan -- in issue #23 a Windows clangd crashed three times on it before the real model came, and was given up on. After the bound, clangd starts with what there is.",
+  "server-arguments": ["--mcpp", "{runner-dir}/mcppls-mock-mcpp{exe}", "--producer-timeout", "20"],
+  "checks": [
+    { "id": "W1-module-features-while-it-waits", "kind": "definition", "file": "src/main.cpp", "at": [1, 9], "expect": "src/greet/greet.cppm", "timeout": 15 },
+    { "id": "W2-clangd-waits-for-the-producer", "kind": "report", "timeout": 15, "expect": [
+        { "path": "/roots/0/events/*/kind", "equals": "engine-waits-for-producer" },
+        { "path": "/roots/0/engines/*/details/generation", "equals": 1 } ] },
+    { "id": "W3-clangd-once-the-producer-is-given-up", "kind": "hover-contains", "file": "src/main.cpp", "at": [4, 31], "expect": "greet", "timeout": 90 },
+    { "id": "W4-the-model-is-scanned-sources-not-nothing", "kind": "status", "source": "inferred", "state": "degraded" },
+    { "id": "W5-nothing-was-written-into-the-project", "kind": "workspace-unchanged" }
+  ]
+}
