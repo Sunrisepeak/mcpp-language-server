@@ -15,6 +15,7 @@ import mcppls.engine;
 import mcppls.engine.payload;
 import mcppls.engine.native.index;
 import mcppls.orchestrator.client;
+import mcppls.config.settings;
 
 export namespace mcppls::orchestrator {
 
@@ -35,7 +36,6 @@ struct SessionOptions {
     std::string mcpp;                      // the mcpp executable for mcpp projects; empty: found on PATH
     std::string database;                  // a workspace's own S1 document, relative to the root (usable plan W9.2)
     std::string engine { "clangd" };       // the core engine: clangd | none (overall design 5.6)
-    bool engineFromCommandLine { false };  // --engine was given, so the client's initializationOptions do not override it
     bool trusted { true };
     bool discoverCompilers { true };
     // mcppls.buildTool (design 4.4): offline --- the default --- runs the build tool without the
@@ -55,10 +55,33 @@ struct SessionOptions {
     // only for a client that says it knows them.
     bool semanticTokensModules { true };
     bool semanticTokensModuleType { false };
+    // mcppls.compiler / mcppls.semanticKit (design 5.x): which compiler's semantics to follow, and
+    // whether the bundled kit may stand in for one. Named `compilerOverride`/`kitEnabled` where
+    // `Workspace` itself already took them as separate constructor parameters (before either had a
+    // command-line spelling, config settings §9 T1 gave them one); these two fields are the
+    // command-line/initial layer, kept in step with those parameters by the composition root.
+    std::string compiler;
+    std::string semanticKit { "auto" };
+    // mcppls.buildDiscovery and its two settings (0.0.6 plan §3.7 B-7): whether the project's build
+    // system is detected at all, which providers may be used, and whether a needed download is ever
+    // asked about (their actual detection and asking is other 0.0.6 tasks' work; the registry and
+    // this plumbing are T1's).
+    std::string buildDiscovery { "auto" };
+    std::vector<std::string> buildDiscoveryProviders { "mcpp", "cmake", "xmake", "meson", "compile-commands" };
+    bool buildDiscoveryAskBeforeDownload { true };
+    // mcppls.index.primeImplementationUnits (0.0.6 plan §2.6, §9 T5): whether implementation units
+    // are opened in the background so go-to-definition reaches them (T5's work; T1 only carries it).
+    std::string primeImplementationUnits { "auto" };
     // This program, to run `mcppls review` for an editor's review command (overall design 7.7).
     std::string serverExecutable;
     // Given by the composition root; a test can substitute engines that start no process.
     std::function<EngineFactories(const SessionOptions&, const engine::PayloadPaths&, bool payloadCorrupt)> engineFactories;
+    // The configuration registry resolved against the command line (config settings §9 T1):
+    // `cli::session_options` applies that layer and fills every field above from it; a session then
+    // layers `initializationOptions` and `workspace/didChangeConfiguration` over this same object, so
+    // a value the command line set stays immune to both (a later layer never overrides one earlier
+    // origin outranks -- see `config::settings::Settings`'s own precedence rule).
+    config::settings::Settings settings;
 };
 
 // A background thread (model loading, an engine's I/O threads, watch polling) reports back through
@@ -148,6 +171,13 @@ public:
     // happens outside this server, so the only way to learn it worked is to look again.
     void reload_build_description();
     void clear_review();
+
+    // A `workspace/didChangeConfiguration` changed a setting whose `applies` is `reload` (config
+    // settings §9 T1): updates this root's own copy of what a reload reads (everything above that
+    // only takes effect at engine-construction time -- the core engine choice, timeouts, payload
+    // paths -- needs an actual restart instead, which a fresh Workspace after one gets for free) and
+    // schedules one, the same way an autosaved build file already does.
+    void reload_with_options(const SessionOptions& options, const std::string& compilerOverride, bool kitEnabled);
 
     // ---- background events ------------------------------------------------------------
     void handle_engine_event(std::string_view engineId, const Json& event);

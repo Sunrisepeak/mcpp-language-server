@@ -273,6 +273,58 @@
             "Always start build tools in the editor process's environment."
           ],
           "description": "Which environment mcppls starts your build tools in. An editor started from a desktop entry, a Dock icon or a launcher does not carry your shell configuration, so the tool it finds may not be the one your terminal finds."
+        },
+        "mcppls.buildDiscovery": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Detect the project's build system: mcpp, CMake, xmake, meson, or an existing compile_commands.json.",
+            "Detect nothing and run nothing implicitly: use an explicitly configured mcppls.database, else scanned sources."
+          ],
+          "default": "auto",
+          "description": "Whether the project's build system is detected at all. mcppls.buildTool separately governs whether a detected build tool may be run; this governs whether it is looked for in the first place."
+        },
+        "mcppls.buildDiscovery.providers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "mcpp",
+              "cmake",
+              "xmake",
+              "meson",
+              "compile-commands"
+            ]
+          },
+          "default": [
+            "mcpp",
+            "cmake",
+            "xmake",
+            "meson",
+            "compile-commands"
+          ],
+          "description": "Which build system providers mcppls.buildDiscovery may use; leave one out to stop mcppls from detecting it."
+        },
+        "mcppls.buildDiscovery.askBeforeDownload": {
+          "type": "boolean",
+          "default": true,
+          "description": "When the build tool needs a download to finish describing the project, offer to fetch it. Off: the status bar says a download is needed, and nothing asks."
+        },
+        "mcppls.index.primeImplementationUnits": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Open a module's implementation units in clangd in the background, so go-to-definition reaches a definition that only one has.",
+            "Only index what is opened in the editor."
+          ],
+          "default": "auto",
+          "description": "Whether mcppls opens a module's implementation units in the background so go-to-definition can reach a definition that only an implementation unit has."
         }
       }
     },

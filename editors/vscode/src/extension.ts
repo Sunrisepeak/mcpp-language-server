@@ -39,6 +39,9 @@ function buildToolSetting(value: string | undefined): string {
     return value === 'online' || value === 'off' ? value : 'offline';
 }
 
+// mcppls.buildDiscovery.providers' own default (config registry, settings §9 T1): every provider.
+const BUILD_DISCOVERY_PROVIDERS = ['mcpp', 'cmake', 'xmake', 'meson', 'compile-commands'];
+
 const CLIENT_ID = 'mcppls';
 const CLIENT_NAME = 'C++ Modules';
 const RESTART_WINDOW_MS = 3 * 60 * 1000;
@@ -278,6 +281,16 @@ class ServerHost implements vscode.Disposable {
                 completion: {
                     triggerOnSpace: configuration.get<boolean>('completion.triggerOnSpace', true),
                 },
+                // 0.0.6 plan §3.7 B-7: whether the project's build system is detected at all, which
+                // providers may be used, and whether a needed download is ever offered. Dotted keys,
+                // not a nested `buildDiscovery` object: the setting `buildDiscovery` is itself a leaf
+                // (`auto`/`off`), so it cannot also be the object `buildDiscovery.providers` nests
+                // under -- the config registry's own dotted-key form (settings §9 T1) sidesteps that.
+                'buildDiscovery': configuration.get<string>('buildDiscovery') === 'off' ? 'off' : 'auto',
+                'buildDiscovery.providers': configuration.get<string[]>('buildDiscovery.providers', BUILD_DISCOVERY_PROVIDERS),
+                'buildDiscovery.askBeforeDownload': configuration.get<boolean>('buildDiscovery.askBeforeDownload', true),
+                // 0.0.6 plan §2.6, §9 T5: implementation units opened in the background.
+                'index.primeImplementationUnits': configuration.get<string>('index.primeImplementationUnits') === 'off' ? 'off' : 'auto',
             },
             middleware: {
                 // Fix plan 2026-09-26 F9 (D4 layer 1): of the completions a typed space asks for, only
@@ -526,7 +539,11 @@ export function activate(context: vscode.ExtensionContext): TestApi {
             if (event.affectsConfiguration('mcppls.compiler') || event.affectsConfiguration('mcppls.semanticKit')
                 || event.affectsConfiguration('mcppls.engine') || event.affectsConfiguration('mcppls.buildTool')
                 || event.affectsConfiguration('mcppls.toolEnvironment') || event.affectsConfiguration('mcppls.semanticTokens.modules')
-                || event.affectsConfiguration('mcppls.completion.triggerOnSpace')) {
+                || event.affectsConfiguration('mcppls.completion.triggerOnSpace')
+                // 0.0.6 plan §3.7 B-7, §2.6/§9 T5: new settings, same treatment as the ones above.
+                || event.affectsConfiguration('mcppls.buildDiscovery') || event.affectsConfiguration('mcppls.buildDiscovery.providers')
+                || event.affectsConfiguration('mcppls.buildDiscovery.askBeforeDownload')
+                || event.affectsConfiguration('mcppls.index.primeImplementationUnits')) {
                 void host.restart();
             }
         }),
