@@ -305,6 +305,7 @@ private:
     static constexpr std::chrono::seconds DEFINITION_PATIENCE { 8 };
     static constexpr std::chrono::minutes BACKGROUND_IDLE { 10 };
     static constexpr std::chrono::minutes BACKGROUND_BUILD_LIMIT { 2 };
+    static constexpr std::size_t WATCHED_BATCH_LIMIT { 20 };   // plan 2026-09-27 D3
     static constexpr std::size_t BACKGROUND_UNITS { 12 };
     static constexpr std::size_t UNITS_PER_SEARCH { 4 };
     static constexpr std::size_t IMPLEMENTATIONS_AT_ONCE { 2 };          // N-7: units being built for the index at the same time
@@ -852,7 +853,9 @@ public:
             // looked at the same way, and a file whose disk text would spin clangd is left out of what it is told.
             if (const Json* changes = lsp::find_path(message, { "params", "changes" }); changes != nullptr && changes->is_array()) {
                 // N-7: clangd's background index does not index a unit again when it changes on disk; a unit the editor
-                // does not have open (a git pull, another program, a coding agent) is built again for the index.
+                // does not have open (a git pull, another program, a coding agent) is built again for the index. A batch
+                // larger than WATCHED_BATCH_LIMIT (a checkout, a rebase) only joins the rest, behind what was queued first.
+                const bool first { changes->size() <= WATCHED_BATCH_LIMIT };
                 for (const auto& change : *changes) {
                     if (!change.is_object() || change.value("type", 0) == 3) continue;
                     const std::string path { host_->path_of_uri(change.value("uri", std::string {})) };
@@ -861,7 +864,7 @@ public:
                     const auto module = fileModule_.find(key);
                     if (module == fileModule_.end() || interfaceModules_.contains(key)) continue;
                     implementationBuilt_.erase(key);
-                    queue_implementation_(path, module->second, true);
+                    queue_implementation_(path, module->second, first);
                 }
                 pump_implementations_(Clock::now());
                 Json kept = Json::array();
@@ -3302,6 +3305,7 @@ private:
 
     // Whether `path` went into the queue: not when it is there already, was built as it is, or the editor has it.
     bool queue_implementation_(const std::string& path, const std::string& module, bool first) {
+        if (!priming_implementations_()) return false;
         const std::string key { base::path_key(path) };
         if (implementationQueued_.contains(key) || !writtenArguments_.contains(key)) return false;
         if (const auto built = implementationBuilt_.find(key); built != implementationBuilt_.end() && built->second == platform::fs::stamp(path)) return false;
@@ -3493,8 +3497,10 @@ private:
         // Asked again with what clangd has built by now.
         for (auto& search : overdue) ask_definition_again_(std::move(search));
         std::vector<std::string> closing;
+        bool primingStuck { false };
         for (const auto& [key, unit] : background_) {
             if (!unit.built && now >= unit.openedAt + BACKGROUND_BUILD_LIMIT) {
+                primingStuck = primingStuck || unit.priming;
                 log::warning("{} did not build in clangd in {} minutes; it is not opened without the editor again until it changes ({}); clangd was {}",
                              unit.path, BACKGROUND_BUILD_LIMIT.count(), host_->root_directory(), unit.state.empty() ? std::string { "in an unknown state" } : unit.state);
                 host_->record_event("background-unit-stuck", Json { { "file", unit.path }, { "clangdState", unit.state } });
@@ -3506,6 +3512,9 @@ private:
             }
         }
         for (const auto& key : closing) close_background_(key);
+        // A stuck unit gave up its N-7 slot: the next one takes it, unless clangd is about to restart (which seeds
+        // the queue again).
+        if (primingStuck && !restartAt_) pump_implementations_(now);
     }
 
     // ---- parallel module preparation ------------------------------------------------------

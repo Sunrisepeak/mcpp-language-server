@@ -400,6 +400,12 @@ int main() {
                    "in xmake.lua, packages.lua ->\n  -> zlib 1.3.1 [+debug]: xmake.lua:3\n  -> fmt 11.0.2: xmake.lua:4\n")
                == (std::vector<std::string> { "zlib", "fmt" }));
         expect(p::xmake_missing_packages("checking for platform ... linux\nbuild ok!\n").empty()) << "a successful run names nothing";
+
+        // xmake keeps the offline policy in its own configuration: an online run must configure again.
+        const std::pair<std::uint64_t, std::int64_t> manifest { 64, 1000 };
+        expect(p::xmake_configuration_key(true, manifest) != p::xmake_configuration_key(false, manifest));
+        expect(p::xmake_configuration_key(true, manifest) != p::xmake_configuration_key(true, std::pair<std::uint64_t, std::int64_t> { 64, 2000 }));
+        expect(p::xmake_configuration_key(true, manifest) == p::xmake_configuration_key(true, manifest));
     };
 
     "B-5: xmake detect() and existing() read what is already there"_test = [] {

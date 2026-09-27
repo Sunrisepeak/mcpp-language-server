@@ -37,6 +37,10 @@ std::vector<std::pair<std::string, std::string>> xmake_environment(std::string_v
     return { { "XMAKE_CONFIGDIR", std::string { configDirectory } }, { "XMAKE_THEME", "plain" } };
 }
 
+std::string xmake_configuration_key(bool offline, std::optional<std::pair<std::uint64_t, std::int64_t>> manifest) {
+    return std::format("{} {} {}", offline ? "offline" : "online", manifest ? manifest->first : 0, manifest ? manifest->second : 0);
+}
+
 std::vector<std::string> xmake_configure_arguments(std::string_view buildDirectory, bool offline) {
     std::vector<std::string> arguments { "f", "-c" };
     if (offline) {
@@ -127,13 +131,16 @@ Answer XmakeProvider::describe(const Claim& claim, const ProviderContext& contex
     const auto environment { environment_with(xmake_environment(configDirectory), context.environmentWait) };
 
     // Keep it simple (B-1 task 3): configure again whenever there is no private configuration yet,
-    // or xmake.lua changed since the directory last held one -- `xmake f` is what writes into
-    // configDirectory, so its own stamp is "when this project was last configured".
-    const bool hasConfig { fs::is_directory(configDirectory) && !fs::list_directory(configDirectory).empty() };
+    // or it was made for another mode or another xmake.lua (the key recorded after the last success).
+    const std::string configuredMarker { base::join_path(context.privateDirectory, "configured") };
     const auto manifestStamp { fs::stamp(claim.manifest) };
-    const auto configStamp { fs::stamp(configDirectory) };
-    const bool stale { manifestStamp && configStamp && manifestStamp->modified > configStamp->modified };
+    const std::string key { xmake_configuration_key(
+        context.offline, manifestStamp ? std::optional { std::pair { manifestStamp->size, manifestStamp->modified } } : std::nullopt) };
+    const bool hasConfig { fs::is_directory(configDirectory) && !fs::list_directory(configDirectory).empty() };
+    const auto recorded { fs::read_file(configuredMarker) };
+    const bool stale { !recorded || *recorded != key };
     if (!hasConfig || stale) {
+        fs::remove_all(configuredMarker);   // a failed `xmake f -c` leaves no configuration worth keeping
         auto configured = platform::toolrun::run({
             .program = *xmake,
             .arguments = xmake_configure_arguments(buildDirectory, context.offline),
@@ -163,6 +170,7 @@ Answer XmakeProvider::describe(const Claim& claim, const ProviderContext& contex
                             .reason = std::format("xmake f failed ({}): {}", configured->exitCode,
                                                   base::trim(configured->error.empty() ? configured->output : configured->error)) };
         }
+        (void)fs::write_file(configuredMarker, key);
     }
 
     auto described = platform::toolrun::run({

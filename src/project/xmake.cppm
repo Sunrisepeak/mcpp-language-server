@@ -28,6 +28,13 @@ std::vector<std::string> xmake_configure_arguments(std::string_view buildDirecto
 // ever needs beyond the one configure above.
 std::vector<std::string> xmake_compile_commands_arguments(std::string_view outDirectory);
 
+// What the private configuration was last made for: the mode (xmake keeps `--policies` in its own
+// configuration, so an offline configuration stays offline until `xmake f` runs again) and the stamp
+// of the project's xmake.lua. `xmake f` runs again whenever this differs from the key it recorded
+// after its last success; xmake itself re-reads a changed xmake.lua on the next command, but a mode
+// change it cannot know about.
+std::string xmake_configuration_key(bool offline, std::optional<std::pair<std::uint64_t, std::int64_t>> manifest);
+
 // Every package name `xmake f`'s output named as not found ("The packages(xxhash, fmt) not found",
 // or the multi-line "note: install or modify (m) these packages" xmake also prints), in first-seen
 // order; empty when `output` does not match either shape.
