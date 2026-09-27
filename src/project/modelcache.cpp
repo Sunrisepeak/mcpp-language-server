@@ -33,8 +33,8 @@ std::vector<ModelIssue> issues_from_json(const Json& value) {
 }
 
 std::optional<SourceKind> source_from_name(std::string_view name) {
-    for (const SourceKind kind : { SourceKind::build_database, SourceKind::mcpp, SourceKind::cmake,
-                                   SourceKind::compile_commands, SourceKind::inferred }) {
+    for (const SourceKind kind : { SourceKind::build_database, SourceKind::mcpp, SourceKind::cmake, SourceKind::xmake,
+                                   SourceKind::meson, SourceKind::compile_commands, SourceKind::inferred }) {
         if (to_string(kind) == name) return kind;
     }
     return std::nullopt;

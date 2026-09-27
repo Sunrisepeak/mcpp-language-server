@@ -62,6 +62,15 @@ struct LoadOptions {
     std::chrono::milliseconds environmentWait { 0 };
     std::string rootKey;
     std::function<void(std::chrono::milliseconds)> onSlow;
+
+    // B-1 task 1 / B-7 (`mcppls.buildDiscovery`, `mcppls.buildDiscovery.providers`): `false` turns
+    // off detection itself -- nothing is detected, read or run implicitly; only an explicitly
+    // configured database (`configuredDatabase` above) is used, sources are scanned otherwise, and
+    // a `build-discovery-off` notice (not an issue: nothing is reduced by an explicit setting) says
+    // so. `providers` (empty: every registered one) names which providers are even asked; a
+    // provider left out is skipped as if its files were not there.
+    bool buildDiscovery { true };
+    std::vector<std::string> providers;
 };
 
 ProjectModel load_project(std::string_view root, const LoadOptions& options);

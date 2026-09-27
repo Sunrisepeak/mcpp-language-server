@@ -3,6 +3,7 @@
 export module mcppls.project.infer;
 
 import std;
+import mcppls.base.error;
 import mcppls.spec.database;
 import mcppls.toolchain.probe;
 import mcppls.project.compdb;
@@ -33,6 +34,14 @@ InferredDatabase enrich_database(spec::Database database, const Scanner& scanner
 // One set per distinct toolchain; sets see each other. Units carry scanned roles.
 InferredDatabase database_from_commands(std::span<const CompileCommand> commands, std::string_view familyName,
                                         const Scanner& scanner, const Prober& prober);
+
+// B-1 (2026-09-27 plan §3.3): the one thing every "tier 3" provider does once it has found a
+// `compile_commands.json` -- CMake without a build database, xmake's and meson's own CDB command --
+// read it and build a model from it the way a bare compile_commands.json already does, just tagged
+// with which tool actually wrote it (`Database::generator`, S1's own field for this).
+base::Result<InferredDatabase> database_from_compile_commands_file(std::string_view path, std::string_view root,
+                                                                    std::string_view generatorName,
+                                                                    const Scanner& scanner, const Prober& prober);
 
 struct InferOptions {
     std::optional<toolchain::ToolchainFacts> facts;   // a discovered compiler, or nullopt for kit semantics

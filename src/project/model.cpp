@@ -14,11 +14,9 @@ import mcppls.spec.options;
 import mcppls.toolchain.probe;
 import mcppls.toolchain.discover;
 import mcppls.project.detect;
-import mcppls.project.compdb;
 import mcppls.project.infer;
 import mcppls.project.provider;
-import mcppls.project.mcpp;
-import mcppls.project.cmake;
+import mcppls.project.providers;
 import mcppls.project.generated;
 import mcppls.project.scan;
 
@@ -120,8 +118,23 @@ std::vector<ModuleManifest> module_manifests(const ProjectModel& model, const sp
 ProjectModel load_project(std::string_view rootInput, const LoadOptions& options) {
     ProjectModel model;
     model.root = platform::fs::canonical_path(rootInput);
-    const Detection detection { detect_project(model.root, options.configuredDatabase) };
+
+    // B-1 task 1 / B-7: `mcppls.buildDiscovery.providers` (empty = every registered provider)
+    // filters the registry once; a provider left out is skipped as if its files were not there, for
+    // both detection (below) and loading (the switch further down uses the same filtered list).
+    std::vector<BuildSystemProvider*> allowedProviders;
+    for (BuildSystemProvider* provider : registered_providers()) {
+        if (options.providers.empty() || std::ranges::find(options.providers, std::string { provider->id() }) != options.providers.end()) {
+            allowedProviders.push_back(provider);
+        }
+    }
+    const Detection detection { detect_project(model.root, options.configuredDatabase, allowedProviders, options.buildDiscovery) };
     model.detected = detection.kind;
+    if (!options.buildDiscovery) {
+        model.notices.push_back(ModelIssue { "build-discovery-off",
+            "mcppls.buildDiscovery is off, so nothing was detected, read or run implicitly; only an "
+            "explicitly configured database is used, and the sources are scanned otherwise" });
+    }
     const Scanner scanner { options.scanner ? options.scanner : file_scanner() };
     const Prober prober = [&](std::string_view driver, std::span<const std::string> relevant) -> std::optional<toolchain::ToolchainFacts> {
         if (!options.trusted || !options.runner) return std::nullopt;
@@ -174,6 +187,9 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
             std::format("the workspace is not trusted, so the {} project's own data was not read; sources are scanned instead",
                         to_string(detection.kind)) });
     }
+    // B-1 task 1: dispatched through the registry (`allowedProviders`, built above) instead of a
+    // switch naming every kind -- build_database (an explicit `mcppls.database`) and inferred (the
+    // fallback none of them are, design §3.2) are the only two kinds that are not a provider's own.
     switch (options.trusted ? detection.kind : SourceKind::inferred) {
     case SourceKind::build_database: {
         auto database = spec::load_database(detection.buildDatabase);
@@ -186,35 +202,31 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
         model.watch = { detection.buildDatabase };
         break;
     }
-    case SourceKind::mcpp:
-        accept(load_mcpp(detection, context), SourceKind::mcpp);
-        model.producer = context.producerUsed;
-        model.producerVersion = context.producerVersionUsed;
-        model.watch = { "mcpp.toml", "mcpp.lock" };
-        if (loaded) model.watch.insert(model.watch.end(), loaded->watch.begin(), loaded->watch.end());
-        break;
-    case SourceKind::cmake: {
-        const std::string privateBuild { base::join_path(options.cacheDirectory, "cmake") };
-        accept(load_cmake(detection, privateBuild, context), SourceKind::cmake);
-        model.producer = context.producerUsed;
-        model.producerVersion = context.producerVersionUsed;
-        model.watch = { "**/CMakeLists.txt", "CMakePresets.json", "**/*.cmake" };
-        if (!detection.compileCommands.empty()) model.watch.push_back(detection.compileCommands);
-        break;
-    }
-    case SourceKind::compile_commands: {
-        auto commands = read_compile_commands(detection.compileCommands);
-        if (commands) {
-            loaded = database_from_commands(*commands, base::file_name(model.root), scanner, prober);
-            model.source = SourceKind::compile_commands;
-            for (const auto& problem : loaded->problems) model.issues.push_back(ModelIssue { "toolchain-not-found", problem });
-        } else {
-            model.issues.push_back(ModelIssue { commands.error().code, commands.error().message });
-        }
-        model.watch = { detection.compileCommands };
-        break;
-    }
     case SourceKind::inferred: break;
+    default: {
+        const auto found = std::ranges::find_if(allowedProviders, [&](BuildSystemProvider* provider) { return kind_of(provider->id()) == detection.kind; });
+        if (found != allowedProviders.end()) {
+            BuildSystemProvider* provider { *found };
+            const Claim claim { .provider = std::string { provider->id() }, .root = detection.root, .manifest = detection.manifest,
+                                .buildDirectory = detection.buildDirectory, .compileCommands = detection.compileCommands,
+                                .buildDatabase = detection.buildDatabase };
+            // `existing()` never runs anything; `describe()` may run the build tool, into its own
+            // private directory under the workspace's cache (one per workspace, per provider --
+            // design plan §3.2), never the project's own build directory.
+            ProviderContext describeContext { context };
+            describeContext.privateDirectory = base::join_path(options.cacheDirectory, std::string { provider->id() });
+            std::optional<Answer> answer { provider->existing(claim, context) };
+            if (!answer) answer = provider->describe(claim, describeContext);
+            accept(to_result(std::move(*answer)), detection.kind);
+            // Only `describe()` (via a running build tool) ever names a producer; `existing()`
+            // reading what is already there names none, exactly as before this registry existed.
+            model.producer = describeContext.producerUsed;
+            model.producerVersion = describeContext.producerVersionUsed;
+            model.watch = provider->watch_inputs(claim);
+            if (loaded) model.watch.insert(model.watch.end(), loaded->watch.begin(), loaded->watch.end());
+        }
+        break;
+    }
     }
 
     // A database whose every unit names a file that no longer exists (real-project plan RP2.4: a

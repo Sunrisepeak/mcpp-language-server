@@ -1,0 +1,47 @@
+{
+  "name": "mcpp-emit-partial-download",
+  "description": "B-8 (2026-09-27 plan §3.4, §9.3 T9; mcpp-community/mcpp#699 plans members independently): a partial answer's missing member can itself be missing because it needs a download offline forbids -- MCPP_OFFLINE_DOWNLOAD_REQUIRED on one member's `error` diagnostic, the rest of the document `data`. Before this fix mcppls only ever reported `producer-partial` here and never entered the needs-download path (src/project/mcpp.cpp:312 looked at severity alone); now the workspace also gets `producer-needs-download`, so the same download prompt this producer offers when the whole run fails also fires when only one member does. The planned member's own semantics are used meanwhile, and nothing is written into the project.",
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}"
+  ],
+  "checks": [
+    {
+      "id": "PD1-the-rest-is-used-as-a-partial-model",
+      "kind": "status",
+      "source": "mcpp",
+      "level": 3,
+      "state": "degraded",
+      "issue-code": "producer-partial",
+      "issue-message": "tools/updater/mcpp.toml",
+      "timeout": 60
+    },
+    {
+      "id": "PD2-and-the-missing-member-also-asks-to-download",
+      "kind": "status",
+      "issue-code": "producer-needs-download",
+      "issue-message": "xim:qt-base@6.11.1"
+    },
+    {
+      "id": "PD3-navigation-still-works-from-the-planned-member",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [4, 31],
+      "expect": "src/greet/greet.cppm"
+    },
+    {
+      "id": "PD4-in-the-report",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/project/source",
+          "equals": "mcpp"
+        }
+      ]
+    },
+    {
+      "id": "PD5-nothing-was-written-into-the-project",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}

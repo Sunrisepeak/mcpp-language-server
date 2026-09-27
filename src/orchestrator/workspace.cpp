@@ -25,6 +25,8 @@ import mcppls.spec.metadata;
 import mcppls.toolchain.probe;
 import mcppls.project.scan;
 import mcppls.project.detect;
+import mcppls.project.providers;
+import mcppls.project.provider;
 import mcppls.project.model;
 import mcppls.project.modelcache;
 import mcppls.normalize.plan;
@@ -887,9 +889,10 @@ struct Workspace::Impl final : engine::Host {
     //
     // The waits below are the whole of the "user waits for the build tool" budget: three seconds
     // when there is a cache whose fingerprint no longer matches (it is still a far better guess than
-    // scanning), ten when there is none at all.
+    // scanning), FIRST_MODEL_WAIT when there is none at all.
     void adopt_cached_model() {
-        const project::Detection detection { project::detect_project(root, options.database) };
+        const auto providers = allowed_providers();
+        const project::Detection detection { project::detect_project(root, options.database, providers, options.buildDiscovery != "off") };
         detectedSource = detection.kind;
         detectedManifest = detection.manifest;
         if (detection.kind == project::SourceKind::inferred) return;   // no producer: nothing to wait for
@@ -1046,6 +1049,9 @@ struct Workspace::Impl final : engine::Host {
         load.mcppExecutable = options.mcpp;
         load.configuredDatabase = options.database;
         load.discoverCompilers = options.discoverCompilers;
+        // Plan 2026-09-27 B-7: whether the build system is detected at all, and by which providers.
+        load.buildDiscovery = options.buildDiscovery != "off";
+        load.providers = options.buildDiscoveryProviders;
         // Design 4.4: a run the server starts by itself is offline unless the user allowed the
         // network; `off` means the build tool is not run at all, and what is cached or scanned is
         // all there is. Design 4.2: the hard bound is a minute, ten when the user allowed the
@@ -1329,6 +1335,17 @@ struct Workspace::Impl final : engine::Host {
 
     static constexpr std::chrono::milliseconds REPLAN_DELAY { 800 };
     void schedule_replan(std::chrono::milliseconds delay = REPLAN_DELAY) { replanAt = Clock::now() + delay; }
+
+    // mcppls.buildDiscovery.providers (plan 2026-09-27 B-7): the registry, less the providers the setting leaves out.
+    std::vector<project::BuildSystemProvider*> allowed_providers() const {
+        std::vector<project::BuildSystemProvider*> allowed;
+        for (project::BuildSystemProvider* provider : project::registered_providers()) {
+            if (std::ranges::find(options.buildDiscoveryProviders, std::string { provider->id() }) != options.buildDiscoveryProviders.end()) {
+                allowed.push_back(provider);
+            }
+        }
+        return allowed;
+    }
 
     // mcppls.buildDiscovery.askBeforeDownload (plan 2026-09-27 B-7).
     bool ask_before_download() const { return options.buildDiscoveryAskBeforeDownload; }

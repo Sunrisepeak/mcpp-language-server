@@ -137,6 +137,16 @@ InferredDatabase database_from_commands(std::span<const CompileCommand> commands
     return result;
 }
 
+base::Result<InferredDatabase> database_from_compile_commands_file(std::string_view path, std::string_view root,
+                                                                    std::string_view generatorName,
+                                                                    const Scanner& scanner, const Prober& prober) {
+    auto commands = read_compile_commands(path);
+    if (!commands) return std::unexpected { commands.error() };
+    auto database = database_from_commands(*commands, base::file_name(root), scanner, prober);
+    database.database.generator = spec::Generator { std::string { generatorName }, "compile_commands.json" };
+    return database;
+}
+
 InferredDatabase enrich_database(spec::Database database, const Scanner& scanner, const Prober& prober) {
     InferredDatabase result;
     database.hasIde = true;
