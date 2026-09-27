@@ -32,7 +32,7 @@ import * as vscode from 'vscode';
 
 // 'turnOffScope' and 'restoreScope' are the quick picks `mcppls.turnOffOtherCppFeatures` and
 // `mcppls.restoreOtherCppFeatures` (src/conflicts.ts) show for which settings scope to act on.
-export type PromptKind = 'conflict' | 'commandLineTools' | 'turnOffScope' | 'restoreScope';
+export type PromptKind = 'conflict' | 'commandLineTools' | 'download' | 'turnOffScope' | 'restoreScope';
 
 const TEST_MODE = process.env.MCPPLS_TEST === '1';
 const SUBSTITUTION_GRACE_MS = 5000;

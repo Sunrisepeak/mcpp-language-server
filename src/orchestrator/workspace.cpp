@@ -300,11 +300,22 @@ struct Workspace::Impl final : engine::Host {
     std::string producerPath;                            // for the fingerprint of the next save
     std::string producerVersion;
     std::string needsDownload;                           // the producer, run offline, cannot go on without a download
+    // Plan 2026-09-27 B-2, §9.2: fetching what the build description needs is the person's decision, made once per
+    // workspace in their editor; `onlineOnce` makes the next load one that may reach the network, and only that one.
+    bool onlineOnce { false };
+    bool describingOnline { false };                     // the load running now is that one
+    // §9.2 rule 4: needing a download is not the end of it. The person may build or install in their own terminal at
+    // any time; the offline description is asked again after 30 s, 1, 2 and then every 5 minutes, and at once when a
+    // watched input changes, so the better model comes on its own.
+    std::size_t downloadRetries { 0 };
+    std::optional<Clock::time_point> downloadRetryAt;
     bool inferredLoadStarted { false };
-    // Fix plan F4 (D1): a project whose build system was detected gets clangd with the build tool's model, not a
-    // provisional one scanned from its sources: until the producer answers, or CORE_WAIT_LIMIT has passed, the
-    // core engine is given no plan and asked nothing, and mcppls's own engine answers what it can.
-    static constexpr std::chrono::seconds CORE_WAIT_LIMIT { 60 };
+    // Plan 2026-09-27 D5 (revising fix plan F4, D1): with nothing cached, the build tool has FIRST_MODEL_WAIT to
+    // describe the project; after it, the project is served from its scanned sources (L4) -- mcppls's engine and clangd
+    // alike -- while the build tool goes on, and its model replaces the provisional one in a single switch that is
+    // never counted against clangd's restart budget. CORE_WAIT_LIMIT is what clangd waits beyond that: nothing.
+    static constexpr std::chrono::milliseconds FIRST_MODEL_WAIT { 2500 };
+    static constexpr std::chrono::milliseconds CORE_WAIT_LIMIT { 0 };
     std::optional<Clock::time_point> coreWaitUntil;
     bool coreWaitOver { false };
     std::optional<std::chrono::milliseconds> producerElapsed;   // set while the producer is past its soft bound
@@ -518,6 +529,7 @@ struct Workspace::Impl final : engine::Host {
         consider(replanAt);
         if (!coreWaitOver) consider(coreWaitUntil);
         consider(loadGiveUpAt);
+        consider(downloadRetryAt);
         consider(lastResortAt);
         consider(producerSoftAt);
         consider(sdkCheckAt);
@@ -887,7 +899,7 @@ struct Workspace::Impl final : engine::Host {
 
         auto cached = project::load_model(cacheDirectory, detection.kind);
         if (!cached) {
-            loadGiveUpAt = Clock::now() + std::chrono::seconds { 10 };
+            loadGiveUpAt = Clock::now() + FIRST_MODEL_WAIT;
             return;
         }
         producerPath = cached->producer;
@@ -1038,7 +1050,10 @@ struct Workspace::Impl final : engine::Host {
         // network; `off` means the build tool is not run at all, and what is cached or scanned is
         // all there is. Design 4.2: the hard bound is a minute, ten when the user allowed the
         // network and a download may be part of the answer.
-        const bool online { options.buildTool == "online" };
+        const bool online { options.buildTool == "online" || onlineOnce };
+        describingOnline = onlineOnce && options.buildTool != "online";
+        if (describingOnline) journal.add("describe-online");
+        onlineOnce = false;
         load.offline = !online;
         load.runBuildTool = options.buildTool != "off";
         load.producerHard = options.producerTimeout.count() > 0
@@ -1089,8 +1104,18 @@ struct Workspace::Impl final : engine::Host {
         }
         ++snapshotGeneration;
         needsDownload.clear();
+        describingOnline = false;
         for (const auto& issue : loadedModel->issues) {
             if (issue.code == spec::NEEDS_DOWNLOAD) needsDownload = issue.message;
+        }
+        if (needsDownload.empty()) {
+            downloadRetries = 0;
+            downloadRetryAt.reset();
+        } else {
+            static constexpr std::array<std::chrono::seconds, 4> BACKOFF { std::chrono::seconds { 30 }, std::chrono::seconds { 60 },
+                                                                          std::chrono::seconds { 120 }, std::chrono::seconds { 300 } };
+            downloadRetryAt = Clock::now() + BACKOFF[std::min(downloadRetries, BACKOFF.size() - 1)];
+            ++downloadRetries;
         }
         // S2 5-9: a producer that answered before and fails now (or answers with nothing) leaves the last
         // model in place, and the status says it may be stale, rather than the project falling back to
@@ -1290,7 +1315,7 @@ struct Workspace::Impl final : engine::Host {
         const bool coreWaits { core_waits_for_producer() };
         if (coreWaits && !coreWaitUntil) {
             coreWaitUntil = Clock::now() + CORE_WAIT_LIMIT;
-            log::info("clangd waits for {} to describe {} (at most {} s); mcppls's own engine answers meanwhile", project::to_string(detectedSource), root,
+            log::info("clangd waits for {} to describe {} (at most {} ms more); mcppls's own engine answers meanwhile", project::to_string(detectedSource), root,
                       CORE_WAIT_LIMIT.count());
             journal.add("engine-waits-for-producer", Json { { "detected", std::string { project::to_string(detectedSource) } } });
         }
@@ -1304,6 +1329,9 @@ struct Workspace::Impl final : engine::Host {
 
     static constexpr std::chrono::milliseconds REPLAN_DELAY { 800 };
     void schedule_replan(std::chrono::milliseconds delay = REPLAN_DELAY) { replanAt = Clock::now() + delay; }
+
+    // mcppls.buildDiscovery.askBeforeDownload (plan 2026-09-27 B-7).
+    bool ask_before_download() const { return true; }
 
     bool core_waits_for_producer() const {
         return coreEngine != nullptr && model && modelOrigin == "inferred" && loading && !coreWaitOver
@@ -1522,10 +1550,21 @@ struct Workspace::Impl final : engine::Host {
             // model in hand stays; the user decides, in their own terminal, where their proxy and
             // credentials are (1.2: those live in the terminal session and nothing here can reach them).
             add("producer-needs-download",
-                std::format("the build description needs a download: {}. Run the build tool in your terminal, "
-                            "or turn on mcppls.buildTool = online. It may also be an older build tool: updating it is worth trying",
+                std::format("the build description needs a download: {}. The project is served from its sources meanwhile; "
+                            "fetch it here, or run the build tool in your terminal (the description is read again when that is done). "
+                            "It may also be an older build tool: updating it is worth trying",
                             needsDownload),
                 "mcppls.runBuildToolInTerminal", "Run in Terminal", "environment");
+            // Plan 2026-09-27 B-2 (S3): a client that knows `askOnline` may offer, once and without blocking anything
+            // (§9.2), to fetch it through mcppls.describeOnline; one that does not keeps the terminal action above.
+            if (!issues.empty() && issues.back().value("code", std::string {}) == "producer-needs-download") {
+                issues.back()["askOnline"] = ask_before_download() && !describingOnline;
+            }
+        }
+        if (describingOnline && loading) {
+            add("producer-online", std::format("fetching what the build description of {} needs; the project is served from its sources meanwhile",
+                                               base::file_name(root)),
+                "mcppls.showLogs", "Show Logs", "environment");
         }
         if (producerElapsed) {
             add("producer-slow", std::format("reading the build description ({}, {} s)",
@@ -1630,13 +1669,18 @@ struct Workspace::Impl final : engine::Host {
             reloadAt.reset();
             start_model_load();
         }
+        if (downloadRetryAt && *downloadRetryAt <= now) {
+            downloadRetryAt.reset();
+            log::info("asking {} again, offline, whether it can describe {} now", project::to_string(detectedSource), root);
+            start_model_load();
+        }
         if (replanAt && *replanAt <= now) replan();
         if (coreWaitUntil && !coreWaitOver && *coreWaitUntil <= now) {
             coreWaitOver = true;
             if (modelOrigin == "inferred" && model) {
-                log::warning("{} has not described {} in {} s; clangd starts with the model scanned from its sources", project::to_string(detectedSource), root,
-                             CORE_WAIT_LIMIT.count());
-                journal.add("engine-wait-over", Json { { "seconds", CORE_WAIT_LIMIT.count() } });
+                log::info("{} has not described {} yet; clangd starts with the model scanned from its sources, and the build tool's replaces it when it comes",
+                          project::to_string(detectedSource), root);
+                journal.add("engine-wait-over", Json { { "milliseconds", (FIRST_MODEL_WAIT + CORE_WAIT_LIMIT).count() } });
                 replan();
             }
         }
@@ -2121,6 +2165,16 @@ void Workspace::handle_tool_run(const Json& record) {
                                                       { "differing", environment.differing }, { "reason", environment.reason } });
     }
     impl_->journal.add("tool-run", record);
+}
+
+bool Workspace::describe_online() {
+    if (impl_->needsDownload.empty() || impl_->describingOnline) return false;
+    log::info("fetching what the build description of {} needs, as asked", impl_->root);
+    impl_->onlineOnce = true;
+    impl_->downloadRetryAt.reset();
+    impl_->start_model_load();
+    impl_->update_status();
+    return true;
 }
 
 void Workspace::reload_build_description() {

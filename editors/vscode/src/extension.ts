@@ -25,6 +25,7 @@ import {
     TransportKind,
 } from 'vscode-languageclient/node';
 import { CommandLineToolsController, withInstallCommandFallback } from './commandLineTools';
+import { DownloadPromptController } from './downloadPrompt';
 import { registerCommands, reloadBuildDescription } from './commands';
 import { sendTriggeredCompletion } from './completionGate';
 import { checkConflicts, ConflictCheck, watchForNewConflicts } from './conflicts';
@@ -488,6 +489,8 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     // ServerHost instance without restructuring construction order.
     let host: ServerHost;
     const commandLineTools = new CommandLineToolsController(context, (line) => host.log(line));
+    const downloadPrompt = new DownloadPromptController(context, (line) => host.log(line));
+    status.onUpdate((current) => downloadPrompt.onStatus(current));
 
     let latestConflictCheck: Promise<ConflictCheck> = Promise.resolve('none-found');
     // Conflicts can appear or disappear after activation (another extension

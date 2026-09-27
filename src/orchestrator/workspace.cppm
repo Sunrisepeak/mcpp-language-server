@@ -147,6 +147,9 @@ public:
     // Reads the build description again, offline. What the user does about a needed download
     // happens outside this server, so the only way to learn it worked is to look again.
     void reload_build_description();
+    // Plan 2026-09-27 B-2: describe the project once more, this time letting the build tool reach the network
+    // (the person's choice, from the editor). Later loads are offline again. False: nothing needs a download.
+    bool describe_online();
     void clear_review();
 
     // ---- background events ------------------------------------------------------------

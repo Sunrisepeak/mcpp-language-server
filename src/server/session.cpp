@@ -229,6 +229,14 @@ private:
             export_bundle_(id, params.value("arguments", Json::array()));
             return;
         }
+        // Plan 2026-09-27 B-2: the person accepted, in their editor, to fetch what the build description needs.
+        // Every root that needs a download describes itself once with the network; the answer says how many did.
+        if (method == lsp::method::WORKSPACE_EXECUTE_COMMAND && params.value("command", std::string {}) == "mcppls.describeOnline") {
+            std::size_t started { 0 };
+            for (auto& root : roots_) started += root->describe_online() ? 1 : 0;
+            reply_(id, Json { { "started", started } });
+            return;
+        }
         if (method == lsp::method::WORKSPACE_EXECUTE_COMMAND && params.value("command", std::string {}) == "mcppls.reloadBuildDescription") {
             for (auto& root : roots_) root->reload_build_description();
             reply_(id, nullptr);

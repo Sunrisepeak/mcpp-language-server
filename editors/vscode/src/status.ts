@@ -207,8 +207,19 @@ export class StatusController implements vscode.Disposable {
         }
     }
 
+    // Called with every status the server sends, after the item shows it (downloadPrompt.ts listens).
+    private readonly listeners: ((status: CxxModulesStatus) => void)[] = [];
+    onUpdate(listener: (status: CxxModulesStatus) => void): void {
+        this.listeners.push(listener);
+    }
+
     update(status: CxxModulesStatus): void {
         this.current = status;
+        queueMicrotask(() => {
+            for (const listener of this.listeners) {
+                listener(status);
+            }
+        });
         this.failure = undefined;
         const label = describeProfile(status.profile);
         this.item.text = label.length > 0 ? `C++ Modules · ${label}` : 'C++ Modules';
