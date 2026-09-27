@@ -20,6 +20,7 @@ import mcppls.project.compdb;
 import mcppls.project.cmake;
 import mcppls.project.modelcache;
 import mcppls.project.generated;
+import mcppls.project.scan;
 
 namespace fs = mcppls::platform::fs;
 namespace b = mcppls::base;
@@ -570,6 +571,75 @@ version = "1"
         expect(found->contains("dep@1.0.10")) << *found;
         fs::remove_all(root);
         fs::remove_all(home);
+    };
+
+    "a producer's planning directory is told from any other path"_test = [] {
+        expect(p::private_target_relative("/h/.mcpp/cache/build-database/81d15f0e10d7a75b/target/.build-mcpp/out/qt") == std::optional<std::string> { ".build-mcpp/out/qt" });
+        expect(p::private_target_relative("/h/.mcpp/cache/build-database/k/target/x86_64-linux-gnu/f/obj/a.o") == std::optional<std::string> { "x86_64-linux-gnu/f/obj/a.o" });
+        expect(!p::private_target_relative("/p/qt-demo/target/.build-mcpp/out/qt").has_value()) << "the project's own build directory";
+        expect(!p::private_target_relative("/h/.mcpp/cache/build-database/k/src/x.cpp").has_value()) << "not under the planning target";
+    };
+
+    "generated build output a producer only names is read from the project's own build (qt-demo)"_test = [] {
+        const std::string root { make_root("generated-output") };
+        const std::string home { make_root("generated-output-home") };
+        // What mcpp's emit describes for a rules-qt project: an include directory in its planning directory
+        // holding only empty placeholders, and a moc source that is one of them.
+        const std::string planning { b::join_path(home, ".mcpp/cache/build-database/81d15f0e10d7a75b") };
+        write(planning, "target/.build-mcpp/out/qt/moc_counter.cpp", "");
+        write(planning, "target/.build-mcpp/out/qt/qrc_demo.cpp", "");
+        const std::string privateOut { b::join_path(planning, "target/.build-mcpp/out/qt") };
+        auto database_of = [&] {
+            s::Database database;
+            s::Set set;
+            set.name = "qt-demo";
+            set.baselineArguments = { "-I" + privateOut, "-std=c++23" };
+            s::TranslationUnit main;
+            main.source = b::join_path(root, "src/main.cpp");
+            main.arguments = { "g++", "-I" + privateOut, "-std=c++23", "-c", main.source };
+            s::TranslationUnit moc;
+            moc.source = b::join_path(privateOut, "moc_counter.cpp");
+            moc.arguments = { "g++", "-I", privateOut, "-c", moc.source };
+            set.units = { main, moc };
+            database.sets.push_back(set);
+            return database;
+        };
+
+        // Never built: nothing to read instead; what is missing is reported, with where a build writes it.
+        auto unbuilt = database_of();
+        const auto before = p::use_project_build_output(unbuilt, root);
+        expect(before.relocated.empty());
+        expect(std::ranges::find(before.missing, privateOut) != before.missing.end());
+        expect(std::ranges::find(before.watch, std::string { "target/.build-mcpp/out/qt/*" }) != before.watch.end());
+        expect(unbuilt.sets[0].units[0].arguments[1] == "-I" + privateOut) << "left as it is";
+
+        // Built once: the project's own output replaces the planning directory's, arguments and source alike.
+        write(root, "target/.build-mcpp/out/qt/ui_mainwindow.h", "namespace Ui { class MainWindow {}; }\n");
+        write(root, "target/.build-mcpp/out/qt/moc_counter.cpp", "// moc output\n");
+        const std::string projectOut { b::join_path(root, "target/.build-mcpp/out/qt") };
+        auto built = database_of();
+        const auto after = p::use_project_build_output(built, root);
+        expect(after.missing.empty());
+        expect(built.sets[0].baselineArguments[0] == "-I" + projectOut);
+        expect(built.sets[0].units[0].arguments[1] == "-I" + projectOut);
+        expect(built.sets[0].units[1].arguments[2] == projectOut) << "the separate spelling too";
+        expect(built.sets[0].units[1].source == b::join_path(projectOut, "moc_counter.cpp"));
+        expect(built.sets[0].units[1].arguments.back() == b::join_path(projectOut, "moc_counter.cpp"));
+        fs::remove_all(root);
+        fs::remove_all(home);
+    };
+
+    "a rule's inputs are not translation units, whatever command a producer gives them"_test = [] {
+        const std::vector<std::string> gcc { "g++", "-c" };
+        expect(!p::compiled_by_c_family("/p/ui/mainwindow.ui", gcc));
+        expect(!p::compiled_by_c_family("/p/res/demo.qrc", gcc));
+        expect(!p::compiled_by_c_family("/p/i18n/qt_demo_zh_CN.ts", gcc));
+        expect(p::compiled_by_c_family("/p/src/main.cpp", gcc));
+        expect(p::compiled_by_c_family("/p/src/a.c", gcc));
+        expect(p::compiled_by_c_family("/p/src/m.ixx", gcc));
+        expect(p::compiled_by_c_family("/p/src/k.cu", gcc));
+        expect(p::compiled_by_c_family("/p/src/generated.inl", std::vector<std::string> { "clang++", "-x", "c++", "-c" })) << "a language forced on it";
+        expect(p::compiled_by_c_family("/p/src/generated.inl", std::vector<std::string> { "cl.exe", "/Tp/p/src/generated.inl" }));
     };
 
     "a generated module's real source is recovered before a stand-in is needed"_test = [] {

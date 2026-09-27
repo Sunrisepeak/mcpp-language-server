@@ -505,4 +505,17 @@ bool is_cxx_source_name(std::string_view path) {
     return std::ranges::any_of(EXTENSIONS, [&](std::string_view candidate) { return base::iequals_ascii(candidate, extension); });
 }
 
+bool compiled_by_c_family(std::string_view source, std::span<const std::string> arguments) {
+    if (is_cxx_source_name(source)) return true;
+    static constexpr std::array<std::string_view, 10> OTHERS { ".c", ".m", ".mm", ".cu", ".hip", ".i", ".ii", ".mi", ".mii", ".C" };
+    const std::string_view extension { base::extension(source) };
+    if (std::ranges::any_of(OTHERS, [&](std::string_view candidate) { return candidate == extension || (candidate != ".C" && base::iequals_ascii(candidate, extension)); })) {
+        return true;
+    }
+    return std::ranges::any_of(arguments, [](const std::string& argument) {
+        return argument.starts_with("-x") || argument.starts_with("--language") || argument.starts_with("/Tp") || argument.starts_with("/Tc")
+               || argument == "/TP" || argument == "/TC";
+    });
+}
+
 } // namespace mcppls::project

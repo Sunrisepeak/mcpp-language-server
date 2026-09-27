@@ -20,6 +20,7 @@ import mcppls.project.provider;
 import mcppls.project.mcpp;
 import mcppls.project.cmake;
 import mcppls.project.generated;
+import mcppls.project.scan;
 
 namespace mcppls::project {
 
@@ -270,6 +271,42 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
 
     model.database = std::move(loaded->database);
     model.facts = std::move(loaded->facts);
+    if (model.source != SourceKind::inferred) {
+        // Plan 2026-09-27 Q1-2: a rule's inputs listed as translation units (mcpp-community/mcpp#724: a Qt form,
+        // resource list and translation, each with a compiler command) are nothing a C-family compiler reads;
+        // given to clangd they only fail, once per scan, and are left out here instead.
+        std::vector<std::string> notCompiled;
+        for (auto& set : model.database.sets) {
+            const auto dropped = std::ranges::remove_if(set.units, [&](const spec::TranslationUnit& unit) {
+                if (compiled_by_c_family(unit.source, unit.arguments)) return false;
+                notCompiled.push_back(std::string { base::file_name(unit.source) });
+                return true;
+            });
+            set.units.erase(dropped.begin(), dropped.end());
+        }
+        if (!notCompiled.empty()) {
+            model.notices.push_back(ModelIssue { "not-compiled-inputs",
+                std::format("{} {} of the build description {} not C or C++ ({}); left out", notCompiled.size(), notCompiled.size() == 1 ? "entry" : "entries",
+                            notCompiled.size() == 1 ? "is" : "are", base::join(notCompiled, ", ")) });
+        }
+        // Q1-3: what a rule generates is named in the producer's private planning directory and made only by a
+        // build; the project's own build output is read instead when there is one (read-only), and when there is
+        // none yet the status says so and the model is loaded again as soon as a build writes it.
+        const GeneratedPaths generated { use_project_build_output(model.database, model.root) };
+        if (!generated.relocated.empty()) {
+            model.notices.push_back(ModelIssue { "generated-output-used",
+                std::format("{} generated {} the build description names in its planning directory {} read from the project's own build output",
+                            generated.relocated.size(), generated.relocated.size() == 1 ? "path" : "paths", generated.relocated.size() == 1 ? "is" : "are") });
+        }
+        if (!generated.missing.empty()) {
+            std::vector<std::string> names;
+            for (const auto& path : generated.missing) names.push_back(std::string { base::file_name(path) });
+            model.issues.push_back(ModelIssue { "generated-files-missing",
+                std::format("files the build generates ({}) do not exist yet; files that include them have no semantics until the project is built once",
+                            base::join(names, ", ")) });
+            model.watch.insert(model.watch.end(), generated.watch.begin(), generated.watch.end());
+        }
+    }
     // A database a producer wrote is level 2 at least (enrichment saw to that); the S1 library structures
     // its arguments into options for level 3, which mcpp leaves to it (mcpp-community/mcpp#636). Before
     // the renaming below, while each unit's source is still spelled as its arguments spell it.

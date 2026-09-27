@@ -1537,6 +1537,11 @@ struct Workspace::Impl final : engine::Host {
                 // Needing a download is reported above, with what to do about it; the load's own
                 // issue says the same thing with nothing to do, and saying it twice helps nobody.
                 if (issue.code == spec::NEEDS_DOWNLOAD) continue;
+                // Plan 2026-09-27 Q1-3: what only a build makes is made by building; the model is loaded again when it is.
+                if (issue.code == "generated-files-missing") {
+                    add(issue.code, issue.message, "mcppls.runBuildToolInTerminal", "Build in Terminal", "environment");
+                    continue;
+                }
                 add(issue.code, issue.message, "mcppls.showLogs");
             }
         }

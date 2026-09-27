@@ -71,5 +71,10 @@ std::string imported_name(const ScanResult& result, const ImportDeclaration& imp
 
 // True when the file name has a conventional C++ source or module extension.
 bool is_cxx_source_name(std::string_view path);
+// Whether a unit of a build database is something a C-family compiler compiles (plan 2026-09-27 Q1-2): C,
+// C++ and module units, Objective-C, CUDA and HIP by extension, or anything its arguments force a language on
+// (`-x c++`, `/Tp`). A rule's own input -- a Qt form, a resource list, a translation -- is not, even when a
+// producer lists it with a compiler command.
+bool compiled_by_c_family(std::string_view source, std::span<const std::string> arguments);
 
 } // namespace mcppls::project
