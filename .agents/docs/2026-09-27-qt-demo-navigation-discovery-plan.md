@@ -635,3 +635,6 @@ V-W（GalTranslPP，Windows，windows-2025，Sunrisepeak/GalTranslPP#1 run 36317
 "模式 + xmake.lua 的 stamp"，不同就重配（实机：第二次跳过、改 xmake.lua 后重配、工程目录不变）。
 N-7 卡住的单元被清掉后不再补位，队列会停到下一个事件；现在立即补位（将要重启时除外）。
 单次 watch 超过 20 个文件（D3）原来仍插队，现在只进"其余"级。
+预发布检查 `real-xlings-old-mcpp` 的 STRESS1 在 CI 超预算（p90 6.41 s，预算 3 s；0.0.5 为 2.83 s）：N-7 在模块准备期间
+就开始前台构建实现单元，与准备、与用户请求抢 clangd 的 worker。改为准备期间不开新单元，准备结束再补位。本地限 4 核复现：
+0.0.5 1.35 s；改前 2.25 / 2.44 s；改后 1.52 / 1.80 s。

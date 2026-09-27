@@ -1119,6 +1119,7 @@ public:
     void handle_timers() override {
         const auto now = Clock::now();
         if (implementationRestAt_ && *implementationRestAt_ <= now) queue_rest_of_implementations_(now);
+        else if (!implementationQueue_.empty() && !primer_.busy()) pump_implementations_(now);   // preparation ended another way
         if (pendingExit_ && now >= pendingExit_->at + EXIT_CONTEXT_WAIT) settle_exit_();
         if (!closingAfterBuild_.empty()) settle_disk_builds_(now);
         if (diskRecheckAt_ && *diskRecheckAt_ <= now) recheck_disk_(now);
@@ -3353,13 +3354,17 @@ private:
     }
 
     // Opens queued units while fewer than IMPLEMENTATIONS_AT_ONCE are building; once nothing is queued and clangd has
-    // been idle for Options::implementationIdle, every other unit of every module is queued (the rest).
+    // been idle for Options::implementationIdle, every other unit of every module is queued (the rest). Nothing is
+    // opened while modules are being prepared: those BMIs are what an implementation unit is built from, and the
+    // workers preparation leaves free are for what a person asks (robustness design C7); finish_prime_ and
+    // handle_timers pump again once it is done.
     void pump_implementations_(Clock::time_point now) {
         if (!priming_implementations_() || !accepting_ || !handshakeDone_) return;
         if (implementationSeedOpen_) {
             implementationSeedOpen_ = false;
             for (const auto& document : host_->documents()) queue_implementations_of_(document.path);
         }
+        if (primer_.busy()) return;
         std::size_t building { static_cast<std::size_t>(std::ranges::count_if(background_, [](const auto& item) { return item.second.priming && !item.second.built; })) };
         while (building < IMPLEMENTATIONS_AT_ONCE && !implementationQueue_.empty()) {
             ImplementationUnit unit { std::move(implementationQueue_.front()) };
@@ -3661,6 +3666,7 @@ private:
         lastPrimeProgressAt_ = Clock::now();
         pump_primer_();
         release_prime_units_if_idle_();
+        if (!primer_.busy()) pump_implementations_(Clock::now());
         return true;
     }
 
