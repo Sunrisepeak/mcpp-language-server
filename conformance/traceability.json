@@ -1,6 +1,11 @@
 {
  "$comment": "Rule identifiers of specifications S1 to S5 mapped to evidence (usable plan W10.2), checked by docs/specs/tools/validate.py. Evidence: validate (a passing check of validate.py, by label prefix), test (tests/<file>.cpp: <name>), check (<fixture>/<check id>), review (a review fixture under tools/bench/review), script (a file and a line that enforces the rule), manual (why no automated evidence can exist).",
- "$pending": {},
+ "$pending": {
+  "S1-7.2-10": "the server does not read `generated` yet",
+  "S1-7.2-11": "the server does not read `generated` yet",
+  "S1-7.2-12": "the server does not read `generated` yet",
+  "S1-7.2-13": "the server does not read `generated` yet"
+ },
  "S1-3-1": [
   {
    "test": "tests/test_spec.cpp: private units are not visible and duplicates are ambiguous"
@@ -246,6 +251,51 @@
   },
   {
    "test": "tests/test_spec.cpp: the level 3 GCC example loads"
+  }
+ ],
+ "S1-7.2-1": [
+  {
+   "manual": "A producer rule. mcpp-community/mcpp writes the object, and its e2e 815 checks the fields; this repository contains no producer that could be tested."
+  }
+ ],
+ "S1-7.2-2": [
+  {
+   "manual": "A producer rule. mcpp-community/mcpp writes the object, and its e2e 815 checks the fields; this repository contains no producer that could be tested."
+  }
+ ],
+ "S1-7.2-3": [
+  {
+   "manual": "A producer rule. mcpp-community/mcpp writes the object, and its e2e 815 checks the fields; this repository contains no producer that could be tested."
+  }
+ ],
+ "S1-7.2-4": [
+  {
+   "manual": "A producer rule. mcpp-community/mcpp writes the object, and its e2e 815 checks the fields; this repository contains no producer that could be tested."
+  }
+ ],
+ "S1-7.2-5": [
+  {
+   "manual": "A producer rule. mcpp-community/mcpp writes the object, and its e2e 815 checks the fields; this repository contains no producer that could be tested."
+  }
+ ],
+ "S1-7.2-6": [
+  {
+   "manual": "A producer rule. mcpp-community/mcpp writes the object, and its e2e 815 checks the fields; this repository contains no producer that could be tested."
+  }
+ ],
+ "S1-7.2-7": [
+  {
+   "manual": "A producer rule. mcpp-community/mcpp writes the object, and its e2e 815 checks the fields; this repository contains no producer that could be tested."
+  }
+ ],
+ "S1-7.2-8": [
+  {
+   "manual": "A producer rule. mcpp-community/mcpp writes the object, and its e2e 815 checks the fields; this repository contains no producer that could be tested."
+  }
+ ],
+ "S1-7.2-9": [
+  {
+   "manual": "A producer rule. mcpp-community/mcpp writes the object, and its e2e 815 checks the fields; this repository contains no producer that could be tested."
   }
  ],
  "S1-8-1": [
