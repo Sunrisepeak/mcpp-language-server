@@ -318,6 +318,14 @@ std::optional<base::Result<InferredDatabase>> emit_build_database(const std::str
         enriched.issues.emplace_back("producer-partial", std::format("mcpp could not describe {}{}: {}; the rest of the project is used",
                                                                        where.empty() ? std::string { "part of the project: " } : where, diagnostic.code,
                                                                        diagnostic.message));
+        // B-8 (plan §3.4, §9.3 T9): a partial answer's missing member can itself be missing because
+        // it needs a download offline forbids (mcpp #699 plans members independently, so one member's
+        // MCPP_OFFLINE_DOWNLOAD_REQUIRED no longer fails the whole document the way it used to). Without
+        // this the workspace only ever saw `producer-partial` here and never entered the needs-download
+        // path, so nobody was ever asked to fetch the dependency; the partial model is kept either way.
+        if (diagnostic.code == spec::OFFLINE_DOWNLOAD_REQUIRED) {
+            enriched.issues.emplace_back(std::string { spec::NEEDS_DOWNLOAD }, diagnostic.message);
+        }
     }
     return base::Result<InferredDatabase> { std::move(enriched) };
 }
