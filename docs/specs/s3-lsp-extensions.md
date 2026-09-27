@@ -63,10 +63,11 @@ interface CxxModulesStatusParams {
   state: "starting" | "loading" | "preparing" | "ready" | "degraded" | "error";
   project: {
     root: DocumentUri;             // the workspace folder's URI exactly as the client sent it
-    source: "mcpp" | "cmake" | "build-database" | "compile-commands" | "inferred";
+    source: "mcpp" | "cmake" | "xmake" | "meson" | "build-database" | "compile-commands" | "inferred";
     level?: 1 | 2 | 3 | 4;        // S1 conformance level of the project model's *document*
     tier?: 1 | 2 | 3 | 4;         // which kind of source it came from: 1 build database, 2 CMake's
-                                   // own database, 3 compile_commands.json, 4 sources only
+                                   // own database, 3 compile_commands.json (also what xmake and meson
+                                   // write), 4 sources only
   };
   profile: SemanticProfile;        // semantic profile of the default context
   engine: { name: string; version: string };   // the core semantic engine, e.g. "clangd"; "none" when there is none
@@ -99,9 +100,14 @@ interface CxxModulesIssue {
       | "file-quarantined"          // the engine stopped answering for some files; they are answered from the module index until they change
       | "engine-incompatible"       // the engine cannot run on this machine at all (its program loader refused it); module-level features remain
       | "modules-doomed"            // modules that cannot be prepared because a module they import does not compile
+      | "producer-needs-download"   // the build tool, run offline, cannot describe the project without a download
+      | "producer-online"           // the build tool is describing the project with the network, as the client asked
+      | "generated-files-missing"   // files the build generates are named by the build description but not written yet
+      | "implementation-unreadable" // an implementation unit does not build, so the definitions in it are not reached
       | string;
   message: string;
   command?: Command;               // an optional action that fixes the issue
+  askOnline?: boolean;             // producer-needs-download only: the client may offer to fetch what is missing (4, S3-4-16)
   category?: "code"                // the user's own source is wrong: told as diagnostics where it is
            | "engine"              // a semantic engine lost something (stopped responding, restarted too often)
            | "environment"         // the machine, the payload or the workspace's trust
@@ -130,6 +136,8 @@ A server that manages more than one workspace root (multiple `workspaceFolders`,
 Each issue **SHOULD** carry a `category` saying whose problem it is. <a id="S3-4-10"></a><sup>S3-4-10</sup> A problem of the user's own source — a syntax error, an import of a module nothing provides, a module that does not compile — is category `code`: a server **MUST NOT** report `degraded` or `error` because of `code` issues alone <a id="S3-4-11"></a><sup>S3-4-11</sup>, and **SHOULD** report such a problem as a diagnostic at its location instead, though it may still list the issue. <a id="S3-4-12"></a><sup>S3-4-12</sup> A client **MUST** treat an issue without `category` as not `code` (servers from before the field existed) <a id="S3-4-13"></a><sup>S3-4-13</sup>, and **SHOULD NOT** present a `code` issue as a loss of features. <a id="S3-4-14"></a><sup>S3-4-14</sup>
 
 A server **SHOULD NOT** send `degraded` for a condition that ends by itself within a few seconds (a file set aside and handed back while the user types): it holds a change to `degraded` until it has lasted a short interval, and sends `error` at once. <a id="S3-4-15"></a><sup>S3-4-15</sup>
+
+A `producer-needs-download` issue says that the build tool, run without the network as a server runs it on its own, cannot describe the project until something is downloaded. A server **MAY** set `askOnline` on it when, asked by `workspace/executeCommand` with the command `mcppls.describeOnline`, it will describe the project once with the network allowed; every later description is without it again. <a id="S3-4-16"></a><sup>S3-4-16</sup> Until the client asks, and while the download runs, the server **MUST** go on serving the root from what it has (its sources, a partial description) <a id="S3-4-17"></a><sup>S3-4-17</sup>, and **MUST NOT** reach the network on its own. <a id="S3-4-18"></a><sup>S3-4-18</sup> A client that offers the download **MUST NOT** block anything on the question: no modal dialog, and no request, activation or startup waits for the answer. <a id="S3-4-19"></a><sup>S3-4-19</sup> It **SHOULD** ask at most once per root and set of missing things. <a id="S3-4-20"></a><sup>S3-4-20</sup> It **MUST NOT** act on an answer that comes after the root's status no longer carries the issue: the person may have built the project in their own terminal meanwhile, and the server's own offline retries find that by themselves. <a id="S3-4-21"></a><sup>S3-4-21</sup> A client that does not know `askOnline` sees an issue with a command, as before.
 
 A server whose semantic capabilities come from more than one engine **SHOULD** list each in `engines` with its role and state, and **MUST** name the engine that provides the core C++ semantics in `engine`, or `"none"` when the root has none. A client **MUST** accept engine names other than `"clangd"`. <a id="S3-4-5"></a><a id="S3-4-6"></a><a id="S3-4-7"></a><sup>S3-4-5, S3-4-6, S3-4-7</sup>
 
@@ -216,6 +224,7 @@ interface CxxModulesReport {
   server: { name: string; version: string; platform: string; uptimeSeconds: number; logLevel: string; logFile: string };
   client: { name: string; version?: string } | null;   // the client's clientInfo, as it sent it
   roots: object[];                 // one entry per workspace root
+  settings?: object;               // the settings in effect, where each came from, and the problems applying them
   logTail: string[];               // the latest lines of the server's log
 }
 ```

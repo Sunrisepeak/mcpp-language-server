@@ -1008,6 +1008,57 @@
    "contains": "constexpr std::chrono::milliseconds DEGRADED_HOLD { 3000 };"
   }
  ],
+ "S3-4-16": [
+  {
+   "check": "mcpp-emit-needs-download/D5-a-client-may-offer-to-fetch-it"
+  },
+  {
+   "check": "mcpp-emit-needs-download/D6-the-person-accepts"
+  },
+  {
+   "check": "mcpp-emit-needs-download/D7-the-model-is-mcpp-s-once-fetched"
+  }
+ ],
+ "S3-4-17": [
+  {
+   "check": "mcpp-emit-needs-download/D3-navigation-works-from-scanned-sources-meanwhile"
+  },
+  {
+   "check": "mcpp-emit-provisioned/P4-the-project-upgrades-by-itself"
+  }
+ ],
+ "S3-4-18": [
+  {
+   "script": "src/orchestrator/workspace.cpp",
+   "contains": "const bool online { options.buildTool == \"online\" || onlineOnce };"
+  },
+  {
+   "script": "src/orchestrator/workspace.cpp",
+   "contains": "onlineOnce = false;"
+  }
+ ],
+ "S3-4-19": [
+  {
+   "script": "editors/vscode/src/downloadPrompt.ts",
+   "contains": "void askOnce("
+  },
+  {
+   "script": "editors/vscode/src/status.ts",
+   "contains": "queueMicrotask(() => {"
+  }
+ ],
+ "S3-4-20": [
+  {
+   "script": "editors/vscode/src/downloadAsk.ts",
+   "contains": "return issue !== undefined && issue.askOnline === true && !never && !open && !askedAbout.includes(issue.message);"
+  }
+ ],
+ "S3-4-21": [
+  {
+   "script": "editors/vscode/src/downloadPrompt.ts",
+   "contains": "if (!this.pending.has(root)) {"
+  }
+ ],
  "S3-5.5-1": [
   {
    "check": "module-faults/F0-stand-in"

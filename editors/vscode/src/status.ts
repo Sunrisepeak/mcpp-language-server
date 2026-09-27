@@ -33,7 +33,7 @@ export interface CxxModulesStatus {
     state: ModuleState;
     project: {
         root: string;
-        source: 'mcpp' | 'cmake' | 'build-database' | 'compile-commands' | 'inferred';
+        source: 'mcpp' | 'cmake' | 'xmake' | 'meson' | 'build-database' | 'compile-commands' | 'inferred';
         level?: number;
         // How the project was described (README L1..L4; S3-4-8, S3-4-9): 1 a build database, 2
         // CMake's own database, 3 a compile_commands.json, 4 sources only. Shown as
