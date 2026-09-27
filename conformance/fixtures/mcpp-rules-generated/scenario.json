@@ -1,0 +1,54 @@
+{
+  "name": "mcpp-rules-generated",
+  "description": "Plan 2026-09-27 Q1-2, Q1-3 (mcpp-community/mcpp#724): a build rule's input (a Qt form) is listed as a translation unit with a compiler command, and the header the rule generates from it is named in mcpp's private planning directory, where no action ever runs. The form is left out, the status says which generated files are missing and offers to build in a terminal; once a build writes the header into the project's own target/, the model is loaded again by itself and main.cpp, which includes it, has semantics.",
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}"
+  ],
+  "checks": [
+    {
+      "id": "G1-the-generated-header-is-missing-and-said-so",
+      "kind": "status",
+      "source": "mcpp",
+      "issue-code": "generated-files-missing",
+      "issue-command": "mcppls.runBuildToolInTerminal"
+    },
+    {
+      "id": "G2-the-form-is-no-translation-unit",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/project/notices/*/code",
+          "equals": "not-compiled-inputs"
+        }
+      ]
+    },
+    {
+      "id": "G3-nothing-was-written-into-the-project",
+      "kind": "workspace-unchanged"
+    },
+    {
+      "id": "G4-a-build-writes-the-header",
+      "kind": "write-file",
+      "file": "target/.build-mcpp/out/qt/ui_form.h",
+      "content": "#pragma once\nnamespace Ui { struct Form { int rows = 3; }; }\n"
+    },
+    {
+      "id": "G6-into-the-generated-header",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        6,
+        9
+      ],
+      "expect": "target/.build-mcpp/out/qt/ui_form.h",
+      "timeout": 60
+    },
+    {
+      "id": "G5-main-cpp-has-semantics-then",
+      "kind": "diagnostics-empty",
+      "file": "src/main.cpp",
+      "timeout": 90
+    }
+  ]
+}
