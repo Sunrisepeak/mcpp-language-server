@@ -2,6 +2,17 @@
 
 Changes to the specifications in this directory. Each specification is versioned independently.
 
+## 2026-09-27 — S3: a download the client may offer, and two more build systems
+
+`CxxModulesIssue` gains `askOnline` (optional): on a `producer-needs-download` issue, the server will
+describe the project once with the network when the client asks with `workspace/executeCommand`
+`mcppls.describeOnline` (S3-4-16). Until then, and while the download runs, the server serves the root
+from what it has and reaches no network on its own (S3-4-17, S3-4-18); a client that offers the
+download never blocks on the question, asks at most once per root and set of missing things, and
+ignores an answer that comes after the need is gone (S3-4-19 to S3-4-21). `project.source` gains
+`xmake` and `meson` (tier 3), the issue codes `producer-online`, `generated-files-missing` and
+`implementation-unreadable` are named, and `cxxModules/report` carries `settings`. All additive: protocol version stays 1.
+
 ## 2026-09-26 — S3: the standard a profile reads with
 
 `SemanticProfile` gains `standard` (optional): the C++ standard the context's module units are read

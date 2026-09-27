@@ -7,6 +7,97 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.6] — 2026-09-27
+
+Go-to-definition reaches implementation units, even when you never opened them. A Qt project's
+`ui_*.h` is found, its forms and resources no longer confuse clangd, and a bad moment no longer moves
+the whole project to another standard library. xmake and meson projects are described like CMake and
+mcpp ones, never by writing into your project, and a build description that needs a download no longer
+leaves you waiting: the project is served at once, you are asked once in a notification you may ignore
+forever, and building in your own terminal is picked up by itself. Every setting now has one
+definition and one generated reference.
+The analysis, the measurements and the plan are `.agents/docs/2026-09-27-qt-demo-navigation-discovery-plan.md`.
+Upstream defects behind this are registered in issue #24 (UP-08, UP-17, UP-M4, UP-M5).
+
+### Navigation
+
+- **Definitions in implementation units are reached.** clangd's background index compiles a module
+  unit without building the modules it imports, so a definition in an implementation unit was indexed
+  apart from its declaration, or not at all, until that file had been open: in mcpp's own `prepare`
+  module go-to-definition stayed on the declarations for as long as it was measured. mcppls now builds
+  implementation units through clangd's foreground, a few at a time (WA-CLANGD-008): the units of an
+  opened file's module and of the modules it imports first, a unit changed on disk (a `git pull`, another
+  program, a coding agent) again, the rest once clangd is idle. On mcpp's source the same requests now
+  land in the `.cpp` from the first answer. `mcppls.index.primeImplementationUnits = off` turns it off.
+- **A definition clangd cannot link is found by name.** The search a definition request starts opens the
+  units that define the name first, not the first four by file name; when clangd still answers with the
+  declaration, the definition found in the module's units is the answer (same name, scopes and parameter
+  types, never a guess). Asked on a definition, you still go back to the declaration.
+- **An implementation unit that does not build says so** (`implementation-unreadable`): usually a missing
+  header, which is why its definitions cannot be reached.
+
+### Projects and build tools
+
+- **Qt and other build rules (mcpp-community/mcpp#724).** A rule's inputs (`.ui`, `.qrc`, `.ts`) are no
+  longer given to clangd as C++. The files a rule generates are read from your project's own `target/`
+  when a build has written them; otherwise the status says which are missing and offers **Build in
+  Terminal**, and the model reloads by itself once they appear. On qt-demo, `main.cpp` went from a fatal
+  missing `ui_mainwindow.h` to no diagnostic at all.
+- **xmake and meson are supported.** xmake is asked with its own `xmake project -k compile_commands`
+  (nothing is compiled) and meson with `meson setup`, both into mcppls's cache, offline; your project
+  directory stays untouched (checked file by file). Both are L3. `check`, `query` and the project
+  boundaries now know `xmake.lua` and `meson.build`, and a subproject's own `CMakeLists.txt`,
+  `xmake.lua` or `meson.build` belongs to the project above it.
+- **CMake follows your presets and never downloads without asking.** A preset's `binaryDir` is looked
+  for, and mcppls's private configure uses the preset's generator, toolchain file and cache variables.
+  That configure is disconnected from its first run (`FETCHCONTENT_FULLY_DISCONNECTED`), where 0.0.5 let
+  the first one download.
+- **A download is asked about once, and never waited for.** When the build description needs something
+  that is not on the machine, the project is served from its sources at once; a notification offers
+  **Download and Continue** (the build tool may reach the network, this once), **Run in Terminal** or
+  **Don't Ask Again**, and may stay unanswered forever. Meanwhile the description is asked again offline
+  after 30 s, 1 and 2 minutes and every 5 after, and at once when a build file changes, so a build you
+  run in your own terminal upgrades the project by itself. A partial answer from mcpp whose missing
+  member needs a download gets the same offer.
+- **The first model comes sooner.** With nothing cached, the build tool has 2.5 s (was 10) before the
+  project is served from its sources by both engines; its model replaces that one in one switch that
+  never counts against clangd's restart budget.
+- **`mcppls.buildDiscovery = off`** detects no build system at all; `mcppls.buildDiscovery.providers`
+  leaves out single ones.
+
+### Engine
+
+- **The standard library is not replaced by a bad moment.** A report that `std` has no unit, from a
+  clangd that had not read the database the unit had just joined, moved qt-demo from libstdc++ to the
+  bundled libc++ and restarted clangd twice. Such a report is now weighed against the database clangd
+  has read, and the kit replaces the toolchain's `std` only when std's own unit fails to compile or does
+  not exist.
+
+### Settings
+
+- **Every setting has exactly one definition** (`src/config/settings.cppm`), from which the command line,
+  `initializationOptions`, `workspace/didChangeConfiguration`, `mcppls report` and the reference in
+  [docs/30-settings.md](docs/30-settings.md) (both languages) are derived; a test holds them and the VS
+  Code settings to it. `mcppls settings` prints the reference. A value outside a setting's vocabulary
+  falls back to its default and is reported, never applied. New: `buildDiscovery`,
+  `buildDiscovery.providers`, `buildDiscovery.askBeforeDownload`, `index.primeImplementationUnits`, and
+  command-line spellings for `compiler` and `semanticKit`. A settings change that only needs the model
+  reloaded is applied without a restart.
+
+### Specifications
+
+- **S3:** a `producer-needs-download` issue may carry `askOnline`, and `mcppls.describeOnline` describes
+  the project once with the network; a client offering it never blocks on the question and ignores an
+  answer that comes after the need is gone (S3-4-16 to S3-4-21). `project.source` gains `xmake` and
+  `meson`; the report carries the settings in effect. All additive; protocol version 1.
+
+### Also
+
+- Conformance fixtures: `mcpp-partition-definition`, `mcpp-rules-generated`, `mcpp-emit-provisioned`,
+  `mcpp-emit-partial-download`, `build-discovery-off`, `cmake-fetchcontent-offline`; `mcpp-emit-needs-download`
+  covers the offer and the online description.
+- mcpp 2026.9.27.1 cannot build this repository (mcpp-community/mcpp#725); CI stays on 2026.9.26.1.
+
 ## [0.0.5] — 2026-09-26
 
 Issue #23 is fixed: modules are built again for projects compiled with LTO for the MSVC ABI. An

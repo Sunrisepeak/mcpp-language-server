@@ -37,6 +37,7 @@ struct EngineTraits {
     bool hangsOnUnresolvedImports { false };          // units whose imports cannot resolve stay out of its database
     bool needsModulePreparation { false };            // the server prepares modules in parallel for it
     bool needsModuleHints { false };                  // its database names the unit of each module
+    bool indexesModuleUnitsWithoutModules { false };  // its background index cannot see a module unit's imports; implementation units are built in the foreground
     bool msvcStlNeedsNoAlignedAllocation { false };   // MSVC STL contexts turn aligned allocation off
     bool hangsOnTrailingDotModuleName { false };      // `import a.` at the end of a line spins it; it is given `import a.;`
     bool misplacesDirectiveSemicolon { false };       // a directive missing its `;` is reported on the next line; moved back

@@ -362,9 +362,13 @@ async function runBuildToolInTerminal(access: ServerAccess): Promise<void> {
         command = 'mcpp build';
     } else if (await exists('CMakeLists.txt')) {
         command = 'cmake -S . -B build';
+    } else if (await exists('xmake.lua')) {
+        command = 'xmake';
+    } else if (await exists('meson.build')) {
+        command = 'meson setup build';
     }
     if (!command) {
-        void vscode.window.showWarningMessage('C++ Modules: this folder has no mcpp.toml or CMakeLists.txt to build.');
+        void vscode.window.showWarningMessage('C++ Modules: this folder has no mcpp.toml, CMakeLists.txt, xmake.lua or meson.build to build.');
         return;
     }
     const choice = await vscode.window.showInformationMessage(

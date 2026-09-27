@@ -318,6 +318,14 @@ std::optional<base::Result<InferredDatabase>> emit_build_database(const std::str
         enriched.issues.emplace_back("producer-partial", std::format("mcpp could not describe {}{}: {}; the rest of the project is used",
                                                                        where.empty() ? std::string { "part of the project: " } : where, diagnostic.code,
                                                                        diagnostic.message));
+        // B-8 (plan §3.4, §9.3 T9): a partial answer's missing member can itself be missing because
+        // it needs a download offline forbids (mcpp #699 plans members independently, so one member's
+        // MCPP_OFFLINE_DOWNLOAD_REQUIRED no longer fails the whole document the way it used to). Without
+        // this the workspace only ever saw `producer-partial` here and never entered the needs-download
+        // path, so nobody was ever asked to fetch the dependency; the partial model is kept either way.
+        if (diagnostic.code == spec::OFFLINE_DOWNLOAD_REQUIRED) {
+            enriched.issues.emplace_back(std::string { spec::NEEDS_DOWNLOAD }, diagnostic.message);
+        }
     }
     return base::Result<InferredDatabase> { std::move(enriched) };
 }
@@ -416,6 +424,35 @@ base::Result<InferredDatabase> load_mcpp(const Detection& detection, const Provi
     database.database.generator = spec::Generator { "mcppls", "mcpp compile_commands.json" };
     database.notices = std::move(notices);
     return database;
+}
+
+std::optional<Claim> McppProvider::detect(std::string_view root) const {
+    const std::string manifest { base::join_path(std::string { root }, "mcpp.toml") };
+    if (!platform::fs::is_regular_file(manifest)) return std::nullopt;
+    Claim claim;
+    claim.provider = "mcpp";
+    claim.confidence = 100;
+    claim.root = std::string { root };
+    claim.manifest = manifest;
+    if (const std::string commands { base::join_path(std::string { root }, "compile_commands.json") }; platform::fs::is_regular_file(commands)) {
+        claim.compileCommands = commands;
+    }
+    return claim;
+}
+
+std::optional<Answer> McppProvider::existing(const Claim&, const ProviderContext&) const {
+    return std::nullopt;
+}
+
+Answer McppProvider::describe(const Claim& claim, const ProviderContext& context) const {
+    const Detection detection { .kind = SourceKind::mcpp, .root = claim.root, .manifest = claim.manifest,
+                                .buildDirectory = claim.buildDirectory, .compileCommands = claim.compileCommands,
+                                .buildDatabase = claim.buildDatabase };
+    return from_result(load_mcpp(detection, context));
+}
+
+std::vector<std::string> McppProvider::watch_inputs(const Claim&) const {
+    return { "mcpp.toml", "mcpp.lock" };
 }
 
 } // namespace mcppls::project

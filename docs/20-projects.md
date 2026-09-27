@@ -5,7 +5,8 @@ bar. This is what "finding it" means for each kind of project, and what you get 
 
 The status bar's `L1`..`L4` is the *tier*: how the project was described — L1 a build database (mcpp's
 `emit build-database`, or one of your own), L2 CMake's own database, L3 a bare `compile_commands.json`
-(including the one an mcpp too old to emit a build database leaves), L4 sources only (an untrusted
+(including the one an mcpp too old to emit a build database leaves, and the ones xmake and meson
+write), L4 sources only (an untrusted
 workspace is always L4, whatever else is on disk). It is not the same number as the `level`
 `mcppls check` and `cxxModules/status` also carry, which is [S1](specs/s1-build-database.md)'s own
 1..4 for how completely a database's *document* is structured; a hand-written level-3 database and an
@@ -30,8 +31,24 @@ Two things are worth knowing:
 
 - **The run is offline.** A build description is a question about the project, not an errand, so
   the server asks it with `MCPP_OFFLINE` set. If the project's dependencies are not on the machine
-  yet, mcpp says so and the status bar offers to run the build tool in your terminal — where your
-  proxy and credentials are. See [30-settings.md](30-settings.md) for `mcppls.buildTool`.
+  yet, mcpp says so, and nothing waits for you to decide anything:
+  - the project is served from its sources at once (L4), and whatever mcpp could describe is used;
+  - a notification in the corner offers **Download and Continue** (the build tool may reach the
+    network, this once), **Run in Terminal** (where your proxy and credentials are), or **Don't Ask
+    Again**. You can leave it unanswered forever; it is asked once per workspace and set of missing
+    things;
+  - the description is asked again, offline, after 30 s, 1 and 2 minutes and then every 5, and at once
+    when `mcpp.toml` or `mcpp.lock` changes — so if you build in your own terminal instead, the
+    project upgrades by itself and the question no longer applies.
+
+  See [30-settings.md](30-settings.md) for `mcppls.buildTool` and `mcppls.buildDiscovery.askBeforeDownload`.
+- **What a build rule generates.** A rule package (`mcpp:plugins`' `rules-qt`, say) turns `.ui`,
+  `.qrc` and `.ts` files into headers and sources when the project builds. mcpp describes the build
+  without running those steps, so a form's `ui_*.h` does not exist yet in what it describes. mcppls
+  leaves the rule's inputs out (they are not C++), reads the generated files from your project's own
+  `target/` when a build has written them, and otherwise says which are missing, with **Build in
+  Terminal**; once a build writes them, the files that include them get their semantics without a
+  restart.
 - **An older mcpp** without `emit build-database` is not the end of it: if a newer mcpp is installed
   elsewhere on the machine (the xlings package store, mcpp's own registry store), mcppls asks *that*
   one instead, read-only and offline the same way, only to describe the project — the project still
@@ -52,10 +69,43 @@ If the build directory has a `build_database.json` (CMake 4.4+ with Ninja, `FILE
 mcppls reads it. Otherwise it reads `compile_commands.json` and expands the `@modmap` files the
 generator wrote.
 
+A build directory is looked for in `build*/`, `out/build/*`, `cmake-build-*`, and where the first
+configure preset of `CMakePresets.json` (or `CMakeUserPresets.json`) puts its `binaryDir`.
+
 With no build directory at all and a trusted workspace, mcppls configures one **of its own**, under
-its cache directory — never in your project. The first such configure may download what the project
-declares (`FetchContent`, `ExternalProject`); every later one adds
-`-DFETCHCONTENT_UPDATES_DISCONNECTED=ON`.
+its cache directory — never in your project — following that preset's generator, toolchain file and
+cache variables, so it describes the build you would get. That configure is **disconnected**
+(`-DFETCHCONTENT_FULLY_DISCONNECTED=ON`), the first time too: a `FetchContent` dependency that is not
+on the machine stops it, and you get the same non-blocking offer as for mcpp above (**Download and
+Continue** configures once with the network, in that private directory).
+
+## xmake
+
+`xmake.lua` makes an xmake project. A `compile_commands.json` already at the root or in `.vscode/`
+(where xmake's VS Code plugin writes one) is read as it is. Otherwise mcppls asks xmake for one with
+its own command, `xmake project -k compile_commands`, which compiles nothing — but it configures and
+scans modules, so mcppls points xmake's configuration and build directories at its cache
+(`XMAKE_CONFIGDIR`, `--builddir`) and your project stays untouched. It runs offline
+(`--policies=package.fetch_only,network.mode:private`): a package that is not installed stops it with
+the same offer as above. The first description takes a few seconds (about 6–8 s measured, most of it
+xmake detecting the toolchain); the project is served from its sources meanwhile. Module roles come
+from scanning, so an xmake project is L3.
+
+## meson
+
+`meson.build` makes a meson project. An existing build directory (`builddir/`, `build/`, or any
+directory with `meson-private/`) is read for its `compile_commands.json`. Otherwise mcppls runs
+`meson setup` into its cache with `--wrap-mode=nodownload`; a subproject that would have to be
+downloaded stops it with the same offer. L3, like xmake.
+
+## Turning discovery off
+
+`mcppls.buildDiscovery = off` makes mcppls detect no build system at all: nothing is read or run
+implicitly, and only a database you name with `mcppls.database` is used, else the sources are scanned
+(L4). `mcppls.buildDiscovery.providers` leaves out single build systems instead — for example, only
+ever read an existing CMake build directory and never run xmake. `mcppls.buildTool = off` is the
+narrower switch: build systems are still detected and their existing output read, only never run. See
+[30-settings.md](30-settings.md).
 
 ## compile_commands.json
 
@@ -109,4 +159,6 @@ else. The semantic kit provides the semantics and the status says why.
 | A compiler and standard library | The model came from your build; that toolchain's `std` is in use |
 | A semantic kit | No usable compiler was found, or the workspace is untrusted |
 | "may be stale" | The build tool could not answer this time; the last model that loaded is still in use |
-| "needs a download" | Planning offline stopped at something not on the machine; there is an action to fix it |
+| "needs a download" | Planning offline stopped at something not on the machine; the project is served from its sources meanwhile, and there are actions to fix it (or build in your terminal: it upgrades by itself) |
+| "files the build generates … do not exist yet" | A rule's output (a Qt form's header, say) is not built yet; build once and the files that include it get their semantics |
+| "implementation unit(s) cannot be read" | An implementation unit does not build (a missing header, usually), so go-to-definition cannot reach the definitions in it |

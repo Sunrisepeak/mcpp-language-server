@@ -13,13 +13,18 @@ import mcppls.spec.metadata;
 import mcppls.toolchain.probe;
 import mcppls.project.boundary;
 import mcppls.project.detect;
+import mcppls.project.provider;
 import mcppls.project.infer;
 import mcppls.project.mcpp;
 import mcppls.project.model;
 import mcppls.project.compdb;
 import mcppls.project.cmake;
+import mcppls.project.xmake;
+import mcppls.project.meson;
+import mcppls.project.providers;
 import mcppls.project.modelcache;
 import mcppls.project.generated;
+import mcppls.project.scan;
 
 namespace fs = mcppls::platform::fs;
 namespace b = mcppls::base;
@@ -55,29 +60,67 @@ int main() {
     using namespace mcppls::testing;
 
     "detection order"_test = [] {
+        const auto providers = p::registered_providers();
+
         const std::string mcpp { make_root("mcpp") };
         write(mcpp, "mcpp.toml", "[package]\nname = \"hello\"\n");
         write(mcpp, "CMakeLists.txt", "project(x)\n");
-        expect(p::detect_project(mcpp).kind == p::SourceKind::mcpp);
+        expect(p::detect_project(mcpp, {}, providers).kind == p::SourceKind::mcpp);
 
         const std::string cmake { make_root("cmake") };
         write(cmake, "CMakeLists.txt", "project(x)\n");
         write(cmake, "build/CMakeCache.txt", "");
         write(cmake, "build/compile_commands.json", "[]");
-        const auto cmakeDetection = p::detect_project(cmake);
+        write(cmake, "xmake.lua", "target(\"x\")\n");   // B-1 task 1: CMake still wins over xmake
+        const auto cmakeDetection = p::detect_project(cmake, {}, providers);
         expect(cmakeDetection.kind == p::SourceKind::cmake);
         expect(cmakeDetection.buildDirectory == b::join_path(cmake, "build"));
         expect(cmakeDetection.compileCommands == b::join_path(cmake, "build/compile_commands.json"));
 
+        const std::string xmake { make_root("xmake") };
+        write(xmake, "xmake.lua", "target(\"x\")\n");
+        write(xmake, "meson.build", "project('x')\n");   // xmake still wins over meson
+        expect(p::detect_project(xmake, {}, providers).kind == p::SourceKind::xmake);
+
+        const std::string meson { make_root("meson") };
+        write(meson, "meson.build", "project('x')\n");
+        write(meson, "compile_commands.json", "[]");   // meson still wins over a bare compile_commands.json
+        expect(p::detect_project(meson, {}, providers).kind == p::SourceKind::meson);
+
         const std::string commands { make_root("compdb") };
         write(commands, "compile_commands.json", "[]");
-        expect(p::detect_project(commands).kind == p::SourceKind::compile_commands);
+        expect(p::detect_project(commands, {}, providers).kind == p::SourceKind::compile_commands);
 
         const std::string loose { make_root("loose") };
         write(loose, "a.cppm", "export module a;\n");
-        expect(p::detect_project(loose).kind == p::SourceKind::inferred);
-        expect(p::detect_project(loose, "db.json").kind == p::SourceKind::build_database);
-        for (const auto& root : { mcpp, cmake, commands, loose }) fs::remove_all(root);
+        expect(p::detect_project(loose, {}, providers).kind == p::SourceKind::inferred);
+        expect(p::detect_project(loose, "db.json", providers).kind == p::SourceKind::build_database);
+
+        // B-7: buildDiscovery = false skips every provider, configuredDatabase aside.
+        expect(p::detect_project(mcpp, {}, providers, false).kind == p::SourceKind::inferred)
+            << "buildDiscovery off: nothing is detected even though mcpp.toml is right there";
+        expect(p::detect_project(loose, "db.json", providers, false).kind == p::SourceKind::build_database)
+            << "an explicit database is still used";
+
+        // B-1 task 1 / B-7: a provider left out of the list behaves as if its files were not there.
+        std::vector<p::BuildSystemProvider*> withoutMcpp;
+        for (auto* provider : providers) {
+            if (provider->id() != "mcpp") withoutMcpp.push_back(provider);
+        }
+        expect(p::detect_project(mcpp, {}, withoutMcpp).kind == p::SourceKind::cmake)
+            << "mcpp filtered out: CMakeLists.txt is next";
+
+        for (const auto& root : { mcpp, cmake, xmake, meson, commands, loose }) fs::remove_all(root);
+    };
+
+    "tier_of and to_string cover xmake and meson"_test = [] {
+        expect(p::to_string(p::SourceKind::xmake) == std::string_view { "xmake" });
+        expect(p::to_string(p::SourceKind::meson) == std::string_view { "meson" });
+        // design §2.1: tier 3, same as a bare compile_commands.json -- exact arguments, module roles
+        // recovered by scanning rather than said by the build system itself.
+        expect(p::tier_of(p::SourceKind::xmake) == 3_i);
+        expect(p::tier_of(p::SourceKind::meson) == 3_i);
+        expect(p::tier_of(p::SourceKind::xmake) == p::tier_of(p::SourceKind::compile_commands));
     };
 
     "inference from sources"_test = [] {
@@ -153,6 +196,23 @@ int main() {
         fs::remove_all(root);
     };
 
+    "B-7: mcppls.buildDiscovery = false detects, reads and runs nothing implicitly"_test = [] {
+        const std::string root { make_root("build-discovery-off") };
+        write_fixture(root);
+        write(root, "mcpp.toml", "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n");
+        p::LoadOptions options;
+        options.trusted = true;
+        options.buildDiscovery = false;
+        options.cacheDirectory = b::join_path(root, ".cache-dir");
+        const auto model = p::load_project(root, options);
+        expect(model.detected == p::SourceKind::inferred) << "buildDiscovery off: not even detection runs";
+        expect(model.source == p::SourceKind::inferred);
+        expect(std::ranges::any_of(model.notices, [](const p::ModelIssue& notice) { return notice.code == "build-discovery-off"; }))
+            << "a notice, not an issue: nothing is reduced by an explicit setting";
+        expect(std::ranges::none_of(model.issues, [](const p::ModelIssue& issue) { return issue.code == "build-discovery-off"; }));
+        fs::remove_all(root);
+    };
+
     "a producer's build database is completed, not replaced"_test = [] {
         const std::string root { make_root("database") };
         write_fixture(root);
@@ -202,22 +262,205 @@ int main() {
     };
 
     "the private configure's arguments carry the gate only when it is known"_test = [] {
-        const auto withGate = p::cmake_configure_arguments("/proj", "/cache/cmake", true, std::optional<std::string> { "the-uuid" });
+        const auto withGate = p::cmake_configure_arguments("/proj", "/cache/cmake", true, std::optional<std::string> { "the-uuid" }, false);
         expect(std::ranges::find(withGate, std::string { "-DCMAKE_EXPERIMENTAL_EXPORT_BUILD_DATABASE=the-uuid" }) != withGate.end());
         expect(std::ranges::find(withGate, std::string { "-DCMAKE_EXPORT_BUILD_DATABASE=ON" }) != withGate.end());
         expect(std::ranges::find(withGate, std::string { "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON" }) != withGate.end()) << "always written";
         expect(fatal(withGate.size() >= 2u));
         expect(withGate[withGate.size() - 2] == "-G" && withGate.back() == "Ninja");
 
-        const auto unknownVersion = p::cmake_configure_arguments("/proj", "/cache/cmake", true, std::nullopt);
+        const auto unknownVersion = p::cmake_configure_arguments("/proj", "/cache/cmake", true, std::nullopt, false);
         expect(std::ranges::none_of(unknownVersion, [](const std::string& arg) { return arg.contains("BUILD_DATABASE"); }))
             << "an unconfirmed CMake version must not see the switch";
         expect(std::ranges::find(unknownVersion, std::string { "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON" }) != unknownVersion.end())
             << "today's behaviour is otherwise unchanged";
 
-        const auto noNinja = p::cmake_configure_arguments("/proj", "/cache/cmake", false, std::optional<std::string> { "the-uuid" });
+        const auto noNinja = p::cmake_configure_arguments("/proj", "/cache/cmake", false, std::optional<std::string> { "the-uuid" }, false);
         expect(std::ranges::none_of(noNinja, [](const std::string& arg) { return arg.contains("BUILD_DATABASE") || arg == "Ninja"; }))
             << "the gate was only measured with Ninja";
+    };
+
+    "B-3(a): offline passes FETCHCONTENT_FULLY_DISCONNECTED, online never does"_test = [] {
+        const auto offline = p::cmake_configure_arguments("/proj", "/cache/cmake", true, std::nullopt, true);
+        expect(std::ranges::find(offline, std::string { "-DFETCHCONTENT_FULLY_DISCONNECTED=ON" }) != offline.end())
+            << "D1: offline first, even on what would have been the first configure (BD7 withdrawn)";
+
+        const auto online = p::cmake_configure_arguments("/proj", "/cache/cmake", true, std::nullopt, false);
+        expect(std::ranges::none_of(online, [](const std::string& arg) { return arg.contains("FETCHCONTENT_FULLY_DISCONNECTED"); }))
+            << "never passed when the user asked mcppls to go online";
+    };
+
+    "B-3(a): an offline FetchContent failure names the dependency"_test = [] {
+        // Measured against a real cmake 4.4.2 (this task): `FetchContent_Declare(fmt URL
+        // https://example.invalid/...)` then a target that links `fmt::fmt`, configured with
+        // `-DFETCHCONTENT_FULLY_DISCONNECTED=ON` into an empty build directory. The message CMake
+        // actually writes wraps the exact marker phrase across a line break and reindents it --
+        // a plain contiguous search over the raw text would never match this, only a hand-typed
+        // one-line string, which is why the parser collapses whitespace first.
+        constexpr std::string_view MESSAGE {
+            "CMake Warning at /opt/cmake/share/cmake-4.4/Modules/FetchContent.cmake:2126 (message):\n"
+            "  FETCHCONTENT_FULLY_DISCONNECTED is set to true, which requires the source\n"
+            "  directory for dependency fmt to already be populated.  This generally means\n"
+            "  it must not be set to true the first time CMake is run in a build\n"
+            "  directory.  The following source directory should already be populated, but\n"
+            "  it doesn't exist:\n"
+            "\n"
+            "    /build/_deps/fmt-src\n"
+            "\n"
+            "  Policy CMP0170 controls enforcement of this requirement.\n"
+            "Call Stack (most recent call first):\n"
+            "  CMakeLists.txt:5 (FetchContent_MakeAvailable)\n"
+            "\n"
+            "\n"
+            "-- Configuring done (4.6s)\n"
+            "CMake Error at CMakeLists.txt:7 (target_link_libraries):\n"
+            "  Target \"x\" links to:\n"
+            "\n"
+            "    fmt::fmt\n"
+            "\n"
+            "  but the target was not found.\n"
+        };
+        const auto missing = p::fetchcontent_missing_dependencies(MESSAGE);
+        expect(missing == std::vector<std::string> { "fmt" });
+        expect(p::fetchcontent_missing_dependencies("CMake Error: something else entirely").empty())
+            << "a different configure failure names nothing";
+        expect(p::fetchcontent_missing_dependencies(
+                   "FETCHCONTENT_FULLY_DISCONNECTED is set to true, which requires the source directory for dependency fmt to already be "
+                   "populated\nFETCHCONTENT_FULLY_DISCONNECTED is set to true, which requires the source directory for dependency eigen to "
+                   "already be populated\n")
+               == (std::vector<std::string> { "fmt", "eigen" }))
+            << "every dependency named, in order, several fetched at once";
+    };
+
+    "B-3(b): CMakePresets.json, inherits and macro expansion"_test = [] {
+        const std::string root { make_root("cmake-presets") };
+        write(root, "CMakeLists.txt", "project(x)\n");
+        write(root, "CMakePresets.json", R"json({
+          "version": 3,
+          "configurePresets": [
+            { "name": "base", "hidden": true, "generator": "Ninja",
+              "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "SHARED": "ON" } },
+            { "name": "linux", "inherits": "base", "binaryDir": "${sourceDir}/out/${presetName}",
+              "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" },
+              "toolchainFile": "${sourceParentDir}/${sourceDirName}-toolchain.cmake" }
+          ]
+        })json");
+        const auto preset = p::resolve_cmake_preset(root);
+        expect(fatal(preset.has_value()));
+        expect(preset->name == "linux");
+        expect(preset->binaryDir == b::join_path(root, "out/linux")) << "${sourceDir} and ${presetName} expanded";
+        expect(preset->generator == "Ninja") << "inherited from the hidden base preset";
+        expect(preset->toolchainFile == std::format("{}-toolchain.cmake", root)) << "${sourceParentDir} and ${sourceDirName} expanded";
+        expect(fatal(preset->cacheVariables.size() == 2u));
+        const auto buildType = std::ranges::find_if(preset->cacheVariables, [](const auto& kv) { return kv.first == "CMAKE_BUILD_TYPE"; });
+        expect(fatal(buildType != preset->cacheVariables.end()));
+        expect(buildType->second == "RelWithDebInfo") << "the preset's own value overrides what it inherited";
+        const auto shared = std::ranges::find_if(preset->cacheVariables, [](const auto& kv) { return kv.first == "SHARED"; });
+        expect(fatal(shared != preset->cacheVariables.end())) << "inherited variables are kept, not only overridden ones";
+        expect(shared->second == "ON");
+        fs::remove_all(root);
+    };
+
+    "B-3(b): a hidden-only file has no chosen preset, and a user preset wins by name"_test = [] {
+        const std::string root { make_root("cmake-presets-hidden") };
+        write(root, "CMakeLists.txt", "project(x)\n");
+        write(root, "CMakePresets.json", R"json({"version": 3, "configurePresets": [
+            { "name": "base", "hidden": true },
+            { "name": "dev", "binaryDir": "${sourceDir}/build-dev" }
+        ]})json");
+        expect(p::resolve_cmake_preset(root)->name == "dev");
+
+        write(root, "CMakeUserPresets.json", R"json({"version": 3, "configurePresets": [
+            { "name": "dev", "binaryDir": "${sourceDir}/build-dev-mine" }
+        ]})json");
+        const auto userWins = p::resolve_cmake_preset(root);
+        expect(fatal(userWins.has_value()));
+        expect(userWins->binaryDir == b::join_path(root, "build-dev-mine")) << "user presets win (same name: fully replaced)";
+        fs::remove_all(root);
+    };
+
+    "B-5: xmake's environment, arguments and classification"_test = [] {
+        const auto environment = p::xmake_environment("/cache/xmake/config");
+        expect(std::ranges::find(environment, std::pair<std::string, std::string> { "XMAKE_CONFIGDIR", "/cache/xmake/config" }) != environment.end());
+        expect(std::ranges::find(environment, std::pair<std::string, std::string> { "XMAKE_THEME", "plain" }) != environment.end());
+
+        const auto offline = p::xmake_configure_arguments("/cache/xmake/build", true);
+        expect(offline == (std::vector<std::string> { "f", "-c", "--confirm=no", "--policies=package.fetch_only,network.mode:private",
+                                                       "--builddir=/cache/xmake/build" }));
+        const auto online = p::xmake_configure_arguments("/cache/xmake/build", false);
+        expect(online == (std::vector<std::string> { "f", "-c", "-y", "--builddir=/cache/xmake/build" }));
+
+        expect(p::xmake_compile_commands_arguments("/cache/xmake/out")
+               == (std::vector<std::string> { "project", "-k", "compile_commands", "/cache/xmake/out" }));
+
+        expect(p::xmake_missing_packages("checking for platform ... linux\nThe packages(xxhash, fmt) not found, please install them first!\n")
+               == (std::vector<std::string> { "xxhash", "fmt" }));
+        expect(p::xmake_missing_packages(
+                   "please specify weather to install them (y/n): \nnote: install or modify (m) these packages (pass -y to skip confirm)\n"
+                   "in xmake.lua, packages.lua ->\n  -> zlib 1.3.1 [+debug]: xmake.lua:3\n  -> fmt 11.0.2: xmake.lua:4\n")
+               == (std::vector<std::string> { "zlib", "fmt" }));
+        expect(p::xmake_missing_packages("checking for platform ... linux\nbuild ok!\n").empty()) << "a successful run names nothing";
+
+        // xmake keeps the offline policy in its own configuration: an online run must configure again.
+        const std::pair<std::uint64_t, std::int64_t> manifest { 64, 1000 };
+        expect(p::xmake_configuration_key(true, manifest) != p::xmake_configuration_key(false, manifest));
+        expect(p::xmake_configuration_key(true, manifest) != p::xmake_configuration_key(true, std::pair<std::uint64_t, std::int64_t> { 64, 2000 }));
+        expect(p::xmake_configuration_key(true, manifest) == p::xmake_configuration_key(true, manifest));
+    };
+
+    "B-5: xmake detect() and existing() read what is already there"_test = [] {
+        const std::string root { make_root("xmake") };
+        write(root, "xmake.lua", "target(\"hello\")\n    set_kind(\"binary\")\n    add_files(\"src/*.cpp\")\n");
+        write(root, "src/main.cpp", "import std;\nint main() { return 0; }\n");
+        const p::XmakeProvider provider;
+        const auto claim = provider.detect(root);
+        expect(fatal(claim.has_value()));
+        expect(claim->manifest == b::join_path(root, "xmake.lua"));
+        expect(claim->compileCommands.empty()) << "nothing generated yet";
+
+        write(root, ".vscode/compile_commands.json",
+              nlohmann::json::array({ nlohmann::json { { "directory", root }, { "file", b::join_path(root, "src/main.cpp") },
+                                                       { "arguments", nlohmann::json::array({ "g++", "-std=c++23", "-c",
+                                                                                              b::join_path(root, "src/main.cpp") }) } } })
+                  .dump());
+        const auto claimAfter = provider.detect(root);
+        expect(fatal(claimAfter.has_value()));
+        expect(claimAfter->compileCommands == b::join_path(root, ".vscode/compile_commands.json")) << "xmake's own VS Code plugin writes here";
+
+        p::ProviderContext context;
+        context.scanner = p::file_scanner();
+        context.prober = [](std::string_view, std::span<const std::string>) -> std::optional<mcppls::toolchain::ToolchainFacts> { return std::nullopt; };
+        const auto answer = provider.existing(*claimAfter, context);
+        expect(fatal(answer.has_value()));
+        expect(answer->outcome == p::Outcome::ok);
+        expect(fatal(answer->database.has_value()));
+        expect(answer->database->database.generator.value_or(s::Generator {}).name == "xmake");
+        fs::remove_all(root);
+    };
+
+    "B-6: meson's setup arguments and classification"_test = [] {
+        expect(p::meson_setup_arguments("/cache/meson", true, false) == (std::vector<std::string> { "setup", "--wrap-mode=nodownload", "/cache/meson" }));
+        expect(p::meson_setup_arguments("/cache/meson", false, false) == (std::vector<std::string> { "setup", "/cache/meson" }));
+        expect(p::meson_setup_arguments("/cache/meson", true, true)
+               == (std::vector<std::string> { "setup", "--reconfigure", "--wrap-mode=nodownload", "/cache/meson" }))
+            << "a second describe() into the same private directory reconfigures instead";
+
+        expect(p::meson_missing_subprojects("Automatic wrap-based subproject downloading is disabled\nSubproject 'fmt' is buried here\n")
+               == std::vector<std::string> { "fmt" });
+        expect(p::meson_missing_subprojects("ninja: build stopped: subcommand failed.\n").empty()) << "a different failure names nothing";
+    };
+
+    "B-6: meson detect() finds an existing configured build directory"_test = [] {
+        const std::string root { make_root("meson") };
+        write(root, "meson.build", "project('hello', 'cpp')\n");
+        write(root, "builddir/meson-private/coredata.dat", "");
+        write(root, "builddir/compile_commands.json", "[]");
+        const p::MesonProvider provider;
+        const auto claim = provider.detect(root);
+        expect(fatal(claim.has_value()));
+        expect(claim->buildDirectory == b::join_path(root, "builddir"));
+        expect(claim->compileCommands == b::join_path(root, "builddir/compile_commands.json"));
+        fs::remove_all(root);
     };
 
     "a real CMake 4.4.2 build database becomes a level 2 model"_test = [] {
@@ -572,6 +815,75 @@ version = "1"
         fs::remove_all(home);
     };
 
+    "a producer's planning directory is told from any other path"_test = [] {
+        expect(p::private_target_relative("/h/.mcpp/cache/build-database/81d15f0e10d7a75b/target/.build-mcpp/out/qt") == std::optional<std::string> { ".build-mcpp/out/qt" });
+        expect(p::private_target_relative("/h/.mcpp/cache/build-database/k/target/x86_64-linux-gnu/f/obj/a.o") == std::optional<std::string> { "x86_64-linux-gnu/f/obj/a.o" });
+        expect(!p::private_target_relative("/p/qt-demo/target/.build-mcpp/out/qt").has_value()) << "the project's own build directory";
+        expect(!p::private_target_relative("/h/.mcpp/cache/build-database/k/src/x.cpp").has_value()) << "not under the planning target";
+    };
+
+    "generated build output a producer only names is read from the project's own build (qt-demo)"_test = [] {
+        const std::string root { make_root("generated-output") };
+        const std::string home { make_root("generated-output-home") };
+        // What mcpp's emit describes for a rules-qt project: an include directory in its planning directory
+        // holding only empty placeholders, and a moc source that is one of them.
+        const std::string planning { b::join_path(home, ".mcpp/cache/build-database/81d15f0e10d7a75b") };
+        write(planning, "target/.build-mcpp/out/qt/moc_counter.cpp", "");
+        write(planning, "target/.build-mcpp/out/qt/qrc_demo.cpp", "");
+        const std::string privateOut { b::join_path(planning, "target/.build-mcpp/out/qt") };
+        auto database_of = [&] {
+            s::Database database;
+            s::Set set;
+            set.name = "qt-demo";
+            set.baselineArguments = { "-I" + privateOut, "-std=c++23" };
+            s::TranslationUnit main;
+            main.source = b::join_path(root, "src/main.cpp");
+            main.arguments = { "g++", "-I" + privateOut, "-std=c++23", "-c", main.source };
+            s::TranslationUnit moc;
+            moc.source = b::join_path(privateOut, "moc_counter.cpp");
+            moc.arguments = { "g++", "-I", privateOut, "-c", moc.source };
+            set.units = { main, moc };
+            database.sets.push_back(set);
+            return database;
+        };
+
+        // Never built: nothing to read instead; what is missing is reported, with where a build writes it.
+        auto unbuilt = database_of();
+        const auto before = p::use_project_build_output(unbuilt, root);
+        expect(before.relocated.empty());
+        expect(std::ranges::find(before.missing, privateOut) != before.missing.end());
+        expect(std::ranges::find(before.watch, std::string { "target/.build-mcpp/out/qt/*" }) != before.watch.end());
+        expect(unbuilt.sets[0].units[0].arguments[1] == "-I" + privateOut) << "left as it is";
+
+        // Built once: the project's own output replaces the planning directory's, arguments and source alike.
+        write(root, "target/.build-mcpp/out/qt/ui_mainwindow.h", "namespace Ui { class MainWindow {}; }\n");
+        write(root, "target/.build-mcpp/out/qt/moc_counter.cpp", "// moc output\n");
+        const std::string projectOut { b::join_path(root, "target/.build-mcpp/out/qt") };
+        auto built = database_of();
+        const auto after = p::use_project_build_output(built, root);
+        expect(after.missing.empty());
+        expect(built.sets[0].baselineArguments[0] == "-I" + projectOut);
+        expect(built.sets[0].units[0].arguments[1] == "-I" + projectOut);
+        expect(built.sets[0].units[1].arguments[2] == projectOut) << "the separate spelling too";
+        expect(built.sets[0].units[1].source == b::join_path(projectOut, "moc_counter.cpp"));
+        expect(built.sets[0].units[1].arguments.back() == b::join_path(projectOut, "moc_counter.cpp"));
+        fs::remove_all(root);
+        fs::remove_all(home);
+    };
+
+    "a rule's inputs are not translation units, whatever command a producer gives them"_test = [] {
+        const std::vector<std::string> gcc { "g++", "-c" };
+        expect(!p::compiled_by_c_family("/p/ui/mainwindow.ui", gcc));
+        expect(!p::compiled_by_c_family("/p/res/demo.qrc", gcc));
+        expect(!p::compiled_by_c_family("/p/i18n/qt_demo_zh_CN.ts", gcc));
+        expect(p::compiled_by_c_family("/p/src/main.cpp", gcc));
+        expect(p::compiled_by_c_family("/p/src/a.c", gcc));
+        expect(p::compiled_by_c_family("/p/src/m.ixx", gcc));
+        expect(p::compiled_by_c_family("/p/src/k.cu", gcc));
+        expect(p::compiled_by_c_family("/p/src/generated.inl", std::vector<std::string> { "clang++", "-x", "c++", "-c" })) << "a language forced on it";
+        expect(p::compiled_by_c_family("/p/src/generated.inl", std::vector<std::string> { "cl.exe", "/Tp/p/src/generated.inl" }));
+    };
+
     "a generated module's real source is recovered before a stand-in is needed"_test = [] {
         const std::string root { make_root("generated") };
         const std::string home { make_root("generated-home") };
@@ -691,6 +1003,41 @@ version = "1"
         expect(p::workspace_members("[package]\nname = \"x\"\n").empty());
         fs::remove_all(cmake);
         fs::remove_all(workspace);
+    };
+
+    // Plan 2026-09-27: one list of project manifests for every place that looks for a root, and a subdirectory's own
+    // CMakeLists.txt, xmake.lua or meson.build belongs to the project above it.
+    "the project root of a file is the outermost of a nesting build system's manifests"_test = [] {
+        const std::string meson { make_root("root-meson") };
+        write(meson, "meson.build", "project('p', 'cpp')\nsubdir('src')\n");
+        write(meson, "src/meson.build", "executable('app', 'main.cpp')\n");
+        write(meson, "src/main.cpp", "int main() {}\n");
+        expect(p::enclosing_project_root(b::join_path(meson, "src")) == meson) << "src/meson.build is part of the project above";
+        const std::string xmake { make_root("root-xmake") };
+        write(xmake, "xmake.lua", "includes(\"src\")\n");
+        write(xmake, "src/xmake.lua", "target(\"app\")\n");
+        expect(p::enclosing_project_root(b::join_path(xmake, "src")) == xmake);
+        const std::string cmake { make_root("root-cmake") };
+        write(cmake, "CMakeLists.txt", "add_subdirectory(libs/core)\n");
+        write(cmake, "libs/core/CMakeLists.txt", "add_library(core)\n");
+        expect(p::enclosing_project_root(b::join_path(cmake, "libs/core")) == b::join_path(cmake, "libs/core"))
+            << "libs/ has no CMakeLists.txt of its own: the chain is broken there, as it is for CMake itself";
+        write(cmake, "libs/CMakeLists.txt", "add_subdirectory(core)\n");
+        expect(p::enclosing_project_root(b::join_path(cmake, "libs/core")) == cmake);
+        const std::string loose { make_root("root-none") };
+        write(loose, "a/b.cpp", "int x;\n");
+        expect(!p::find_project_root(b::join_path(loose, "a")).has_value() || *p::find_project_root(b::join_path(loose, "a")) != b::join_path(loose, "a"));
+        expect(std::ranges::find(p::project_manifests(), std::string_view { "xmake.lua" }) != p::project_manifests().end());
+        expect(p::nesting_manifest("meson.build") && !p::nesting_manifest("mcpp.toml"));
+        const p::ProjectBoundaries inMeson { meson };
+        expect(!inMeson.separate(b::join_path(meson, "src"))) << "a meson subdir of a meson project";
+        const p::ProjectBoundaries inCMake { cmake };
+        write(cmake, "third_party/lib/meson.build", "project('lib', 'cpp')\n");
+        expect(inCMake.separate(b::join_path(cmake, "third_party/lib"))) << "a meson project inside a CMake one";
+        fs::remove_all(meson);
+        fs::remove_all(xmake);
+        fs::remove_all(cmake);
+        fs::remove_all(loose);
     };
 
     return report();

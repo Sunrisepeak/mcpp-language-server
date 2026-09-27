@@ -35,4 +35,19 @@ std::vector<std::string> other_mcpp_executables(std::string_view resolved, std::
 std::vector<CompileCommand> mcpp_standard_units(std::span<const CompileCommand> commands);
 base::Result<InferredDatabase> load_mcpp(const Detection& detection, const ProviderContext& context);
 
+// B-1: mcpp's own `BuildSystemProvider` (registry order: first -- design §2.1 keeps mcpp as the
+// best case, tier 1). `existing()` is always nullopt: unlike CMake's build directory, mcpp has no
+// cheap, already-there build description to read on its own -- `load_mcpp` itself is what falls
+// back to a leftover `compile_commands.json` when mcpp cannot be asked, and that fallback needs the
+// same trust and `runBuildTool` checks `describe()` already carries, so splitting it out would only
+// duplicate them (plan §3.3 table: mcpp's `existing` column is "--").
+class McppProvider final : public BuildSystemProvider {
+public:
+    std::string_view id() const override { return "mcpp"; }
+    std::optional<Claim> detect(std::string_view root) const override;
+    std::optional<Answer> existing(const Claim& claim, const ProviderContext& context) const override;
+    Answer describe(const Claim& claim, const ProviderContext& context) const override;
+    std::vector<std::string> watch_inputs(const Claim& claim) const override;
+};
+
 } // namespace mcppls::project

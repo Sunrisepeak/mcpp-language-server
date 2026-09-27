@@ -181,6 +181,17 @@ int emit_build_database(std::span<const std::string> arguments) {
             return 1;
         }
     }
+    // Plan 2026-09-27 B-2: {"online": {...}} is what the producer answers when it may reach the network (no
+    // MCPP_OFFLINE): a fixture whose offline answer needs a download describes the project once the person lets it.
+    // {"provisionedWhen": "<file>"}: once <file> exists in the project (a build the person ran in their own terminal
+    // wrote it), the offline answer is the "online" one too -- what they fetched is there now (§9.2 rule 4).
+    const bool provisioned { recorded.contains("provisionedWhen") && recorded["provisionedWhen"].is_string()
+                             && fs::exists(base::join_path(root, recorded["provisionedWhen"].get<std::string>())) };
+    if (const auto offline = mcppls::platform::env::get("MCPP_OFFLINE"); (provisioned || !offline || offline->empty() || *offline == "0")
+                                                                             && recorded.contains("online") && recorded["online"].is_object()) {
+        Json online = recorded["online"];
+        recorded = std::move(online);
+    }
     expand_all(recorded, root);
     if (!recorded.contains("database")) {
         std::println("{}", envelope("mcpp.build-database", nullptr, recorded.value("diagnostics", Json::array()), Json::array({ "read-project" })).dump(2));

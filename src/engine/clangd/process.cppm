@@ -127,6 +127,19 @@ bool loader_failure(std::string_view line);
 // built. `compile`: the unit was found and did not compile; its importers get errors, not a hang (S3).
 enum class FailureKind { unresolved, compile, other };
 FailureKind failure_kind(const ModuleFailure& failure);
+
+// What a module failure clangd reported means for the session (plan 2026-09-27 Q1-1, Q1-4).
+//   ignore      the unit joined an engine database this clangd has not read yet: the report is about the old one
+//   use_kit     the standard library's own unit failed to compile, or the plan has no unit for it: the kit replaces it
+//   record      everything else: the failure is recorded where it is, as before
+enum class FailureAction { ignore, use_kit, record };
+struct FailureContext {
+    bool standardLibrary { false };   // the module is std or std.compat, or the unit that failed is std's
+    bool providerPlanned { false };   // the plan gives the module a unit of the project or the toolchain (not a stand-in)
+    bool providerRead { true };       // this clangd has read the engine database in which that unit joined
+    bool alreadyOnKit { false };      // the standard library is already the kit's
+};
+FailureAction failure_action(FailureKind kind, const FailureContext& context);
 // "clangd version 23.1.0 (https://github.com/llvm/llvm-project ea7d852a70e8...)" -> "23.1.0"
 std::string parse_clangd_version(std::string_view output);
 

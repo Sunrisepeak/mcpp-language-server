@@ -5,6 +5,7 @@ import nlohmann.json;
 import mcpplibs.cmdline;
 import mcppls.base.log;
 import mcppls.base.path;
+import mcppls.project.boundary;
 import mcppls.base.text;
 import mcppls.base.uri;
 import mcppls.platform.fs;
@@ -44,15 +45,7 @@ constexpr int EXIT_FAILED { 2 };
 std::string root_of(const cmdline::ParsedArgs& args, std::string_view file) {
     if (auto root = args.value("root")) return absolute(*root);
     if (file.empty()) return platform::fs::current_directory();
-    std::string directory { base::parent_path(absolute(file)) };
-    while (true) {
-        for (std::string_view marker : { "mcpp.toml", "CMakeLists.txt", "compile_commands.json" }) {
-            if (platform::fs::is_regular_file(base::join_path(directory, marker))) return directory;
-        }
-        const std::string parent { base::parent_path(directory) };
-        if (parent == directory) return platform::fs::current_directory();
-        directory = parent;
-    }
+    return project::find_project_root(base::parent_path(absolute(file))).value_or(platform::fs::current_directory());
 }
 
 struct Position {

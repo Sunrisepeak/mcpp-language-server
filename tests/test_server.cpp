@@ -148,6 +148,56 @@ private:
     std::shared_ptr<Shared> shared_;
 };
 
+// A clangd that builds whatever it is given at once: it answers the handshake, and each file it is given
+// comes back with its diagnostics, as a build that finished (the N-7 test reads what the engine opened).
+class BuildingProcess : public cld::Process {
+public:
+    struct Shared {
+        std::mutex mutex;
+        std::vector<Json> sent;
+    };
+    explicit BuildingProcess(std::shared_ptr<Shared> shared) : shared_ { std::move(shared) } {}
+
+    mcppls::base::Result<void> start(const cld::ProcessConfig&, MessageHandler onMessage, ClosedHandler, LogHandler) override {
+        onMessage_ = std::move(onMessage);
+        running_ = true;
+        return {};
+    }
+    mcppls::base::Result<void> send(const Json& message) override {
+        {
+            const std::lock_guard lock { shared_->mutex };
+            shared_->sent.push_back(message);
+        }
+        const std::string method { message.value("method", std::string {}) };
+        if (method == "initialize") {
+            onMessage_(Json { { "jsonrpc", "2.0" }, { "id", message["id"] }, { "result", Json { { "capabilities", Json::object() } } } });
+        } else if (method == "textDocument/didOpen") {
+            const std::string uri { message["params"]["textDocument"]["uri"].get<std::string>() };
+            onMessage_(Json { { "jsonrpc", "2.0" }, { "method", "textDocument/publishDiagnostics" },
+                              { "params", Json { { "uri", uri }, { "diagnostics", Json::array() } } } });
+        }
+        return {};
+    }
+    void stop(std::chrono::milliseconds) override { running_ = false; }
+    bool running() const override { return running_; }
+
+    // The files the engine gave clangd with `method` (didOpen, didClose), in order.
+    static std::vector<std::string> files(Shared& shared, std::string_view method) {
+        const std::lock_guard lock { shared.mutex };
+        std::vector<std::string> found;
+        for (const auto& message : shared.sent) {
+            if (message.value("method", std::string {}) != method) continue;
+            found.push_back(mcppls::base::uri_to_path(message["params"]["textDocument"]["uri"].get<std::string>()).value_or(std::string {}));
+        }
+        return found;
+    }
+
+private:
+    std::shared_ptr<Shared> shared_;
+    MessageHandler onMessage_;
+    bool running_ { false };
+};
+
 // The least a Workspace offers an engine: one root, no documents, events recorded.
 class RecordingHost : public eng::Host {
 public:
@@ -441,6 +491,29 @@ int main() {
         expect(cld::failure_kind(*unresolved) == cld::FailureKind::unresolved);
         expect(cld::failure_kind(*compile) == cld::FailureKind::compile);
         expect(cld::failure_kind(*other) == cld::FailureKind::other);
+    };
+
+    "only a standard library that does not compile, or that has no unit, moves the project to the kit"_test = [] {
+        using cld::FailureAction;
+        using cld::FailureKind;
+        // qt-demo, 12:15:52.944: std.cc joined the engine database; 78 ms later clangd, still on the database it
+        // had read before, reported "Don't get the module unit for module std".
+        expect(cld::failure_action(FailureKind::unresolved, { .standardLibrary = true, .providerPlanned = true, .providerRead = false })
+               == FailureAction::ignore) << "a report about a database clangd has not read yet is not a failure";
+        expect(cld::failure_action(FailureKind::unresolved, { .standardLibrary = true, .providerPlanned = true, .providerRead = true })
+               == FailureAction::record) << "a unit clangd has read and still cannot get is not a reason to leave the toolchain";
+        expect(cld::failure_action(FailureKind::unresolved, { .standardLibrary = true, .providerPlanned = false })
+               == FailureAction::use_kit) << "a toolchain with no std module gets the kit's";
+        expect(cld::failure_action(FailureKind::compile, { .standardLibrary = true, .providerPlanned = true })
+               == FailureAction::use_kit) << "std that does not compile gets the kit's";
+        expect(cld::failure_action(FailureKind::compile, { .standardLibrary = true, .providerPlanned = true, .alreadyOnKit = true })
+               == FailureAction::record) << "once on the kit, nothing switches again";
+        expect(cld::failure_action(FailureKind::other, { .standardLibrary = true, .providerPlanned = true })
+               == FailureAction::record);
+        expect(cld::failure_action(FailureKind::compile, { .standardLibrary = false, .providerPlanned = true })
+               == FailureAction::record) << "a project module never moves the project to the kit";
+        expect(cld::failure_action(FailureKind::unresolved, { .standardLibrary = false, .providerPlanned = true, .providerRead = false })
+               == FailureAction::ignore) << "the same race for any module is not recorded as unresolved";
     };
 
     "restarts in a row are spaced out"_test = [] {
@@ -941,6 +1014,82 @@ int main() {
         expect(!quick.next_due().has_value());
         heavy.forget(uri);
         expect(heavy.check(t0 + 10h).empty());
+    };
+
+    "implementation units are built for clangd's index, relevant ones first, again when they change on disk (N-7)"_test = [] {
+        namespace fs = mcppls::platform::fs;
+        using mcppls::base::join_path;
+        const std::string root { join_path(mcppls::platform::dirs::temp_directory(),
+            std::format("mcppls-test-implementations-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+        auto write = [&](std::string_view relative, std::string_view text) {
+            const std::string path { join_path(root, relative) };
+            (void)fs::create_directories(mcppls::base::parent_path(path));
+            (void)fs::write_file(path, text);
+            return path;
+        };
+        const std::string executable { write("clangd", "pretend-clangd") };
+        const std::string main { write("src/main.cpp", "import hello.greet;\nint main() { return hello::add(1, 2); }\n") };
+        const std::string interface { write("src/greet.cppm", "export module hello.greet;\nexport namespace hello { int add(int a, int b); }\n") };
+        const std::string math { write("src/math.cpp", "module hello.greet;\nint hello::add(int a, int b) { return a + b; }\n") };
+        const std::string greet { write("src/greet.cpp", "module hello.greet;\n") };
+        const std::string other { write("src/other/other.cpp", "module other;\nint other_value() { return 1; }\n") };
+        const std::string otherInterface { write("src/other/other.cppm", "export module other;\nexport int other_value();\n") };
+
+        auto shared = std::make_shared<BuildingProcess::Shared>();
+        cld::Options options;
+        options.executable = executable;
+        options.version = "23.1.0";
+        options.processFactory = [shared] { return std::make_unique<BuildingProcess>(shared); };
+        options.implementationIdle = std::chrono::milliseconds { 300 };
+        RecordingHost host { root };
+        auto engine = cld::make_engine(std::move(options));
+        engine->start(host);
+        host.pump(*engine);
+
+        mcppls::normalize::EnginePlan plan;
+        auto entry = [&](const std::string& file, std::string provides, std::string module, std::vector<std::string> imports) {
+            plan.entries.push_back(mcppls::normalize::EngineEntry { root, file, { "clang++", "-std=c++23", "-c", file }, std::move(provides), std::move(module), std::move(imports), {} });
+        };
+        entry(main, "", "", { "hello.greet" });
+        entry(interface, "hello.greet", "hello.greet", {});
+        entry(math, "", "hello.greet", {});
+        entry(greet, "", "hello.greet", {});
+        entry(otherInterface, "other", "other", {});
+        entry(other, "", "other", {});
+        engine->apply(&plan);
+        host.pump(*engine);
+
+        const std::string text { "import hello.greet;\nint main() { return hello::add(1, 2); }\n" };
+        engine->document(eng::DocumentEvent { eng::DocumentChange::opened, eng::DocumentView { mcppls::base::path_to_uri(main), main, "cpp", 1, text } });
+        host.pump(*engine);
+        host.pump(*engine);
+        auto opened = BuildingProcess::files(*shared, "textDocument/didOpen");
+        auto was_opened = [&](const std::string& path) { return std::ranges::find(opened, path) != opened.end(); };
+        expect(was_opened(math) && was_opened(greet)) << "the units of the module main.cpp imports";
+        expect(!was_opened(other)) << "not before clangd has been idle for a while: the rest come later";
+        expect(!was_opened(interface)) << "an interface is not an implementation unit";
+        auto closed = BuildingProcess::files(*shared, "textDocument/didClose");
+        expect(std::ranges::find(closed, math) != closed.end()) << "closed again once built: its symbols stay in clangd's index";
+
+        // math.cpp changes on disk while nothing has it open: built again.
+        const std::size_t before { static_cast<std::size_t>(std::ranges::count(opened, math)) };
+        std::this_thread::sleep_for(std::chrono::milliseconds { 20 });
+        (void)fs::write_file(math, "module hello.greet;\nint hello::add(int a, int b) { return b + a; }\n");
+        engine->notify(Json { { "jsonrpc", "2.0" }, { "method", "workspace/didChangeWatchedFiles" },
+                              { "params", Json { { "changes", Json::array({ Json { { "uri", mcppls::base::path_to_uri(math) }, { "type", 2 } } }) } } } });
+        host.pump(*engine);
+        opened = BuildingProcess::files(*shared, "textDocument/didOpen");
+        expect(static_cast<std::size_t>(std::ranges::count(opened, math)) == before + 1) << "built again after it changed";
+
+        // Idle long enough: the rest of the implementation units.
+        std::this_thread::sleep_for(std::chrono::milliseconds { 400 });
+        engine->handle_timers();
+        host.pump(*engine);
+        host.pump(*engine);
+        opened = BuildingProcess::files(*shared, "textDocument/didOpen");
+        expect(was_opened(other)) << "the rest, once clangd was idle";
+        engine->shut_down();
+        fs::remove_all(root);
     };
 
     "a clangd that answers nothing and uses no CPU is stuck, and a busy one is not"_test = [] {

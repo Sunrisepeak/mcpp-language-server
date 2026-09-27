@@ -7,6 +7,7 @@ import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.log;
 import mcppls.base.path;
+import mcppls.project.boundary;
 import mcppls.base.version;
 import mcppls.platform.fs;
 import mcppls.platform.dirs;
@@ -31,6 +32,8 @@ import mcppls.server.session;
 import mcppls.cli.options;
 import mcppls.cli.query;
 import mcppls.cli.cache;
+import mcppls.cli.settings;
+import mcppls.config.settings;
 import mcppls.orchestrator.report;
 import mcppls.orchestrator.kernel;
 import mcppls.bundle.writer;
@@ -53,17 +56,7 @@ struct Loaded {
 };
 
 // The root for a file: the nearest directory with a build description, else the file's directory.
-std::string root_for(std::string_view file) {
-    std::string directory { base::parent_path(file) };
-    while (true) {
-        for (std::string_view marker : { "mcpp.toml", "CMakeLists.txt", "compile_commands.json" }) {
-            if (platform::fs::is_regular_file(base::join_path(directory, marker))) return directory;
-        }
-        const std::string parent { base::parent_path(directory) };
-        if (parent == directory) return base::parent_path(file);
-        directory = parent;
-    }
-}
+std::string root_for(std::string_view file) { return project::enclosing_project_root(base::parent_path(file)); }
 
 Loaded load(std::string_view root, const cmdline::ParsedArgs& args, bool trusted) {
     Loaded loaded;
@@ -177,18 +170,30 @@ int command_check(const cmdline::ParsedArgs& args) {
     return result->exitCode == 0 && !result->timedOut ? 0 : 1;
 }
 
-// The options a daemon started for an entry is started with: the entry's own.
+// The options a daemon started for an entry is started with: the entry's own. Every registered
+// server setting with a command-line spelling (config::settings registry, 0.0.6 plan §9 T1) is
+// forwarded from whatever `args` itself carries; `model-*`, `idle-minutes` and `tool-timeout`
+// configure this `mcp`/`daemon` command rather than the server the daemon starts, so they are not
+// registry rows, and are forwarded by name here instead.
 std::vector<std::string> daemon_arguments(const cmdline::ParsedArgs& args) {
     std::vector<std::string> forwarded;
-    for (const std::string_view name : { "payload", "clangd", "kit", "mcpp", "database", "engine", "request-timeout", "log-level", "tool-timeout",
-                                         "model-source", "model-gateway", "model-name", "model-budget", "idle-minutes" }) {
+    for (const auto& row : config::settings::registry()) {
+        if (row.surface != config::settings::Surface::server || row.commandLine.empty()) continue;
+        const std::string flag { row.commandLine.substr(2) };
+        if (row.kind == config::settings::Kind::boolean) {
+            if (args.is_flag_set(flag)) forwarded.push_back(row.commandLine);
+            continue;
+        }
+        if (row.kind == config::settings::Kind::list && row.commandLineRepeatable) {
+            for (const auto& value : args.option_or_empty(flag).values) forwarded.insert(forwarded.end(), { row.commandLine, value });
+            continue;
+        }
+        if (auto value = args.value(flag)) forwarded.insert(forwarded.end(), { row.commandLine, *value });
+    }
+    for (const std::string_view name : { "model-source", "model-gateway", "model-name", "model-budget", "idle-minutes", "tool-timeout" }) {
         if (auto value = args.value(name)) forwarded.insert(forwarded.end(), { std::format("--{}", name), *value });
     }
     for (const auto& pattern : args.option_or_empty("model-exclude").values) forwarded.insert(forwarded.end(), { "--model-exclude", pattern });
-    for (const auto& id : args.option_or_empty("disable-workaround").values) forwarded.insert(forwarded.end(), { "--disable-workaround", id });
-    for (const std::string_view flag : { "untrusted", "no-discover" }) {
-        if (args.is_flag_set(flag)) forwarded.push_back(std::format("--{}", flag));
-    }
     return forwarded;
 }
 
@@ -210,21 +215,21 @@ int run(int argc, char* argv[]) {
     cmdline::App app { "mcppls" };
     (void)app.version(std::string { base::VERSION });
     (void)app.description("Compiler-agnostic C++ modules language server");
-    (void)app.option("payload").takes_value().global(true).help("Payload directory with clangd and the semantic kit");
-    (void)app.option("clangd").takes_value().global(true).help("clangd executable (overrides the payload)");
-    (void)app.option("kit").takes_value().global(true).help("Semantic kit directory (overrides the payload)");
-    (void)app.option("mcpp").takes_value().global(true).help("The mcpp executable for mcpp projects (default: found on PATH)");
-    (void)app.option("database").takes_value().global(true).help("A workspace's own S1 build database, relative to its root");
-    (void)app.option("untrusted").global(true).help("Do not run build tools or compilers");
-    (void)app.option("no-discover").global(true).help("Do not look for compilers; loose sources use the semantic kit");
-    (void)app.option("log-level").takes_value().global(true).help("debug | info | warning | error");
-    (void)app.option("request-timeout").takes_value().global(true).help("Seconds before an engine request is answered without it");
-    (void)app.option("build-tool").takes_value().global(true).help("How the project's build tool may be run: offline (default), online, off");
-    (void)app.option("tool-environment").takes_value().global(true).help("Which environment build tools run in: auto (the login shell on POSIX) or editor");
-    (void)app.option("producer-timeout").takes_value().global(true).help("Seconds a build tool may take to describe the project (default 60, or 600 when online)");
-    (void)app.option("engine").takes_value().global(true).help("The core semantic engine: clangd (default) or none, mcppls's own module features only");
-    (void)app.option("disable-workaround").takes_value().multiple().global(true).help("Turn off a registered clangd workaround (WA-CLANGD-<n>, see mcppls report); repeatable");
+    // Every global option below a registered server setting's command-line spelling (config::settings
+    // registry, 0.0.6 plan §9 T1: one definition, everything else -- `session_options`, this help
+    // text, `mcppls settings`, `mcppls report`, the docs -- derived from it).
+    for (const auto& row : config::settings::registry()) {
+        if (row.surface != config::settings::Surface::server || row.commandLine.empty()) continue;
+        const std::string flag { row.commandLine.substr(2) };
+        (void)app.option(flag)
+            .global(true)
+            .help(row.summary)
+            .takes_value(row.kind != config::settings::Kind::boolean)
+            .multiple(row.kind == config::settings::Kind::list && row.commandLineRepeatable);
+    }
     // Language clients pass these by convention; this server always speaks over its standard streams.
+    // They are not settings (nothing about mcppls's own behaviour follows from either), so they are
+    // not registry rows.
     (void)app.option("stdio").global(true).help("Accepted for language clients; standard input and output are always used");
     (void)app.option("clientProcessId").takes_value().global(true).help("Accepted for language clients; not used");
     (void)app.action(serve);
@@ -282,7 +287,7 @@ int run(int argc, char* argv[]) {
         const engine::PayloadPaths payload { engine::resolve_payload(engine::PayloadRequest { options.session.payloadDirectory, options.session.clangd,
                                                                                                options.session.kit, options.session.engine }) };
         Json report = orchestrator::make_report(std::move(roots), Json { { "name", "mcppls report" } }, options.session.engine, payload, false,
-                                                std::chrono::steady_clock::now() - started);
+                                                std::chrono::steady_clock::now() - started, options.session.settings.to_json());
         const bool redact { !args.is_flag_set("no-redact") };
         if (auto output = args.value("bundle")) {
             // Before the kernel shuts down: a second instance's private cache, with its engine database, goes with it.
@@ -441,6 +446,7 @@ int run(int argc, char* argv[]) {
     (void)app.subcommand(impact_command(handled, status));
     (void)app.subcommand(review_command(handled, status));
     (void)app.subcommand(cache_command(handled, status));
+    (void)app.subcommand(settings_command(handled, status));
 
     cmdline::App versionCommand { "version" };
     (void)versionCommand.description("Print the version");

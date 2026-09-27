@@ -1,0 +1,108 @@
+{
+  "name": "mcpp-partition-definition",
+  "description": "Plan 2026-09-27 N-7 (WA-CLANGD-008): clangd's background index compiles a module unit without building the modules it imports, so a definition in an implementation unit is indexed apart from its declaration -- here, functions and members declared in a partition (:state) with class-type parameters, defined in other units of the module, stayed on their declarations whatever the wait. With only the callers open, go-to-definition now reaches the implementation units, because the server builds them through clangd's foreground and closes them again. N-8: when clangd's index cannot link a declaration to its definition even with the unit open (a primary-interface function whose declaration has default arguments), the definition is found by name in the module's units; asked on a definition, the answer stays its declaration.",
+  "checks": [
+    {
+      "id": "N1-a-free-function-with-a-partition-type",
+      "kind": "definition",
+      "file": "src/driver.cpp",
+      "at": [
+        6,
+        4
+      ],
+      "expect": "src/phase_a.cpp",
+      "timeout": 90
+    },
+    {
+      "id": "N2-another-unit-of-the-module",
+      "kind": "definition",
+      "file": "src/driver.cpp",
+      "at": [
+        7,
+        4
+      ],
+      "expect": "src/phase_b.cpp",
+      "timeout": 60
+    },
+    {
+      "id": "N3-a-parameter-from-another-partition",
+      "kind": "definition",
+      "file": "src/driver.cpp",
+      "at": [
+        11,
+        26
+      ],
+      "expect": "src/phase_b.cpp",
+      "timeout": 60
+    },
+    {
+      "id": "N4-a-std-parameter",
+      "kind": "definition",
+      "file": "src/driver.cpp",
+      "at": [
+        10,
+        4
+      ],
+      "expect": "src/phase_b.cpp",
+      "timeout": 60
+    },
+    {
+      "id": "N5-a-member-of-a-partition-class",
+      "kind": "definition",
+      "file": "src/driver.cpp",
+      "at": [
+        9,
+        15
+      ],
+      "expect": "src/phase_b.cpp",
+      "timeout": 60
+    },
+    {
+      "id": "N6-declaration-stays-the-declaration",
+      "kind": "declaration",
+      "file": "src/driver.cpp",
+      "at": [
+        6,
+        4
+      ],
+      "expect": "src/state.cppm"
+    },
+    {
+      "id": "N7-from-an-importer-of-the-module",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        8,
+        50
+      ],
+      "expect": "src/driver.cpp",
+      "timeout": 60
+    },
+    {
+      "id": "N9-a-function-whose-declaration-has-defaults",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        9,
+        30
+      ],
+      "expect": "src/driver.cpp",
+      "timeout": 60
+    },
+    {
+      "id": "N10-from-the-definition-back-to-the-declaration",
+      "kind": "definition",
+      "file": "src/driver.cpp",
+      "at": [
+        15,
+        0
+      ],
+      "expect": "src/greet.cppm",
+      "timeout": 60
+    },
+    {
+      "id": "N8-nothing-was-written-into-the-project",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}

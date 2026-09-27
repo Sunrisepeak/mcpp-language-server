@@ -223,6 +223,13 @@ FailureKind failure_kind(const ModuleFailure& failure) {
     return FailureKind::other;
 }
 
+FailureAction failure_action(FailureKind kind, const FailureContext& context) {
+    if (kind == FailureKind::unresolved && context.providerPlanned && !context.providerRead) return FailureAction::ignore;
+    const bool kitHelps { kind == FailureKind::compile || (kind == FailureKind::unresolved && !context.providerPlanned) };
+    if (context.standardLibrary && kitHelps && !context.alreadyOnKit) return FailureAction::use_kit;
+    return FailureAction::record;
+}
+
 std::string parse_clangd_version(std::string_view output) {
     for (auto line : base::split_lines(output)) {
         const std::size_t marker { line.find("clangd version ") };

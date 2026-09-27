@@ -10,6 +10,7 @@
 export module mcppls.project.generated;
 
 import std;
+import mcppls.spec.database;
 import mcppls.project.infer;
 
 export namespace mcppls::project {
@@ -27,5 +28,24 @@ struct GeneratedSourceOptions {
 // `target/` mcpp built once and the project later deleted). Bounded: only these two conventional
 // locations are read, never the whole home directory or a general recursive search.
 std::optional<std::string> find_generated_source(std::string_view moduleName, const GeneratedSourceOptions& options);
+
+// Generated build output a producer describes but never writes (plan 2026-09-27 Q1-3). mcpp plans in a
+// private directory, `$MCPP_HOME/cache/build-database/<key>/`, and by its own specification runs no action
+// there (SPEC-005 R2.1, R2.5), so what a rule's action generates -- `ui_mainwindow.h` from uic, moc's and
+// rcc's sources -- is named in the database and never appears. A build of the project puts the same files
+// under the project's own `target/`, at the same relative path. Include directories and sources in the
+// private directory are replaced by the project's counterpart when that exists, read-only; the ones whose
+// counterpart does not exist yet are reported, with where a build will put them, so the model is loaded
+// again when it does.
+struct GeneratedPaths {
+    std::vector<std::string> relocated;   // private paths the project's own build output replaced
+    std::vector<std::string> missing;     // private paths with nothing in them yet and no counterpart in the project
+    std::vector<std::string> watch;       // glob patterns, relative to the root, where a build writes what is missing
+};
+GeneratedPaths use_project_build_output(spec::Database& database, std::string_view root);
+
+// The part of `path` after a producer's private planning directory's `target/`, or nullopt when `path` is not
+// in one: `<anything>/cache/build-database/<key>/target/.build-mcpp/out/qt` -> `.build-mcpp/out/qt`.
+std::optional<std::string> private_target_relative(std::string_view path);
 
 } // namespace mcppls::project

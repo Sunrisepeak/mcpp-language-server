@@ -7,7 +7,7 @@ namespace mcppls::engine::clangd {
 
 namespace {
 
-constexpr std::array<Workaround, 7> REGISTRY { {
+constexpr std::array<Workaround, 8> REGISTRY { {
     {
         .id = TRAILING_DOT_MODULE_NAME,
         .title = "a module name ending in '.' at the end of its line spins clangd forever; clangd is given the line with ';' after the dot",
@@ -84,6 +84,17 @@ constexpr std::array<Workaround, 7> REGISTRY { {
         .removeWhen = "clangd scans an open file's imports from its buffer (ModuleDependencyScanner through the dirty-buffer file system)",
         .canary = "",
         .premise = "the module is provided by a unit of the engine database, and the import is in the buffer but not on disk",
+    },
+    {
+        .id = BACKGROUND_INDEX_WITHOUT_MODULES,
+        .title = "clangd's background index compiles a module unit without building its modules, so a definition in an implementation unit is indexed apart from its declaration or not at all; the server builds implementation units through clangd's foreground",
+        .fixedIn = "",
+        .upstream = "unfiled; the symptoms of clangd/clangd#2569 (references and rename inside modules)",
+        .evidence = ".agents/docs/2026-09-27-qt-demo-navigation-discovery-plan.md §2.3 (BackgroundIndex::index has no ModulesBuilder); conformance fixture mcpp-partition-definition",
+        .added = "0.0.6",
+        .removeWhen = "clangd's background index builds the modules a unit imports before indexing it",
+        .canary = "",
+        .premise = "a unit clangd has built in the foreground keeps its symbols in clangd's index after it is closed",
     },
 } };
 

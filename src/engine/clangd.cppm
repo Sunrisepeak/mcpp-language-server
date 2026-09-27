@@ -32,6 +32,10 @@ struct Options {
     std::chrono::milliseconds stuckWatch { std::chrono::seconds { 5 } };
     std::vector<std::string> extraArguments;
     std::vector<std::string> disabledWorkarounds;   // registered workarounds turned off (import-hang plan §9)
+    // mcppls.index.primeImplementationUnits (plan 2026-09-27 N-7): implementation units are built through clangd's
+    // foreground in the background, so go-to-definition reaches them; off leaves only the search a definition request starts.
+    bool primeImplementationUnits { true };
+    std::chrono::milliseconds implementationIdle { std::chrono::seconds { 15 } };   // how long clangd is idle before the rest are built (tests shorten it)
     std::function<std::unique_ptr<Process>()> processFactory;   // empty: a real clangd process
 };
 

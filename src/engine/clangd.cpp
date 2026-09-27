@@ -36,6 +36,7 @@ EngineTraits traits_for_version(std::string_view version, std::span<const std::s
         .hangsOnUnresolvedImports = on(UNRESOLVED_IMPORT_STAND_INS),
         .needsModulePreparation = on(MODULE_PREPARATION),
         .needsModuleHints = on(MODULE_HINTS),
+        .indexesModuleUnitsWithoutModules = on(BACKGROUND_INDEX_WITHOUT_MODULES),
         .msvcStlNeedsNoAlignedAllocation = on(MSVC_STL_ALIGNED_ALLOCATION),
         .hangsOnTrailingDotModuleName = on(TRAILING_DOT_MODULE_NAME),
         .misplacesDirectiveSemicolon = on(DIRECTIVE_SEMICOLON_POSITION),
@@ -304,8 +305,11 @@ private:
     static constexpr std::chrono::seconds DEFINITION_PATIENCE { 8 };
     static constexpr std::chrono::minutes BACKGROUND_IDLE { 10 };
     static constexpr std::chrono::minutes BACKGROUND_BUILD_LIMIT { 2 };
+    static constexpr std::size_t WATCHED_BATCH_LIMIT { 20 };   // plan 2026-09-27 D3
     static constexpr std::size_t BACKGROUND_UNITS { 12 };
     static constexpr std::size_t UNITS_PER_SEARCH { 4 };
+    static constexpr std::size_t IMPLEMENTATIONS_AT_ONCE { 2 };          // N-7: units being built for the index at the same time
+    static constexpr std::size_t IMPLEMENTATIONS_PER_OPEN { 16 };        // N-7: relevant units queued for one opened file
     std::map<std::string, std::vector<UnitOfModule>, std::less<>> moduleUnits_;   // module -> its units other than its interface
     std::map<std::string, std::string, std::less<>> interfaceModules_;          // path key of an importable unit -> its module
     struct BackgroundUnit {
@@ -315,14 +319,39 @@ private:
         Clock::time_point usedAt;
         bool built { false };
         std::string state;   // clangd's last fileStatus state for it
+        bool priming { false };   // opened to put its definitions in clangd's index (N-7), not for a waiting request
     };
     std::map<std::string, BackgroundUnit, std::less<>> background_;           // path key
     std::set<std::string, std::less<>> closedBackground_;                     // path keys whose closing diagnostics are still to come
     std::map<std::string, std::optional<platform::fs::FileStamp>, std::less<>> backgroundRefused_;   // units that did not build in time, as they were
+    // Plan 2026-09-27 N-7 (WA-CLANGD-008). clangd's background index compiles a module unit without building the modules
+    // it imports, so a definition in an implementation unit is indexed apart from its declaration, or not at all, until
+    // the unit has been open. Implementation units are therefore opened here, a few at a time, built through clangd's
+    // foreground -- which builds their modules first -- and closed again: their symbols stay in clangd's index.
+    // Relevant ones first (the units of an opened file's module and of the modules it imports, and units changed on
+    // disk), the rest once clangd has been idle for a while. A restart of clangd loses what its index held.
+    struct ImplementationUnit {
+        std::string path;
+        std::string module;
+    };
+    std::deque<ImplementationUnit> implementationQueue_;
+    std::set<std::string, std::less<>> implementationQueued_;                                        // path keys
+    std::map<std::string, std::optional<platform::fs::FileStamp>, std::less<>> implementationBuilt_;   // path key -> the file as it was built
+    std::map<std::string, std::string, std::less<>> implementationUnreadable_;                        // path key -> why it did not build (N-3)
+    bool implementationSeedOpen_ { true };        // the open documents' relevant units are still to be queued
+    bool implementationRestQueued_ { false };
+    std::optional<Clock::time_point> implementationRestAt_;
+    // Plan 2026-09-27 N-8: a declaration clangd answered a definition request with, read lexically.
+    struct DeclarationSite {
+        std::string path;
+        std::string module;
+        DeclaredFunction function;
+    };
     struct DefinitionSearch {
         Json message;          // the client's request
         Json firstAnswer;      // clangd's answer before the units were built
         Reply reply;
+        std::vector<DeclarationSite> sites;   // what the first answer declares, for the lexical answer if clangd's stays a declaration
         std::set<std::string> waitingFor;   // path keys
         Clock::time_point deadline;
         Clock::time_point limit;            // the client's request's own limit (wait_limit), which the search stays within
@@ -408,6 +437,9 @@ public:
             { "filesWaitingForDatabase", held_files_() },
             { "fileStates", fileStatus_ },
             { "backgroundUnits", background_files_() },
+            // N-7 (WA-CLANGD-008): implementation units built for clangd's index, waiting, and the ones that did not build.
+            { "implementationIndex", Json { { "built", implementationBuilt_.size() }, { "queued", implementationQueue_.size() },
+                                            { "unreadable", implementationUnreadable_.size() }, { "on", priming_implementations_() } } },
             { "definitionSearches", searches_.size() },
             { "unresolvedModules", std::move(unresolved) },
             { "modulesThatDidNotCompile", std::move(compileFailures) },
@@ -693,6 +725,10 @@ public:
             if (!entry.imports.empty()) fileImports_[key] = entry.imports;
             if (!entry.module.empty()) fileModule_[key] = entry.module;
         }
+        // N-7: the units of this plan, for the open documents first and the rest once clangd is idle again.
+        implementationSeedOpen_ = true;
+        implementationRestQueued_ = false;
+        if (std::erase_if(implementationUnreadable_, [&](const auto& item) { return !writtenArguments_.contains(item.first); }) > 0) update_unreadable_issue_();
         std::vector<std::string> backgroundLeaving;
         for (const auto& [key, unit] : background_) {
             if (!writtenArguments_.contains(key) || excluded_.contains(key) || restartNeeded) backgroundLeaving.push_back(key);
@@ -743,6 +779,8 @@ public:
             if (accepting_) {
                 open_or_hold_(document, false);
                 prepare_imports_of_(document);
+                queue_implementations_of_(document.path);
+                pump_implementations_(Clock::now());
             } else if (!document.path.empty() && !writtenDatabase_.empty() && !writtenArguments_.contains(base::path_key(document.path))
                        && project::is_cxx_source_name(document.path) && base::is_within(document.path, host_->root_directory())) {
                 // Opened while clangd restarts: the database it reads may not have the file yet. Before the first plan nothing is
@@ -814,6 +852,21 @@ public:
             // Fix plan F16: a change on disk (from another program, or an editor that does not send didSave) is
             // looked at the same way, and a file whose disk text would spin clangd is left out of what it is told.
             if (const Json* changes = lsp::find_path(message, { "params", "changes" }); changes != nullptr && changes->is_array()) {
+                // N-7: clangd's background index does not index a unit again when it changes on disk; a unit the editor
+                // does not have open (a git pull, another program, a coding agent) is built again for the index. A batch
+                // larger than WATCHED_BATCH_LIMIT (a checkout, a rebase) only joins the rest, behind what was queued first.
+                const bool first { changes->size() <= WATCHED_BATCH_LIMIT };
+                for (const auto& change : *changes) {
+                    if (!change.is_object() || change.value("type", 0) == 3) continue;
+                    const std::string path { host_->path_of_uri(change.value("uri", std::string {})) };
+                    if (path.empty()) continue;
+                    const std::string key { base::path_key(path) };
+                    const auto module = fileModule_.find(key);
+                    if (module == fileModule_.end() || interfaceModules_.contains(key)) continue;
+                    implementationBuilt_.erase(key);
+                    queue_implementation_(path, module->second, first);
+                }
+                pump_implementations_(Clock::now());
                 Json kept = Json::array();
                 for (const auto& change : *changes) {
                     const std::string path { change.is_object() ? host_->path_of_uri(change.value("uri", std::string {})) : std::string {} };
@@ -1059,11 +1112,14 @@ public:
             for (const auto& waiting : requests) consider(waiting.limit);
         }
         for (const auto& [key, unit] : background_) consider(unit.built ? unit.usedAt + BACKGROUND_IDLE : unit.openedAt + BACKGROUND_BUILD_LIMIT);
+        consider(implementationRestAt_);
         return deadline;
     }
 
     void handle_timers() override {
         const auto now = Clock::now();
+        if (implementationRestAt_ && *implementationRestAt_ <= now) queue_rest_of_implementations_(now);
+        else if (!implementationQueue_.empty() && !primer_.busy()) pump_implementations_(now);   // preparation ended another way
         if (pendingExit_ && now >= pendingExit_->at + EXIT_CONTEXT_WAIT) settle_exit_();
         if (!closingAfterBuild_.empty()) settle_disk_builds_(now);
         if (diskRecheckAt_ && *diskRecheckAt_ <= now) recheck_disk_(now);
@@ -1248,6 +1304,7 @@ private:
 
     void start_process_() {
         handshakeDone_ = false;
+        forget_implementations_();   // a new clangd's index has none of what the last one was given
         loadFailure_.reset();
         accepting_ = false;
         stuck_.clear();
@@ -1721,6 +1778,7 @@ private:
             }
         }
         prepare_modules_();
+        pump_implementations_(Clock::now());
         host_->status_changed();
     }
 
@@ -1815,10 +1873,16 @@ private:
             if (const auto unit = background_.find(diagnosedKey); unit != background_.end() && !host_->has_document(uri)) {
                 if (!unit->second.built) {
                     unit->second.built = true;
-                    log::info("{} built in clangd in {} ms to find definitions ({})", unit->second.path,
-                              std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - unit->second.openedAt).count(), host_->root_directory());
+                    const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - unit->second.openedAt).count();
+                    if (unit->second.priming) log::debug("{} built in clangd in {} ms for its index ({})", unit->second.path, took, host_->root_directory());
+                    else log::info("{} built in clangd in {} ms to find definitions ({})", unit->second.path, took, host_->root_directory());
                 }
+                // Every unit built here, for a search or for the index, is now in clangd's index (N-7).
+                implementation_built_(diagnosedKey, unit->second, params.value("diagnostics", Json::array()));
+                const bool priming { unit->second.priming };
                 unit_built_(diagnosedKey);
+                if (priming && !waited_on_(diagnosedKey)) close_background_(diagnosedKey);
+                pump_implementations_(Clock::now());
                 return;
             }
             // The empty list clangd sends when such a unit is closed, even when the editor opens the file right after.
@@ -1998,7 +2062,24 @@ private:
         const auto standard = moduleSources_.find("std");
         const bool stdFailed { parsed.module == "std" || parsed.module == "std.compat"
                                || (kind == FailureKind::compile && standard != moduleSources_.end() && base::same_path(parsed.failedSource, standard->second)) };
-        if (stdFailed && kind != FailureKind::other && !stdFromKit_) {
+        // Plan 2026-09-27 Q1-4: "no unit for module M" from a clangd that has not read the database the unit
+        // joined yet is about the database it had, not the one it has now. qt-demo: std.cc joined the database
+        // and 78 ms later clangd, still on the previous one, answered "Don't get the module unit for module std";
+        // taken at its word, the whole project was moved to the semantic kit and clangd restarted twice.
+        // Q1-1 (D4'): the kit replaces the toolchain's standard library only when its unit failed to compile, or
+        // when the plan has no unit for it at all; a unit the plan has and clangd has read but still "does not
+        // get" is a scanning problem of the files that import it, which the kit would not make any better.
+        const auto provider = moduleSources_.find(parsed.module);
+        const bool providerPlanned { provider != moduleSources_.end() && !generated_path_(provider->second) };
+        const FailureAction action { failure_action(kind, FailureContext { .standardLibrary = stdFailed, .providerPlanned = providerPlanned,
+                                                                           .providerRead = engine_read_unit_of_(parsed.module, Clock::now()),
+                                                                           .alreadyOnKit = stdFromKit_ }) };
+        if (action == FailureAction::ignore) {
+            log::info("clangd has not read the unit of module {} yet ({}): {}; not taken as a failure", parsed.module, host_->root_directory(), parsed.reason);
+            host_->record_event("module-unresolved-before-read", Json { { "module", parsed.module }, { "reason", parsed.reason } });
+            return;
+        }
+        if (action == FailureAction::use_kit) {
             stdFromKit_ = true;
             log::warning("clangd could not build the standard library module ({}): {}; reading the project with the semantic kit",
                          host_->root_directory(), parsed.reason);
@@ -2481,11 +2562,8 @@ private:
             if (name == "std" || name == "std.compat" || resolvedElsewhere_.contains(name)) continue;
             const bool fresh { planned == fileImports_.end() || std::ranges::find(planned->second, name) == planned->second.end() };
             if (!fresh && !watched) continue;
-            const auto joined = moduleJoinedAt_.find(name);
-            if (joined == moduleJoinedAt_.end()) return std::format("it imports {}, which the engine database has no unit for yet (UP-02)", name);
-            // A clangd that has read no database yet reads this one, whole, when it is given its first file.
-            const bool read { !databaseRead_ || (databaseReadAt_ && *databaseReadAt_ >= joined->second) || now >= joined->second + DATABASE_REREAD };
-            if (!read) return std::format("it imports {}, whose unit clangd has not read from the engine database yet (UP-02)", name);
+            if (!moduleJoinedAt_.contains(name)) return std::format("it imports {}, which the engine database has no unit for yet (UP-02)", name);
+            if (!engine_read_unit_of_(name, now)) return std::format("it imports {}, whose unit clangd has not read from the engine database yet (UP-02)", name);
         }
         return std::nullopt;
     }
@@ -2629,6 +2707,16 @@ private:
     // ---- fix plan F13, F17.3: what a plan changed ------------------------------------------------
 
     // Stand-ins and prime units: files this server writes, which nothing but clangd's own lookups ever builds.
+    // Whether this clangd has read the engine database that gave `module` its current unit. A clangd that
+    // has read no database yet reads this one, whole, when it is given its first file; one that read an
+    // earlier database rereads it within DATABASE_REREAD. A module whose unit has been there since before
+    // this clangd started (no join recorded) is read.
+    bool engine_read_unit_of_(std::string_view module, Clock::time_point now) const {
+        const auto joined = moduleJoinedAt_.find(module);
+        if (joined == moduleJoinedAt_.end()) return true;
+        return !databaseRead_ || (databaseReadAt_ && *databaseReadAt_ >= joined->second) || now >= joined->second + DATABASE_REREAD;
+    }
+
     bool generated_path_(std::string_view path) const {
         const auto within = [&](const std::string& directory) {
             return !directory.empty() && (base::is_within(path, directory) || base::is_within(path, base::path_key(directory)));
@@ -2982,26 +3070,95 @@ private:
         }
     }
 
+    // The text of `path` as the editor has it, else as it is on disk.
+    std::optional<std::string> text_of_(const std::string& path) const {
+        for (const auto& document : host_->documents()) {
+            if (!document.path.empty() && base::same_path(document.path, path)) return std::string { document.text };
+        }
+        auto read = platform::fs::read_file(path);
+        if (!read) return std::nullopt;
+        return std::move(*read);
+    }
+
     DeclarationKind declaration_kind_at_(const std::string& path, const Json& range) const {
         const Json* end { lsp::find(range, "end") };
         if (end == nullptr || !end->is_object()) return DeclarationKind::unknown;
         const base::Position position { end->value("line", 0), end->value("character", 0) };
-        std::string text;
-        bool open { false };
-        for (const auto& document : host_->documents()) {
-            if (!document.path.empty() && base::same_path(document.path, path)) {
-                text = std::string { document.text };
-                open = true;
-                break;
+        const auto text = text_of_(path);
+        if (!text) return DeclarationKind::unknown;
+        const auto offset = base::offset_at(*text, position);
+        return offset ? declaration_kind(*text, *offset) : DeclarationKind::unknown;
+    }
+
+    // Whether a definition request was made on a definition (a body follows the name it is on).
+    bool request_on_definition_(const Json& message) const {
+        const Json* params { lsp::find(message, "params") };
+        const Json* uri { params != nullptr ? lsp::find_path(*params, { "textDocument", "uri" }) : nullptr };
+        const Json* position { params != nullptr ? lsp::find(*params, "position") : nullptr };
+        if (uri == nullptr || !uri->is_string() || position == nullptr || !position->is_object()) return false;
+        const std::string path { host_->path_of_uri(uri->get<std::string>()) };
+        const auto text = path.empty() ? std::nullopt : text_of_(path);
+        if (!text) return false;
+        auto offset = base::offset_at(*text, base::Position { position->value("line", 0), position->value("character", 0) });
+        if (!offset) return false;
+        std::size_t end { *offset };
+        while (end < text->size() && (base::is_identifier_char((*text)[end]) || (*text)[end] == '~')) ++end;
+        return end > *offset && declaration_kind(*text, end) == DeclarationKind::definition;
+    }
+
+    // Plan 2026-09-27 N-8. When every location of `answer` is a declaration without a body in a module's interface
+    // (a partition's included), the functions they declare, read lexically; empty otherwise.
+    std::vector<DeclarationSite> declaration_sites_(const Json& answer) const {
+        std::vector<DeclarationSite> sites;
+        bool onlyDeclarations { true };
+        std::size_t locations { 0 };
+        for_each_location_(answer, [&](const std::string& uri, const Json& range) {
+            ++locations;
+            const std::string path { host_->path_of_uri(uri) };
+            const auto module = path.empty() ? interfaceModules_.end() : interfaceModules_.find(base::path_key(path));
+            if (module == interfaceModules_.end() || declaration_kind_at_(path, range) != DeclarationKind::declaration) {
+                onlyDeclarations = false;
+                return;
+            }
+            const Json* start { lsp::find(range, "start") };
+            const auto text = text_of_(path);
+            if (start == nullptr || !text) return;
+            const auto offset = base::offset_at(*text, base::Position { start->value("line", 0), start->value("character", 0) });
+            if (!offset) return;
+            if (auto function = declared_function_at(*text, *offset)) sites.push_back(DeclarationSite { path, module->second, std::move(*function) });
+        });
+        if (locations == 0 || !onlyDeclarations) sites.clear();
+        return sites;
+    }
+
+    // Plan 2026-09-27 N-8. The definitions of what `sites` declare, found lexically in the other units of their modules
+    // (the interface and its partitions included): what clangd's index could not link to the declaration (its
+    // background index builds no module a unit imports, WA-CLANGD-008). Only an exact match counts -- same name,
+    // scopes that agree, the same parameter types as spelled -- so a definition this cannot tell apart is not guessed at.
+    Json lexical_definitions_(const std::vector<DeclarationSite>& sites) const {
+        Json locations = Json::array();
+        std::set<std::string, std::less<>> seen;
+        for (const auto& site : sites) {
+            std::vector<std::string> candidates;
+            if (const auto units = moduleUnits_.find(site.module); units != moduleUnits_.end()) {
+                for (const auto& unit : units->second) candidates.push_back(unit.path);
+            }
+            if (const auto interface = moduleSources_.find(site.module); interface != moduleSources_.end()) candidates.push_back(interface->second);
+            for (const auto& candidate : candidates) {
+                const auto text = text_of_(candidate);
+                if (!text) continue;
+                for (const auto& definition : function_definitions(*text, site.function.name)) {
+                    if (!same_function(site.function, definition)) continue;
+                    const std::string key { std::format("{}:{}", base::path_key(candidate), definition.nameOffset) };
+                    if (!seen.insert(key).second) continue;
+                    const auto& range = definition.nameRange;
+                    locations.push_back(Json { { "uri", base::path_to_uri(candidate) },
+                                               { "range", Json { { "start", Json { { "line", range.start.line }, { "character", range.start.character } } },
+                                                                 { "end", Json { { "line", range.end.line }, { "character", range.end.character } } } } } });
+                }
             }
         }
-        if (!open) {
-            auto read = platform::fs::read_file(path);
-            if (!read) return DeclarationKind::unknown;
-            text = std::move(*read);
-        }
-        const auto offset = base::offset_at(text, position);
-        return offset ? declaration_kind(text, *offset) : DeclarationKind::unknown;
+        return locations;
     }
 
     // clangd's answer to a definition request. When every location it gives is a declaration only, in a module's interface,
@@ -3010,6 +3167,13 @@ private:
     // not built yet waits within it, never past it.
     void search_definition_(const Json& message, Answer answer, Reply reply, Clock::time_point limit) {
         if (answer.kind != Answer::Kind::result || !accepting_) {
+            reply(std::move(answer));
+            return;
+        }
+        // Asked on a definition, clangd's answer is its declaration, which is the answer: the editors' convention of
+        // going back and forth between the two (plan 2026-09-27 §2.1). Nothing to search for.
+        std::vector<DeclarationSite> sites { request_on_definition_(message) ? std::vector<DeclarationSite> {} : declaration_sites_(answer.value) };
+        if (sites.empty() && request_on_definition_(message)) {
             reply(std::move(answer));
             return;
         }
@@ -3037,8 +3201,13 @@ private:
             const auto units = moduleUnits_.find(module);
             if (units == moduleUnits_.end()) continue;
             const auto interface = moduleSources_.find(module);
-            for (const auto& path : units_to_search(interface == moduleSources_.end() ? std::string_view {} : std::string_view { interface->second },
-                                                    units->second, UNITS_PER_SEARCH)) {
+            // N-8: the units that define the name come first; the rest in the order the file names suggest.
+            const auto site = std::ranges::find_if(sites, [&](const DeclarationSite& each) { return each.module == module; });
+            const std::vector<std::string> chosen { site != sites.end()
+                ? units_defining(site->function.name, units->second, [this](const std::string& path) { return text_of_(path); }, UNITS_PER_SEARCH)
+                : units_to_search(interface == moduleSources_.end() ? std::string_view {} : std::string_view { interface->second }, units->second,
+                                  UNITS_PER_SEARCH) };
+            for (const auto& path : chosen) {
                 const std::string key { base::path_key(path) };
                 if (const auto uri = editor_uri_of_(key)) {
                     // The editor has it open: clangd builds it anyway.
@@ -3057,11 +3226,17 @@ private:
             }
         }
         if (waiting.empty()) {
+            // Every unit that could define it is built already, and clangd still only knows the declaration (O-1).
+            if (Json found = lexical_definitions_(sites); !found.empty()) {
+                host_->record_event("definition-lexical", Json { { "modules", Json(std::vector<std::string> { modules.begin(), modules.end() }) } });
+                reply(Answer { Answer::Kind::result, std::move(found) });
+                return;
+            }
             reply(std::move(answer));
             return;
         }
         if (!opened.empty()) host_->record_event("definition-search", Json { { "modules", Json(std::vector<std::string> { modules.begin(), modules.end() }) }, { "opened", opened } });
-        searches_.push_back(DefinitionSearch { message, std::move(answer.value), std::move(reply), std::move(waiting),
+        searches_.push_back(DefinitionSearch { message, std::move(answer.value), std::move(reply), std::move(sites), std::move(waiting),
                                               std::min(now + DEFINITION_PATIENCE, limit), limit });
     }
 
@@ -3075,7 +3250,7 @@ private:
         return std::nullopt;
     }
 
-    bool open_in_background_(const std::string& path, std::string_view module, Clock::time_point now) {
+    bool open_in_background_(const std::string& path, std::string_view module, Clock::time_point now, bool priming = false) {
         const std::string key { base::path_key(path) };
         if (const auto refused = backgroundRefused_.find(key); refused != backgroundRefused_.end()) {
             if (platform::fs::stamp(path) == refused->second) return false;
@@ -3106,8 +3281,9 @@ private:
         if (!send_(lsp::make_notification("textDocument/didOpen", std::move(params)))) return false;
         note_database_read_();
         closedBackground_.erase(key);
-        background_[key] = BackgroundUnit { path, uri, now, now, false, {} };
-        log::info("opening {} in clangd to find definitions in module {} ({})", path, module, host_->root_directory());
+        background_[key] = BackgroundUnit { path, uri, now, now, false, {}, priming };
+        if (priming) log::debug("opening {} in clangd to index its definitions (module {}, {})", path, module, host_->root_directory());
+        else log::info("opening {} in clangd to find definitions in module {} ({})", path, module, host_->root_directory());
         return true;
     }
 
@@ -3122,6 +3298,147 @@ private:
             closedBackground_.insert(key);
         }
         background_.erase(unit);
+    }
+
+    // ---- implementation units in clangd's index (plan 2026-09-27 N-7, WA-CLANGD-008) ------------------
+
+    bool priming_implementations_() const { return options_.primeImplementationUnits && traits_.indexesModuleUnitsWithoutModules; }
+
+    // Whether `path` went into the queue: not when it is there already, was built as it is, or the editor has it.
+    bool queue_implementation_(const std::string& path, const std::string& module, bool first) {
+        if (!priming_implementations_()) return false;
+        const std::string key { base::path_key(path) };
+        if (implementationQueued_.contains(key) || !writtenArguments_.contains(key)) return false;
+        if (const auto built = implementationBuilt_.find(key); built != implementationBuilt_.end() && built->second == platform::fs::stamp(path)) return false;
+        // The editor has it open: clangd builds it anyway.
+        if (editor_uri_of_(key)) return false;
+        implementationQueued_.insert(key);
+        if (first) implementationQueue_.push_front(ImplementationUnit { path, module });
+        else implementationQueue_.push_back(ImplementationUnit { path, module });
+        return true;
+    }
+
+    // The units of `path`'s own module and of the modules it imports directly: where a definition it reaches is.
+    void queue_implementations_of_(std::string_view path) {
+        if (!priming_implementations_() || path.empty()) return;
+        const std::string key { base::path_key(path) };
+        std::vector<std::string> modules;
+        auto add_module = [&](std::string_view name) {
+            const std::string primary { name.substr(0, name.find(':')) };   // a partition belongs to its module's units
+            if (!primary.empty() && std::ranges::find(modules, primary) == modules.end()) modules.push_back(primary);
+        };
+        if (const auto own = fileModule_.find(key); own != fileModule_.end()) add_module(own->second);
+        if (const auto imports = fileImports_.find(key); imports != fileImports_.end()) {
+            for (const auto& name : imports->second) {
+                if (name.starts_with(':')) {
+                    if (const auto own = fileModule_.find(key); own != fileModule_.end()) add_module(own->second);
+                } else {
+                    add_module(name);
+                }
+            }
+        }
+        std::size_t queued { 0 };
+        for (const auto& module : modules) {
+            const auto units = moduleUnits_.find(module);
+            if (units == moduleUnits_.end()) continue;
+            for (const auto& unit : units->second) {
+                if (queued >= IMPLEMENTATIONS_PER_OPEN) return;
+                if (base::same_path(unit.path, path)) continue;
+                if (queue_implementation_(unit.path, module, true)) ++queued;
+            }
+        }
+    }
+
+    bool engine_idle_() const {
+        return accepting_ && pending_.empty() && searches_.empty() && awaitingDiagnostics_.empty() && !primer_.busy();
+    }
+
+    // Opens queued units while fewer than IMPLEMENTATIONS_AT_ONCE are building; once nothing is queued and clangd has
+    // been idle for Options::implementationIdle, every other unit of every module is queued (the rest). Nothing is
+    // opened while modules are being prepared: those BMIs are what an implementation unit is built from, and the
+    // workers preparation leaves free are for what a person asks (robustness design C7); finish_prime_ and
+    // handle_timers pump again once it is done.
+    void pump_implementations_(Clock::time_point now) {
+        if (!priming_implementations_() || !accepting_ || !handshakeDone_) return;
+        if (implementationSeedOpen_) {
+            implementationSeedOpen_ = false;
+            for (const auto& document : host_->documents()) queue_implementations_of_(document.path);
+        }
+        if (primer_.busy()) return;
+        std::size_t building { static_cast<std::size_t>(std::ranges::count_if(background_, [](const auto& item) { return item.second.priming && !item.second.built; })) };
+        while (building < IMPLEMENTATIONS_AT_ONCE && !implementationQueue_.empty()) {
+            ImplementationUnit unit { std::move(implementationQueue_.front()) };
+            implementationQueue_.pop_front();
+            const std::string key { base::path_key(unit.path) };
+            implementationQueued_.erase(key);
+            if (background_.contains(key) || editor_uri_of_(key)) continue;
+            if (!open_in_background_(unit.path, unit.module, now, true)) continue;
+            ++building;
+        }
+        if (implementationQueue_.empty() && building == 0 && !implementationRestQueued_ && !implementationRestAt_) {
+            implementationRestAt_ = now + options_.implementationIdle;
+        }
+    }
+
+    void queue_rest_of_implementations_(Clock::time_point now) {
+        implementationRestAt_.reset();
+        if (!priming_implementations_() || implementationRestQueued_) return;
+        if (!engine_idle_()) {
+            implementationRestAt_ = now + options_.implementationIdle;
+            return;
+        }
+        implementationRestQueued_ = true;
+        for (const auto& [module, units] : moduleUnits_) {
+            for (const auto& unit : units) queue_implementation_(unit.path, module, false);
+        }
+        if (!implementationQueue_.empty()) log::info("building {} implementation units for clangd's index ({})", implementationQueue_.size(), host_->root_directory());
+        pump_implementations_(now);
+    }
+
+    // A unit opened for the index was built: clangd's index has its definitions now (WA-CLANGD-008's premise), and
+    // one that did not compile says why (N-3).
+    void implementation_built_(const std::string& key, const BackgroundUnit& unit, const Json& diagnostics) {
+        implementationBuilt_[key] = platform::fs::stamp(unit.path);
+        std::string reason;
+        for (const auto& diagnostic : diagnostics) {
+            if (diagnostic.value("severity", 0) != 1) continue;
+            const std::string code { diagnostic.contains("code") && diagnostic["code"].is_string() ? diagnostic["code"].get<std::string>() : std::string {} };
+            const std::string message { diagnostic.value("message", std::string {}) };
+            if (code == "pp_file_not_found" || code == "module_not_found" || message.find("file not found") != std::string::npos) {
+                reason = message;
+                break;
+            }
+        }
+        const bool wasUnreadable { implementationUnreadable_.contains(key) };
+        if (!reason.empty()) implementationUnreadable_[key] = reason;
+        else implementationUnreadable_.erase(key);
+        if (wasUnreadable != !reason.empty() || !reason.empty()) update_unreadable_issue_();
+    }
+
+    void update_unreadable_issue_() {
+        std::erase_if(issues_, [](const Issue& issue) { return issue.code == "implementation-unreadable"; });
+        if (implementationUnreadable_.empty()) {
+            host_->status_changed();
+            return;
+        }
+        const auto& [firstKey, firstReason] = *implementationUnreadable_.begin();
+        std::string firstFile { firstKey };
+        if (const auto unit = background_.find(firstKey); unit != background_.end()) firstFile = unit->second.path;
+        const std::size_t count { implementationUnreadable_.size() };
+        add_issue_(Issue { "implementation-unreadable",
+            std::format("{} implementation {} cannot be read ({}: {}); definitions in {} are not reached by go-to-definition",
+                        count, count == 1 ? "unit" : "units", base::file_name(firstFile), firstReason, count == 1 ? "it" : "them"),
+            "mcppls.showLogs", "code" });
+        host_->status_changed();
+    }
+
+    void forget_implementations_() {
+        implementationQueue_.clear();
+        implementationQueued_.clear();
+        implementationBuilt_.clear();
+        implementationSeedOpen_ = true;
+        implementationRestQueued_ = false;
+        implementationRestAt_.reset();
     }
 
     void unit_built_(const std::string& key) {
@@ -3145,8 +3462,19 @@ private:
         }
         // Asked again within the client's own limit, with clangd's first answer if this one finds nothing
         // (including when nothing of the limit is left: request_now_ answers unavailable at once).
-        request_now_(search.message, [first = std::move(search.firstAnswer), reply = std::move(search.reply)](Answer answer) mutable {
+        request_now_(search.message, [this, first = std::move(search.firstAnswer), reply = std::move(search.reply), sites = std::move(search.sites)](Answer answer) mutable {
             const bool found { answer.kind == Answer::Kind::result && !answer.value.is_null() && !(answer.value.is_array() && answer.value.empty()) };
+            // N-8: an answer that is still only the declaration is no better than the first; the definition found
+            // lexically is, when there is one.
+            if (found && declaration_sites_(answer.value).empty()) {
+                reply(std::move(answer));
+                return;
+            }
+            if (Json lexical = lexical_definitions_(sites); !lexical.empty()) {
+                host_->record_event("definition-lexical", Json {});
+                reply(Answer { Answer::Kind::result, std::move(lexical) });
+                return;
+            }
             if (found) reply(std::move(answer));
             else reply(Answer { Answer::Kind::result, std::move(first) });
         }, search.limit, false);
@@ -3174,8 +3502,10 @@ private:
         // Asked again with what clangd has built by now.
         for (auto& search : overdue) ask_definition_again_(std::move(search));
         std::vector<std::string> closing;
+        bool primingStuck { false };
         for (const auto& [key, unit] : background_) {
             if (!unit.built && now >= unit.openedAt + BACKGROUND_BUILD_LIMIT) {
+                primingStuck = primingStuck || unit.priming;
                 log::warning("{} did not build in clangd in {} minutes; it is not opened without the editor again until it changes ({}); clangd was {}",
                              unit.path, BACKGROUND_BUILD_LIMIT.count(), host_->root_directory(), unit.state.empty() ? std::string { "in an unknown state" } : unit.state);
                 host_->record_event("background-unit-stuck", Json { { "file", unit.path }, { "clangdState", unit.state } });
@@ -3187,6 +3517,9 @@ private:
             }
         }
         for (const auto& key : closing) close_background_(key);
+        // A stuck unit gave up its N-7 slot: the next one takes it, unless clangd is about to restart (which seeds
+        // the queue again).
+        if (primingStuck && !restartAt_) pump_implementations_(now);
     }
 
     // ---- parallel module preparation ------------------------------------------------------
@@ -3333,6 +3666,7 @@ private:
         lastPrimeProgressAt_ = Clock::now();
         pump_primer_();
         release_prime_units_if_idle_();
+        if (!primer_.busy()) pump_implementations_(Clock::now());
         return true;
     }
 
