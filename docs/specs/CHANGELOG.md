@@ -2,6 +2,20 @@
 
 Changes to the specifications in this directory. Each specification is versioned independently.
 
+## 2026-09-27 — S1 0.3.0: generated files
+
+A set's `ide` object gains `generated` (optional, section 7.2): the files and directories that the
+build generates and that the set's units compile or include, each with the path this document names
+(`path`), the path the build of the same configuration writes (`build-path`), its `kind` (`source`,
+`header` or `directory`) and, for a file, the step that writes it (`generator`: `id`, `inputs`,
+`arguments`, `work-directory`). A consumer does not report a reference to a generated file that does
+not exist as an error in the referring source; it may read the file at `build-path` read-only, and it
+runs a step only with its user's consent (S1-7.2-10 to S1-7.2-13). A producer that plans without
+building, such as `mcpp emit build-database`, plans in a directory of its own; before this, a header a
+rule generates was missing there, and every source that included it lost its semantics
+(mcpp-community/mcpp#724). Additive: a 0.2.0 consumer ignores the field (S1-11.2-1). mcpp writes it
+from mcpp-community/mcpp's release that closes #724.
+
 ## 2026-09-27 — S3: a download the client may offer, and two more build systems
 
 `CxxModulesIssue` gains `askOnline` (optional): on a `producer-needs-download` issue, the server will

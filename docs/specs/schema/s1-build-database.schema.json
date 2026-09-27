@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/mcpp-community/mcpp-language-server/specs/schema/s1-build-database/0.2.0",
-  "title": "C++ Build Database: IDE Profile 0.2.0 (S1)",
+  "$id": "https://github.com/mcpp-community/mcpp-language-server/specs/schema/s1-build-database/0.3.0",
+  "title": "C++ Build Database: IDE Profile 0.3.0 (S1)",
   "description": "A P2977R2-compatible build database with the IDE profile fields of S1. Unknown fields are permitted everywhere; consumers ignore them.",
   "type": "object",
   "required": [
@@ -226,10 +226,93 @@
             "$ref": "#/$defs/nonEmptyString"
           }
         },
+        "generated": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/generated"
+          }
+        },
         "extensions": {
           "$ref": "#/$defs/extensions"
         }
       }
+    },
+    "generated": {
+      "type": "object",
+      "required": [
+        "path",
+        "kind"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "build-path": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "kind": {
+          "enum": [
+            "source",
+            "header",
+            "directory"
+          ]
+        },
+        "generator": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "inputs": {
+              "$ref": "#/$defs/stringArray"
+            },
+            "arguments": {
+              "$ref": "#/$defs/stringArray"
+            },
+            "work-directory": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "source",
+                  "header"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "generator"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "directory"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "generator"
+              ]
+            }
+          }
+        }
+      ]
     },
     "translationUnit": {
       "type": "object",
