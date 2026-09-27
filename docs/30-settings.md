@@ -1,7 +1,7 @@
 # Settings and the command line
 
 Every configurable behaviour of mcppls has exactly one definition: a row of the registry in
-`src/config/settings.cppm` (0.0.6 plan §9 T1). The table below -- the VS Code settings, the
+`src/config/settings.cppm`. The table below -- the VS Code settings, the
 command-line options, and the environment variables that configure something -- is generated from
 that registry (`mcppls settings --format markdown`), and `tests/test_settings.cpp` holds it, the
 zh-CN mirror and `editors/vscode/package.json` to the registry so the three cannot drift apart.
@@ -36,7 +36,7 @@ either wrapped in a top-level `mcppls` object or not.
 | `mcppls.producerTimeout` | a non-negative number of seconds | `0` | `--producer-timeout` | reload | How long a build tool may take to describe the project. `0`, the default, uses the design's own bound (a minute offline, ten minutes once `buildTool` is `online`); set it to watch that bound work, or longer for a genuinely slower build. |
 | `mcppls.untrusted` | `true`, `false` | `false` | `--untrusted` | restart | Run no build tool and no compiler; an untrusted workspace is also read as though `buildDiscovery` were `off`. |
 | `mcppls.discoverCompilers` | `true`, `false` | `true` | `--no-discover` | reload | Look for a compiler on the machine for a source the build description does not cover. Off: such a source uses the semantic kit instead. |
-| `mcppls.buildDiscovery` | `auto`, `off` | `auto` | `--build-discovery` | reload | Whether the project's build system is detected at all (0.0.6 plan §3.7 B-7). `off`: nothing is read or run implicitly -- only an explicitly configured `database`, else sources are scanned. `buildTool` still governs whether a detected build tool may be *run*; this governs whether it is looked for in the first place. |
+| `mcppls.buildDiscovery` | `auto`, `off` | `auto` | `--build-discovery` | reload | Whether the project's build system is detected at all. `off`: nothing is read or run implicitly -- only an explicitly configured `database`, else sources are scanned. `buildTool` still governs whether a detected build tool may be *run*; this governs whether it is looked for in the first place. |
 | `mcppls.buildDiscovery.providers` | `mcpp`, `cmake`, `xmake`, `meson`, `compile-commands` (comma-separated) | `mcpp`, `cmake`, `xmake`, `meson`, `compile-commands` | `--build-discovery-providers` | reload | Which build system providers `buildDiscovery` may use; leave one out to stop mcppls from detecting it (for example, to use only a CMake build directory that already exists and never let xmake run). |
 | `mcppls.buildDiscovery.askBeforeDownload` | `true`, `false` | `true` | — | immediately | When the build tool needs a download to finish describing the project, a client may offer to fetch it. Off: the status says a download is needed, and nothing asks. |
 
@@ -55,9 +55,9 @@ either wrapped in a top-level `mcppls` object or not.
 | Setting | Values | Default | Command line | Applies | What it does |
 |---|---|---|---|---|---|
 | `mcppls.semanticTokens.modules` | `true`, `false` | `true` | — | restart | Color `import`, `module`, `export` and module names from the server's semantic tokens. Off: only the grammar's colors. |
-| `mcppls.semanticTokens.moduleType` | `true`, `false` | `false` | — | restart | A client declares it knows the custom `module` semantic token type and the `partition` modifier (design 2026-09-25 K/§7); off is every client but this one, since none else advertises it. Not a package.json setting: VS Code's own extension always declares it, fixed, because it contributes that token type itself. |
+| `mcppls.semanticTokens.moduleType` | `true`, `false` | `false` | — | restart | A client declares it knows the custom `module` semantic token type and the `partition` modifier; off for every client but this one, since none else advertises it. Not a package.json setting: VS Code's own extension always declares it, fixed, because it contributes that token type itself. |
 | `mcppls.completion.triggerOnSpace` | `true`, `false` | `true` | — | restart | Show the module list as soon as a space is typed after `import` or `export import`. A space anywhere else never reaches the server. A client that says nothing gets this only when it identifies itself as VS Code or a fork of it; every other client opts in with `initializationOptions.completion.triggerOnSpace: true`. |
-| `mcppls.index.primeImplementationUnits` | `auto`, `off` | `auto` | `--prime-implementation-units` | immediately | mcppls opens a module's implementation units in clangd in the background (0.0.6 plan §2.6, §9 T5), so go-to-definition reaches a definition that only an implementation unit has. `off`: only what a client opens itself is ever indexed for this. |
+| `mcppls.index.primeImplementationUnits` | `auto`, `off` | `auto` | `--prime-implementation-units` | restart | Build a module's implementation units in clangd in the background, a few at a time, so go-to-definition reaches a definition that only an implementation unit has, before that file was ever opened. clangd's own background index cannot see a module unit's imports (WA-CLANGD-008). `off`: only the units a definition request searches, and the files you open, are indexed for this. |
 | `mcppls.detectConflicts` | `true`, `false` | `true` | — | immediately | Offer once to turn off another C++ extension's language features in this workspace, and say so when one becomes active later. VS Code only: no other client arbitrates between language servers. |
 
 ### Diagnostics and logging
@@ -65,7 +65,7 @@ either wrapped in a top-level `mcppls` object or not.
 | Setting | Values | Default | Command line | Applies | What it does |
 |---|---|---|---|---|---|
 | `mcppls.logLevel` | `debug`, `info`, `warning`, `error` | `info` | `--log-level` | restart | The server's own log level. |
-| `mcppls.disableWorkaround` | `WA-CLANGD-<n>` (repeatable) | *(none)* | `--disable-workaround` (repeatable) | restart | Turn off a registered clangd workaround (`WA-CLANGD-<n>`, see the SKILL.md upstream-defects register), to see whether it is still needed; repeatable. `mcppls report` lists every registered workaround under `engines[].details.workarounds`. |
+| `mcppls.disableWorkaround` | `WA-CLANGD-<n>` (repeatable) | *(none)* | `--disable-workaround` (repeatable) | restart | Turn off a registered clangd workaround (`WA-CLANGD-<n>`; the register of upstream defects is issue #24), to see whether it is still needed; repeatable. `mcppls report` lists every registered workaround under `engines[].details.workarounds`. |
 | `mcppls.trace.server` | `off`, `messages`, `verbose` | `off` | — | immediately | Log the LSP traffic to the C++ Modules output channel (at Trace level); `verbose` adds the server's debug log (at Debug level, by also passing `--log-level debug`). Set the channel's own log level to see them. |
 | `MCPPLS_LOG_LEVEL` | `debug`, `info`, `warning`, `error` | *(empty)* | — | restart | Overrides the log level the VS Code extension starts the server with, ahead of `trace.server`. |
 

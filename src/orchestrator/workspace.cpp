@@ -1331,7 +1331,7 @@ struct Workspace::Impl final : engine::Host {
     void schedule_replan(std::chrono::milliseconds delay = REPLAN_DELAY) { replanAt = Clock::now() + delay; }
 
     // mcppls.buildDiscovery.askBeforeDownload (plan 2026-09-27 B-7).
-    bool ask_before_download() const { return true; }
+    bool ask_before_download() const { return options.buildDiscoveryAskBeforeDownload; }
 
     bool core_waits_for_producer() const {
         return coreEngine != nullptr && model && modelOrigin == "inferred" && loading && !coreWaitOver
@@ -2201,6 +2201,11 @@ void Workspace::reload_with_options(const SessionOptions& options, const std::st
     impl_->compilerOverride = compilerOverride;
     impl_->kitEnabled = kitEnabled;
     impl_->schedule_reload();
+}
+
+void Workspace::apply_live_options(const SessionOptions& options) {
+    impl_->options.buildDiscoveryAskBeforeDownload = options.buildDiscoveryAskBeforeDownload;
+    impl_->update_status();
 }
 
 void Workspace::handle_model_loaded(int generation, std::shared_ptr<project::ProjectModel> model, bool fromProducer) {

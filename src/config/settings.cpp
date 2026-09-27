@@ -90,10 +90,10 @@ const std::vector<Setting>& shipped_registry() {
             .key = "buildDiscovery", .kind = Kind::enumeration, .values = { "auto", "off" }, .defaultValue = "auto",
             .commandLine = "--build-discovery", .surface = Surface::server, .applies = Applies::reload, .category = "build",
             .since = "0.0.6",
-            .summary = "Whether the project's build system is detected at all (0.0.6 plan §3.7 B-7). `off`: nothing is read or run "
+            .summary = "Whether the project's build system is detected at all. `off`: nothing is read or run "
                        "implicitly -- only an explicitly configured `database`, else sources are scanned. `buildTool` still governs "
                        "whether a detected build tool may be *run*; this governs whether it is looked for in the first place.",
-            .summaryZh = "是否探测项目的构建系统（0.0.6 计划 §3.7 B-7）。`off`：不隐式读取或执行任何东西——只用明确配置的 `database`，否则"
+            .summaryZh = "是否探测项目的构建系统。`off`：不隐式读取或执行任何东西——只用明确配置的 `database`，否则"
                          "扫描源码。`buildTool` 管的是探测到的构建工具能不能*执行*；这个开关管的是要不要去探测它。",
             .clientConfigurable = true,
         },
@@ -171,10 +171,10 @@ const std::vector<Setting>& shipped_registry() {
         Setting {
             .key = "semanticTokens.moduleType", .kind = Kind::boolean, .defaultValue = "false", .surface = Surface::server,
             .applies = Applies::restart, .category = "editor", .since = "0.0.4",
-            .summary = "A client declares it knows the custom `module` semantic token type and the `partition` modifier (design "
-                       "2026-09-25 K/§7); off is every client but this one, since none else advertises it. Not a package.json "
+            .summary = "A client declares it knows the custom `module` semantic token type and the `partition` modifier; off for "
+                       "every client but this one, since none else advertises it. Not a package.json "
                        "setting: VS Code's own extension always declares it, fixed, because it contributes that token type itself.",
-            .summaryZh = "客户端声明自己认得自定义的 `module` 语义 token 类型和 `partition` 修饰符（设计 2026-09-25 K/§7）；除本仓库的 "
+            .summaryZh = "客户端声明自己认得自定义的 `module` 语义 token 类型和 `partition` 修饰符；除本仓库的 "
                          "VS Code 扩展外都关闭，因为没有别的客户端会声明它。不是 package.json 里的设置：VS Code 扩展自己贡献了这个 token "
                          "类型，因此固定声明为开。",
         },
@@ -191,13 +191,15 @@ const std::vector<Setting>& shipped_registry() {
         },
         Setting {
             .key = "index.primeImplementationUnits", .kind = Kind::enumeration, .values = { "auto", "off" }, .defaultValue = "auto",
-            .commandLine = "--prime-implementation-units", .surface = Surface::server, .applies = Applies::immediately,
+            .commandLine = "--prime-implementation-units", .surface = Surface::server, .applies = Applies::restart,
             .category = "editor", .since = "0.0.6",
-            .summary = "mcppls opens a module's implementation units in clangd in the background (0.0.6 plan §2.6, §9 T5), so "
-                       "go-to-definition reaches a definition that only an implementation unit has. `off`: only what a client opens "
-                       "itself is ever indexed for this.",
-            .summaryZh = "mcppls 在后台把一个模块的实现单元打开给 clangd（0.0.6 计划 §2.6、§9 T5），这样跳到定义能到达只存在于实现单元里"
-                         "的定义。`off`：只有客户端自己打开的文件才会被索引。",
+            .summary = "Build a module's implementation units in clangd in the background, a few at a time, so go-to-definition "
+                       "reaches a definition that only an implementation unit has, before that file was ever opened. clangd's own "
+                       "background index cannot see a module unit's imports (WA-CLANGD-008). `off`: only the units a definition "
+                       "request searches, and the files you open, are indexed for this.",
+            .summaryZh = "在后台让 clangd 逐个构建模块的实现单元（每次少量），这样即使实现文件从没打开过，跳到定义也能到达只在实现单元里的"
+                         "定义。clangd 自己的后台索引看不到模块单元的导入（WA-CLANGD-008）。`off`：只有一次跳转请求所搜索的单元和你打开的"
+                         "文件会为此被索引。",
             .clientConfigurable = true,
         },
         Setting {
@@ -221,10 +223,10 @@ const std::vector<Setting>& shipped_registry() {
             .key = "disableWorkaround", .kind = Kind::list, .defaultValue = "", .commandLine = "--disable-workaround",
             .commandLineRepeatable = true, .surface = Surface::server, .applies = Applies::restart, .category = "diagnostics",
             .since = "0.0.4",
-            .summary = "Turn off a registered clangd workaround (`WA-CLANGD-<n>`, see the SKILL.md upstream-defects register), to "
+            .summary = "Turn off a registered clangd workaround (`WA-CLANGD-<n>`; the register of upstream defects is issue #24), to "
                        "see whether it is still needed; repeatable. `mcppls report` lists every registered workaround under "
                        "`engines[].details.workarounds`.",
-            .summaryZh = "关掉一个针对 clangd 缺陷登记的规避措施（`WA-CLANGD-<n>`，见 SKILL.md 的上游缺陷登记），用来确认它是否还有"
+            .summaryZh = "关掉一个针对 clangd 缺陷登记的规避措施（`WA-CLANGD-<n>`；上游缺陷登记在 issue #24），用来确认它是否还有"
                          "必要；可重复。`mcppls report` 在 `engines[].details.workarounds` 下列出所有登记过的规避措施。",
         },
         Setting {

@@ -362,6 +362,10 @@ private:
         for (const auto& key : result.restartKeys) {
             log::warning("setting {} changed; restart mcppls for it to take effect", key);
         }
+        // An `immediately`-applies row (buildDiscovery.askBeforeDownload) reaches every running root at once.
+        if (result.changedKeys.size() > result.reloadKeys.size() + result.restartKeys.size()) {
+            for (auto& root : roots_) root->apply_live_options(options_);
+        }
     }
 
     // A workspace folder: the path it names, and the URI the client named it by.

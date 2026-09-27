@@ -2,8 +2,7 @@
 
 [English](../30-settings.md) | **简体中文**
 
-mcppls 的每一个可配置行为都只有一处定义：`src/config/settings.cppm` 里注册表的一行（0.0.6 计划 §9
-T1）。下面这张表——VS Code 设置、命令行选项，以及会影响行为的环境变量——是从这份注册表生成的
+mcppls 的每一个可配置行为都只有一处定义：`src/config/settings.cppm` 里注册表的一行。下面这张表——VS Code 设置、命令行选项，以及会影响行为的环境变量——是从这份注册表生成的
 （`mcppls settings --format markdown --lang zh-CN`），`tests/test_settings.cpp` 把它、英文版和
 `editors/vscode/package.json` 都与注册表互相校验，三者不会走样。
 
@@ -34,7 +33,7 @@ VS Code 扩展已经会这样做）；`重新加载模型` 只重新加载项目
 | `mcppls.producerTimeout` | 非负整数（秒） | `0` | `--producer-timeout` | 重新加载模型 | 构建工具描述项目最多可以花多长时间。默认 `0` 使用设计本身的限制（离线一分钟，`buildTool` 为 `online` 时十分钟）；调短可以观察限制是否生效，构建确实慢就调长。 |
 | `mcppls.untrusted` | `true`, `false` | `false` | `--untrusted` | 重启 | 不运行任何构建工具，也不运行编译器；一个不受信任的工作区也等同于 `buildDiscovery` 为 `off`。 |
 | `mcppls.discoverCompilers` | `true`, `false` | `true` | `--no-discover` | 重新加载模型 | 为构建描述没有覆盖到的源码在本机查找编译器。关闭后，这类源码改用语义工具包。 |
-| `mcppls.buildDiscovery` | `auto`, `off` | `auto` | `--build-discovery` | 重新加载模型 | 是否探测项目的构建系统（0.0.6 计划 §3.7 B-7）。`off`：不隐式读取或执行任何东西——只用明确配置的 `database`，否则扫描源码。`buildTool` 管的是探测到的构建工具能不能*执行*；这个开关管的是要不要去探测它。 |
+| `mcppls.buildDiscovery` | `auto`, `off` | `auto` | `--build-discovery` | 重新加载模型 | 是否探测项目的构建系统。`off`：不隐式读取或执行任何东西——只用明确配置的 `database`，否则扫描源码。`buildTool` 管的是探测到的构建工具能不能*执行*；这个开关管的是要不要去探测它。 |
 | `mcppls.buildDiscovery.providers` | `mcpp`, `cmake`, `xmake`, `meson`, `compile-commands`（逗号分隔） | `mcpp`, `cmake`, `xmake`, `meson`, `compile-commands` | `--build-discovery-providers` | 重新加载模型 | `buildDiscovery` 可以使用哪些构建系统提供者；从中去掉某个提供者即停用它的探测（例如只想用已有的 CMake 构建目录，不要 xmake）。 |
 | `mcppls.buildDiscovery.askBeforeDownload` | `true`, `false` | `true` | — | 立即生效 | 当构建工具需要下载才能完成描述项目时，客户端可以提议去获取它。关闭后，状态栏说明需要下载，但不会再询问。 |
 
@@ -53,9 +52,9 @@ VS Code 扩展已经会这样做）；`重新加载模型` 只重新加载项目
 | 设置 | 取值 | 默认值 | 命令行 | 生效方式 | 作用 |
 |---|---|---|---|---|---|
 | `mcppls.semanticTokens.modules` | `true`, `false` | `true` | — | 重启 | 用服务端的语义 token 给 `import`、`module`、`export` 和模块名上色。关闭后只用语法文件的颜色。 |
-| `mcppls.semanticTokens.moduleType` | `true`, `false` | `false` | — | 重启 | 客户端声明自己认得自定义的 `module` 语义 token 类型和 `partition` 修饰符（设计 2026-09-25 K/§7）；除本仓库的 VS Code 扩展外都关闭，因为没有别的客户端会声明它。不是 package.json 里的设置：VS Code 扩展自己贡献了这个 token 类型，因此固定声明为开。 |
+| `mcppls.semanticTokens.moduleType` | `true`, `false` | `false` | — | 重启 | 客户端声明自己认得自定义的 `module` 语义 token 类型和 `partition` 修饰符；除本仓库的 VS Code 扩展外都关闭，因为没有别的客户端会声明它。不是 package.json 里的设置：VS Code 扩展自己贡献了这个 token 类型，因此固定声明为开。 |
 | `mcppls.completion.triggerOnSpace` | `true`, `false` | `true` | — | 重启 | 在 `import` 或 `export import` 后输入空格时立即弹出模块列表；其他位置的空格不会发给服务端。什么都不说的客户端只有在自证是 VS Code 或其分支时才会得到这个行为；其他客户端需要用 `initializationOptions.completion.triggerOnSpace: true` 主动开启。 |
-| `mcppls.index.primeImplementationUnits` | `auto`, `off` | `auto` | `--prime-implementation-units` | 立即生效 | mcppls 在后台把一个模块的实现单元打开给 clangd（0.0.6 计划 §2.6、§9 T5），这样跳到定义能到达只存在于实现单元里的定义。`off`：只有客户端自己打开的文件才会被索引。 |
+| `mcppls.index.primeImplementationUnits` | `auto`, `off` | `auto` | `--prime-implementation-units` | 重启 | 在后台让 clangd 逐个构建模块的实现单元（每次少量），这样即使实现文件从没打开过，跳到定义也能到达只在实现单元里的定义。clangd 自己的后台索引看不到模块单元的导入（WA-CLANGD-008）。`off`：只有一次跳转请求所搜索的单元和你打开的文件会为此被索引。 |
 | `mcppls.detectConflicts` | `true`, `false` | `true` | — | 立即生效 | 在此工作区中提议关闭另一个 C++ 扩展的语言功能（只提议一次），之后又有冲突扩展启用时会提示。仅限 VS Code：其他客户端不会在多个语言服务端之间做取舍。 |
 
 ### 诊断与日志
@@ -63,7 +62,7 @@ VS Code 扩展已经会这样做）；`重新加载模型` 只重新加载项目
 | 设置 | 取值 | 默认值 | 命令行 | 生效方式 | 作用 |
 |---|---|---|---|---|---|
 | `mcppls.logLevel` | `debug`, `info`, `warning`, `error` | `info` | `--log-level` | 重启 | 服务端自身的日志级别。 |
-| `mcppls.disableWorkaround` | `WA-CLANGD-<n>`（可重复） | （无） | `--disable-workaround`（可重复） | 重启 | 关掉一个针对 clangd 缺陷登记的规避措施（`WA-CLANGD-<n>`，见 SKILL.md 的上游缺陷登记），用来确认它是否还有必要；可重复。`mcppls report` 在 `engines[].details.workarounds` 下列出所有登记过的规避措施。 |
+| `mcppls.disableWorkaround` | `WA-CLANGD-<n>`（可重复） | （无） | `--disable-workaround`（可重复） | 重启 | 关掉一个针对 clangd 缺陷登记的规避措施（`WA-CLANGD-<n>`；上游缺陷登记在 issue #24），用来确认它是否还有必要；可重复。`mcppls report` 在 `engines[].details.workarounds` 下列出所有登记过的规避措施。 |
 | `mcppls.trace.server` | `off`, `messages`, `verbose` | `off` | — | 立即生效 | 把 LSP 通信记录到 C++ Modules 输出通道（Trace 级别）；`verbose` 还会打开服务端的 debug 日志（通过附加 `--log-level debug`，Debug 级别）。要看到它们，需把该输出通道的日志级别调到对应级别。 |
 | `MCPPLS_LOG_LEVEL` | `debug`, `info`, `warning`, `error` | （空） | — | 重启 | 覆盖 VS Code 扩展启动服务端时使用的日志级别，优先于 `trace.server`。 |
 

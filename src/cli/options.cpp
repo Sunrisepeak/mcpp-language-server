@@ -34,6 +34,7 @@ orchestrator::EngineFactories engine_factories(const orchestrator::SessionOption
         clangd.verboseLog = options.verboseEngineLog;
         clangd.requestTimeout = options.requestTimeout;
         clangd.disabledWorkarounds = options.disabledWorkarounds;
+        clangd.primeImplementationUnits = options.primeImplementationUnits != "off";
         return engine::clangd::make_engine(std::move(clangd));
     };
     return factories;
