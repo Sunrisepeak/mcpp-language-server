@@ -1,0 +1,46 @@
+{
+  "name": "build-discovery-off",
+  "description": "Plan 2026-09-27 B-7: mcppls.buildDiscovery = off. The workspace is an mcpp project whose producer would answer, but nothing is detected, read or run implicitly: the model is scanned from the sources (L4), the report says discovery was turned off, the producer is never started, and nothing is written into the project.",
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}",
+    "--build-discovery",
+    "off"
+  ],
+  "checks": [
+    {
+      "id": "B1-sources-only",
+      "kind": "status",
+      "source": "inferred",
+      "tier": 4
+    },
+    {
+      "id": "B2-said-so",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/project/notices/*/code",
+          "equals": "build-discovery-off"
+        },
+        {
+          "path": "/roots/0/project/detected",
+          "equals": "inferred"
+        }
+      ]
+    },
+    {
+      "id": "B3-module-features-still",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        1,
+        9
+      ],
+      "expect": "src/greet/greet.cppm"
+    },
+    {
+      "id": "B4-nothing-was-written-into-the-project",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}

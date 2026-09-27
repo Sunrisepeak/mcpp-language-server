@@ -1,0 +1,34 @@
+{
+  "name": "cmake-fetchcontent-offline",
+  "description": "Plan 2026-09-27 B-3 (D1, BD7 withdrawn): a CMake project with no build directory, whose FetchContent dependency is not on the machine. The private configure is disconnected from the first run (FETCHCONTENT_FULLY_DISCONNECTED), so it stops at the dependency instead of downloading it: the status says a download is needed and lets a client offer it (askOnline), the sources are served meanwhile, and nothing is written into the project.",
+  "checks": [
+    {
+      "id": "F1-a-download-is-needed-and-named",
+      "kind": "status",
+      "issue-code": "producer-needs-download",
+      "issue-message": "fmt",
+      "timeout": 120
+    },
+    {
+      "id": "F2-a-client-may-offer-it",
+      "kind": "status",
+      "issue-code": "producer-needs-download",
+      "issue-ask-online": true
+    },
+    {
+      "id": "F3-served-meanwhile",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        2,
+        23
+      ],
+      "expect": "answer",
+      "timeout": 90
+    },
+    {
+      "id": "F4-nothing-was-written-into-the-project",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}
