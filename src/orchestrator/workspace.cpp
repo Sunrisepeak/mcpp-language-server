@@ -25,6 +25,7 @@ import mcppls.spec.metadata;
 import mcppls.toolchain.probe;
 import mcppls.project.scan;
 import mcppls.project.detect;
+import mcppls.project.providers;
 import mcppls.project.model;
 import mcppls.project.modelcache;
 import mcppls.normalize.plan;
@@ -877,7 +878,7 @@ struct Workspace::Impl final : engine::Host {
     // when there is a cache whose fingerprint no longer matches (it is still a far better guess than
     // scanning), ten when there is none at all.
     void adopt_cached_model() {
-        const project::Detection detection { project::detect_project(root, options.database) };
+        const project::Detection detection { project::detect_project(root, options.database, project::registered_providers()) };
         detectedSource = detection.kind;
         detectedManifest = detection.manifest;
         if (detection.kind == project::SourceKind::inferred) return;   // no producer: nothing to wait for
