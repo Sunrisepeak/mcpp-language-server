@@ -608,3 +608,24 @@ mcppls 自己的引擎做一部分，clangd 做一部分），同时登记上游
 | 跨平台 | 新代码不含平台分支（平台差异只在 `modules/os`）；xmake/meson/CMake 的参数在 Windows 上同样成立；三平台 CI |
 | 一致性 | 设置表、文档、`package.json` 由测试互相校验；S3 规则有 traceability |
 | 无感升级 | 模型缓存格式不变；设置默认值保持旧行为（除 D1、D5 这两处已定的变化）；升级后首次启动不需要用户操作 |
+
+### 9.5 实施结果（PR #27）
+
+| 任务 | 结果 | 证据 |
+|---|---|---|
+| T1 配置模块 | `src/config/settings.cppm` 一张注册表；命令行、`initializationOptions`、`didChangeConfiguration`、report、`mcppls settings` 与 `docs/30-settings.md`（中英）都由它生成，`tests/test_settings.cpp` 校验三方一致 | 单元测试 |
+| T2 Q1-2/Q1-3 | 规则输入剔除；生成物从项目 `target/` 只读读取，缺失时 `generated-files-missing` + 监视 | qt-demo 副本 `clangd --check` 退出码 0；夹具 `mcpp-rules-generated` |
+| T3 Q1-1/Q1-4 | `failure_action`：未读到的一代不算失败，kit 只在 std 自身编译失败或无单元时启用 | `test_server` 用 qt-demo 的时序 |
+| T4 N-8 | 按名字选单元；clangd 仍只给声明时按名字给出定义（O-1）；在定义上仍回到声明 | mcpp 源码 `prepare_build` → `driver.cpp`；夹具 N9/N10 |
+| T5/T6 N-7/N-3 | WA-CLANGD-008：实现单元经前台构建（相关、磁盘变化、空闲时其余）；`implementation-unreadable` | 夹具 `mcpp-partition-definition`（0.0.5 N1–N5 失败）；`test_server` 引擎级测试 |
+| T7/T8 | `BuildSystemProvider` 注册表；CMake 预设 + 首次即断网；xmake（私有配置/构建目录、`network.mode:private`）；meson（`--wrap-mode=nodownload`）；统一的工程清单与嵌套规则 | xmake 实机：tier 3、工程目录不变；夹具 `cmake-fetchcontent-offline` |
+| T9/T10 | `askOnline` + `mcppls.describeOnline`；退避重试；首个模型 2.5 s；部分回答 + 下载；`buildDiscovery` 开关 | 夹具 `mcpp-emit-needs-download`（D5–D7）、`mcpp-emit-provisioned`、`mcpp-emit-partial-download`、`build-discovery-off` |
+| T11 | VS Code 非阻塞询问（§9.2 五条）、Run in Terminal 认 xmake/meson | `downloadAsk.test.ts` |
+| T12 | S3-4-16..21、设计记录、`docs/20-projects.md`（中英）、CHANGELOG、#24（UP-08 更新、UP-17、UP-M4、UP-M5） | `validate.py` 251 条规则 0 失败 |
+
+V-W（GalTranslPP，Windows，windows-2025，Sunrisepeak/GalTranslPP#1 run 36317141415，0.0.5 基线，编辑会话 15 分钟、18 轮）：
+最后一轮 32 个调用点里，**11 个落在 `.ixx`（声明），只有 2 个到 `.cpp`**，8 个无回答，其余是 std/Qt 的名字；
+`ApiTool.ixx` 里声明的 `parseApiProtocol`、`queryApiModels` 等 15 分钟内从未到达 `.cpp`。0.0.6 发布后用同一探针重跑对比。
+
+实施中另外发现并处理：mcpp 2026.9.27.1 构建不了本仓库（mcpp#725，CI 固定 2026.9.26.1）；emit 会写工程 `.mcpp/.xlings.json`、
+构建程序链接失败被误报为"设备源无动作"（都写进了 mcpp#724）。

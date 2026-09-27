@@ -10,8 +10,8 @@ describe the project once with the network when the client asks with `workspace/
 from what it has and reaches no network on its own (S3-4-17, S3-4-18); a client that offers the
 download never blocks on the question, asks at most once per root and set of missing things, and
 ignores an answer that comes after the need is gone (S3-4-19 to S3-4-21). `project.source` gains
-`xmake` and `meson` (tier 3), the issue codes `producer-online`, `generated-files-missing` and `implementation-unreadable` are named, and
-`cxxModules/report` carries `settings`. All additive: protocol version stays 1.
+`xmake` and `meson` (tier 3), the issue codes `producer-online`, `generated-files-missing` and
+`implementation-unreadable` are named, and `cxxModules/report` carries `settings`. All additive: protocol version stays 1.
 
 ## 2026-09-26 — S3: the standard a profile reads with
 
