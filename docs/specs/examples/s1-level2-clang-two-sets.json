@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "ide": {
-    "profile-version": "0.3.0",
+    "profile-version": "0.2.0",
     "generator": { "name": "example-cmake-adapter", "version": "0.1.0" },
     "toolchains": {
       "clang-22.1.8-x86_64-unknown-linux-gnu": {

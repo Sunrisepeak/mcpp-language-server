@@ -319,7 +319,7 @@ The example project below is built with GCC 16. It has module `hello.greet` with
   "version": 1,
   "revision": 0,
   "ide": {
-    "profile-version": "0.3.0",
+    "profile-version": "0.2.0",
     "generator": { "name": "example-producer", "version": "1.0.0" },
     "toolchains": {
       "gcc-16.1.0-x86_64-linux-gnu": {
