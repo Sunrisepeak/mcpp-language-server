@@ -1,6 +1,6 @@
 {
   "name": "mcpp-emit-needs-download",
-  "description": "Build description design 4.4: the producer ran offline, as an implicit run must, and cannot describe the build without fetching a dependency. That is not a failure of the producer and not a reason to go quiet: the status says what is missing and offers to run the build tool where the user's own proxy and credentials are, the sources are scanned meanwhile, and nothing is written into the project.",
+  "description": "Build description design 4.4: the producer ran offline, as an implicit run must, and cannot describe the build without fetching a dependency. That is not a failure of the producer and not a reason to go quiet: the status says what is missing and offers to run the build tool where the user's own proxy and credentials are, the sources are scanned meanwhile, and nothing is written into the project. Plan 2026-09-27 B-2: the issue lets a client offer to fetch what is missing (askOnline), and when the person accepts, mcppls.describeOnline describes the project once with the network: the model is mcpp's, and nothing is written into the project either.",
   "server-arguments": [
     "--mcpp",
     "{runner-dir}/mcppls-mock-mcpp{exe}"
@@ -25,8 +25,28 @@
       "id": "D3-navigation-works-from-scanned-sources-meanwhile",
       "kind": "definition",
       "file": "src/main.cpp",
-      "at": [4, 31],
+      "at": [
+        4,
+        31
+      ],
       "expect": "src/greet/greet.cppm",
+      "timeout": 60
+    },
+    {
+      "id": "D5-a-client-may-offer-to-fetch-it",
+      "kind": "status",
+      "issue-code": "producer-needs-download",
+      "issue-ask-online": true
+    },
+    {
+      "id": "D6-the-person-accepts",
+      "kind": "execute-command",
+      "command": "mcppls.describeOnline"
+    },
+    {
+      "id": "D7-the-model-is-mcpp-s-once-fetched",
+      "kind": "status",
+      "source": "mcpp",
       "timeout": 60
     },
     {

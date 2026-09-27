@@ -1,0 +1,32 @@
+{
+  "name": "mcpp-emit-provisioned",
+  "description": "Plan 2026-09-27 \u00a79.2 rule 4: the offline description needs a download, the person answers no question and instead builds the project in their own terminal, which fetches what was missing and writes mcpp.lock. The server notices by itself -- a watched build input changed -- asks the producer again, still offline, and the project upgrades from its scanned sources to mcpp's model with nothing clicked.",
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}"
+  ],
+  "checks": [
+    {
+      "id": "P1-a-download-is-needed",
+      "kind": "status",
+      "source": "inferred",
+      "issue-code": "producer-needs-download"
+    },
+    {
+      "id": "P2-nothing-was-written-into-the-project",
+      "kind": "workspace-unchanged"
+    },
+    {
+      "id": "P3-the-person-builds-in-their-terminal",
+      "kind": "write-file",
+      "file": "mcpp.lock",
+      "content": "# written by the person's own mcpp build\nversion = 2\n"
+    },
+    {
+      "id": "P4-the-project-upgrades-by-itself",
+      "kind": "status",
+      "source": "mcpp",
+      "timeout": 60
+    }
+  ]
+}

@@ -1113,8 +1113,12 @@ public:
                     const std::string wantedCommand { check.value("issue-command", std::string {}) };
                     const std::string wantedMessage { check.value("issue-message", std::string {}) };   // a part of the message
                     const std::string wantedCategory { check.value("issue-category", std::string {}) };   // S3: code | engine | environment | project
+                    // S3-4-16 (plan 2026-09-27 B-2): whether the issue lets a client offer to fetch what is missing.
+                    const std::optional<bool> wantedAskOnline { check.contains("issue-ask-online") ? std::optional { check.value("issue-ask-online", false) }
+                                                                                                    : std::nullopt };
                     matched = matched && std::ranges::any_of(snapshot.value("issues", Json::array()), [&](const Json& issue) {
                         if (issue.value("code", std::string {}) != issueCode->get<std::string>()) return false;
+                        if (wantedAskOnline && issue.value("askOnline", false) != *wantedAskOnline) return false;
                         if (!wantedMessage.empty() && !issue.value("message", std::string {}).contains(wantedMessage)) return false;
                         if (!wantedCategory.empty() && issue.value("category", std::string {}) != wantedCategory) return false;
                         return wantedCommand.empty() || issue.value("command", Json::object()).value("command", std::string {}) == wantedCommand;

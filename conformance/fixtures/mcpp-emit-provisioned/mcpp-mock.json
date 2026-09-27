@@ -279,5 +279,6 @@
       "src/**/*.s",
       "tests/**/*.cpp"
     ]
-  }
+  },
+  "provisionedWhen": "mcpp.lock"
 }
