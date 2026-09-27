@@ -11,4 +11,11 @@ int run_all() {
     phase_s("x");
     return plain_c(s.n) + phase_p(pt);
 }
+
+std::string
+configure(bool verbose,
+          int level,
+          std::vector<std::string> names) {
+    return verbose ? std::format("{} {}", level, names.size()) : std::string {};
+}
 }

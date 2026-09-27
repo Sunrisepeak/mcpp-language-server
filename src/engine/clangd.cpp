@@ -340,10 +340,17 @@ private:
     bool implementationSeedOpen_ { true };        // the open documents' relevant units are still to be queued
     bool implementationRestQueued_ { false };
     std::optional<Clock::time_point> implementationRestAt_;
+    // Plan 2026-09-27 N-8: a declaration clangd answered a definition request with, read lexically.
+    struct DeclarationSite {
+        std::string path;
+        std::string module;
+        DeclaredFunction function;
+    };
     struct DefinitionSearch {
         Json message;          // the client's request
         Json firstAnswer;      // clangd's answer before the units were built
         Reply reply;
+        std::vector<DeclarationSite> sites;   // what the first answer declares, for the lexical answer if clangd's stays a declaration
         std::set<std::string> waitingFor;   // path keys
         Clock::time_point deadline;
         Clock::time_point limit;            // the client's request's own limit (wait_limit), which the search stays within
@@ -3059,26 +3066,95 @@ private:
         }
     }
 
+    // The text of `path` as the editor has it, else as it is on disk.
+    std::optional<std::string> text_of_(const std::string& path) const {
+        for (const auto& document : host_->documents()) {
+            if (!document.path.empty() && base::same_path(document.path, path)) return std::string { document.text };
+        }
+        auto read = platform::fs::read_file(path);
+        if (!read) return std::nullopt;
+        return std::move(*read);
+    }
+
     DeclarationKind declaration_kind_at_(const std::string& path, const Json& range) const {
         const Json* end { lsp::find(range, "end") };
         if (end == nullptr || !end->is_object()) return DeclarationKind::unknown;
         const base::Position position { end->value("line", 0), end->value("character", 0) };
-        std::string text;
-        bool open { false };
-        for (const auto& document : host_->documents()) {
-            if (!document.path.empty() && base::same_path(document.path, path)) {
-                text = std::string { document.text };
-                open = true;
-                break;
+        const auto text = text_of_(path);
+        if (!text) return DeclarationKind::unknown;
+        const auto offset = base::offset_at(*text, position);
+        return offset ? declaration_kind(*text, *offset) : DeclarationKind::unknown;
+    }
+
+    // Whether a definition request was made on a definition (a body follows the name it is on).
+    bool request_on_definition_(const Json& message) const {
+        const Json* params { lsp::find(message, "params") };
+        const Json* uri { params != nullptr ? lsp::find_path(*params, { "textDocument", "uri" }) : nullptr };
+        const Json* position { params != nullptr ? lsp::find(*params, "position") : nullptr };
+        if (uri == nullptr || !uri->is_string() || position == nullptr || !position->is_object()) return false;
+        const std::string path { host_->path_of_uri(uri->get<std::string>()) };
+        const auto text = path.empty() ? std::nullopt : text_of_(path);
+        if (!text) return false;
+        auto offset = base::offset_at(*text, base::Position { position->value("line", 0), position->value("character", 0) });
+        if (!offset) return false;
+        std::size_t end { *offset };
+        while (end < text->size() && (base::is_identifier_char((*text)[end]) || (*text)[end] == '~')) ++end;
+        return end > *offset && declaration_kind(*text, end) == DeclarationKind::definition;
+    }
+
+    // Plan 2026-09-27 N-8. When every location of `answer` is a declaration without a body in a module's interface
+    // (a partition's included), the functions they declare, read lexically; empty otherwise.
+    std::vector<DeclarationSite> declaration_sites_(const Json& answer) const {
+        std::vector<DeclarationSite> sites;
+        bool onlyDeclarations { true };
+        std::size_t locations { 0 };
+        for_each_location_(answer, [&](const std::string& uri, const Json& range) {
+            ++locations;
+            const std::string path { host_->path_of_uri(uri) };
+            const auto module = path.empty() ? interfaceModules_.end() : interfaceModules_.find(base::path_key(path));
+            if (module == interfaceModules_.end() || declaration_kind_at_(path, range) != DeclarationKind::declaration) {
+                onlyDeclarations = false;
+                return;
+            }
+            const Json* start { lsp::find(range, "start") };
+            const auto text = text_of_(path);
+            if (start == nullptr || !text) return;
+            const auto offset = base::offset_at(*text, base::Position { start->value("line", 0), start->value("character", 0) });
+            if (!offset) return;
+            if (auto function = declared_function_at(*text, *offset)) sites.push_back(DeclarationSite { path, module->second, std::move(*function) });
+        });
+        if (locations == 0 || !onlyDeclarations) sites.clear();
+        return sites;
+    }
+
+    // Plan 2026-09-27 N-8. The definitions of what `sites` declare, found lexically in the other units of their modules
+    // (the interface and its partitions included): what clangd's index could not link to the declaration (its
+    // background index builds no module a unit imports, WA-CLANGD-008). Only an exact match counts -- same name,
+    // scopes that agree, the same parameter types as spelled -- so a definition this cannot tell apart is not guessed at.
+    Json lexical_definitions_(const std::vector<DeclarationSite>& sites) const {
+        Json locations = Json::array();
+        std::set<std::string, std::less<>> seen;
+        for (const auto& site : sites) {
+            std::vector<std::string> candidates;
+            if (const auto units = moduleUnits_.find(site.module); units != moduleUnits_.end()) {
+                for (const auto& unit : units->second) candidates.push_back(unit.path);
+            }
+            if (const auto interface = moduleSources_.find(site.module); interface != moduleSources_.end()) candidates.push_back(interface->second);
+            for (const auto& candidate : candidates) {
+                const auto text = text_of_(candidate);
+                if (!text) continue;
+                for (const auto& definition : function_definitions(*text, site.function.name)) {
+                    if (!same_function(site.function, definition)) continue;
+                    const std::string key { std::format("{}:{}", base::path_key(candidate), definition.nameOffset) };
+                    if (!seen.insert(key).second) continue;
+                    const auto& range = definition.nameRange;
+                    locations.push_back(Json { { "uri", base::path_to_uri(candidate) },
+                                               { "range", Json { { "start", Json { { "line", range.start.line }, { "character", range.start.character } } },
+                                                                 { "end", Json { { "line", range.end.line }, { "character", range.end.character } } } } } });
+                }
             }
         }
-        if (!open) {
-            auto read = platform::fs::read_file(path);
-            if (!read) return DeclarationKind::unknown;
-            text = std::move(*read);
-        }
-        const auto offset = base::offset_at(text, position);
-        return offset ? declaration_kind(text, *offset) : DeclarationKind::unknown;
+        return locations;
     }
 
     // clangd's answer to a definition request. When every location it gives is a declaration only, in a module's interface,
@@ -3087,6 +3163,13 @@ private:
     // not built yet waits within it, never past it.
     void search_definition_(const Json& message, Answer answer, Reply reply, Clock::time_point limit) {
         if (answer.kind != Answer::Kind::result || !accepting_) {
+            reply(std::move(answer));
+            return;
+        }
+        // Asked on a definition, clangd's answer is its declaration, which is the answer: the editors' convention of
+        // going back and forth between the two (plan 2026-09-27 §2.1). Nothing to search for.
+        std::vector<DeclarationSite> sites { request_on_definition_(message) ? std::vector<DeclarationSite> {} : declaration_sites_(answer.value) };
+        if (sites.empty() && request_on_definition_(message)) {
             reply(std::move(answer));
             return;
         }
@@ -3114,8 +3197,13 @@ private:
             const auto units = moduleUnits_.find(module);
             if (units == moduleUnits_.end()) continue;
             const auto interface = moduleSources_.find(module);
-            for (const auto& path : units_to_search(interface == moduleSources_.end() ? std::string_view {} : std::string_view { interface->second },
-                                                    units->second, UNITS_PER_SEARCH)) {
+            // N-8: the units that define the name come first; the rest in the order the file names suggest.
+            const auto site = std::ranges::find_if(sites, [&](const DeclarationSite& each) { return each.module == module; });
+            const std::vector<std::string> chosen { site != sites.end()
+                ? units_defining(site->function.name, units->second, [this](const std::string& path) { return text_of_(path); }, UNITS_PER_SEARCH)
+                : units_to_search(interface == moduleSources_.end() ? std::string_view {} : std::string_view { interface->second }, units->second,
+                                  UNITS_PER_SEARCH) };
+            for (const auto& path : chosen) {
                 const std::string key { base::path_key(path) };
                 if (const auto uri = editor_uri_of_(key)) {
                     // The editor has it open: clangd builds it anyway.
@@ -3134,11 +3222,17 @@ private:
             }
         }
         if (waiting.empty()) {
+            // Every unit that could define it is built already, and clangd still only knows the declaration (O-1).
+            if (Json found = lexical_definitions_(sites); !found.empty()) {
+                host_->record_event("definition-lexical", Json { { "modules", Json(std::vector<std::string> { modules.begin(), modules.end() }) } });
+                reply(Answer { Answer::Kind::result, std::move(found) });
+                return;
+            }
             reply(std::move(answer));
             return;
         }
         if (!opened.empty()) host_->record_event("definition-search", Json { { "modules", Json(std::vector<std::string> { modules.begin(), modules.end() }) }, { "opened", opened } });
-        searches_.push_back(DefinitionSearch { message, std::move(answer.value), std::move(reply), std::move(waiting),
+        searches_.push_back(DefinitionSearch { message, std::move(answer.value), std::move(reply), std::move(sites), std::move(waiting),
                                               std::min(now + DEFINITION_PATIENCE, limit), limit });
     }
 
@@ -3358,8 +3452,19 @@ private:
         }
         // Asked again within the client's own limit, with clangd's first answer if this one finds nothing
         // (including when nothing of the limit is left: request_now_ answers unavailable at once).
-        request_now_(search.message, [first = std::move(search.firstAnswer), reply = std::move(search.reply)](Answer answer) mutable {
+        request_now_(search.message, [this, first = std::move(search.firstAnswer), reply = std::move(search.reply), sites = std::move(search.sites)](Answer answer) mutable {
             const bool found { answer.kind == Answer::Kind::result && !answer.value.is_null() && !(answer.value.is_array() && answer.value.empty()) };
+            // N-8: an answer that is still only the declaration is no better than the first; the definition found
+            // lexically is, when there is one.
+            if (found && declaration_sites_(answer.value).empty()) {
+                reply(std::move(answer));
+                return;
+            }
+            if (Json lexical = lexical_definitions_(sites); !lexical.empty()) {
+                host_->record_event("definition-lexical", Json {});
+                reply(Answer { Answer::Kind::result, std::move(lexical) });
+                return;
+            }
             if (found) reply(std::move(answer));
             else reply(Answer { Answer::Kind::result, std::move(first) });
         }, search.limit, false);

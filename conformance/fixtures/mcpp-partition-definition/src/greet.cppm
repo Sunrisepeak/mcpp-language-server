@@ -8,6 +8,8 @@ std::string greet(std::string_view name);
 int add(int a, int b);
 int twice(int a);
 int run_all();
+std::string configure(bool verbose, int level = 1,
+                      std::vector<std::string> names = {});
 std::string shout(std::string_view s);
 
 class Counter {
