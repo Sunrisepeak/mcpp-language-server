@@ -30,8 +30,24 @@ Two things are worth knowing:
 
 - **The run is offline.** A build description is a question about the project, not an errand, so
   the server asks it with `MCPP_OFFLINE` set. If the project's dependencies are not on the machine
-  yet, mcpp says so and the status bar offers to run the build tool in your terminal — where your
-  proxy and credentials are. See [30-settings.md](30-settings.md) for `mcppls.buildTool`.
+  yet, mcpp says so, and nothing waits for you to decide anything:
+  - the project is served from its sources at once (L4), and whatever mcpp could describe is used;
+  - a notification in the corner offers **Download and Continue** (the build tool may reach the
+    network, this once), **Run in Terminal** (where your proxy and credentials are), or **Don't Ask
+    Again**. You can leave it unanswered forever; it is asked once per workspace and set of missing
+    things;
+  - the description is asked again, offline, after 30 s, 1 and 2 minutes and then every 5, and at once
+    when `mcpp.toml` or `mcpp.lock` changes — so if you build in your own terminal instead, the
+    project upgrades by itself and the question no longer applies.
+
+  See [30-settings.md](30-settings.md) for `mcppls.buildTool` and `mcppls.buildDiscovery.askBeforeDownload`.
+- **What a build rule generates.** A rule package (`mcpp:plugins`' `rules-qt`, say) turns `.ui`,
+  `.qrc` and `.ts` files into headers and sources when the project builds. mcpp describes the build
+  without running those steps, so a form's `ui_*.h` does not exist yet in what it describes. mcppls
+  leaves the rule's inputs out (they are not C++), reads the generated files from your project's own
+  `target/` when a build has written them, and otherwise says which are missing, with **Build in
+  Terminal**; once a build writes them, the files that include them get their semantics without a
+  restart.
 - **An older mcpp** without `emit build-database` is not the end of it: if a newer mcpp is installed
   elsewhere on the machine (the xlings package store, mcpp's own registry store), mcppls asks *that*
   one instead, read-only and offline the same way, only to describe the project — the project still
@@ -109,4 +125,6 @@ else. The semantic kit provides the semantics and the status says why.
 | A compiler and standard library | The model came from your build; that toolchain's `std` is in use |
 | A semantic kit | No usable compiler was found, or the workspace is untrusted |
 | "may be stale" | The build tool could not answer this time; the last model that loaded is still in use |
-| "needs a download" | Planning offline stopped at something not on the machine; there is an action to fix it |
+| "needs a download" | Planning offline stopped at something not on the machine; the project is served from its sources meanwhile, and there are actions to fix it (or build in your terminal: it upgrades by itself) |
+| "files the build generates … do not exist yet" | A rule's output (a Qt form's header, say) is not built yet; build once and the files that include it get their semantics |
+| "implementation unit(s) cannot be read" | An implementation unit does not build (a missing header, usually), so go-to-definition cannot reach the definitions in it |
