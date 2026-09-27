@@ -7,6 +7,7 @@ import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.log;
 import mcppls.base.path;
+import mcppls.project.boundary;
 import mcppls.base.version;
 import mcppls.platform.fs;
 import mcppls.platform.dirs;
@@ -55,17 +56,7 @@ struct Loaded {
 };
 
 // The root for a file: the nearest directory with a build description, else the file's directory.
-std::string root_for(std::string_view file) {
-    std::string directory { base::parent_path(file) };
-    while (true) {
-        for (std::string_view marker : { "mcpp.toml", "CMakeLists.txt", "compile_commands.json" }) {
-            if (platform::fs::is_regular_file(base::join_path(directory, marker))) return directory;
-        }
-        const std::string parent { base::parent_path(directory) };
-        if (parent == directory) return base::parent_path(file);
-        directory = parent;
-    }
-}
+std::string root_for(std::string_view file) { return project::enclosing_project_root(base::parent_path(file)); }
 
 Loaded load(std::string_view root, const cmdline::ParsedArgs& args, bool trusted) {
     Loaded loaded;

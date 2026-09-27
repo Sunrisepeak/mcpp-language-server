@@ -61,8 +61,8 @@ std::string_view to_string(State state) {
 
 namespace {
 
-constexpr std::array<std::string_view, 6> BUILD_FILES { "mcpp.toml", "mcpp.lock", "CMakeLists.txt", "CMakePresets.json",
-                                                        "compile_commands.json", "build_database.json" };
+constexpr std::array<std::string_view, 10> BUILD_FILES { "mcpp.toml", "mcpp.lock", "CMakeLists.txt", "CMakePresets.json", "CMakeUserPresets.json",
+                                                         "xmake.lua", "meson.build", "meson_options.txt", "compile_commands.json", "build_database.json" };
 
 constexpr std::array<std::string_view, 7> WATCH_POLL_SKIP_DIRECTORIES { "target", "build", "node_modules", "out",
                                                                         "_build", "cmake-build-debug", "cmake-build-release" };

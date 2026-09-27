@@ -21,12 +21,23 @@ public:
 
 private:
     std::string outer_;
-    bool outerIsCMake_ { false };
+    std::vector<std::string_view> outerNesting_;   // the nesting manifests the outer root itself has
     std::vector<std::string> members_;   // an mcpp workspace's members, relative, as written
 };
 
-// The nearest directory at or above `directory` with a build manifest; `directory` itself when none has.
+// The files that make a directory a project's root, one list for every place that looks for one (plan
+// 2026-09-27: xmake and meson joined): mcpp.toml, CMakeLists.txt, xmake.lua, meson.build and a bare
+// compile_commands.json. The three of them that a build also puts in subdirectories -- CMakeLists.txt,
+// xmake.lua, meson.build -- nest: a subdirectory's own is part of the project above it.
+std::span<const std::string_view> project_manifests();
+bool nesting_manifest(std::string_view manifest);
+
+// The project root for `directory`: the nearest directory at or above it with a build manifest, and
+// when that manifest nests, the outermost of the directories above it that carry the same one without a
+// gap; `directory` itself when none has.
 std::string enclosing_project_root(std::string_view directory);
+// The same, or nullopt when no directory has a manifest.
+std::optional<std::string> find_project_root(std::string_view directory);
 
 // The quoted entries of `[workspace] members = [ ... ]` in an mcpp.toml's text.
 std::vector<std::string> workspace_members(std::string_view manifestText);

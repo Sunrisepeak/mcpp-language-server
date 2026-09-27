@@ -8,7 +8,8 @@ namespace mcppls::project {
 
 namespace {
 
-constexpr std::array<std::string_view, 3> MANIFESTS { "mcpp.toml", "CMakeLists.txt", "compile_commands.json" };
+constexpr std::array<std::string_view, 5> MANIFESTS { "mcpp.toml", "CMakeLists.txt", "xmake.lua", "meson.build", "compile_commands.json" };
+constexpr std::array<std::string_view, 3> NESTING { "CMakeLists.txt", "xmake.lua", "meson.build" };
 
 bool has(std::string_view directory, std::string_view manifest) { return platform::fs::is_regular_file(base::join_path(directory, manifest)); }
 
@@ -59,25 +60,43 @@ std::vector<std::string> workspace_members(std::string_view text) {
     return members;
 }
 
-std::string enclosing_project_root(std::string_view directory) {
+std::span<const std::string_view> project_manifests() { return MANIFESTS; }
+
+bool nesting_manifest(std::string_view manifest) { return std::ranges::find(NESTING, manifest) != NESTING.end(); }
+
+std::optional<std::string> find_project_root(std::string_view directory) {
     std::string current { directory };
     for (int guard { 0 }; guard < 128 && !current.empty(); ++guard) {
-        if (std::ranges::any_of(MANIFESTS, [&](std::string_view manifest) { return has(current, manifest); })) return current;
+        const auto found = std::ranges::find_if(MANIFESTS, [&](std::string_view manifest) { return has(current, manifest); });
+        if (found != MANIFESTS.end()) {
+            // A subdirectory's CMakeLists.txt (xmake.lua, meson.build) is part of the project above it.
+            if (nesting_manifest(*found)) {
+                for (std::string parent { base::parent_path(current) }; parent != current && has(parent, *found); parent = base::parent_path(current)) current = parent;
+            }
+            return current;
+        }
         const std::string parent { base::parent_path(current) };
         if (parent == current) break;
         current = parent;
     }
-    return std::string { directory };
+    return std::nullopt;
 }
 
+std::string enclosing_project_root(std::string_view directory) { return find_project_root(directory).value_or(std::string { directory }); }
+
 ProjectBoundaries::ProjectBoundaries(std::string_view outer) : outer_ { outer } {
-    outerIsCMake_ = has(outer_, "CMakeLists.txt");
+    for (const std::string_view manifest : NESTING) {
+        if (has(outer_, manifest)) outerNesting_.push_back(manifest);
+    }
     if (const auto manifest = platform::fs::read_file(base::join_path(outer_, "mcpp.toml"))) members_ = workspace_members(*manifest);
 }
 
 bool ProjectBoundaries::separate(std::string_view directory) const {
     if (has(directory, "compile_commands.json")) return true;
-    if (has(directory, "CMakeLists.txt") && !outerIsCMake_) return true;
+    // A subdirectory's own CMakeLists.txt (xmake.lua, meson.build) belongs to an outer project of the same kind.
+    for (const std::string_view manifest : NESTING) {
+        if (has(directory, manifest) && std::ranges::find(outerNesting_, manifest) == outerNesting_.end()) return true;
+    }
     if (has(directory, "mcpp.toml")) {
         const std::string relative { relative_to(outer_, directory) };
         return std::ranges::none_of(members_, [&](const std::string& member) { return matches_member(member, relative); });

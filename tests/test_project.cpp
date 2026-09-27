@@ -999,6 +999,41 @@ version = "1"
         fs::remove_all(workspace);
     };
 
+    // Plan 2026-09-27: one list of project manifests for every place that looks for a root, and a subdirectory's own
+    // CMakeLists.txt, xmake.lua or meson.build belongs to the project above it.
+    "the project root of a file is the outermost of a nesting build system's manifests"_test = [] {
+        const std::string meson { make_root("root-meson") };
+        write(meson, "meson.build", "project('p', 'cpp')\nsubdir('src')\n");
+        write(meson, "src/meson.build", "executable('app', 'main.cpp')\n");
+        write(meson, "src/main.cpp", "int main() {}\n");
+        expect(p::enclosing_project_root(b::join_path(meson, "src")) == meson) << "src/meson.build is part of the project above";
+        const std::string xmake { make_root("root-xmake") };
+        write(xmake, "xmake.lua", "includes(\"src\")\n");
+        write(xmake, "src/xmake.lua", "target(\"app\")\n");
+        expect(p::enclosing_project_root(b::join_path(xmake, "src")) == xmake);
+        const std::string cmake { make_root("root-cmake") };
+        write(cmake, "CMakeLists.txt", "add_subdirectory(libs/core)\n");
+        write(cmake, "libs/core/CMakeLists.txt", "add_library(core)\n");
+        expect(p::enclosing_project_root(b::join_path(cmake, "libs/core")) == b::join_path(cmake, "libs/core"))
+            << "libs/ has no CMakeLists.txt of its own: the chain is broken there, as it is for CMake itself";
+        write(cmake, "libs/CMakeLists.txt", "add_subdirectory(core)\n");
+        expect(p::enclosing_project_root(b::join_path(cmake, "libs/core")) == cmake);
+        const std::string loose { make_root("root-none") };
+        write(loose, "a/b.cpp", "int x;\n");
+        expect(!p::find_project_root(b::join_path(loose, "a")).has_value() || *p::find_project_root(b::join_path(loose, "a")) != b::join_path(loose, "a"));
+        expect(std::ranges::find(p::project_manifests(), std::string_view { "xmake.lua" }) != p::project_manifests().end());
+        expect(p::nesting_manifest("meson.build") && !p::nesting_manifest("mcpp.toml"));
+        const p::ProjectBoundaries inMeson { meson };
+        expect(!inMeson.separate(b::join_path(meson, "src"))) << "a meson subdir of a meson project";
+        const p::ProjectBoundaries inCMake { cmake };
+        write(cmake, "third_party/lib/meson.build", "project('lib', 'cpp')\n");
+        expect(inCMake.separate(b::join_path(cmake, "third_party/lib"))) << "a meson project inside a CMake one";
+        fs::remove_all(meson);
+        fs::remove_all(xmake);
+        fs::remove_all(cmake);
+        fs::remove_all(loose);
+    };
+
     return report();
 
     "sources nothing describes are read with the newest standard their compiler takes (C++26 alignment)"_test = [] {
