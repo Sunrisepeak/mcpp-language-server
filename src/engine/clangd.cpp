@@ -36,6 +36,7 @@ EngineTraits traits_for_version(std::string_view version, std::span<const std::s
         .hangsOnUnresolvedImports = on(UNRESOLVED_IMPORT_STAND_INS),
         .needsModulePreparation = on(MODULE_PREPARATION),
         .needsModuleHints = on(MODULE_HINTS),
+        .indexesModuleUnitsWithoutModules = on(BACKGROUND_INDEX_WITHOUT_MODULES),
         .msvcStlNeedsNoAlignedAllocation = on(MSVC_STL_ALIGNED_ALLOCATION),
         .hangsOnTrailingDotModuleName = on(TRAILING_DOT_MODULE_NAME),
         .misplacesDirectiveSemicolon = on(DIRECTIVE_SEMICOLON_POSITION),
@@ -306,6 +307,8 @@ private:
     static constexpr std::chrono::minutes BACKGROUND_BUILD_LIMIT { 2 };
     static constexpr std::size_t BACKGROUND_UNITS { 12 };
     static constexpr std::size_t UNITS_PER_SEARCH { 4 };
+    static constexpr std::size_t IMPLEMENTATIONS_AT_ONCE { 2 };          // N-7: units being built for the index at the same time
+    static constexpr std::size_t IMPLEMENTATIONS_PER_OPEN { 16 };        // N-7: relevant units queued for one opened file
     std::map<std::string, std::vector<UnitOfModule>, std::less<>> moduleUnits_;   // module -> its units other than its interface
     std::map<std::string, std::string, std::less<>> interfaceModules_;          // path key of an importable unit -> its module
     struct BackgroundUnit {
@@ -315,10 +318,28 @@ private:
         Clock::time_point usedAt;
         bool built { false };
         std::string state;   // clangd's last fileStatus state for it
+        bool priming { false };   // opened to put its definitions in clangd's index (N-7), not for a waiting request
     };
     std::map<std::string, BackgroundUnit, std::less<>> background_;           // path key
     std::set<std::string, std::less<>> closedBackground_;                     // path keys whose closing diagnostics are still to come
     std::map<std::string, std::optional<platform::fs::FileStamp>, std::less<>> backgroundRefused_;   // units that did not build in time, as they were
+    // Plan 2026-09-27 N-7 (WA-CLANGD-008). clangd's background index compiles a module unit without building the modules
+    // it imports, so a definition in an implementation unit is indexed apart from its declaration, or not at all, until
+    // the unit has been open. Implementation units are therefore opened here, a few at a time, built through clangd's
+    // foreground -- which builds their modules first -- and closed again: their symbols stay in clangd's index.
+    // Relevant ones first (the units of an opened file's module and of the modules it imports, and units changed on
+    // disk), the rest once clangd has been idle for a while. A restart of clangd loses what its index held.
+    struct ImplementationUnit {
+        std::string path;
+        std::string module;
+    };
+    std::deque<ImplementationUnit> implementationQueue_;
+    std::set<std::string, std::less<>> implementationQueued_;                                        // path keys
+    std::map<std::string, std::optional<platform::fs::FileStamp>, std::less<>> implementationBuilt_;   // path key -> the file as it was built
+    std::map<std::string, std::string, std::less<>> implementationUnreadable_;                        // path key -> why it did not build (N-3)
+    bool implementationSeedOpen_ { true };        // the open documents' relevant units are still to be queued
+    bool implementationRestQueued_ { false };
+    std::optional<Clock::time_point> implementationRestAt_;
     struct DefinitionSearch {
         Json message;          // the client's request
         Json firstAnswer;      // clangd's answer before the units were built
@@ -408,6 +429,9 @@ public:
             { "filesWaitingForDatabase", held_files_() },
             { "fileStates", fileStatus_ },
             { "backgroundUnits", background_files_() },
+            // N-7 (WA-CLANGD-008): implementation units built for clangd's index, waiting, and the ones that did not build.
+            { "implementationIndex", Json { { "built", implementationBuilt_.size() }, { "queued", implementationQueue_.size() },
+                                            { "unreadable", implementationUnreadable_.size() }, { "on", priming_implementations_() } } },
             { "definitionSearches", searches_.size() },
             { "unresolvedModules", std::move(unresolved) },
             { "modulesThatDidNotCompile", std::move(compileFailures) },
@@ -693,6 +717,10 @@ public:
             if (!entry.imports.empty()) fileImports_[key] = entry.imports;
             if (!entry.module.empty()) fileModule_[key] = entry.module;
         }
+        // N-7: the units of this plan, for the open documents first and the rest once clangd is idle again.
+        implementationSeedOpen_ = true;
+        implementationRestQueued_ = false;
+        if (std::erase_if(implementationUnreadable_, [&](const auto& item) { return !writtenArguments_.contains(item.first); }) > 0) update_unreadable_issue_();
         std::vector<std::string> backgroundLeaving;
         for (const auto& [key, unit] : background_) {
             if (!writtenArguments_.contains(key) || excluded_.contains(key) || restartNeeded) backgroundLeaving.push_back(key);
@@ -743,6 +771,8 @@ public:
             if (accepting_) {
                 open_or_hold_(document, false);
                 prepare_imports_of_(document);
+                queue_implementations_of_(document.path);
+                pump_implementations_(Clock::now());
             } else if (!document.path.empty() && !writtenDatabase_.empty() && !writtenArguments_.contains(base::path_key(document.path))
                        && project::is_cxx_source_name(document.path) && base::is_within(document.path, host_->root_directory())) {
                 // Opened while clangd restarts: the database it reads may not have the file yet. Before the first plan nothing is
@@ -814,6 +844,19 @@ public:
             // Fix plan F16: a change on disk (from another program, or an editor that does not send didSave) is
             // looked at the same way, and a file whose disk text would spin clangd is left out of what it is told.
             if (const Json* changes = lsp::find_path(message, { "params", "changes" }); changes != nullptr && changes->is_array()) {
+                // N-7: clangd's background index does not index a unit again when it changes on disk; a unit the editor
+                // does not have open (a git pull, another program, a coding agent) is built again for the index.
+                for (const auto& change : *changes) {
+                    if (!change.is_object() || change.value("type", 0) == 3) continue;
+                    const std::string path { host_->path_of_uri(change.value("uri", std::string {})) };
+                    if (path.empty()) continue;
+                    const std::string key { base::path_key(path) };
+                    const auto module = fileModule_.find(key);
+                    if (module == fileModule_.end() || interfaceModules_.contains(key)) continue;
+                    implementationBuilt_.erase(key);
+                    queue_implementation_(path, module->second, true);
+                }
+                pump_implementations_(Clock::now());
                 Json kept = Json::array();
                 for (const auto& change : *changes) {
                     const std::string path { change.is_object() ? host_->path_of_uri(change.value("uri", std::string {})) : std::string {} };
@@ -1059,11 +1102,13 @@ public:
             for (const auto& waiting : requests) consider(waiting.limit);
         }
         for (const auto& [key, unit] : background_) consider(unit.built ? unit.usedAt + BACKGROUND_IDLE : unit.openedAt + BACKGROUND_BUILD_LIMIT);
+        consider(implementationRestAt_);
         return deadline;
     }
 
     void handle_timers() override {
         const auto now = Clock::now();
+        if (implementationRestAt_ && *implementationRestAt_ <= now) queue_rest_of_implementations_(now);
         if (pendingExit_ && now >= pendingExit_->at + EXIT_CONTEXT_WAIT) settle_exit_();
         if (!closingAfterBuild_.empty()) settle_disk_builds_(now);
         if (diskRecheckAt_ && *diskRecheckAt_ <= now) recheck_disk_(now);
@@ -1248,6 +1293,7 @@ private:
 
     void start_process_() {
         handshakeDone_ = false;
+        forget_implementations_();   // a new clangd's index has none of what the last one was given
         loadFailure_.reset();
         accepting_ = false;
         stuck_.clear();
@@ -1721,6 +1767,7 @@ private:
             }
         }
         prepare_modules_();
+        pump_implementations_(Clock::now());
         host_->status_changed();
     }
 
@@ -1815,10 +1862,16 @@ private:
             if (const auto unit = background_.find(diagnosedKey); unit != background_.end() && !host_->has_document(uri)) {
                 if (!unit->second.built) {
                     unit->second.built = true;
-                    log::info("{} built in clangd in {} ms to find definitions ({})", unit->second.path,
-                              std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - unit->second.openedAt).count(), host_->root_directory());
+                    const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - unit->second.openedAt).count();
+                    if (unit->second.priming) log::debug("{} built in clangd in {} ms for its index ({})", unit->second.path, took, host_->root_directory());
+                    else log::info("{} built in clangd in {} ms to find definitions ({})", unit->second.path, took, host_->root_directory());
                 }
+                // Every unit built here, for a search or for the index, is now in clangd's index (N-7).
+                implementation_built_(diagnosedKey, unit->second, params.value("diagnostics", Json::array()));
+                const bool priming { unit->second.priming };
                 unit_built_(diagnosedKey);
+                if (priming && !waited_on_(diagnosedKey)) close_background_(diagnosedKey);
+                pump_implementations_(Clock::now());
                 return;
             }
             // The empty list clangd sends when such a unit is closed, even when the editor opens the file right after.
@@ -3099,7 +3152,7 @@ private:
         return std::nullopt;
     }
 
-    bool open_in_background_(const std::string& path, std::string_view module, Clock::time_point now) {
+    bool open_in_background_(const std::string& path, std::string_view module, Clock::time_point now, bool priming = false) {
         const std::string key { base::path_key(path) };
         if (const auto refused = backgroundRefused_.find(key); refused != backgroundRefused_.end()) {
             if (platform::fs::stamp(path) == refused->second) return false;
@@ -3130,8 +3183,9 @@ private:
         if (!send_(lsp::make_notification("textDocument/didOpen", std::move(params)))) return false;
         note_database_read_();
         closedBackground_.erase(key);
-        background_[key] = BackgroundUnit { path, uri, now, now, false, {} };
-        log::info("opening {} in clangd to find definitions in module {} ({})", path, module, host_->root_directory());
+        background_[key] = BackgroundUnit { path, uri, now, now, false, {}, priming };
+        if (priming) log::debug("opening {} in clangd to index its definitions (module {}, {})", path, module, host_->root_directory());
+        else log::info("opening {} in clangd to find definitions in module {} ({})", path, module, host_->root_directory());
         return true;
     }
 
@@ -3146,6 +3200,141 @@ private:
             closedBackground_.insert(key);
         }
         background_.erase(unit);
+    }
+
+    // ---- implementation units in clangd's index (plan 2026-09-27 N-7, WA-CLANGD-008) ------------------
+
+    bool priming_implementations_() const { return options_.primeImplementationUnits && traits_.indexesModuleUnitsWithoutModules; }
+
+    void queue_implementation_(const std::string& path, const std::string& module, bool first) {
+        const std::string key { base::path_key(path) };
+        if (implementationQueued_.contains(key) || !writtenArguments_.contains(key)) return;
+        if (const auto built = implementationBuilt_.find(key); built != implementationBuilt_.end() && built->second == platform::fs::stamp(path)) return;
+        // The editor has it open: clangd builds it anyway.
+        if (editor_uri_of_(key)) return;
+        implementationQueued_.insert(key);
+        if (first) implementationQueue_.push_front(ImplementationUnit { path, module });
+        else implementationQueue_.push_back(ImplementationUnit { path, module });
+    }
+
+    // The units of `path`'s own module and of the modules it imports directly: where a definition it reaches is.
+    void queue_implementations_of_(std::string_view path) {
+        if (!priming_implementations_() || path.empty()) return;
+        const std::string key { base::path_key(path) };
+        std::vector<std::string> modules;
+        auto add_module = [&](std::string_view name) {
+            const std::string primary { name.substr(0, name.find(':')) };   // a partition belongs to its module's units
+            if (!primary.empty() && std::ranges::find(modules, primary) == modules.end()) modules.push_back(primary);
+        };
+        if (const auto own = fileModule_.find(key); own != fileModule_.end()) add_module(own->second);
+        if (const auto imports = fileImports_.find(key); imports != fileImports_.end()) {
+            for (const auto& name : imports->second) {
+                if (name.starts_with(':')) {
+                    if (const auto own = fileModule_.find(key); own != fileModule_.end()) add_module(own->second);
+                } else {
+                    add_module(name);
+                }
+            }
+        }
+        std::size_t queued { 0 };
+        for (const auto& module : modules) {
+            const auto units = moduleUnits_.find(module);
+            if (units == moduleUnits_.end()) continue;
+            for (const auto& unit : units->second) {
+                if (queued >= IMPLEMENTATIONS_PER_OPEN) return;
+                if (base::same_path(unit.path, path)) continue;
+                queue_implementation_(unit.path, module, true);
+                ++queued;
+            }
+        }
+    }
+
+    bool engine_idle_() const {
+        return accepting_ && pending_.empty() && searches_.empty() && awaitingDiagnostics_.empty() && !primer_.busy();
+    }
+
+    // Opens queued units while fewer than IMPLEMENTATIONS_AT_ONCE are building; once nothing is queued and clangd has
+    // been idle for Options::implementationIdle, every other unit of every module is queued (the rest).
+    void pump_implementations_(Clock::time_point now) {
+        if (!priming_implementations_() || !accepting_ || !handshakeDone_) return;
+        if (implementationSeedOpen_) {
+            implementationSeedOpen_ = false;
+            for (const auto& document : host_->documents()) queue_implementations_of_(document.path);
+        }
+        std::size_t building { static_cast<std::size_t>(std::ranges::count_if(background_, [](const auto& item) { return item.second.priming && !item.second.built; })) };
+        while (building < IMPLEMENTATIONS_AT_ONCE && !implementationQueue_.empty()) {
+            ImplementationUnit unit { std::move(implementationQueue_.front()) };
+            implementationQueue_.pop_front();
+            const std::string key { base::path_key(unit.path) };
+            implementationQueued_.erase(key);
+            if (background_.contains(key) || editor_uri_of_(key)) continue;
+            if (!open_in_background_(unit.path, unit.module, now, true)) continue;
+            ++building;
+        }
+        if (implementationQueue_.empty() && building == 0 && !implementationRestQueued_ && !implementationRestAt_) {
+            implementationRestAt_ = now + options_.implementationIdle;
+        }
+    }
+
+    void queue_rest_of_implementations_(Clock::time_point now) {
+        implementationRestAt_.reset();
+        if (!priming_implementations_() || implementationRestQueued_) return;
+        if (!engine_idle_()) {
+            implementationRestAt_ = now + options_.implementationIdle;
+            return;
+        }
+        implementationRestQueued_ = true;
+        for (const auto& [module, units] : moduleUnits_) {
+            for (const auto& unit : units) queue_implementation_(unit.path, module, false);
+        }
+        if (!implementationQueue_.empty()) log::info("building {} implementation units for clangd's index ({})", implementationQueue_.size(), host_->root_directory());
+        pump_implementations_(now);
+    }
+
+    // A unit opened for the index was built: clangd's index has its definitions now (WA-CLANGD-008's premise), and
+    // one that did not compile says why (N-3).
+    void implementation_built_(const std::string& key, const BackgroundUnit& unit, const Json& diagnostics) {
+        implementationBuilt_[key] = platform::fs::stamp(unit.path);
+        std::string reason;
+        for (const auto& diagnostic : diagnostics) {
+            if (diagnostic.value("severity", 0) != 1) continue;
+            const std::string code { diagnostic.contains("code") && diagnostic["code"].is_string() ? diagnostic["code"].get<std::string>() : std::string {} };
+            const std::string message { diagnostic.value("message", std::string {}) };
+            if (code == "pp_file_not_found" || code == "module_not_found" || message.find("file not found") != std::string::npos) {
+                reason = message;
+                break;
+            }
+        }
+        const bool wasUnreadable { implementationUnreadable_.contains(key) };
+        if (!reason.empty()) implementationUnreadable_[key] = reason;
+        else implementationUnreadable_.erase(key);
+        if (wasUnreadable != !reason.empty() || !reason.empty()) update_unreadable_issue_();
+    }
+
+    void update_unreadable_issue_() {
+        std::erase_if(issues_, [](const Issue& issue) { return issue.code == "implementation-unreadable"; });
+        if (implementationUnreadable_.empty()) {
+            host_->status_changed();
+            return;
+        }
+        const auto& [firstKey, firstReason] = *implementationUnreadable_.begin();
+        std::string firstFile { firstKey };
+        if (const auto unit = background_.find(firstKey); unit != background_.end()) firstFile = unit->second.path;
+        const std::size_t count { implementationUnreadable_.size() };
+        add_issue_(Issue { "implementation-unreadable",
+            std::format("{} implementation {} cannot be read ({}: {}); definitions in {} are not reached by go-to-definition",
+                        count, count == 1 ? "unit" : "units", base::file_name(firstFile), firstReason, count == 1 ? "it" : "them"),
+            "mcppls.showLogs", "code" });
+        host_->status_changed();
+    }
+
+    void forget_implementations_() {
+        implementationQueue_.clear();
+        implementationQueued_.clear();
+        implementationBuilt_.clear();
+        implementationSeedOpen_ = true;
+        implementationRestQueued_ = false;
+        implementationRestAt_.reset();
     }
 
     void unit_built_(const std::string& key) {

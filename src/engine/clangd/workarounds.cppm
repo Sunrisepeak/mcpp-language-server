@@ -35,6 +35,7 @@ inline constexpr std::string_view MODULE_HINTS { "WA-CLANGD-004" };
 inline constexpr std::string_view MSVC_STL_ALIGNED_ALLOCATION { "WA-CLANGD-005" };
 inline constexpr std::string_view DIRECTIVE_SEMICOLON_POSITION { "WA-CLANGD-006" };
 inline constexpr std::string_view UNSAVED_IMPORT_NOT_FOUND { "WA-CLANGD-007" };
+inline constexpr std::string_view BACKGROUND_INDEX_WITHOUT_MODULES { "WA-CLANGD-008" };
 
 std::span<const Workaround> workarounds();
 const Workaround* find_workaround(std::string_view id);
