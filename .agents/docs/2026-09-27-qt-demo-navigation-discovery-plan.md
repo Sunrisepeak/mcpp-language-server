@@ -629,3 +629,9 @@ V-W（GalTranslPP，Windows，windows-2025，Sunrisepeak/GalTranslPP#1 run 36317
 
 实施中另外发现并处理：mcpp 2026.9.27.1 构建不了本仓库（mcpp#725，CI 固定 2026.9.26.1）；emit 会写工程 `.mcpp/.xlings.json`、
 构建程序链接失败被误报为"设备源无动作"（都写进了 mcpp#724）。
+
+自我 review（合入前，全量 diff）改掉的三处：xmake 的"是否重新 `xmake f`"原来对目录取 stamp，恒为空——
+而 xmake 会把 `network.mode:private` 存进私有配置，于是"下载并继续"那一次仍然离线；改为成功配置后记下
+"模式 + xmake.lua 的 stamp"，不同就重配（实机：第二次跳过、改 xmake.lua 后重配、工程目录不变）。
+N-7 卡住的单元被清掉后不再补位，队列会停到下一个事件；现在立即补位（将要重启时除外）。
+单次 watch 超过 20 个文件（D3）原来仍插队，现在只进"其余"级。
