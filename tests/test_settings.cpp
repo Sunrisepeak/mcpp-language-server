@@ -177,7 +177,10 @@ int main() {
                                           std::pair { std::string { "docs/zh-CN/30-settings.md" }, std::string_view { "zh-CN" } } }) {
             const auto text = fs::read_file(base::join_path(root, path));
             expect(fatal(text.has_value())) << path;
-            const std::string embedded { between_markers(*text, "<!-- settings:begin -->", "<!-- settings:end -->") };
+            // A Windows checkout may turn the file's line endings into CRLF; the renderer writes LF.
+            std::string lf { *text };
+            std::erase(lf, '\r');
+            const std::string embedded { between_markers(lf, "<!-- settings:begin -->", "<!-- settings:end -->") };
             const std::string rendered { settings::to_markdown(settings::registry(), lang) };
             expect(embedded == rendered) << path;
         }

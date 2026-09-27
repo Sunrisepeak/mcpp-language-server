@@ -3300,15 +3300,17 @@ private:
 
     bool priming_implementations_() const { return options_.primeImplementationUnits && traits_.indexesModuleUnitsWithoutModules; }
 
-    void queue_implementation_(const std::string& path, const std::string& module, bool first) {
+    // Whether `path` went into the queue: not when it is there already, was built as it is, or the editor has it.
+    bool queue_implementation_(const std::string& path, const std::string& module, bool first) {
         const std::string key { base::path_key(path) };
-        if (implementationQueued_.contains(key) || !writtenArguments_.contains(key)) return;
-        if (const auto built = implementationBuilt_.find(key); built != implementationBuilt_.end() && built->second == platform::fs::stamp(path)) return;
+        if (implementationQueued_.contains(key) || !writtenArguments_.contains(key)) return false;
+        if (const auto built = implementationBuilt_.find(key); built != implementationBuilt_.end() && built->second == platform::fs::stamp(path)) return false;
         // The editor has it open: clangd builds it anyway.
-        if (editor_uri_of_(key)) return;
+        if (editor_uri_of_(key)) return false;
         implementationQueued_.insert(key);
         if (first) implementationQueue_.push_front(ImplementationUnit { path, module });
         else implementationQueue_.push_back(ImplementationUnit { path, module });
+        return true;
     }
 
     // The units of `path`'s own module and of the modules it imports directly: where a definition it reaches is.
@@ -3337,8 +3339,7 @@ private:
             for (const auto& unit : units->second) {
                 if (queued >= IMPLEMENTATIONS_PER_OPEN) return;
                 if (base::same_path(unit.path, path)) continue;
-                queue_implementation_(unit.path, module, true);
-                ++queued;
+                if (queue_implementation_(unit.path, module, true)) ++queued;
             }
         }
     }
