@@ -37,7 +37,7 @@ std::string utc_now(std::string_view format) {
 } // namespace
 
 Json make_report(Json roots, Json client, std::string_view engine, const engine::PayloadPaths& payload, bool payloadCorrupt,
-                 std::chrono::steady_clock::duration uptime) {
+                 std::chrono::steady_clock::duration uptime, Json settings) {
     return Json {
         { "generatedAt", utc_now("{:%FT%TZ}") },
         { "server", Json { { "name", "mcppls" }, { "version", std::string { base::VERSION } }, { "platform", std::string { mcppls::os::PLATFORM } },
@@ -48,6 +48,7 @@ Json make_report(Json roots, Json client, std::string_view engine, const engine:
         { "payload", Json { { "directory", payload.directory }, { "clangd", payload.clangd }, { "clangdVersion", payload.clangdVersion },
                             { "kit", payload.kit }, { "kitNotice", payload.kitNotice }, { "platform", payload.platform }, { "corrupt", payloadCorrupt } } },
         { "roots", std::move(roots) },
+        { "settings", std::move(settings) },
         { "logTail", log::recent(300) },
     };
 }

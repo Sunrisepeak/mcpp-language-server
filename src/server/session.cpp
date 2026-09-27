@@ -15,6 +15,7 @@ import mcppls.platform.toolrun;
 import mcppls.platform.fs;
 import mcppls.platform.stdio;
 import mcppls.platform.task;
+import mcppls.config.settings;
 import mcppls.lsp.jsonrpc;
 import mcppls.lsp.protocol;
 import mcppls.engine.payload;
@@ -274,31 +275,14 @@ private:
         clientInitializeId_ = id;
         clientParams_ = params;
         clientCapabilities_ = params.value("capabilities", Json::object());
-        if (const Json* init = lsp::find(params, "initializationOptions"); init != nullptr && init->is_object()) {
-            if (auto compiler = lsp::string_at(*init, "compiler")) compilerOverride_ = *compiler;
-            if (auto kit = lsp::string_at(*init, "semanticKit")) kitEnabled_ = *kit != "off";
-            // overall design 5.6: the core engine a client chose (mcppls.engine), unless the command line named one.
-            if (auto chosen = lsp::string_at(*init, "engine"); chosen && !chosen->empty() && !options_.engineFromCommandLine) options_.engine = *chosen;
-            // design 4.4 and 4.3. Anything else is the default: a setting nobody here understands
-            // must not silently turn the network on or take the environment away.
-            if (auto buildTool = lsp::string_at(*init, "buildTool");
-                buildTool && (*buildTool == "offline" || *buildTool == "online" || *buildTool == "off")) {
-                options_.buildTool = *buildTool;
-            }
-            if (auto environment = lsp::string_at(*init, "toolEnvironment");
-                environment && (*environment == "auto" || *environment == "editor")) {
-                options_.toolEnvironment = *environment;
-            }
-            // design doc 2026-09-25 K/§7, contract T0: initializationOptions.semanticTokens.
-            if (const Json* semanticTokens = lsp::find(*init, "semanticTokens"); semanticTokens != nullptr && semanticTokens->is_object()) {
-                if (const auto modules = semanticTokens->find("modules"); modules != semanticTokens->end() && modules->is_boolean()) {
-                    options_.semanticTokensModules = modules->get<bool>();
-                }
-                if (const auto moduleType = semanticTokens->find("moduleType"); moduleType != semanticTokens->end() && moduleType->is_boolean()) {
-                    options_.semanticTokensModuleType = moduleType->get<bool>();
-                }
-            }
-        }
+        // config settings §9 T1: initializationOptions layered over the command line, on the very
+        // same registry-backed object that layer already applied to (a value the command line set
+        // is immune to this one, and to every later workspace/didChangeConfiguration). Every field
+        // handle_initialize_ used to read out of `*init` by hand is now this one call, plus
+        // sync_settings_ copying the result into `options_` and the two constructor parameters
+        // (`compilerOverride_`, `kitEnabled_`) `Workspace` still takes positionally.
+        options_.settings.apply_initialization_options(params);
+        sync_settings_();
         // The environment the user's build tools run in is resolved once, in the background, before
         // anything needs it (design 4.3): an editor started from a desktop entry has none of the
         // user's shell configuration, and a build tool found through the wrong PATH is another build.
@@ -330,6 +314,54 @@ private:
 
         for (const auto& folder : workspace_roots_(params)) create_root_(folder, roots_.empty());
         if (roots_.empty()) answer_initialize_(orchestrator::merge_capabilities(Json::object()));   // workspace_roots_ always names at least one
+    }
+
+    // config settings §9 T1: `options_`'s own fields (still what `Workspace`'s constructor and
+    // everything downstream of it reads -- this function does not restructure that) copied fresh
+    // out of `options_.settings`, whatever layers have been applied to it so far. Called once after
+    // each layer (`apply_initialization_options` above, `apply_configuration_change` below).
+    void sync_settings_() {
+        const auto& settings = options_.settings;
+        options_.engine = settings.string_value("engine");
+        options_.buildTool = settings.string_value("buildTool");
+        options_.toolEnvironment = settings.string_value("toolEnvironment");
+        options_.discoverCompilers = settings.bool_value("discoverCompilers");
+        options_.database = settings.string_value("database");
+        options_.mcpp = settings.string_value("mcpp");
+        options_.producerTimeout = settings.seconds_value("producerTimeout");
+        options_.requestTimeout = std::chrono::duration_cast<std::chrono::milliseconds>(settings.seconds_value("requestTimeout"));
+        options_.disabledWorkarounds = settings.list_value("disableWorkaround");
+        options_.semanticTokensModules = settings.bool_value("semanticTokens.modules");
+        options_.semanticTokensModuleType = settings.bool_value("semanticTokens.moduleType");
+        options_.buildDiscovery = settings.string_value("buildDiscovery");
+        options_.buildDiscoveryProviders = settings.list_value("buildDiscovery.providers");
+        options_.buildDiscoveryAskBeforeDownload = settings.bool_value("buildDiscovery.askBeforeDownload");
+        options_.primeImplementationUnits = settings.string_value("index.primeImplementationUnits");
+        options_.compiler = settings.string_value("compiler");
+        options_.semanticKit = settings.string_value("semanticKit");
+        compilerOverride_ = options_.compiler;
+        kitEnabled_ = options_.semanticKit != "off";
+    }
+
+    // `workspace/didChangeConfiguration` (config settings §9 T1): applied to the very `Settings`
+    // command line and initializationOptions already layered onto, so a value the command line set
+    // stays immune to it. A `reload`-applies row that actually changed reloads every root's model
+    // (`Workspace::reload_with_options`, itself scheduling the reload the same way an autosaved
+    // build file already does); a `restart`-applies one only gets a log line and a settings problem
+    // -- an already-running root's engines were built from the options at the time, and only an
+    // actual restart (the VS Code extension's own response to the settings it cares about) reads
+    // fresh ones.
+    void handle_configuration_change_(const Json& params) {
+        auto result = options_.settings.apply_configuration_change(params);
+        if (result.changedKeys.empty()) return;
+        sync_settings_();
+        if (!result.reloadKeys.empty()) {
+            log::info("settings changed ({}): reloading every workspace's model", base::join(result.reloadKeys, ", "));
+            for (auto& root : roots_) root->reload_with_options(options_, compilerOverride_, kitEnabled_);
+        }
+        for (const auto& key : result.restartKeys) {
+            log::warning("setting {} changed; restart mcppls for it to take effect", key);
+        }
     }
 
     // A workspace folder: the path it names, and the URI the client named it by.
@@ -415,7 +447,7 @@ private:
         for (const auto& root : roots_) roots.push_back(root->report());
         const Json* clientInfo { lsp::find(clientParams_, "clientInfo") };
         return orchestrator::make_report(std::move(roots), clientInfo != nullptr ? *clientInfo : Json(nullptr), options_.engine, payload_, payloadCorrupt_,
-                                         std::chrono::steady_clock::now() - started_);
+                                         std::chrono::steady_clock::now() - started_, options_.settings.to_json());
     }
 
     // issue #23 fix plan F18: `mcppls.exportBundle [{hideProjectPaths, noSourceExcerpts, includeDumps,
@@ -562,6 +594,7 @@ private:
             for (auto& root : roots_) root->cancel(requestId);
             return;
         }
+        if (method == lsp::method::WORKSPACE_DID_CHANGE_CONFIGURATION) handle_configuration_change_(params);
         if (method == lsp::method::WORKSPACE_DID_CHANGE_CONFIGURATION || method == lsp::method::SET_TRACE || !method.starts_with("$/")) {
             for (auto& root : roots_) root->forward_other_notification(message);
         }

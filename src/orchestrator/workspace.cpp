@@ -2189,6 +2189,20 @@ void Workspace::reload_build_description() {
     impl_->start_model_load();
 }
 
+void Workspace::reload_with_options(const SessionOptions& options, const std::string& compilerOverride, bool kitEnabled) {
+    impl_->options.buildTool = options.buildTool;
+    impl_->options.discoverCompilers = options.discoverCompilers;
+    impl_->options.database = options.database;
+    impl_->options.mcpp = options.mcpp;
+    impl_->options.producerTimeout = options.producerTimeout;
+    impl_->options.buildDiscovery = options.buildDiscovery;
+    impl_->options.buildDiscoveryProviders = options.buildDiscoveryProviders;
+    impl_->options.buildDiscoveryAskBeforeDownload = options.buildDiscoveryAskBeforeDownload;
+    impl_->compilerOverride = compilerOverride;
+    impl_->kitEnabled = kitEnabled;
+    impl_->schedule_reload();
+}
+
 void Workspace::handle_model_loaded(int generation, std::shared_ptr<project::ProjectModel> model, bool fromProducer) {
     if (generation != impl_->modelGeneration) return;
     impl_->handle_model_loaded(std::move(model), fromProducer);

@@ -9,9 +9,10 @@ import mcppls.engine.payload;
 export namespace mcppls::orchestrator {
 
 // The report around the roots' own (Workspace::report): when, which server and client, which payload,
-// and the latest lines of the log.
+// the latest lines of the log, and `settings` (config settings §9 T1: every resolved value, its
+// origin, and the problems every layer applied so far ran into -- `config::settings::Settings::to_json`).
 nlohmann::json make_report(nlohmann::json roots, nlohmann::json client, std::string_view engine, const engine::PayloadPaths& payload,
-                           bool payloadCorrupt, std::chrono::steady_clock::duration uptime);
+                           bool payloadCorrupt, std::chrono::steady_clock::duration uptime, nlohmann::json settings);
 
 // Opens `<cache>/logs/<kind>-<time>-<tag>.log` for this process's log, keeping the newest `keep` logs of
 // that kind, and returns its path; empty when it cannot be opened.
