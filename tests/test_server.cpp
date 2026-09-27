@@ -443,6 +443,29 @@ int main() {
         expect(cld::failure_kind(*other) == cld::FailureKind::other);
     };
 
+    "only a standard library that does not compile, or that has no unit, moves the project to the kit"_test = [] {
+        using cld::FailureAction;
+        using cld::FailureKind;
+        // qt-demo, 12:15:52.944: std.cc joined the engine database; 78 ms later clangd, still on the database it
+        // had read before, reported "Don't get the module unit for module std".
+        expect(cld::failure_action(FailureKind::unresolved, { .standardLibrary = true, .providerPlanned = true, .providerRead = false })
+               == FailureAction::ignore) << "a report about a database clangd has not read yet is not a failure";
+        expect(cld::failure_action(FailureKind::unresolved, { .standardLibrary = true, .providerPlanned = true, .providerRead = true })
+               == FailureAction::record) << "a unit clangd has read and still cannot get is not a reason to leave the toolchain";
+        expect(cld::failure_action(FailureKind::unresolved, { .standardLibrary = true, .providerPlanned = false })
+               == FailureAction::use_kit) << "a toolchain with no std module gets the kit's";
+        expect(cld::failure_action(FailureKind::compile, { .standardLibrary = true, .providerPlanned = true })
+               == FailureAction::use_kit) << "std that does not compile gets the kit's";
+        expect(cld::failure_action(FailureKind::compile, { .standardLibrary = true, .providerPlanned = true, .alreadyOnKit = true })
+               == FailureAction::record) << "once on the kit, nothing switches again";
+        expect(cld::failure_action(FailureKind::other, { .standardLibrary = true, .providerPlanned = true })
+               == FailureAction::record);
+        expect(cld::failure_action(FailureKind::compile, { .standardLibrary = false, .providerPlanned = true })
+               == FailureAction::record) << "a project module never moves the project to the kit";
+        expect(cld::failure_action(FailureKind::unresolved, { .standardLibrary = false, .providerPlanned = true, .providerRead = false })
+               == FailureAction::ignore) << "the same race for any module is not recorded as unresolved";
+    };
+
     "restarts in a row are spaced out"_test = [] {
         using namespace std::chrono_literals;
         cld::RestartGate gate;

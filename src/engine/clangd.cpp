@@ -1998,7 +1998,24 @@ private:
         const auto standard = moduleSources_.find("std");
         const bool stdFailed { parsed.module == "std" || parsed.module == "std.compat"
                                || (kind == FailureKind::compile && standard != moduleSources_.end() && base::same_path(parsed.failedSource, standard->second)) };
-        if (stdFailed && kind != FailureKind::other && !stdFromKit_) {
+        // Plan 2026-09-27 Q1-4: "no unit for module M" from a clangd that has not read the database the unit
+        // joined yet is about the database it had, not the one it has now. qt-demo: std.cc joined the database
+        // and 78 ms later clangd, still on the previous one, answered "Don't get the module unit for module std";
+        // taken at its word, the whole project was moved to the semantic kit and clangd restarted twice.
+        // Q1-1 (D4'): the kit replaces the toolchain's standard library only when its unit failed to compile, or
+        // when the plan has no unit for it at all; a unit the plan has and clangd has read but still "does not
+        // get" is a scanning problem of the files that import it, which the kit would not make any better.
+        const auto provider = moduleSources_.find(parsed.module);
+        const bool providerPlanned { provider != moduleSources_.end() && !generated_path_(provider->second) };
+        const FailureAction action { failure_action(kind, FailureContext { .standardLibrary = stdFailed, .providerPlanned = providerPlanned,
+                                                                           .providerRead = engine_read_unit_of_(parsed.module, Clock::now()),
+                                                                           .alreadyOnKit = stdFromKit_ }) };
+        if (action == FailureAction::ignore) {
+            log::info("clangd has not read the unit of module {} yet ({}): {}; not taken as a failure", parsed.module, host_->root_directory(), parsed.reason);
+            host_->record_event("module-unresolved-before-read", Json { { "module", parsed.module }, { "reason", parsed.reason } });
+            return;
+        }
+        if (action == FailureAction::use_kit) {
             stdFromKit_ = true;
             log::warning("clangd could not build the standard library module ({}): {}; reading the project with the semantic kit",
                          host_->root_directory(), parsed.reason);
@@ -2481,11 +2498,8 @@ private:
             if (name == "std" || name == "std.compat" || resolvedElsewhere_.contains(name)) continue;
             const bool fresh { planned == fileImports_.end() || std::ranges::find(planned->second, name) == planned->second.end() };
             if (!fresh && !watched) continue;
-            const auto joined = moduleJoinedAt_.find(name);
-            if (joined == moduleJoinedAt_.end()) return std::format("it imports {}, which the engine database has no unit for yet (UP-02)", name);
-            // A clangd that has read no database yet reads this one, whole, when it is given its first file.
-            const bool read { !databaseRead_ || (databaseReadAt_ && *databaseReadAt_ >= joined->second) || now >= joined->second + DATABASE_REREAD };
-            if (!read) return std::format("it imports {}, whose unit clangd has not read from the engine database yet (UP-02)", name);
+            if (!moduleJoinedAt_.contains(name)) return std::format("it imports {}, which the engine database has no unit for yet (UP-02)", name);
+            if (!engine_read_unit_of_(name, now)) return std::format("it imports {}, whose unit clangd has not read from the engine database yet (UP-02)", name);
         }
         return std::nullopt;
     }
@@ -2629,6 +2643,16 @@ private:
     // ---- fix plan F13, F17.3: what a plan changed ------------------------------------------------
 
     // Stand-ins and prime units: files this server writes, which nothing but clangd's own lookups ever builds.
+    // Whether this clangd has read the engine database that gave `module` its current unit. A clangd that
+    // has read no database yet reads this one, whole, when it is given its first file; one that read an
+    // earlier database rereads it within DATABASE_REREAD. A module whose unit has been there since before
+    // this clangd started (no join recorded) is read.
+    bool engine_read_unit_of_(std::string_view module, Clock::time_point now) const {
+        const auto joined = moduleJoinedAt_.find(module);
+        if (joined == moduleJoinedAt_.end()) return true;
+        return !databaseRead_ || (databaseReadAt_ && *databaseReadAt_ >= joined->second) || now >= joined->second + DATABASE_REREAD;
+    }
+
     bool generated_path_(std::string_view path) const {
         const auto within = [&](const std::string& directory) {
             return !directory.empty() && (base::is_within(path, directory) || base::is_within(path, base::path_key(directory)));
