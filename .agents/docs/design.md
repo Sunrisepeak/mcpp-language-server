@@ -62,7 +62,7 @@ editor / coding agent / CI
 |---|---|---|---|
 | L1 | mcpp | `mcpp emit build-database`, run offline | every unit, its role, arguments and that toolchain's `std` (S1 level 3 after structuring) |
 | L2 | CMake with `FILE_SET CXX_MODULES` | the build directory's database, or a private configure | the generator's answer, `@modmap` files expanded |
-| L3 | only `compile_commands.json` | the database plus scanning | arguments per file, module roles recovered by scanning, compilers probed |
+| L3 | only `compile_commands.json`, or xmake / meson | the database (or the one xmake or meson writes into a private directory) plus scanning | arguments per file, module roles recovered by scanning, compilers probed |
 | L4 | sources only, or no usable compiler | scanning and the bundled semantic kit | modules resolve and `import std` works, with libc++ diagnostics |
 
 An untrusted workspace is L4 by definition: no build tool and no compiler runs, and — the rule an
@@ -123,9 +123,21 @@ the disk or the database makes it safe. Every command clangd is given compiles o
 link-phase check of the driver can fail its module scan (issue #23). Restarts have a budget per
 cause (plan, recovery, crash) and are backed off past it, never refused (refining P3); a person's
 own restart and a switch of toolchain, profile or context are never counted. A crash sets aside the
-file clangd names in its crash context. A project whose build system was found gets clangd only
-with the build tool's model (within its bound), never with a provisional one it would have to
-unlearn.
+file clangd names in its crash context. With nothing cached, the build tool has 2.5 s to describe
+the project; after that both engines serve it from its scanned sources (L4) while the build tool goes
+on, and its model replaces the provisional one in one switch that is never counted against the budget
+(0.0.6, revising 0.0.5's "clangd only with the build tool's model"). A report that a module has no
+unit is weighed against the database clangd has actually read, and the kit replaces the toolchain's
+`std` only when std's own unit fails to compile or does not exist (0.0.6).
+
+**What clangd indexes is not what it can open** (0.0.6, `.agents/docs/2026-09-27-qt-demo-navigation-discovery-plan.md`).
+clangd's background index compiles a module unit without building the modules it imports, so a
+definition in an implementation unit is indexed apart from its declaration, or not at all, until the
+unit has been open (WA-CLANGD-008). The server builds implementation units through clangd's
+foreground, a few at a time -- the units of an opened file's module and of the modules it imports
+first, a unit changed on disk again, the rest once clangd is idle -- and closes them; their symbols
+stay in clangd's index. A definition request that still lands on a declaration in a module interface
+searches the module's units by name.
 
 **Observability.** One occurrence must be enough to see why. clangd logs at `info` into a ring in
 memory; crashes, stuck or spinning clangd, files set aside, backed-off restarts and a workaround
@@ -141,7 +153,14 @@ gets its own process unit, soft and hard deadlines end the unit with everything 
 are bounded, and every run is recorded (command, environment source, offline or not, duration,
 outcome, tail of stderr). Build tools run with the login shell's environment on POSIX; clangd keeps
 the editor's. Implicit runs are offline (`mcppls.buildTool = offline`); a run that needs a download
-reports `producer-needs-download` with a "run it in a terminal" action.
+reports `producer-needs-download` with a "run it in a terminal" action and, for a client that knows
+`askOnline`, the offer to fetch it once with the network (`mcppls.describeOnline`). The offer never
+blocks anything; the offline description is asked again on a backoff and whenever a watched input
+changes, so a build the person runs in their own terminal upgrades the project by itself. Build
+systems are providers behind one interface (detect from files, read existing output, describe into a
+private directory offline or online); none writes into the workspace. Every configurable behaviour is
+one row of `src/config/settings.cppm`, from which the command line, `initializationOptions`,
+`workspace/didChangeConfiguration`, the report and `docs/30-settings.md` are derived.
 
 ## 4. AI-facing capabilities (`src/ai/`)
 
@@ -182,18 +201,24 @@ before anything is published (`docs/92-release.md`).
 | BD1 | `mcppls.buildTool` defaults to `offline` |
 | BD2–3 | Build tools get the login shell's environment on POSIX; clangd keeps the editor's |
 | BD4 | A cached model is used immediately and confirmed in the background |
-| BD5 | Deadlines: producer soft 5 s / hard 60 s, toolchain probe 20 s, login shell 10 s, 10 s wait for a producer when nothing is cached |
-| BD7 | The first configure of the private CMake build directory may download (FetchContent); later ones are disconnected |
+| BD5 | Deadlines: producer soft 5 s / hard 60 s, toolchain probe 20 s, login shell 10 s, 2.5 s wait for a producer when nothing is cached (10 s until 0.0.6, plan 2026-09-27 D5) |
+| BD7 | Withdrawn in 0.0.6 (plan 2026-09-27 D1): every configure of the private CMake build directory is disconnected (`FETCHCONTENT_FULLY_DISCONNECTED`); fetching is the person's choice (BD9) |
 | BD8 | No minimum-version table for build tools; a hang, timeout or download need suggests updating |
 | T1 | Tooling: the server is not split internally; devtools depends on no server code and is the one entry for repository work (`mcpp run -p devtools -- ...`) |
 | T3 | Cache inspection belongs to the server (`mcppls cache`), since only the server knows its cache layout |
 | T5 | The specification schema check (`docs/specs/tools/validate.py`) is the one script kept, until a C++ JSON Schema 2020-12 validator exists |
-| RD1 | A project whose build system was found gets clangd with the build tool's model only, within the producer's bound (fix plan 2026-09-26 D1) |
+| RD1 | Revised in 0.0.6 (plan 2026-09-27 D5): past the first 2.5 s clangd serves the scanned-sources model too, and the build tool's model replaces it in one switch that is never counted against the restart budget |
 | RD2 | clangd's upstream defect behind `import a.` (UP-01) is worked around, not fixed in a clangd of our own, until upstream settles (D2) |
 | RD3 | clangd logs at `info` into memory; incidents on disk; nothing ever uploaded (D3, F17, F18) |
 | RD4 | The space is a completion trigger only after `import `, dropped by the editor elsewhere, and advertised only to clients known to drop it (D4) |
 | RD5 | Reports and bundles are redacted by default; a bundle with anything left is not written (F18) |
 | RD6 | Restarts are budgeted per cause and backed off past it, never refused; the person's restart is never counted (F14) |
+| BD9 | A download the build description needs is fetched only when the person accepts, once, in a notification that never blocks; the server retries offline on its own meanwhile (plan 2026-09-27 D2, §9.2) |
+| BD10 | Build systems are `BuildSystemProvider`s (mcpp, CMake, xmake, meson, compile-commands); `mcppls.buildDiscovery` turns detection off, `buildDiscovery.providers` chooses them (plan 2026-09-27 B-1, B-7) |
+| RD7 | The kit replaces the toolchain's `std` only when std's own unit fails to compile or the plan has none; a report about a database clangd has not read is ignored (plan 2026-09-27 D4', Q1-1, Q1-4) |
+| RD8 | Generated output a producer only names in its private planning directory is read, read-only, from the project's own `target/`; missing, it is reported with a build action and watched for (plan 2026-09-27 Q1-3, mcpp-community/mcpp#724) |
+| RD9 | Implementation units are built through clangd's foreground for its index (WA-CLANGD-008), until clangd's background index builds a module unit's imports (plan 2026-09-27 N-7) |
+| RD10 | Every configurable behaviour has one definition, the registry in `src/config/settings.cppm`; command line, `initializationOptions`, `didChangeConfiguration`, report and the settings chapter are derived from it and held to it by a test (plan 2026-09-27 T1) |
 
 ## 7. Known limits
 
