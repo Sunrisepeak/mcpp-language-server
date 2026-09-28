@@ -65,13 +65,20 @@ jobs:
           results="$RUNNER_TEMP/bmi-timing"
           mkdir -p "$results"
           echo "nproc=$(nproc)" | tee "$results/host.txt"
-          for fixture in self-mcpp real-xlings self-mcppls; do
+          # Round 2: self-mcpp only, with clangd's own log ("Built module" / "Reusing module") and a
+          # snapshot of every .pcm after each start, to tell whether the warm start rebuilt BMIs.
+          for fixture in self-mcpp; do
             for start in cold warm; do
               warm=(); [ "$start" = warm ] && warm=(--expect-warm)
               stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture "conformance/fixtures/$fixture" \
                   --workspace-dir "$RUNNER_TEMP/ws-$fixture" --cache-dir "$RUNNER_TEMP/cache-$fixture" --timeout 900 \
                   --measure "$results/$fixture-$start.json" ${warm[@]+"${warm[@]}"} 2>&1 | tail -40 \
                 || echo "::warning::$fixture $start: the runner reported failures (timing kept)"
+              log=$(find "$RUNNER_TEMP/cache-$fixture" -name clangd-ring.log | head -1)
+              [ -n "$log" ] && cp "$log" "$results/$fixture-$start-clangd.log"
+              find "$RUNNER_TEMP/cache-$fixture" "$RUNNER_TEMP/ws-$fixture" -name '*.pcm' -printf '%T@ %s %P\n' | sort > "$results/$fixture-$start-pcm.txt"
+              mkdir -p "$results/$fixture-$start-server-logs"
+              find "$RUNNER_TEMP/cache-$fixture" -path '*/logs/*' -type f -exec cp {} "$results/$fixture-$start-server-logs/" \;
             done
           done
       - name: Summary
@@ -84,7 +91,7 @@ jobs:
           print("| fixture | start | ready s | first nav s | primed | prep window s | sum of primes s | clangd CPU in prep s | clangd CPU total s | CPU share | slowest modules |")
           print("|---|---|---|---|---|---|---|---|---|---|---|")
           def f(x): return "-" if x is None else f"{x:.1f}"
-          for fixture in ("self-mcpp", "real-xlings", "self-mcppls"):
+          for fixture in ("self-mcpp",):
               for start in ("cold", "warm"):
                   p = os.path.join(d, f"{fixture}-{start}.json")
                   if not os.path.exists(p):
@@ -99,6 +106,16 @@ jobs:
                   print(f"| {fixture} | {start} | {f(m.get('ready'))} | {f(m.get('first-navigation'))} | {t.get('primedModules', '-')} | "
                         f"{f(t.get('windowSeconds'))} | {f(t.get('sumSeconds'))} | {f(prep)} | {f(now)} | {share} | {slow} |")
           EOF
+          for start in cold warm; do
+            log="$RUNNER_TEMP/bmi-timing/self-mcpp-$start-clangd.log"
+            pcm="$RUNNER_TEMP/bmi-timing/self-mcpp-$start-pcm.txt"
+            echo ""
+            echo "self-mcpp $start: clangd log $( [ -f "$log" ] && wc -l < "$log" || echo missing) lines;" \
+                 "Built module $(grep -c 'Built module' "$log" 2>/dev/null || true)," \
+                 "Reusing persistent module $(grep -c 'Reusing persistent module' "$log" 2>/dev/null || true)," \
+                 "Reusing module $(grep -c 'Reusing module' "$log" 2>/dev/null || true);" \
+                 ".pcm files $(wc -l < "$pcm" 2>/dev/null || echo 0)"
+          done | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         if: always()
         with:

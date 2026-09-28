@@ -168,7 +168,15 @@ private:
         }
         auto optional = [](const std::optional<double>& value) { return value ? Json(*value) : Json(nullptr); };
         const bool ended { primeTiming_.begin && primeTiming_.end && *primeTiming_.end >= *primeTiming_.begin };
-        return Json { { "primedModules", primeTiming_.seconds.size() },
+        // Whether clangd reused its module files or built them again is in its own log ("Built module",
+        // "Reusing module"): once preparation is idle, the ring goes to the cache directory for the workflow.
+        Json logFile = nullptr;
+        if (host_ != nullptr && !primer_.busy() && !platform::env::get("MCPPLS_MEASURE_PREPARATION").value_or("").empty()) {
+            const std::string path { base::join_path(host_->cache_directory(), "clangd-ring.log") };
+            if (platform::fs::write_file(path, logRing_->text())) logFile = path;
+        }
+        return Json { { "clangdLogFile", logFile },
+                      { "primedModules", primeTiming_.seconds.size() },
                       { "unfinished", primeTiming_.startedAt.size() },
                       { "sumSeconds", sum },
                       { "windowSeconds", ended ? Json(std::chrono::duration<double>(*primeTiming_.end - *primeTiming_.begin).count()) : Json(nullptr) },
