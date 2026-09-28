@@ -137,7 +137,49 @@ private:
     std::map<std::string, Clock::time_point, std::less<>> primeDeadlines_;
     std::map<std::string, std::string, std::less<>> heldPrimeUnits_;
     std::optional<Clock::time_point> lastPrimeProgressAt_;
-    std::map<std::string, std::string, std::less<>> moduleSources_;   // importable module -> the unit providing it, from the plan
+    // TEMPORARY (BMI rebuild timing, not for merge): how long clangd took to build each module a prime
+    // unit imports -- from its `import M;` didOpen to its first diagnostics -- and the window the whole
+    // preparation spans, with clangd's CPU seconds at both ends.
+    struct PrimeTiming {
+        std::map<std::string, Clock::time_point, std::less<>> startedAt;
+        std::vector<std::pair<std::string, double>> seconds;   // module, seconds, in finishing order
+        std::optional<Clock::time_point> begin;
+        std::optional<Clock::time_point> end;                  // the last time preparation went idle
+        std::int64_t beginEpochMs { 0 };
+        std::int64_t endEpochMs { 0 };
+        std::optional<double> cpuAtBegin;
+        std::optional<double> cpuAtEnd;
+    } primeTiming_;
+    std::optional<double> clangd_cpu_now_() const {
+        auto reader = process_ ? process_->cpu_reader() : std::function<std::optional<double>()> {};
+        return reader ? reader() : std::nullopt;
+    }
+    static std::int64_t epoch_ms_() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    }
+    Json prime_timing_json_() const {
+        auto sorted = primeTiming_.seconds;
+        std::ranges::sort(sorted, std::greater {}, [](const auto& entry) { return entry.second; });
+        double sum { 0 };
+        Json modules = Json::array();
+        for (const auto& [name, seconds] : sorted) {
+            sum += seconds;
+            modules.push_back(Json { { "module", name }, { "seconds", seconds } });
+        }
+        auto optional = [](const std::optional<double>& value) { return value ? Json(*value) : Json(nullptr); };
+        const bool ended { primeTiming_.begin && primeTiming_.end && *primeTiming_.end >= *primeTiming_.begin };
+        return Json { { "primedModules", primeTiming_.seconds.size() },
+                      { "unfinished", primeTiming_.startedAt.size() },
+                      { "sumSeconds", sum },
+                      { "windowSeconds", ended ? Json(std::chrono::duration<double>(*primeTiming_.end - *primeTiming_.begin).count()) : Json(nullptr) },
+                      { "beginEpochMs", primeTiming_.beginEpochMs },
+                      { "endEpochMs", primeTiming_.endEpochMs },
+                      { "clangdCpuAtBegin", optional(primeTiming_.cpuAtBegin) },
+                      { "clangdCpuAtEnd", optional(primeTiming_.cpuAtEnd) },
+                      { "clangdCpuNow", optional(clangd_cpu_now_()) },
+                      { "modules", std::move(modules) } };
+    }
+    std::map<std::string, std::string, std::less<>> moduleSources_;  // importable module -> the unit providing it, from the plan
     // clangd's persistent module cache as the plan found it (cached_bmis), read the first time a
     // module becomes ready for preparation and not again until the next plan.
     std::optional<std::map<std::string, std::vector<std::string>, std::less<>>> startupBmis_;
@@ -446,6 +488,7 @@ public:
             { "doomedModules", std::move(doomed) },
             { "filesRoutedToOwnEngine", std::move(doomedFiles) },
             { "stdFromSemanticKit", stdFromKit_ },
+            { "preparationTiming", prime_timing_json_() },
             { "preparation", Json { { "done", done }, { "wanted", wanted }, { "running", primer_.running() },
                                     { "limit", preparation_limit(std::thread::hardware_concurrency(), mcppls::os::FAMILY == mcppls::os::Family::macos,
                                                                  awaitingDiagnostics_.size()) } } },
@@ -3647,6 +3690,12 @@ private:
             note_database_read_();
             primeModuleByPath_[base::path_key(module->primeFile)] = module->name;
             primeDeadlines_[module->name] = Clock::now() + std::chrono::minutes { 3 };
+            if (!primeTiming_.begin) {
+                primeTiming_.begin = Clock::now();
+                primeTiming_.beginEpochMs = epoch_ms_();
+                primeTiming_.cpuAtBegin = clangd_cpu_now_();
+            }
+            primeTiming_.startedAt[module->name] = Clock::now();
         }
         host_->status_changed();
     }
@@ -3664,7 +3713,16 @@ private:
         heldPrimeUnits_.emplace(pathKey, canonical);
         primer_.finish(module);
         lastPrimeProgressAt_ = Clock::now();
+        if (const auto started = primeTiming_.startedAt.find(module); started != primeTiming_.startedAt.end()) {
+            primeTiming_.seconds.emplace_back(module, std::chrono::duration<double>(Clock::now() - started->second).count());
+            primeTiming_.startedAt.erase(started);
+        }
         pump_primer_();
+        if (!primer_.busy()) {
+            primeTiming_.end = Clock::now();
+            primeTiming_.endEpochMs = epoch_ms_();
+            primeTiming_.cpuAtEnd = clangd_cpu_now_();
+        }
         release_prime_units_if_idle_();
         if (!primer_.busy()) pump_implementations_(Clock::now());
         return true;

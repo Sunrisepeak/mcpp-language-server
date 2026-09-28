@@ -2098,6 +2098,35 @@ int run(Options options) {
         measured.push_back(Json { { "id", id }, { "kind", check.value("kind", std::string {}) }, { "ok", ok }, { "seconds", seconds },
                                   { "since-start", std::chrono::duration<double>(Clock::now() - begin).count() }, { "detail", detail } });
     }
+    // TEMPORARY (BMI rebuild timing, not for merge): with MCPPLS_MEASURE_PREPARATION set, wait for every
+    // clangd engine's module preparation to finish (up to 15 minutes) and keep what its report says about it.
+    Json preparationTiming = nullptr;
+    const auto measurePreparationWait = Clock::now();
+    if (!options.measureFile.empty() && mcppls::platform::env::get("MCPPLS_MEASURE_PREPARATION").value_or("").size() > 0) {
+        const auto deadline = Clock::now() + std::chrono::minutes { 15 };
+        while (true) {
+            auto answer = client.request("cxxModules/report", Json::object(), std::chrono::seconds { 30 });
+            bool settled { answer.has_value() };
+            Json timings = Json::array();
+            if (answer) {
+                for (const auto& root : (*answer).value("roots", Json::array())) {
+                    for (const auto& engine : root.value("engines", Json::array())) {
+                        const Json details = engine.value("details", Json::object());
+                        if (!details.contains("preparationTiming")) continue;
+                        const Json preparation = details.value("preparation", Json::object());
+                        if (preparation.value("running", 0) > 0 || preparation.value("done", 0) < preparation.value("wanted", 0)) settled = false;
+                        timings.push_back(Json { { "engine", engine.value("name", std::string {}) }, { "preparation", preparation },
+                                                 { "timing", details["preparationTiming"] } });
+                    }
+                }
+            }
+            if (timings.empty() && answer) (void)fs::write_file(options.measureFile + ".report.json", answer->dump(2));
+            preparationTiming = std::move(timings);
+            if (settled || Clock::now() >= deadline) break;
+            client.drain(std::chrono::milliseconds { 2000 });
+        }
+    }
+    const double preparationWaitSeconds { std::chrono::duration<double>(Clock::now() - measurePreparationWait).count() };
     runner.finish();
     client.stop();
     Json firstNavigation = nullptr;
@@ -2140,6 +2169,10 @@ int run(Options options) {
         summary["first-diagnostics"] = since(client.firstDiagnostics);
         summary["first-navigation"] = firstNavigation;
         summary["checks"] = measured;
+        summary["beginEpochMs"] = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()
+                                  - static_cast<std::int64_t>(std::chrono::duration<double, std::milli>(Clock::now() - begin).count());
+        summary["preparationTiming"] = preparationTiming;
+        summary["preparationWaitSeconds"] = preparationWaitSeconds;
         if (auto written = fs::write_file(options.measureFile, summary.dump(2) + "\n"); !written) say("conformance: cannot write {}", options.measureFile);
     }
     if (!options.keep && !reused) fs::remove_all(scratch);

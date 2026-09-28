@@ -1,0 +1,106 @@
+name: TEMPORARY bmi rebuild timing
+
+# TEMPORARY, not for merge. How much of a cold start is clangd rebuilding the modules' BMIs
+# (mcppls's module preparation) on real projects: each fixture cold, then warm on the same
+# workspace and cache, with MCPPLS_MEASURE_PREPARATION set so the conformance runner waits for
+# preparation to finish and records the clangd engine's preparationTiming.
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tmp-bmi-timing-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  XLINGS_NON_INTERACTIVE: '1'
+  PAYLOAD_CACHE: ${{ github.workspace }}/.payload-cache
+
+jobs:
+  timing:
+    name: bmi rebuild timing (linux-x64)
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'tmp/bmi-rebuild-timing'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - name: Build tools for the kit configure
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q ninja-build libc6-dev linux-libc-dev
+          command -v cmake > /dev/null || sudo apt-get install -y -q cmake
+      - name: Cache upstream inputs
+        uses: actions/cache@v6
+        with:
+          path: .payload-cache
+          key: payload-inputs-linux-x64-${{ hashFiles('packaging/payload.lock.json') }}
+      - name: Build the server and assemble the payload
+        run: |
+          set -euo pipefail
+          mcpp build --profile release
+          mcpp build -p devtools --profile release
+          mkdir -p cross stage
+          for exe in mcppls mcppls-conformance mcppls-mock-mcpp mcppls-mock-model mcppls-devtools; do
+            cp "$(find target tools/devtools/target -type f -name "$exe" -path '*/bin/*' -newer mcpp.toml | head -1)" cross/
+          done
+          chmod +x cross/*
+          cross/mcppls-devtools payload --platform linux-x64 --server cross/mcppls --out payload --cache "$PAYLOAD_CACHE"
+          cross/mcppls-devtools payload --verify payload --json > /dev/null
+          cp cross/mcppls-conformance stage/
+      - name: GCC 16 and the mcpp the mcpp repository asks for
+        run: |
+          set -euo pipefail
+          mcpp toolchain install gcc 16.1.0
+          xlings install mcpp@2026.9.21.1 -y -g
+          xlings use mcpp "$MCPP_VERSION"
+          mcpp --version
+      - name: Cold and warm starts, preparation timed
+        env:
+          MCPPLS_MEASURE_PREPARATION: '1'
+        run: |
+          set -uo pipefail
+          results="$RUNNER_TEMP/bmi-timing"
+          mkdir -p "$results"
+          echo "nproc=$(nproc)" | tee "$results/host.txt"
+          for fixture in self-mcpp real-xlings self-mcppls; do
+            for start in cold warm; do
+              warm=(); [ "$start" = warm ] && warm=(--expect-warm)
+              stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture "conformance/fixtures/$fixture" \
+                  --workspace-dir "$RUNNER_TEMP/ws-$fixture" --cache-dir "$RUNNER_TEMP/cache-$fixture" --timeout 900 \
+                  --measure "$results/$fixture-$start.json" ${warm[@]+"${warm[@]}"} 2>&1 | tail -40 \
+                || echo "::warning::$fixture $start: the runner reported failures (timing kept)"
+            done
+          done
+      - name: Summary
+        if: always()
+        run: |
+          python3 - "$RUNNER_TEMP/bmi-timing" <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json, os, sys
+          d = sys.argv[1]
+          print("## BMI rebuild timing (linux-x64, " + open(os.path.join(d, "host.txt")).read().strip() + ")\n")
+          print("| fixture | start | ready s | first nav s | primed | prep window s | sum of primes s | clangd CPU in prep s | clangd CPU total s | CPU share | slowest modules |")
+          print("|---|---|---|---|---|---|---|---|---|---|---|")
+          def f(x): return "-" if x is None else f"{x:.1f}"
+          for fixture in ("self-mcpp", "real-xlings", "self-mcppls"):
+              for start in ("cold", "warm"):
+                  p = os.path.join(d, f"{fixture}-{start}.json")
+                  if not os.path.exists(p):
+                      print(f"| {fixture} | {start} | missing |"); continue
+                  m = json.load(open(p))
+                  timings = [e for e in (m.get("preparationTiming") or []) if e.get("engine") == "clangd"]
+                  t = timings[0]["timing"] if timings else {}
+                  b, e, now = t.get("clangdCpuAtBegin"), t.get("clangdCpuAtEnd"), t.get("clangdCpuNow")
+                  prep = (e - b) if (b is not None and e is not None) else None
+                  share = f"{100 * prep / now:.0f}%" if (prep is not None and now) else "-"
+                  slow = ", ".join(f"{x['module']} {x['seconds']:.1f}" for x in t.get("modules", [])[:3])
+                  print(f"| {fixture} | {start} | {f(m.get('ready'))} | {f(m.get('first-navigation'))} | {t.get('primedModules', '-')} | "
+                        f"{f(t.get('windowSeconds'))} | {f(t.get('sumSeconds'))} | {f(prep)} | {f(now)} | {share} | {slow} |")
+          EOF
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: bmi-timing
+          path: ${{ runner.temp }}/bmi-timing
