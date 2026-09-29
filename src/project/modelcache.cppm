@@ -23,6 +23,7 @@ struct CachedModel {
     std::string producer;            // the program that produced it, when there was one
     std::string producerVersion;
     std::int64_t savedAtMs { 0 };    // wall clock, for "how old is this"
+    std::int64_t producerMs { 0 };   // how long the producer took to describe it (G-4: its next deadline); 0 unknown
 };
 
 // "model.mcpp.json", "model.cmake.json", ... One file per source: a worse source never overwrites

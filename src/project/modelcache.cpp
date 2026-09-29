@@ -187,6 +187,7 @@ base::Result<void> save_model(std::string_view directory, const CachedModel& cac
         { "producer", cached.producer },
         { "producerVersion", cached.producerVersion },
         { "savedAtMs", cached.savedAtMs },
+        { "producerMs", cached.producerMs },
         { "model", model_to_json(cached.model) },
     };
     const std::string path { base::join_path(directory, cache_file_name(cached.model.source)) };
@@ -213,6 +214,7 @@ std::optional<CachedModel> load_model(std::string_view directory, SourceKind sou
     cached.producer = envelope.value("producer", std::string {});
     cached.producerVersion = envelope.value("producerVersion", std::string {});
     cached.savedAtMs = envelope.value("savedAtMs", std::int64_t { 0 });
+    cached.producerMs = envelope.value("producerMs", std::int64_t { 0 });
     return cached;
 }
 

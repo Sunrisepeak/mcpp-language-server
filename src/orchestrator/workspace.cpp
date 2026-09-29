@@ -127,6 +127,17 @@ std::string uri_of_params(const Json& params) {
     return uri != nullptr && uri->is_string() ? uri->get<std::string>() : std::string {};
 }
 
+// G-4 (plan 2026-09-30, revising BD5's one minute): the offline producer's hard deadline. A constant cannot fit
+// every project: mcpp describes GalTranslPP in 53-79 s on a 4-core runner, the minute killed it, and a project
+// the producer never finishes describing never gets its model -- nor a cache, so every session started over. So
+// three times what the producer took last time, within a minute and ten; with no history, five minutes (the
+// scanned-sources model serves meanwhile, so the person does not wait for it).
+std::chrono::milliseconds producer_deadline(std::int64_t lastProducerMs) {
+    using namespace std::chrono_literals;
+    if (lastProducerMs <= 0) return std::chrono::milliseconds { 5min };
+    return std::clamp<std::chrono::milliseconds>(std::chrono::milliseconds { lastProducerMs * 3 }, 60s, std::chrono::milliseconds { 10min });
+}
+
 } // namespace
 
 namespace {
@@ -324,6 +335,8 @@ struct Workspace::Impl final : engine::Host {
     // Written by the load thread, read by the event loop: how long the producer has been running
     // once it passed its soft bound. Nothing else crosses that boundary.
     std::shared_ptr<std::atomic<std::int64_t>> producerSlowMs { std::make_shared<std::atomic<std::int64_t>>(0) };
+    std::optional<Clock::time_point> loadStartedAt;   // when the load in flight started
+    std::int64_t lastProducerMs { 0 };                // how long this project's producer last took to answer; 0 unknown
     std::optional<Clock::time_point> producerSoftAt;
     std::optional<Clock::time_point> lastManualReloadAt;
     std::string journaledToolEnvironment;                // the environment source the journal last recorded
@@ -907,6 +920,7 @@ struct Workspace::Impl final : engine::Host {
         }
         producerPath = cached->producer;
         producerVersion = cached->producerVersion;
+        lastProducerMs = cached->producerMs;
         const std::string current { project::inputs_fingerprint(root, cached->model.watch, detection.manifest,
                                                                 cached->producer, cached->producerVersion) };
         if (current == cached->fingerprint) {
@@ -985,6 +999,7 @@ struct Workspace::Impl final : engine::Host {
         cached.model = *model;
         cached.producer = producerPath;
         cached.producerVersion = producerVersion;
+        cached.producerMs = lastProducerMs;
         cached.fingerprint = project::inputs_fingerprint(root, model->watch, detectedManifest, producerPath, producerVersion);
         cached.savedAtMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
@@ -1065,16 +1080,16 @@ struct Workspace::Impl final : engine::Host {
         onlineOnce = false;
         load.offline = !online;
         load.runBuildTool = options.buildTool != "off";
-        load.producerHard = options.producerTimeout.count() > 0
-                                ? std::chrono::milliseconds { options.producerTimeout }
-                                : (online ? std::chrono::milliseconds { std::chrono::minutes { 10 } }
-                                          : std::chrono::milliseconds { std::chrono::seconds { 60 } });
+        load.producerHard = options.producerTimeout.count() > 0 ? std::chrono::milliseconds { options.producerTimeout }
+                            : online                             ? std::chrono::milliseconds { std::chrono::minutes { 10 } }
+                                                                 : producer_deadline(lastProducerMs);
         load.producerSoft = std::chrono::seconds { 5 };
         // With a model already in hand nothing waits for the environment; without one, the producer
         // is worth the wait, because a producer found through the wrong PATH describes another build.
         load.environmentWait = model ? std::chrono::milliseconds { 0 } : std::chrono::milliseconds { std::chrono::seconds { 10 } };
         load.rootKey = key;
         producerSlowMs->store(0);
+        loadStartedAt = Clock::now();
         load.onSlow = [slow = producerSlowMs](std::chrono::milliseconds elapsed) { slow->store(elapsed.count()); };
         producerSoftAt = Clock::now() + load.producerSoft + std::chrono::milliseconds { 200 };
         std::shared_ptr<const spec::Kit> kitCopy = kit ? std::make_shared<const spec::Kit>(*kit) : nullptr;
@@ -1105,6 +1120,11 @@ struct Workspace::Impl final : engine::Host {
         loading = false;
         loadGiveUpAt.reset();
         producerElapsed.reset();
+        // G-4: what this project's producer takes is what its next deadline is made of.
+        if (loadStartedAt && loadedModel->source != project::SourceKind::inferred) {
+            lastProducerMs = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - *loadStartedAt).count();
+        }
+        loadStartedAt.reset();
         // Fix plan F4: the build tool answered, whatever it said; clangd waits no longer. A model kept below
         // (a failed or poorer reload) is planned again for it.
         if (coreWaitUntil && !coreWaitOver) {
