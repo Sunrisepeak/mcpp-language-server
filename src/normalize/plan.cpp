@@ -222,6 +222,58 @@ void unify_language_standard(EnginePlan& plan) {
 
 } // namespace
 
+bool standard_library_macro(std::string_view name) {
+    name = name.substr(0, name.find('='));
+    // Explicit names: a prefix such as _GLIBCXX_ or _LIBCPP_ would also match those libraries' own header
+    // guards (_GLIBCXX_RANGES, _LIBCPP_RANGES), which is exactly what must not reach std.
+    static constexpr std::array<std::string_view, 24> NAMES {
+        // MSVC STL and the MSVC runtime
+        "_ITERATOR_DEBUG_LEVEL", "_CONTAINER_DEBUG_LEVEL", "_DEBUG", "_DLL", "_MT", "_MSVC_STL_HARDENING",
+        "_MSVC_STL_DESTRUCTOR_TOMBSTONES", "_STL_CALL_ABORT_INSTEAD_OF_INVALID_PARAMETER",
+        // libstdc++
+        "_GLIBCXX_ASSERTIONS", "_GLIBCXX_DEBUG", "_GLIBCXX_DEBUG_PEDANTIC", "_GLIBCXX_USE_CXX11_ABI", "_GLIBCXX_PARALLEL",
+        "_GLIBCXX_SANITIZE_VECTOR", "_GLIBCXX_SANITIZE_STD_ALLOCATOR", "_GLIBCXX_CONCEPT_CHECKS", "_GLIBCXX_USE_DEPRECATED",
+        // libc++
+        "_LIBCPP_HARDENING_MODE", "_LIBCPP_ENABLE_ASSERTIONS", "_LIBCPP_ABI_VERSION", "_LIBCPP_ABI_UNSTABLE",
+        "_LIBCPP_DISABLE_AVAILABILITY", "_LIBCPP_DISABLE_DEPRECATION_WARNINGS", "_LIBCPP_NO_VCRUNTIME",
+    };
+    if (std::ranges::find(NAMES, name) != NAMES.end()) return true;
+    // MSVC STL's feature switches (_HAS_EXCEPTIONS, _HAS_CXX23, _HAS_STATIC_RTTI, ...); no MSVC STL header guard
+    // starts with _HAS_ (its guards are _<HEADER>_). libc++'s ABI knobs are _LIBCPP_ABI_<name>, never a header guard.
+    return name.starts_with("_HAS_") || name.starts_with("_LIBCPP_ABI_") || name.starts_with("_LIBCPP_ENABLE_CXX");
+}
+
+std::vector<std::string> std_unit_arguments(std::span<const std::string> representative, std::vector<std::string>* dropped) {
+    std::vector<std::string> out;
+    for (std::size_t i { 0 }; i < representative.size(); ++i) {
+        const std::string& argument { representative[i] };
+        if (argument == "-x" && i + 1 < representative.size() && representative[i + 1] == "c++-module") {
+            ++i;
+            continue;
+        }
+        const bool define { argument.starts_with("-D") || argument.starts_with("-U") };
+        const bool forced { argument == "-include" || argument == "-imacros" || argument.starts_with("-include") || argument.starts_with("-imacros") };
+        if (!define && !forced) {
+            out.push_back(argument);
+            continue;
+        }
+        // "-D X" / "-DX", "-include F" / "-includeF".
+        const bool separate { argument == "-D" || argument == "-U" || argument == "-include" || argument == "-imacros" };
+        const std::string value { separate ? (i + 1 < representative.size() ? representative[i + 1] : std::string {})
+                                           : argument.substr(argument.starts_with("-D") || argument.starts_with("-U") ? 2
+                                                             : argument.starts_with("-include") ? 8 : 8) };
+        const bool keep { define && standard_library_macro(value) };
+        if (keep) {
+            out.push_back(argument);
+            if (separate && i + 1 < representative.size()) out.push_back(representative[i + 1]);
+        } else if (dropped != nullptr) {
+            dropped->push_back(separate ? std::format("{} {}", argument, value) : argument);
+        }
+        if (separate) ++i;
+    }
+    return out;
+}
+
 EnginePlan plan_engine(const PlanInput& input) {
     EnginePlan plan;
     plan.contextSet = input.contextSet;
@@ -612,10 +664,11 @@ EnginePlan plan_engine(const PlanInput& input) {
     //    nothing imports std successfully, and clangd would otherwise still try to background-index it.
     if (anyStd && templateIndex && !stdEntries.empty() && !(sdkBlocksStd && candidates[*templateIndex].usesKit)) {
         const auto& representative = candidates[*templateIndex];
-        std::vector<std::string> base { representative.arguments };
-        for (std::size_t k { 0 }; k + 1 < base.size();) {
-            if (base[k] == "-x" && base[k + 1] == "c++-module") base.erase(base.begin() + static_cast<std::ptrdiff_t>(k), base.begin() + static_cast<std::ptrdiff_t>(k + 2));
-            else ++k;
+        std::vector<std::string> dropped;
+        const std::vector<std::string> base { std_unit_arguments(representative.arguments, &dropped) };
+        if (!dropped.empty()) {
+            base::log::debug("std is built without the project's own macros and forced includes of {}: {}", representative.source,
+                             base::join(dropped, " "));
         }
         const bool msvcStl { representative.facts != nullptr && representative.facts->toolchain.stdlib
                              && representative.facts->toolchain.stdlib->name == "msvc-stl" };

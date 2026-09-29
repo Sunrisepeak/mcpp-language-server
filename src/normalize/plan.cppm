@@ -15,6 +15,16 @@ import mcppls.project.scan;
 
 export namespace mcppls::normalize {
 
+// The arguments a standard library unit is built with, from a representative unit's (G-1, plan 2026-09-30).
+// A project's own macros do not reach std: the build compiles std on its own (mcpp's `mcpp:std` set,
+// CMake's synthetic target), and one of those macros can be a standard library's own header guard --
+// GalTranslPP defines _RANGES_, which is MSVC STL's guard of <ranges>, and std built with it has no
+// std::views. Kept are only the macros that configure a standard library (debug levels, ABI and
+// hardening switches); -include and -imacros go too. `dropped` receives what was left out.
+std::vector<std::string> std_unit_arguments(std::span<const std::string> representative, std::vector<std::string>* dropped = nullptr);
+// Whether a macro configures the standard library (and so must be the same for std and its importers).
+bool standard_library_macro(std::string_view name);
+
 struct EngineEntry {
     std::string directory;
     std::string file;
