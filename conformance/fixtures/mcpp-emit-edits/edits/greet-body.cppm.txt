@@ -1,0 +1,11 @@
+export module hello.greet;
+export import :detail;
+import std;
+
+export namespace hello {
+  std::string greet(std::string_view who) {
+    std::string text { detail::prefix() };
+    text += who;
+    return text;
+  }
+}

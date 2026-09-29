@@ -1,0 +1,15 @@
+{
+  "name": "mcpp-emit-edits",
+  "description": "Plan 2026-09-30 G-5, a project being written: mcpp names every source as an input of its build description (src/**/*.cpp and the rest), yet what it answers changes only with the set of sources and a source's module structure. Edits inside functions, saved, never run the producer again -- with autosave that was a run for every pause in typing, and a minute of CPU each on a large project; an edit that changes a file's imports does, and so does a new source.",
+  "server-arguments": ["--mcpp", "{runner-dir}/mcppls-mock-mcpp{exe}"],
+  "checks": [
+    { "id": "S1", "kind": "status", "source": "mcpp", "level": 3, "state": "ready" },
+    { "id": "C1", "kind": "definition", "file": "src/main.cpp", "at": [4, 31], "expect": "src/greet/greet.cppm" },
+    { "id": "E1-body-edit", "kind": "write-file", "file": "src/main.cpp", "content-from": "edits/main-body.cpp.txt", "expect-reload": false, "settle": 8 },
+    { "id": "E2-interface-body-edit", "kind": "write-file", "file": "src/greet/greet.cppm", "content-from": "edits/greet-body.cppm.txt", "expect-reload": false, "settle": 8 },
+    { "id": "C2-still", "kind": "definition", "file": "src/main.cpp", "at": [4, 34], "expect": "src/greet/greet.cppm" },
+    { "id": "E3-import-edit", "kind": "write-file", "file": "src/main.cpp", "content-from": "edits/main-import.cpp.txt", "expect-reload": true, "timeout": 30 },
+    { "id": "S2-reloaded", "kind": "status", "source": "mcpp", "state": "ready", "level": 3, "timeout": 30 },
+    { "id": "E4-new-source", "kind": "write-file", "file": "src/extra.cpp", "content": "import std;\nint extra() { return 1; }\n", "expect-reload": true, "timeout": 30 }
+  ]
+}

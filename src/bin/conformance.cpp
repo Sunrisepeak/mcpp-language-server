@@ -1419,6 +1419,16 @@ public:
             if (client_.watches(path, type) || client_.watches(canonical, type)) {
                 client_.notify("workspace/didChangeWatchedFiles", Json { { "changes", Json::array({ Json { { "uri", base::path_to_uri(path) }, { "type", type } } }) } });
             }
+            // G-5 (plan 2026-09-30): "expect-reload": false is a change that must NOT load the model again (an edit that
+            // leaves every module's structure as it was), watched for "settle" seconds (default 10).
+            if (check.contains("expect-reload") && !check.value("expect-reload", true)) {
+                const auto settle = std::chrono::seconds { check.value("settle", 10) };
+                const bool reloaded { client_.wait_for([&] {
+                    const auto& states = history();
+                    return states.size() > seen && std::ranges::find(states.begin() + static_cast<std::ptrdiff_t>(seen), states.end(), "loading") != states.end();
+                }, settle) };
+                return { !reloaded, reloaded ? std::format("{}: the model loaded again", file) : std::format("{}: no reload in {} s, as expected", file, settle.count()) };
+            }
             if (!check.value("expect-reload", false)) return { true, file };
             // S2 5: a change to an input the producer named loads the model again.
             const bool reloaded { client_.wait_for([&] {

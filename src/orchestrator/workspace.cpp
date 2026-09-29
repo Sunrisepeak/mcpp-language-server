@@ -1377,7 +1377,46 @@ struct Workspace::Impl final : engine::Host {
         return coreEngine != nullptr && model && modelOrigin == "inferred" && loading && !coreWaitOver
                && detectedSource != project::SourceKind::inferred && options.trusted && options.buildTool != "off";
     }
-    void schedule_reload() { reloadAt = Clock::now() + std::chrono::milliseconds { 1500 }; }
+    // `fromEdits`: asked for by changes under the workspace rather than by a build description. Such a reload waits as
+    // long as the producer takes to answer (at most a minute), so edits that keep coming are one run, not a queue of them.
+    void schedule_reload(bool fromEdits = false) {
+        using namespace std::chrono_literals;
+        const auto wait = fromEdits ? std::clamp<std::chrono::milliseconds>(std::chrono::milliseconds { lastProducerMs }, 1500ms, 60s) : 1500ms;
+        reloadAt = Clock::now() + wait;
+    }
+
+    // G-5: whether a source's module structure on disk (or in the editor) is other than what the model says of its unit.
+    // A source the model has no unit for is new to it; a unit that states neither what it provides nor what it imports
+    // is compared with the last plan's view of it.
+    bool model_structure_differs(std::string_view path, const project::ScanResult& disk) const {
+        const auto* scan = &disk;
+        if (!model) return true;
+        const std::string key { base::path_key(path) };
+        for (const auto& set : model->database.sets) {
+            for (const auto& unit : set.units) {
+                if (base::path_key(spec::absolute_source(unit)) != key) continue;
+                if (unit.providedModules.empty() && unit.requiredModules.empty()) {
+                    const auto known = structures.find(key);
+                    return known == structures.end() || known->second != structure_of(*scan);
+                }
+                const std::string provided { unit.providedModules.empty() ? std::string {} : unit.providedModules.front().first };
+                std::vector<std::string> modelRequires { unit.requiredModules };
+                std::vector<std::string> scannedRequires { project::required_names(*scan) };
+                // An implementation unit's own module (`module m;` requires m) is implied, whether or not a producer lists it.
+                if (scan->declaration) {
+                    const std::string& own { scan->declaration->module };
+                    std::erase(modelRequires, own);
+                    std::erase(scannedRequires, own);
+                }
+                std::ranges::sort(modelRequires);
+                std::ranges::sort(scannedRequires);
+                modelRequires.erase(std::ranges::unique(modelRequires).begin(), modelRequires.end());
+                scannedRequires.erase(std::ranges::unique(scannedRequires).begin(), scannedRequires.end());
+                return provided != project::provided_name(*scan) || modelRequires != scannedRequires;
+            }
+        }
+        return true;
+    }
 
     // ---- diagnostics and status -------------------------------------------------------
 
@@ -1923,30 +1962,42 @@ void Workspace::handle_watched_files(const Json& changes) {
         const std::string_view name { base::file_name(path) };
         const int type { change.value("type", 2) };
         // S2 5: an input the producer named changes what it would answer, so the model is loaded again.
-        // A source among them still updates the index at once below; the reload only confirms the model.
-        if (impl_->model && impl_->model->source != project::SourceKind::inferred && name != "compile_commands.json"
-            && matches_watch_entries(impl_->model->watch, impl_->root, path)) {
-            reload = true;
-        }
+        const bool producerInput { impl_->model && impl_->model->source != project::SourceKind::inferred && name != "compile_commands.json"
+                                   && matches_watch_entries(impl_->model->watch, impl_->root, path) };
         if (is_build_file(name)) {
             // mcpp rewrites its own compile_commands.json while the model loads.
             if (name == "compile_commands.json" && impl_->model && impl_->model->source == project::SourceKind::mcpp) continue;
             reload = true;
             continue;
         }
-        if (!project::is_cxx_source_name(path) || impl_->documents_.find_by_path(path) != nullptr) continue;
-        if (type == 3) {
-            impl_->index.remove(path);
-        } else if (auto text = platform::fs::read_file(path)) {
-            impl_->index.update(path, *text);
+        if (!project::is_cxx_source_name(path)) {
+            if (producerInput) reload = true;   // an input the producer named that is not a source: what it reads changed
+            continue;
         }
+        const bool open { impl_->documents_.find_by_path(path) != nullptr };
+        std::optional<std::string> diskText;
+        if (type != 3) {
+            if (auto text = platform::fs::read_file(path)) diskText = std::move(*text);
+        }
+        if (!open) {
+            if (type == 3) impl_->index.remove(path);
+            else if (diskText) impl_->index.update(path, *diskText);
+        }
+        // G-5 (plan 2026-09-30): a producer names every source as an input (mcpp: src/**/*.cpp and the rest), yet what
+        // it answers changes only with the set of sources and with a source's module structure -- the module it
+        // provides and those it imports. Every save used to run it again, and with autosave that was once for every
+        // pause in typing: on GalTranslPP a minute of CPU each time, beside clangd. An edit inside functions leaves
+        // the model as it is; the index and the plan already have it.
+        // What is on disk is what the producer reads: an open file changed under the editor (a checkout) counts too.
+        if (producerInput && (type != 2 || !diskText || impl_->model_structure_differs(path, project::scan_source(*diskText)))) reload = true;
+        if (open) continue;
         if (impl_->model && impl_->model->source == project::SourceKind::inferred && type != 2) reload = true;
         else replan = true;
     }
     if (reload || replan) {
         for (const auto& engine : impl_->engines) engine->sources_changed();
     }
-    if (reload) impl_->schedule_reload();
+    if (reload) impl_->schedule_reload(true);
     else if (replan) impl_->schedule_replan();
     const Json message = lsp::make_notification("workspace/didChangeWatchedFiles", Json { { "changes", changes } });
     for (const auto& engine : impl_->engines) engine->notify(message);
