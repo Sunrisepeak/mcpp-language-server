@@ -135,6 +135,11 @@ public:
     void shut_down();
     // Nothing is sent to the client before its own initialize was answered.
     void allow_status_notifications();
+    // K-7 (plan 2026-09-30): an issue this server cannot recover from by itself (engine-crash-loop, engine-start-failed,
+    // engine-incompatible, payload-corrupt, preparation-stalled) asks, once per code, for a diagnostic bundle to be
+    // written; the session writes it off the loop and gives the path back, and the issue carries it (S3 `bundle`).
+    void set_auto_bundle_request(std::function<void(std::string code)> request);
+    void note_auto_bundle(const std::string& code, const std::string& path);
 
     // ---- client-driven, already known to belong to this root ----------------------------
     void did_open(const Json& params);

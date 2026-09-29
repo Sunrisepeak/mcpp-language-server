@@ -342,6 +342,9 @@ struct Workspace::Impl final : engine::Host {
     std::string journaledToolEnvironment;                // the environment source the journal last recorded
 
     std::string lastStatus;                  // the last cxxModules/status sent, serialized
+    std::function<void(std::string)> autoBundleRequest;          // K-7
+    std::map<std::string, std::string, std::less<>> autoBundles;  // issue code -> the bundle written for it
+    std::set<std::string, std::less<>> autoBundleRequested;       // codes a bundle was asked for in this session
     State lastSentState { State::starting };
     std::optional<Clock::time_point> lastStatusSentAt;
     std::optional<Clock::time_point> statusFlushAt;   // a coalesced change goes out then
@@ -1385,6 +1388,22 @@ struct Workspace::Impl final : engine::Host {
         reloadAt = Clock::now() + wait;
     }
 
+    // K-7: the issues nothing here recovers from by itself carry the automatic bundle written for them; the first time
+    // one appears, the bundle is asked for.
+    void attach_auto_bundles(Json& issues) {
+        static constexpr std::array<std::string_view, 5> FATAL { "engine-crash-loop", "engine-start-failed", "engine-incompatible",
+                                                                 "payload-corrupt", "preparation-stalled" };
+        for (auto& issue : issues) {
+            const std::string code { issue.value("code", std::string {}) };
+            if (std::ranges::find(FATAL, code) == FATAL.end()) continue;
+            if (const auto written = autoBundles.find(code); written != autoBundles.end()) {
+                issue["bundle"] = written->second;
+            } else if (autoBundleRequest && autoBundleRequested.insert(code).second) {
+                autoBundleRequest(code);
+            }
+        }
+    }
+
     // G-5: whether a source's module structure on disk (or in the editor) is other than what the model says of its unit.
     // A source the model has no unit for is new to it; a unit that states neither what it provides nor what it imports
     // is compared with the last plan's view of it.
@@ -1707,6 +1726,7 @@ struct Workspace::Impl final : engine::Host {
         };
         if (!notices.empty()) params["notices"] = std::move(notices);
         if (core && core->toPrepare > 0) params["progress"] = Json { { "done", core->prepared }, { "total", core->toPrepare } };
+        attach_auto_bundles(params["issues"]);
         std::string serialized { lsp::dump(params) };
         if (serialized == lastStatus) {
             statusFlushAt.reset();
@@ -1864,6 +1884,14 @@ void Workspace::start(Json clientParams, bool clientSupportsStatus, bool usePoll
     // when it expires is that scanned sources are planned, not that the engine is told to serve
     // without a database. This last resort stays for the case where even that produced nothing.
     impl_->lastResortAt = Clock::now() + std::chrono::seconds { 120 };
+}
+
+void Workspace::set_auto_bundle_request(std::function<void(std::string)> request) { impl_->autoBundleRequest = std::move(request); }
+
+void Workspace::note_auto_bundle(const std::string& code, const std::string& path) {
+    impl_->autoBundles[code] = path;
+    impl_->journal.add("auto-bundle", Json { { "code", code }, { "path", path } });
+    impl_->update_status();
 }
 
 void Workspace::allow_status_notifications() {

@@ -185,7 +185,10 @@ private:
         case EventKind::review_finished:
             if (auto* root = root_by_key_(event.rootKey)) root->handle_review_finished(event.message);
             break;
-        case EventKind::bundle_written: finish_bundle_(event.message); break;
+        case EventKind::bundle_written:
+            if (event.message.value("auto", false)) finish_auto_bundle_(event.rootKey, event.message);
+            else finish_bundle_(event.message);
+            break;
         }
     }
 
@@ -441,6 +444,7 @@ private:
         // S3 4: status names the root by the client's own URI, which a symbolic link, an 8.3 short
         // name or a different spelling would otherwise make differ from the canonical path used inside.
         handle->set_client_uri(folder.uri);
+        handle->set_auto_bundle_request([this, key = root](std::string code) { write_auto_bundle_(key, std::move(code)); });
         roots_.push_back(std::move(created));
         std::function<void(Json)> onEngineSettled;
         if (isFirst) onEngineSettled = [this](Json capabilities) { answer_initialize_(capabilities); };
@@ -517,6 +521,47 @@ private:
                                    : Json { { "error", written.error().message }, { "residue", written.error().residue } };
             events->push(Event { EventKind::bundle_written, std::move(outcome) });
         } }.detach();
+    }
+
+    // K-7 (plan 2026-09-30): what a person needs to report a problem this server cannot recover from, captured when it
+    // happens rather than after they have restarted and lost it. Written like mcppls.exportBundle with its defaults
+    // (redacted; never uploaded), as <cache>/bundles/auto-<code>-<time>.zip; the newest five are kept.
+    void write_auto_bundle_(const std::string& rootKey, std::string code) {
+        bundle::BundleInput input;
+        input.report = full_report_();
+        input.client = Json::object();
+        if (const Json* initialization = lsp::find(clientParams_, "initializationOptions")) input.initializationOptions = *initialization;
+        bundle::BundleOptions options;
+        const std::string directory { base::join_path(platform::dirs::cache_directory(), "bundles") };
+        options.output = base::join_path(directory, std::format("auto-{}-{:%Y%m%dT%H%M%SZ}.zip", code,
+                                                               std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now())));
+        log::info("{}: writing a diagnostic bundle for {}", rootKey, code);
+        std::thread { [events = events_, input = std::move(input), options, rootKey, code = std::move(code), directory] {
+            auto written = bundle::write_bundle(input, options);
+            std::vector<std::string> automatic;
+            for (auto& entry : platform::fs::list_directory(directory)) {
+                if (base::file_name(entry).starts_with("auto-")) automatic.push_back(std::move(entry));
+            }
+            std::ranges::sort(automatic, [](const std::string& a, const std::string& b) { return platform::fs::stamp(a) > platform::fs::stamp(b); });
+            for (std::size_t i { 5 }; i < automatic.size(); ++i) platform::fs::remove_all(automatic[i]);
+            Json outcome = written ? Json { { "auto", true }, { "code", code }, { "path", written->path } }
+                                   : Json { { "auto", true }, { "code", code }, { "error", written.error().message } };
+            events->push(Event { EventKind::bundle_written, std::move(outcome), 0, nullptr, rootKey });
+        } }.detach();
+    }
+
+    void finish_auto_bundle_(const std::string& rootKey, const Json& outcome) {
+        const std::string code { outcome.value("code", std::string {}) };
+        if (outcome.contains("error")) {
+            log::warning("{}: the diagnostic bundle for {} could not be written: {}", rootKey, code, outcome.value("error", std::string {}));
+            return;
+        }
+        const std::string path { outcome.value("path", std::string {}) };
+        log::warning("{}: mcppls cannot recover from {} by itself. A diagnostic bundle was saved to {} (it stays on this machine). "
+                     "Please report it at https://github.com/Sunrisepeak/mcpp-language-server/issues/new?template=bug_report.yml with the bundle "
+                     "attached; restarting the editor, or turning mcppls off for this workspace (mcppls.enable), works around it meanwhile",
+                     rootKey, code, path);
+        if (auto* root = root_by_key_(rootKey)) root->note_auto_bundle(code, path);
     }
 
     void finish_bundle_(const Json& outcome) {
