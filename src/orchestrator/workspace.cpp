@@ -969,6 +969,9 @@ struct Workspace::Impl final : engine::Host {
             { "profile", Json::array({ candidate.profile.kind, candidate.profile.compiler, candidate.profile.stdlib, candidate.profile.target }) },
             { "facts", std::move(facts) },
             { "database", Json::parse(spec::to_json(candidate.database).dump()) },
+            // Issue #30: the plan builds the engine's arguments from derived options and from stated ones
+            // differently, so two models that differ only here are not the same model.
+            { "optionsDerived", Json::parse(project::derived_options_to_json(candidate.database).dump()) },
         };
         return description.dump();
     }

@@ -13,6 +13,7 @@ import nlohmann.json;
 import mcppls.base.error;
 import mcppls.project.detect;
 import mcppls.project.model;
+import mcppls.spec.database;
 
 export namespace mcppls::project {
 
@@ -29,6 +30,9 @@ struct CachedModel {
 std::string cache_file_name(SourceKind source);
 
 nlohmann::json model_to_json(const ProjectModel& model);
+// Which sets and units of `database` carry options the S1 library derived (spec::complete_options) rather
+// than options the producer stated: the plan treats the two differently, so a model is described with it.
+nlohmann::json derived_options_to_json(const spec::Database& database);
 base::Result<ProjectModel> model_from_json(const nlohmann::json& value);
 
 // What the producer read, as one string. `watch` is what the producer said it depends on; the

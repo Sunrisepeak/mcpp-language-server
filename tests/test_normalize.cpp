@@ -11,6 +11,10 @@ import mcppls.spec.metadata;
 import mcppls.toolchain.probe;
 import mcppls.project.scan;
 import mcppls.project.infer;
+import mcppls.project.detect;
+import mcppls.project.model;
+import mcppls.spec.options;
+import mcppls.project.modelcache;
 import mcppls.normalize.gnu;
 import mcppls.normalize.msvc;
 import mcppls.normalize.plan;
@@ -1088,6 +1092,110 @@ int main() {
         input.moduleHintDirectory.clear();
         const auto plain = n::plan_engine(input);
         expect(std::ranges::all_of(plain.entries, [](const n::EngineEntry& entry) { return entry.moduleHints.empty(); }));
+    };
+
+
+    // Issue #30: the model cache must give the plan exactly what the producer's model gave it. Options the S1 library
+    // derived from the arguments (spec::complete_options) were read back as stated ones, and the plan then built the
+    // engine's arguments from them: reordered, -O2 and -g dropped, a different command for clangd's module cache, and
+    // every BMI of the cold start rebuilt on the warm one.
+    "a model read back from the cache is planned exactly as the producer's model was"_test = [] {
+        s::Database database;
+        database.hasIde = true;
+        s::Toolchain gcc;
+        gcc.family = s::Family::gcc;
+        gcc.driver = "/opt/gcc/bin/g++";
+        database.toolchains.emplace_back("gcc-16.1.0-x86_64-linux-gnu", gcc);
+        s::Set set;
+        set.name = "pkg";
+        set.hasIde = true;
+        set.toolchain = "gcc-16.1.0-x86_64-linux-gnu";
+        for (const std::string path : { "/p/src/main.cpp", "/p/src/core.cpp" }) {
+            s::TranslationUnit unit;
+            unit.source = path;
+            unit.workDirectory = "/p";
+            unit.arguments = { "/opt/gcc/bin/g++", "-I/p/include", "-isystem/opt/dep/include", "-std=c++23", "-O2", "-g",
+                               "-DX=1", "-Wall", "-c", path, "-o", path + ".o" };
+            set.units.push_back(std::move(unit));
+        }
+        database.sets.push_back(std::move(set));
+        s::complete_options(database);
+        expect(fatal(database.sets[0].optionsDerived)) << "the S1 library derived them";
+        std::map<std::string, ToolchainFacts, std::less<>> facts { { database.sets[0].toolchain, gcc_facts() } };
+        const auto plan_of = [&](const s::Database& planned) {
+            n::PlanInput input;
+            input.database = &planned;
+            input.facts = &facts;
+            input.engineDriverDirectory = "/payload/clangd/bin";
+            input.scanner = [](std::string_view) { return p::ScanResult {}; };
+            return n::plan_engine(input);
+        };
+        p::ProjectModel model;
+        model.root = "/p";
+        model.source = p::SourceKind::mcpp;
+        model.database = database;
+        const auto restored = p::model_from_json(p::model_to_json(model));
+        expect(fatal(restored.has_value()));
+        expect(restored->database.sets[0].optionsDerived && restored->database.sets[0].units[0].optionsDerived == database.sets[0].units[0].optionsDerived);
+        const auto cold = plan_of(database);
+        const auto warm = plan_of(restored->database);
+        expect(fatal(cold.entries.size() == warm.entries.size() && !cold.entries.empty()));
+        for (std::size_t i { 0 }; i < cold.entries.size(); ++i) {
+            expect(cold.entries[i].arguments == warm.entries[i].arguments)
+                << cold.entries[i].file << ":\n cold " << std::format("{}", cold.entries[i].arguments) << "\n warm " << std::format("{}", warm.entries[i].arguments);
+            expect(contains(warm.entries[i].arguments, "-O2") && contains(warm.entries[i].arguments, "-g")) << std::format("{}", warm.entries[i].arguments);
+        }
+    };
+
+
+    // G-1 (plan 2026-09-30): GalTranslPP defines _RANGES_ -- MSVC STL's own guard of <ranges> -- for every unit, to keep
+    // the <ranges> its global module fragments include textually from clashing with `import std`. The build compiles std
+    // on its own, without the project's macros; the engine built it with the representative unit's, and its std had no
+    // std::views. libstdc++'s guard is _GLIBCXX_RANGES, so a prefix rule (_GLIBCXX_*) would bring the defect back.
+    "std is built without the project's own macros, and keeps the standard library's configuration"_test = [] {
+        const std::map<std::string, std::string> sources {
+            { "/p/src/app.cpp", "import std;\nint main() {}\n" },
+        };
+        s::Database database;
+        database.hasIde = true;
+        s::Set set;
+        set.name = "app";
+        set.hasIde = true;
+        set.toolchain = "gcc-16.1.0-x86_64-linux-gnu";
+        s::TranslationUnit unit;
+        unit.source = "/p/src/app.cpp";
+        unit.workDirectory = "/p";
+        unit.arguments = { "/opt/gcc/bin/g++", "-std=c++23", "-D_RANGES_", "-D", "_GLIBCXX_RANGES", "-DNOMINMAX", "-U_FOO",
+                           "-D_GLIBCXX_ASSERTIONS", "-D_ITERATOR_DEBUG_LEVEL=0", "-D_HAS_EXCEPTIONS=1", "-include", "/p/pch.h",
+                           "-I/p/include", "-c", "/p/src/app.cpp" };
+        set.units.push_back(std::move(unit));
+        database.sets.push_back(set);
+        std::map<std::string, ToolchainFacts, std::less<>> facts { { set.toolchain, gcc_facts() } };
+        n::PlanInput input;
+        input.database = &database;
+        input.facts = &facts;
+        input.engineDriverDirectory = "/payload/clangd/bin";
+        input.scanner = [&](std::string_view path) {
+            const auto it = sources.find(std::string { path });
+            return it == sources.end() ? p::ScanResult {} : p::scan_source(it->second);
+        };
+        input.metadataReader = [](std::string_view) {
+            return std::vector<s::ModuleEntry> { { "std", "/opt/gcc/include/c++/16/bits/std.cc", true, {}, {} } };
+        };
+        const auto plan = n::plan_engine(input);
+        const auto std_entry = std::ranges::find_if(plan.entries, [](const n::EngineEntry& entry) { return entry.provides == "std"; });
+        const auto app_entry = std::ranges::find_if(plan.entries, [](const n::EngineEntry& entry) { return entry.file == "/p/src/app.cpp"; });
+        expect(fatal(std_entry != plan.entries.end() && app_entry != plan.entries.end()));
+        const auto& std_arguments = std_entry->arguments;
+        for (const std::string_view gone : { "-D_RANGES_", "_GLIBCXX_RANGES", "-DNOMINMAX", "-U_FOO", "-include", "/p/pch.h" }) {
+            expect(!contains(std_arguments, gone)) << gone << " reached std: " << std::format("{}", std_arguments);
+        }
+        for (const std::string_view kept : { "-D_GLIBCXX_ASSERTIONS", "-D_ITERATOR_DEBUG_LEVEL=0", "-D_HAS_EXCEPTIONS=1", "-std=c++23", "-I/p/include" }) {
+            expect(contains(std_arguments, kept)) << kept << " is missing from std: " << std::format("{}", std_arguments);
+        }
+        expect(contains(app_entry->arguments, "-D_RANGES_") && contains(app_entry->arguments, "-include")) << "the unit itself keeps its macros";
+        expect(n::standard_library_macro("_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST") && !n::standard_library_macro("_LIBCPP_RANGES")
+               && !n::standard_library_macro("_GLIBCXX_VECTOR") && !n::standard_library_macro("_RANGES_"));
     };
 
     return report();

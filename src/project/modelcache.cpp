@@ -47,7 +47,45 @@ std::optional<SourceKind> source_from_name(std::string_view name) {
 // changed PATH actually means --- another mcpp --- is caught by the producer's own path and file
 // stamp below, and by the background run that confirms the cache either way.
 
+void derived_from_json(const Json& value, spec::Database& database) {
+    if (!value.is_object()) return;
+    if (const auto sets = value.find("sets"); sets != value.end() && sets->is_array()) {
+        for (const auto& index : *sets) {
+            if (index.is_number_unsigned() && index.get<std::size_t>() < database.sets.size()) database.sets[index.get<std::size_t>()].optionsDerived = true;
+        }
+    }
+    if (const auto units = value.find("units"); units != value.end() && units->is_array()) {
+        for (const auto& pair : *units) {
+            if (!pair.is_array() || pair.size() != 2 || !pair[0].is_number_unsigned() || !pair[1].is_number_unsigned()) continue;
+            const auto s = pair[0].get<std::size_t>();
+            const auto u = pair[1].get<std::size_t>();
+            if (s < database.sets.size() && u < database.sets[s].units.size()) database.sets[s].units[u].optionsDerived = true;
+        }
+    }
+}
+
+// The envelope's version. 3 (0.0.7) added `optionsDerived`; a version-2 cache is ignored rather than read
+// with every derived option taken for a stated one.
+constexpr int CACHE_VERSION { 3 };
+
 } // namespace
+
+// Which options the S1 library derived from the arguments (spec::complete_options) rather than the
+// producer stated (issue #30). The S1 document itself has no place for this, and must not: it says what a
+// build is, not how this server completed it. Without it the options read back look stated, the plan
+// builds the engine's arguments from them instead of the producer's (reordered, -O and -g dropped), and
+// every BMI clangd keyed on the cold start's commands is rebuilt on the warm one.
+Json derived_options_to_json(const spec::Database& database) {
+    Json sets = Json::array();
+    Json units = Json::array();
+    for (std::size_t s { 0 }; s < database.sets.size(); ++s) {
+        if (database.sets[s].optionsDerived) sets.push_back(s);
+        for (std::size_t u { 0 }; u < database.sets[s].units.size(); ++u) {
+            if (database.sets[s].units[u].optionsDerived) units.push_back(Json::array({ s, u }));
+        }
+    }
+    return Json { { "sets", std::move(sets) }, { "units", std::move(units) } };
+}
 
 std::string cache_file_name(SourceKind source) {
     return std::format("model.{}.json", to_string(source));
@@ -70,6 +108,7 @@ Json model_to_json(const ProjectModel& model) {
                             { "stdlib", model.profile.stdlib }, { "target", model.profile.target } } },
         { "facts", std::move(facts) },
         { "database", Json::parse(spec::to_json(model.database).dump()) },
+        { "optionsDerived", derived_options_to_json(model.database) },
     };
 }
 
@@ -90,6 +129,7 @@ base::Result<ProjectModel> model_from_json(const Json& value) {
     model.tier = value.value("tier", tier_of(model.source));
     model.usesKit = value.value("usesKit", false);
     model.database = std::move(*loaded);
+    derived_from_json(value.value("optionsDerived", Json::object()), model.database);
     if (const auto watch = value.find("watch"); watch != value.end() && watch->is_array()) {
         for (const auto& entry : *watch) {
             if (entry.is_string()) model.watch.push_back(entry.get<std::string>());
@@ -142,7 +182,7 @@ std::string inputs_fingerprint(std::string_view root, std::span<const std::strin
 
 base::Result<void> save_model(std::string_view directory, const CachedModel& cached) {
     Json envelope {
-        { "version", 2 },
+        { "version", CACHE_VERSION },
         { "fingerprint", cached.fingerprint },
         { "producer", cached.producer },
         { "producerVersion", cached.producerVersion },
@@ -158,7 +198,7 @@ std::optional<CachedModel> load_model(std::string_view directory, SourceKind sou
     auto text = platform::fs::read_file(path);
     if (!text) return std::nullopt;
     const Json envelope = Json::parse(*text, nullptr, false);
-    if (envelope.is_discarded() || !envelope.is_object() || envelope.value("version", 0) != 2) return std::nullopt;
+    if (envelope.is_discarded() || !envelope.is_object() || envelope.value("version", 0) != CACHE_VERSION) return std::nullopt;
     const auto model = envelope.find("model");
     if (model == envelope.end()) return std::nullopt;
     auto parsed = model_from_json(*model);
