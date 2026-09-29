@@ -548,6 +548,170 @@ jobs:
               --fixture conformance/fixtures/mcpp-llvm --timeout 180
 
   # ---------------------------------------------------------------------------
+  # termux / PRoot is a supported environment (issue #32, 0.0.7 plan §1, §10.2), so it is tested,
+  # not assumed: the server runs under termux's PRoot, built here from a pinned commit, in both of
+  # PRoot's modes -- its default (a seccomp filter takes the fast path, and rewrites registers it
+  # does not restore) and PROOT_NO_SECCOMP=1 (ptrace stops on every call). Two defects of openkal-linux
+  # 0.15.0 showed up as "cannot start ...: not supported" and "program is outside every preopened
+  # directory" on every start; vendor/README.md has both. A regression of either fails the fixtures
+  # below, which is what this job is for.
+  #
+  # The server under test is payload/bin/mcppls itself, wrapped: a wrapper script generated here
+  # runs it under proot, which is how the conformance runner (--server) and the VS Code extension
+  # (MCPPLS_SERVER) are pointed at it. The payload's clangd, the kit and the fixtures' own
+  # processes are started BY the server, so they run under proot too. The runner and the editor
+  # stay outside.
+  proot:
+    name: proot (${{ matrix.platform }})
+    needs: payload
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The arm64 runner has no mcpp: its tools are the cross-built ones in the payload artifact's
+          # stage/, as in the conformance job. VS Code's suite runs on linux-x64 only, as the
+          # arm64 runner would need the display libraries installed for one more run of the same thing.
+          - { platform: linux-x64,   os: ubuntu-24.04, vscode: true }
+          - { platform: linux-arm64, os: ubuntu-24.04-arm }
+    env:
+      # termux/proot master at the time this was written. A pin, because a PRoot change must not
+      # turn this job red without anyone having touched this repository.
+      PROOT_COMMIT: d4d2a19081c3c07f75250e4ce2980b9fa2f5720f
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: payload-${{ matrix.platform }}
+      - name: Unpack the payload
+        run: tar -xzf payload-${{ matrix.platform }}.tar.gz && ls payload stage
+      - name: Cache termux/proot
+        id: proot-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/proot-bin
+          key: termux-proot-${{ env.PROOT_COMMIT }}-${{ runner.arch }}-v1
+      - name: Build termux/proot at the pinned commit
+        if: steps.proot-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q && sudo apt-get install -y -q libtalloc-dev build-essential
+          src="$RUNNER_TEMP/termux-proot"
+          mkdir -p "$src" && cd "$src"
+          git init -q .
+          git remote add origin https://github.com/termux/proot
+          git fetch -q --depth 1 origin "$PROOT_COMMIT"
+          git checkout -q FETCH_HEAD
+          git log --oneline -1
+          cd src
+          # compat.h defines SYS_SECCOMP unless it is a macro, and a glibc that declares it as an enum
+          # constant turns that into a syntax error. The definition is redundant there: drop it if,
+          # and only if, the build needs it dropped.
+          make -j"$(nproc)" || { sed -i '/^#    ifndef SYS_SECCOMP/,/^#    endif/d' compat.h && make -j"$(nproc)"; }
+          mkdir -p ~/proot-bin && cp proot ~/proot-bin/proot
+      - name: proot itself works, and is the one we built
+        run: |
+          set -euo pipefail
+          ~/proot-bin/proot -r / /bin/true
+          PROOT_NO_SECCOMP=1 ~/proot-bin/proot -r / /bin/true
+          file ~/proot-bin/proot
+      # The two wrappers. `-r /`: no guest file system, only proot's translation of every call, which
+      # is what a Debian rootfs under termux adds a root directory to.
+      - name: Wrappers that run the server under proot, in each mode
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/proot"
+          for mode in seccomp noseccomp; do
+            wrapper="$RUNNER_TEMP/proot/mcppls-$mode"
+            {
+              echo '#!/bin/sh'
+              # A line per start, so a step can say the server it ran against really ran under proot.
+              echo "echo started >> $RUNNER_TEMP/proot/started-$mode"
+              if [ "$mode" = noseccomp ]; then echo 'export PROOT_NO_SECCOMP=1'; fi
+              echo "exec $HOME/proot-bin/proot -r / $PWD/payload/bin/mcppls \"\$@\""
+            } > "$wrapper"
+            chmod +x "$wrapper"
+            cat "$wrapper"
+          done
+      # What the report says before any fixture runs: clangd started and is ready, and nothing in
+      # the output or the log says a program could not be started.
+      - name: mcppls report under proot, in each mode
+        run: |
+          set -euo pipefail
+          for mode in seccomp noseccomp; do
+            echo "::group::report ($mode)"
+            work="$RUNNER_TEMP/report-$mode"
+            rm -rf "$work" && mkdir -p "$work" && cp -R conformance/fixtures/inferred "$work/project"
+            rm -f "$work/project/scenario.json"
+            MCPPLS_CACHE_DIR="$work/cache" "$RUNNER_TEMP/proot/mcppls-$mode" report --root "$work/project" \
+                --settle 20 --payload "$PWD/payload" > "$work/report.json" 2> "$work/report.err"
+            tail -5 "$work/report.err"
+            if grep -q -e 'not supported' -e 'outside every preopened' -e 'no preopened directory is named' "$work/report.json" "$work/report.err"; then
+              grep -h -e 'not supported' -e 'outside every preopened' -e 'no preopened directory is named' "$work/report.json" "$work/report.err" | head
+              echo "::error::the server could not start a program under proot ($mode)"; exit 1
+            fi
+            state=$(jq -r '[.roots[0].engines[] | select(.name == "clangd") | .state][0]' "$work/report.json")
+            echo "clangd: $state"
+            [ "$state" = ready ] || { echo "::error::clangd is '$state' under proot ($mode)"; exit 1; }
+            echo "::endgroup::"
+          done
+      - name: Conformance fixtures under proot, in each mode
+        run: |
+          set -euo pipefail
+          failed=''
+          for mode in seccomp noseccomp; do
+            for fixture in inferred typing-import completion-keywords diagnostic-bundle watch-polling; do
+              echo "::group::$fixture ($mode)"
+              extra=()
+              # The polling fallback runs only when the client never declares dynamic watching.
+              case "$fixture" in watch-polling) extra+=(--no-dynamic-watch) ;; esac
+              if ! stage/mcppls-conformance run --server "$RUNNER_TEMP/proot/mcppls-$mode" --payload payload \
+                     ${extra[@]+"${extra[@]}"} --fixture "conformance/fixtures/$fixture" --timeout 180; then
+                failed="$failed $fixture@$mode"
+              fi
+              echo "::endgroup::"
+            done
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::failed under proot:$failed"
+            first=${failed# }; first=${first%% *}; mode=${first#*@}
+            stage/mcppls-conformance run --server "$RUNNER_TEMP/proot/mcppls-$mode" --payload payload \
+                --fixture "conformance/fixtures/${first%@*}" --timeout 60 --verbose 2>&1 | tail -200 || true
+            exit 1
+          fi
+      # The editor's own suite, on the server under proot (the extension reads MCPPLS_SERVER; see
+      # editors/vscode/src/payload.ts): what a person in termux with VS Code's server sees.
+      - uses: actions/setup-node@v7
+        if: matrix.vscode
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - name: Package the extension
+        if: matrix.vscode
+        run: |
+          set -euo pipefail
+          stage/mcppls-devtools extension --editor vscode --payload "$PWD/payload" \
+              --out "$PWD/editors/vscode/mcppls-${{ matrix.platform }}.vsix"
+      - name: VS Code end-to-end suite with the server under proot
+        if: matrix.vscode
+        working-directory: editors/vscode
+        env:
+          MCPPLS_E2E_VSIX: ${{ github.workspace }}/editors/vscode/mcppls-${{ matrix.platform }}.vsix
+        run: |
+          set -euo pipefail
+          before=$(wc -l < "$RUNNER_TEMP/proot/started-seccomp")
+          MCPPLS_SERVER="$RUNNER_TEMP/proot/mcppls-seccomp" xvfb-run -a npm test
+          # The editor started the wrapper, not some other server.
+          after=$(wc -l < "$RUNNER_TEMP/proot/started-seccomp")
+          echo "the editor started the server under proot $((after - before)) times"
+          [ "$after" -gt "$before" ]
+
+  # ---------------------------------------------------------------------------
   # Clean machines (usable plan W5, design 20.2): no compiler, no Visual Studio, no
   # Command Line Tools. Linux runs in a bare container; the Windows and macOS images
   # cannot be emptied, so their toolchains are hidden and asserted invisible first.

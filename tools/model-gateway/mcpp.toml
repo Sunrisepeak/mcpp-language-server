@@ -46,3 +46,8 @@ tinyhttps.workspace = true
 mcppls-testing  = { path = "../../modules/testing" }
 mcppls-base     = { path = "../../modules/base" }
 mcppls-platform = { path = "../../modules/platform" }
+
+[target.'cfg(os = "linux")'.dependencies]
+# The patched openkal-linux the root mcpp.toml declares (vendor/README.md): a member is its own root
+# when built with -p, and only the root's declaration outranks openkal-musl's version requirement.
+openkal-linux = { path = "../../vendor/openkal-linux" }

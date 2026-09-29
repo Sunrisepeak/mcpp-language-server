@@ -1,0 +1,128 @@
+# VENDORED COPY OF mcpplibs/openkal-linux 0.15.0, PATCHED AS 0.15.1.
+#
+# It is here, and not in the registry, because termux / PRoot is a supported environment and
+# 0.15.0 cannot start a single program under it. Two defects, both in this package:
+#
+#   1. `kal_process_spawn' always starts a program with `execveat(dirfd, relative name)'. PRoot
+#      answers ENOSYS to that with a real dirfd, so every start failed as "not supported".
+#      Now: on ENOSYS the start is retried with `execve' and an absolute name computed before the
+#      duplication, and the answer is remembered process-wide (src/process.cpp).
+#   2. `okl::sys' declared the argument registers input-only. PRoot's seccomp fast path rewrites
+#      RSI for `openat' and never restores it, so a value the compiler kept "from RSI" was
+#      garbage: the "/" preopen lost its name and every program path was "outside every
+#      preopened directory". Now every argument register is an in/out operand (src/sys.h).
+#
+# The root mcpp.toml points at this directory with a `path'. To be upstreamed to
+# mcpplibs/openkal-linux and deleted from vendor/ once a release carries both changes: see
+# vendor/README.md.
+[package]
+namespace   = "mcpplibs"
+name        = "openkal-linux"
+version     = "0.15.1"
+description = "The reference implementation of openkal for Linux, written on the kernel's own system-call interface so that it can be placed beneath a C library as well as above one."
+license     = "Apache-2.0"
+
+# The layer this package supplies, in the vocabulary the engine resolves.
+#
+# `mcpp:kernel-abi` names the platform interface a C library sits on. On a
+# traditional stack that seam is unnamed — a C library issues system calls or
+# calls the platform's own entry points directly — and naming it is what lets
+# one C library sit above several platforms. `=openkal` is the interface this
+# package answers to; several packages answer to it and the engine knows none
+# of them by name.
+provides    = ["mcpp:kernel-abi=openkal"]
+authors     = ["mcpplibs"]
+repo        = "https://github.com/mcpplibs/openkal-linux"
+
+# WHICH INTERFACES THIS IMPLEMENTATION PROVIDES, DERIVED FROM THE ARTEFACT AND
+# NOT WRITTEN BY HAND.
+#
+# openkal's specification names no set of interfaces: clause 3.3 withdrew the
+# one it had named (`hosted`) because a name describing a class of environment
+# is falsified by an environment nobody had in mind, and that one was falsified
+# inside its own ecosystem within a release. Enumeration by the package
+# replaced it, and a build tool reads this array at dependency resolution
+# against the `requires-interfaces` a consumer states in its own manifest --
+# the first of the three times clause 6.2 tabulates, and the earliest at which
+# the question can be answered.
+#
+# GENERATED, AND CI DIFFS IT AGAINST THE OBJECTS:
+#
+#     bash openkal/tools/check-surface.sh --toml openkal/SURFACE.txt \
+#          $(find target -name '*.o')
+#
+# A declaration derived from the thing it describes cannot disagree with it,
+# and an implementation that gains an interface cannot forget to say so. The
+# same walk is clause 9's surface comparison stopped one step earlier, so this
+# list and that check can never answer differently.
+#
+# BACKWARD COMPATIBLE. An engine that predates the key reads `[kernel-abi]` as
+# an unknown top-level table and ignores it, so this manifest loads unchanged
+# everywhere it loaded before; the absence of the check is the behaviour that
+# release already had.
+[kernel-abi]
+provides-interfaces = [
+    "openkal.abort",
+    "openkal.stream",
+    "openkal.memory",
+    "openkal.env",
+    "openkal.time",
+    "openkal.random",
+    "openkal.fs",
+    "openkal.process",
+    "openkal.task",
+    "openkal.exec",
+    "openkal.terminal",
+    "openkal.net",
+    "openkal.datagram",
+    "openkal.space",
+    "openkal.timeout",
+]
+
+[dependencies]
+openkal = "0.14.0"
+
+# The package contributes definitions and no modules. The interface it
+# implements is declared by the specification package, which this package
+# imports and does not re-export.
+
+[build]
+# No exception may propagate out of a C entry point, and no C library is
+# available to unwind through in the configuration this implementation is
+# written for. Neither facility is used, so neither is emitted.
+#
+# The stack protector is disabled for the same reason it is disabled in every
+# C library's own lowest layer: the check reads a value from thread-local
+# storage that this implementation is itself responsible for establishing, so
+# a function that runs before that point cannot perform it.
+#
+# The flags are attached to this package's own sources rather than to the whole
+# build. A module interface records the dialect it was compiled under, so a
+# translation unit compiled without exceptions cannot import one compiled with
+# them; the conformance tests import the specification's modules, and they are
+# consumers rather than parts of the implementation.
+flags = [
+  { glob = "src/**", cxxflags = ["-fno-exceptions", "-fno-rtti",
+                                 "-fno-stack-protector",
+                                 "-fno-asynchronous-unwind-tables"] },
+]
+
+[features]
+default = []
+
+# Whether this implementation is the whole of the program's environment.
+#
+# openkal says nothing about what else a program contains, and there are two
+# arrangements. Ordinarily a program already carries a runtime of its own, that
+# runtime has already received control from the environment and already creates
+# execution contexts, and this implementation borrows both. That is the default.
+#
+# Sometimes there is no such runtime --- because the program supplies one
+# itself, or because it has none. Then nothing in the program has received
+# control and nothing creates contexts, and this implementation does both. That
+# is what `standalone' selects.
+#
+# It is a statement about the program, not a smaller or faster variant of the
+# implementation, and the consumer that knows which arrangement holds is the
+# one that declares it.
+standalone = { defines = ["OKL_STANDALONE"] }

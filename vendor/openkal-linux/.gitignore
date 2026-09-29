@@ -1,0 +1,27 @@
+# What a build produces.
+target/
+.mcpp/
+mcpp.lock
+compile_commands.json
+
+# What an editor or a tool leaves beside the sources. None of it describes the
+# package: a repository that carries one editor's settings has an opinion about
+# editors, and a repository that carries a compilation database has an opinion
+# about one machine's paths.
+.vscode/
+.idea/
+.cache/
+*.swp
+*~
+
+# What a system leaves behind.
+.DS_Store
+Thumbs.db
+
+# The specification tree tools/run-conformance.sh clones beside the sources.
+#
+# NO TRAILING SLASH. `.spec/' matches a directory and does not match a
+# SYMBOLIC LINK to one, which is what a working checkout naturally has; the link
+# was consequently committed once, pointing at a path that exists on one
+# machine.
+.spec
