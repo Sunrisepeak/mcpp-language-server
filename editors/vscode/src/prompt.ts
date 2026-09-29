@@ -32,7 +32,7 @@ import * as vscode from 'vscode';
 
 // 'turnOffScope' and 'restoreScope' are the quick picks `mcppls.turnOffOtherCppFeatures` and
 // `mcppls.restoreOtherCppFeatures` (src/conflicts.ts) show for which settings scope to act on.
-export type PromptKind = 'conflict' | 'commandLineTools' | 'download' | 'turnOffScope' | 'restoreScope';
+export type PromptKind = 'conflict' | 'commandLineTools' | 'download' | 'turnOffScope' | 'restoreScope' | 'unrecoverable';
 
 const TEST_MODE = process.env.MCPPLS_TEST === '1';
 const SUBSTITUTION_GRACE_MS = 5000;
@@ -47,10 +47,24 @@ class Deferred<T> {
     }
 }
 
+export interface ShownPrompt {
+    message: string;
+    items: string[];
+}
+
 class PromptTestHarness {
     private readonly answers = new Map<PromptKind, string | undefined>();
     private readonly waiting = new Map<PromptKind, Deferred<string | undefined>[]>();
     private readonly shown = new Map<PromptKind, number>();
+    private readonly last = new Map<PromptKind, ShownPrompt>();
+
+    lastShown(kind: PromptKind): ShownPrompt | undefined {
+        return this.last.get(kind);
+    }
+
+    record(kind: PromptKind, prompt: ShownPrompt): void {
+        this.last.set(kind, prompt);
+    }
 
     setAnswer(kind: PromptKind, answer: string | undefined): void {
         this.answers.set(kind, answer);
@@ -109,4 +123,22 @@ export function pickOnce<T extends string>(
         return promptTestHarness.ask(kind).then((answer) => items.find((item) => item.value === answer)?.value);
     }
     return vscode.window.showQuickPick(items, { placeHolder }).then((choice) => choice?.value);
+}
+
+// A notification that is never modal and never awaited by the caller's own flow: the returned promise
+// resolves to the chosen item, or undefined when it is dismissed. Same test-mode substitution as above;
+// the last message and items are kept so a test can check what a person would have been offered.
+export function notifyOnce(
+    kind: PromptKind,
+    severity: 'info' | 'warning' | 'error',
+    message: string,
+    items: readonly string[],
+): Thenable<string | undefined> {
+    if (promptTestHarness) {
+        promptTestHarness.record(kind, { message, items: [...items] });
+        return promptTestHarness.ask(kind);
+    }
+    if (severity === 'error') return vscode.window.showErrorMessage(message, ...items);
+    if (severity === 'warning') return vscode.window.showWarningMessage(message, ...items);
+    return vscode.window.showInformationMessage(message, ...items);
 }

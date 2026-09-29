@@ -7,6 +7,7 @@ import type { LanguageClient } from 'vscode-languageclient/node';
 import { SETTABLE_CANDIDATES, UNSETTABLE_CANDIDATES } from './conflictCandidates';
 import { restoreOtherCppFeatures, turnOffOtherCppFeatures } from './conflicts';
 import { advertisesCacheReset, freedText, parseCacheResetResult, RESET_CACHE_COMMAND, SERVER_RESET_CACHE_COMMAND, sizeText } from './cacheReset';
+import { turnOffInWorkspace, turnOnInWorkspace } from './enable';
 import { redactJson, Who } from './redact';
 import { describeProfile, SemanticProfile } from './status';
 
@@ -285,7 +286,10 @@ interface BundleWritten {
 // environment, the logs of the last sessions, the incidents, the engine databases -- written by the
 // server with user names, paths and secrets replaced, and never uploaded. When the server's check
 // finds something its rules left, nothing is written, and hiding the project's paths too is offered.
-export async function exportDiagnosticBundle(access: ServerAccess, hideProjectPaths = false): Promise<void> {
+//
+// Returns the path of the bundle written, or undefined when none was. `quiet`: the caller tells the
+// person about the file itself (the unrecoverable-error notification does), so no message of its own.
+export async function exportDiagnosticBundle(access: ServerAccess, hideProjectPaths = false, quiet = false): Promise<string | undefined> {
     const client = access.runningClient();
     if (!client) {
         void vscode.window.showWarningMessage(
@@ -310,16 +314,18 @@ export async function exportDiagnosticBundle(access: ServerAccess, hideProjectPa
     } catch (error) {
         const message = errorText(error);
         access.log(`mcppls.exportBundle failed: ${message}`);
+        if (quiet) return undefined;
         const offer = hideProjectPaths ? [] : ['Retry with Project Paths Hidden'];
         const choice = await vscode.window.showWarningMessage(`C++ Modules: no diagnostic bundle was written. ${message}`, ...offer, 'Show Logs');
         if (choice === 'Retry with Project Paths Hidden') {
-            await exportDiagnosticBundle(access, true);
+            return exportDiagnosticBundle(access, true);
         } else if (choice === 'Show Logs') {
             access.showLogs();
         }
-        return;
+        return undefined;
     }
     access.log(`diagnostic bundle written: ${written.path} (${written.bytes} bytes)`);
+    if (quiet) return written.path;
     const choice = await vscode.window.showInformationMessage(
         `C++ Modules: diagnostic bundle written (${sizeText(written.bytes)}). Your user name, home directory, host name and secrets were `
         + 'replaced; nothing was uploaded. Attach it to an issue if you choose to.',
@@ -329,6 +335,7 @@ export async function exportDiagnosticBundle(access: ServerAccess, hideProjectPa
     } else if (choice === 'Copy Path') {
         await vscode.env.clipboard.writeText(written.path);
     }
+    return written.path;
 }
 
 // Issue #23 fix plan F14: clangd restarted now, whatever its restart budget says; the server counts it
@@ -477,6 +484,8 @@ export function registerCommands(context: vscode.ExtensionContext, access: Serve
         vscode.commands.registerCommand('mcppls.exportDiagnosticBundle', () => exportDiagnosticBundle(access)),
         vscode.commands.registerCommand('mcppls.restartClangd', () => restartClangd(access)),
         vscode.commands.registerCommand(RESET_CACHE_COMMAND, () => resetWorkspaceCache(access)),
+        vscode.commands.registerCommand('mcppls.turnOffInWorkspace', () => turnOffInWorkspace(access.log)),
+        vscode.commands.registerCommand('mcppls.turnOnInWorkspace', () => turnOnInWorkspace(access.log)),
         vscode.commands.registerCommand('mcppls.runBuildToolInTerminal', () => runBuildToolInTerminal(access)),
         vscode.commands.registerCommand('mcppls.turnOffOtherCppFeatures', () => turnOffOtherCppFeatures(context, access.log)),
         vscode.commands.registerCommand('mcppls.restoreOtherCppFeatures', () => restoreOtherCppFeatures(context, access.log)),

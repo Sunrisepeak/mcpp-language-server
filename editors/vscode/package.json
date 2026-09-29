@@ -171,6 +171,16 @@
         "category": "C++ Modules"
       },
       {
+        "command": "mcppls.turnOffInWorkspace",
+        "title": "Turn Off in This Workspace",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.turnOnInWorkspace",
+        "title": "Turn On in This Workspace",
+        "category": "C++ Modules"
+      },
+      {
         "command": "mcppls.runBuildToolInTerminal",
         "title": "Run the Build Tool in a Terminal",
         "category": "C++ Modules"

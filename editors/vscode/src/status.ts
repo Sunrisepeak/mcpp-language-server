@@ -3,7 +3,9 @@
 
 import * as vscode from 'vscode';
 import { offersCacheReset, RESET_CACHE_COMMAND } from './cacheReset';
+import { TURN_ON_COMMAND } from './enable';
 import { stateTexts } from './statusText';
+import type { ModuleIssueLike } from './unrecoverable';
 
 export type ModuleState = 'starting' | 'loading' | 'preparing' | 'ready' | 'degraded' | 'error';
 
@@ -20,10 +22,13 @@ export interface IssueCommand {
     arguments?: unknown[];
 }
 
-export interface ModuleIssue {
+export interface ModuleIssue extends ModuleIssueLike {
     code: string;
     message: string;
     command?: IssueCommand;
+    // 0.0.7: the absolute path of a diagnostic bundle the server wrote by itself for an issue it
+    // cannot recover from (see unrecoverable.ts).
+    bundle?: string;
     // S3 extension (design 2026-09-25 §6): "code" is the user's own text being wrong, shown as a
     // diagnostic instead, and never colours the status. Absent means non-code, for a server from
     // before this field existed; see statusText.ts.
@@ -93,6 +98,7 @@ const SHOW_LOGS: vscode.Command = { title: 'Show Logs', command: 'mcppls.showLog
 // problem needs, which also carries the report.
 const EXPORT_BUNDLE: vscode.Command = { title: 'Export Diagnostic Bundle', command: 'mcppls.exportDiagnosticBundle' };
 const RESET_CACHE: vscode.Command = { title: 'Reset This Workspace\'s Cache', command: RESET_CACHE_COMMAND };
+const TURN_ON: vscode.Command = { title: 'Turn On in This Workspace', command: TURN_ON_COMMAND };
 const RESTART: vscode.Command = { title: 'Restart', command: 'mcppls.restartServer' };
 const BUSY_STATES: readonly ModuleState[] = ['starting', 'loading', 'preparing'];
 
@@ -133,7 +139,30 @@ export class StatusController implements vscode.Disposable {
         this.showStarting();
     }
 
+    // `mcppls.enable` is false for this workspace: the server is not started at all, and the one
+    // status bar item is the way back (its command writes the setting and the extension starts it).
+    showOff(): void {
+        this.failure = undefined;
+        this.current = undefined;
+        this.setPulsing(false);
+        this.item.text = 'C++ Modules';
+        this.item.detail = 'Off in this workspace';
+        this.item.busy = false;
+        this.item.severity = vscode.LanguageStatusSeverity.Information;
+        this.item.command = TURN_ON;
+        this.bar.text = '$(circle-slash) C++ Modules: off in this workspace';
+        this.bar.backgroundColor = undefined;
+        this.bar.color = undefined;
+        this.bar.tooltip = 'mcppls is turned off in this workspace (mcppls.enable). Click to turn it on.';
+        this.bar.command = TURN_ON_COMMAND;
+        for (const waiter of [...this.waiters]) {
+            this.settle(waiter);
+            waiter.reject(new Error('mcppls is turned off in this workspace.'));
+        }
+    }
+
     showStarting(detail = 'Starting'): void {
+        this.bar.command = 'mcppls.showLogs';
         this.failure = undefined;
         this.current = undefined;
         this.item.text = 'C++ Modules';
@@ -284,6 +313,11 @@ export class StatusController implements vscode.Disposable {
                 waiter.reject(new Error(`The server reported the error state: ${issues.map((issue) => issue.message).join('; ')}`));
             }
         }
+    }
+
+    // The status bar item's text, for the end-to-end tests.
+    barText(): string {
+        return this.bar.text;
     }
 
     lastStatus(): CxxModulesStatus | undefined {
