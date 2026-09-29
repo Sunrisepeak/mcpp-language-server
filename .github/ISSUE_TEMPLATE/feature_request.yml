@@ -1,0 +1,35 @@
+name: Feature request
+description: Something mcppls could do that it does not
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to do
+      description: The situation first, not the solution — what is hard or missing today.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: How it could work, if you have thought about it. Alternatives you tried are welcome.
+    validations:
+      required: false
+
+  - type: input
+    id: editor
+    attributes:
+      label: Editor
+      description: Which editor this is for, if it is not all of them.
+    validations:
+      required: false
+
+  - type: input
+    id: build-system
+    attributes:
+      label: Build system
+      description: mcpp, CMake, xmake, meson, only a compile_commands.json, or none — if it matters.
+    validations:
+      required: false

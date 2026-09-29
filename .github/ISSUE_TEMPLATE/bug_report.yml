@@ -1,20 +1,45 @@
 name: Bug report
-description: Something in mcppls (the language server or the VS Code extension) is wrong
+description: Something in mcppls (the language server or an editor extension) is wrong
 labels: [bug]
 body:
-  - type: textarea
-    id: report
+  - type: markdown
     attributes:
-      label: Diagnostic report
-      description: >
-        Run **C++ Modules: Collect Diagnostic Report** in the editor, or `mcppls report` on the
-        command line, and paste the JSON here. It was built to carry what a bug report needs:
-        where the build description came from, what the engine was given, what ran and how long it
-        took, and the end of the log. It names paths on your machine and nothing else — no
-        environment variable values, no file contents.
-      render: json
+      value: |
+        If the editor offered **Report Issue…** when mcppls stopped, this form was opened already filled in;
+        add what you did and attach the file it showed you. Clangd or mcpp defects are collected in
+        [#24](https://github.com/Sunrisepeak/mcpp-language-server/issues/24) — say here if you think it is one.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: mcppls and the extension, for example "extension 0.0.7, server 0.0.7" (`mcppls --version`).
     validations:
       required: true
+
+  - type: input
+    id: editor
+    attributes:
+      label: Editor
+      description: For example "Visual Studio Code 1.104", "VSCodium", "Zed 0.210", "Neovim 0.11", "CLion 2025.2".
+    validations:
+      required: false
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: For example "Ubuntu 24.04 (x64)", "macOS 15 (arm64)", "Windows 11", "Termux (PRoot)".
+    validations:
+      required: false
+
+  - type: input
+    id: build-system
+    attributes:
+      label: Build system
+      description: mcpp, CMake, xmake, meson, only a compile_commands.json, or none.
+    validations:
+      required: false
 
   - type: textarea
     id: what-happened
@@ -29,26 +54,44 @@ body:
     attributes:
       label: What you expected
     validations:
-      required: true
+      required: false
 
-  - type: input
-    id: build-system
+  - type: markdown
     attributes:
-      label: Build system
-      description: mcpp, CMake, only a compile_commands.json, or none.
+      value: |
+        ### The diagnostic bundle
+
+        One zip with the report, the environment, the logs of the last sessions and the incidents. Your user
+        name, home directory, host name and anything that looks like a secret are replaced; nothing is
+        uploaded unless you attach it here. Get it from any of:
+
+        - the file mcppls saved by itself when it could not recover (the notification's **Report Issue…** shows it),
+        - **C++ Modules: Export Diagnostic Bundle** in VS Code,
+        - `mcppls report --bundle <file.zip>` in a terminal.
+
+  - type: checkboxes
+    id: bundle
+    attributes:
+      label: Diagnostic bundle
+      options:
+        - label: I attached the diagnostic bundle
+          required: false
+
+  - type: textarea
+    id: report
+    attributes:
+      label: Diagnostic report (only if there is no bundle)
+      description: >
+        **C++ Modules: Collect Diagnostic Report** in VS Code, or `mcppls report`; paste the JSON. It names
+        paths on your machine and nothing else — no environment variable values, no file contents.
+      render: json
     validations:
-      required: true
+      required: false
 
-  - type: input
-    id: os
+  - type: textarea
+    id: steps
     attributes:
-      label: Operating system
-      description: For example "Ubuntu 24.04", "macOS 15 (arm64)", "Windows 11".
+      label: Steps to reproduce
+      description: If you know them. A small project that shows it is the best of all.
     validations:
-      required: true
-
-  - type: input
-    id: version
-    attributes:
-      label: Version
-      description: Only if you could not attach the report above — it already carries this.
+      required: false
