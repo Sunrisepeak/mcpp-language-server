@@ -176,6 +176,46 @@ int main() {
         expect(completion::empty_list() == Json::parse(R"({"isIncomplete": false, "items": []})"));
     };
 
+    "while the core engine is late, the file's words, nearest first, as a list the client asks again for (R-7)"_test = [] {
+        const std::string text {
+            "import std;\n"
+            "int counter_total = 0; // counter_in_comment\n"
+            "const char* s = \"counter_in_string\";\n"
+            "auto r = R\"x(counter_in_raw)x\";\n"
+            "int Counter2 = 0x1Cu;\n"
+            "int main() { counter_total += cou; }\n"
+            "void g() { obj.co; ns::co; p->co; }\n" };
+        const auto at = [&](std::string_view needle, std::size_t skip) {
+            const std::size_t offset { text.find(needle) + skip };
+            return mcppls::base::position_at(text, offset);
+        };
+        const Json words = completion::document_words(text, at("cou;", 3));
+        expect(labels_of(Json { { "items", words } }) == std::vector<std::string> { "counter_total", "co", "Counter2", "char", "const" })
+            << words.dump() << ": nearest first, comments and literals unread, the word being typed left out";
+        expect(words[0]["kind"] == 1);
+        expect(completion::document_words(text, at("obj.co", 6)).empty()) << "a member: only the core engine knows";
+        expect(completion::document_words(text, at("ns::co", 6)).empty()) << "a qualified name: only the core engine knows";
+        expect(completion::document_words(text, at("p->co", 5)).empty());
+        expect(completion::document_words(text, at("cou;", 0)).empty()) << "nothing typed yet";
+        expect(completion::document_words(text, at("cou;", 3), 1).size() == 1U);
+        const Json list = completion::without_engine(words);
+        expect(list["isIncomplete"] == true && list["items"] == words);
+        const Json withKeywords = completion::merge(completion::without_engine(Json::array()), idx::keyword_completion("i", Position { 0, 1 }, nullptr));
+        expect(withKeywords["isIncomplete"] == true && labels_of(withKeywords) == std::vector<std::string> { "import" }) << "the keywords join it";
+    };
+
+    "what a person waits on waits for the core engine within a budget, and the rest wait for its timeout (R-7)"_test = [] {
+        using namespace std::chrono_literals;
+        namespace routing = mcppls::orchestrator;
+        expect(routing::answer_budget("textDocument/completion") == 1000ms);
+        expect(routing::answer_budget("textDocument/signatureHelp") == 1000ms);
+        expect(routing::answer_budget("textDocument/hover") == 2000ms);
+        expect(routing::answer_budget("textDocument/definition") == 10000ms);
+        expect(!routing::answer_budget("textDocument/references").has_value()) << "a long operation the person started";
+        expect(!routing::answer_budget("textDocument/semanticTokens/full").has_value()) << "nobody waits on it: it arrives when it is ready";
+        expect(!routing::answer_budget("textDocument/documentSymbol").has_value());
+    };
+
     "module names for completion are kept until a declaration changes"_test = [] {
         idx::ModuleIndex index;
         index.update("/p/a.cppm", "export module a;\n");

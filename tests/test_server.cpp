@@ -1069,6 +1069,7 @@ int main() {
         options.version = "23.1.0";
         options.processFactory = [shared] { return std::make_unique<BuildingProcess>(shared); };
         options.implementationIdle = std::chrono::milliseconds { 300 };
+        options.implementationQuiet = std::chrono::milliseconds { 200 };
         RecordingHost host { root };
         auto engine = cld::make_engine(std::move(options));
         engine->start(host);
@@ -1093,7 +1094,13 @@ int main() {
         host.pump(*engine);
         auto opened = BuildingProcess::files(*shared, "textDocument/didOpen");
         auto was_opened = [&](const std::string& path) { return std::ranges::find(opened, path) != opened.end(); };
-        expect(was_opened(math) && was_opened(greet)) << "the units of the module main.cpp imports";
+        expect(!was_opened(math) && !was_opened(greet)) << "R-5: not while the person is at work (a file was just opened)";
+        expect(engine->next_deadline().has_value()) << "the engine wakes itself once they pause";
+        std::this_thread::sleep_for(std::chrono::milliseconds { 250 });
+        engine->handle_timers();
+        for (int turn { 0 }; turn < 4; ++turn) host.pump(*engine);
+        opened = BuildingProcess::files(*shared, "textDocument/didOpen");
+        expect(was_opened(math) && was_opened(greet)) << "the units of the module main.cpp imports, once they paused, one after another";
         expect(!was_opened(other)) << "not before clangd has been idle for a while: the rest come later";
         expect(!was_opened(interface)) << "an interface is not an implementation unit";
         auto closed = BuildingProcess::files(*shared, "textDocument/didClose");
@@ -1108,6 +1115,21 @@ int main() {
         host.pump(*engine);
         opened = BuildingProcess::files(*shared, "textDocument/didOpen");
         expect(static_cast<std::size_t>(std::ranges::count(opened, math)) == before + 1) << "built again after it changed";
+
+        // R-5: typing pauses it; what changed meanwhile is built once they stop.
+        engine->document(eng::DocumentEvent { eng::DocumentChange::changed, eng::DocumentView { mcppls::base::path_to_uri(main), main, "cpp", 2, text + "\n" } });
+        std::this_thread::sleep_for(std::chrono::milliseconds { 20 });
+        (void)fs::write_file(math, "module hello.greet;\nint hello::add(int a, int b) { return a + b; }\n");
+        engine->notify(Json { { "jsonrpc", "2.0" }, { "method", "workspace/didChangeWatchedFiles" },
+                              { "params", Json { { "changes", Json::array({ Json { { "uri", mcppls::base::path_to_uri(math) }, { "type", 2 } } }) } } } });
+        host.pump(*engine);
+        opened = BuildingProcess::files(*shared, "textDocument/didOpen");
+        expect(static_cast<std::size_t>(std::ranges::count(opened, math)) == before + 1) << "not while they type";
+        std::this_thread::sleep_for(std::chrono::milliseconds { 250 });
+        engine->handle_timers();
+        host.pump(*engine);
+        opened = BuildingProcess::files(*shared, "textDocument/didOpen");
+        expect(static_cast<std::size_t>(std::ranges::count(opened, math)) == before + 2) << "built once they stopped";
 
         // Idle long enough: the rest of the implementation units.
         std::this_thread::sleep_for(std::chrono::milliseconds { 400 });

@@ -206,6 +206,16 @@ private:
     std::optional<Clock::time_point> restartAt_;
     std::string restartReason_;
     RestartCause restartCause_ { RestartCause::recovery };
+    // R-8 (plan 2026-09-30): a restart nothing is broken for -- the plan's, or one for work clangd would not let go of --
+    // waits until the person has not typed for RESTART_QUIET, and at most RESTART_POSTPONE past when it was due. A crash,
+    // a clangd that answers nobody and the person's own restart go at once.
+    bool restartWhenQuiet_ { false };
+    std::optional<Clock::time_point> restartDueAt_;
+    static constexpr std::chrono::seconds RESTART_QUIET { 3 };
+    static constexpr std::chrono::seconds RESTART_POSTPONE { 60 };
+    // R-5, R-8: when the person last typed, and when they last typed, opened a file or asked for something a person waits on.
+    std::optional<Clock::time_point> lastTypedAt_;
+    std::optional<Clock::time_point> lastActiveAt_;
     // Fix plan F13: a restart the plan asks for waits PLAN_RESTART_SETTLE, so a plan that changes again
     // meanwhile is served by the same restart, and one that changes back needs none. What the running
     // clangd started with is kept to tell.
@@ -333,7 +343,7 @@ private:
     static constexpr std::size_t WATCHED_BATCH_LIMIT { 20 };   // plan 2026-09-27 D3
     static constexpr std::size_t BACKGROUND_UNITS { 12 };
     static constexpr std::size_t UNITS_PER_SEARCH { 4 };
-    static constexpr std::size_t IMPLEMENTATIONS_AT_ONCE { 2 };          // N-7: units being built for the index at the same time
+    static constexpr std::size_t IMPLEMENTATIONS_AT_ONCE { 1 };          // N-7, R-5: units being built for the index at the same time
     static constexpr std::size_t IMPLEMENTATIONS_PER_OPEN { 16 };        // N-7: relevant units queued for one opened file
     std::map<std::string, std::vector<UnitOfModule>, std::less<>> moduleUnits_;   // module -> its units other than its interface
     std::map<std::string, std::string, std::less<>> interfaceModules_;          // path key of an importable unit -> its module
@@ -786,6 +796,10 @@ public:
 
     void document(const DocumentEvent& event) override {
         const DocumentView& document { event.document };
+        if (event.change == DocumentChange::opened || event.change == DocumentChange::changed) {
+            lastActiveAt_ = Clock::now();
+            if (event.change == DocumentChange::changed) lastTypedAt_ = lastActiveAt_;
+        }
         switch (event.change) {
         case DocumentChange::opened:
             touch_(document.path);
@@ -957,7 +971,9 @@ public:
             reply(Answer {});
             return;
         }
-        const auto limit = wait_limit(message.value("method", std::string {}), options_.requestTimeout, Clock::now());
+        const std::string method { message.value("method", std::string {}) };
+        const auto limit = wait_limit(method, options_.requestTimeout, Clock::now());
+        if (is_interactive(method)) lastActiveAt_ = Clock::now();
         if (!accepting_) {
             deferred_.push_back(Waiting { message, std::move(reply), limit });
             return;
@@ -1164,6 +1180,7 @@ public:
         }
         for (const auto& [key, unit] : background_) consider(unit.built ? unit.usedAt + BACKGROUND_IDLE : unit.openedAt + BACKGROUND_BUILD_LIMIT);
         consider(implementationRestAt_);
+        if (const auto quietAt = implementation_quiet_at_(); quietAt && *quietAt > Clock::now()) consider(quietAt);
         return deadline;
     }
 
@@ -1297,8 +1314,12 @@ public:
         if (stuckCheckAt_ && *stuckCheckAt_ <= now) check_stuck_files_(now);
         reconsider_deferred_reclaims_(now);
         if (restartAt_ && *restartAt_ <= now) {
-            restartAt_.reset();
-            restart_(restartReason_.empty() ? std::string_view { "recovering from an exit" } : std::string_view { restartReason_ }, restartCause_);
+            if (const auto later = quiet_restart_at_(now)) {
+                restartAt_ = later;
+            } else {
+                restartAt_.reset();
+                restart_(restartReason_.empty() ? std::string_view { "recovering from an exit" } : std::string_view { restartReason_ }, restartCause_);
+            }
         }
         // The status settles once preparation has made no progress for a minute (real-project plan RP1.4,
         // design P7), so a client polling only when told to is told, even with nothing else happening.
@@ -1529,6 +1550,8 @@ private:
         if (restartHistory_.size() > 20) restartHistory_.pop_front();
         host_->record_event("engine-restart", Json { { "reason", std::string { reason } }, { "cause", std::string { to_string(cause) } } });
         restartAt_.reset();
+        restartWhenQuiet_ = false;
+        restartDueAt_.reset();
         // The budget no longer holds anything back once a restart happens; a new backoff is said when it comes.
         std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-restart-capped"; });
         forget_scan_failures_();
@@ -2069,6 +2092,7 @@ private:
             host_->engine_settled(ENGINE_ID, Json::object());
             restartReason_ = "clangd kept crashing";
             restartCause_ = RestartCause::crash;
+            restartWhenQuiet_ = false;
             restartAt_ = std::max(now + RestartGate::BACKOFF[step], restartGate_.earliest(now, RestartCause::crash));
             const auto minutes = std::chrono::duration_cast<std::chrono::minutes>(RestartGate::BACKOFF[step]).count();
             std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-crash-loop"; });
@@ -2082,6 +2106,7 @@ private:
             if (crashes_.size() <= 1) crashLoops_ = 0;   // a single exit after a quiet stretch: the loop, if any, is over
             restartReason_ = "recovering from an exit";
             restartCause_ = RestartCause::crash;
+            restartWhenQuiet_ = false;
             restartAt_ = std::max(now + std::chrono::seconds { 1 << std::min<std::size_t>(crashes_.size() - 1, 6) }, restartGate_.earliest(now, RestartCause::crash));
         }
         host_->status_changed();
@@ -2928,6 +2953,7 @@ private:
         restartAt_ = at;
         restartReason_ = std::string { reason };
         restartCause_ = RestartCause::plan;
+        restartWhenQuiet_ = true;
         host_->record_event("engine-restart-scheduled", Json { { "reason", std::string { reason } }, { "cause", "plan" },
                                                                { "seconds", std::chrono::duration_cast<std::chrono::seconds>(at - now).count() } });
         log::info("restarting clangd ({}) in {} s: {}", host_->root_directory(), std::chrono::duration_cast<std::chrono::seconds>(at - now).count(), reason);
@@ -3091,6 +3117,7 @@ private:
         restartAt_ = at;
         restartReason_ = std::string { reason };
         restartCause_ = cause;
+        restartWhenQuiet_ = true;
         host_->record_event("engine-restart-scheduled", Json { { "reason", std::string { reason } }, { "cause", std::string { to_string(cause) } },
                                                                { "seconds", std::chrono::duration_cast<std::chrono::seconds>(at - now).count() } });
         log::info("restarting clangd ({}) in {} s: {}", host_->root_directory(), std::chrono::duration_cast<std::chrono::seconds>(at - now).count(), reason);
@@ -3137,6 +3164,7 @@ private:
             restartAt_ = at;
             restartReason_ = std::string { reason };
             restartCause_ = cause;
+            restartWhenQuiet_ = false;
             host_->record_event("engine-restart-deferred", Json { { "reason", std::string { reason } }, { "cause", std::string { to_string(cause) } },
                                                                   { "seconds", std::chrono::duration_cast<std::chrono::seconds>(at - now).count() } });
             log::info("restarting clangd ({}) in {} s: {}", host_->root_directory(),
@@ -3522,11 +3550,35 @@ private:
         return accepting_ && pending_.empty() && searches_.empty() && awaitingDiagnostics_.empty() && !primer_.busy();
     }
 
+    // R-5 (plan 2026-09-30): when the queued units may be built for the index -- Options::implementationQuiet after the
+    // person last typed, opened a file or asked for something; nullopt when nothing is queued or they have done none yet.
+    std::optional<Clock::time_point> implementation_quiet_at_() const {
+        if (implementationQueue_.empty() || primer_.busy() || !lastActiveAt_) return std::nullopt;
+        return *lastActiveAt_ + options_.implementationQuiet;
+    }
+
+    // R-8 (plan 2026-09-30): a restart that is due now but may wait (restartWhenQuiet_) while the person types: when to
+    // look again, or nullopt to restart now.
+    std::optional<Clock::time_point> quiet_restart_at_(Clock::time_point now) {
+        if (!restartWhenQuiet_ || !lastTypedAt_) return std::nullopt;
+        const bool first { !restartDueAt_ };
+        if (first) restartDueAt_ = now;
+        const auto quietAt = *lastTypedAt_ + RESTART_QUIET;
+        const auto latest = *restartDueAt_ + RESTART_POSTPONE;
+        if (quietAt <= now || latest <= now) return std::nullopt;
+        if (first) {
+            log::info("restarting clangd ({}) once typing pauses: {}", host_->root_directory(), restartReason_);
+            host_->record_event("engine-restart-postponed", Json { { "reason", restartReason_ }, { "cause", std::string { to_string(restartCause_) } } });
+        }
+        return std::min(quietAt, latest);
+    }
+
     // Opens queued units while fewer than IMPLEMENTATIONS_AT_ONCE are building; once nothing is queued and clangd has
     // been idle for Options::implementationIdle, every other unit of every module is queued (the rest). Nothing is
     // opened while modules are being prepared: those BMIs are what an implementation unit is built from, and the
     // workers preparation leaves free are for what a person asks (robustness design C7); finish_prime_ and
-    // handle_timers pump again once it is done.
+    // handle_timers pump again once it is done. Nor while the person is at work (R-5, implementation_quiet_at_): a
+    // unit opened for the index is a worker their next request waits for; the one being built is let finish.
     void pump_implementations_(Clock::time_point now) {
         if (!priming_implementations_() || !accepting_ || !handshakeDone_) return;
         if (implementationSeedOpen_) {
@@ -3534,6 +3586,7 @@ private:
             for (const auto& document : host_->documents()) queue_implementations_of_(document.path);
         }
         if (primer_.busy()) return;
+        if (const auto quietAt = implementation_quiet_at_(); quietAt && now < *quietAt) return;   // R-5: the person is at work
         std::size_t building { static_cast<std::size_t>(std::ranges::count_if(background_, [](const auto& item) { return item.second.priming && !item.second.built; })) };
         while (building < IMPLEMENTATIONS_AT_ONCE && !implementationQueue_.empty()) {
             ImplementationUnit unit { std::move(implementationQueue_.front()) };

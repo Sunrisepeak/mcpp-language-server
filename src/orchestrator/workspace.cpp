@@ -67,11 +67,6 @@ constexpr std::array<std::string_view, 10> BUILD_FILES { "mcpp.toml", "mcpp.lock
 constexpr std::array<std::string_view, 7> WATCH_POLL_SKIP_DIRECTORIES { "target", "build", "node_modules", "out",
                                                                         "_build", "cmake-build-debug", "cmake-build-release" };
 
-// F15 (fix plan 2026-09-26): a completion at the start of a declaration waits this long for the core
-// engine; past it the module-syntax keywords go out alone, as an incomplete list the client asks
-// again for as the person types on. A clangd stuck on the file no longer takes `import` with it.
-constexpr std::chrono::milliseconds KEYWORD_PATIENCE { 1500 };
-
 // Changes to cxxModules/status that keep its state are sent at most this often (S3 4).
 constexpr std::chrono::milliseconds STATUS_COALESCE { 250 };
 // import-hang plan §6: a change from a working state to degraded goes out only once it has lasted this
@@ -263,10 +258,10 @@ struct Workspace::Impl final : engine::Host {
         std::string path;
         std::string text;
         Json message;
-        // F15: a completion's module-syntax keywords, merged into whatever the engines answer, and
-        // when they go out without the core engine.
+        // F15: a completion's module-syntax keywords, merged into whatever the engines answer.
         Json keywords;
-        std::optional<Clock::time_point> keywordsBy;
+        // R-7 (plan 2026-09-30): when mcppls answers without the core engine (routing::answer_budget).
+        std::optional<Clock::time_point> budgetAt;
     };
     std::map<std::uint64_t, Job> jobs;
     std::uint64_t nextJob { 1 };
@@ -554,7 +549,7 @@ struct Workspace::Impl final : engine::Host {
         consider(statusFlushAt);
         consider(leaseRenewAt);
         consider(tokensRefreshAt);
-        for (const auto& [id, job] : jobs) consider(job.keywordsBy);
+        for (const auto& [id, job] : jobs) consider(job.budgetAt);
         for (const auto& engine : engines) consider(engine->next_deadline());
         return deadline;
     }
@@ -679,9 +674,9 @@ struct Workspace::Impl final : engine::Host {
             return;
         }
         job.answerers = std::move(selection.answerers);
-        if (job.keywords.is_array() && !job.keywords.empty() && coreEngine != nullptr
+        if (const auto budget = answer_budget(job.method); budget && coreEngine != nullptr
             && std::ranges::find(job.answerers, coreEngine) != job.answerers.end()) {
-            job.keywordsBy = job.started + KEYWORD_PATIENCE;
+            job.budgetAt = job.started + *budget;
         }
         ask_next(jobId);
     }
@@ -724,13 +719,22 @@ struct Workspace::Impl final : engine::Host {
         ask_next(jobId);
     }
 
-    // F15: the keywords go out without the core engine, which has not answered in KEYWORD_PATIENCE.
-    // The job is finished first, so the engines' answers to the cancellation find nothing to finish.
-    void answer_keywords_without_engine(std::uint64_t jobId) {
-        const Json clientId { jobs.at(jobId).clientId };
-        ++keywordsWithoutEngine;
-        jobs.at(jobId).answeredBy = "mcppls";
-        finish_job(jobId, Json(nullptr));
+    // R-7 (plan 2026-09-30): the core engine has not answered in the request's budget (answer_budget). mcppls answers
+    // with what it has -- a completion the file's words as an incomplete list, with the keywords (F15) merged in by
+    // finish_job; a hover what explain_if_preparing says -- and the core engine's request is cancelled. The job is
+    // finished first, so the engines' answers to the cancellation find nothing to finish. The core engine's own
+    // timeouts and watchdogs still see the request until clangd lets go of it.
+    void answer_without_core(std::uint64_t jobId) {
+        Job& job = jobs.at(jobId);
+        const Json clientId { job.clientId };
+        if (job.keywords.is_array() && !job.keywords.empty()) ++keywordsWithoutEngine;
+        job.answeredBy = "mcppls";
+        Json result;
+        if (job.method == lsp::method::TEXT_DOCUMENT_COMPLETION) {
+            const auto position = position_of(job.params);
+            result = completion::without_engine(position ? completion::document_words(job.text, *position) : Json::array());
+        }
+        finish_job(jobId, std::move(result));
         for (const auto& engine : engines) engine->cancel(clientId);
     }
 
@@ -1754,10 +1758,10 @@ struct Workspace::Impl final : engine::Host {
         {
             std::vector<std::uint64_t> due;
             for (const auto& [id, job] : jobs) {
-                if (job.keywordsBy && *job.keywordsBy <= now) due.push_back(id);
+                if (job.budgetAt && *job.budgetAt <= now) due.push_back(id);
             }
             for (const auto id : due) {
-                if (jobs.contains(id)) answer_keywords_without_engine(id);
+                if (jobs.contains(id)) answer_without_core(id);
             }
         }
         if (leaseRenewAt && *leaseRenewAt <= now) {

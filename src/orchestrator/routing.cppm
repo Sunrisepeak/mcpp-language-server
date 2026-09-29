@@ -20,6 +20,12 @@ struct Selection {
 // claim it: merging engines together; otherwise answering engines by priority, then fallbacks.
 Selection select_engines(std::span<engine::Engine* const> engines, const engine::RequestView& request);
 
+// R-7 (plan 2026-09-30): how long a request a person is waiting on waits for the core engine; past it mcppls
+// answers with what it has (for a completion, an incomplete list of the file's words the client asks again for as
+// the person types on) and the core engine's request is cancelled. nullopt for the rest, which wait for the core
+// engine's own timeout: nobody is left looking at a spinner for them.
+std::optional<std::chrono::milliseconds> answer_budget(std::string_view method);
+
 // The id of the engine whose results are the module index's in a merge (mcppls's own engine).
 inline constexpr std::string_view MODULE_ENGINE_ID { "mcppls" };
 

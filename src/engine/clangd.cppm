@@ -38,6 +38,9 @@ struct Options {
     // foreground in the background, so go-to-definition reaches them; off leaves only the search a definition request starts.
     bool primeImplementationUnits { true };
     std::chrono::milliseconds implementationIdle { std::chrono::seconds { 15 } };   // how long clangd is idle before the rest are built (tests shorten it)
+    // R-5 (plan 2026-09-30): how long the person has neither typed, opened a file nor asked for anything before a unit
+    // is built for the index; one is built at a time, and none is started while they are at work (tests shorten it).
+    std::chrono::milliseconds implementationQuiet { std::chrono::seconds { 10 } };
     std::function<std::unique_ptr<Process>()> processFactory;   // empty: a real clangd process
 };
 
