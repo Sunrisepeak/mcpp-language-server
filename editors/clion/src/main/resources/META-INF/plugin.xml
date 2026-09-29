@@ -4,7 +4,7 @@
     <vendor url="https://github.com/Sunrisepeak/mcpp-language-server">Sunrisepeak</vendor>
 
     <description><![CDATA[
-        C++20 named modules that work on any compiler. mcpp-language-server normalizes how the
+        mcppls - C++20 named modules that work on any compiler. mcpp-language-server normalizes how the
         project is built — mcpp, CMake, a compile_commands.json, or nothing — into one module
         description, drives its own pinned clangd with it, and answers module-level requests.
         <br/><br/>
