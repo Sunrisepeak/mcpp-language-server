@@ -46,6 +46,13 @@ CLion has its own C++ engine. This plugin adds a second one over the same files,
 when the project's modules are what CLion cannot follow; if the two disagree, the one to trust for
 module questions is this one.
 
+## Keeping mcppls off for one project
+
+The plugin has no settings of its own. To keep it off for one project, open Settings | Plugins,
+find this plugin, and use the arrow beside its checkbox to disable it for the current project only
+(the wording depends on the IDE version; an IDE without that choice can only disable the plugin for
+every project). Reopen the project for it to take effect.
+
 ## Resetting a workspace's cache
 
 If preparation never finishes or clangd keeps crashing, a cache left by an earlier session may be the
