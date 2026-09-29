@@ -2,6 +2,7 @@
 // status item for C++ files, driven by the server's cxxModules/status notification.
 
 import * as vscode from 'vscode';
+import { offersCacheReset, RESET_CACHE_COMMAND } from './cacheReset';
 import { stateTexts } from './statusText';
 
 export type ModuleState = 'starting' | 'loading' | 'preparing' | 'ready' | 'degraded' | 'error';
@@ -91,6 +92,7 @@ const SHOW_LOGS: vscode.Command = { title: 'Show Logs', command: 'mcppls.showLog
 // Issue #23 fix plan F18: what a limited state without a fix of its own offers is the bundle a report of the
 // problem needs, which also carries the report.
 const EXPORT_BUNDLE: vscode.Command = { title: 'Export Diagnostic Bundle', command: 'mcppls.exportDiagnosticBundle' };
+const RESET_CACHE: vscode.Command = { title: 'Reset This Workspace\'s Cache', command: RESET_CACHE_COMMAND };
 const RESTART: vscode.Command = { title: 'Restart', command: 'mcppls.restartServer' };
 const BUSY_STATES: readonly ModuleState[] = ['starting', 'loading', 'preparing'];
 
@@ -256,12 +258,22 @@ export class StatusController implements vscode.Disposable {
         // A limited state without a fix of its own offers what a bug report needs (robustness design O4).
         this.item.command = withCommand?.command
             ? { title: withCommand.command.title, command: withCommand.command.command, arguments: withCommand.command.arguments }
-            : status.state === 'degraded' || status.state === 'error' ? EXPORT_BUNDLE : SHOW_LOGS;
+            : offersCacheReset(issues) ? RESET_CACHE
+                : status.state === 'degraded' || status.state === 'error' ? EXPORT_BUNDLE : SHOW_LOGS;
 
         // The status bar says the one thing that matters now, shortened when there is a fuller
         // version in the tooltip; the item behind `{}` keeps the rest.
         const shortDetail = texts.short ?? (describeProfile(status.profile) || undefined);
         this.paint(status.state, shortDetail, texts.full ?? shortDetail);
+        if (offersCacheReset(issues)) {
+            // A tooltip link next to the item's own click action, so the reset is offered
+            // alongside whatever the issue itself offers (0.0.7 plan C-1).
+            const tooltip = new vscode.MarkdownString(undefined, true);
+            tooltip.isTrusted = { enabledCommands: [RESET_CACHE_COMMAND] };
+            tooltip.appendText(`mcppls — ${texts.full ?? shortDetail ?? ''}\n\n`);
+            tooltip.appendMarkdown(`[${RESET_CACHE.title}](command:${RESET_CACHE_COMMAND})`);
+            this.bar.tooltip = tooltip;
+        }
 
         for (const waiter of [...this.waiters]) {
             if (waiter.states.includes(status.state)) {

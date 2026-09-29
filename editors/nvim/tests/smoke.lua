@@ -78,7 +78,8 @@ local function client()
   return get({ bufnr = 0, name = 'mcppls' })[1]
 end
 check('mcppls attached', vim.wait(30000, function() return client() ~= nil end, 100))
-check('commands defined', vim.fn.exists(':McpplsStatus') == 2 and vim.fn.exists(':McpplsRestart') == 2)
+check('commands defined', vim.fn.exists(':McpplsStatus') == 2 and vim.fn.exists(':McpplsRestart') == 2
+  and vim.fn.exists(':McpplsResetCache') == 2)
 
 local settled = vim.wait(180000, function()
   local s = mcppls.status_data(0)
@@ -176,6 +177,26 @@ end)
 check('completion after hello:: offers greet', ok)
 
 check('nothing was shown to the user', #shown == 0, vim.inspect(shown))
+
+-- :McpplsResetCache (0.0.7 plan C-1). A server that does not list `mcppls.resetCache` (0.0.6) is told
+-- so and nothing is sent; one that does deletes the cache, plans again, and is `ready` again.
+do
+  local provider = client().server_capabilities.executeCommandProvider
+  local advertised = provider ~= nil and vim.tbl_contains(provider.commands or {}, 'mcppls.resetCache')
+  local before = #shown
+  vim.cmd('McpplsResetCache')
+  if advertised then
+    check('the reset answers', vim.wait(300000, function() return #shown > before and shown[#shown]:find('Modules are prepared again', 1, true) ~= nil end, 200), vim.inspect(shown))
+    check('and the project is ready again', vim.wait(300000, function()
+      local s2 = mcppls.status_data(0)
+      return s2 ~= nil and s2.state == 'ready'
+    end, 200), mcppls.status(0))
+  else
+    check('a server without the command is told to update, and nothing is sent',
+      #shown == before + 1 and shown[#shown]:find('cannot reset', 1, true) ~= nil, vim.inspect(shown))
+  end
+  for i = #shown, 1, -1 do shown[i] = nil end
+end
 
 -- initializationOptions.semanticTokens: `modules` follows the new `semantic_tokens_modules`
 -- setup() option (default true); `moduleType` is always true, since this plugin knows the custom

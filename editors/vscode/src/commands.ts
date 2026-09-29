@@ -1,11 +1,12 @@
 // The commands: select context, show module graph, restart, show logs, collect a diagnostic report,
-// export a diagnostic bundle, restart clangd.
+// export a diagnostic bundle, restart clangd, reset a workspace's cache.
 
 import * as os from 'os';
 import * as vscode from 'vscode';
 import type { LanguageClient } from 'vscode-languageclient/node';
 import { SETTABLE_CANDIDATES, UNSETTABLE_CANDIDATES } from './conflictCandidates';
 import { restoreOtherCppFeatures, turnOffOtherCppFeatures } from './conflicts';
+import { advertisesCacheReset, freedText, parseCacheResetResult, RESET_CACHE_COMMAND, SERVER_RESET_CACHE_COMMAND, sizeText } from './cacheReset';
 import { redactJson, Who } from './redact';
 import { describeProfile, SemanticProfile } from './status';
 
@@ -179,6 +180,21 @@ function extensionVersion(): string | undefined {
     return (extension?.packageJSON as { version?: string } | undefined)?.version;
 }
 
+// The extension's own part of a report and of the bundle. Code-OSS builds (VSCodium, Code - OSS in
+// termux, code-server) differ from Microsoft's in ways a bug report needs to know: `appName` says which
+// one it is, `appHost` where it runs from (desktop, a web host), `uiKind` desktop or web.
+export function extensionEnvironment(): Record<string, unknown> {
+    return {
+        version: extensionVersion(),
+        vscode: vscode.version,
+        appName: vscode.env.appName,
+        appHost: vscode.env.appHost,
+        uiKind: vscode.UIKind[vscode.env.uiKind],
+        platform: `${process.platform}-${process.arch}`,
+        remote: vscode.env.remoteName ?? null,
+    };
+}
+
 function mcpplsSettings(): Record<string, unknown> {
     const settings = vscode.workspace.getConfiguration('mcppls');
     return {
@@ -225,9 +241,7 @@ async function collectReport(access: ServerAccess): Promise<void> {
     const client = access.runningClient();
     const report: Record<string, unknown> = redactJson({
         extension: {
-            version: extensionVersion(),
-            vscode: vscode.version,
-            platform: `${process.platform}-${process.arch}`,
+            ...extensionEnvironment(),
             otherCppExtensions: otherCppExtensions(),
             settings: mcpplsSettings(),
         },
@@ -267,10 +281,6 @@ interface BundleWritten {
     redactions?: Record<string, number>;
 }
 
-function sizeText(bytes: number): string {
-    return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
-}
-
 // Issue #23 fix plan F18: one zip with what a report of a problem needs -- the server's report, the
 // environment, the logs of the last sessions, the incidents, the engine databases -- written by the
 // server with user names, paths and secrets replaced, and never uploaded. When the server's check
@@ -285,7 +295,7 @@ export async function exportDiagnosticBundle(access: ServerAccess, hideProjectPa
     const argument = {
         hideProjectPaths,
         client: {
-            extension: { version: extensionVersion(), vscode: vscode.version, platform: `${process.platform}-${process.arch}`, remote: vscode.env.remoteName ?? null },
+            extension: extensionEnvironment(),
             otherCppExtensions: otherCppExtensions(),
             settings: mcpplsSettings(),
             log: access.recentLog().join('\n'),
@@ -336,6 +346,58 @@ async function restartClangd(access: ServerAccess): Promise<void> {
         access.log(`mcppls.restartEngine failed: ${errorText(error)}`);
         void vscode.window.showWarningMessage(`C++ Modules: clangd could not be restarted: ${errorText(error)}`);
     }
+}
+
+// 0.0.7 plan C-1: stop the engine, delete this workspace's cache (the logs stay), plan again, start again
+// -- what `mcppls cache --clean <name>` does, without leaving the editor and without knowing where the
+// cache is. The server does the deleting: the extension knows no directory of its own, so a server that
+// does not list the command is asked to be updated instead. Returns the server's answer, for tests.
+async function pickWorkspaceFolder(): Promise<vscode.WorkspaceFolder | undefined> {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    const editor = vscode.window.activeTextEditor;
+    const ofEditor = editor ? vscode.workspace.getWorkspaceFolder(editor.document.uri) : undefined;
+    if (ofEditor) return ofEditor;
+    if (folders.length <= 1) return folders[0];
+    const choice = await vscode.window.showQuickPick(
+        folders.map((folder) => ({ label: folder.name, description: folder.uri.fsPath, folder })),
+        { title: 'C++ Modules: Reset This Workspace\'s Cache', placeHolder: 'The workspace folder whose cache is reset' });
+    return choice?.folder;
+}
+
+export async function resetWorkspaceCache(access: ServerAccess): Promise<unknown> {
+    const client = access.runningClient();
+    if (!client) {
+        void vscode.window.showWarningMessage('C++ Modules: the language server is not running. Restart it first, or close the editor and run `mcppls cache --clean <name>` in a terminal.');
+        return undefined;
+    }
+    if (!advertisesCacheReset(client.initializeResult?.capabilities)) {
+        void vscode.window.showWarningMessage(
+            'C++ Modules: this language server cannot reset a workspace\'s cache. Update the extension, or close the editor and run `mcppls cache --clean <name>` in a terminal.');
+        return undefined;
+    }
+    const folder = await pickWorkspaceFolder();
+    if (!folder) {
+        void vscode.window.showWarningMessage('C++ Modules: no workspace folder is open.');
+        return undefined;
+    }
+    const root = client.code2ProtocolConverter.asUri(folder.uri);
+    let answer: unknown;
+    try {
+        answer = await vscode.window.withProgress(
+            { location: vscode.ProgressLocation.Notification, title: `C++ Modules: resetting the cache of ${folder.name}` },
+            () => withTimeout(client.sendRequest('workspace/executeCommand', { command: SERVER_RESET_CACHE_COMMAND, arguments: [{ root }] }),
+                10 * 60 * 1000, SERVER_RESET_CACHE_COMMAND));
+    } catch (error) {
+        const message = errorText(error);
+        access.log(`${SERVER_RESET_CACHE_COMMAND} failed: ${message}`);
+        const choice = await vscode.window.showWarningMessage(`C++ Modules: the cache was not reset. ${message}`, 'Show Logs');
+        if (choice === 'Show Logs') access.showLogs();
+        return undefined;
+    }
+    const result = parseCacheResetResult(answer);
+    access.log(`workspace cache reset: ${folder.uri.toString()} (${result.freedBytes} bytes freed, ok=${String(result.ok)})`);
+    void vscode.window.showInformationMessage(freedText(result));
+    return answer;
 }
 
 // Build description design 4.4. The server runs the build tool offline, so a project whose
@@ -414,6 +476,7 @@ export function registerCommands(context: vscode.ExtensionContext, access: Serve
         vscode.commands.registerCommand('mcppls.collectReport', () => collectReport(access)),
         vscode.commands.registerCommand('mcppls.exportDiagnosticBundle', () => exportDiagnosticBundle(access)),
         vscode.commands.registerCommand('mcppls.restartClangd', () => restartClangd(access)),
+        vscode.commands.registerCommand(RESET_CACHE_COMMAND, () => resetWorkspaceCache(access)),
         vscode.commands.registerCommand('mcppls.runBuildToolInTerminal', () => runBuildToolInTerminal(access)),
         vscode.commands.registerCommand('mcppls.turnOffOtherCppFeatures', () => turnOffOtherCppFeatures(context, access.log)),
         vscode.commands.registerCommand('mcppls.restoreOtherCppFeatures', () => restoreOtherCppFeatures(context, access.log)),

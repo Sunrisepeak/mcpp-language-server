@@ -129,6 +129,7 @@ spaces with nothing, at once.
 | `:McpplsStatus` | The project's build description, engine and any issues the server reports |
 | `:McpplsRestart` | Restart the server |
 | `:McpplsReload` | Read the build description again, e.g. after running the build tool by hand |
+| `:McpplsResetCache` | Delete this workspace's cache (models, engine database, module cache; the logs stay) and prepare again. Use it when preparation never finishes or the engine keeps crashing. Needs a server that lists `mcppls.resetCache`; with an older one, close Neovim and run `mcppls cache --clean <name>` |
 
 `require('mcppls').status()` is a statusline component: `mcppls ready · mcpp L1`,
 `mcppls preparing 12/40`, `mcppls degraded · inferred L4 · 1 issue`. The raw notification is

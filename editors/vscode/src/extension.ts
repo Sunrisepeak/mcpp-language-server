@@ -26,7 +26,7 @@ import {
 } from 'vscode-languageclient/node';
 import { CommandLineToolsController, withInstallCommandFallback } from './commandLineTools';
 import { DownloadPromptController } from './downloadPrompt';
-import { registerCommands, reloadBuildDescription } from './commands';
+import { extensionEnvironment, registerCommands, reloadBuildDescription } from './commands';
 import { sendTriggeredCompletion } from './completionGate';
 import { checkConflicts, ConflictCheck, watchForNewConflicts } from './conflicts';
 import { resolveLaunch } from './payload';
@@ -75,6 +75,10 @@ export interface TestApi {
     commandLineToolsInstallCount(): number;
     // Server stderr lines written to the log at each level (src/serverLog.ts).
     serverLogLineCount(level: ServerLogLevel): number;
+    // The extension's part of a report and of the diagnostic bundle: versions, the editor's appName, host, UI kind.
+    environment(): Record<string, unknown>;
+    // The commands the running server lists in `executeCommandProvider` (empty when it is not running).
+    serverCommands(): string[];
 }
 
 // Tells the server this client understands the cxxModules extension (S3).
@@ -581,6 +585,8 @@ export function activate(context: vscode.ExtensionContext): TestApi {
         promptShownCount: (kind) => promptTestHarness?.shownCount(kind) ?? 0,
         commandLineToolsInstallCount: () => commandLineTools.installInvocationCount(),
         serverLogLineCount: (level) => host.serverLog.count(level),
+        environment: () => extensionEnvironment(),
+        serverCommands: () => [...(host.runningClient()?.initializeResult?.capabilities.executeCommandProvider?.commands ?? [])],
     };
 }
 

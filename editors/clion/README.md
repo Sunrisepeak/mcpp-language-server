@@ -46,6 +46,20 @@ CLion has its own C++ engine. This plugin adds a second one over the same files,
 when the project's modules are what CLion cannot follow; if the two disagree, the one to trust for
 module questions is this one.
 
+## Resetting a workspace's cache
+
+If preparation never finishes or clangd keeps crashing, a cache left by an earlier session may be the
+cause. VS Code and Neovim have a command for it (the server does the deleting). This plugin has no
+action for it yet — the IntelliJ platform's LSP API does not yet offer a stable way to send a server
+its own command — so from a terminal, after closing CLion:
+
+```bash
+mcppls cache                      # the workspaces that have a cache, with their names and sizes
+mcppls cache --clean <name>       # remove one by name prefix; `all` removes every workspace's
+```
+
+The logs are kept; the next start prepares the modules again from a clean state.
+
 ## Status
 
 Built, and installed into a plugins directory by the tool; not yet loaded in a running CLion here

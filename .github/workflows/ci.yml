@@ -739,6 +739,99 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
+  # The same extension, the same three suites, in a Code-OSS build (0.0.7 plan §7, O-2): VSCodium, at the
+  # version in .github/versions.env, downloaded per architecture and cached. What differs from Microsoft's
+  # build is what a Code-OSS user meets first (its own CLI name, `codium`; `vscode.env.appName`; the open
+  # extension registry), and nothing in vscode-e2e above would notice. MCPPLS_E2E_EDITOR points the harness at
+  # the unpacked editor (test/runTest.ts); the main suite checks the diagnostic environment names it.
+  code-oss-e2e:
+    name: Code-OSS (VSCodium) end to end (${{ matrix.platform }})
+    needs: payload
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x64,   os: ubuntu-24.04 }
+          - { platform: linux-arm64, os: ubuntu-24.04-arm }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      # The arm64 image is not the x64 one: the display server and the libraries the editor's
+      # Electron loads are installed rather than assumed (the same list vscode-e2e installs).
+      - name: What the editor needs on arm64 Linux
+        if: matrix.platform == 'linux-arm64'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends xvfb xauth libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 \
+              libgtk-3-0t64 libgbm1 libasound2t64 libxss1 libxkbfile1 libsecret-1-0
+      - name: The VSCodium version
+        run: grep '^VSCODIUM_VERSION=' .github/versions.env >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - name: Cache VSCodium
+        id: vscodium-cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/vscodium
+          key: vscodium-${{ matrix.platform }}-${{ env.VSCODIUM_VERSION }}
+      # The release publishes a checksum next to each archive; a download that does not match it
+      # is not unpacked.
+      - name: Download VSCodium
+        if: steps.vscodium-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          archive="VSCodium-${{ matrix.platform }}-${VSCODIUM_VERSION}.tar.gz"
+          base="https://github.com/VSCodium/vscodium/releases/download/${VSCODIUM_VERSION}"
+          mkdir -p "$RUNNER_TEMP/vscodium"
+          cd "$RUNNER_TEMP"
+          curl -fsSL --retry 5 -o "$archive" "$base/$archive"
+          curl -fsSL --retry 5 -o "$archive.sha256" "$base/$archive.sha256"
+          sha256sum -c "$archive.sha256"
+          tar -xzf "$archive" -C vscodium
+      - name: Find the editor
+        run: |
+          set -euo pipefail
+          test -x "$RUNNER_TEMP/vscodium/codium"
+          test -x "$RUNNER_TEMP/vscodium/bin/codium"
+          echo "MCPPLS_E2E_EDITOR=$RUNNER_TEMP/vscodium/codium" >> "$GITHUB_ENV"
+          echo "MCPPLS_E2E_EXPECT_APP_NAME=VSCodium" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v8
+        with:
+          name: payload-${{ matrix.platform }}
+      # Packaged exactly as vscode-e2e does (this also installs the npm packages and compiles the
+      # harness): the suites test the installed VSIX.
+      - name: Build and package the extension
+        run: |
+          set -euo pipefail
+          tar -xzf payload-${{ matrix.platform }}.tar.gz
+          stage/mcppls-devtools extension --editor vscode \
+              --payload "$PWD/payload" --out "$PWD/editors/vscode/mcppls-${{ matrix.platform }}.vsix"
+      - name: End-to-end tests (VSIX form)
+        working-directory: editors/vscode
+        env:
+          MCPPLS_E2E_VSIX: ${{ github.workspace }}/editors/vscode/mcppls-${{ matrix.platform }}.vsix
+        run: xvfb-run -a npm test
+      - name: End-to-end tests (conflicts scenario)
+        working-directory: editors/vscode
+        env:
+          MCPPLS_E2E_VSIX: ${{ github.workspace }}/editors/vscode/mcppls-${{ matrix.platform }}.vsix
+          MCPPLS_E2E_SCENARIO: conflicts
+        run: xvfb-run -a npm test
+      - name: End-to-end tests (stress scenario)
+        working-directory: editors/vscode
+        env:
+          MCPPLS_E2E_VSIX: ${{ github.workspace }}/editors/vscode/mcppls-${{ matrix.platform }}.vsix
+          MCPPLS_E2E_SCENARIO: stress
+        run: xvfb-run -a npm test
+
+  # ---------------------------------------------------------------------------
   # The Neovim plugin (editors/nvim) through Neovim's own LSP client, on each host's payload and on
   # the oldest and newest Neovim it supports: require('mcppls').setup() on every version, and
   # vim.lsp.enable('mcppls') (lsp/mcppls.lua) from 0.11 on. Neovim comes from xlings like every

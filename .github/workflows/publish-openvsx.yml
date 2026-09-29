@@ -74,3 +74,36 @@ jobs:
             echo "publishing $vsix"
             npx --yes ovsx@1.2.0 publish --packagePath "$vsix" --skip-duplicate
           done
+      # What Open VSX serves has to be what the release offers (0.0.7 plan O-3). Publishing succeeding
+      # says the upload was accepted; this says the file a VSCodium user is handed for each platform
+      # is, byte for byte, the VSIX the maintainer verified: the API lists it, the download's SHA256 is the one
+      # in the release's SHA256SUMS. A listing can lag the upload, so each platform is polled, bounded.
+      - name: Open VSX serves the release's files
+        env:
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          api="https://open-vsx.org/api/sunrisepeak/mcpp-language-server"
+          cd vsix
+          failed=0
+          for vsix in mcppls-*.vsix; do
+            target="${vsix#mcppls-}"; target="${target%.vsix}"
+            want=$(grep " ${vsix}\$" SHA256SUMS | cut -d' ' -f1)
+            [ -n "$want" ] || { echo "::error::SHA256SUMS has no entry for $vsix"; failed=1; continue; }
+            url=""
+            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              url=$(curl -fsS --retry 3 "$api/$target/$version" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("files", {}).get("download", ""))' 2>/dev/null || true)
+              [ -n "$url" ] && break
+              echo "$target $version is not listed yet ($attempt/12)"; sleep 15
+            done
+            if [ -z "$url" ]; then echo "::error::Open VSX does not list $target $version after 3 minutes"; failed=1; continue; fi
+            curl -fsSL --retry 3 -o "served-$vsix" "$url"
+            got=$(sha256sum "served-$vsix" | cut -d' ' -f1)
+            if [ "$got" = "$want" ]; then
+              echo "$target: Open VSX serves the release's file ($got)"
+            else
+              echo "::error::$target: Open VSX serves $got, the release has $want"; failed=1
+            fi
+          done
+          exit "$failed"
