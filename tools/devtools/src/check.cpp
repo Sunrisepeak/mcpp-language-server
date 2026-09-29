@@ -227,7 +227,7 @@ base::Result<Report> layers(const std::string& root) {
     };
     std::vector<MemberInfo> infos;
     std::map<std::string, int> layerOf {
-        { "openkal-llvm-runtime", 0 }, { "mcppls-os-linux", 0 }, { "mcppls-os-macos", 0 }, { "mcppls-os-windows", 0 },
+        { "openkal-llvm-runtime", 0 }, { "openkal-linux", 0 }, { "mcppls-os-linux", 0 }, { "mcppls-os-macos", 0 }, { "mcppls-os-windows", 0 },
     };
 
     for (const auto& path : *paths) {

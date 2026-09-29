@@ -89,6 +89,14 @@ mcppls-testing = { path = "modules/testing" }
 [target.'cfg(os = "linux")'.dependencies]
 mcppls-os-linux = { path = "modules/os/linux" }
 
+# openkal-musl (below openkal-llvm-runtime) asks for openkal-linux by `version`; a `path` here is
+# a declaration of another kind, and the root's declaration wins (mcpp docs/05-dependencies.md,
+# "When two declarations of one dependency disagree") -- so the build compiles vendor/openkal-linux,
+# the 0.15.0 release plus the two termux/PRoot fixes, and warns once that it did. Linux only: the
+# other operating systems' openkal packages are untouched. Drop this and vendor/openkal-linux when
+# a release carries the fixes (vendor/README.md).
+openkal-linux = { path = "vendor/openkal-linux" }
+
 [target.'cfg(os = "macos")'.dependencies]
 mcppls-os-macos = { path = "modules/os/macos" }
 
