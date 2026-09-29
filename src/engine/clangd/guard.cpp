@@ -1,6 +1,8 @@
 module mcppls.engine.clangd.guard;
 
 import std;
+import mcppls.base.text;
+import mcppls.platform.fs;
 
 namespace mcppls::engine::clangd {
 
@@ -291,17 +293,34 @@ bool engine_working(std::string_view state) {
     return false;
 }
 
-std::size_t engine_workers(std::size_t hardwareThreads, bool macos) {
-    const std::size_t threads { std::max<std::size_t>(1, hardwareThreads) };
-    const std::size_t cores { macos ? threads : std::max<std::size_t>(1, threads / 2) };
-    return std::max<std::size_t>(2, cores / 4);
+std::size_t engine_workers(std::size_t hardwareThreads, std::optional<std::uint64_t> memoryBytes, std::optional<std::size_t> configured) {
+    if (configured && *configured > 0) return std::clamp<std::size_t>(*configured, 1, 64);
+    std::size_t workers { std::clamp<std::size_t>(hardwareThreads > 1 ? hardwareThreads - 1 : 1, 2, 8) };
+    if (memoryBytes && *memoryBytes > 0) {
+        const std::uint64_t gigabytes { *memoryBytes / (std::uint64_t { 1 } << 30) };
+        workers = std::min<std::size_t>(workers, std::max<std::size_t>(2, static_cast<std::size_t>(gigabytes / 2)));
+    }
+    return workers;
 }
 
-std::size_t preparation_limit(std::size_t hardwareThreads, bool macos, std::size_t waitingFiles,
-                              bool waitingOnPreparation) {
-    const std::size_t workers { engine_workers(hardwareThreads, macos) };
-    const bool throttle { waitingFiles > 0 && !waitingOnPreparation };
-    return std::max<std::size_t>(1, throttle ? workers / 4 : workers / 2);
+std::size_t preparation_limit(std::size_t workers, bool waitingOnPreparation) {
+    const std::size_t background { workers > 1 ? workers - 1 : 1 };
+    return waitingOnPreparation ? background : std::max<std::size_t>(1, background / 2);
+}
+
+std::optional<std::uint64_t> total_memory_bytes() {
+    const auto info = platform::fs::read_file("/proc/meminfo");
+    if (!info) return std::nullopt;
+    for (const auto line : base::split_lines(*info)) {
+        if (!line.starts_with("MemTotal:")) continue;
+        std::uint64_t kib { 0 };
+        const auto digits = base::trim(line.substr(9));
+        const auto end = digits.find(' ');
+        const auto number = digits.substr(0, end);
+        if (std::from_chars(number.data(), number.data() + number.size(), kib).ec != std::errc {}) return std::nullopt;
+        return kib * 1024;
+    }
+    return std::nullopt;
 }
 
 } // namespace mcppls::engine::clangd

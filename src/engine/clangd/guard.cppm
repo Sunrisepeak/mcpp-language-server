@@ -209,23 +209,21 @@ std::set<std::string> doomed_modules(const std::map<std::string, std::vector<std
 // waiting for a worker.
 bool engine_working(std::string_view state);
 
-// clangd's workers (-j), which also bound its background index: a quarter of the physical cores (hardware
-// threads count as two per core except on macOS), at least two. On a 16-core machine xlings' first open
-// took 21 cores at its busiest second with clangd's default of one worker per core, 8 with four, and its
-// first hover came in 7.5 s instead of 13.5 s (robustness design C7).
-std::size_t engine_workers(std::size_t hardwareThreads, bool macos);
-// How many modules are prepared at once: half of clangd's workers, which prime units occupy.
-//
-// A file someone is waiting for used to halve that again, to leave workers for the request. That is
-// right only when the waiting file can make progress without preparation — and for a modules
-// translation unit it usually cannot, because it is blocked on exactly these BMIs. Throttling then
-// slows the one piece of work that would unblock it, and the workers freed sit idle because nothing
-// else can run: measured as one busy core on a 32-thread machine during a cold start (2026-09-17).
-//
-// So `waitingOnPreparation` says the waiting files import a module that is not ready yet. When it is
-// true the throttle does not apply; when it is false (the file waits on something else, e.g. a large
-// TU whose imports are all built) it does, which is the case C7 measured.
-std::size_t preparation_limit(std::size_t hardwareThreads, bool macos, std::size_t waitingFiles,
-                              bool waitingOnPreparation = false);
+// clangd's workers (-j), which also bound its background index (R-2, plan 2026-09-30, revising C7). One fewer than the
+// machine's hardware threads, at least two and at most eight, and no more than half its memory in gigabytes where that
+// is known (a module build in clangd peaks at one to two gigabytes). C7's quarter of the physical cores left an 8- or
+// 16-thread laptop with two workers and preparation one module at a time: a cold start of mcpp prepared in 116 s on
+// eight threads against 49 s on thirty-two, while the first completion waited behind it. What C7 measured -- the
+// person's first hover slowed by clangd crowding the machine -- is kept by the worker reserved for the person
+// (preparation_limit) and by background work that yields (N-7 only when the editor is idle), not by fewer workers.
+// `configured` (mcppls.engine.workers) replaces the automatic value when it is a positive number.
+std::size_t engine_workers(std::size_t hardwareThreads, std::optional<std::uint64_t> memoryBytes = std::nullopt,
+                           std::optional<std::size_t> configured = std::nullopt);
+// How many modules are prepared at once (R-1): the workers but one, which is kept for the files and requests a person
+// is waiting on. `waitingOnPreparation`: a file someone waits for needs modules that are not ready -- then preparation
+// is what they are waiting for and takes every worker but that one; otherwise it takes half of them.
+std::size_t preparation_limit(std::size_t workers, bool waitingOnPreparation);
+// The machine's memory in bytes, where it can be read cheaply (Linux /proc/meminfo); nullopt elsewhere.
+std::optional<std::uint64_t> total_memory_bytes();
 
 } // namespace mcppls::engine::clangd

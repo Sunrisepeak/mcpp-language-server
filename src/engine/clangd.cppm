@@ -31,6 +31,8 @@ struct Options {
     std::chrono::milliseconds stuckAfter { std::chrono::seconds { 3 } };
     std::chrono::milliseconds stuckWatch { std::chrono::seconds { 5 } };
     std::vector<std::string> extraArguments;
+    // mcppls.engine.workers (R-2, plan 2026-09-30): clangd's workers; nullopt or 0 is the automatic value (engine_workers).
+    std::optional<std::size_t> workers;
     std::vector<std::string> disabledWorkarounds;   // registered workarounds turned off (import-hang plan §9)
     // mcppls.index.primeImplementationUnits (plan 2026-09-27 N-7): implementation units are built through clangd's
     // foreground in the background, so go-to-definition reaches them; off leaves only the search a definition request starts.

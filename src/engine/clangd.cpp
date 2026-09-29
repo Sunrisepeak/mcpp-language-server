@@ -195,6 +195,7 @@ private:
     std::map<std::string, std::vector<Waiting>, std::less<>> heldRequests_;
     std::set<std::string> diagnosed_;                // client URIs clangd published diagnostics for
     std::set<std::string> awaitingDiagnostics_;      // client URIs
+    std::size_t workers_ { 2 };   // clangd's -j for the running process (R-2)
     std::deque<Clock::time_point> crashes_;
     std::size_t crashLoops_ { 0 };   // K-2: how many times in a row crashes_ reached five; picks the backoff
     // K-6: since when this clangd has been up. One that stays up RECOVERED_AFTER takes its predecessors' crash and
@@ -472,8 +473,7 @@ public:
             { "filesRoutedToOwnEngine", std::move(doomedFiles) },
             { "stdFromSemanticKit", stdFromKit_ },
             { "preparation", Json { { "done", done }, { "wanted", wanted }, { "running", primer_.running() },
-                                    { "limit", preparation_limit(std::thread::hardware_concurrency(), mcppls::os::FAMILY == mcppls::os::Family::macos,
-                                                                 awaitingDiagnostics_.size()) } } },
+                                    { "limit", preparation_limit(workers_, waiting_on_preparation_()) }, { "workers", workers_ } } },
             { "pendingRequests", pending_.size() },
             { "deferredRequests", deferred_.size() },
             { "heldRequests", std::ranges::fold_left(heldRequests_ | std::views::values | std::views::transform(&std::vector<Waiting>::size), std::size_t { 0 }, std::plus {}) },
@@ -1409,7 +1409,8 @@ private:
         config.databaseDirectory = databaseDirectory_;
         config.workDirectory = host_->root_directory();
         config.verboseLog = options_.verboseLog;
-        config.workers = engine_workers(std::thread::hardware_concurrency(), mcppls::os::FAMILY == mcppls::os::Family::macos);
+        workers_ = engine_workers(std::thread::hardware_concurrency(), total_memory_bytes(), options_.workers);
+        config.workers = workers_;
         config.extraArguments = options_.extraArguments;
         // Extra engine arguments for troubleshooting, e.g. MCPPLS_ENGINE_ARGUMENTS="-j=8 --background-index-priority=background".
         if (auto extra = platform::env::get("MCPPLS_ENGINE_ARGUMENTS")) {
@@ -3863,11 +3864,9 @@ private:
         // opening a file, typing, asking for completion. Preparation leaves a core to each file still
         // waiting for its modules and one more for requests, so it never holds every worker (hardware
         // threads count as two per core except on macOS, where they are cores).
-        // robustness design C7: a quarter of the cores, and half of that while a file waits on something
-        // preparation cannot supply — but NOT while it waits on preparation itself, which is the cold
-        // start and was measured at one busy core of 32 before this distinction existed.
-        primer_.set_limit(preparation_limit(std::thread::hardware_concurrency(), mcppls::os::FAMILY == mcppls::os::Family::macos,
-                                            awaitingDiagnostics_.size(), waiting_on_preparation_()));
+        // R-1 (plan 2026-09-30): every worker but the one kept for the person while a file they wait for needs these
+        // modules, half of them otherwise.
+        primer_.set_limit(preparation_limit(workers_, waiting_on_preparation_()));
         for (const PrimeModule* module : primer_.start_ready([this](const PrimeModule& candidate) { return module_already_built_(candidate); })) {
             const std::string uri { base::path_to_uri(module->primeFile) };
             Json params { { "textDocument", Json { { "uri", uri }, { "languageId", "cpp" }, { "version", 1 },

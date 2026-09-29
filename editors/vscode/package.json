@@ -208,6 +208,12 @@
           "default": "auto",
           "description": "Whether the built-in standard library kit may be used."
         },
+        "mcppls.engine.workers": {
+          "type": "string",
+          "default": "auto",
+          "pattern": "^(auto|[1-9][0-9]?)$",
+          "description": "How many files clangd builds at once (its -j), shared by module preparation, indexing and the files you edit; one is always kept for what you are waiting on. auto: one fewer than the hardware threads, between two and eight, and no more than half the memory in gigabytes. A number sets it. Takes effect when the server restarts."
+        },
         "mcppls.engine": {
           "type": "string",
           "enum": [
@@ -225,6 +231,12 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "Show the AI-era features: **Review Changes** reviews the workspace's changes against `HEAD` with mcppls's rules and shows the findings, with their evidence, as problems. Nothing is sent to a model."
+        },
+        "mcppls.enable": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Start mcppls for this workspace. Set it to false in a workspace's settings to keep the extension installed but inactive there, for a project it cannot serve yet; the status bar item turns it back on."
         },
         "mcppls.detectConflicts": {
           "type": "boolean",

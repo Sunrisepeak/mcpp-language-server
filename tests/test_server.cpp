@@ -689,15 +689,22 @@ int main() {
         expect(journal.totals()["engine-restart"] == 1 && journal.total("engine-exit") == 0u);
     };
 
-    "clangd takes a quarter of the cores, and module preparation half of that"_test = [] {
-        expect(cld::engine_workers(32, false) == 4u) << "16 cores";
-        expect(cld::engine_workers(128, false) == 16u);
-        expect(cld::engine_workers(10, true) == 2u) << "macOS counts cores as threads";
-        expect(cld::engine_workers(4, false) == 2u && cld::engine_workers(0, false) == 2u) << "never less than two";
-        expect(cld::preparation_limit(32, false, 0) == 2u) << "half of clangd's workers";
-        expect(cld::preparation_limit(32, false, 2) == 1u) << "a quarter while a person waits on something else";
-        expect(cld::preparation_limit(128, false, 0) == 8u && cld::preparation_limit(128, false, 1) == 4u);
-        expect(cld::preparation_limit(4, false, 0) == 1u && cld::preparation_limit(0, false, 5) == 1u) << "never less than one";
+    // R-2 (plan 2026-09-30, revising C7): a quarter of the physical cores left a laptop with two workers and preparation
+    // one module at a time. One fewer than the threads, two to eight, and half the memory in gigabytes at most.
+    "clangd takes the threads but one, within two and eight and half the memory"_test = [] {
+        constexpr std::uint64_t GiB { std::uint64_t { 1 } << 30 };
+        expect(cld::engine_workers(8) == 7u) << "an 8-thread laptop";
+        expect(cld::engine_workers(4) == 3u && cld::engine_workers(2) == 2u && cld::engine_workers(0) == 2u) << "never less than two";
+        expect(cld::engine_workers(32) == 8u && cld::engine_workers(128) == 8u) << "never more than eight";
+        expect(cld::engine_workers(16, 8 * GiB) == 4u) << "8 GB: four builds of up to two gigabytes";
+        expect(cld::engine_workers(16, 2 * GiB) == 2u) << "never below two, whatever the memory";
+        expect(cld::engine_workers(16, 64 * GiB) == 8u);
+        expect(cld::engine_workers(16, 8 * GiB, 12) == 12u && cld::engine_workers(16, std::nullopt, 0) == 8u) << "the setting wins; 0 is auto";
+        // One worker is always the person's.
+        expect(cld::preparation_limit(8, true) == 7u) << "a file waits on these modules: every worker but the person's";
+        expect(cld::preparation_limit(8, false) == 3u) << "nobody waits on them: half of the rest";
+        expect(cld::preparation_limit(3, true) == 2u && cld::preparation_limit(3, false) == 1u);
+        expect(cld::preparation_limit(2, true) == 1u && cld::preparation_limit(1, false) == 1u && cld::preparation_limit(0, true) == 1u) << "never less than one";
     };
 
     // The throttle above is right only when the file being waited for can progress without
@@ -727,13 +734,9 @@ int main() {
     };
 
     "preparation is not throttled by a file that is waiting for preparation"_test = [] {
-        expect(cld::preparation_limit(32, false, 2, true) == 2u) << "the waiting file needs these very modules";
-        expect(cld::preparation_limit(32, false, 2, false) == 1u) << "it waits on something else: throttle";
-        expect(cld::preparation_limit(32, false, 0, true) == 2u) << "nobody waiting is the same as before";
-        expect(cld::preparation_limit(128, false, 4, true) == 8u) << "scales with the machine";
-        expect(cld::preparation_limit(128, false, 4, false) == 4u);
-        // The default keeps every existing caller on the pre-2026-09-17 behaviour.
-        expect(cld::preparation_limit(32, false, 2) == cld::preparation_limit(32, false, 2, false));
+        expect(cld::preparation_limit(4, true) == 3u) << "the waiting file needs these very modules";
+        expect(cld::preparation_limit(4, false) == 1u) << "it waits on something else: half of the rest";
+        expect(cld::preparation_limit(8, true) == 7u && cld::preparation_limit(8, false) == 3u) << "scales with the workers";
         cld::ProcessConfig config;
         config.workers = 4;
         const auto defaults = cld::clangd_arguments(config);

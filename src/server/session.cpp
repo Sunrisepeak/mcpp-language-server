@@ -356,6 +356,7 @@ private:
         options_.mcpp = settings.string_value("mcpp");
         options_.producerTimeout = settings.seconds_value("producerTimeout");
         options_.requestTimeout = std::chrono::duration_cast<std::chrono::milliseconds>(settings.seconds_value("requestTimeout"));
+        options_.engineWorkers = settings.string_value("engine.workers");
         options_.disabledWorkarounds = settings.list_value("disableWorkaround");
         options_.semanticTokensModules = settings.bool_value("semanticTokens.modules");
         options_.semanticTokensModuleType = settings.bool_value("semanticTokens.moduleType");
