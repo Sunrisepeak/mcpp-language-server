@@ -64,6 +64,16 @@ bool keep_waiting(const PendingRequest& request, bool filePreparing, std::option
 
 namespace {
 
+// The bytes of the files under `path`, recursively; 0 for a path that is not there.
+std::uint64_t directory_bytes(std::string_view path) {
+    std::uint64_t total { 0 };
+    for (const auto& entry : platform::fs::list_directory(path)) {
+        if (platform::fs::is_directory(entry)) total += directory_bytes(entry);
+        else if (const auto stamp = platform::fs::stamp(entry)) total += stamp->size;
+    }
+    return total;
+}
+
 class ClangdEngine final : public Engine {
 private:
     Options options_;
@@ -3135,6 +3145,46 @@ private:
 
     // Fix plan F14: the person asked (mcppls.restartClangd). At once, past every budget and never counted; what
     // was set aside goes back, except a file whose text on disk clangd would spin on (fix plan F16).
+    std::uint64_t clear_cache_on_request() override {
+        // Stopped first: nothing may be using the files that go. What clangd owed is answered by the other engines.
+        settle_exit_();
+        auto old = std::move(pending_);
+        pending_.clear();
+        for (auto& [id, request] : old) {
+            if (request.purpose == Purpose::client && request.reply) request.reply(Answer {});
+        }
+        answer_searches_();
+        forget_primes_();
+        ++generation_;
+        if (process_) process_->stop(std::chrono::milliseconds { 500 });
+        handshakeDone_ = false;
+        accepting_ = false;
+        restartAt_.reset();
+        diagnosed_.clear();
+        host_->forget_engine_diagnostics(ENGINE_ID);
+        const std::string context { base::parent_path(databaseDirectory_) };
+        const std::uint64_t freed { directory_bytes(context) };
+        platform::fs::remove_all(context);
+        (void)platform::fs::create_directories(databaseDirectory_);
+        // What was written there, and what was concluded from what clangd did with it, starts over too.
+        writtenDatabase_.clear();
+        writtenStructure_.clear();
+        writtenArguments_.clear();
+        builtModules_.clear();
+        builtModulesLoaded_ = false;
+        startupBmis_.reset();
+        unresolvedModules_.clear();
+        doomRoots_.clear();
+        doomedModules_.clear();
+        doomedFiles_.clear();
+        reportedFailures_.clear();
+        modulesFailedAt_.clear();
+        stdFromKit_ = false;
+        log::info("cleared clangd's cache of {} ({} bytes)", host_->root_directory(), freed);
+        host_->record_event("engine-cache-cleared", Json { { "bytes", freed } });
+        return freed;
+    }
+
     bool restart_on_request() override {
         if (options_.payloadCorrupt || incompatible_ || options_.executable.empty()) return false;
         std::vector<std::string> released;

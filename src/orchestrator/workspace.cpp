@@ -2090,6 +2090,27 @@ Json Workspace::report() const {
                   { "eventTotals", impl.journal.totals() }, { "events", impl.journal.recent(300) } };
 }
 
+std::uint64_t Workspace::reset_cache() {
+    auto& impl = *impl_;
+    std::uint64_t freed { 0 };
+    for (const auto& engine : impl.engines) freed += engine->clear_cache_on_request();
+    for (const auto& entry : platform::fs::list_directory(impl.cacheDirectory)) {
+        const std::string_view name { base::file_name(entry) };
+        if (!name.starts_with("model.") || !name.ends_with(".json")) continue;
+        if (const auto stamp = platform::fs::stamp(entry)) freed += stamp->size;
+        platform::fs::remove_all(entry);
+    }
+    log::info("the cache of {} was reset on request ({} bytes freed)", root_, freed);
+    impl.journal.add("cache-reset", Json { { "bytes", freed } });
+    // The model in hand is planned into the empty directories at once, so clangd starts on a database; the build
+    // tool is asked again as well, and its answer is cached anew.
+    if (impl.model) impl.replan();
+    if (impl.coreEngine != nullptr) (void)impl.coreEngine->restart_on_request();
+    impl.start_model_load();
+    impl.update_status();
+    return freed;
+}
+
 bool Workspace::restart_core_engine() {
     if (impl_->coreEngine == nullptr) return false;
     impl_->journal.add("engine-restart-requested");

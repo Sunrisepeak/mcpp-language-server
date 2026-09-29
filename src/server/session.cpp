@@ -251,6 +251,32 @@ private:
             reply_(id, Json { { "restarted", restarted } });
             return;
         }
+        // C-1 (plan 2026-09-30): the person's way out of a cache that went wrong, instead of deleting it by hand.
+        // `arguments: [{ root: <folder uri> }]` names one root; none names every root. Not the name of the editor's own
+        // command (mcppls.resetWorkspaceCache): a client registers every command a server declares.
+        if (method == lsp::method::WORKSPACE_EXECUTE_COMMAND && params.value("command", std::string {}) == "mcppls.resetCache") {
+            const Json arguments = params.value("arguments", Json::array());
+            std::string wanted;
+            if (arguments.is_array() && !arguments.empty() && arguments[0].is_object()) wanted = arguments[0].value("root", std::string {});
+            std::optional<std::string> wantedPath;
+            if (!wanted.empty()) {
+                if (auto path = base::uri_to_path(wanted)) wantedPath = std::move(*path);
+                else wantedPath = wanted;
+            }
+            std::uint64_t freed { 0 };
+            std::size_t reset { 0 };
+            for (auto& root : roots_) {
+                if (wantedPath && !base::same_path(*wantedPath, root->root())) continue;
+                freed += root->reset_cache();
+                ++reset;
+            }
+            if (!wanted.empty() && reset == 0) {
+                reply_error_(id, lsp::INVALID_PARAMS, std::format("{} is not a workspace folder of this server", wanted));
+                return;
+            }
+            reply_(id, Json { { "ok", true }, { "freedBytes", freed }, { "roots", reset } });
+            return;
+        }
         // overall design 7.7: the review of the workspace's changes, run in the background, its findings published as diagnostics.
         if (method == lsp::method::WORKSPACE_EXECUTE_COMMAND && params.value("command", std::string {}).starts_with("mcppls.review.")) {
             const std::string command { params.value("command", std::string {}) };

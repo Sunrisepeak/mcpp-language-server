@@ -160,6 +160,9 @@ public:
     void set_context(const Json& id, std::string_view context);
     // The person asked for clangd to start over (fix plan F14): false when this root has no core engine to restart.
     bool restart_core_engine();
+    // C-1 (plan 2026-09-30, `mcppls.resetCache`): this workspace's cache removed -- the cached models, the engine
+    // database, clangd's module cache and its locks -- then planned and started again. The bytes freed.
+    std::uint64_t reset_cache();
 
     // ---- the review an editor asks for (overall design 7.7) ----------------------------
     // Runs `mcppls review` on this root in the background; its findings are published as

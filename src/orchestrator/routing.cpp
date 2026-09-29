@@ -142,7 +142,7 @@ Json merge_capabilities(const Json& engineCapabilities) {
     Json& commands = capabilities["executeCommandProvider"]["commands"];
     if (!commands.is_array()) commands = Json::array();
     for (const std::string_view command : { "mcppls.review.run", "mcppls.review.clear", "mcppls.reloadBuildDescription", "mcppls.describeOnline", "mcppls.restartEngine",
-                                             "mcppls.exportBundle" }) {
+                                             "mcppls.exportBundle", "mcppls.resetCache" }) {
         if (std::ranges::find(commands, Json(command)) == commands.end()) commands.push_back(std::string { command });
     }
     return capabilities;

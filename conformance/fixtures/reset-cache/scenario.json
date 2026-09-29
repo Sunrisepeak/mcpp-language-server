@@ -1,0 +1,14 @@
+{
+  "name": "reset-cache",
+  "description": "Plan 2026-09-30 C-1: the person's way out of a cache that went wrong, instead of deleting it by hand. The workspace is prepared, `mcppls.resetCache` removes its cache (models, engine database, clangd's module cache and locks) and plans and starts again, and the same answers come back: navigation across modules, std, completion.",
+  "server-arguments": ["--no-discover"],
+  "checks": [
+    { "id": "R1-ready", "kind": "status", "source": "inferred", "state": "ready", "engine-name": "clangd" },
+    { "id": "R1-definition", "kind": "definition", "file": "src/main.cpp", "at": [4, 31], "expect": "src/greet/greet.cppm" },
+    { "id": "R2-reset", "kind": "execute-command", "command": "mcppls.resetCache" },
+    { "id": "R3-ready-again", "kind": "status", "source": "inferred", "state": "ready", "engine-name": "clangd", "timeout": 120 },
+    { "id": "R3-definition-again", "kind": "definition", "file": "src/main.cpp", "at": [4, 31], "expect": "src/greet/greet.cppm" },
+    { "id": "R3-std-again", "kind": "hover-contains", "file": "src/main.cpp", "at": [4, 31], "expect": "greet" },
+    { "id": "R3-completion-again", "kind": "completion-contains", "file": "src/main.cpp", "insert": [5, "    hello::"], "at": [5, 11], "expect": "greet" }
+  ]
+}
