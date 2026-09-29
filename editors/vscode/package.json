@@ -166,6 +166,11 @@
         "category": "C++ Modules"
       },
       {
+        "command": "mcppls.resetWorkspaceCache",
+        "title": "Reset This Workspace's Cache",
+        "category": "C++ Modules"
+      },
+      {
         "command": "mcppls.runBuildToolInTerminal",
         "title": "Run the Build Tool in a Terminal",
         "category": "C++ Modules"

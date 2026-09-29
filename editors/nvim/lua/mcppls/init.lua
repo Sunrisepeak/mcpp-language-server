@@ -249,6 +249,37 @@ local function reload()
   end
 end
 
+-- 0.0.7 plan C-1: the server stops its engine, deletes this workspace's cache (the logs stay), plans
+-- again and starts the engine again. The server does the deleting, so a server that does not list the
+-- command (`mcppls.resetCache`) is asked to be updated instead of having a directory guessed at.
+local function reset_cache()
+  local client = client_of(0)
+  if not client then
+    vim.notify('mcppls is not attached to this buffer', vim.log.levels.WARN)
+    return
+  end
+  local provider = client.server_capabilities and client.server_capabilities.executeCommandProvider
+  if not (provider and vim.tbl_contains(provider.commands or {}, 'mcppls.resetCache')) then
+    vim.notify('This mcppls cannot reset a workspace cache. Update mcppls, or close Neovim and run '
+      .. '`mcppls cache --clean <name>` in a terminal.', vim.log.levels.WARN)
+    return
+  end
+  local root = client.root_dir or M.root(vim.api.nvim_get_current_buf())
+  vim.notify('mcppls: resetting the cache of ' .. root .. ' ...')
+  client_request(client, 'workspace/executeCommand',
+    { command = 'mcppls.resetCache', arguments = { { root = vim.uri_from_fname(root) } } },
+    function(err, result)
+      if err then
+        vim.notify('mcppls: the cache was not reset. ' .. (err.message or vim.inspect(err)), vim.log.levels.WARN)
+        return
+      end
+      local freed = type(result) == 'table' and tonumber(result.freedBytes) or 0
+      vim.notify(freed > 0
+        and string.format('mcppls: the cache was reset (%.1f MB freed). Modules are prepared again.', freed / (1024 * 1024))
+        or 'mcppls: this workspace had no cache to reset. Modules are prepared again.')
+    end)
+end
+
 -- Language servers that answer for C and C++ files themselves. mcppls drives its own clangd; a
 -- second, editor-started one over the same files is two engines answering (docs/10-editors.md).
 M.conflicting = { clangd = true, ccls = true }
@@ -337,6 +368,8 @@ local function define_commands()
   })
   vim.api.nvim_create_user_command('McpplsStatus', show_status, { desc = 'mcppls: the build description, engine and issues' })
   vim.api.nvim_create_user_command('McpplsRestart', restart, { desc = 'mcppls: restart the server' })
+  vim.api.nvim_create_user_command('McpplsResetCache', reset_cache,
+    { desc = "mcppls: reset this workspace's cache (models, engine database, module cache), then prepare again" })
   vim.api.nvim_create_user_command('McpplsReload', reload, { desc = 'mcppls: read the build description again' })
 end
 

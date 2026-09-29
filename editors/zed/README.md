@@ -47,6 +47,19 @@ question, so put mcppls first and turn clangd off in your settings:
 
 mcppls starts clangd itself, with a module database clangd would not otherwise have.
 
+## Resetting a workspace's cache
+
+If preparation never finishes or clangd keeps crashing, a cache left by an earlier session may be the
+cause. VS Code and Neovim have a command for it (the server does the deleting). A Zed extension
+cannot add a command to the palette, so from a terminal, after closing Zed:
+
+```bash
+mcppls cache                      # the workspaces that have a cache, with their names and sizes
+mcppls cache --clean <name>       # remove one by name prefix; `all` removes every workspace's
+```
+
+The logs are kept; the next start prepares the modules again from a clean state.
+
 ## Status
 
 The extension builds, loads as a dev extension and starts the server; it is newer and less exercised than the VS Code one, which is

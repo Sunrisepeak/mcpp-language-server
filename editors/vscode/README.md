@@ -38,6 +38,7 @@ Customize the color the standard way: `editor.semanticTokenColorCustomizations.r
 | C++ Modules: Collect Diagnostic Report | Open the server's status and this extension's version, settings and other installed C++ extensions as JSON, ready to copy or attach to an issue; your user name, home directory, host name and secrets are replaced |
 | C++ Modules: Export Diagnostic Bundle | Write one zip with the report, the environment, the logs of the last sessions, the incidents and the engine database, redacted the same way and checked before it is written; never uploaded |
 | C++ Modules: Restart clangd | Restart clangd alone, now, whatever its restart budget says |
+| C++ Modules: Reset This Workspace's Cache | Delete this workspace's cache (models, engine database, module cache; the logs stay) and prepare again from a clean state, for when preparation never finishes or clangd keeps crashing. The status offers it for those problems. Needs mcppls 0.0.7 or later |
 | C++ Modules: Run the Build Tool in a Terminal | Run the project's build command (`mcpp build` or the CMake configure step) in your own terminal, where a proxy or credentials you set by hand actually are |
 | C++ Modules: Turn Off Other C++ Language Features | Turn off the language features of other active C++ extensions, in this workspace or everywhere (user settings) |
 | C++ Modules: Restore Other C++ Language Features | Put back whatever the command above (or the one-time question) last changed, in the same scope |
