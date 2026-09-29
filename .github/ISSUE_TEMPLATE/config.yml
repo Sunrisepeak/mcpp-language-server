@@ -1,1 +1,8 @@
 blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/Sunrisepeak/mcpp-language-server/tree/main/docs
+    about: Installation, editors, settings and troubleshooting.
+  - name: Clangd or mcpp problem (upstream defects register)
+    url: https://github.com/Sunrisepeak/mcpp-language-server/issues/24
+    about: Defects in clangd or mcpp that mcppls works around are collected in #24, one comment each. Read it before filing; add a comment if yours is new.
