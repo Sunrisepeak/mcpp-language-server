@@ -122,6 +122,19 @@ base::log::Level clangd_log_level(std::string_view line);
 // shared library, or a version of one, it was linked against is missing (glibc's ld.so, musl's, macOS's
 // dyld). No restart can change that, so it is not a crash (0.0.3 plan B1).
 bool loader_failure(std::string_view line);
+// clangd's line for a module build waiting on another process's lock (clangd 23.1's persistent module
+// cache, `<cache>/modules/.locks/<hash>.lock`): "I[..] Still waiting for module lock <path> after 10s". The
+// path of the lock, when the line is one of these (C-4, plan 2026-09-30).
+std::optional<std::string> parse_module_lock_wait(std::string_view line);
+// The directory of clangd's module locks for an engine database directory.
+std::string module_lock_directory(std::string_view databaseDirectory);
+// Removes every module lock of an engine database directory; how many were removed. Only when no clangd
+// is using that cache: a lock left by a clangd that was killed while building a module is never released,
+// and on Windows the next clangd waits for it forever (the owner's death is not detected there).
+std::size_t clear_module_locks(std::string_view databaseDirectory);
+// The process id a lock records ("<host> <pid>" in the file the lock names), when it can be read.
+std::optional<std::int64_t> module_lock_owner(std::string_view lockPath);
+
 // What a module build failure means for the engine database (robustness design C3). `unresolved`:
 // clangd found no unit for the module ("Don't get the module unit"); a provider importing it cannot be
 // built. `compile`: the unit was found and did not compile; its importers get errors, not a hang (S3).

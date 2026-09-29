@@ -216,6 +216,11 @@ std::vector<SpinWatch::Spin> SpinWatch::check(GuardClock::time_point now) {
     return spins;
 }
 
+std::optional<GuardClock::duration> SpinWatch::last_build(std::string_view uri) const {
+    const auto it = files_.find(uri);
+    return it == files_.end() ? std::nullopt : it->second.lastBuild;
+}
+
 std::optional<GuardClock::time_point> SpinWatch::next_due() const {
     // Only builds something waits behind: a deadline check() would not act on would come back at
     // once, forever. A version sent later is an event, and the timers run after every event.

@@ -483,6 +483,31 @@ int main() {
         expect(!cld::parse_module_failure("I[04:34:47.305] Built module std to /cache/std.pcm").has_value());
     };
 
+    // C-4 (plan 2026-09-30): clangd 23.1's module locks, and the line it logs while it waits for one.
+    "clangd's module locks are found, read and cleared"_test = [] {
+        namespace fs = mcppls::platform::fs;
+        const auto wait = cld::parse_module_lock_wait(
+            "I[03:41:10.391] Still waiting for module lock /c/cdb/.cache/clangd/modules/.locks/9081AFCD4C6A1B5C.lock after 20s");
+        expect(fatal(wait.has_value()));
+        expect(*wait == "/c/cdb/.cache/clangd/modules/.locks/9081AFCD4C6A1B5C.lock") << *wait;
+        expect(cld::parse_module_lock_wait(R"(I[03:41:10] Still waiting for module lock D:\m\.locks\A.lock)") == std::optional<std::string> { R"(D:\m\.locks\A.lock)" });
+        expect(!cld::parse_module_lock_wait("I[04:34:47.305] Built module std to /cache/std.pcm").has_value());
+
+        const std::string database { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+            std::format("mcppls-test-locks-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+        const std::string locks { cld::module_lock_directory(database) };
+        (void)fs::create_directories(locks);
+        const std::string lock { mcppls::base::join_path(locks, "9081AFCD4C6A1B5C.lock") };
+        (void)fs::write_file(lock + "-f00d", "runnerhost 4242\n");
+        (void)fs::write_file(lock, "");
+        expect(cld::module_lock_owner(lock) == std::optional<std::int64_t> { 4242 });
+        expect(!cld::module_lock_owner(mcppls::base::join_path(locks, "nothing.lock")).has_value());
+        expect(cld::clear_module_locks(database) == 2u);
+        expect(fs::list_directory(locks).empty());
+        expect(cld::clear_module_locks(database) == 0u) << "nothing left, and a missing directory is not an error";
+        fs::remove_all(database);
+    };
+
     "a module clangd cannot find is told apart from one that does not compile"_test = [] {
         const auto unresolved = cld::parse_module_failure("E[04:05:38.910] Failed to build module std; due to Don't get the module unit for module std");
         const auto compile = cld::parse_module_failure("E[04:05:39.001] Failed to build module e; due to Failed to compile /p/e.cppm. Use '--log=verbose' to view detailed failure reasons.");

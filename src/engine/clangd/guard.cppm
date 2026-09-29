@@ -123,6 +123,8 @@ public:
     void restarted();
     // The files found spinning by `now`, each reported once per build.
     std::vector<Spin> check(GuardClock::time_point now);
+    // How long `uri`'s last finished main-file build took, when one has finished.
+    std::optional<GuardClock::duration> last_build(std::string_view uri) const;
     std::optional<GuardClock::time_point> next_due() const;
 
 private:

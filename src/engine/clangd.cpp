@@ -141,6 +141,15 @@ private:
     // clangd's persistent module cache as the plan found it (cached_bmis), read the first time a
     // module becomes ready for preparation and not again until the next plan.
     std::optional<std::map<std::string, std::vector<std::string>, std::less<>>> startupBmis_;
+    // W-4 (plan 2026-09-30): which command each module was last prepared with, and its source's stamp then
+    // (<database>/module-builds.json). A BMI in clangd's cache is only known to match the command it was built
+    // with; one of another command (issue #30, a profile switch) or of an older source is not "built".
+    struct BuiltModule {
+        std::string command;
+        std::optional<platform::fs::FileStamp> stamp;
+    };
+    std::map<std::string, BuiltModule, std::less<>> builtModules_;
+    bool builtModulesLoaded_ { false };
 
     // Process.
     int generation_ { 0 };
@@ -177,6 +186,11 @@ private:
     std::set<std::string> diagnosed_;                // client URIs clangd published diagnostics for
     std::set<std::string> awaitingDiagnostics_;      // client URIs
     std::deque<Clock::time_point> crashes_;
+    std::size_t crashLoops_ { 0 };   // K-2: how many times in a row crashes_ reached five; picks the backoff
+    // K-6: since when this clangd has been up. One that stays up RECOVERED_AFTER takes its predecessors' crash and
+    // timeout issues with it: the status goes back to ready by itself, instead of staying degraded until a restart.
+    std::optional<Clock::time_point> upSince_;
+    static constexpr std::chrono::seconds RECOVERED_AFTER { 60 };
     std::vector<Issue> issues_;
     std::optional<Clock::time_point> restartAt_;
     std::string restartReason_;
@@ -379,7 +393,8 @@ public:
         // already; an unexplained stall gets a generic one below so degraded always says why.
         const bool stalled { preparingBusy && lastPrimeProgressAt_ && Clock::now() - *lastPrimeProgressAt_ >= PREPARATION_STALL_TIMEOUT };
         status.preparing = (!awaitingDiagnostics_.empty() || (preparingBusy && !stalled) || !held_.empty()) && accepting_;
-        status.failed = options_.payloadCorrupt || incompatible_ || (unavailable_ && crashes_.size() >= 3);
+        // A clangd that keeps crashing is tried again (K-2): degraded, not failed. Failed is for what no restart mends.
+        status.failed = options_.payloadCorrupt || incompatible_;
         if (preparingBusy) std::tie(status.prepared, status.toPrepare) = primer_.progress();
         status.issues = issues_;
         if (stalled && doomedModules_.empty()) {
@@ -1044,7 +1059,32 @@ public:
             while (crashContexts_.size() > 4) crashContexts_.erase(crashContexts_.begin());
         } else if (kind == "scan-failed") {
             note_scan_failure_(event.value("file", std::string {}), event.value("reason", std::string {}), event.value("driver", false));
+        } else if (kind == "module-lock-wait") {
+            handle_module_lock_wait_(event.value("path", std::string {}));
         }
+    }
+
+    // C-4: clangd is waiting for a module lock. One held by this clangd is a build of its own in another worker
+    // and is left alone; any other owner is not a clangd of this workspace (a killed one, a pid reused since, a
+    // lock written on another host), since the cache belongs to this instance: the lock is removed, and clangd's
+    // next attempt takes it.
+    void handle_module_lock_wait_(const std::string& path) {
+        // Only a lock of clangd's module cache (".../modules/.locks/<hash>.lock"), however the path is spelled.
+        if (path.empty() || !path.ends_with(".lock") || base::file_name(base::parent_path(path)) != ".locks") return;
+        const auto owner = module_lock_owner(path);
+        const auto mine = process_ ? process_->pid() : std::nullopt;
+        if (owner && mine && *owner == *mine) return;
+        const std::string name { base::file_name(path) };
+        std::size_t removed { 0 };
+        for (const auto& entry : platform::fs::list_directory(base::parent_path(path))) {
+            if (!base::file_name(entry).starts_with(name)) continue;
+            platform::fs::remove_all(entry);
+            ++removed;
+        }
+        if (removed == 0) return;
+        log::warning("clangd ({}) was waiting for module lock {}, held by {}; it was not held by this clangd and was removed",
+                     host_->root_directory(), path, owner ? std::format("process {}", *owner) : std::string { "an unknown process" });
+        host_->record_event("module-lock-stale", Json { { "lock", path }, { "owner", owner ? Json(*owner) : Json(nullptr) } });
     }
 
     // Fix plan F6: a file clangd could not scan for its modules is a file whose modules are never built, and
@@ -1088,6 +1128,7 @@ public:
         consider(restartAt_);
         consider(stuckCheckAt_);
         if (pendingExit_) consider(pendingExit_->at + EXIT_CONTEXT_WAIT);
+        if (upSince_) consider(*upSince_ + RECOVERED_AFTER);
         for (const auto& [uri, closing] : closingAfterBuild_) consider(closing.second);
         consider(diskRecheckAt_);
         if (accepting_) consider(spin_.next_due());   // only acted on while accepting (handle_spins_)
@@ -1118,6 +1159,15 @@ public:
 
     void handle_timers() override {
         const auto now = Clock::now();
+        if (upSince_ && now - *upSince_ >= RECOVERED_AFTER) {
+            upSince_.reset();
+            const auto before = issues_.size();
+            std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-crashed" || issue.code == "engine-timeout" || issue.code == "engine-crash-loop"; });
+            if (issues_.size() != before) {
+                log::info("clangd ({}) has been up for {} s: it recovered", host_->root_directory(), RECOVERED_AFTER.count());
+                host_->status_changed();
+            }
+        }
         if (implementationRestAt_ && *implementationRestAt_ <= now) queue_rest_of_implementations_(now);
         else if (!implementationQueue_.empty() && !primer_.busy()) pump_implementations_(now);   // preparation ended another way
         if (pendingExit_ && now >= pendingExit_->at + EXIT_CONTEXT_WAIT) settle_exit_();
@@ -1333,6 +1383,15 @@ private:
             host_->status_changed();
             return;
         }
+        // C-4 (plan 2026-09-30): no clangd uses this cache now -- the last one, if any, has been reaped by restart_,
+        // and the workspace lease gives the cache to this instance alone -- so every module lock in it is stale. A
+        // clangd killed while building a module leaves its lock behind, and on Windows the next clangd waits for it
+        // forever (the owner's death is not detected there): preparation stayed at 12/25 for eight minutes, and only
+        // deleting the lock, or the whole cache, brought it back.
+        if (const std::size_t cleared { clear_module_locks(databaseDirectory_) }; cleared > 0) {
+            log::info("removed {} module locks an earlier clangd left in {} ({})", cleared, module_lock_directory(databaseDirectory_), host_->root_directory());
+            host_->record_event("module-locks-cleared", Json { { "count", cleared } });
+        }
         const int generation { ++generation_ };
         ProcessConfig config;
         config.executable = options_.executable;
@@ -1409,6 +1468,9 @@ private:
                 if (loader_failure(line)) {
                     sink(Json { { "kind", "load-failure" }, { "generation", generation }, { "line", std::string { base::trim(line) } } });
                 }
+                if (auto lock = parse_module_lock_wait(line)) {
+                    sink(Json { { "kind", "module-lock-wait" }, { "generation", generation }, { "path", std::move(*lock) } });
+                }
                 if (auto failure = parse_module_failure(line)) {
                     sink(Json { { "kind", "module-failed" }, { "generation", generation },
                                 { "failure", Json { { "module", failure->module }, { "reason", failure->reason }, { "source", failure->failedSource } } } });
@@ -1416,7 +1478,15 @@ private:
             });
         if (!started) {
             unavailable_ = true;
-            add_issue_(Issue { "engine-crashed", std::format("clangd could not start: {}", started.error().message), "mcppls.restartServer" });
+            // X-2 (plan 2026-09-30): not a crash -- clangd never ran. Issue #32: under PRoot (Termux) every program
+            // start failed with "not supported" and the status said clangd had crashed.
+            const std::string& why { started.error().message };
+            const bool unsupported { why.ends_with(": not supported") };
+            add_issue_(Issue { "engine-start-failed",
+                unsupported ? std::format("clangd could not be started: {}. This system refused to start a program the way mcppls starts one "
+                                          "(as PRoot does without support for execveat); only module-level features are available", why)
+                            : std::format("clangd could not be started: {}", why),
+                "mcppls.showLogs", "environment" });
             flush_deferred_without_engine_();
             host_->engine_settled(ENGINE_ID, Json::object());
             host_->status_changed();
@@ -1744,6 +1814,17 @@ private:
                 }
             }
             const auto due = since->second + GENERAL_PATIENCE;
+            // K-5 (plan 2026-09-30): a file clangd has queued is waiting for a worker, not stuck -- on a 4-core
+            // machine with two workers busy building modules, GalTranslPP's units waited more than two minutes, and
+            // were set aside for it. Nor is one waiting while clangd builds units of this server's own asking.
+            const auto status = fileStatus_.find(document.uri);
+            const bool queued { status != fileStatus_.end() && !status->second.empty() && !engine_working(status->second) && status->second != "idle" };
+            const bool busyForUs { primer_.running() > 0
+                                   || std::ranges::any_of(background_, [](const auto& item) { return !item.second.built; }) };
+            if (now >= due && !preparing && (queued || busyForUs)) {
+                schedule_stuck_check_(now + std::chrono::seconds { 30 });
+                continue;
+            }
             if (now >= due && !preparing) {
                 stuck.emplace_back(document.path, "clangd published no diagnostics for it in two minutes, and no module was being prepared", false);
                 continue;
@@ -1813,6 +1894,7 @@ private:
             (void)send_(lsp::make_notification("initialized", Json::object()));
             handshakeDone_ = true;
             earlyExits_ = 0;
+            upSince_ = Clock::now();
             accept_traffic_if_ready_();
             host_->status_changed();
             host_->semantic_tokens_changed();   // design doc 2026-09-25 K/§7: clangd (re)started
@@ -1860,7 +1942,7 @@ private:
         }
         if (method == lsp::method::TEXT_DOCUMENT_PUBLISH_DIAGNOSTICS) {
             const Json& params { message["params"] };
-            if (finish_prime_(params.value("uri", std::string {}))) return;
+            if (const Json* published { lsp::find(params, "diagnostics") }; finish_prime_(params.value("uri", std::string {}), published)) return;
             const std::string uri { host_->client_uri(params.value("uri", std::string {})) };
             const std::string diagnosedPath { host_->path_of_uri(uri) };
             const std::string diagnosedKey { diagnosedPath.empty() ? std::string {} : base::path_key(diagnosedPath) };
@@ -1921,6 +2003,7 @@ private:
 
     void handle_closed_() {
         const bool early { !handshakeDone_ };
+        upSince_.reset();
         closedGeneration_ = generation_;
         handshakeDone_ = false;
         accepting_ = false;
@@ -1964,10 +2047,28 @@ private:
         // (semantic tokens, rename, ...) waits for the next server start.
         if (early && ++earlyExits_ >= 2) host_->engine_settled(ENGINE_ID, Json::object());
         if (crashes_.size() >= 5) {
+            // K-2 (plan 2026-09-30, RD6 extended to crashes): five exits in five minutes is a clangd that keeps
+            // crashing on this project, not a reason to give it up for the session -- that left the editor with
+            // keyword completion until the person restarted by hand. The next start is backed off (1, 2, 4, then
+            // 8 minutes); meanwhile mcppls's own engine answers, and the status says so and when clangd is tried again.
+            const std::size_t step { std::min<std::size_t>(crashLoops_, RestartGate::BACKOFF.size() - 1) };
+            ++crashLoops_;
             unavailable_ = true;
             flush_deferred_without_engine_();
             host_->engine_settled(ENGINE_ID, Json::object());
+            restartReason_ = "clangd kept crashing";
+            restartCause_ = RestartCause::crash;
+            restartAt_ = std::max(now + RestartGate::BACKOFF[step], restartGate_.earliest(now, RestartCause::crash));
+            const auto minutes = std::chrono::duration_cast<std::chrono::minutes>(RestartGate::BACKOFF[step]).count();
+            std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-crash-loop"; });
+            issues_.push_back(Issue { "engine-crash-loop",
+                std::format("clangd exited {} times in five minutes; mcppls answers meanwhile and clangd is started again in {} minute{}. "
+                            "Restart clangd to try now, or export a diagnostic bundle to report it", crashes_.size(), minutes, minutes == 1 ? "" : "s"),
+                "mcppls.restartClangd", "engine" });
+            log::warning("clangd ({}) exited {} times in five minutes: starting it again in {} minute(s)", host_->root_directory(), crashes_.size(), minutes);
+            host_->record_event("engine-crash-loop", Json { { "exits", crashes_.size() }, { "restartInMinutes", minutes } });
         } else {
+            if (crashes_.size() <= 1) crashLoops_ = 0;   // a single exit after a quiet stretch: the loop, if any, is over
             restartReason_ = "recovering from an exit";
             restartCause_ = RestartCause::crash;
             restartAt_ = std::max(now + std::chrono::seconds { 1 << std::min<std::size_t>(crashes_.size() - 1, 6) }, restartGate_.earliest(now, RestartCause::crash));
@@ -2142,10 +2243,17 @@ private:
             // The stand-in the plan gave the module is not a provider coming (fix plan F13): taking it for one
             // forgot the module at once, the next plan dropped the stand-in again, and its leaving restarted clangd
             // (the hello project's `import h`, typed and autosaved).
-            const std::string current { provider == moduleSources_.end() || generated_path_(provider->second) ? std::string {} : provider->second };
+            const bool standIn { provider != moduleSources_.end() && generated_path_(provider->second) };
+            const std::string current { provider == moduleSources_.end() || standIn ? std::string {} : provider->second };
             const auto command = moduleCommands_.find(it->first);
-            const bool changed { !base::same_path(current, it->second.provider) || (!current.empty() && platform::fs::stamp(current) != it->second.stamp)
-                                 || (!current.empty() && (command == moduleCommands_.end() ? std::string {} : command->second) != it->second.command) };
+            bool changed { !base::same_path(current, it->second.provider) || (!current.empty() && platform::fs::stamp(current) != it->second.stamp)
+                           || (!current.empty() && (command == moduleCommands_.end() ? std::string {} : command->second) != it->second.command) };
+            // R-6 (plan 2026-09-30): a module WITH a unit that clangd could not find (its scan failed: a header the
+            // command cannot reach) gets a stand-in, which takes the unit's place in the database. That is this
+            // server's own doing, not the unit changing: taken for a change, the module was tried again at once, the
+            // unit came back, clangd failed the same way, and each round moved a provider and restarted clangd --
+            // every 11-13 s on GalTranslPP. While the stand-in is there, only the unit's own file changing counts.
+            if (standIn && !it->second.provider.empty()) changed = platform::fs::stamp(it->second.provider) != it->second.stamp;
             if (changed) {
                 log::info("trying module {} again ({})", it->first, host_->root_directory());
                 host_->record_event("module-retry", Json { { "module", it->first } });
@@ -2411,6 +2519,15 @@ private:
 
     // Not deferred, not spaced out, not capped: a clangd left spinning answers nothing for the file and holds a core, and
     // the file it spun on stays with mcppls's engine, so the new clangd cannot be sent the same way.
+    // K-4 (plan 2026-09-30): how long a build that may be reading a hazardous disk text is let run before clangd is
+    // restarted without the file. DISK_SETTLE alone restarted clangd under a person autosaving a heavy file whose
+    // ordinary build takes longer than that; a build that reads the hazard never ends, one that does not ends in
+    // about its usual time, so the file's own history decides, and a file with none gets SpinWatch's floor.
+    Clock::duration disk_settle_for_(std::string_view uri) const {
+        const auto last = spin_.last_build(uri);
+        return std::max<Clock::duration>(DISK_SETTLE, last ? *last * 3 : Clock::duration { SpinWatch::MIN_BUDGET });
+    }
+
     void reclaim_spin_(const std::string& path) {
         if (!accepting_) return;
         if (restartGate_.at_cap(Clock::now(), RestartCause::recovery)) {
@@ -2445,7 +2562,7 @@ private:
             awaitingSince_.erase(document.uri);
             if (!accepting_) continue;
             if (reclaim == Reclaim::after_build && state && engine_working(*state)) {
-                closingAfterBuild_[document.uri] = { path, Clock::now() + DISK_SETTLE };
+                closingAfterBuild_[document.uri] = { path, Clock::now() + disk_settle_for_(document.uri) };
             } else {
                 (void)send_(lsp::make_notification("textDocument/didClose", Json { { "textDocument", Json { { "uri", document.uri } } } }));
             }
@@ -3035,8 +3152,9 @@ private:
         }
         deferredReclaims_.clear();
         stuckAtCap_ = false;
-        std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-crashed" || issue.code == "engine-timeout"; });
+        std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-crashed" || issue.code == "engine-timeout" || issue.code == "engine-crash-loop"; });
         crashes_.clear();
+        crashLoops_ = 0;
         if (unavailable_ && !incompatible_) unavailable_ = false;
         host_->record_event("engine-restart-requested", Json { { "filesHandedBack", released } });
         update_quarantine_issue_();
@@ -3586,25 +3704,89 @@ private:
         return bmis;
     }
 
-    // usable plan W7: whether clangd already keeps `module`'s BMI, finished (no lock file beside it)
-    // and at least as new as the module's source. An importer's own build then reuses it, and a
-    // prime unit would only take clangd workers from the files a person opened.
+    // usable plan W7, W-4: whether clangd already keeps `module`'s BMI for the command the database gives it now,
+    // so an importer's own build reuses it and a prime unit would only take clangd workers from the files a person
+    // opened. Known only for a module this engine prepared before (module-builds.json) whose command and source
+    // are unchanged since, whose imports are the same, and whose BMI is still in clangd's cache. A BMI of another
+    // command was taken for built before (issue #30: none primed, all rebuilt serially in the opened file).
     bool module_already_built_(const PrimeModule& module) {
         const auto source = moduleSources_.find(module.name);
         if (source == moduleSources_.end()) return false;
+        load_built_modules_();
+        std::set<std::string, std::less<>> seen;
+        std::function<bool(std::string_view)> current = [&](std::string_view name) {
+            if (!seen.insert(std::string { name }).second) return true;
+            const auto record = builtModules_.find(name);
+            const auto command = moduleCommands_.find(name);
+            const auto providing = moduleSources_.find(name);
+            if (record == builtModules_.end() || command == moduleCommands_.end() || providing == moduleSources_.end()) return false;
+            if (record->second.command != command->second || record->second.stamp != platform::fs::stamp(providing->second)) return false;
+            if (const auto requires_ = moduleRequires_.find(name); requires_ != moduleRequires_.end()) {
+                for (const auto& required : requires_->second) {
+                    if (!current(required)) return false;
+                }
+            }
+            return true;
+        };
+        if (!current(module.name)) return false;
         if (!startupBmis_) startupBmis_ = cached_bmis_();
         const auto files = startupBmis_->find(base::file_name(source->second));
         if (files == startupBmis_->end()) return false;
-        const auto sourceStamp = platform::fs::stamp(source->second);
-        if (!sourceStamp) return false;
         std::string wanted { module.name };
         std::ranges::replace(wanted, ':', '-');
         wanted += ".pcm";
-        return std::ranges::any_of(files->second, [&](const std::string& file) {
-            if (base::file_name(file) != wanted || platform::fs::exists(file + ".lock")) return false;
-            const auto bmiStamp = platform::fs::stamp(file);
-            return bmiStamp && bmiStamp->modified >= sourceStamp->modified;
-        });
+        return std::ranges::any_of(files->second, [&](const std::string& file) { return base::file_name(file) == wanted; });
+    }
+
+    std::string built_modules_path_() const { return base::join_path(databaseDirectory_, "module-builds.json"); }
+
+    void load_built_modules_() {
+        if (builtModulesLoaded_) return;
+        builtModulesLoaded_ = true;
+        const auto text = platform::fs::read_file(built_modules_path_());
+        if (!text) return;
+        const Json document = Json::parse(*text, nullptr, false);
+        if (document.is_discarded() || document.value("version", 0) != 1 || !document.contains("modules") || !document["modules"].is_object()) return;
+        for (const auto& item : document["modules"].items()) {
+            const std::string name { item.key() };
+            const Json& entry { item.value() };
+            if (!entry.is_object()) continue;
+            BuiltModule built { entry.value("command", std::string {}), std::nullopt };
+            if (entry.contains("size") && entry.contains("modified")) {
+                built.stamp = platform::fs::FileStamp { entry.value("size", std::uint64_t { 0 }), entry.value("modified", std::int64_t { 0 }) };
+            }
+            builtModules_.emplace(name, std::move(built));
+        }
+    }
+
+    // `module` was prepared: its BMI, and those of everything it imports, now exist for the commands the database
+    // gives them. Recorded with each source's stamp.
+    void record_built_closure_(std::string_view module) {
+        load_built_modules_();
+        std::deque<std::string> pending { std::string { module } };
+        std::set<std::string, std::less<>> seen;
+        while (!pending.empty()) {
+            const std::string name { std::move(pending.front()) };
+            pending.pop_front();
+            if (!seen.insert(name).second) continue;
+            const auto command = moduleCommands_.find(name);
+            const auto source = moduleSources_.find(name);
+            if (command == moduleCommands_.end() || source == moduleSources_.end()) continue;
+            builtModules_[name] = BuiltModule { command->second, platform::fs::stamp(source->second) };
+            if (const auto requires_ = moduleRequires_.find(name); requires_ != moduleRequires_.end()) {
+                for (const auto& required : requires_->second) pending.push_back(required);
+            }
+        }
+        Json modules = Json::object();
+        for (const auto& [name, built] : builtModules_) {
+            Json entry { { "command", built.command } };
+            if (built.stamp) {
+                entry["size"] = built.stamp->size;
+                entry["modified"] = built.stamp->modified;
+            }
+            modules[name] = std::move(entry);
+        }
+        (void)platform::fs::write_file_atomic(built_modules_path_(), Json { { "version", 1 }, { "modules", std::move(modules) } }.dump());
     }
 
     // Whether the files a person is waiting for are waiting on preparation itself. Throttling
@@ -3651,7 +3833,8 @@ private:
         host_->status_changed();
     }
 
-    bool finish_prime_(std::string_view engineUri) {
+    // `diagnostics`: what clangd published for the prime unit, when it was that and not a deadline.
+    bool finish_prime_(std::string_view engineUri, const Json* diagnostics = nullptr) {
         if (primeDirectory_.empty()) return false;
         const std::string canonical { host_->path_of_uri(engineUri) };
         if (canonical.empty() || !base::is_within(canonical, primeDirectory_)) return false;
@@ -3662,6 +3845,10 @@ private:
         primeModuleByPath_.erase(it);
         primeDeadlines_.erase(module);
         heldPrimeUnits_.emplace(pathKey, canonical);
+        if (diagnostics != nullptr && !modulesFailedAt_.contains(module) && !doomedModules_.contains(module)
+            && std::ranges::none_of(*diagnostics, [](const Json& diagnostic) { return diagnostic.value("severity", 0) == 1; })) {
+            record_built_closure_(module);
+        }
         primer_.finish(module);
         lastPrimeProgressAt_ = Clock::now();
         pump_primer_();
