@@ -59,6 +59,33 @@ int main() {
         fs::remove_all(workspace);
     };
 
+    // C-5 (plan 2026-09-30): a server that crashed left its lease fresh, the editor restarted it at once, and the new one
+    // took itself for a second instance and started cold in a private directory. A lease names its process now.
+    "a fresh lease whose process is gone, or whose pid another process has, is taken over at once"_test = [] {
+        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::linux) return;   // the heartbeat alone decides elsewhere
+        const std::string workspace { scratch("lease-owner") };
+        const auto now = std::chrono::system_clock::now();
+        const auto heartbeat = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+        const std::string lease { mcppls::base::join_path(workspace, "owner.lease") };
+        (void)fs::write_file(lease, Json { { "token", "crashed" }, { "heartbeat", heartbeat }, { "pid", 999999999 }, { "started", "12345" } }.dump());
+        auto restarted = orch::WorkspaceLease::acquire(workspace, now + std::chrono::seconds { 2 });
+        expect(!restarted.shared() && restarted.directory() == workspace) << "the owner's process is gone";
+        restarted.release();
+
+        const auto self = fs::read_file("/proc/self/stat");
+        expect(fatal(self.has_value()));
+        const std::int64_t pid { std::stoll(self->substr(0, self->find(' '))) };
+        (void)fs::write_file(lease, Json { { "token", "reused" }, { "heartbeat", heartbeat }, { "pid", pid }, { "started", "1" } }.dump());
+        auto reused = orch::WorkspaceLease::acquire(workspace, now + std::chrono::seconds { 2 });
+        expect(!reused.shared()) << "the pid is another process's now";
+        // The live owner itself: a second instance still works in a private directory.
+        auto guest = orch::WorkspaceLease::acquire(workspace, now + std::chrono::seconds { 3 });
+        expect(guest.shared()) << "the owner is this very process, alive";
+        guest.release();
+        reused.release();
+        fs::remove_all(workspace);
+    };
+
     "a payload's kit is taken only when its libc++ is the core engine's version"_test = [] {
         const std::string payload { scratch("payload-v3") };
         (void)fs::create_directories(mcppls::base::join_path(payload, "clangd/bin"));
