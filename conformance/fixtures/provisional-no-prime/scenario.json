@@ -1,0 +1,52 @@
+{
+  "name": "provisional-no-prime",
+  "description": "0.0.8 plan R-4 (issue #34-1). The build tool's producer (a shell script around mcppls-mock-mcpp, `prepare delayed-producer`) answers eight seconds late, and there is no cached model, so the server plans with the sources it scanned itself meanwhile. Preparing project modules under that provisional model is wasted work and a risk: the modules are prepared for commands the build tool's model will replace (their BMIs are then unusable), and on Windows clangd crashed four or five times on the provisional model before the real one came (GalTranslPP, issue #34-1). While the provisional model is in use only std and std.compat may be prepared; a file that imports a project module waits for the build tool's model, and when it comes the project module is prepared and the importer's hover and definition work. 0.0.7 began preparing project modules 2.5 s after start, from the provisional model.",
+  "prepare": [
+    ["{conformance}", "prepare", "delayed-producer", "8"]
+  ],
+  "server-arguments": [
+    "--mcpp",
+    "{workspace}/stand-in/mcpp"
+  ],
+  "checks": [
+    {
+      "id": "R0-open-the-importer",
+      "kind": "responds",
+      "method": "textDocument/hover",
+      "file": "src/main.cpp",
+      "at": [4, 31],
+      "timeout": 30
+    },
+    {
+      "id": "R1-provisional-window-prepares-std-only",
+      "kind": "report",
+      "not-before-since-start": 6,
+      "timeout": 5,
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/preparation/wanted",
+          "at-most": 2
+        },
+        {
+          "path": "/roots/0/engines/*/details/preparation/running",
+          "at-most": 2
+        }
+      ]
+    },
+    {
+      "id": "R2-model-comes",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "timeout": 120
+    },
+    {
+      "id": "R3-project-module-prepared-after-it",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [4, 31],
+      "expect": "greet",
+      "timeout": 120
+    }
+  ]
+}

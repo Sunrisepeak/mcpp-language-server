@@ -709,7 +709,7 @@ bool includes(const Json& candidate, const Json& expected) {
 }
 
 // A fixture's expectations of a JSON result (conformance/README.md, S5 checks): each names a pointer and
-// one of equals, contains, min-items, max-items, at-least (a number), exists or absent, and holds when any value the pointer names satisfies it --
+// one of equals, contains, min-items, max-items, at-least and at-most (numbers), max-matches, min-matches, exists or absent, and holds when any value the pointer names satisfies it --
 // except each-contains, which every value the pointer names must satisfy (and holds when it names none).
 std::pair<bool, std::string> expectations_hold(const Json& value, const Json& expectations) {
     for (const auto& expectation : expectations) {
@@ -725,6 +725,16 @@ std::pair<bool, std::string> expectations_hold(const Json& value, const Json& ex
             held = !matches.empty();
         } else if (expectation.contains("equals")) {
             held = std::ranges::any_of(matches, [&](const Json* match) { return *match == expectation["equals"]; });
+        } else if (expectation.contains("max-matches") || expectation.contains("min-matches")) {
+            // How many of the values the pointer names satisfy "equals" (or, for strings, "contains"), at most / at least.
+            const auto matching = std::ranges::count_if(matches, [&](const Json* match) {
+                if (expectation.contains("equals")) return *match == expectation["equals"];
+                if (expectation.contains("contains") && expectation["contains"].is_string()) {
+                    return match->is_string() && match->get<std::string>().find(expectation["contains"].get<std::string>()) != std::string::npos;
+                }
+                return true;
+            });
+            held = matching <= expectation.value("max-matches", std::numeric_limits<long>::max()) && matching >= expectation.value("min-matches", 0L);
         } else if (expectation.contains("contains")) {
             const Json& wanted = expectation["contains"];
             held = std::ranges::any_of(matches, [&](const Json* match) {
@@ -738,6 +748,9 @@ std::pair<bool, std::string> expectations_hold(const Json& value, const Json& ex
         } else if (expectation.contains("max-items")) {
             const std::size_t wanted { expectation.value("max-items", std::size_t { 0 }) };
             held = std::ranges::any_of(matches, [&](const Json* match) { return (match->is_array() || match->is_object()) && match->size() <= wanted; });
+        } else if (expectation.contains("at-most")) {
+            const double wanted { expectation.value("at-most", 0.0) };
+            held = std::ranges::any_of(matches, [&](const Json* match) { return match->is_number() && match->get<double>() <= wanted; });
         } else if (expectation.contains("at-least")) {
             const double wanted { expectation.value("at-least", 0.0) };
             held = std::ranges::any_of(matches, [&](const Json* match) { return match->is_number() && match->get<double>() >= wanted; });
@@ -1400,6 +1413,12 @@ public:
 
     // Seconds from initialize to now, for a check's "within-since-start".
     double since_start() const { return seconds_since(begin_); }
+
+    // A check's "not-before-since-start": the client keeps being served until that many seconds have passed since initialize, so a
+    // check can look at the server in a window (a producer that has not answered yet) and not only when something first holds.
+    void wait_until_since_start(double seconds) {
+        while (since_start() < seconds) client_.pump_until(Clock::now() + std::chrono::milliseconds { 100 });
+    }
 
     void finish() {
         restore_files();
@@ -4021,6 +4040,7 @@ int run(Options options) {
             say("{} {} {} (not run) {}", optional ? "SKIP" : "FAIL", id, check.value("kind", std::string {}), reason);
             continue;
         }
+        if (const auto notBefore = check.find("not-before-since-start"); notBefore != check.end() && notBefore->is_number()) runner.wait_until_since_start(notBefore->get<double>());
         const auto started = Clock::now();
         auto [ok, detail] = runner.run(check);
         const double seconds { std::chrono::duration<double>(Clock::now() - started).count() };
@@ -4616,10 +4636,44 @@ int prepare_clangd_crash_context(const std::string& payload) {
     return 0;
 }
 
+// 0.0.8 plan R-4: a producer that answers late. A shell script around the mock mcpp that waits `seconds` before
+// `emit build-database` and lets every other command through at once, so the server plans with what it scanned itself
+// meanwhile and then receives the build tool's model. POSIX only.
+int prepare_delayed_producer(const std::string& seconds) {
+    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+        say("delayed-producer: POSIX only");
+        return 2;
+    }
+    const std::string self { absolute(mcppls::platform::env::arguments().front()) };
+    const std::string mock { base::join_path(base::parent_path(self), "mcppls-mock-mcpp") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+    if (!fs::exists(mock)) {
+        say("delayed-producer: {} is not built (needs mcppls-mock-mcpp beside mcppls-conformance)", mock);
+        return 1;
+    }
+    const std::string directory { base::join_path(fs::current_directory(), "stand-in") };
+    (void)fs::create_directories(directory);
+    const std::string script { std::format(
+        "#!/bin/sh\n"
+        "[ \"$1\" = emit ] && sleep {}\n"
+        "exec '{}' \"$@\"\n",
+        seconds.empty() ? std::string { "10" } : seconds, mock) };
+    const std::string path { base::join_path(directory, "mcpp") };
+    if (auto written = fs::write_file(path, script); !written) {
+        say("delayed-producer: {}", written.error().message);
+        return 1;
+    }
+    if (auto marked = fs::make_executable(std::vector<std::string> { path }); !marked) {
+        say("delayed-producer: {}", marked.error().message);
+        return 1;
+    }
+    return 0;
+}
+
 int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "s1-two-sets") return prepare_s1_two_sets(argument);
     if (kind == "payload-corrupt") return prepare_payload_corrupt(argument);
     if (kind == "producer-candidate") return prepare_producer_candidate(argument);
+    if (kind == "delayed-producer") return prepare_delayed_producer(argument);
     if (kind == "failure-at-base") return prepare_failure_at_base(argument);
     if (kind == "compdb-clang-cl-std") return prepare_compdb_msvc_std(true);
     if (kind == "compdb-clangxx-msvc-std") return prepare_compdb_msvc_std(false);
@@ -4629,7 +4683,7 @@ int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "compdb-rejected-command") return prepare_compdb_rejected_command(argument);
     if (kind == "compdb-mixed-standards") return prepare_compdb_mixed_standards(argument);
     if (kind == "compdb-lto-msvc") return prepare_compdb_lto_msvc(argument);
-    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, compdb-rejected-command, compdb-mixed-standards)", kind);
+    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, delayed-producer, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, compdb-rejected-command, compdb-mixed-standards)", kind);
     return 2;
 }
 
