@@ -104,10 +104,15 @@ interface CxxModulesIssue {
       | "producer-online"           // the build tool is describing the project with the network, as the client asked
       | "generated-files-missing"   // files the build generates are named by the build description but not written yet
       | "implementation-unreadable" // an implementation unit does not build, so the definitions in it are not reached
+      | "engine-crash-loop"         // the engine keeps exiting; it is started again after a growing delay, module-level features meanwhile
+      | "engine-start-failed"       // the engine cannot be started in this environment (a sandbox refused it); module-level features remain
+      | "preparation-stalled"       // preparing modules made no progress for a while
+      | "payload-corrupt"           // the files the server was installed with do not match their manifest; only syntax-level features are trusted
       | string;
   message: string;
   command?: Command;               // an optional action that fixes the issue
   askOnline?: boolean;             // producer-needs-download only: the client may offer to fetch what is missing (4, S3-4-16)
+  bundle?: string;                 // a diagnostic bundle the server wrote for this issue by itself: an absolute path on the server's machine (4, S3-4-22)
   category?: "code"                // the user's own source is wrong: told as diagnostics where it is
            | "engine"              // a semantic engine lost something (stopped responding, restarted too often)
            | "environment"         // the machine, the payload or the workspace's trust
@@ -138,6 +143,8 @@ Each issue **SHOULD** carry a `category` saying whose problem it is. <a id="S3-4
 A server **SHOULD NOT** send `degraded` for a condition that ends by itself within a few seconds (a file set aside and handed back while the user types): it holds a change to `degraded` until it has lasted a short interval, and sends `error` at once. <a id="S3-4-15"></a><sup>S3-4-15</sup>
 
 A `producer-needs-download` issue says that the build tool, run without the network as a server runs it on its own, cannot describe the project until something is downloaded. A server **MAY** set `askOnline` on it when, asked by `workspace/executeCommand` with the command `mcppls.describeOnline`, it will describe the project once with the network allowed; every later description is without it again. <a id="S3-4-16"></a><sup>S3-4-16</sup> Until the client asks, and while the download runs, the server **MUST** go on serving the root from what it has (its sources, a partial description) <a id="S3-4-17"></a><sup>S3-4-17</sup>, and **MUST NOT** reach the network on its own. <a id="S3-4-18"></a><sup>S3-4-18</sup> A client that offers the download **MUST NOT** block anything on the question: no modal dialog, and no request, activation or startup waits for the answer. <a id="S3-4-19"></a><sup>S3-4-19</sup> It **SHOULD** ask at most once per root and set of missing things. <a id="S3-4-20"></a><sup>S3-4-20</sup> It **MUST NOT** act on an answer that comes after the root's status no longer carries the issue: the person may have built the project in their own terminal meanwhile, and the server's own offline retries find that by themselves. <a id="S3-4-21"></a><sup>S3-4-21</sup> A client that does not know `askOnline` sees an issue with a command, as before.
+
+An issue the server cannot recover from without the person — an engine that keeps exiting, cannot be started or cannot run on the machine, a corrupt installation, preparation that stopped making progress — is what a bug report is written about, and what it needs is gone once the editor is restarted. For such an issue a server **SHOULD** write a diagnostic bundle by itself when the issue first appears, and name it in `bundle`. <a id="S3-4-22"></a><sup>S3-4-22</sup> The bundle **MUST** be redacted as a report is (S3-5.5-3), and stay on the machine it was written on: neither the server nor the client sends it anywhere. <a id="S3-4-23"></a><sup>S3-4-23</sup> A server **SHOULD** keep only the few newest bundles it wrote by itself. <a id="S3-4-24"></a><sup>S3-4-24</sup> A client that presents `bundle` **SHOULD** offer, once per issue and without blocking anything, to report the problem with the file attached by the person, to restart and to leave the server off for the workspace. <a id="S3-4-25"></a><sup>S3-4-25</sup> A client that does not know `bundle` sees the issue as before.
 
 A server whose semantic capabilities come from more than one engine **SHOULD** list each in `engines` with its role and state, and **MUST** name the engine that provides the core C++ semantics in `engine`, or `"none"` when the root has none. A client **MUST** accept engine names other than `"clangd"`. <a id="S3-4-5"></a><a id="S3-4-6"></a><a id="S3-4-7"></a><sup>S3-4-5, S3-4-6, S3-4-7</sup>
 
@@ -221,7 +228,8 @@ Direction: client → server. What a report of a problem needs, gathered by the 
 interface CxxModulesReportParams { redact?: boolean }   // default true
 interface CxxModulesReport {
   generatedAt: string;             // UTC, ISO 8601
-  server: { name: string; version: string; platform: string; uptimeSeconds: number; logLevel: string; logFile: string };
+  server: { name: string; version: string; platform: string; uptimeSeconds: number; logLevel: string; logFile: string;
+            sandbox?: string | null };   // the sandbox the server runs in, e.g. "proot"; null when none was detected
   client: { name: string; version?: string } | null;   // the client's clientInfo, as it sent it
   roots: object[];                 // one entry per workspace root
   settings?: object;               // the settings in effect, where each came from, and the problems applying them
@@ -234,6 +242,18 @@ A server **SHOULD** answer at once with what it knows rather than wait for its e
 The content of each `roots` entry is the server's own and may change between server versions: a client **MUST NOT** base features on it. <a id="S3-5.5-2"></a><sup>S3-5.5-2</sup>
 
 A report is made to be shared, so unless `redact` is `false` a server **SHOULD** replace in it the user's home directory (by `~`), the user's and the machine's names and anything it recognizes as a secret (by placeholders such as `<user>` and `<redacted>`), in every spelling a path takes in it, and use the same placeholder for the same original throughout. <a id="S3-5.5-3"></a><sup>S3-5.5-3</sup> Paths of the project itself are kept: they are what a report is read for.
+
+### 5.6 `mcppls.resetCache`
+
+Direction: client → server, as `workspace/executeCommand`. The server stops using a root's cache, removes it and starts that root again: the way out of a cache that holds something wrong, without a person finding and deleting a directory while the server has it open.
+
+```ts
+// workspace/executeCommand { command: "mcppls.resetCache", arguments: [ResetCacheParams] }
+interface ResetCacheParams { root?: DocumentUri }       // absent: every root the server serves
+interface ResetCacheResult { ok: true; freedBytes: number; roots: number }   // roots: how many were reset
+```
+
+A server that advertises the command in `executeCommandProvider.commands` **MUST** remove a root's cache only after its engines have stopped using it, and answer with an error for a `root` it does not serve. <a id="S3-5.6-1"></a><sup>S3-5.6-1</sup> The requests the root's engines owed **MUST** be answered, by the remaining engines or empty. <a id="S3-5.6-2"></a><sup>S3-5.6-2</sup> A client **MUST NOT** register a command of its own under an id the server advertises: clients that register the server's commands (as `vscode-languageclient` does) then fail to start. <a id="S3-5.6-3"></a><sup>S3-5.6-3</sup>
 
 ## 6. Module features through standard LSP
 

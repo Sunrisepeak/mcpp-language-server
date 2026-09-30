@@ -139,6 +139,28 @@ first, a unit changed on disk again, the rest once clangd is idle -- and closes 
 stay in clangd's index. A definition request that still lands on a declaration in a module interface
 searches the module's units by name.
 
+**What the person feels comes first** (0.0.7, `.agents/docs/2026-09-30-stability-performance-plan.md`).
+Scheduling, timeouts and restarts are decided by what the person in the editor notices: nothing
+waits, nothing restarts under their hands, nothing flaps. A request they wait on has a budget for
+clangd (completion and signature help 1 s, hover 2 s, definitions 10 s); past it mcppls answers
+with what it has -- a completion the file's words as an incomplete list the client asks again for --
+and clangd's request is cancelled, while clangd's own watchdogs still see it until clangd lets go.
+clangd gets the threads but one (2 to 8, capped by memory); preparation takes every worker but one
+while an open file waits on it and half otherwise; implementation units are built for the index one
+at a time and only after 10 s without typing, opening or asking. A restart for the plan, or for work
+clangd would not let go of, waits for typing to pause 3 s (60 s at most); a crash or a clangd that
+answers nobody restarts at once. A timeout behind the server's own background work is not held
+against the file. Conditions that pass by themselves turn the status degraded only after 30 s. A
+clangd that keeps crashing is backed off (1, 2, 4, 8 minutes) instead of given up, and its crash
+issues clear once it has stayed up a minute. Stale module locks are cleared before clangd starts and
+when clangd says it waits on one another process holds. Each unit keeps the BMIs of its two newest
+commands. `std` is built with only the standard library's own configuration macros, never the
+project's (GalTranslPP's `_RANGES_` is MSVC STL's `<ranges>` header guard). The model cache keeps the
+options derived from the database, so a warm start gives clangd the same commands and rebuilds
+nothing (#30). The build tool's hard deadline follows how long it took last time (5 minutes the first
+time, then three times the last run, 1 to 10 minutes), and a saved source reruns it only when its
+module structure changes.
+
 **Observability.** One occurrence must be enough to see why. clangd logs at `info` into a ring in
 memory; crashes, stuck or spinning clangd, files set aside, backed-off restarts and a workaround
 whose premise is seen broken each write an incident under the workspace's cache (the newest twenty,
@@ -146,7 +168,11 @@ for a week): what led up to it, clangd's log, each file's editor-versus-disk lin
 clangd's recent states per file, and which of its threads used the CPU. Every change of the engine
 database is logged with what changed. A diagnostic bundle (`mcppls.exportBundle`, `mcppls report
 --bundle`) zips the report, environment, logs, incidents and engine database, with the user's home,
-names and secrets replaced, and is not written at all when any is left; it is never uploaded.
+names and secrets replaced, and is not written at all when any is left; it is never uploaded. What
+nothing recovers from by itself (a crash loop, an engine that cannot start or run, a corrupt payload,
+stalled preparation) writes one at once (`<cache>/bundles/auto-<code>-<time>.zip`, the newest five),
+named in the status issue's `bundle` (S3-4-22); the log and the editor say where it is, how to report
+it, and that turning mcppls off for the workspace (`mcppls.enable`) works around it meanwhile.
 
 **External programs** (build tools, compiler probes, CMake, git) all go through one runner: each run
 gets its own process unit, soft and hard deadlines end the unit with everything it started, reads
@@ -201,7 +227,7 @@ before anything is published (`docs/92-release.md`).
 | BD1 | `mcppls.buildTool` defaults to `offline` |
 | BD2–3 | Build tools get the login shell's environment on POSIX; clangd keeps the editor's |
 | BD4 | A cached model is used immediately and confirmed in the background |
-| BD5 | Deadlines: producer soft 5 s / hard 60 s, toolchain probe 20 s, login shell 10 s, 2.5 s wait for a producer when nothing is cached (10 s until 0.0.6, plan 2026-09-27 D5) |
+| BD5 | Deadlines: producer soft 5 s / hard 5 minutes the first time, then three times the last run, 1 to 10 minutes (60 s fixed until 0.0.7, plan 2026-09-30 G-4); toolchain probe 20 s, login shell 10 s, 2.5 s wait for a producer when nothing is cached (10 s until 0.0.6, plan 2026-09-27 D5) |
 | BD7 | Withdrawn in 0.0.6 (plan 2026-09-27 D1): every configure of the private CMake build directory is disconnected (`FETCHCONTENT_FULLY_DISCONNECTED`); fetching is the person's choice (BD9) |
 | BD8 | No minimum-version table for build tools; a hang, timeout or download need suggests updating |
 | T1 | Tooling: the server is not split internally; devtools depends on no server code and is the one entry for repository work (`mcpp run -p devtools -- ...`) |
@@ -212,13 +238,22 @@ before anything is published (`docs/92-release.md`).
 | RD3 | clangd logs at `info` into memory; incidents on disk; nothing ever uploaded (D3, F17, F18) |
 | RD4 | The space is a completion trigger only after `import `, dropped by the editor elsewhere, and advertised only to clients known to drop it (D4) |
 | RD5 | Reports and bundles are redacted by default; a bundle with anything left is not written (F18) |
-| RD6 | Restarts are budgeted per cause and backed off past it, never refused; the person's restart is never counted (F14) |
+| RD6 | Restarts are budgeted per cause and backed off past it, never refused; the person's restart is never counted (F14). Extended in 0.0.7 to crashes: five exits in five minutes back clangd off for 1, 2, 4, then 8 minutes instead of giving it up (plan 2026-09-30 K-2) |
 | BD9 | A download the build description needs is fetched only when the person accepts, once, in a notification that never blocks; the server retries offline on its own meanwhile (plan 2026-09-27 D2, §9.2) |
 | BD10 | Build systems are `BuildSystemProvider`s (mcpp, CMake, xmake, meson, compile-commands); `mcppls.buildDiscovery` turns detection off, `buildDiscovery.providers` chooses them (plan 2026-09-27 B-1, B-7) |
 | RD7 | The kit replaces the toolchain's `std` only when std's own unit fails to compile or the plan has none; a report about a database clangd has not read is ignored (plan 2026-09-27 D4', Q1-1, Q1-4) |
 | RD8 | Generated output a producer only names in its private planning directory is read, read-only, from the project's own `target/`; missing, it is reported with a build action and watched for (plan 2026-09-27 Q1-3, mcpp-community/mcpp#724) |
-| RD9 | Implementation units are built through clangd's foreground for its index (WA-CLANGD-008), until clangd's background index builds a module unit's imports (plan 2026-09-27 N-7) |
+| RD9 | Implementation units are built through clangd's foreground for its index (WA-CLANGD-008), until clangd's background index builds a module unit's imports (plan 2026-09-27 N-7); revised in 0.0.7: one at a time and only in the person's idle time (plan 2026-09-30 R-5) |
 | RD10 | Every configurable behaviour has one definition, the registry in `src/config/settings.cppm`; command line, `initializationOptions`, `didChangeConfiguration`, report and the settings chapter are derived from it and held to it by a test (plan 2026-09-27 T1) |
+| UD1 | Performance trade-offs are decided by what the person feels (fast, unnoticed), and gated by user-experience scenarios with response budgets on pinned mcpp and xlings checkouts (plan 2026-09-30 D3, D5) |
+| UD2 | A request a person waits on has a budget for clangd; past it mcppls answers with what it has, marked incomplete where the protocol allows, and clangd's request is cancelled (R-7) |
+| UD3 | Background work (N-7, preparation of what no open file waits on) uses idle time only and yields to the person; restarts nothing needs at once wait for typing to pause (R-1, R-5, R-8) |
+| UD4 | clangd's workers: the threads but one, 2 to 8, capped by memory, `mcppls.engine.workers` overrides; revises robustness design C7's cores/4 (R-2) |
+| RD11 | `std` is built with the standard library's own configuration macros only; the project's `-D`s never reach it (plan 2026-09-30 G-1) |
+| RD12 | Module locks in the cache are the lease holder's: all are cleared before clangd starts, and one another process holds is removed when clangd waits on it (C-4) |
+| RD13 | Each unit keeps the BMIs of its two newest commands; the rest are pruned when clangd starts (`mcppls cache --prune` for the others) (C-2) |
+| RD14 | What nothing recovers from by itself writes a redacted bundle at once and names it in the status; the person reports it, restarts, or turns mcppls off for the workspace (`mcppls.enable`), and nothing is uploaded (K-7) |
+| PD1 | Android under Termux (PRoot) is a supported platform: openkal-linux falls back from `execveat` to `execve` and the server detects the sandbox (plan 2026-09-30 D1, X-1..X-5) |
 
 ## 7. Known limits
 
@@ -246,7 +281,11 @@ before anything is published (`docs/92-release.md`).
 - An mcpp project built for Windows through openkal needs `--target x86_64-windows-gnu`, which no
   editor setting passes to mcpp yet.
 - openkal cannot lower a child's scheduling priority, so clangd's cold-start module builds compete
-  with the editor.
+  with the editor (plan 2026-09-30 R-9, deferred).
+- Windows gives no CPU reading of clangd yet (plan 2026-09-30 K-1, deferred), so the stuck-clangd
+  watch decides nothing there; crashes are not symbolized (K-3, deferred).
+- openkal-linux is vendored (`vendor/openkal-linux`, 0.15.1 plus the `execveat` fallback) until the
+  fix is released upstream.
 
 ## 8. Label index
 
@@ -281,7 +320,7 @@ security and privacy · 12 the rename.
 **"robustness design".** C1 language-correct drivers, `std` taken from a C++ unit · C2 stand-in
 modules for anything nobody provides · C3 failure kinds, remembered per provider fingerprint · C4 the
 restart policy · C5 the kit as `std` fallback · C6 per-file watchdog and set-aside · C7 resource
-bounds (clangd `-j` = cores/4, preparation concurrency) · C8 degradation in the status · C9
+bounds (clangd `-j` = cores/4 until 0.0.7, then UD4; preparation concurrency) · C8 degradation in the status · C9
 observability · C10 definitions in implementation units. O1 the event timeline · O2 persistent logs ·
 O3 the diagnostic report (`cxxModules/report`, `mcppls report`) · O4 what the editor shows.
 
@@ -315,6 +354,17 @@ not see it · §3 WA-CLANGD-001, the same-line `;` · §4 the spin guard, a buil
 history · §5 no stand-in for an import still being typed · §6 status issue categories, the degraded
 hold · §7 module syntax colored by an injected grammar and by the server's semantic tokens · §9 the
 workaround registry and its canaries · §10 living with other C++ extensions.
+
+**"plan 2026-09-30" — [2026-09-30-stability-performance-plan.md](2026-09-30-stability-performance-plan.md).**
+X-1..X-5 Termux / PRoot (#32) · W-1..W-5 the warm start that rebuilt every BMI (#30) and other command
+churn · G-1 `std` and the project's macros · G-2 JSON `{…}` errors on GalTranslPP · G-3 slow and
+"dying" completion · G-4 the adaptive producer deadline · G-5 edits that reran the build tool · C-1
+reset the workspace's cache · C-2 BMI pruning · C-4 stale module locks · C-5 a lease that knows its
+owner · R-1 the background budget · R-2 clangd's workers · R-3 timeouts behind background work · R-5
+N-7 in idle time · R-6 stand-ins that are no change · R-7 request budgets · R-8 restarts at idle · K-2
+crash loops backed off · K-4, K-5 guards that misjudged a busy clangd · K-6 the passing-degraded hold ·
+K-7 the automatic bundle · U1–U15 user-experience scenarios on mcpp and xlings · O-1..O-6 Code - OSS
+and the extension.
 
 **"tooling architecture".** 3.2 the workspace layout · 5.1 what mcpp, mcppls and devtools each do ·
 5.5 how devtools finds the server it just built · M0–M6 its migration steps.

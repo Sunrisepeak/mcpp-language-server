@@ -908,7 +908,7 @@
  "S2-5-2": [
   {
    "script": "src/orchestrator/workspace.cpp",
-   "contains": "void schedule_reload() { reloadAt = Clock::now() + std::chrono::milliseconds { 1500 }; }"
+   "contains": "void schedule_reload(bool fromEdits = false) {"
   }
  ],
  "S2-5-9": [
@@ -1109,6 +1109,33 @@
    "contains": "if (!this.pending.has(root)) {"
   }
  ],
+ "S3-4-22": [
+  {
+   "check": "clangd-cannot-load/K7-bundle"
+  },
+  {
+   "script": "src/orchestrator/workspace.cpp",
+   "contains": "void attach_auto_bundles(Json& issues) {"
+  }
+ ],
+ "S3-4-23": [
+  {
+   "script": "src/server/session.cpp",
+   "contains": "Written like mcppls.exportBundle with its defaults"
+  }
+ ],
+ "S3-4-24": [
+  {
+   "script": "src/server/session.cpp",
+   "contains": "for (std::size_t i { 5 }; i < automatic.size(); ++i) platform::fs::remove_all(automatic[i]);"
+  }
+ ],
+ "S3-4-25": [
+  {
+   "script": "editors/vscode/test/unit/unrecoverable.test.ts",
+   "contains": "once per code per session, and again when a bundle arrives later"
+  }
+ ],
  "S3-5.5-1": [
   {
    "check": "module-faults/F0-stand-in"
@@ -1138,6 +1165,30 @@
   {
    "script": "src/server/session.cpp",
    "contains": "reply_(id, redact ? bundle::redact_report(full_report_()) : full_report_());"
+  }
+ ],
+ "S3-5.6-1": [
+  {
+   "check": "reset-cache/R2-reset"
+  },
+  {
+   "script": "src/server/session.cpp",
+   "contains": "is not a workspace folder of this server"
+  }
+ ],
+ "S3-5.6-2": [
+  {
+   "check": "reset-cache/R3-definition-again"
+  },
+  {
+   "script": "src/engine/clangd.cpp",
+   "contains": "What clangd owed is answered by the other engines."
+  }
+ ],
+ "S3-5.6-3": [
+  {
+   "script": "editors/vscode/test/unit/cacheReset.test.ts",
+   "contains": "no command the extension registers is one the server advertises"
   }
  ],
  "S3-6-1": [

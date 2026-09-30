@@ -847,6 +847,9 @@ VSCodium 1.135.06055（`vscode.env.appName` = `VSCodium`，`uriScheme` = `vscodi
 - **O-3（P2）发布后检查 Open VSX**：按 id 安装，版本与 SHA256 必须等于发布页的 VSIX（`publish-openvsx.yml` 之后一步）；
   申请 Open VSX 命名空间认证，去掉"未认证发布者"提示。
 - **O-4（P2）诊断包记下编辑器分支**：扩展那一节加 `vscode.env.appName`、`appHost`、`uiKind`、`remoteName`。
+- **O-6（P2，用户要求 2026-09-30）扩展简介以名字开头**：VS Code 的 `description` 由 "C++20/23 named modules that just work: … built in. (mcppls)"
+  改为 "mcppls - C++20/23 named modules that just work: go to definition, completion, hover and references across modules for any compiler,
+  with clangd and a standard library kit built in."；Zed、CLion 的一句话简介同样以 "mcppls - " 开头。商店与 Open VSX 的搜索结果里名字先出现。
 - **O-5（P2）环境覆盖**：X-3 的 proot CI 作业同时装 VSIX 跑 main 套件（termux code-oss 的近似）；Flatpak 版 VSCodium 手工验证一次，
   结果写进 `docs/00-install.md` 的已知限制。
 
@@ -921,7 +924,7 @@ mcpp 与 xlings 上的场景测试与预算（D5）；0.0.7 单 PR（D6）。
 | T11 | **场景测试**：运行器的 `latency`、`typing`、`edit-save`、`fault`、`timeline`、`bmi-reuse`、`resources` 检查；`ux-mcpp`、`ux-xlings` fixture；CI（0.0.7 PR 必过、nightly 三轮、pre-release 门槛取代 `timing` 中位数、普通 PR 的 5 分钟精简版）。**先做**：用它量出 0.0.6 在 4 vCPU 上的基线，再由 T8 / T9 的结果定稿预算 | T0 | U-* |
 | T12 | **缓存**：重置本工作区缓存的命令（VS Code、Zed、CLion、服务端命令）；GC（只留当前命令与最近 2 份、容量上限、启动后后台执行、`cache --prune`）；自愈（同类故障跨会话重复时移开模块缓存一次） | T6 | C-1、C-2、C-3 |
 | T13 | **proot CI**：从固定 commit 构建 termux-proot（x64、arm64），两种模式跑 `inferred`、`mcpp-emit`、`timing`、`mcpp-watch` 与 VSIX main 套件；必跑 | T1、T2 | X-3、X-4、X-5、O-5 |
-| T14 | **Code-OSS**：`MCPPLS_E2E_EDITOR` 与 CLI 路径推导；VSCodium 的 CI 作业；Open VSX 发布后校验；诊断包记 `appName` 等 | T0 | O-1..O-4 |
+| T14 | **Code-OSS**：`MCPPLS_E2E_EDITOR` 与 CLI 路径推导；VSCodium 的 CI 作业；Open VSX 发布后校验；诊断包记 `appName` 等；扩展简介以 "mcppls - " 开头 | T0 | O-1..O-4、O-6 |
 | T15 | **崩溃符号**：release 资产附 clangd 符号文件；incident 记模块偏移、devtools 离线符号化；扇出崩溃的最小复现与上游登记 | T0 | K-3 |
 | T16 | **规范与文档**：S3 新 issue 码（`engine-start-failed`、`producer-timeout`、`module-lock-stale`、`engine-crash-loop`）与 schema / traceability；设置注册表（`engine.workers`、`engine.lowPriority`、缓存上限）与 `docs/30-settings.md`；`design.md` 决定表（修订 BD5、C7，RD6 扩到崩溃，新增 D1–D6）与已知限制（删去"openkal 不能降低子进程优先级"，写明 termux 支持范围）；`docs/00-install.md`、`docs/92-release.md`（新门槛）；CHANGELOG；#24 登记（clangd 扇出崩溃、Windows 锁、PRoot `execveat` 与 seccomp 模式的寄存器恢复、mcpp emit 耗时）；向 termux/proot 与 proot-me 各报 issue | 全部 | — |
 | T17 | **验证**：单元测试；全部 conformance fixture（三平台）；`ux-mcpp`、`ux-xlings`；proot 作业；VSCodium 作业；GalTranslPP 探针按 §6.4 预算（Windows）；报告人在 termux 真机上用候选 VSIX 复测 | 全部 | — |
@@ -1046,3 +1049,31 @@ VSCodium 作业通过；GalTranslPP 探针在 Windows 上 `Run.cpp` 零 `no_memb
 
 scratchpad 在 `/tmp` 下，会话结束后可能被清理：#30 的失败单测（T4 的起点）、`f-codeoss/` 的 harness 补丁（T14 的起点）应在 T0 时
 搬进仓库；`e-perf/harness/` 的驱动只作 T11 的参照；`e-perf/cache`（17 GB）不需要保留。
+
+## 13. 实现记录（0.0.7，2026-09-30）
+
+按 §10 做完的条目与方案的差异，以代码为准：
+
+- **R-7**：预算在编排层（`routing::answer_budget`、`Workspace::answer_without_core`），与 F15 的关键字耐心合为一处；到点先答、再对
+  clangd 发 `$/cancelRequest`，请求仍留在 clangd 引擎的 `pending_` 里直到 clangd 回应，所以超时、隔离与 StuckWatch 的判断不受影响。
+  补全回退是本文件里离光标最近、首字母相同的词（跳过注释与字面量；`.`、`->`、`::` 之后不给），`isIncomplete: true`，关键字照旧并入。
+  与 §4.3 表格的两处不同：
+  - 定义 / 声明的预算直接是 10 s，没有 3 s 的"先给词法定位"。mcppls 引擎在 import 行上本来就排在 clangd 前面作答（优先级 100 对 0），
+    按名字找定义（N-8）在 clangd 引擎的定义搜索里，编排层没有另一个可问的引擎。
+  - semanticTokens、documentSymbol、folding 不设预算：所有客户端都异步处理它们，没有人看着转圈；截断后再 refresh 只会多一轮请求。
+- **R-1**：没有单独的调度器对象，由三处限流合成：预建 ≤ `workers − 1`（有文件在等）或一半；N-7 在预建时不开、只在空闲时一次 1 个；
+  定义搜索由用户发起、受请求的期限约束。效果与四级优先级一致，代码少一层。
+- **R-5**：`Options::implementationQuiet`（10 s）；"活动"是打开 / 修改文件与交互请求。**R-8**：只有输入（didChange）推迟重启，悬停、
+  补全不推迟——否则 fixture 的重试循环与"一直在 hover 的人"会把重启拖满 60 s；`engine-restart-postponed` 事件。
+- **R-3**：超时时预建或后台单元在构建，按 `rebuilding` 处理（仍计入"谁都不回答"）；`request-timeout` 事件带 `workers`、`preparing`、
+  `backgroundBuilding`。
+- **K-6**：只对会自己消失的问题（`file-quarantined`、`engine-restart-capped`）持续 30 s 才报 degraded；崩溃、超时重启、项目与环境问题
+  仍是 3 s（S3-4-15）。"一分钟内超过 6 次合并"没有做：30 s 的保持已经覆盖了观察到的翻转。
+- **C-2**：每个单元保留最新的 2 个命令目录；clangd 启动前改名移到 `contexts/<ctx>/trash/`（启动不等），后台线程删除；`mcppls cache --prune`
+  处理没有服务端占用（无 `owner.lease`）的全部工作区。没有做容量上限设置与跨工作区 LRU：每单元 2 份已把缓存限在项目 BMI 的两倍以内；
+  需要时再加（记入剩余）。
+- **K-7**：自动诊断包写在 `<cache>/bundles/auto-<code>-<time>.zip`，保留最新 5 个；issue 带 `bundle`（S3-4-22..25）；扩展的通知、
+  崩溃报告、`mcppls.enable` 与 issue 模板在编辑器线里完成。
+- **推迟**：K-1、K-3、R-9、C-3（§9 已定），以及 R-4（过渡模型不预建）：#30 修好后同一命令不再重建，R-8 让模型切换发生在空闲时，
+  R-4 剩下的收益只在"没有缓存的第一次打开"，留到 0.0.8 按 U1 的实测决定。
+- **G-2**（JSON `{…}`）仍待 GalTranslPP 交叉验证：用 PR 分支的构建复测 `Batch.cpp:135`、`TransAgent.cpp:437`。

@@ -2,6 +2,11 @@
 
 ## 0.0.7
 
+- Faster answers while you type: completion waits for clangd at most a second before mcppls answers
+  with the file's words (an incomplete list, asked again as you type), background indexing waits for
+  a pause, and restarts wait until you stop typing.
+- **Reset This Workspace's Cache** in the palette: the server stops, removes the workspace's cache and
+  starts again.
 - When mcppls cannot recover by itself (clangd crashing again and again, a corrupt payload, an
   incompatible clangd, preparation that never finishes) the server saves a diagnostic bundle and the
   editor shows one non-modal notification: **Report Issue…** (reveals the bundle and opens the bug
