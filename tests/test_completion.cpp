@@ -198,6 +198,9 @@ int main() {
         expect(completion::document_words(text, at("p->co", 5)).empty());
         expect(completion::document_words(text, at("cou;", 0)).empty()) << "nothing typed yet";
         expect(completion::document_words(text, at("cou;", 3), 1).size() == 1U);
+        const std::string halfTyped { "auto s = R\"not a raw string;\nint counter_after = 0;\ncou" };
+        expect(labels_of(Json { { "items", completion::document_words(halfTyped, mcppls::base::position_at(halfTyped, halfTyped.size())) } })
+               == std::vector<std::string> { "counter_after" }) << "a half-typed raw string does not swallow the rest of the file";
         const Json list = completion::without_engine(words);
         expect(list["isIncomplete"] == true && list["items"] == words);
         const Json withKeywords = completion::merge(completion::without_engine(Json::array()), idx::keyword_completion("i", Position { 0, 1 }, nullptr));

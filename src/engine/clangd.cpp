@@ -2190,6 +2190,8 @@ private:
         incompatible_ = true;
         unavailable_ = true;
         restartAt_.reset();
+        restartWhenQuiet_ = false;
+        restartDueAt_.reset();
         // Not a crash, whatever the exit looked like: the one issue says what it is.
         std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-crashed"; });
         add_issue_(Issue { "engine-incompatible",
@@ -2959,6 +2961,7 @@ private:
     // Fix plan F13: a restart the plan asks for waits PLAN_RESTART_SETTLE (and the gate), so the plans that
     // follow while an import or a module declaration is still being typed are served by the same restart.
     void schedule_plan_restart_(std::string_view reason) {
+        if (crash_backoff_pending_()) return;   // the next start reads the plan as it is then
         const auto now = Clock::now();
         const auto at = std::max(now + PLAN_RESTART_SETTLE, restartGate_.earliest(now, RestartCause::plan));
         if (restartGate_.at_cap(now, RestartCause::plan)) note_backoff_(reason, RestartCause::plan, at);
@@ -3145,8 +3148,14 @@ private:
         } }.detach();
     }
 
+    // K-2: a crash loop's backoff is not cut short by a restart something else asks for (the plan's, a recovery); the
+    // status promised when clangd is tried again, and a clangd that keeps crashing would only crash again sooner. The
+    // person's own restart (restart_on_request) and a switch of toolchain, profile or context still go at once.
+    bool crash_backoff_pending_() const { return unavailable_ && restartAt_ && restartCause_ == RestartCause::crash; }
+
     // A restart at the next timer, as soon as the gate allows: for callers in the middle of work on the requests a restart ends.
     void schedule_restart_(std::string_view reason, RestartCause cause = RestartCause::recovery) {
+        if (crash_backoff_pending_()) return;
         const auto now = Clock::now();
         const auto at = restartGate_.earliest(now, cause);
         if (restartGate_.at_cap(now, cause)) note_backoff_(reason, cause, at);
@@ -3190,6 +3199,7 @@ private:
 
     // A restart now, or as soon as the gate allows (robustness design C4), backed off past the cap (fix plan F14).
     void request_restart_(std::string_view reason, RestartCause cause = RestartCause::recovery) {
+        if (cause != RestartCause::user && crash_backoff_pending_()) return;   // a switch of toolchain may be what helps
         const auto now = Clock::now();
         const auto at = restartGate_.earliest(now, cause);
         if (at <= now) {
@@ -3226,6 +3236,8 @@ private:
         handshakeDone_ = false;
         accepting_ = false;
         restartAt_.reset();
+        restartWhenQuiet_ = false;
+        restartDueAt_.reset();
         diagnosed_.clear();
         host_->forget_engine_diagnostics(ENGINE_ID);
         const std::string context { base::parent_path(databaseDirectory_) };

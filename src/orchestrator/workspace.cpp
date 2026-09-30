@@ -291,6 +291,9 @@ struct Workspace::Impl final : engine::Host {
 
     // Timers.
     std::optional<Clock::time_point> reloadAt;
+    // reloadAt may be moved by edits (schedule_reload(true)): it was set by edits, or is a retry minutes away. A reload
+    // a build description asked for is not moved.
+    bool reloadMovable { false };
     std::optional<Clock::time_point> replanAt;
     // import-hang plan §5: when each open file (path key) was last changed in the editor. An import that nothing
     // provides in a file changed within EDITING_WINDOW is most likely still being typed.
@@ -1175,6 +1178,7 @@ struct Workspace::Impl final : engine::Host {
             // Design 4.1: try again in five minutes, or sooner if a build file changes (which sets
             // this to a second and a half). Nothing else would ever ask again.
             reloadAt = Clock::now() + std::chrono::minutes { 5 };
+            reloadMovable = true;
             if (reloadAfterLoad) {
                 reloadAfterLoad = false;
                 start_model_load();
@@ -1192,6 +1196,7 @@ struct Workspace::Impl final : engine::Host {
             log::warning("model reload ({}): {}", root, staleModelReason);
             journal.add("model-kept", Json { { "reason", staleModelReason }, { "kept", model->tier }, { "offered", loadedModel->tier } });
             reloadAt = Clock::now() + std::chrono::minutes { 5 };
+            reloadMovable = true;
             if (reloadAfterLoad) {
                 reloadAfterLoad = false;
                 start_model_load();
@@ -1391,25 +1396,36 @@ struct Workspace::Impl final : engine::Host {
     }
     // `fromEdits`: asked for by changes under the workspace rather than by a build description. Such a reload waits as
     // long as the producer takes to answer (at most a minute), so edits that keep coming are one run, not a queue of them.
+    // A reload a build description asked for is not put off by edits that follow it: it reads them too.
     void schedule_reload(bool fromEdits = false) {
         using namespace std::chrono_literals;
+        if (fromEdits && reloadAt && !reloadMovable) return;
         const auto wait = fromEdits ? std::clamp<std::chrono::milliseconds>(std::chrono::milliseconds { lastProducerMs }, 1500ms, 60s) : 1500ms;
         reloadAt = Clock::now() + wait;
+        reloadMovable = fromEdits;
     }
 
-    // K-7: the issues nothing here recovers from by itself carry the automatic bundle written for them; the first time
-    // one appears, the bundle is asked for.
-    void attach_auto_bundles(Json& issues) {
-        static constexpr std::array<std::string_view, 5> FATAL { "engine-crash-loop", "engine-start-failed", "engine-incompatible",
-                                                                 "payload-corrupt", "preparation-stalled" };
+    // K-7: the issues nothing here recovers from by itself.
+    static constexpr std::array<std::string_view, 5> UNRECOVERABLE_ISSUES { "engine-crash-loop", "engine-start-failed", "engine-incompatible",
+                                                                           "payload-corrupt", "preparation-stalled" };
+
+    // K-7: the first time one of them appears, its bundle is asked for, whatever the client: the log says where it is too.
+    void request_auto_bundles() {
+        if (!autoBundleRequest) return;
+        for (const auto& engine : engines) {
+            for (const auto& issue : engine->status().issues) {
+                if (std::ranges::find(UNRECOVERABLE_ISSUES, issue.code) == UNRECOVERABLE_ISSUES.end()) continue;
+                if (!autoBundles.contains(issue.code) && autoBundleRequested.insert(issue.code).second) autoBundleRequest(issue.code);
+            }
+        }
+    }
+
+    // K-7: and the status issue carries the bundle once it is written.
+    void attach_auto_bundles(Json& issues) const {
         for (auto& issue : issues) {
             const std::string code { issue.value("code", std::string {}) };
-            if (std::ranges::find(FATAL, code) == FATAL.end()) continue;
-            if (const auto written = autoBundles.find(code); written != autoBundles.end()) {
-                issue["bundle"] = written->second;
-            } else if (autoBundleRequest && autoBundleRequested.insert(code).second) {
-                autoBundleRequest(code);
-            }
+            if (std::ranges::find(UNRECOVERABLE_ISSUES, code) == UNRECOVERABLE_ISSUES.end()) continue;
+            if (const auto written = autoBundles.find(code); written != autoBundles.end()) issue["bundle"] = written->second;
         }
     }
 
@@ -1632,6 +1648,7 @@ struct Workspace::Impl final : engine::Host {
 
     void update_status() {
         if (!initializeAnswered) return;   // see the field's own comment
+        request_auto_bundles();
         const State state { compute_state() };
         if (state == State::degraded && lastReportedState != State::degraded) {
             const auto now = Clock::now();
@@ -2008,6 +2025,7 @@ void Workspace::did_save(const Json& message, const Json& params) {
 void Workspace::handle_watched_files(const Json& changes) {
     ++impl_->snapshotGeneration;
     bool reload { false };
+    bool describedAgain { false };   // a build file or another input of the producer's, not a source: reloaded without the edit delay
     bool replan { false };
     for (const auto& change : changes) {
         const std::string path { impl_->path_of_uri(change.value("uri", std::string {})) };
@@ -2020,11 +2038,11 @@ void Workspace::handle_watched_files(const Json& changes) {
         if (is_build_file(name)) {
             // mcpp rewrites its own compile_commands.json while the model loads.
             if (name == "compile_commands.json" && impl_->model && impl_->model->source == project::SourceKind::mcpp) continue;
-            reload = true;
+            reload = describedAgain = true;
             continue;
         }
         if (!project::is_cxx_source_name(path)) {
-            if (producerInput) reload = true;   // an input the producer named that is not a source: what it reads changed
+            if (producerInput) reload = describedAgain = true;   // an input the producer named that is not a source: what it reads changed
             continue;
         }
         const bool open { impl_->documents_.find_by_path(path) != nullptr };
@@ -2050,7 +2068,7 @@ void Workspace::handle_watched_files(const Json& changes) {
     if (reload || replan) {
         for (const auto& engine : impl_->engines) engine->sources_changed();
     }
-    if (reload) impl_->schedule_reload(true);
+    if (reload) impl_->schedule_reload(!describedAgain);
     else if (replan) impl_->schedule_replan();
     const Json message = lsp::make_notification("workspace/didChangeWatchedFiles", Json { { "changes", changes } });
     for (const auto& engine : impl_->engines) engine->notify(message);

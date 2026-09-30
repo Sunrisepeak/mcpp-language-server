@@ -131,10 +131,14 @@ Json document_words(std::string_view text, base::Position position, std::size_t 
             while (j < text.size() && base::is_identifier_char(text[j])) ++j;
             const std::string_view word { text.substr(i, j - i) };
             // A raw string literal: R"delimiter( ... )delimiter", with any encoding prefix.
-            if (j < text.size() && text[j] == '"' && (word == "R" || word == "LR" || word == "uR" || word == "UR" || word == "u8R")) {
-                const std::size_t open { text.find('(', j) };
-                const std::string closing { std::format("){}\"", open == std::string_view::npos ? std::string_view {} : text.substr(j + 1, open - j - 1)) };
-                const std::size_t end { open == std::string_view::npos ? std::string_view::npos : text.find(closing, open) };
+            // A delimiter is at most 16 characters, none of them a blank, a parenthesis or a backslash: anything else is
+            // not a raw string (a half-typed one reads as the identifier and a literal).
+            const std::size_t open { j < text.size() && text[j] == '"' ? text.find('(', j) : std::string_view::npos };
+            const std::string_view delimiter { open == std::string_view::npos ? std::string_view {} : text.substr(j + 1, open - j - 1) };
+            if (open != std::string_view::npos && (word == "R" || word == "LR" || word == "uR" || word == "UR" || word == "u8R") && delimiter.size() <= 16
+                && delimiter.find_first_of(" \t\n\\()") == std::string_view::npos) {
+                const std::string closing { std::format("){}\"", delimiter) };
+                const std::size_t end { text.find(closing, open) };
                 i = end == std::string_view::npos ? text.size() : end + closing.size();
                 continue;
             }

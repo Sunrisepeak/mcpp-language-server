@@ -542,7 +542,12 @@ private:
             for (auto& entry : platform::fs::list_directory(directory)) {
                 if (base::file_name(entry).starts_with("auto-")) automatic.push_back(std::move(entry));
             }
-            std::ranges::sort(automatic, [](const std::string& a, const std::string& b) { return platform::fs::stamp(a) > platform::fs::stamp(b); });
+            // Newest first, by when each was written (a FileStamp orders by size first).
+            const auto written_at = [](const std::string& file) {
+                const auto stamp = platform::fs::stamp(file);
+                return stamp ? stamp->modified : std::numeric_limits<std::int64_t>::min();
+            };
+            std::ranges::sort(automatic, std::greater {}, written_at);
             for (std::size_t i { 5 }; i < automatic.size(); ++i) platform::fs::remove_all(automatic[i]);
             Json outcome = written ? Json { { "auto", true }, { "code", code }, { "path", written->path } }
                                    : Json { { "auto", true }, { "code", code }, { "error", written.error().message } };
