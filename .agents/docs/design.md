@@ -257,6 +257,9 @@ before anything is published (`docs/92-release.md`).
 | UD5 | In VS Code, C and C++ open the completion list while you type, alongside inline completions: the extension contributes `editor.quickSuggestions` `{other: "on"}` as their language default (WA-VSCODE-002), since VS Code 1.125's own default waits for inline completions; a person's `[cpp]` / `[c]` value wins, and one set for every language is overridden and told in the log (plan 0.0.8 E-1, E-2) |
 | RD15 | Containment (RP1.1) takes a failed module's importers from clangd, never the unit whose compile failed: clangd reads it from the editor, with its real errors and completion (plan 0.0.8 M-1); a completion clangd does not answer gets the file's words, never nothing (M-2) |
 | RD16 | On the provisional model only the standard library is prepared; the project's modules wait for the build tool's commands (plan 0.0.8 R-4). The modules whose units clangd could not scan are taken together, one replan and one restart (P-1) |
+| RD17 | A unit opened in clangd to prepare a module is closed as soon as the module is built; its BMI stays in clangd's module cache on disk. Held open, clangd re-checked every one of them on each save (plan 0.0.8 part 2 C-1) |
+| UD6 | A completion clangd answers after its budget is not thrown away: the requests the same word makes meanwhile wait for it, and it goes to them with its edits ended at each cursor; a request in another word cancels it (plan 0.0.8 part 2 C-2) |
+| RD18 | A command that names no C or C++ standard is read with the one its build compiler uses, where Clang's differs (GCC 16: gnu++20); module units below C++20 are said once (plan 0.0.8 part 2 X-3) |
 
 ## 7. Known limits
 
@@ -374,6 +377,11 @@ Code kept closed for inline completions (WA-VSCODE-002) · M-1 the unit that fai
 M-2 completion always has the file's words · M-3 no preparation stall while its module is edited · M-4 U16
 writing a module with autosave · K-3 crash evidence for upstream · R-4 no project preparation on the
 provisional model · P-1 stand-ins together · K-6 the settled-preparing hold · O-6 the Open VSX listing wait.
+
+**"plan 0.0.8 part 2" — [2026-10-01-0.0.8-part2-plan.md](2026-10-01-0.0.8-part2-plan.md).** C-1 prepared units
+close at once · C-2 late completions reach their word · C-4 slow files and build times in the report · X-1..X-7 xmake
+followed without touching the project · X-3 the build compiler's own standard · X-4 a standard library unit that does
+not scan · I-1 include cleaner stays on · CL-1..CL-4 CLion 2026.2.3, one engine per file · Z-1..Z-3 Zed in CI.
 
 **"tooling architecture".** 3.2 the workspace layout · 5.1 what mcpp, mcppls and devtools each do ·
 5.5 how devtools finds the server it just built · M0–M6 its migration steps.
