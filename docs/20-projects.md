@@ -88,15 +88,30 @@ Continue** configures once with the network, in that private directory).
 
 ## xmake
 
-`xmake.lua` makes an xmake project. A `compile_commands.json` already at the root or in `.vscode/`
-(where xmake's VS Code plugin writes one) is read as it is. Otherwise mcppls asks xmake for one with
-its own command, `xmake project -k compile_commands`, which compiles nothing — but it configures and
-scans modules, so mcppls points xmake's configuration and build directories at its cache
-(`XMAKE_CONFIGDIR`, `--builddir`) and your project stays untouched. It runs offline
-(`--policies=package.fetch_only,network.mode:private`): a package that is not installed stops it with
-the same offer as above. The first description takes a few seconds (about 6–8 s measured, most of it
-xmake detecting the toolchain); the project is served from its sources meanwhile. Module roles come
-from scanning, so an xmake project is L3.
+`xmake.lua` makes an xmake project. mcppls asks xmake itself, with its own command,
+`xmake project -k compile_commands`, which compiles nothing — but it configures and scans modules, so
+mcppls points xmake's configuration and build directories at its cache (`XMAKE_CONFIGDIR`,
+`--builddir`) and your project stays untouched: nothing is generated, changed or deleted in it, your
+own `compile_commands.json` included. It runs offline (`--policies=package.fetch_only,network.mode:private`):
+a package that is not installed stops it with the same offer as above. The first description takes a few
+seconds (about 6–8 s measured, most of it xmake detecting the toolchain); the project is served from its
+sources meanwhile. Module roles come from scanning, so an xmake project is L3.
+
+The model follows what you do, with nothing to run by hand: a change to any `xmake.lua` describes the
+project again, and so does your own `xmake f` — mcppls reads what it left in
+`.xmake/<plat>/<arch>/xmake.conf` (read only, the newest one when there are several) and configures its
+private run the same way: platform, architecture, mode (`-m debug` gives `-O0 -g`, not the release
+flags), toolchain, SDK, runtimes, kind and the options your own `xmake.lua` declares. If xmake refuses
+one of those options (one that `xmake.lua` no longer declares), mcppls configures again with the
+standard ones only and the status says which were left out.
+
+A `compile_commands.json` of yours, at the root or in `.vscode/` (where xmake's VS Code plugin writes
+one), is **not** read while mcppls can run xmake: it only follows your last `xmake project`, not your
+`xmake.lua`, so the two would take turns. It is read as it is when mcppls cannot run xmake — the
+workspace is not trusted, xmake is not on `PATH`, or `mcppls.buildTool` is `off` — and then it is
+watched, and a notice says so once when it is older than an `xmake.lua` (or your `xmake.conf`): run
+`xmake project -k compile_commands` to update it. To have mcppls read your own file on purpose, set
+`mcppls.buildTool` to `off`.
 
 ## meson
 
