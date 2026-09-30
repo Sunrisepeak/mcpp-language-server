@@ -1454,11 +1454,27 @@ public:
             return { published && errors.empty(), published ? lsp::dump(errors) : std::string { "no diagnostics were published" } };
         }
         if (kind == "execute-command") {
-            // overall design 7.7: a command the server declared, answered without an error.
+            // overall design 7.7: a command the server declared, answered without an error. "{workspace-uri}" in an
+            // argument is the workspace folder's URI as this client sent it (not canonical: /tmp is /private/tmp on macOS).
+            Json arguments = check.value("arguments", Json::array());
+            const std::function<void(Json&)> expand = [&](Json& value) {
+                if (value.is_string()) value = base::replace_all(value.get<std::string>(), "{workspace-uri}", base::path_to_uri(workspace_));
+                else if (value.is_array() || value.is_object()) {
+                    for (auto& item : value) expand(item);
+                }
+            };
+            expand(arguments);
             const auto answer = client_.request("workspace/executeCommand",
-                                                Json { { "command", check.value("command", std::string {}) }, { "arguments", check.value("arguments", Json::array()) } },
+                                                Json { { "command", check.value("command", std::string {}) }, { "arguments", std::move(arguments) } },
                                                 timeout_);
-            return { answer.has_value(), answer ? lsp::dump(*answer) : std::string { "no answer, or an error" } };
+            // "expect": fields the answer must carry with these values (an error answers nothing).
+            bool expected { answer.has_value() };
+            if (const auto expect = check.find("expect"); expected && expect != check.end() && expect->is_object()) {
+                for (const auto& item : expect->items()) {
+                    expected = expected && answer->is_object() && answer->contains(item.key()) && (*answer)[item.key()] == item.value();
+                }
+            }
+            return { expected, answer ? lsp::dump(*answer) : std::string { "no answer, or an error" } };
         }
         if (kind == "diagnostic-code") {
             open(file);

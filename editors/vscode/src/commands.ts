@@ -397,8 +397,10 @@ export async function resetWorkspaceCache(access: ServerAccess): Promise<unknown
     } catch (error) {
         const message = errorText(error);
         access.log(`${SERVER_RESET_CACHE_COMMAND} failed: ${message}`);
-        const choice = await vscode.window.showWarningMessage(`C++ Modules: the cache was not reset. ${message}`, 'Show Logs');
-        if (choice === 'Show Logs') access.showLogs();
+        // Not awaited: the command is done, whether or not anyone answers the notification.
+        void vscode.window.showWarningMessage(`C++ Modules: the cache was not reset. ${message}`, 'Show Logs').then((choice) => {
+            if (choice === 'Show Logs') access.showLogs();
+        });
         return undefined;
     }
     const result = parseCacheResetResult(answer);

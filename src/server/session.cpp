@@ -261,10 +261,11 @@ private:
             const Json arguments = params.value("arguments", Json::array());
             std::string wanted;
             if (arguments.is_array() && !arguments.empty() && arguments[0].is_object()) wanted = arguments[0].value("root", std::string {});
+            // Under the name the root was created with (canonical_path: /var is /private/var on macOS).
             std::optional<std::string> wantedPath;
             if (!wanted.empty()) {
-                if (auto path = base::uri_to_path(wanted)) wantedPath = std::move(*path);
-                else wantedPath = wanted;
+                if (auto path = base::uri_to_path(wanted)) wantedPath = platform::fs::canonical_path(*path);
+                else wantedPath = platform::fs::canonical_path(wanted);
             }
             std::uint64_t freed { 0 };
             std::size_t reset { 0 };

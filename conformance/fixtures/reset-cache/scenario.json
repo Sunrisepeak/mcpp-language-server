@@ -5,7 +5,7 @@
   "checks": [
     { "id": "R1-ready", "kind": "status", "source": "inferred", "state": "ready", "engine-name": "clangd" },
     { "id": "R1-definition", "kind": "definition", "file": "src/main.cpp", "at": [4, 31], "expect": "src/greet/greet.cppm" },
-    { "id": "R2-reset", "kind": "execute-command", "command": "mcppls.resetCache" },
+    { "id": "R2-reset", "kind": "execute-command", "command": "mcppls.resetCache", "arguments": [{ "root": "{workspace-uri}" }], "expect": { "ok": true, "roots": 1 } },
     { "id": "R3-ready-again", "kind": "status", "source": "inferred", "state": "ready", "engine-name": "clangd", "timeout": 120 },
     { "id": "R3-definition-again", "kind": "definition", "file": "src/main.cpp", "at": [4, 31], "expect": "src/greet/greet.cppm" },
     { "id": "R3-std-again", "kind": "hover-contains", "file": "src/main.cpp", "at": [4, 31], "expect": "greet" },

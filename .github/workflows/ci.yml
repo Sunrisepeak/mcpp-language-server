@@ -537,15 +537,18 @@ jobs:
       # A workspace reached through a symbolic link, which is where every macOS
       # temporary directory is (/var is /private/var): mcpp names files by their
       # resolved path, and an unsaved edit must still reach the modules that
-      # import it (check C7).
+      # import it (check C7), and a root the client names that way is still the server's
+      # own (mcppls.resetCache with the folder's URI, reset-cache R2).
       - name: A workspace reached through a symbolic link
         if: matrix.extras && runner.os == 'Linux'
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/real"
           ln -sfn "$RUNNER_TEMP/real" "$RUNNER_TEMP/link"
-          TMPDIR="$RUNNER_TEMP/link" stage/mcppls-conformance run --server payload/bin/mcppls --payload payload \
-              --fixture conformance/fixtures/mcpp-llvm --timeout 180
+          for fixture in mcpp-llvm reset-cache; do
+            TMPDIR="$RUNNER_TEMP/link" stage/mcppls-conformance run --server payload/bin/mcppls --payload payload \
+                --fixture "conformance/fixtures/$fixture" --timeout 180
+          done
 
   # ---------------------------------------------------------------------------
   # termux / PRoot is a supported environment (issue #32, 0.0.7 plan §1, §10.2), so it is tested,
