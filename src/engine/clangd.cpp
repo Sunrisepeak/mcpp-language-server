@@ -261,6 +261,7 @@ private:
     // Fix plan F17: clangd's latest log lines (in memory only), what clangd said about each file lately,
     // the last plan's differences, and when an incident of each kind was last written.
     std::shared_ptr<LogRing> logRing_ { std::make_shared<LogRing>(4000, 4 * 1024 * 1024) };
+    std::shared_ptr<BuildTimesLog> buildTimes_ { std::make_shared<BuildTimesLog>() };   // C-4 (plan 0.0.8 part 2)
     std::map<std::string, std::deque<std::pair<std::string, std::string>>, std::less<>> statusTimeline_;   // client URI -> (UTC time, state)
     Json lastPlanDiff_ = nullptr;
     std::map<std::string, Clock::time_point, std::less<>> lastIncidentAt_;
@@ -1538,14 +1539,16 @@ private:
         auto limited = std::make_shared<LimitedLog>(options_.verboseLog ? std::numeric_limits<std::size_t>::max() : std::size_t { 40 });
         auto reader = std::make_shared<LogReader>();   // only ever used on the thread reading clangd's standard error
         auto ring = logRing_;
+        auto buildTimes = buildTimes_;
         ring->add(std::format("--- clangd {} started (generation {}) ---", options_.version, generation));
         auto started = process_->start(
             config,
             [sink, generation](Json message) { sink(Json { { "kind", "message" }, { "generation", generation }, { "message", std::move(message) } }); },
             [sink, generation] { sink(Json { { "kind", "closed" }, { "generation", generation } }); },
-            [sink, generation, root, limited, reader, ring](std::string_view line) {
+            [sink, generation, root, limited, reader, ring, buildTimes](std::string_view line) {
                 // Fix plan F17.1: every line is kept in memory for an incident, whatever reaches the log.
                 ring->add(line);
+                buildTimes->add(line);
                 const auto read = reader->read(line);
                 const log::Level level { clangd_log_level(line) };
                 // Forwarded at clangd's own severity (robustness design C7, real-project plan RP3.3): a
@@ -4150,12 +4153,12 @@ private:
         host_->status_changed();
     }
 
-    // C-4 (plan 0.0.8 part 2): the twenty files whose builds cost clangd the most, from what its log still holds -- which
-    // file is slow, and whether in its preamble, the modules it imports or its AST.
+    // C-4 (plan 0.0.8 part 2): the twenty files whose builds have cost clangd the most this session -- which file is slow,
+    // and whether in its preamble, the modules it imports or its AST.
     Json build_times_json_() const {
         const auto round = [](double seconds) { return std::round(seconds * 100) / 100; };
         std::vector<std::pair<double, Json>> files;
-        for (const auto& [file, times] : build_times(logRing_->text())) {
+        for (const auto& [file, times] : buildTimes_->times()) {
             files.emplace_back(times.preambleSeconds + times.moduleSeconds,
                                Json { { "file", file }, { "preambles", times.preambles }, { "preambleSeconds", round(times.preambleSeconds) },
                                       { "preambleMaxSeconds", round(times.preambleMaxSeconds) }, { "moduleBuilds", times.moduleBuilds },

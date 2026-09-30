@@ -126,6 +126,18 @@ struct FileBuildTimes {
     std::size_t asts { 0 };
 };
 std::map<std::string, FileBuildTimes, std::less<>> build_times(std::string_view log);
+// The same, kept as clangd writes its log: `add` takes each line on the thread reading clangd's standard error, and
+// `times` is what a report reads -- parsing the whole log for a report held the event loop for seconds.
+class BuildTimesLog {
+public:
+    void add(std::string_view line);
+    std::map<std::string, FileBuildTimes, std::less<>> times() const;
+
+private:
+    static constexpr std::size_t MAX_FILES { 2000 };
+    mutable std::mutex mutex_;
+    std::map<std::string, FileBuildTimes, std::less<>> times_;
+};
 
 // clangd's log line for a module it could not build:
 // "E[..] Failed to build module greet; due to Failed to compile C:/.../std.ixx. Use '--log=verbose' ..."

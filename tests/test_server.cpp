@@ -803,6 +803,11 @@ int main() {
         expect(agent.preambles == 2u && agent.asts == 2u && agent.moduleBuilds == 1u);
         expect(agent.preambleSeconds == 8.0 && agent.preambleMaxSeconds == 7.25 && agent.moduleSeconds == 2.5);
         expect(times.at("/p/other.cpp").moduleBuilds == 1u && times.at("/p/other.cpp").preambles == 0u);
+
+        cld::BuildTimesLog kept;
+        for (const auto line : mcppls::base::split_lines(log)) kept.add(line);
+        const auto sameTimes = kept.times();
+        expect(sameTimes.size() == 2u && sameTimes.at("D:\\a\\G\\Trans Agent.cpp").preambleSeconds == 8.0) << "kept line by line, the same";
     };
 
     "clangd's crash context names the file it crashed on (fix plan F3)"_test = [] {

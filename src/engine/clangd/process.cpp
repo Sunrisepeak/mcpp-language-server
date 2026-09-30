@@ -50,8 +50,13 @@ std::optional<ModuleFailure> parse_module_failure(std::string_view line) {
     return failure;
 }
 
-std::map<std::string, FileBuildTimes, std::less<>> build_times(std::string_view log) {
-    std::map<std::string, FileBuildTimes, std::less<>> times;
+namespace {
+
+// One line of clangd's log into `times` (build_times); false when it says nothing about a build.
+bool note_build_line(std::map<std::string, FileBuildTimes, std::less<>>& times, std::string_view line, std::size_t maxFiles) {
+    static constexpr std::string_view PREAMBLE { "Built preamble of size " };
+    static constexpr std::string_view MODULES { "Built prerequisite modules for file " };
+    static constexpr std::string_view AST { "ASTWorker building file " };
     // The seconds of "... in S seconds" at the end of a line, and the text before " in ".
     const auto seconds_at_end = [](std::string_view text) -> std::optional<std::pair<std::string_view, double>> {
         if (!text.ends_with(" seconds")) return std::nullopt;
@@ -64,34 +69,61 @@ std::map<std::string, FileBuildTimes, std::less<>> build_times(std::string_view 
         if (error != std::errc {} || end != number.data() + number.size()) return std::nullopt;
         return std::pair { text.substr(0, in), value };
     };
-    for (const auto line : base::split_lines(log)) {
-        static constexpr std::string_view PREAMBLE { "Built preamble of size " };
-        static constexpr std::string_view MODULES { "Built prerequisite modules for file " };
-        static constexpr std::string_view AST { "ASTWorker building file " };
-        if (const std::size_t at { line.find(PREAMBLE) }; at != std::string_view::npos) {
-            const auto timed = seconds_at_end(base::trim(line.substr(at)));
-            const std::size_t file { timed ? timed->first.find(" for file ") : std::string_view::npos };
-            const std::size_t version { timed ? timed->first.rfind(" version ") : std::string_view::npos };
-            if (file == std::string_view::npos || version == std::string_view::npos || version < file) continue;
-            auto& entry = times[std::string { timed->first.substr(file + 10, version - file - 10) }];
-            ++entry.preambles;
-            entry.preambleSeconds += timed->second;
-            entry.preambleMaxSeconds = std::max(entry.preambleMaxSeconds, timed->second);
-        } else if (const std::size_t at { line.find(MODULES) }; at != std::string_view::npos) {
-            const auto timed = seconds_at_end(base::trim(line.substr(at + MODULES.size())));
-            if (!timed) continue;
-            auto& entry = times[std::string { timed->first }];
-            ++entry.moduleBuilds;
-            entry.moduleSeconds += timed->second;
-            entry.moduleMaxSeconds = std::max(entry.moduleMaxSeconds, timed->second);
-        } else if (const std::size_t at { line.find(AST) }; at != std::string_view::npos) {
-            const std::string_view rest { line.substr(at + AST.size()) };
-            const std::size_t version { rest.find(" version ") };
-            if (version == std::string_view::npos) continue;
-            ++times[std::string { rest.substr(0, version) }].asts;
-        }
+    const auto entry = [&](std::string_view file) -> FileBuildTimes* {
+        if (const auto it = times.find(file); it != times.end()) return &it->second;
+        if (times.size() >= maxFiles) return nullptr;
+        return &times[std::string { file }];
+    };
+    if (const std::size_t at { line.find(PREAMBLE) }; at != std::string_view::npos) {
+        const auto timed = seconds_at_end(base::trim(line.substr(at)));
+        const std::size_t file { timed ? timed->first.find(" for file ") : std::string_view::npos };
+        const std::size_t version { timed ? timed->first.rfind(" version ") : std::string_view::npos };
+        if (file == std::string_view::npos || version == std::string_view::npos || version < file) return false;
+        FileBuildTimes* slot { entry(timed->first.substr(file + 10, version - file - 10)) };
+        if (slot == nullptr) return false;
+        ++slot->preambles;
+        slot->preambleSeconds += timed->second;
+        slot->preambleMaxSeconds = std::max(slot->preambleMaxSeconds, timed->second);
+        return true;
     }
+    if (const std::size_t at { line.find(MODULES) }; at != std::string_view::npos) {
+        const auto timed = seconds_at_end(base::trim(line.substr(at + MODULES.size())));
+        FileBuildTimes* slot { timed ? entry(timed->first) : nullptr };
+        if (slot == nullptr) return false;
+        ++slot->moduleBuilds;
+        slot->moduleSeconds += timed->second;
+        slot->moduleMaxSeconds = std::max(slot->moduleMaxSeconds, timed->second);
+        return true;
+    }
+    if (const std::size_t at { line.find(AST) }; at != std::string_view::npos) {
+        const std::string_view rest { line.substr(at + AST.size()) };
+        const std::size_t version { rest.find(" version ") };
+        FileBuildTimes* slot { version == std::string_view::npos ? nullptr : entry(rest.substr(0, version)) };
+        if (slot == nullptr) return false;
+        ++slot->asts;
+        return true;
+    }
+    return false;
+}
+
+} // namespace
+
+std::map<std::string, FileBuildTimes, std::less<>> build_times(std::string_view log) {
+    std::map<std::string, FileBuildTimes, std::less<>> times;
+    for (const auto line : base::split_lines(log)) (void)note_build_line(times, line, std::numeric_limits<std::size_t>::max());
     return times;
+}
+
+void BuildTimesLog::add(std::string_view line) {
+    // Most lines are neither: a look for "Built" or "ASTWorker" before the lock.
+    if (line.find("Built pre") == std::string_view::npos && line.find("ASTWorker building") == std::string_view::npos) return;
+    const std::lock_guard lock { mutex_ };
+    (void)note_build_line(times_, line, MAX_FILES);
+}
+
+std::map<std::string, FileBuildTimes, std::less<>> BuildTimesLog::times() const {
+    const std::lock_guard lock { mutex_ };
+    return times_;
 }
 
 base::log::Level clangd_log_level(std::string_view line) {
