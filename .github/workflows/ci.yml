@@ -814,6 +814,17 @@ jobs:
         with:
           name: ux-${{ matrix.fixture }}
           path: ${{ runner.temp }}/ux-results
+      # The server's logs and incidents of a failed stage (each incident keeps clangd's log): what a stall, a
+      # restart or a set-aside file was, which the measurements above only count.
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: ux-${{ matrix.fixture }}-server
+          path: |
+            ${{ runner.temp }}/ux-work/cache-*/logs
+            ${{ runner.temp }}/ux-work/cache-*/workspaces/*/incidents
+          if-no-files-found: ignore
+          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # Clean machines (usable plan W5, design 20.2): no compiler, no Visual Studio, no

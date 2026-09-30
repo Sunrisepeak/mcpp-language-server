@@ -297,7 +297,12 @@ private:
     Quarantine quarantine_;                                   // path keys
     std::optional<Clock::time_point> lastAnswerAt_;           // clangd's last answer to any client request
     std::optional<Clock::time_point> lastBackgroundBuiltAt_;  // when a unit opened without the editor last finished building
-    std::optional<Clock::time_point> lastDiagnosticsAt_;      // K-7 (plan 0.0.8 part 2): clangd's last publish, for any file
+    // K-7 (plan 0.0.8 part 2): clangd's last work done -- diagnostics for a file the editor has open, an answer with a result.
+    // Not a publish for a file just closed (clangd clears its diagnostics) nor an error for a cancelled request, which a
+    // clangd that finishes nothing still sends: ux-xlings set a background unit aside every two minutes, and its closing
+    // publish kept restarting the three minutes.
+    std::optional<Clock::time_point> lastDiagnosticsAt_;
+    std::optional<Clock::time_point> lastResultAt_;
     std::optional<Clock::time_point> acceptingSince_;         // K-7: when this clangd began taking requests
     int busyRestartGeneration_ { -1 };                        // K-7: the clangd it was already asked for, said once
     StuckWatch stuck_;
@@ -1998,7 +2003,7 @@ private:
     // -- counted from its start at the earliest.
     Clock::duration nothing_finished_for_(Clock::time_point now) const {
         std::optional<Clock::time_point> last { acceptingSince_ };
-        for (const auto& at : { lastDiagnosticsAt_, lastAnswerAt_, lastPrimeProgressAt_, lastBackgroundBuiltAt_ }) {
+        for (const auto& at : { lastDiagnosticsAt_, lastResultAt_, lastPrimeProgressAt_, lastBackgroundBuiltAt_ }) {
             if (at && (!last || *at > *last)) last = at;
         }
         return last ? now - *last : Clock::duration::zero();
@@ -2075,6 +2080,7 @@ private:
             lastAnswerAt_ = Clock::now();
             stuck_.clear();
             if (const std::string path { host_->path_of_uri(request.uri) }; !path.empty()) quarantine_.answered(base::path_key(path));
+            if (!message.contains("error")) lastResultAt_ = Clock::now();
             if (!request.reply) return;
             if (message.contains("error")) {
                 request.reply(Answer { Answer::Kind::error, message["error"] });
@@ -2112,7 +2118,6 @@ private:
             return;
         }
         if (method == lsp::method::TEXT_DOCUMENT_PUBLISH_DIAGNOSTICS) {
-            lastDiagnosticsAt_ = Clock::now();
             const Json& params { message["params"] };
             if (const Json* published { lsp::find(params, "diagnostics") }; finish_prime_(params.value("uri", std::string {}), published)) return;
             const std::string uri { host_->client_uri(params.value("uri", std::string {})) };
@@ -2154,6 +2159,7 @@ private:
                 host_->send_to_client(forwarded);
             } else {
                 diagnosed_.insert(uri);
+                if (!excluded_path_(diagnosedPath) && !quarantined_(diagnosedPath)) lastDiagnosticsAt_ = Clock::now();
                 const auto version = lsp::int_at(params, "version");
                 Json diagnostics = params.value("diagnostics", Json::array());
                 if (const auto rewritten = rewritten_.find(uri); rewritten != rewritten_.end()) map_out_of_rewrite_(rewritten->second, diagnostics);
