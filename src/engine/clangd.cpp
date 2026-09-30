@@ -2594,7 +2594,20 @@ private:
                          host_->root_directory(), base::file_name(path));
             host_->record_event("engine-restart-past-cap", Json { { "file", path } });
         }
-        restart_(std::format("clangd would not finish {}", base::file_name(path)), RestartCause::recovery);
+        const std::string reason { std::format("clangd would not finish {}", base::file_name(path)) };
+        // R-8 (plan 2026-09-30): the file is with mcppls's engine already; while the person types, the worker is let spin
+        // until they pause (RESTART_QUIET, at most RESTART_POSTPONE) rather than restarting clangd under their hands.
+        // xlings, autosave: a half-typed `import xlings.core.` on disk (UP-14, UP-01) restarted clangd mid-typing.
+        const auto now = Clock::now();
+        if (lastTypedAt_ && now - *lastTypedAt_ < RESTART_QUIET && (!restartAt_ || restartWhenQuiet_)) {
+            restartAt_ = now;   // due now; the timer puts it off until typing pauses (quiet_restart_at_), past the gate and the cap
+            restartReason_ = reason;
+            restartCause_ = RestartCause::recovery;
+            restartWhenQuiet_ = true;
+            host_->record_event("engine-restart-scheduled", Json { { "reason", reason }, { "cause", "recovery" }, { "seconds", 0 } });
+            return;
+        }
+        restart_(reason, RestartCause::recovery);
     }
 
     // Whether a restart gets back what clangd spends on a file it is no longer given.

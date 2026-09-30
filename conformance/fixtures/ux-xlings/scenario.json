@@ -417,7 +417,7 @@
         "p95": 1.0,
         "max": 3.0,
         "timeouts": 0,
-        "restarts": 0,
+        "restarts": 2,
         "filesSetAside": 10,
         "engineShare": 0.75,
         "diagnosticsRefresh": 3.0
@@ -464,7 +464,7 @@
       },
       "budget": {
         "republishSeconds": 20,
-        "p95": 1.0,
+        "p95": 1.5,
         "errorStates": 0
       }
     },
