@@ -1109,6 +1109,16 @@ public:
         }
     }
 
+    void detach(const Json& clientRequestId) override {
+        for (auto& [engineId, request] : pending_) {
+            if (request.purpose == Purpose::client && request.clientId == clientRequestId) {
+                request.detached = true;
+                return;
+            }
+        }
+        cancel(clientRequestId);   // not sent yet: nothing is computing it
+    }
+
     void client_response(int generation, const Json& engineRequestId, const Json& response) override {
         if (generation != generation_) return;
         Json forwarded = response;
@@ -1286,6 +1296,12 @@ public:
             pending_.erase(id);
             switch (request.purpose) {
             case Purpose::client: {
+                if (request.detached) {
+                    // C-2: nobody waits for it, so its time running out says nothing about clangd or its file.
+                    if (request.reply) request.reply(Answer {});
+                    (void)send_(lsp::make_notification("$/cancelRequest", Json { { "id", id } }));
+                    break;
+                }
                 const bool filePreparing { awaitingDiagnostics_.contains(host_->client_uri(request.uri)) && primer_.busy() };
                 if (keep_waiting(request, filePreparing, lastPrimeProgressAt_, now)) {
                     request.deadline = std::min(now + PREPARING_GRACE, request.limit);
@@ -1662,7 +1678,9 @@ private:
     std::optional<Clock::time_point> oldest_unanswered_() const {
         std::optional<Clock::time_point> oldest;
         for (const auto& [id, request] : pending_) {
-            if (request.purpose == Purpose::client && request.generation == generation_ && (!oldest || request.sent < *oldest)) oldest = request.sent;
+            if (request.purpose == Purpose::client && !request.detached && request.generation == generation_ && (!oldest || request.sent < *oldest)) {
+                oldest = request.sent;
+            }
         }
         if (!oldest || (lastAnswerAt_ && *lastAnswerAt_ >= *oldest)) return std::nullopt;
         return oldest;

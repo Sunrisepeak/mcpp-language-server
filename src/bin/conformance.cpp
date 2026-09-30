@@ -3495,7 +3495,9 @@ public:
             std::ranges::sort(lines);
             std::vector<int> expected { check.value("lines", std::vector<int> {}) };
             std::ranges::sort(expected);
-            return { published && lines == expected, published ? std::format("{} on lines {}", code.dump(), lines) : std::string { "no diagnostics were published" } };
+            // "subset": no line outside `lines` (a clangd that reports fewer is not wrong; one that reports more is).
+            const bool held { check.value("subset", false) ? std::ranges::includes(expected, lines) : lines == expected };
+            return { published && held, published ? std::format("{} on lines {}", code.dump(), lines) : std::string { "no diagnostics were published" } };
         }
         if (kind == "diagnostic-code") {
             open(file);

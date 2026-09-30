@@ -807,7 +807,8 @@ struct Workspace::Impl final : engine::Host {
         }
         finish_job(jobId, std::move(result));
         for (const auto& engine : engines) {
-            if (!(keepCore && engine.get() == coreEngine)) engine->cancel(clientId);
+            if (keepCore && engine.get() == coreEngine) engine->detach(clientId);
+            else engine->cancel(clientId);
         }
     }
 
