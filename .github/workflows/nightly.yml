@@ -3,6 +3,8 @@ name: nightly
 # What is too slow or too variable for every commit (usable plan W7, W8): the whole CI,
 # then three cold and warm starts per host with their medians, the self-hosting fixtures
 # with their timings, and the mcpp fixtures with the latest mcpp. The measure files are uploaded.
+# The whole CI includes the CLion plugin in a real CLion (ci.yml clion-verify and clion-e2e, which
+# run on anything that is not a pull request).
 on:
   schedule:
     - cron: '30 18 * * *'

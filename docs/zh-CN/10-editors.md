@@ -64,7 +64,9 @@ Zed 自带 C/C++ 的 clangd，不做第 2 步它会和 mcppls 同时跑在同一
 
 [`editors/clion/`](../../editors/clion/README.md) 里的插件通过 IntelliJ 平台的 LSP API 注册 mcppls。
 
-`mcpp run --features clion -p devtools -- extension --editor clion --install` 会构建它、把服务端放到位，并把插件解包进每一个 CLion 的插件目录；然后重启 CLion。这个插件还没有在真正跑起来的 CLion 里验证过，详见它的 README。这个插件没有自己的设置；要在某个项目里关掉它，就在 Settings | Plugins 里只为这个项目禁用它（[editors/clion/README.md](../../editors/clion/README.md#keeping-mcppls-off-for-one-project)）。
+`mcpp run --features clion -p devtools -- extension --editor clion --install` 会构建它、把服务端放到位，并把插件解包进每一个 CLion 的插件目录；然后重启 CLion。支持 CLion 2025.2 及以上；插件基于 CLion 2026.2.3 构建，并在这个版本里测试。
+
+一个文件只由一个引擎回答。CLion 自己建模的项目（已加载的 CMake、compilation database 或 Makefile 工作区，或者根目录有 `CMakeLists.txt`）由 CLion 自带的 C/C++ 引擎回答，mcppls 不启动；其余项目（mcpp、xmake、普通文件夹）由 mcppls 回答。Settings | Tools | mcppls 里有一个选项"Also for projects CLion models"，打开后 mcppls 也用于前一类项目；两个引擎会同时回答，插件对每个项目提示一次。要在某个项目里无论如何都关掉 mcppls，就在 Settings | Plugins 里只为这个项目禁用插件（[editors/clion/README.md](../../editors/clion/README.md#keeping-mcppls-off-for-one-project)）。
 
 ## 其他 LSP 客户端
 

@@ -3,8 +3,8 @@
 C++20 named modules in CLion through mcpp-language-server: the plugin registers `mcppls` as a
 language server for C and C++ using the IntelliJ platform's LSP API, which the paid IDEs have.
 
-Like the Zed extension, it is deliberately small — five files whose whole job is to start the
-server. Everything else happens in the server.
+Like the Zed extension, it is deliberately small: its job is to start the server, and to stay out of
+the way of CLion's own engine on the projects CLion models. Everything else happens in the server.
 
 ## Build
 
@@ -42,16 +42,34 @@ mcpp run -p devtools -- uninstall --editor clion
 
 The plugin starts `mcppls` from the PATH the IDE sees, or else the one `--install` put in place.
 
-CLion has its own C++ engine. This plugin adds a second one over the same files, which is useful
-when the project's modules are what CLion cannot follow; if the two disagree, the one to trust for
-module questions is this one.
+CLion 2025.2 and later are supported (`sinceBuild` 252). The plugin is built against CLion 2026.2.3
+and tested inside it; the Plugin Verifier checks it against 2025.2 as well.
+
+## One engine per file
+
+CLion has its own C/C++ engine, and two engines answering the same file means two lists of
+completions and two sets of diagnostics. So a file is answered by one of them:
+
+- a project CLion models itself -- a loaded CMake, compilation database or Makefile workspace, or a
+  `CMakeLists.txt` at the project root -- is CLion's, and mcppls does not start for its files;
+- every other project (mcpp, xmake, a plain folder of sources) is mcppls's. CLion's engine has
+  little to say about those anyway: it does not know how they are built.
+
+Settings | Tools | mcppls has one checkbox, **Also for projects CLion models**. With it on, mcppls
+answers the first kind too, which is useful when the project's modules are what CLion cannot follow;
+the plugin then says once per project that both engines are answering, and for module questions the
+one to trust is mcppls. The setting applies to files opened afterwards.
+
+"CLion models the project" is asked of CLion's workspace API (`CidrWorkspaceManager`), which lives in
+its C/C++ plugin and is reached through an optional dependency (`mcppls-cidr.xml`): where that API is
+missing or has changed, the plugin still loads and the `CMakeLists.txt` check alone decides.
 
 ## Keeping mcppls off for one project
 
-The plugin has no settings of its own. To keep it off for one project, open Settings | Plugins,
-find this plugin, and use the arrow beside its checkbox to disable it for the current project only
-(the wording depends on the IDE version; an IDE without that choice can only disable the plugin for
-every project). Reopen the project for it to take effect.
+To keep it off for one project whatever it is, open Settings | Plugins, find this plugin, and use
+the arrow beside its checkbox to disable it for the current project only (the wording depends on the
+IDE version; an IDE without that choice can only disable the plugin for every project). Reopen the
+project for it to take effect.
 
 ## Resetting a workspace's cache
 
@@ -67,8 +85,21 @@ mcppls cache --clean <name>       # remove one by name prefix; `all` removes eve
 
 The logs are kept; the next start prepares the modules again from a clean state.
 
-## Status
+## Tests
 
-Built, and installed into a plugins directory by the tool; not yet loaded in a running CLion here
-(no CLion on the machine it was written on). If it needs an adjustment for your CLion version, that
-is expected, and worth an issue.
+```bash
+cd editors/clion
+MCPPLS_PAYLOAD_BIN=/path/to/payload/bin gradle verifyPlugin test
+```
+
+`verifyPlugin` runs the Plugin Verifier against CLion 2025.2 and 2026.2.3. `test` starts a headless
+CLion 2026.2.3 with the IntelliJ Platform test framework and opens the projects in
+`src/test/fixtures/`: an mcpp package, where it asserts that the server is Running within a minute,
+that the wrong import gets mcppls's diagnostic, that `import hel` completes `hello.greet`, and that
+closing the project ends the process; and a CMake project, which gets no server by default and gets
+one, with one notice, when the setting is on. What CLion's own engine answers for the same files is
+printed to the log. `MCPPLS_PAYLOAD_BIN` is put first on the PATH the tests see, the way the plugin
+finds `mcppls`; `mcpp` is deliberately not on it. CI runs `verifyPlugin` on every pull request and
+the tests when the change reaches the plugin, the protocol or the server, and on release branches,
+nightly and releases (`.github/workflows/ci.yml`, `clion-verify` and `clion-e2e`). The CLion
+downloads are about 1.9 GB each and are cached by version.

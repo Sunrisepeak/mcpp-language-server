@@ -1197,6 +1197,120 @@ jobs:
     uses: ./.github/workflows/zed-smoke.yml
 
   # ---------------------------------------------------------------------------
+  # The CLion plugin (editors/clion), 0.0.8 part 2 CL-2 and CL-3. Gradle comes from xlings like the
+  # rest of the tools here, and the JDK with it. The IDEs Gradle downloads (about 1.9 GB each) are
+  # kept in the Gradle cache under a key that carries their versions, so they are fetched once per
+  # bump, not once per run.
+  #
+  # verifyPlugin (the JetBrains Plugin Verifier) runs on every pull request: the plugin against CLion
+  # 2025.2, the oldest build it claims, and against the one it is built on.
+  clion-verify:
+    name: CLion plugin verifier
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - name: Gradle from xlings
+        run: xlings install gradle -y -g
+      - name: Cache the CLion downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.gradle/caches/modules-2
+          key: gradle-clion-${{ hashFiles('editors/clion/gradle.properties', 'editors/clion/build.gradle.kts') }}
+      - name: Verify the plugin
+        working-directory: editors/clion
+        run: gradle --no-daemon verifyPlugin
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: clion-verifier
+          path: editors/clion/build/reports/pluginVerifier
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Whether the real-CLion test below runs. It takes a CLion download and a few minutes, so a pull
+  # request runs it only when it reaches the plugin, the protocol layer the plugin talks, the part of
+  # the server that answers it, or the tool that installs it -- or is a release branch's. Everything
+  # that is not a pull request (a push to main, the nightly, Release, prerelease checks) runs it.
+  clion-changes:
+    name: does the change reach the CLion plugin
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.files.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - id: files
+        env:
+          EVENT: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          changed=false
+          if [ "$EVENT" != pull_request ]; then
+            changed=true
+          elif [[ "$HEAD_REF" == release/* || "$BASE_REF" == release/* ]]; then
+            echo "a release branch"; changed=true
+          else
+            while read -r file; do
+              case "$file" in
+                editors/clion/*|src/lsp/*|src/orchestrator/*|tools/devtools/*)
+                  echo "reaches the plugin: $file"; changed=true ;;
+              esac
+            done < <(git diff --name-only HEAD^1 HEAD)
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+  # CLion 2026.2.3 itself, headless, with the platform's test framework: the plugin starts the
+  # mcppls this run built (first on the PATH, as the plugin finds it), and the test asserts what a
+  # person sees in an mcpp project -- the server Running, a diagnostic, a module-name completion, the
+  # process gone when the project closes -- and the one-engine rule on a CMake project
+  # (editors/clion/src/test). What CLion's own engine answers for the same file is printed in the log.
+  clion-e2e:
+    name: CLion 2026.2.3 (headless)
+    needs: [payload, clion-changes]
+    if: needs.clion-changes.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - name: Gradle from xlings
+        run: xlings install gradle -y -g
+      - uses: actions/download-artifact@v8
+        with:
+          name: payload-linux-x64
+      - name: Unpack the payload
+        run: tar -xzf payload-linux-x64.tar.gz
+      - name: Cache the CLion downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.gradle/caches/modules-2
+          key: gradle-clion-${{ hashFiles('editors/clion/gradle.properties', 'editors/clion/build.gradle.kts') }}
+      - name: Tests in CLion
+        working-directory: editors/clion
+        env:
+          MCPPLS_PAYLOAD_BIN: ${{ github.workspace }}/payload/bin
+        run: |
+          set -euo pipefail
+          "$MCPPLS_PAYLOAD_BIN/mcppls" version
+          gradle --no-daemon test
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: clion-e2e
+          path: |
+            editors/clion/build/reports/tests
+            editors/clion/build/test-results
+            editors/clion/build/idea-sandbox/*/log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
   # The agent task benchmark's baseline/reference pairs (tools/bench/README.md, design
   # §10.2, work item A2): no agent and no API key, just `mcpp build`/`mcpp test`
   # (and a declarative content check) against each task's baseline project copy,

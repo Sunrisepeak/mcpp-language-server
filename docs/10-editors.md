@@ -118,9 +118,16 @@ The plugin at [`editors/clion/`](../editors/clion/README.md) registers mcppls th
 platform's LSP API.
 
 `mcpp run --features clion -p devtools -- extension --editor clion --install` builds it, puts the
-server in place and unpacks the plugin into every CLion's plugins directory; restart CLion. It
-has not been exercised in a running CLion yet; see its README. The plugin has no settings; to keep it
-off for one project, disable it for that project in Settings | Plugins
+server in place and unpacks the plugin into every CLion's plugins directory; restart CLion. CLion
+2025.2 and later are supported; it is built against, and tested inside, CLion 2026.2.3.
+
+A file is answered by one engine. A project CLion models itself -- a loaded CMake, compilation
+database or Makefile workspace, or a `CMakeLists.txt` at the root -- is answered by CLion's own C/C++
+engine, and mcppls does not start for it. Every other project (mcpp, xmake, a plain folder) is
+mcppls's. Settings | Tools | mcppls has one checkbox, "Also for projects CLion models", that turns
+mcppls on for the first kind too; both engines then answer, and the plugin says so once per
+project. To keep mcppls off for one project whatever it is, disable the plugin for that project in
+Settings | Plugins
 ([editors/clion/README.md](../editors/clion/README.md#keeping-mcppls-off-for-one-project)).
 
 ## Any other LSP client
