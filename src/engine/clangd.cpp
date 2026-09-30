@@ -1176,7 +1176,9 @@ public:
         const bool notFound { reason.find("file not found") != std::string::npos };
         host_->record_event("scan-failed", Json { { "file", file }, { "reason", reason }, { "driver", driver } });
         if (!driver && !notFound) return;
-        unscannableUnits_[base::path_key(file)] = { reason, platform::fs::stamp(file) };
+        // clangd names the unit as its command line did, with backslashes and `..` on Windows (GalTranslPP:
+        // `D:\a\...\Updater\..\3rdParty\3rdModule\boost.ixx`); the plan's units are normalized.
+        unscannableUnits_[base::path_key(base::normalize_path(file))] = { reason, platform::fs::stamp(file) };
         if (!scanFailures_.firstReason.empty()) return;
         scanFailures_.firstFile = file;
         scanFailures_.firstReason = reason;
@@ -2362,7 +2364,7 @@ private:
             std::vector<std::string> together;
             for (const auto& [module, source] : moduleSources_) {
                 if (module == "std" || module == "std.compat" || unresolvedModules_.contains(module) || generated_path_(source)) continue;
-                const auto unscannable = unscannableUnits_.find(base::path_key(source));
+                const auto unscannable = unscannableUnits_.find(base::path_key(base::normalize_path(source)));
                 if (unscannable == unscannableUnits_.end()) continue;
                 const auto stamp = platform::fs::stamp(source);
                 if (stamp != unscannable->second.second) continue;
@@ -2495,6 +2497,8 @@ private:
             host_->record_event("module-failed-while-editing", Json { { "module", module }, { "file", editedFile }, { "reason", reason } });
         }
         if (!editingReviewAt_ || *until < *editingReviewAt_) editingReviewAt_ = until;
+        const auto unbuildable = doomed_modules(moduleRequires_, module);
+        abandon_preparation_of_(std::vector<std::string> { unbuildable.begin(), unbuildable.end() });
         return true;
     }
 
@@ -2613,7 +2617,15 @@ private:
     // holding a worker.
     void abandon_doomed_modules_() {
         if (doomedModules_.empty()) return;
-        for (const auto& module : doomedModules_) {
+        abandon_preparation_of_(std::vector<std::string> { doomedModules_.begin(), doomedModules_.end() });
+    }
+
+    // RP1.3, and M-1 (plan 0.0.8) for a module being written: the preparation of modules that cannot build now is given
+    // up -- their prime units closed, marked resolved -- so it neither holds a worker nor keeps the status preparing with
+    // nothing to show for it (U15 on mcpp and xlings: a unit waiting on the module being written kept the workspace
+    // "preparing" for 140-185 s). clangd builds them for the files that need them once they compile again.
+    void abandon_preparation_of_(const std::vector<std::string>& modules) {
+        for (const auto& module : modules) {
             primeDeadlines_.erase(module);
             if (const auto* planned = primer_.find(module); planned != nullptr && !planned->primeFile.empty()) {
                 const std::string key { base::path_key(planned->primeFile) };
@@ -2622,7 +2634,7 @@ private:
                 }
             }
         }
-        primer_.abandon(std::vector<std::string> { doomedModules_.begin(), doomedModules_.end() });
+        primer_.abandon(modules);
         lastPrimeProgressAt_ = Clock::now();   // resolved, however it resolved: preparation is not stalled by this
         pump_primer_();
     }
