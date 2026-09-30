@@ -3967,8 +3967,7 @@ private:
         auto names = host_->imports_of(document.path);
         // R-4 (plan 0.0.8): on the provisional model only the standard library is prepared. The project's modules would be
         // built with the kit's commands, which the build tool's model replaces a few seconds on -- a restart and every one
-        // of them again -- and on Windows clangd crashed four to five times while doing so (GalTranslPP, #34). They are
-        // prepared once that model is in: apply() calls prepare_modules_ again.
+        // of them again. They are prepared once that model is in: apply() calls prepare_modules_ again.
         if (provisionalModel_) std::erase_if(names, [](const std::string& name) { return name != "std" && name != "std.compat"; });
         if (primer_.want(names) > 0 && pump) pump_primer_();
     }

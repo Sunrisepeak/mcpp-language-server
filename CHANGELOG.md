@@ -60,9 +60,10 @@ and a clangd crash keeps what an upstream report needs. The analysis and the pla
   already could not scan (a header or the command) are taken with the first report: one replan, one
   restart.
 - **The provisional model prepares only the standard library.** With nothing cached, the project's
-  modules waited for nothing to be built with the kit's commands and built again with the build tool's
-  a few seconds later; clangd on Windows crashed four to five times doing so. They are now prepared
-  once the build tool's model is in.
+  modules were built with the kit's commands and built again with the build tool's a few seconds
+  later. They are now prepared once the build tool's model is in. (clangd on Windows still crashes on
+  GalTranslPP's files while the provisional model serves them: those are the files' own builds, not
+  preparation; issue #34.)
 - **A clangd crash keeps what an upstream report needs**: LLVM's stack dump as clangd printed it and
   the clangd binary's version and SHA-256, in the incident and in the report's `lastExit` (the
   released clangd carries no symbols).
