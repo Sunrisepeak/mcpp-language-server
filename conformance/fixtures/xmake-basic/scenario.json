@@ -1,0 +1,58 @@
+{
+  "name": "xmake-basic",
+  "description": "0.0.8 part 2 X-7: an xmake project with GCC 16 (set_languages c++23, a module and `import std`), described by xmake itself in a private directory (xmake f and xmake project -k compile_commands, plan 0.0.8 part 2 X-1): the model comes from xmake, libstdc++'s std module is prepared, navigation works, the provisional model of the first seconds never says the workspace is untrusted (X-6), and nothing is written into the project.",
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "xmake",
+      "profile-kind": "build-toolchain",
+      "tier": 3,
+      "state": "ready",
+      "timeout": 120
+    },
+    {
+      "id": "X6-the-provisional-model-does-not-say-untrusted",
+      "kind": "status-never",
+      "issue-codes": ["untrusted-workspace"]
+    },
+    {
+      "id": "C1",
+      "kind": "diagnostics-empty",
+      "file": "src/main.cpp"
+    },
+    {
+      "id": "C2",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [4, 31],
+      "expect": "src/greet.cppm"
+    },
+    {
+      "id": "C5",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [1, 9],
+      "expect": "src/greet.cppm"
+    },
+    {
+      "id": "C6-std-is-prepared",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [4, 10],
+      "expect": "println",
+      "timeout": 60
+    },
+    {
+      "id": "E1-the-command-is-xmake-s",
+      "kind": "engine-command",
+      "file": "src/main.cpp",
+      "contains": ["-std=c++23"],
+      "timeout": 30
+    },
+    {
+      "id": "W1",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}

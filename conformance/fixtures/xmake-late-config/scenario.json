@@ -1,0 +1,68 @@
+{
+  "name": "xmake-late-config",
+  "description": "0.0.8 part 2 X-1, X-7 (E1): the issue a user hit in 0.0.7. The project has no set_languages yet and the user once generated a compile_commands.json in its root (written by the runner's `prepare xmake-stale-compdb`: -std=c++17 and -DSTALE_COMPDB). mcppls runs xmake privately and does not read that file, so the model is xmake's; then xmake.lua gets set_languages(\"c++23\") and the model follows within 10 s, with no compdb-invalid, no model-stale and no preparation-stalled anywhere; nothing in the project directory changes (the edit is put back first).",
+  "prepare": [
+    ["{conformance}", "prepare", "xmake-stale-compdb", "{env:CONFORMANCE_GXX|g++}"]
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "xmake",
+      "tier": 3,
+      "state": "ready",
+      "timeout": 120
+    },
+    {
+      "id": "E1-the-stale-file-is-not-the-source",
+      "kind": "engine-command",
+      "file": "src/main.cpp",
+      "absent": ["-DSTALE_COMPDB", "-std=c++23"],
+      "timeout": 30
+    },
+    {
+      "id": "W1-set-languages",
+      "kind": "write-file",
+      "file": "xmake.lua",
+      "replace": { "from": "target(\"hello\")", "with": "set_languages(\"c++23\")\n\ntarget(\"hello\")" },
+      "expect-reload": true,
+      "timeout": 30
+    },
+    {
+      "id": "E2-the-model-follows",
+      "kind": "engine-command",
+      "file": "src/main.cpp",
+      "contains": ["-std=c++23"],
+      "absent": ["-DSTALE_COMPDB"],
+      "timeout": 15
+    },
+    {
+      "id": "S2-ready-again",
+      "kind": "status",
+      "source": "xmake",
+      "state": "ready",
+      "timeout": 60
+    },
+    {
+      "id": "R1-nothing-went-wrong",
+      "kind": "report",
+      "timeout": 20,
+      "expect": [
+        { "path": "/roots/0/project/issues/*/code", "equals": "compdb-invalid", "max-matches": 0 },
+        { "path": "/roots/0/project/issues/*/code", "equals": "preparation-stalled", "max-matches": 0 },
+        { "path": "/roots/0/events/*/kind", "equals": "model-stale", "max-matches": 0 },
+        { "path": "/roots/0/project/source", "equals": "xmake" }
+      ]
+    },
+    {
+      "id": "W2-put-back",
+      "kind": "write-file",
+      "file": "xmake.lua",
+      "restore": true
+    },
+    {
+      "id": "U1-the-project-directory-is-as-it-was",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}

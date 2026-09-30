@@ -277,7 +277,7 @@ jobs:
           - platform: linux-x64
             part: 1 of 2
             os: ubuntu-24.04
-            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mingw mcpp-split-gcc mcpp-watch multi-root mcpp-llvm mcpp-watch@polling mcpp-emit mcpp-rules-generated s1-two-sets compdb-lto-msvc failure-at-base@vscode generated-module-negotiated typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins compdb-rejected-command compdb-mixed-standards mcpp-emit-partial mcpp-emit-partial-download
+            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mingw mcpp-split-gcc mcpp-watch multi-root mcpp-llvm mcpp-watch@polling mcpp-emit mcpp-rules-generated s1-two-sets compdb-lto-msvc failure-at-base@vscode generated-module-negotiated typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins compdb-rejected-command compdb-mixed-standards mcpp-emit-partial mcpp-emit-partial-download compdb-midwrite xmake-basic xmake-late-config xmake-user-mode xmake-no-standard
           - platform: linux-x64
             part: 2 of 2
             os: ubuntu-24.04
@@ -318,6 +318,21 @@ jobs:
           set -euo pipefail
           case " ${{ matrix.fixtures }} " in *" mcpp-gcc "*|*" mcpp-split-gcc "*|*" mingw "*) mcpp toolchain install gcc 16.1.0 ;; esac
           if [ "$RUNNER_OS" = Linux ]; then sudo apt-get update -q && sudo apt-get install -y -q ninja-build; fi
+      # 0.0.8 part 2 X-7: the xmake fixtures run xmake itself (pinned in .github/versions.env, from xlings like every other
+      # tool here) with GCC 16 first on PATH: xmake picks the compiler it finds, and only GCC 16 has libstdc++'s std module.
+      - name: xmake and GCC 16 for the xmake fixtures
+        if: runner.os == 'Linux' && contains(matrix.fixtures, 'xmake-')
+        run: |
+          set -euo pipefail
+          for package in "xmake@$XMAKE_VERSION" gcc@16.1.0; do
+            for attempt in 1 2 3; do
+              if xlings install "$package" -y -g; then break; fi
+              [ "$attempt" = 3 ] && { echo "::error::$package could not be installed"; exit 1; }
+              sleep 30
+            done
+          done
+          xmake --version | head -1
+          g++ --version | head -1
       # usable plan W3, closing the loop with mcpp itself: what `mcpp emit build-database` prints for
       # each of this host's mcpp fixtures, against the S1 and S2 schemas, S1's semantic rules and the
       # contract of mcpp-community/mcpp#636 (docs/specs/tools/validate.py). The fixtures below then have the

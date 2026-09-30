@@ -1,0 +1,41 @@
+{
+  "name": "xmake-user-mode",
+  "description": "0.0.8 part 2 X-2, X-7 (E5): the user ran `xmake f -m debug --fancy=y` (their choices are in .xmake/linux/x86_64/xmake.conf, which is part of the fixture and is only read). mcppls's private xmake run is configured with the same plat, arch, mode and the project's own option, so the engine commands are the debug ones (-O0 -g, no -DNDEBUG, -DFANCY_PART) that the user's build has, where 0.0.7 described a release build. The project directory, .xmake/ included, is unchanged.",
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "xmake",
+      "tier": 3,
+      "state": "ready",
+      "timeout": 120
+    },
+    {
+      "id": "E1-debug-commands",
+      "kind": "engine-command",
+      "file": "src/main.cpp",
+      "contains": ["-O0", "-g", "-DFANCY_PART"],
+      "absent": ["-DNDEBUG", "-O3"],
+      "timeout": 30
+    },
+    {
+      "id": "E2-the-module-too",
+      "kind": "engine-command",
+      "file": "src/greet.cppm",
+      "contains": ["-O0", "-DFANCY_PART"],
+      "absent": ["-DNDEBUG"],
+      "timeout": 10
+    },
+    {
+      "id": "C2",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [3, 18],
+      "expect": "src/greet.cppm"
+    },
+    {
+      "id": "W1",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}

@@ -723,8 +723,6 @@ std::pair<bool, std::string> expectations_hold(const Json& value, const Json& ex
             held = std::ranges::all_of(matches, [&](const Json* match) { return match->is_string() && match->get<std::string>().find(wanted) != std::string::npos; });
         } else if (expectation.contains("exists")) {
             held = !matches.empty();
-        } else if (expectation.contains("equals")) {
-            held = std::ranges::any_of(matches, [&](const Json* match) { return *match == expectation["equals"]; });
         } else if (expectation.contains("max-matches") || expectation.contains("min-matches")) {
             // How many of the values the pointer names satisfy "equals" (or, for strings, "contains"), at most / at least.
             const auto matching = std::ranges::count_if(matches, [&](const Json* match) {
@@ -735,6 +733,8 @@ std::pair<bool, std::string> expectations_hold(const Json& value, const Json& ex
                 return true;
             });
             held = matching <= expectation.value("max-matches", std::numeric_limits<long>::max()) && matching >= expectation.value("min-matches", 0L);
+        } else if (expectation.contains("equals")) {
+            held = std::ranges::any_of(matches, [&](const Json* match) { return *match == expectation["equals"]; });
         } else if (expectation.contains("contains")) {
             const Json& wanted = expectation["contains"];
             held = std::ranges::any_of(matches, [&](const Json* match) {
@@ -3278,6 +3278,94 @@ public:
             if (differences.size() > 8) differences.resize(8);
             return { differences.empty(), lsp::dump(differences) };
         }
+        if (kind == "status-never") {
+            // 0.0.8 part 2 (X-6): every status the server has sent so far, not only the latest: none names an issue whose code
+            // is in `issue-codes` (the provisional model of a trusted workspace once said "untrusted-workspace" for a moment).
+            // `after-ready` waits for a first `ready` so that the provisional model's statuses are among those looked at.
+            if (check.value("after-ready", true)) (void)client_.wait_for([&] { return client_.firstReady.has_value(); }, timeout_);
+            const auto codes { check.value("issue-codes", std::vector<std::string> {}) };
+            std::set<std::string> seen;
+            for (const auto& sample : client_.statusSamples) {
+                for (const auto& issue : sample.issues) {
+                    if (std::ranges::find(codes, issue) != codes.end()) seen.insert(issue);
+                }
+            }
+            return { seen.empty(), seen.empty() ? std::format("none of {} in {} statuses", base::join(codes, ", "), client_.statusSamples.size())
+                                                : std::format("seen: {}", base::join(std::vector<std::string>(seen.begin(), seen.end()), ", ")) };
+        }
+        if (kind == "engine-command") {
+            // 0.0.8 part 2 (X-7): the command clangd was given for `file`, read from the database the server wrote for it
+            // (under the cache directory: `contexts/default/cdb/compile_commands.json`, the newest when there are several).
+            // Each of `contains` is an argument of it, none of `absent` is; retried within the check's time, since the
+            // database follows the model.
+            const auto wanted = [&](const char* key) {
+                std::vector<std::string> names;
+                if (const auto it = check.find(key); it != check.end()) {
+                    if (it->is_string()) names.push_back(it->get<std::string>());
+                    else for (const auto& name : *it) names.push_back(name.get<std::string>());
+                }
+                return names;
+            };
+            const auto contains { wanted("contains") };
+            const auto absent { wanted("absent") };
+            const auto deadline = Clock::now() + timeout_;
+            std::string detail { "no engine database yet" };
+            do {
+                std::string newest;
+                std::int64_t newestTime { -1 };
+                for (const auto& candidate : fs::list_files(cacheDirectory_, std::array<std::string_view, 1> { ".json" }, {})) {
+                    if (base::file_name(candidate) != "compile_commands.json" || !candidate.contains("/contexts/default/cdb/")) continue;
+                    if (const auto stamp = fs::stamp(candidate); stamp && stamp->modified > newestTime) {
+                        newest = candidate;
+                        newestTime = stamp->modified;
+                    }
+                }
+                if (!newest.empty()) {
+                    const auto text = fs::read_file(newest);
+                    const Json database = text ? Json::parse(*text, nullptr, false) : Json();
+                    detail = std::format("no command for {} in {}", file, newest);
+                    for (const auto& entry : database.is_array() ? database : Json::array()) {
+                        if (!entry.value("file", std::string {}).ends_with(file)) continue;
+                        std::vector<std::string> arguments;
+                        if (entry.contains("arguments")) arguments = entry["arguments"].get<std::vector<std::string>>();
+                        const bool ok { std::ranges::all_of(contains, [&](const std::string& name) { return std::ranges::find(arguments, name) != arguments.end(); })
+                                        && std::ranges::none_of(absent, [&](const std::string& name) { return std::ranges::find(arguments, name) != arguments.end(); }) };
+                        if (ok) return { true, base::join(arguments, " ").substr(0, 240) };
+                        detail = base::join(arguments, " ").substr(0, 400);
+                    }
+                }
+                client_.drain(std::chrono::milliseconds { 300 });
+            } while (Clock::now() < deadline);
+            return { false, detail };
+        }
+        if (kind == "write-midway") {
+            // 0.0.8 part 2 (X-5): a tool rewriting a database in place. `file` is cut to its first `cut` (0.5) part, which is
+            // not valid JSON, `after-ms` (300) later written complete -- with `replace` ({"from", "with"}) applied to it, so
+            // that a model which followed shows it. The server is told of both writes, as an editor's watcher would.
+            const std::string path { base::join_path(workspace_, file) };
+            remember_original(path);
+            auto current = fs::read_file(path);
+            if (!current) return { false, std::format("{}: {}", file, current.error().message) };
+            std::string complete { *current };
+            if (const auto replace = check.find("replace"); replace != check.end() && replace->is_object()) {
+                const std::string from { replace->value("from", std::string {}) };
+                if (from.empty() || !complete.contains(from)) return { false, std::format("{} has no '{}'", file, from) };
+                complete = base::replace_all(complete, from, replace->value("with", std::string {}));
+            }
+            const std::string canonical { fs::canonical_path(path) };
+            const auto write = [&](const std::string& content) -> base::Result<void> {
+                auto written = fs::write_file(path, content);
+                if (written && (client_.watches(path, 2) || client_.watches(canonical, 2))) {
+                    client_.notify("workspace/didChangeWatchedFiles", Json { { "changes", Json::array({ Json { { "uri", base::path_to_uri(path) }, { "type", 2 } } }) } });
+                }
+                return written;
+            };
+            const auto cut = static_cast<std::size_t>(static_cast<double>(complete.size()) * check.value("cut", 0.5));
+            if (auto written = write(complete.substr(0, cut)); !written) return { false, written.error().message };
+            client_.drain(std::chrono::milliseconds { check.value("after-ms", 300) });
+            if (auto written = write(complete); !written) return { false, written.error().message };
+            return { true, std::format("{} cut at {} of {} bytes, complete again", file, cut, complete.size()) };
+        }
         if (kind == "open") {
             open(file);
             return { true, file };
@@ -4414,6 +4502,31 @@ int prepare_compdb_rejected_command(const std::string& compiler) {
     return 0;
 }
 
+// 0.0.8 part 2 (X-7, X-5): a plain compile_commands.json over every C++ source under src/, each command carrying `marker` so
+// that a check can tell which database the engine's commands came from: the user's stale file (xmake-late-config: the user ran
+// `xmake project` once, before the project had a standard) or the file a tool is about to rewrite (compdb-midwrite).
+int prepare_marked_compdb(std::string_view fixture, const std::string& compiler, const std::string& marker, const std::string& standard) {
+    const std::string root { fs::current_directory() };
+    auto driver = on_path(compiler);
+    if (!driver) {
+        say("{}: {} is not on PATH", fixture, compiler);
+        return 1;
+    }
+    Json database = Json::array();
+    static constexpr std::array<std::string_view, 2> EXTENSIONS { ".cpp", ".cppm" };
+    for (const auto& source : fs::list_files(base::join_path(root, "src"), EXTENSIONS, {})) {
+        Json arguments = Json::array({ *driver });
+        if (!standard.empty()) arguments.push_back(standard);
+        for (const auto& argument : { marker, std::string { "-c" }, native(source), std::string { "-o" }, native(source) + ".o" }) arguments.push_back(argument);
+        database.push_back(Json { { "directory", native(root) }, { "file", native(source) }, { "arguments", std::move(arguments) } });
+    }
+    if (auto written = fs::write_file(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
+        say("{}: {}", fixture, written.error().message);
+        return 1;
+    }
+    return 0;
+}
+
 // C++26 alignment (fix plan 2026-09-26 §9): a compile_commands.json whose units name two standards -- a module and an
 // importer of std at C++23, an application at C++26 importing both. One std BMI cannot serve both standards.
 int prepare_compdb_mixed_standards(const std::string& compiler) {
@@ -4708,8 +4821,10 @@ int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "clangd-crash-context") return prepare_clangd_crash_context(argument);
     if (kind == "compdb-rejected-command") return prepare_compdb_rejected_command(argument);
     if (kind == "compdb-mixed-standards") return prepare_compdb_mixed_standards(argument);
+    if (kind == "xmake-stale-compdb") return prepare_marked_compdb(kind, argument.empty() ? std::string { "g++" } : argument, "-DSTALE_COMPDB", "-std=c++17");
+    if (kind == "compdb-midwrite") return prepare_marked_compdb(kind, argument.empty() ? std::string { "clang++" } : argument, "-DVERSION_ONE", "-std=c++23");
     if (kind == "compdb-lto-msvc") return prepare_compdb_lto_msvc(argument);
-    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, delayed-producer, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, compdb-rejected-command, compdb-mixed-standards)", kind);
+    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, delayed-producer, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, compdb-rejected-command, compdb-mixed-standards, xmake-stale-compdb, compdb-midwrite)", kind);
     return 2;
 }
 
