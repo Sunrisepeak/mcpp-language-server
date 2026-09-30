@@ -99,6 +99,10 @@ struct PlanInput {
     // built and are left out like providers of an unresolvable import. A module that was found and did
     // not compile is not one of them; its importers stay (robustness design C3).
     std::map<std::string, std::string, std::less<>> unresolvedModules;
+    // Where the model being planned came from (the workspace's origin: "inferred" for the provisional model of
+    // sources alone, "producer", "cache-..."): what the core engine concluded under a provisional model is no
+    // conclusion about the build tool's (plan 2026-09-30 §13, the xlings cold start).
+    std::string modelOrigin;
     // Where `import M;` units for parallel preparation are written; empty: none are planned.
     std::string primeDirectory;
     // The directory module hints name; nothing is created there. Empty: no hints.

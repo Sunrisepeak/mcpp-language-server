@@ -83,8 +83,11 @@ public:
         while (!exitRequested_) {
             const auto deadline = next_deadline_();
             std::optional<Event> event { deadline ? events_->pop_until(*deadline) : events_->pop() };
+            const auto began = Clock::now();
             if (event) handle_(*event);
+            const auto handled = Clock::now();
             handle_timers_();
+            note_loop_(event, began, handled, Clock::now());
         }
         for (auto& root : roots_) root->shut_down();
         return shutdownRequested_ ? 0 : 1;
@@ -482,8 +485,71 @@ private:
         Json roots = Json::array();
         for (const auto& root : roots_) roots.push_back(root->report());
         const Json* clientInfo { lsp::find(clientParams_, "clientInfo") };
-        return orchestrator::make_report(std::move(roots), clientInfo != nullptr ? *clientInfo : Json(nullptr), options_.engine, payload_, payloadCorrupt_,
-                                         std::chrono::steady_clock::now() - started_, options_.settings.to_json());
+        Json report = orchestrator::make_report(std::move(roots), clientInfo != nullptr ? *clientInfo : Json(nullptr), options_.engine, payload_, payloadCorrupt_,
+                                                std::chrono::steady_clock::now() - started_, options_.settings.to_json());
+        if (report.contains("server") && report["server"].is_object()) report["server"]["eventLoop"] = loop_.to_json();
+        return report;
+    }
+
+    // Plan 2026-09-30 §13: every request budget and every watchdog runs on this one loop, so a turn of it that takes long
+    // makes all of them late. GalTranslPP on a 4-core Windows runner: completions budgeted at 1 s reached the client after
+    // 8 to 60 s. What held the loop, and how long client messages waited behind it, is logged and reported.
+    struct LoopStats {
+        static constexpr std::chrono::milliseconds STALL { 250 };
+        static constexpr std::chrono::milliseconds QUEUED { 1000 };
+        std::size_t stalls { 0 };
+        std::size_t lateMessages { 0 };
+        std::int64_t maxEventMs { 0 };
+        std::int64_t maxTimersMs { 0 };
+        std::int64_t maxQueuedMs { 0 };
+        std::string slowest;                     // what the longest turn was spent on
+        std::optional<Clock::time_point> loggedAt;
+        Json to_json() const {
+            const auto writes = orchestrator::stdio_write_stats();
+            return Json { { "stalls", stalls }, { "lateClientMessages", lateMessages }, { "maxEventMs", maxEventMs },
+                          { "maxTimersMs", maxTimersMs }, { "maxQueuedMs", maxQueuedMs }, { "slowest", slowest },
+                          { "writes", Json { { "count", writes.writes }, { "bytes", writes.bytes }, { "slow", writes.slowWrites },
+                                             { "maxMs", writes.maxMs }, { "totalMs", writes.totalMs } } } };
+        }
+    };
+    LoopStats loop_;
+
+    void note_loop_(const std::optional<Event>& event, Clock::time_point began, Clock::time_point handled, Clock::time_point done) {
+        const auto ms = [](auto duration) { return static_cast<std::int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(duration).count()); };
+        std::string what;
+        if (event) {
+            static constexpr std::array<std::string_view, 8> KINDS { "a client message", "the client closing", "an engine event", "a loaded model",
+                                                                     "an external event", "a finished review", "a tool run", "a written bundle" };
+            what = event->kind == EventKind::client_message ? event->message.value("method", std::string { "a response" })
+                                                            : std::string { KINDS[static_cast<std::size_t>(event->kind)] };
+            if (event->kind == EventKind::engine_event && event->message.is_object()) {
+                std::string detail { event->message.value("kind", std::string {}) };
+                if (const Json* inner = lsp::find(event->message, "message"); inner != nullptr && inner->is_object()) {
+                    detail += " " + inner->value("method", std::string { "response" });
+                }
+                what += std::format(" ({}: {})", event->engineId, detail);
+            }
+            if (event->kind == EventKind::client_message) {
+                const auto queued = ms(began - event->queuedAt);
+                loop_.maxQueuedMs = std::max(loop_.maxQueuedMs, queued);
+                if (queued >= LoopStats::QUEUED.count()) ++loop_.lateMessages;
+            }
+        }
+        const auto eventMs = ms(handled - began);
+        const auto timersMs = ms(done - handled);
+        loop_.maxTimersMs = std::max(loop_.maxTimersMs, timersMs);
+        if (eventMs > loop_.maxEventMs) {
+            loop_.maxEventMs = eventMs;
+            if (eventMs >= LoopStats::STALL.count()) loop_.slowest = what;
+        }
+        if (eventMs < LoopStats::STALL.count() && timersMs < LoopStats::STALL.count()) return;
+        ++loop_.stalls;
+        // At most one line a second: a loop that is slow is slow for every turn.
+        const auto now = Clock::now();
+        if (loop_.loggedAt && now - *loop_.loggedAt < std::chrono::seconds { 1 }) return;
+        loop_.loggedAt = now;
+        log::warning("the event loop took {} ms for {} and {} ms for its timers; requests and watchdogs waited meanwhile ({} such turns so far)",
+                     eventMs, what.empty() ? std::string { "nothing" } : what, timersMs, loop_.stalls);
     }
 
     // issue #23 fix plan F18: `mcppls.exportBundle [{hideProjectPaths, noSourceExcerpts, includeDumps,

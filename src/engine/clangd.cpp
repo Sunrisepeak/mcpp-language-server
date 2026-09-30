@@ -109,6 +109,7 @@ private:
         std::string provider;                          // the plan's unit for the module; empty when it had none
         std::optional<platform::fs::FileStamp> stamp;  // of that unit
         std::string command;                           // its engine command
+        std::string modelOrigin;                       // the plan's model when clangd reported it ("inferred": provisional)
     };
     std::map<std::string, UnresolvedModule, std::less<>> unresolvedModules_;
     std::set<std::string, std::less<>> reportedFailures_;   // modules whose compile failure was logged
@@ -124,6 +125,7 @@ private:
         std::string reason;
         std::string provider;                          // the plan's unit for the module; empty when it had none
         std::string command;                           // its engine command
+        std::string modelOrigin;                       // the plan's model when clangd reported it ("inferred": provisional)
         // The unit's own source and every module source it imports, transitively, as they were when
         // it failed: a fix in any of them -- not only in the failed unit itself -- is a reason to try again.
         std::map<std::string, std::optional<platform::fs::FileStamp>, std::less<>> inputs;
@@ -571,6 +573,10 @@ public:
         for (const auto& [name, unresolved] : unresolvedModules_) {
             // The kit brings its own standard library: what clangd could not find of the toolchain's does not apply.
             if (stdFromKit_ && input.kit != nullptr && (name == "std" || name == "std.compat")) continue;
+            // Found missing under the provisional model, which reads sources with the kit's commands: the build tool's
+            // model has its own. xlings's cold start: json.cppm did not scan with the kit's command, its module got a
+            // stand-in in the build tool's plan too, and R-6 kept it there -- 49 importers doomed until a file changed.
+            if (unresolved.modelOrigin == "inferred" && !input.modelOrigin.empty() && input.modelOrigin != "inferred") continue;
             input.unresolvedModules.emplace(name, unresolved.reason);
         }
         input.preferKit = stdFromKit_;
@@ -2252,7 +2258,7 @@ private:
             // library is excepted: it already gets the whole-project kit fallback above, which fixes
             // every importer at once instead of setting them all aside one by one.
             if (!stdFailed && !doomRoots_.contains(parsed.module)) {
-                DoomRoot root { parsed.reason, {}, {}, {} };
+                DoomRoot root { parsed.reason, {}, {}, modelOrigin_, {} };
                 if (const auto provider = moduleSources_.find(parsed.module); provider != moduleSources_.end()) {
                     root.provider = provider->second;
                     root.command = moduleCommands_.contains(parsed.module) ? moduleCommands_.find(parsed.module)->second : std::string {};
@@ -2274,7 +2280,7 @@ private:
         if (unresolvedModules_.contains(parsed.module)) return;
         log::warning("clangd could not find module {} ({}): {}", parsed.module, host_->root_directory(), parsed.reason);
         host_->record_event("module-failed", Json { { "module", parsed.module }, { "kind", "unresolved" }, { "reason", parsed.reason } });
-        UnresolvedModule unresolved { parsed.reason, {}, {}, {} };
+        UnresolvedModule unresolved { parsed.reason, {}, {}, {}, modelOrigin_ };
         // A stand-in is not the module's provider (fix plan F13): forget_changed_unresolved_ looks past it too.
         if (const auto provider = moduleSources_.find(parsed.module); provider != moduleSources_.end() && !generated_path_(provider->second)) {
             unresolved.provider = provider->second;
@@ -2992,9 +2998,12 @@ private:
                 ++it;
             }
         }
-        log::info("the build tool's model replaced the provisional one ({}): {} files set aside meanwhile go back to clangd, and its exits and restarts start over",
-                  host_->root_directory(), released.size());
-        host_->record_event("provisional-model-replaced", Json { { "filesHandedBack", released } });
+        // Nor do the modules clangd could not find or build under it (configure_plan left them out of this plan already).
+        const auto provisional = [](const auto& item) { return item.second.modelOrigin == "inferred"; };
+        const std::size_t verdicts { static_cast<std::size_t>(std::erase_if(unresolvedModules_, provisional) + std::erase_if(doomRoots_, provisional)) };
+        log::info("the build tool's model replaced the provisional one ({}): {} files set aside meanwhile go back to clangd, {} module verdicts are "
+                  "dropped, and its exits and restarts start over", host_->root_directory(), released.size(), verdicts);
+        host_->record_event("provisional-model-replaced", Json { { "filesHandedBack", released }, { "moduleVerdicts", verdicts } });
         if (released.empty()) return;
         update_quarantine_issue_();
         if (!accepting_) return;

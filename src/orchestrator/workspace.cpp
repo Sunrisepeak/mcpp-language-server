@@ -1326,6 +1326,7 @@ struct Workspace::Impl final : engine::Host {
             if (auto disk = platform::fs::read_file(document->path)) input.editingDiskImports[document->path] = project::required_names(project::scan_source(*disk));
             if (!lastEdit || edited->second > *lastEdit) lastEdit = edited->second;
         }
+        input.modelOrigin = modelOrigin;
         if (coreEngine != nullptr) coreEngine->configure_plan(input);
         normalize::EnginePlan newPlan { normalize::plan_engine(input) };
         // A stand-in held back for a file being edited is planned once the file has been quiet for EDITING_WINDOW.
@@ -1791,8 +1792,16 @@ struct Workspace::Impl final : engine::Host {
     // ---- timers -----------------------------------------------------------------------
 
     void handle_timers() {
+        for (const auto& engine : engines) {
+            const auto before = Clock::now();
+            engine->handle_timers();
+            // Plan 2026-09-30 §13: which engine held the event loop (the session says that it was held).
+            if (const auto took = Clock::now() - before; took >= std::chrono::milliseconds { 250 }) {
+                journal.add("timers-slow", Json { { "engine", std::string { engine->id() } },
+                                                  { "ms", std::chrono::duration_cast<std::chrono::milliseconds>(took).count() } });
+            }
+        }
         const auto now = Clock::now();
-        for (const auto& engine : engines) engine->handle_timers();
         {
             std::vector<std::uint64_t> due;
             for (const auto& [id, job] : jobs) {

@@ -103,6 +103,8 @@ struct Event {
     // every other kind names the root it belongs to, and engine events the engine.
     std::string rootKey;
     std::string engineId;
+    // When it was queued: how long it waited for the event loop is how late everything after it is (plan 2026-09-30 §13).
+    std::chrono::steady_clock::time_point queuedAt { std::chrono::steady_clock::now() };
 };
 
 using EventChannel = platform::Channel<Event>;

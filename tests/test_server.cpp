@@ -155,11 +155,13 @@ public:
     struct Shared {
         std::mutex mutex;
         std::vector<Json> sent;
+        LogHandler log;   // what the running process writes to stderr, for a test to say something as clangd
     };
     explicit BuildingProcess(std::shared_ptr<Shared> shared) : shared_ { std::move(shared) } {}
 
-    mcppls::base::Result<void> start(const cld::ProcessConfig&, MessageHandler onMessage, ClosedHandler, LogHandler) override {
+    mcppls::base::Result<void> start(const cld::ProcessConfig&, MessageHandler onMessage, ClosedHandler, LogHandler onLog) override {
         onMessage_ = std::move(onMessage);
+        shared_->log = std::move(onLog);
         running_ = true;
         return {};
     }
@@ -1166,6 +1168,59 @@ int main() {
         host.pump(*engine);
         opened = BuildingProcess::files(*shared, "textDocument/didOpen");
         expect(was_opened(other)) << "the rest, once clangd was idle";
+        engine->shut_down();
+        fs::remove_all(root);
+    };
+
+    "what clangd could not find under the provisional model is not carried into the build tool's plan"_test = [] {
+        namespace fs = mcppls::platform::fs;
+        using mcppls::base::join_path;
+        const std::string root { join_path(mcppls::platform::dirs::temp_directory(),
+            std::format("mcppls-test-provisional-verdicts-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+        (void)fs::create_directories(join_path(root, "src"));
+        const std::string executable { join_path(root, "clangd") };
+        (void)fs::write_file(executable, "pretend-clangd");
+        const std::string main { join_path(root, "src/main.cpp") };
+        const std::string json { join_path(root, "src/json.cppm") };
+        (void)fs::write_file(main, "import app.json;\nint main() {}\n");
+        (void)fs::write_file(json, "export module app.json;\n");
+        auto shared = std::make_shared<BuildingProcess::Shared>();
+        cld::Options options;
+        options.executable = executable;
+        options.version = "23.1.0";
+        options.primeImplementationUnits = false;
+        options.processFactory = [shared] { return std::make_unique<BuildingProcess>(shared); };
+        RecordingHost host { root };
+        auto engine = cld::make_engine(std::move(options));
+        engine->start(host);
+        host.pump(*engine);
+        const auto plan_from = [&](std::string origin, std::string compiler) {
+            mcppls::normalize::EnginePlan plan;
+            plan.entries.push_back(mcppls::normalize::EngineEntry { root, main, { compiler, "-std=c++23", "-c", main }, "", "", { "app.json" }, {} });
+            plan.entries.push_back(mcppls::normalize::EngineEntry { root, json, { compiler, "-std=c++23", "-c", json }, "app.json", "app.json", {}, {} });
+            plan.modelOrigin = std::move(origin);
+            plan.toolchainKey = compiler;
+            return plan;
+        };
+        const auto unresolved_in = [&](std::string origin) {
+            mcppls::normalize::PlanInput input;
+            input.modelOrigin = std::move(origin);
+            engine->configure_plan(input);
+            return input.unresolvedModules.contains("app.json");
+        };
+        const auto provisional = plan_from("inferred", "kit-clang++");
+        engine->apply(&provisional);
+        host.pump(*engine);
+        // clangd, scanning with the provisional model's command, did not get the module's unit.
+        expect(fatal(static_cast<bool>(shared->log)));
+        shared->log("E[10:38:02.189] Failed to build module app.json; due to Don't get the module unit for module app.json");
+        host.pump(*engine);
+        expect(unresolved_in("inferred")) << "the provisional model is planned with what clangd found under it";
+        expect(!unresolved_in("producer")) << "the build tool's model has its own commands: no stand-in for a unit it has";
+        const auto producer = plan_from("producer", "g++");
+        engine->apply(&producer);
+        host.pump(*engine);
+        expect(!unresolved_in("inferred")) << "dropped once the build tool's model replaced the provisional one";
         engine->shut_down();
         fs::remove_all(root);
     };
