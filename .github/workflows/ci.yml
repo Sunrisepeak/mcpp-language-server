@@ -594,7 +594,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/proot-bin
-          key: termux-proot-${{ env.PROOT_COMMIT }}-${{ runner.arch }}-v1
+          key: termux-proot-${{ env.PROOT_COMMIT }}-${{ runner.arch }}-v2
       - name: Build termux/proot at the pinned commit
         if: steps.proot-cache.outputs.cache-hit != 'true'
         run: |
@@ -611,7 +611,9 @@ jobs:
           # compat.h defines SYS_SECCOMP unless it is a macro, and a glibc that declares it as an enum
           # constant turns that into a syntax error. The definition is redundant there: drop it if,
           # and only if, the build needs it dropped.
-          make -j"$(nproc)" || { sed -i '/^#    ifndef SYS_SECCOMP/,/^#    endif/d' compat.h && make -j"$(nproc)"; }
+          # No 32-bit loader (HAS_LOADER_32BIT empty): it needs a compiler for 32-bit ARM or x86, which the arm64
+          # runner's gcc is not (`-m32`), and nothing here runs a 32-bit program.
+          make -j"$(nproc)" HAS_LOADER_32BIT= || { sed -i '/^#    ifndef SYS_SECCOMP/,/^#    endif/d' compat.h && make -j"$(nproc)" HAS_LOADER_32BIT=; }
           mkdir -p ~/proot-bin && cp proot ~/proot-bin/proot
       - name: proot itself works, and is the one we built
         run: |
