@@ -1122,3 +1122,19 @@ R-5 在空闲时逐个构建实现单元，xlings 上一个核会忙好几分钟
 - **冷启动 18 分钟不 settle 的另一半原因**：producer 模型到位后，每约 2 分钟一次"clangd kept working on ITranslator.cpp / PythonManager.cpp / LuaManager.cpp"
   重启——后台打开的单元（定义搜索）超过 `BACKGROUND_BUILD_LIMIT`（2 分钟）没建完就重启 clangd，4 核上重 GMF 的单元合法地要更久，每次重启丢掉进行中的预建。
   改为：超时的后台单元照旧关闭、在它改变前不再打开，但只有 clangd 在最近一分钟里既没预建出模块、也没回答、也没建完别的单元时才重启（`background-unit-slow` 事件）。
+
+### 13.3 最终交叉验证（GalTranslPP#1，run 36676829043，载荷 3fbfdc6，Windows 4 核）
+
+| 实验 | 0.0.6（run 36616368503） | 0.0.7 候选第一轮（ab271f3） | 0.0.7 最终（3fbfdc6） |
+|---|---|---|---|
+| 7 个文件的错误诊断 | `no member named 'views'`、json `{…}` 等 | 0 | 0 |
+| 冷启动 settle | 未 settle（preparing） | 775 s 后仍 preparing | 510 s，ready |
+| 冷启动期间补全 / hover | p50 29.9 s | 预算作答 1.0 / 2.0 s，但打字时 8–60 s | 1.0 / 2.0 s，全部作答 |
+| 打字（无自动保存）补全 | — | 16 次里 14 次超时，p50 16 s | 32/32，p95 1.01 s，max 1.02 s |
+| 打字（自动保存）补全 | — | 同上 | 24/24，max 1.02 s |
+| 事件循环 | — | 每次 didChange 11–13 s | 最长一轮 334 ms，客户端消息最长排队 13 ms |
+| 杀 clangd / 杀服务端 / 杀进程树 / 正常重启 | — | — | 全部回到 ready，无 issue |
+
+剩下的（0.0.8）：过渡模型阶段 clangd 在 Windows 上崩溃 4 次（0x80000003，已退避并自动写诊断包，K-3 符号化后报上游）；mcpp 本身部分失败时
+（`MCPP_BUILD_DATABASE_PROGRAM_FAILED`）替身逐个进入数据库、每约 25 s 一次计划重启，144 s 后收敛——应一次计划收齐；补全在 1 s 预算内多由回退作答
+（4 核上 clangd 忙于预建），预建期间的 clangd 作答比例是 0.0.8 的性能主题。
