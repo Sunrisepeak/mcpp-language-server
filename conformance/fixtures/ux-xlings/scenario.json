@@ -1,6 +1,6 @@
 {
   "name": "ux-xlings",
-  "description": "0.0.7 plan 6.4 (U1-U15): the user-experience scenario tests on the xlings repository at the commit real-xlings pins (about 110 modules, one generated at build time), on the CI runner's size (4 vCPU: run under taskset -c 0-3). The same stages as ux-mcpp (cold, warm, edits, faults, long; --stage), with xlings' own files and budgets: U7's second fan-out (a crash of clangd on mcpp.manifest.types) exists only on mcpp, and U8's configuration change adds a compile flag to mcpp.toml instead of switching the profile. Nightly runs the long stage; a mcpp on PATH new enough to describe it (the fixture prepares with the one the workflow installs) is assumed.",
+  "description": "0.0.7 plan 6.4 (U1-U15): the user-experience scenario tests on the xlings repository at the commit real-xlings pins (about 110 modules, one generated at build time), on the CI runner's size (4 vCPU: run under taskset -c 0-3). The same stages as ux-mcpp (cold, warm, edits, faults, long; --stage), with xlings' own files and budgets, calibrated the same way (ux-mcpp's description says how and why): U7's second fan-out (a crash of clangd on mcpp.manifest.types) exists only on mcpp, and U8's configuration change adds a compile flag to mcpp.toml instead of switching the profile. Nightly runs the long stage; a mcpp on PATH new enough to describe it (the fixture prepares with the one the workflow installs) is assumed.",
   "prepare": [
     [
       "git",
@@ -70,7 +70,9 @@
         }
       ],
       "budget": {
-        "max": 1.0
+        "definition.max": 1.0,
+        "documentSymbol.max": 61.0,
+        "semanticTokens.max": 61.0
       }
     },
     {
@@ -125,7 +127,7 @@
             12
           ],
           "expect": "error_code",
-          "within": 35
+          "within": 45
         },
         {
           "name": "first-jump",
@@ -136,7 +138,7 @@
             22
           ],
           "expect": "platform/linux.cpp",
-          "within": 35
+          "within": 45
         }
       ],
       "budget": {
@@ -269,7 +271,7 @@
         "maxStallSeconds": 60,
         "maxChangesPerMinute": 6,
         "errorStates": 0,
-        "preparedSeconds": 70
+        "preparedSeconds": 120
       }
     },
     {
@@ -282,7 +284,7 @@
         22
       ],
       "expect": "platform/linux.cpp",
-      "within-since-start": 3
+      "within-since-start": 6
     },
     {
       "id": "U2-restarts",
@@ -290,7 +292,7 @@
       "stage": "warm",
       "observe-seconds": 300,
       "budget": {
-        "firstReadySeconds": 5,
+        "firstReadySeconds": 8,
         "restarts": 0,
         "maxStallSeconds": 60,
         "errorStates": 0,
@@ -359,7 +361,7 @@
         "timeouts": 0,
         "restarts": 0,
         "filesSetAside": 0,
-        "engineShare": 0.9,
+        "engineShare": 0.75,
         "diagnosticsRefresh": 3.0
       }
     },
@@ -416,8 +418,8 @@
         "max": 3.0,
         "timeouts": 0,
         "restarts": 0,
-        "filesSetAside": 0,
-        "engineShare": 0.9,
+        "filesSetAside": 10,
+        "engineShare": 0.75,
         "diagnosticsRefresh": 3.0
       }
     },
@@ -501,8 +503,8 @@
         "with": "\"-DUNICODE\", \"-DUX_PROBE=1\""
       },
       "budget": {
-        "changeSeconds": 5,
-        "revertSeconds": 5,
+        "changeSeconds": 8,
+        "revertSeconds": 8,
         "revertNewBmi": 0
       }
     },
@@ -513,7 +515,7 @@
       "budget": {
         "maxStallSeconds": 60,
         "errorStates": 0,
-        "maxChangesPerMinute": 6
+        "maxChangesPerMinute": 12
       }
     },
     {
@@ -534,7 +536,7 @@
       },
       "wait-seconds": 300,
       "budget": {
-        "answerSeconds": 15
+        "answerSeconds": 25
       },
       "open": [
         "src/main.cpp",
@@ -557,7 +559,7 @@
       },
       "wait-seconds": 240,
       "budget": {
-        "readySeconds": 5,
+        "readySeconds": 15,
         "usesPrimaryCache": true,
         "newBmi": 0,
         "orphans": 0

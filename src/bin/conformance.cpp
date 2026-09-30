@@ -1111,14 +1111,27 @@ std::map<std::string, std::string> all_module_files(const std::string& cacheDire
     return files;
 }
 
-// How many module files the engine built since `before`: a file that was not there, or is there with another stamp.
-std::size_t builds_since(const std::map<std::string, std::string>& before, const std::map<std::string, std::string>& now) {
-    std::size_t built { 0 };
+// The module files the engine wrote since `before` (a file that was not there, or is there with another stamp), told
+// apart: `rebuilt` for a unit that had a module file before -- what a warm start or a restart must not do -- and `first`
+// for one that had none, a module no file of the earlier session needed (xlings: the files a warm session opens need 24
+// modules the cold one never built).
+struct Builds {
+    std::size_t rebuilt { 0 };
+    std::size_t first { 0 };
+};
+Builds builds_since(const std::map<std::string, std::string>& before, const std::map<std::string, std::string>& now) {
+    // A module file is <modules>/<unit>-<hash>/<command hash>/<name>.pcm: its unit is two directories up.
+    const auto unit_of = [](const std::string& path) { return base::parent_path(base::parent_path(path)); };
+    std::set<std::string> unitsBefore;
+    for (const auto& [path, stamp] : before) unitsBefore.insert(unit_of(path));
+    Builds builds;
     for (const auto& [path, stamp] : now) {
         const auto it = before.find(path);
-        if (it == before.end() || it->second != stamp) ++built;
+        if (it != before.end() && it->second == stamp) continue;
+        if (unitsBefore.contains(unit_of(path))) ++builds.rebuilt;
+        else ++builds.first;
     }
-    return built;
+    return builds;
 }
 
 // The server's own log files written since the run started, read as they grow and counted for the phrases a scenario test asks
@@ -2406,7 +2419,7 @@ public:
             const bool preparing { preparing_since(t0) };
             client_.pump_until(Clock::now() + std::chrono::seconds { 3 });
             const Json rootAfter = root_report();
-            const std::size_t built { builds_since(pcmBefore, all_module_files(cacheDirectory_)) };
+            const std::size_t built { builds_since(pcmBefore, all_module_files(cacheDirectory_)).rebuilt };
             const bool primaryCache { !rootAfter.value("cacheDirectory", std::string {}).contains("/instances/")
                                       && std::ranges::none_of(client_.status.value("notices", Json::array()), [](const Json& notice) { return notice.value("code", std::string {}) == "shared-workspace"; }) };
             long orphans { 0 };
@@ -2645,19 +2658,21 @@ public:
             measure_ = Json { { "cold", true }, { "moduleFiles", now.size() } };
             return { !expectWarm_, std::format("a cold start: {} module file(s) were built and none was there before", now.size()) };
         }
-        const std::size_t built { builds_since(pcmBefore_, now) };
+        const Builds builds { builds_since(pcmBefore_, now) };
         tailer_.poll();
         const bool logged { tailer_.clangd_output_seen() };
-        const long lines { tailer_.count("Built module") };
+        // Every module built logs one line; those of modules built for the first time are not rebuilds.
+        const long lines { std::max(0L, tailer_.count("Built module") - static_cast<long>(builds.first)) };
         std::vector<std::string> failures;
-        enforce_max(check, "newBmi", static_cast<double>(built), "module files built again", "", failures);
+        enforce_max(check, "newBmi", static_cast<double>(builds.rebuilt), "module files built again", "", failures);
         // Log lines only count where the log carries clangd's own output: at the default level it does not, and 0 would say nothing.
-        if (logged) enforce_max(check, "builtLines", static_cast<double>(lines), "'Built module' lines", "", failures);
-        Json summary { { "moduleFilesBefore", pcmBefore_.size() }, { "moduleFilesNow", now.size() }, { "newBmi", built },
-                       { "builtModuleLines", logged ? Json(lines) : Json(nullptr) } };
+        if (logged) enforce_max(check, "builtLines", static_cast<double>(lines), "'Built module' lines of modules built before", "", failures);
+        Json summary { { "moduleFilesBefore", pcmBefore_.size() }, { "moduleFilesNow", now.size() }, { "newBmi", builds.rebuilt },
+                       { "firstBuilds", builds.first }, { "builtModuleLines", logged ? Json(lines) : Json(nullptr) } };
         return finish_measure(std::move(failures), std::move(summary),
-                              std::format("{} of {} module file(s) built again{}", built, pcmBefore_.size(),
-                                          logged ? std::format(", {} 'Built module' line(s) in the log", lines) : std::string { ", the log carries no clangd output (--log-level debug)" }));
+                              std::format("{} of {} module file(s) built again, {} module(s) built for the first time{}", builds.rebuilt, pcmBefore_.size(),
+                                          builds.first,
+                                          logged ? std::format(", {} 'Built module' line(s) of modules built before", lines) : std::string { ", the log carries no clangd output (--log-level debug)" }));
     }
 
     // ---- resources ----
@@ -2803,7 +2818,7 @@ public:
             report_file_change(path, 2);
             const auto revertSeconds { replanned_since(t0, samplesBefore, waitFor) };
             const bool settledAfterRevert { settle(std::chrono::seconds { check.value("settle-seconds", 900) }) };
-            const std::size_t rebuilt { builds_since(pcmBeforeRevert, all_module_files(cacheDirectory_)) };
+            const std::size_t rebuilt { builds_since(pcmBeforeRevert, all_module_files(cacheDirectory_)).rebuilt };
             const Json after = root_report();
             summary["changeSeconds"] = changeSeconds ? Json(*changeSeconds) : Json(nullptr);
             summary["revertSeconds"] = revertSeconds ? Json(*revertSeconds) : Json(nullptr);
