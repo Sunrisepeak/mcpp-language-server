@@ -86,6 +86,22 @@
         "path": "./syntaxes/mcppls-modules.tmLanguage.json"
       }
     ],
+    "configurationDefaults": {
+      "[cpp]": {
+        "editor.quickSuggestions": {
+          "other": "on",
+          "comments": "off",
+          "strings": "off"
+        }
+      },
+      "[c]": {
+        "editor.quickSuggestions": {
+          "other": "on",
+          "comments": "off",
+          "strings": "off"
+        }
+      }
+    },
     "semanticTokenTypes": [
       {
         "id": "module",

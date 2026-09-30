@@ -8,6 +8,7 @@ import { SETTABLE_CANDIDATES, UNSETTABLE_CANDIDATES } from './conflictCandidates
 import { restoreOtherCppFeatures, turnOffOtherCppFeatures } from './conflicts';
 import { advertisesCacheReset, freedText, parseCacheResetResult, RESET_CACHE_COMMAND, SERVER_RESET_CACHE_COMMAND, sizeText } from './cacheReset';
 import { turnOffInWorkspace, turnOnInWorkspace } from './enable';
+import { sourceOf } from './quickSuggestions';
 import { redactJson, Who } from './redact';
 import { describeProfile, SemanticProfile } from './status';
 
@@ -196,6 +197,37 @@ export function extensionEnvironment(): Record<string, unknown> {
     };
 }
 
+// The extensions known to provide inline completions (grey text): with VS Code's own default for
+// `editor.quickSuggestions` any one of them keeps the completion list closed while you type (WA-VSCODE-002).
+const INLINE_COMPLETION_EXTENSIONS: readonly string[] = [
+    'GitHub.copilot', 'GitHub.copilot-chat', 'Codeium.codeium', 'TabNine.tabnine-vscode', 'sourcegraph.cody-ai',
+    'AmazonWebServices.amazon-q-vscode', 'Continue.continue', 'supermaven.supermaven', 'Google.geminicodeassist',
+];
+
+// What decides whether the completion list opens while a person types (0.0.8 plan E-3), as C++ files see
+// it: a report of "no completion" is answered by these before anything on the server's side -- the server
+// only counts the requests that reached it.
+export function editorEnvironment(): Record<string, unknown> {
+    const editor = vscode.workspace.getConfiguration('editor', { languageId: 'cpp' });
+    const quickSuggestions = editor.inspect('quickSuggestions');
+    const files = vscode.workspace.getConfiguration('files', { languageId: 'cpp' });
+    return {
+        quickSuggestions: {
+            value: editor.get('quickSuggestions'),
+            source: sourceOf(quickSuggestions),
+            editorDefault: quickSuggestions?.defaultValue,
+        },
+        inlineSuggest: editor.get('inlineSuggest.enabled'),
+        suggestOnTriggerCharacters: editor.get('suggestOnTriggerCharacters'),
+        autoSave: files.get('autoSave'),
+        autoSaveDelay: files.get('autoSaveDelay'),
+        inlineCompletionExtensions: INLINE_COMPLETION_EXTENSIONS
+            .map((id) => vscode.extensions.getExtension(id))
+            .filter((extension): extension is vscode.Extension<unknown> => extension !== undefined)
+            .map((extension) => ({ id: extension.id, active: extension.isActive })),
+    };
+}
+
 function mcpplsSettings(): Record<string, unknown> {
     const settings = vscode.workspace.getConfiguration('mcppls');
     return {
@@ -245,6 +277,7 @@ async function collectReport(access: ServerAccess): Promise<void> {
             ...extensionEnvironment(),
             otherCppExtensions: otherCppExtensions(),
             settings: mcpplsSettings(),
+            editor: editorEnvironment(),
         },
         workspaceFolders: (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath),
     }, whoAmI());
@@ -302,6 +335,7 @@ export async function exportDiagnosticBundle(access: ServerAccess, hideProjectPa
             extension: extensionEnvironment(),
             otherCppExtensions: otherCppExtensions(),
             settings: mcpplsSettings(),
+            editor: editorEnvironment(),
             log: access.recentLog().join('\n'),
         },
     };
