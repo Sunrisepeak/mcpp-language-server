@@ -1,0 +1,5 @@
+<idea-plugin>
+    <extensions defaultExtensionNs="io.github.sunrisepeak.mcppls">
+        <workspaceProbe implementation="community.mcpp.mcppls.CidrWorkspaceProbe"/>
+    </extensions>
+</idea-plugin>

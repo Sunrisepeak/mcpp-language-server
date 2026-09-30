@@ -14,9 +14,20 @@
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
+    <!-- CLion's C/C++ engine, for telling whether it models the project (ClionModel). Optional: without it
+         the probe is absent and the CMakeLists.txt check alone decides. -->
+    <depends optional="true" config-file="mcppls-cidr.xml">com.intellij.clion</depends>
+
+    <extensionPoints>
+        <extensionPoint name="workspaceProbe" interface="community.mcpp.mcppls.ClionWorkspaceProbe" dynamic="true"/>
+    </extensionPoints>
 
     <extensions defaultExtensionNs="com.intellij">
         <platform.lsp.serverSupportProvider
             implementation="community.mcpp.mcppls.McpplsServerSupportProvider"/>
+        <applicationService serviceImplementation="community.mcpp.mcppls.McpplsSettings"/>
+        <applicationConfigurable parentId="tools" instance="community.mcpp.mcppls.McpplsConfigurable"
+                                 id="community.mcpp.mcppls.settings" displayName="mcppls"/>
+        <notificationGroup id="mcppls" displayType="BALLOON"/>
     </extensions>
 </idea-plugin>
