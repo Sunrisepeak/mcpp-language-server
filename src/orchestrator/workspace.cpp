@@ -240,6 +240,16 @@ struct Workspace::Impl final : engine::Host {
         std::string lastAt;            // UTC, when the latest one was answered (0.0.8 plan E-3)
     };
     std::map<std::string, MethodStats, std::less<>> requestStats;
+    // C-4 (plan 0.0.8 part 2): the same by file, so a report says which files are slow and for what: GalTranslPP's showed
+    // slow requests only as a journal of the worst, and "some files complete fast, some slowly" had to be pieced together.
+    struct FileStats {
+        std::size_t count { 0 };
+        std::size_t completionsWithoutCore { 0 };   // answered with the file's words: the core engine was late
+        double maxMs { 0 };
+        std::map<std::string, std::deque<double>, std::less<>> recentMs;   // by method
+    };
+    std::map<std::string, FileStats, std::less<>> fileRequestStats;
+    static constexpr std::size_t FILE_STATS_LIMIT { 500 };   // files; a session that opens more keeps the first ones
     // F9 (D4): what space-triggered completion costs. Most never pass the gate and cost one look at a line.
     struct SpaceTriggerStats {
         std::size_t count { 0 };
@@ -250,6 +260,9 @@ struct Workspace::Impl final : engine::Host {
     SpaceTriggerStats spaceTrigger;
     std::size_t keywordsWithoutEngine { 0 };   // F15: keyword completions answered before the core engine did
     std::size_t wordsWithoutCore { 0 };        // M-2 (plan 0.0.8): completions the core engine did not answer, given the file's words
+    // C-2 (plan 0.0.8 part 2): completions the core engine answered after their budget, and requests given such an answer.
+    std::size_t lateCompletionsArrived { 0 };
+    std::size_t lateCompletionsServed { 0 };
     // E-3 (plan 0.0.8): how much the person edited, so a report shows edits going on while a request stopped coming.
     std::size_t documentChanges { 0 };
     std::string lastDocumentChangeAt;
@@ -280,9 +293,31 @@ struct Workspace::Impl final : engine::Host {
         // M-2 (plan 0.0.8): the core engine gave an answer, even an empty one; a completion it did not answer
         // (not asked, unavailable, failed) gets the file's words in finish_job.
         bool coreAnswered { false };
+        // C-2 (plan 0.0.8 part 2): the job asked nothing of its own and waits for a late completion of the same word.
+        bool waitsForLate { false };
     };
     std::map<std::uint64_t, Job> jobs;
     std::uint64_t nextJob { 1 };
+
+    // C-2 (plan 0.0.8 part 2): a completion the core engine did not answer in its budget keeps its request running, for
+    // as long as the person types in the same word. Cancelled at the budget, as before, clangd's answer never reached
+    // anyone: the next keystroke asked again, queued behind the same rebuild, and missed its budget too -- in a file clangd
+    // rebuilds for seconds after each edit, no completion of clangd's ever showed (GalTranslPP: 25 of 48 answered with the
+    // file's words). Now the requests that word makes meanwhile wait for that one answer, and the next one is given it.
+    static constexpr std::chrono::seconds LATE_COMPLETION_KEEP { 10 };
+    struct LateCompletion {
+        std::string uri;
+        completion::WordKey key;
+        Json clientId;                          // the request the core engine is still working on
+        Clock::time_point until;
+        std::vector<std::uint64_t> waiting;     // jobs of the same word waiting for its answer
+    };
+    std::map<std::uint64_t, LateCompletion> lateCompletions;   // by the job that asked
+    struct LateAnswer {
+        completion::WordKey key;
+        Json result;
+    };
+    std::map<std::string, LateAnswer, std::less<>> lateAnswers;   // document URI -> the last late answer, for its word
 
     // Project model and plan.
     std::shared_ptr<project::ProjectModel> model;
@@ -573,6 +608,7 @@ struct Workspace::Impl final : engine::Host {
         consider(leaseRenewAt);
         consider(tokensRefreshAt);
         for (const auto& [id, job] : jobs) consider(job.budgetAt);
+        for (const auto& [id, late] : lateCompletions) consider(late.until);
         for (const auto& engine : engines) consider(engine->next_deadline());
         return deadline;
     }
@@ -659,6 +695,7 @@ struct Workspace::Impl final : engine::Host {
                 if (const auto position = position_of(job.params)) {
                     job.keywords = index::keyword_completion(job.text, *position, index.scan_of(job.path),
                                                              index::KeywordOptions { .suggestModulesAfterImport = vscodeLike });
+                    if (answered_late(jobId, uri, *position)) return;
                 }
             }
         }
@@ -753,12 +790,80 @@ struct Workspace::Impl final : engine::Host {
         if (job.keywords.is_array() && !job.keywords.empty()) ++keywordsWithoutEngine;
         job.answeredBy = "mcppls";
         Json result;
+        bool keepCore { false };
         if (job.method == lsp::method::TEXT_DOCUMENT_COMPLETION) {
             const auto position = position_of(job.params);
             result = completion::without_engine(position ? completion::document_words(job.text, *position) : Json::array());
+            // C-2: the core engine's request stays, for the requests the same word makes next.
+            const bool coreAsked { !job.waitsForLate && job.next > 0 && job.answerers[job.next - 1] == coreEngine };
+            if (coreAsked && position) {
+                if (auto key = completion::word_key(job.text, *position)) {
+                    lateCompletions[jobId] = LateCompletion { uri_of_params(job.params), std::move(*key), clientId, Clock::now() + LATE_COMPLETION_KEEP, {} };
+                    keepCore = true;
+                }
+            }
         }
         finish_job(jobId, std::move(result));
-        for (const auto& engine : engines) engine->cancel(clientId);
+        for (const auto& engine : engines) {
+            if (!(keepCore && engine.get() == coreEngine)) engine->cancel(clientId);
+        }
+    }
+
+    // C-2: a completion in a word the core engine answered late is given that answer, at once; one in a word the core
+    // engine is still working on waits for it, within its own budget. A completion in another word ends the core
+    // engine's work on the one before: nobody is typing it any more. An import directive's module names are mcppls's own.
+    bool answered_late(std::uint64_t jobId, const std::string& uri, base::Position position) {
+        if (coreEngine == nullptr) return false;
+        Job& job = jobs.at(jobId);
+        const auto prefix = completion::line_prefix(job.text, position);
+        auto key = completion::word_key(job.text, position);
+        if (!prefix || completion::in_import_directive(*prefix) || !key) return false;
+        if (const auto answer = lateAnswers.find(uri); answer != lateAnswers.end()) {
+            if (answer->second.key == *key) {
+                job.coreAnswered = true;
+                job.answeredBy = std::string { coreEngine->id() };
+                ++lateCompletionsServed;
+                finish_job(jobId, completion::retarget(answer->second.result, position));
+                return true;
+            }
+            lateAnswers.erase(answer);
+        }
+        for (auto it = lateCompletions.begin(); it != lateCompletions.end();) {
+            if (it->second.uri != uri) {
+                ++it;
+            } else if (it->second.key == *key) {
+                it->second.waiting.push_back(jobId);
+                job.waitsForLate = true;
+                if (const auto budget = answer_budget(job.method)) job.budgetAt = job.started + *budget;
+                return true;
+            } else {
+                coreEngine->cancel(it->second.clientId);
+                it = lateCompletions.erase(it);
+            }
+        }
+        return false;
+    }
+
+    // C-2: the core engine answered a completion whose budget had passed.
+    void late_completion_answered(std::uint64_t jobId, const engine::Answer& answer) {
+        const auto it = lateCompletions.find(jobId);
+        if (it == lateCompletions.end()) return;
+        LateCompletion late { std::move(it->second) };
+        lateCompletions.erase(it);
+        // An empty answer or an error is nothing to give: whoever waits for it gets the file's words at its budget.
+        if (answer.kind != engine::Answer::Kind::result || completion::is_empty(answer.value)) return;
+        ++lateCompletionsArrived;
+        lateAnswers[late.uri] = LateAnswer { late.key, answer.value };
+        for (const std::uint64_t waiter : late.waiting) {
+            auto job = jobs.find(waiter);
+            if (job == jobs.end()) continue;
+            const auto position = position_of(job->second.params);
+            if (!position) continue;
+            job->second.coreAnswered = true;
+            job->second.answeredBy = std::string { coreEngine->id() };
+            ++lateCompletionsServed;
+            finish_job(waiter, completion::retarget(answer.value, *position));
+        }
     }
 
     void ask_next(std::uint64_t jobId) {
@@ -772,7 +877,10 @@ struct Workspace::Impl final : engine::Host {
         engine::Engine* answerer { job.answerers[job.next++] };
         answerer->request(job.view, job.message, [this, jobId, engineId = std::string { answerer->id() }](engine::Answer answer) {
             auto current = jobs.find(jobId);
-            if (current == jobs.end()) return;
+            if (current == jobs.end()) {
+                late_completion_answered(jobId, answer);
+                return;
+            }
             switch (answer.kind) {
             case engine::Answer::Kind::result:
                 if (coreEngine != nullptr && engineId == coreEngine->id()) current->second.coreAnswered = true;
@@ -831,6 +939,15 @@ struct Workspace::Impl final : engine::Host {
         stats.maxMs = std::max(stats.maxMs, ms);
         if (!job.answeredBy.empty()) ++stats.answeredBy[job.answeredBy];
         stats.lastAt = std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now()));
+        if (!job.path.empty() && (fileRequestStats.size() < FILE_STATS_LIMIT || fileRequestStats.contains(job.path))) {
+            auto& file = fileRequestStats[job.path];
+            ++file.count;
+            file.maxMs = std::max(file.maxMs, ms);
+            if (job.method == lsp::method::TEXT_DOCUMENT_COMPLETION && job.answeredBy == "mcppls") ++file.completionsWithoutCore;
+            auto& recent = file.recentMs[job.method];
+            recent.push_back(ms);
+            if (recent.size() > 64) recent.pop_front();
+        }
         if (ms >= 5000) {
             journal.add("slow-request", Json { { "method", job.method }, { "file", job.path }, { "ms", static_cast<std::int64_t>(ms) },
                                                { "outcome", std::string { outcome } }, { "answeredBy", job.answeredBy } });
@@ -1863,6 +1980,14 @@ struct Workspace::Impl final : engine::Host {
             for (const auto id : due) {
                 if (jobs.contains(id)) answer_without_core(id);
             }
+            for (auto it = lateCompletions.begin(); it != lateCompletions.end();) {
+                if (it->second.until > now) {
+                    ++it;
+                    continue;
+                }
+                if (coreEngine != nullptr) coreEngine->cancel(it->second.clientId);
+                it = lateCompletions.erase(it);
+            }
         }
         if (leaseRenewAt && *leaseRenewAt <= now) {
             lease->renew(std::chrono::system_clock::now());
@@ -2264,14 +2389,34 @@ Json Workspace::report() const {
                                   { "p50Ms", percentile(0.5) }, { "p95Ms", percentile(0.95) }, { "maxMs", static_cast<std::int64_t>(stats.maxMs) },
                                   { "answeredBy", std::move(answeredBy) }, { "lastAt", stats.lastAt } };
     }
+    // C-4 (plan 0.0.8 part 2): the ten files whose slowest method is slowest at the 95th percentile.
+    std::vector<std::pair<std::int64_t, Json>> files;
+    for (const auto& [path, stats] : impl.fileRequestStats) {
+        Json methods = Json::object();
+        std::int64_t worst { 0 };
+        for (const auto& [method, recent] : stats.recentMs) {
+            std::vector<double> durations { recent.begin(), recent.end() };
+            std::ranges::sort(durations);
+            const std::int64_t p95 { durations.empty() ? 0 : static_cast<std::int64_t>(durations[std::min(durations.size() - 1, durations.size() * 95 / 100)]) };
+            methods[method] = Json { { "count", durations.size() }, { "p95Ms", p95 } };
+            worst = std::max(worst, p95);
+        }
+        files.emplace_back(worst, Json { { "file", path }, { "count", stats.count }, { "maxMs", static_cast<std::int64_t>(stats.maxMs) },
+                                         { "completionsWithoutCore", stats.completionsWithoutCore }, { "methods", std::move(methods) } });
+    }
+    std::ranges::sort(files, std::greater {}, [](const auto& entry) { return entry.first; });
+    Json slowestFiles = Json::array();
+    for (auto& [worst, entry] : files | std::views::take(10)) slowestFiles.push_back(std::move(entry));
     // F9, F15: what space-triggered completion cost, and how often keywords answered without the core engine.
     Json completionCosts { { "spaceTrigger", Json { { "count", impl.spaceTrigger.count }, { "passed", impl.spaceTrigger.passed },
                                                      { "maxMicros", impl.spaceTrigger.maxMicros }, { "totalMicros", impl.spaceTrigger.totalMicros } } },
-                           { "keywordsWithoutEngine", impl.keywordsWithoutEngine }, { "wordsWithoutCore", impl.wordsWithoutCore } };
+                           { "keywordsWithoutEngine", impl.keywordsWithoutEngine }, { "wordsWithoutCore", impl.wordsWithoutCore },
+                           { "late", Json { { "arrived", impl.lateCompletionsArrived }, { "served", impl.lateCompletionsServed } } } };
     return Json { { "root", root_ }, { "key", key_ }, { "cacheDirectory", impl.cacheDirectory },
                   { "trusted", impl.options.trusted }, { "state", std::string { to_string(impl.compute_state()) } }, { "project", std::move(project) },
                   { "toolEnvironment", std::move(environment) }, { "toolRuns", std::move(toolRuns) },
                   { "plan", std::move(plan) }, { "engines", std::move(engines) }, { "requests", std::move(requests) },
+                  { "slowestFiles", std::move(slowestFiles) },
                   { "completion", std::move(completionCosts) },
                   { "documents", Json { { "changes", impl.documentChanges }, { "lastChangeAt", impl.lastDocumentChangeAt } } },
                   { "eventTotals", impl.journal.totals() }, { "events", impl.journal.recent(300) } };

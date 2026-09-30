@@ -33,6 +33,18 @@ bool has_prefix_argument(std::span<const std::string> arguments, std::string_vie
 
 } // namespace
 
+std::optional<std::string_view> gcc_default_standard(std::string_view version, bool c) {
+    int major { 0 };
+    const auto [end, error] = std::from_chars(version.data(), version.data() + version.size(), major);
+    if (error != std::errc {} || end == version.data()) return std::nullopt;
+    // GCC's own defaults (its release notes: C++17 from GCC 11, C++20 from 16; C17 from 8, C23 from 15), where Clang's
+    // (gnu++17, gnu17 since Clang 16 and 11) differ.
+    if (c) return major >= 15 ? std::optional<std::string_view> { "gnu23" } : major >= 8 ? std::nullopt : std::optional<std::string_view> { "gnu11" };
+    if (major >= 16) return "gnu++20";
+    if (major >= 11) return std::nullopt;
+    return major >= 6 ? std::optional<std::string_view> { "gnu++14" } : std::optional<std::string_view> { "gnu++98" };
+}
+
 std::vector<std::string> translate_gnu(const GnuInput& input) {
     const bool gcc { input.facts != nullptr && input.facts->toolchain.family == spec::Family::gcc };
     std::vector<std::string> out;
@@ -56,6 +68,12 @@ std::vector<std::string> translate_gnu(const GnuInput& input) {
     }
     if (gcc) {
         const auto& facts = *input.facts;
+        // X-3 (plan 0.0.8 part 2): a command that names no standard is read with the one GCC compiles it with, not
+        // Clang's. xmake writes no -std when xmake.lua sets no language; GCC 16 then builds `import std` as gnu++20,
+        // while Clang's gnu++17 could not even scan GCC's std.cc (20 errors), and preparation waited on it for good.
+        if (!has_prefix_argument(out, "-std=") && !has_prefix_argument(out, "--std=")) {
+            if (const auto standard = gcc_default_standard(facts.toolchain.version, input.c)) out.push_back(std::format("-std={}", *standard));
+        }
         out.emplace_back("--no-default-config");
         if (!facts.toolchain.target.empty() && !has_prefix_argument(out, "--target=")) out.push_back("--target=" + facts.toolchain.target);
         out.emplace_back("-stdlib=libstdc++");

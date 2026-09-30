@@ -785,6 +785,26 @@ int main() {
         expect(std::ranges::find(verbose, std::string { "--log=verbose" }) != verbose.end());
     };
 
+    "clangd's log says what each file's builds cost (C-4, plan 0.0.8 part 2)"_test = [] {
+        const std::string log {
+            "I[02:31:56.391] ASTWorker building file D:\\a\\G\\Trans Agent.cpp version 1 with command \n"
+            "[D:\\a\\G]\n"
+            "clang++ --driver-mode=g++ -c D:\\a\\G\\Trans Agent.cpp\n"
+            "I[02:31:56.403] Built preamble of size 253644 for file D:\\a\\G\\Trans Agent.cpp version 1 in 7.25 seconds\n"
+            "I[02:31:56.419] Built prerequisite modules for file D:\\a\\G\\Trans Agent.cpp in 2.5 seconds\n"
+            "I[02:32:10.001] ASTWorker building file D:\\a\\G\\Trans Agent.cpp version 2 with command \n"
+            "I[02:32:10.403] Built preamble of size 253644 for file D:\\a\\G\\Trans Agent.cpp version 2 in 0.75 seconds\n"
+            "I[02:32:11.419] Built prerequisite modules for file /p/other.cpp in 0.02 seconds\n"
+            "I[02:32:11.500] Built preamble of size 1 for file /p/broken.cpp version 1 in soon seconds\n"
+        };
+        const auto times = cld::build_times(log);
+        expect(times.size() == 2u) << "a line whose seconds do not read is left out";
+        const auto& agent = times.at("D:\\a\\G\\Trans Agent.cpp");
+        expect(agent.preambles == 2u && agent.asts == 2u && agent.moduleBuilds == 1u);
+        expect(agent.preambleSeconds == 8.0 && agent.preambleMaxSeconds == 7.25 && agent.moduleSeconds == 2.5);
+        expect(times.at("/p/other.cpp").moduleBuilds == 1u && times.at("/p/other.cpp").preambles == 0u);
+    };
+
     "clangd's crash context names the file it crashed on (fix plan F3)"_test = [] {
         // As the Windows CI of issue #23 printed it (GalTranslPP, clangd 23.1.0).
         cld::LogReader reader;

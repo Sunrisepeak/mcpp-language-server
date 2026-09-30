@@ -3381,6 +3381,27 @@ public:
             }
             return { expected, answer ? lsp::dump(*answer) : std::string { "no answer, or an error" } };
         }
+        if (kind == "diagnostic-code-lines") {
+            // I-1 (plan 0.0.8 part 2): the lines (0-based) a code is on once the file's diagnostics settle, exactly: include
+            // cleaner in module units says only what is true, and a clangd that starts saying more is caught.
+            open(file);
+            const std::string documentUri { uri(file) };
+            const Json code = check.value("code", std::string {});
+            const bool published { client_.wait_for([&] {
+                return client_.diagnosticsCount[documentUri] > 0 && state_of(client_.status) != "preparing" && state_of(client_.status) != "loading";
+            }, timeout_) };
+            client_.drain(std::chrono::milliseconds { 1500 });
+            std::vector<int> lines;
+            for (const auto& diagnostic : client_.diagnostics[documentUri]) {
+                if (diagnostic.value("code", Json {}) != code) continue;
+                const Json* start { lsp::find_path(diagnostic, { "range", "start" }) };
+                lines.push_back(start == nullptr ? -1 : start->value("line", -1));
+            }
+            std::ranges::sort(lines);
+            std::vector<int> expected { check.value("lines", std::vector<int> {}) };
+            std::ranges::sort(expected);
+            return { published && lines == expected, published ? std::format("{} on lines {}", code.dump(), lines) : std::string { "no diagnostics were published" } };
+        }
         if (kind == "diagnostic-code") {
             open(file);
             const std::string documentUri { uri(file) };

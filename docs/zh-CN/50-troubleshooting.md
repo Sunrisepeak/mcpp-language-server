@@ -71,9 +71,11 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **每次启动都很慢。** 第二次会话应该很快：模型连同构建工具所读一切内容的指纹一起被缓存，与之匹配的会话会立即套用计划，并在后台确认；已经构建好的模块会复用，不会重建（0.0.6 及更早版本在热启动时会把每个模块都重建一遍，issue #30）。`project.firstOrigin` 会说明发生了哪种情况。如果它一直是 `producer`，说明指纹没有匹配上——该看报告里的 `project.producerRun` 和构建文件的时间戳。
 
-**补全只有文件里的词，或悬停提示说正在准备模块。** 每种请求给 clangd 的都有预算——补全和签名帮助 1 秒，悬停 2 秒，跳转到定义 10 秒——超过之后 mcppls 用手上有的东西作答，并取消发给 clangd 的请求。补全这时给出的是文件里离光标最近的那些词，是一份不完整的列表，所以你继续输入时编辑器会再问一次；悬停在模块准备期间给出的是一行说明。这是 clangd 正忙着处理模块，不是故障。报告里的 `requests.<method>.answeredBy` 按方法统计了各由哪个引擎作答。
+**补全只有文件里的词，或悬停提示说正在准备模块。** 每种请求给 clangd 的都有预算——补全和签名帮助 1 秒，悬停 2 秒，跳转到定义 10 秒——超过之后 mcppls 用手上有的东西作答。补全这时给出的是文件里离光标最近的那些词，是一份不完整的列表，所以你继续输入时编辑器会再问一次；悬停在模块准备期间给出的是一行说明。这是 clangd 正忙着处理模块，不是故障。从 0.0.8 起，clangd 迟到的补全不再丢弃：它最多再算 10 秒，你在同一个词里继续输入时发出的请求都等它，一到就交给它们，所以在 clangd 重建得慢的文件里，列表仍会在你打完这个词之前出现。报告里的 `requests.<method>.answeredBy` 按方法统计了各由哪个引擎作答；`completion.late` 统计 clangd 迟到的答案和用上它们的请求；`slowestFiles` 列出最慢的十个文件，以及每个文件有多少次补全只拿到了词；`engines[].details.buildTimes` 说明 clangd 构建每个文件花在哪里（preamble、导入的模块、AST 构建次数）。
 
-**准备模块期间编辑器有点卡。** clangd 拿到机器的线程数减一（最少 2 个、最多 8 个，内存小的机器更少）；`mcppls.engine.workers`（`auto` 或一个数字）可以覆盖这个值。有你打开的文件在等模块准备时，准备工作用掉除一个之外的全部 worker，否则用一半。为 clangd 的索引构建实现单元——也就是对从没打开过的 `.cpp` 文件做跳转到定义所需要的——一次只构建一个，而且要在你 10 秒内没有输入、没有打开文件、也没有发起请求之后才开始。clangd 因构建描述变化需要的重启，要等到输入停顿 3 秒之后（最多等 60 秒）；崩溃或者 clangd 不再应答，仍然立即重启。
+**模块单元里出现"未使用的头文件"警告。** 这是 clangd 的 include cleaner，默认开启，mcppls 不关它：在模块接口的全局模块片段、实现单元和导入方里，它和在普通文件里一样，只报没有任何东西用到的头文件（有一个 conformance fixture 在 clangd 升级时守着这一点）。要关掉，在项目的 `.clangd` 或你的 clangd `config.yaml` 里写 `Diagnostics: { UnusedIncludes: None }`；mcppls 启动的 clangd 两处都会读。
+
+**准备模块期间编辑器有点卡。** clangd 拿到机器的线程数减一（最少 2 个、最多 8 个，内存小的机器更少）；`mcppls.engine.workers`（`auto` 或一个数字）可以覆盖这个值。有你打开的文件在等模块准备时，准备工作用掉除一个之外的全部 worker，否则用一半。为 clangd 的索引构建实现单元——也就是对从没打开过的 `.cpp` 文件做跳转到定义所需要的——一次只构建一个，而且要在你 10 秒内没有输入、没有打开文件、也没有发起请求之后才开始。clangd 因构建描述变化需要的重启，要等到输入停顿 3 秒之后（最多等 60 秒）；崩溃或者 clangd 不再应答，仍然立即重启。从 0.0.8 起，mcppls 为准备模块而在 clangd 里打开的单元，在模块一建好就关掉（BMI 留在 clangd 磁盘上的模块缓存里）：以前它们要等全部准备结束才关，期间每次保存都要被 clangd 重新检查一遍，开着自动保存时，就占走了你正在编辑的文件要等的 worker。
 
 **clangd 反复重启。** 看 `engines[].restarts`、`engines[].details.restartBudget` 和 `events` 日志。每种原因各有十分钟三次的重启额度：引擎数据库变化（`plan`）、恢复停止应答或空转的 clangd（`recovery`）、clangd 退出（`crash`）。用完之后，同类的下一次重启依次等待一、二、四、八分钟——是退避而不是拒绝，所以卡住的 clangd 总能恢复——状态会说明（`engine-restart-capped`）并提供 **Restart clangd** 按钮（其他编辑器用 `workspace/executeCommand` `mcppls.restartEngine`），它立即重启且从不计入额度。切换工具链、profile 或 context 也从不计入，模块编译不过从来不是重启的理由。引擎数据库的每次变化都会记入日志并写明改了什么（`engine database changed: … compiled otherwise (main.cpp: argument 3: -O0 -> -O2)`），重启密集时能直接看到原因。
 

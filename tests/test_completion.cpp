@@ -234,6 +234,37 @@ int main() {
         expect(!routing::answer_budget("textDocument/documentSymbol").has_value());
     };
 
+    "a late answer is recognized by its word and given to a later position in it (C-2)"_test = [] {
+        const std::string text { "int main() {\n    auto v = obj.si\n}\n" };
+        const auto early = completion::word_key(text, Position { 1, 18 });   // after "obj.s"
+        const auto later = completion::word_key(text, Position { 1, 19 });   // after "obj.si"
+        expect(early.has_value() && later.has_value() && *early == *later) << "one word, typed on";
+        expect(later->before == "    auto v = obj.") << later->before;
+        expect(completion::word_key(text, Position { 1, 9 }) != later) << "another word on the line";
+        expect(completion::word_key(text, Position { 9, 0 }) == std::nullopt);
+        expect(completion::word_key("si", Position { 0, 2 })->before.empty()) << "a word at the start of the text";
+
+        const Json answer { { "isIncomplete", false }, { "items", Json::array({
+            Json { { "label", "size" }, { "textEdit", Json { { "newText", "size" }, { "range", Json { { "start", Json { { "line", 1 }, { "character", 17 } } },
+                                                                                                        { "end", Json { { "line", 1 }, { "character", 18 } } } } } } } },
+            Json { { "label", "swap" } },
+            Json { { "label", "elsewhere" }, { "textEdit", Json { { "newText", "x" }, { "range", Json { { "start", Json { { "line", 0 }, { "character", 0 } } },
+                                                                                                          { "end", Json { { "line", 0 }, { "character", 1 } } } } } } } },
+            Json { { "label", "both" }, { "textEdit", Json { { "newText", "both" },
+                { "insert", Json { { "start", Json { { "line", 1 }, { "character", 17 } } }, { "end", Json { { "line", 1 }, { "character", 18 } } } } },
+                { "replace", Json { { "start", Json { { "line", 1 }, { "character", 17 } } }, { "end", Json { { "line", 1 }, { "character", 18 } } } } } } } },
+        }) } };
+        const Json moved = completion::retarget(answer, Position { 1, 19 });
+        expect(moved["isIncomplete"] == false);
+        expect(moved["items"].size() == 3u) << moved.dump();
+        expect(moved["items"][0]["textEdit"]["range"]["end"]["character"] == 19) << "the edit replaces the word up to the new cursor";
+        expect(moved["items"][0]["textEdit"]["range"]["start"]["character"] == 17);
+        expect(moved["items"][1]["label"] == "swap") << "an item without an edit is kept";
+        expect(moved["items"][2]["textEdit"]["insert"]["end"]["character"] == 19 && moved["items"][2]["textEdit"]["replace"]["end"]["character"] == 19);
+        expect(completion::retarget(answer["items"], Position { 1, 19 })["items"].size() == 3u) << "a bare array is a list too";
+        expect(completion::retarget(Json(nullptr), Position { 1, 19 })["items"].empty());
+    };
+
     "module names for completion are kept until a declaration changes"_test = [] {
         idx::ModuleIndex index;
         index.update("/p/a.cppm", "export module a;\n");

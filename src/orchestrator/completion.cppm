@@ -69,4 +69,20 @@ bool in_import_directive(std::string_view linePrefix);
 // merged in by the caller, as into any answer (merge).
 Json without_engine(const Json& wordItems);
 
+// C-2 (plan 0.0.8 part 2): the word a completion is asked in -- its line, and the text of that line before the word.
+// Two requests with the same key complete the same word, however much of it has been typed.
+struct WordKey {
+    int line { 0 };
+    std::string before;
+    bool operator==(const WordKey&) const = default;
+};
+// nullopt when `position` is not in `text`.
+std::optional<WordKey> word_key(std::string_view text, base::Position position);
+
+// C-2: a completion answered for an earlier position in the same word, for `position`: each item's edit that replaced
+// the word up to the old cursor replaces it up to this one (a client drops an item whose range does not contain the
+// position it asked at). Items without an edit are kept as they are; an edit on another line or starting after
+// `position` drops its item. The result is a CompletionList, with the engine's `isIncomplete`.
+Json retarget(const Json& result, base::Position position);
+
 } // namespace mcppls::orchestrator::completion

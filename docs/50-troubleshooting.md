@@ -146,10 +146,22 @@ build files' timestamps are where to look.
 
 **Completion shows only words from the file, or hover says modules are being prepared.** A request
 has a budget for clangd — completion and signature help 1 s, hover 2 s, go-to-definition 10 s — and
-past it mcppls answers with what it has and cancels clangd's request. Completion is then the words of
-the file nearest the cursor, an incomplete list, so the editor asks again as you type; hover, while
-modules are being prepared, is a line saying so. It is clangd being busy with modules, not a
-failure. `requests.<method>.answeredBy` in the report counts, per method, which engine answered.
+past it mcppls answers with what it has. Completion is then the words of the file nearest the
+cursor, an incomplete list, so the editor asks again as you type; hover, while modules are being
+prepared, is a line saying so. It is clangd being busy with modules, not a failure. From 0.0.8,
+clangd's late completion is not thrown away: it keeps working for up to 10 s, the requests you make
+while typing the same word wait for it, and it goes to them as soon as it comes, so in a file clangd
+rebuilds slowly the list still arrives before you finish the word. `requests.<method>.answeredBy`
+in the report counts, per method, which engine answered; `completion.late` counts clangd's late
+answers and the requests they went to; `slowestFiles` names the ten slowest files and, per file,
+how many completions got only words; `engines[].details.buildTimes` says what building each file
+cost clangd (preamble, imported modules, AST builds).
+
+**Unused-include warnings in module units.** They are clangd's include cleaner, on by default, and
+mcppls leaves it on: in a module interface's global module fragment, an implementation unit and an
+importer it reports only headers nothing uses, as in any other file (a conformance fixture keeps
+that true across clangd updates). To turn it off, add `Diagnostics: { UnusedIncludes: None }` to the
+project's `.clangd` or to your clangd `config.yaml`; the clangd mcppls starts reads both.
 
 **The editor is sluggish while modules are prepared.** clangd gets the machine's threads but one
 (between 2 and 8, fewer on a machine with little memory); `mcppls.engine.workers` (`auto` or a
@@ -158,7 +170,10 @@ it, half of them otherwise. Implementation units are built for clangd's index �
 into `.cpp` files you never opened needs — one at a time, and only after 10 s without typing,
 opening a file or asking for something. A restart clangd needs for a changed build description waits
 until typing has paused for 3 s (at most 60 s); a crash or a clangd that stopped answering still
-restarts at once.
+restarts at once. From 0.0.8 each unit mcppls opens in clangd to prepare a module is closed as
+soon as that module is built (its BMI stays in clangd's module cache on disk): kept open until all
+preparation was done, every one of them was checked again on each save, and with autosave that took
+the workers the file you typed in was waiting for.
 
 **clangd keeps restarting.** `engines[].restarts`, `engines[].details.restartBudget` and the `events`
 journal. Each reason has its own budget of three restarts in ten minutes: the engine database

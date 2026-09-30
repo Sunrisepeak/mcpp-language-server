@@ -155,7 +155,6 @@ private:
     Primer primer_;
     std::map<std::string, std::string, std::less<>> primeModuleByPath_;
     std::map<std::string, Clock::time_point, std::less<>> primeDeadlines_;
-    std::map<std::string, std::string, std::less<>> heldPrimeUnits_;
     std::optional<Clock::time_point> lastPrimeProgressAt_;
     std::map<std::string, std::string, std::less<>> moduleSources_;   // importable module -> the unit providing it, from the plan
     // clangd's persistent module cache as the plan found it (cached_bmis), read the first time a
@@ -528,6 +527,7 @@ public:
             { "filesUnsafeOnDisk", disk_hazards_json_() },
             { "lastPlanDiff", lastPlanDiff_ },
             { "logRingLines", logRing_->size() },
+            { "buildTimes", build_times_json_() },
         };
     }
 
@@ -904,7 +904,6 @@ public:
             rewritten_.erase(document.uri);
             spin_.forget(document.uri);
             if (accepting_ && !wasExcluded && event.message != nullptr) (void)send_(*event.message);
-            release_prime_units_if_idle_();
             break;
         }
         case DocumentChange::saved:
@@ -1181,7 +1180,16 @@ public:
         if (scanFailures_.files.size() < 5 && std::ranges::find(scanFailures_.files, file) == scanFailures_.files.end()) scanFailures_.files.push_back(file);
         const bool notFound { reason.find("file not found") != std::string::npos };
         host_->record_event("scan-failed", Json { { "file", file }, { "reason", reason }, { "driver", driver } });
-        if (!driver && !notFound) return;
+        // X-4 (plan 0.0.8 part 2): nobody types in the standard library's module units or in a unit outside the workspace,
+        // so their failure is the command's, never a half-typed file's (xmake without a language: GCC's std.cc scanned
+        // as gnu++17 failed, was ignored, and nothing said why `import std` did not work).
+        const std::string normalized { base::normalize_path(file) };
+        std::string standardModule;
+        for (const auto& [module, source] : moduleSources_) {
+            if ((module == "std" || module == "std.compat") && base::same_path(source, normalized)) standardModule = module;
+        }
+        const bool neverTyped { !standardModule.empty() || !base::is_within(normalized, host_->root_directory()) };
+        if (!driver && !notFound && !neverTyped) return;
         // clangd names the unit as its command line did, with backslashes and `..` on Windows (GalTranslPP:
         // `D:\a\...\Updater\..\3rdParty\3rdModule\boost.ixx`); the plan's units are normalized.
         unscannableUnits_[base::path_key(base::normalize_path(file))] = { reason, platform::fs::stamp(file) };
@@ -1192,7 +1200,8 @@ public:
         std::erase_if(issues_, [](const Issue& issue) { return issue.code == "module-scan-failed"; });
         issues_.push_back(Issue { "module-scan-failed",
             driver ? std::format("clangd rejected the compile command for module scanning: {} (first seen for {})", reason, base::file_name(file))
-                   : std::format("clangd could not scan {} for its modules: {}", base::file_name(file), reason),
+            : !standardModule.empty() ? std::format("the standard library module {} does not compile with this project's command: {}", standardModule, reason)
+                                      : std::format("clangd could not scan {} for its modules: {}", base::file_name(file), reason),
             "mcppls.showLogs", driver ? "environment" : "project" });
         host_->status_changed();
     }
@@ -2085,7 +2094,6 @@ private:
             if (!searches_.empty() && !diagnosedKey.empty()) unit_built_(diagnosedKey);
             awaitingDiagnostics_.erase(uri);
             awaitingSince_.erase(uri);
-            release_prime_units_if_idle_();
             if (!host_->has_document(uri)) {
                 Json forwarded = message;
                 host_->client_view(forwarded["params"]);
@@ -3243,7 +3251,6 @@ private:
             prepare_imports_of_(document);
             release_held_requests_(key, true);
         }
-        release_prime_units_if_idle_();
     }
 
     // Fix plan F14: a cause at its cap is backed off, not refused. Said once per backoff, with when the next
@@ -4143,6 +4150,24 @@ private:
         host_->status_changed();
     }
 
+    // C-4 (plan 0.0.8 part 2): the twenty files whose builds cost clangd the most, from what its log still holds -- which
+    // file is slow, and whether in its preamble, the modules it imports or its AST.
+    Json build_times_json_() const {
+        const auto round = [](double seconds) { return std::round(seconds * 100) / 100; };
+        std::vector<std::pair<double, Json>> files;
+        for (const auto& [file, times] : build_times(logRing_->text())) {
+            files.emplace_back(times.preambleSeconds + times.moduleSeconds,
+                               Json { { "file", file }, { "preambles", times.preambles }, { "preambleSeconds", round(times.preambleSeconds) },
+                                      { "preambleMaxSeconds", round(times.preambleMaxSeconds) }, { "moduleBuilds", times.moduleBuilds },
+                                      { "moduleSeconds", round(times.moduleSeconds) }, { "moduleMaxSeconds", round(times.moduleMaxSeconds) },
+                                      { "asts", times.asts } });
+        }
+        std::ranges::sort(files, std::greater {}, [](const auto& entry) { return entry.first; });
+        Json out = Json::array();
+        for (auto& [total, entry] : files | std::views::take(20)) out.push_back(std::move(entry));
+        return out;
+    }
+
     // `diagnostics`: what clangd published for the prime unit, when it was that and not a deadline.
     bool finish_prime_(std::string_view engineUri, const Json* diagnostics = nullptr) {
         if (primeDirectory_.empty()) return false;
@@ -4154,7 +4179,12 @@ private:
         const std::string module { it->second };
         primeModuleByPath_.erase(it);
         primeDeadlines_.erase(module);
-        heldPrimeUnits_.emplace(pathKey, canonical);
+        // C-1 (plan 0.0.8 part 2): a prepared unit is closed at once. Held open until all preparation was idle, every
+        // one of them was checked again by clangd on each save -- clangd re-checks every open file on didSave, and rebuilds
+        // the modules of those whose imports changed -- so a person's autosave rebuilt module closures no open file
+        // needed, on the workers their own file waited for (GalTranslPP: 15 held, ux-xlings: 70). Closing loses nothing:
+        // clangd keeps each BMI in its module cache on disk and reuses it for the next file that imports the module.
+        if (accepting_) (void)send_(lsp::make_notification("textDocument/didClose", Json { { "textDocument", Json { { "uri", base::path_to_uri(canonical) } } } }));
         if (diagnostics != nullptr && !modulesFailedAt_.contains(module) && !doomedModules_.contains(module)
             && std::ranges::none_of(*diagnostics, [](const Json& diagnostic) { return diagnostic.value("severity", 0) == 1; })) {
             record_built_closure_(module);
@@ -4162,37 +4192,31 @@ private:
         primer_.finish(module);
         lastPrimeProgressAt_ = Clock::now();
         pump_primer_();
-        release_prime_units_if_idle_();
-        if (!primer_.busy()) pump_implementations_(Clock::now());
+        if (!primer_.busy()) {
+            const auto [done, wanted] = primer_.progress();
+            log::info("module preparation idle ({}): {} of {} modules prepared", host_->root_directory(), done, wanted);
+            host_->semantic_tokens_changed();   // design doc 2026-09-25 K/§7: module preparation finished
+            pump_implementations_(Clock::now());
+        }
         return true;
     }
 
-    void release_prime_units_if_idle_() {
-        // A file waiting for the database needs the same modules once it is given to clangd.
-        if (heldPrimeUnits_.empty() || primer_.busy() || !awaitingDiagnostics_.empty() || !held_.empty()) return;
-        log::info("module preparation idle ({}): closing {} prime units", host_->root_directory(), heldPrimeUnits_.size());
-        close_prime_units_();
-        host_->semantic_tokens_changed();   // design doc 2026-09-25 K/§7: module preparation finished
-    }
-
+    // The units still being prepared, when their preparation is abandoned (a new module graph, a restart).
     void close_prime_units_() {
         std::set<std::string> uris;
         for (const auto& [pathKey, module] : primeModuleByPath_) {
             if (const auto* planned = primer_.find(module)) uris.insert(base::path_to_uri(planned->primeFile));
         }
-        for (const auto& [pathKey, path] : heldPrimeUnits_) uris.insert(base::path_to_uri(path));
         if (accepting_) {
             for (const auto& uri : uris) (void)send_(lsp::make_notification("textDocument/didClose", Json { { "textDocument", Json { { "uri", uri } } } }));
         }
         primeModuleByPath_.clear();
         primeDeadlines_.clear();
-        heldPrimeUnits_.clear();
     }
 
     void forget_primes_() {
         primeModuleByPath_.clear();
         primeDeadlines_.clear();
-        heldPrimeUnits_.clear();
         primer_.reset();
         // A new clangd prepares from nothing: its progress is measured from when it starts, not from the last one's (ux-xlings:
         // "preparation-stalled ... cannot recover" written 2 s after a restart, from the previous clangd's last progress).

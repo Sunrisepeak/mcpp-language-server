@@ -203,6 +203,14 @@ void unify_language_standard(EnginePlan& plan) {
     plan.standardsSeen.assign(seen.begin(), seen.end());
     if (!best) return;
     plan.languageStandard = bestSpelling;
+    // X-3 (plan 0.0.8 part 2): module units read below C++20 have no modules at all; the build fails the same way, so the
+    // fix is in its configuration, said once here rather than as every import's error.
+    if (best->first < 2020) {
+        plan.issues.push_back(PlanIssue { "module-standard-too-old",
+            std::format("the module units are compiled as {}, and modules need C++20 or later: set the C++ standard in the build's configuration "
+                        "(xmake: set_languages(\"c++20\"); CMake: CMAKE_CXX_STANDARD 20)", bestSpelling),
+            {}, {} });
+    }
     for (auto& entry : plan.entries) {
         if (!modular(entry)) continue;
         const auto at = standard_argument(entry);
@@ -368,7 +376,7 @@ EnginePlan plan_engine(const PlanInput& input) {
             // read with the semantic kit; C units, which import nothing, keep their toolchain.
             const bool toolchain { usable(facts) && !(input.preferKit && input.kit != nullptr && !candidate.c) };
             if (toolchain && (facts->toolchain.family == spec::Family::gcc || facts->toolchain.family == spec::Family::clang)) {
-                candidate.arguments = translate_gnu(GnuInput { arguments, candidate.source, unit.workDirectory, facts, importable, input.noAlignedAllocationWithMsvcStl });
+                candidate.arguments = translate_gnu(GnuInput { arguments, candidate.source, unit.workDirectory, facts, importable, input.noAlignedAllocationWithMsvcStl, candidate.c });
                 if (facts->toolchain.family == spec::Family::gcc) candidate.driver = candidate.c ? clangCDriver : clangDriver;
                 else candidate.driver = candidate.c ? c_driver_beside(facts->toolchain.driver) : facts->toolchain.driver;
             } else if (toolchain) {

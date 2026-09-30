@@ -1,0 +1,13 @@
+{
+  "name": "include-cleaner-modules",
+  "description": "I-1 (plan 0.0.8 part 2): clangd's include cleaner, on by default, says only what is true in module units -- a module interface's global module fragment, an implementation unit, an importer -- as it does in a plain file. A clangd that starts reporting headers a module unit needs is caught here before it reaches anyone.",
+  "server-arguments": ["--no-discover"],
+  "checks": [
+    { "id": "S1", "kind": "status", "source": "inferred", "state": "ready", "engine-name": "clangd" },
+    { "id": "I1-interface", "kind": "diagnostic-code-lines", "file": "src/m.cppm", "code": "unused-includes", "lines": [4, 5] },
+    { "id": "I2-plain", "kind": "diagnostic-code-lines", "file": "src/plain.cpp", "code": "unused-includes", "lines": [3, 4] },
+    { "id": "I3-importer", "kind": "diagnostic-code-lines", "file": "src/user.cpp", "code": "unused-includes", "lines": [] },
+    { "id": "I4-implementation", "kind": "diagnostic-code-lines", "file": "src/n_impl.cpp", "code": "unused-includes", "lines": [] },
+    { "id": "I5-member-access", "kind": "diagnostic-code-lines", "file": "src/n_user.cpp", "code": "unused-includes", "lines": [] }
+  ]
+}

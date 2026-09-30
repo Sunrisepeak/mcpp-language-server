@@ -113,6 +113,20 @@ private:
     std::size_t dropped_ { 0 };
 };
 
+// C-4 (plan 0.0.8 part 2): what clangd's log says building each file cost -- its preambles and the modules it imports
+// ("Built preamble of size .. for file F version V in S seconds", "Built prerequisite modules for file F in S seconds"),
+// and how many times its AST was built ("ASTWorker building file F version V ..."). The files are as clangd names them.
+struct FileBuildTimes {
+    std::size_t preambles { 0 };
+    double preambleSeconds { 0 };
+    double preambleMaxSeconds { 0 };
+    std::size_t moduleBuilds { 0 };
+    double moduleSeconds { 0 };
+    double moduleMaxSeconds { 0 };
+    std::size_t asts { 0 };
+};
+std::map<std::string, FileBuildTimes, std::less<>> build_times(std::string_view log);
+
 // clangd's log line for a module it could not build:
 // "E[..] Failed to build module greet; due to Failed to compile C:/.../std.ixx. Use '--log=verbose' ..."
 struct ModuleFailure {

@@ -88,6 +88,31 @@ int main() {
         expect(!contains(out, "c++-module"));
     };
 
+    "X-3: a command with no standard is read with the one GCC builds it with, where Clang's differs"_test = [] {
+        expect(n::gcc_default_standard("16.1.0", false) == std::optional<std::string_view> { "gnu++20" });
+        expect(n::gcc_default_standard("15.2.0", false) == std::nullopt) << "gnu++17 is Clang's default too";
+        expect(n::gcc_default_standard("11", false) == std::nullopt);
+        expect(n::gcc_default_standard("10.5.0", false) == std::optional<std::string_view> { "gnu++14" });
+        expect(n::gcc_default_standard("15.1.0", true) == std::optional<std::string_view> { "gnu23" });
+        expect(n::gcc_default_standard("13.3.0", true) == std::nullopt) << "gnu17 is Clang's default too";
+        expect(n::gcc_default_standard("", false) == std::nullopt && n::gcc_default_standard("unknown", false) == std::nullopt);
+
+        auto facts = gcc_facts();
+        facts.toolchain.version = "16.1.0";
+        const std::vector<std::string> bare { "/opt/gcc/bin/g++", "-O3", "-c", "/p/src/main.cpp" };
+        auto out = n::translate_gnu(n::GnuInput { bare, "/p/src/main.cpp", "/p", &facts, false });
+        expect(std::ranges::count(out, std::string { "-std=gnu++20" }) == 1) << std::format("{}", out);
+        const std::vector<std::string> stated { "/opt/gcc/bin/g++", "-std=c++23", "-c", "/p/src/main.cpp" };
+        out = n::translate_gnu(n::GnuInput { stated, "/p/src/main.cpp", "/p", &facts, false });
+        expect(contains(out, "-std=c++23") && !contains(out, "-std=gnu++20")) << "a stated standard is the build's";
+        const std::vector<std::string> cUnit { "/opt/gcc/bin/gcc", "-c", "/p/src/x.c" };
+        out = n::translate_gnu(n::GnuInput { cUnit, "/p/src/x.c", "/p", &facts, false, true, true });
+        expect(contains(out, "-std=gnu23") && !contains(out, "-std=gnu++20")) << std::format("{}", out);
+        facts.toolchain.version = "14.2.0";
+        out = n::translate_gnu(n::GnuInput { bare, "/p/src/main.cpp", "/p", &facts, false });
+        expect(!contains_prefix(out, "-std=")) << "GCC 14 and Clang agree: nothing is added, and the command stays as 0.0.7 wrote it";
+    };
+
     "P3: Clang strips BMI arguments and keeps the rest"_test = [] {
         ToolchainFacts facts;
         facts.toolchain.family = s::Family::clang;
