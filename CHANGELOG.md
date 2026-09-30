@@ -89,6 +89,10 @@ CLion a file is answered by one engine. That second part is `.agents/docs/2026-1
   rewritten with autosave, clangd kept every core busy for more than fifteen minutes with every open
   file queued and nothing done, which the stuck watch (next to no CPU) did not see. A file queued for
   four minutes while clangd finished nothing for three now restarts it as a recovery, with an incident.
+  The cause, named by that incident: a module's importer closed in clangd while its build ran --
+  containment closes importers of a module that does not compile -- sometimes leaves the build's thread
+  spinning with nobody to answer, and three such threads take all of clangd's workers. On Linux a
+  worker thread at a full core for a minute on a file clangd is not building restarts clangd at once.
 - **Modules of a build that names no C++ standard are read as C++23.** xmake writes no `-std` when
   `xmake.lua` sets no language, and clangd read `import std` with Clang's own gnu++17, which has no
   modules -- it could not even scan GCC's `std.cc`, while GCC 16 built it. Module units whose build

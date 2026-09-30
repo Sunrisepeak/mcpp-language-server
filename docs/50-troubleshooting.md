@@ -248,7 +248,10 @@ files you have open stay "queued" and nothing finishes -- no diagnostics for any
 module, for three minutes, with a file queued for four. That was seen after a module imported by much
 of a project was rewritten with autosave; the stuck watch above does not see it, since clangd keeps
 the CPU busy. The `events` journal has an `engine-busy-without-progress` entry, and an incident keeps
-clangd's log.
+clangd's log. On Linux the cause is found sooner: a clangd worker thread that has kept a core busy for
+a minute on a file clangd is not building (a build clangd let go of when the file was closed, and
+never stopped) restarts clangd at once (`engine-orphan-spin`, with the thread and its CPU in the
+incident).
 
 **"The bundled clangd cannot run on this system".** clangd did not start at all: the system's
 program loader refused it, and its message is in the status and the log (for example
