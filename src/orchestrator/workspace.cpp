@@ -73,6 +73,11 @@ constexpr std::chrono::milliseconds STATUS_COALESCE { 250 };
 // long, so a condition that passes by itself (a file set aside and handed back as the user types) never
 // reaches the editor. error goes out at once.
 constexpr std::chrono::milliseconds DEGRADED_HOLD { 3000 };
+// K-6 (plan 2026-09-30): what comes and goes by itself as the person types -- a file set aside and handed back, a
+// restart held back by its budget -- makes the state degraded only once it has lasted this long. A crash, a clangd
+// that stopped answering and every problem of the project or its environment go out after DEGRADED_HOLD.
+constexpr std::chrono::milliseconds PASSING_DEGRADED_HOLD { 30000 };
+constexpr std::array<std::string_view, 2> PASSING_ISSUES { "file-quarantined", "engine-restart-capped" };
 
 // The module structure of a scan, for deciding whether an edit changes the engine database.
 std::string structure_of(const project::ScanResult& scan) {
@@ -1490,6 +1495,21 @@ struct Workspace::Impl final : engine::Host {
         return profile;
     }
 
+    // K-6: whether what makes the state degraded is only what passes by itself (PASSING_ISSUES).
+    bool degraded_only_in_passing() const {
+        if ((model && !model->issues.empty()) || !staleModelReason.empty() || (kit && spec::requires_macos_sdk(*kit) && macosSdk.empty())) return false;
+        if (std::ranges::any_of(plan.issues, [](const auto& issue) { return issue.category != "code"; })) return false;
+        bool passing { false };
+        for (const auto& engine : engines) {
+            for (const auto& issue : engine->status().issues) {
+                if (issue.category == "code") continue;
+                if (std::ranges::find(PASSING_ISSUES, issue.code) == PASSING_ISSUES.end()) return false;
+                passing = true;
+            }
+        }
+        return passing;
+    }
+
     State compute_state() const {
         const std::optional<engine::EngineStatus> core { coreEngine != nullptr ? std::optional { coreEngine->status() } : std::nullopt };
         // usable plan W9.4: a corrupt payload is not merely degraded: only syntax-level features are
@@ -1616,8 +1636,9 @@ struct Workspace::Impl final : engine::Host {
         if (state == State::degraded && lastReportedState != State::degraded) {
             const auto now = Clock::now();
             if (!degradedSince) degradedSince = now;
-            if (now < *degradedSince + DEGRADED_HOLD) {
-                if (!statusFlushAt || *degradedSince + DEGRADED_HOLD < *statusFlushAt) statusFlushAt = *degradedSince + DEGRADED_HOLD;
+            const auto hold = degraded_only_in_passing() ? PASSING_DEGRADED_HOLD : DEGRADED_HOLD;
+            if (now < *degradedSince + hold) {
+                if (!statusFlushAt || *degradedSince + hold < *statusFlushAt) statusFlushAt = *degradedSince + hold;
                 return;
             }
         }

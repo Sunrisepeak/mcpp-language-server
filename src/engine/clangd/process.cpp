@@ -87,6 +87,28 @@ std::size_t clear_module_locks(std::string_view databaseDirectory) {
     return removed;
 }
 
+std::vector<std::string> stale_module_builds(std::string_view databaseDirectory, std::size_t keep) {
+    std::vector<std::string> stale;
+    const auto newest_write = [](const std::string& directory) {
+        std::int64_t newest { std::numeric_limits<std::int64_t>::min() };
+        for (const auto& entry : platform::fs::list_directory(directory)) {
+            if (const auto stamp = platform::fs::stamp(entry)) newest = std::max(newest, stamp->modified);
+        }
+        return newest;
+    };
+    for (const auto& unit : platform::fs::list_directory(base::join_path(databaseDirectory, ".cache/clangd/modules"))) {
+        if (base::file_name(unit).starts_with('.') || !platform::fs::is_directory(unit)) continue;   // .locks
+        std::vector<std::pair<std::int64_t, std::string>> builds;
+        for (const auto& build : platform::fs::list_directory(unit)) {
+            if (platform::fs::is_directory(build)) builds.emplace_back(newest_write(build), build);
+        }
+        if (builds.size() <= keep) continue;
+        std::ranges::sort(builds, std::greater {});
+        for (auto& [written, build] : builds | std::views::drop(keep)) stale.push_back(std::move(build));
+    }
+    return stale;
+}
+
 std::optional<std::int64_t> module_lock_owner(std::string_view lockPath) {
     // The lock is a link to, or a file beside, "<lock>-<random>" holding "<host> <pid>"; either way one of
     // the files that start with the lock's name says who holds it.

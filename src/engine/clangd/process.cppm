@@ -134,6 +134,10 @@ std::string module_lock_directory(std::string_view databaseDirectory);
 std::size_t clear_module_locks(std::string_view databaseDirectory);
 // The process id a lock records ("<host> <pid>" in the file the lock names), when it can be read.
 std::optional<std::int64_t> module_lock_owner(std::string_view lockPath);
+// C-2 (plan 2026-09-30): clangd 23.1 keeps a unit's BMIs in `<modules>/<unit>-<hash>/<command hash>/`, a directory for
+// every command it was ever built with, and removes none. The directories of each unit beyond the `keep` most recently
+// written: what commands the unit no longer has left behind (clangd builds again whatever it needs).
+std::vector<std::string> stale_module_builds(std::string_view databaseDirectory, std::size_t keep);
 
 // What a module build failure means for the engine database (robustness design C3). `unresolved`:
 // clangd found no unit for the module ("Don't get the module unit"); a provider importing it cannot be

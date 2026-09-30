@@ -343,6 +343,7 @@ private:
     static constexpr std::size_t WATCHED_BATCH_LIMIT { 20 };   // plan 2026-09-27 D3
     static constexpr std::size_t BACKGROUND_UNITS { 12 };
     static constexpr std::size_t UNITS_PER_SEARCH { 4 };
+    static constexpr std::size_t MODULE_BUILDS_KEPT { 2 };               // C-2: a unit's BMI directories kept, newest first
     static constexpr std::size_t IMPLEMENTATIONS_AT_ONCE { 1 };          // N-7, R-5: units being built for the index at the same time
     static constexpr std::size_t IMPLEMENTATIONS_PER_OPEN { 16 };        // N-7: relevant units queued for one opened file
     std::map<std::string, std::vector<UnitOfModule>, std::less<>> moduleUnits_;   // module -> its units other than its interface
@@ -1220,9 +1221,17 @@ public:
                     pending_[id] = std::move(request);
                     break;
                 }
-                log::warning("clangd ({}) did not answer {} in time", host_->root_directory(), request.method);
+                // R-3 (plan 2026-09-30): what else had clangd's workers, so a slow answer is told from a stuck one.
+                const std::size_t backgroundBuilding { static_cast<std::size_t>(std::ranges::count_if(background_, [](const auto& item) { return !item.second.built; })) };
+                const bool preparing { primer_.busy() };
+                log::warning("clangd ({}) did not answer {} in time{}", host_->root_directory(), request.method,
+                             preparing || backgroundBuilding > 0 ? std::format(" (while {}{}{})", preparing ? "preparing modules" : "",
+                                                                                preparing && backgroundBuilding > 0 ? " and " : "",
+                                                                                backgroundBuilding > 0 ? std::format("building {} unit(s) in the background", backgroundBuilding) : "")
+                                                              : std::string {});
                 host_->record_event("request-timeout", Json { { "method", request.method }, { "file", host_->path_of_uri(request.uri) },
-                                                              { "seconds", std::chrono::duration_cast<std::chrono::seconds>(now - request.sent).count() } });
+                                                              { "seconds", std::chrono::duration_cast<std::chrono::seconds>(now - request.sent).count() },
+                                                              { "workers", workers_ }, { "preparing", preparing }, { "backgroundBuilding", backgroundBuilding } });
                 if (request.reply) request.reply(Answer {});
                 (void)send_(lsp::make_notification("$/cancelRequest", Json { { "id", id } }));
                 // A file whose modules are still being built is slow, not stuck: setting it aside would throw that work away.
@@ -1237,7 +1246,10 @@ public:
                 // with its importers (real-project plan RP1.1, RP1.2): a timeout meanwhile says nothing about this
                 // file. An edit elsewhere is no excuse, and clangd answering nobody, which no edit explains,
                 // still counts.
-                switch (quarantine_.timed_out(base::path_key(path), request.sent, now, lastAnswerAt_, changed_recently_(path, now))) {
+                // Nor, R-3, while mcppls's own background work had the workers: the file waited behind it, which says
+                // nothing about the file (it still counts toward clangd answering nobody).
+                switch (quarantine_.timed_out(base::path_key(path), request.sent, now, lastAnswerAt_,
+                                              changed_recently_(path, now) || preparing || backgroundBuilding > 0)) {
                 case Quarantine::Verdict::wait: break;
                 case Quarantine::Verdict::quarantined: set_aside_(path, "it stopped answering its requests", Reclaim::if_busy); break;
                 case Quarantine::Verdict::stalled: stalled = true; break;
@@ -1423,6 +1435,7 @@ private:
             log::info("removed {} module locks an earlier clangd left in {} ({})", cleared, module_lock_directory(databaseDirectory_), host_->root_directory());
             host_->record_event("module-locks-cleared", Json { { "count", cleared } });
         }
+        prune_module_builds_();
         const int generation { ++generation_ };
         ProcessConfig config;
         config.executable = options_.executable;
@@ -3106,6 +3119,30 @@ private:
         incident_("restart-backoff", Json { { "reason", std::string { reason } }, { "cause", std::string { to_string(cause) } },
                                             { "seconds", std::chrono::duration_cast<std::chrono::seconds>(at - now).count() } }, {});
         host_->status_changed();
+    }
+
+    // C-2 (plan 2026-09-30): the BMIs of commands each unit no longer has (stale_module_builds, all but the newest
+    // MODULE_BUILDS_KEPT) are moved aside while no clangd uses the cache -- a rename, so its start waits for nothing --
+    // and removed on a thread of their own, with what earlier sessions left there.
+    void prune_module_builds_() {
+        const std::string trash { base::join_path(base::parent_path(databaseDirectory_), "trash") };
+        const std::string batch { base::join_path(trash, std::format("{}", std::chrono::system_clock::now().time_since_epoch().count())) };
+        std::size_t moved { 0 };
+        for (const auto& build : stale_module_builds(databaseDirectory_, MODULE_BUILDS_KEPT)) {
+            if (moved == 0) (void)platform::fs::create_directories(batch);
+            const std::string unit { base::file_name(base::parent_path(build)) };
+            if (platform::fs::rename(build, base::join_path(batch, std::format("{}-{}-{}", moved, unit, base::file_name(build))))) ++moved;
+        }
+        const auto leftovers = platform::fs::list_directory(trash);
+        if (leftovers.empty()) return;
+        std::thread { [leftovers, root = host_->root_directory()] {
+            std::uint64_t freed { 0 };
+            for (const auto& directory : leftovers) {
+                freed += directory_bytes(directory);
+                platform::fs::remove_all(directory);
+            }
+            if (freed > 0) log::info("freed {:.1f} MB of BMIs built for commands no unit has any more ({})", static_cast<double>(freed) / 1e6, root);
+        } }.detach();
     }
 
     // A restart at the next timer, as soon as the gate allows: for callers in the middle of work on the requests a restart ends.

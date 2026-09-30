@@ -508,6 +508,34 @@ int main() {
         fs::remove_all(database);
     };
 
+    // C-2 (plan 2026-09-30): each unit's BMI directories beyond its two newest are what old commands left behind.
+    "the BMIs of commands a unit no longer has are found, the newest kept"_test = [] {
+        namespace fs = mcppls::platform::fs;
+        using mcppls::base::join_path;
+        const std::string database { join_path(mcppls::platform::dirs::temp_directory(),
+            std::format("mcppls-test-builds-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+        const std::string modules { join_path(database, ".cache/clangd/modules") };
+        const auto build = [&](std::string_view unit, std::string_view command) {
+            const std::string directory { join_path(modules, std::format("{}/{}", unit, command)) };
+            (void)fs::create_directories(directory);
+            (void)fs::write_file(join_path(directory, "m.pcm"), "bmi");
+            std::this_thread::sleep_for(std::chrono::milliseconds { 15 });   // written one after another
+            return directory;
+        };
+        const std::string oldest { build("std.cppm-AA", "0001") };
+        const std::string older { build("std.cppm-AA", "0002") };
+        build("std.cppm-AA", "0003");
+        build("std.cppm-AA", "0004");
+        build("greet.cppm-BB", "0001");
+        build("greet.cppm-BB", "0002");
+        (void)fs::create_directories(join_path(modules, ".locks/x.lock"));
+        auto stale = cld::stale_module_builds(database, 2);
+        std::ranges::sort(stale);
+        expect(stale == std::vector<std::string> { oldest, older }) << "only std's two oldest; greet has two, .locks is no unit";
+        expect(cld::stale_module_builds(join_path(database, "missing"), 2).empty());
+        fs::remove_all(database);
+    };
+
     "a module clangd cannot find is told apart from one that does not compile"_test = [] {
         const auto unresolved = cld::parse_module_failure("E[04:05:38.910] Failed to build module std; due to Don't get the module unit for module std");
         const auto compile = cld::parse_module_failure("E[04:05:39.001] Failed to build module e; due to Failed to compile /p/e.cppm. Use '--log=verbose' to view detailed failure reasons.");
@@ -1138,6 +1166,62 @@ int main() {
         host.pump(*engine);
         opened = BuildingProcess::files(*shared, "textDocument/didOpen");
         expect(was_opened(other)) << "the rest, once clangd was idle";
+        engine->shut_down();
+        fs::remove_all(root);
+    };
+
+    "a restart the plan asks for waits while the person types, and not past its limit (R-8)"_test = [] {
+        namespace fs = mcppls::platform::fs;
+        using mcppls::base::join_path;
+        using namespace std::chrono_literals;
+        const std::string root { join_path(mcppls::platform::dirs::temp_directory(),
+            std::format("mcppls-test-quiet-restart-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+        (void)fs::create_directories(join_path(root, "src"));
+        const std::string executable { join_path(root, "clangd") };
+        (void)fs::write_file(executable, "pretend-clangd");
+        const std::string main { join_path(root, "src/main.cpp") };
+        const std::string interface { join_path(root, "src/greet.cppm") };
+        (void)fs::write_file(main, "import hello.greet;\nint main() {}\n");
+        (void)fs::write_file(interface, "export module hello.greet;\n");
+        auto shared = std::make_shared<BuildingProcess::Shared>();
+        cld::Options options;
+        options.executable = executable;
+        options.version = "23.1.0";
+        options.primeImplementationUnits = false;
+        options.processFactory = [shared] { return std::make_unique<BuildingProcess>(shared); };
+        RecordingHost host { root };
+        auto engine = cld::make_engine(std::move(options));
+        engine->start(host);
+        host.pump(*engine);
+        const auto plan_with = [&](std::string define) {
+            mcppls::normalize::EnginePlan plan;
+            plan.entries.push_back(mcppls::normalize::EngineEntry { root, main, { "clang++", "-std=c++23", "-c", main }, "", "", { "hello.greet" }, {} });
+            plan.entries.push_back(mcppls::normalize::EngineEntry { root, interface, { "clang++", "-std=c++23", std::move(define), "-c", interface }, "hello.greet", "hello.greet", {}, {} });
+            return plan;
+        };
+        const auto first = plan_with("-DA");
+        engine->apply(&first);
+        host.pump(*engine);
+        const auto starts = [&] { return std::ranges::count_if(shared->sent, [](const Json& message) { return message.value("method", std::string {}) == "initialize"; }); };
+        expect(fatal(starts() == 1));
+        const auto second = plan_with("-DB");
+        engine->apply(&second);   // the module's interface is compiled with other arguments: a restart, in PLAN_RESTART_SETTLE
+        const std::string text { "import hello.greet;\nint main() {}\n" };
+        const auto began = std::chrono::steady_clock::now();
+        for (int version { 2 }; std::chrono::steady_clock::now() < began + 2700ms; ++version) {
+            engine->document(eng::DocumentEvent { eng::DocumentChange::changed, eng::DocumentView { mcppls::base::path_to_uri(main), main, "cpp", version, text } });
+            std::this_thread::sleep_for(300ms);
+            engine->handle_timers();
+            host.pump(*engine);
+        }
+        expect(starts() == 1) << "not while the person types";
+        expect(std::ranges::find(host.events, std::string { "engine-restart-postponed" }) != host.events.end());
+        const auto next = engine->next_deadline();
+        expect(next.has_value() && *next > eng::Clock::now() + 2s) << "it wakes itself once typing has paused RESTART_QUIET";
+        std::this_thread::sleep_for(3200ms);
+        engine->handle_timers();
+        host.pump(*engine);
+        expect(starts() == 2) << "restarted once typing paused";
         engine->shut_down();
         fs::remove_all(root);
     };
