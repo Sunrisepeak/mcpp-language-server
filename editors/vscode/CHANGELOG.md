@@ -8,8 +8,8 @@
   `offWhenInlineCompletions`); the extension sets `{"other": "on"}` for `[cpp]` and `[c]`. A value you
   set under `"[cpp]"` / `"[c]"` wins; one set for every language is overridden, and the log says so once.
 - **Export Diagnostic Bundle** records the editor settings that decide whether completion shows.
-- Writing a module with autosave keeps its completion and diagnostics (the server no longer takes it
-  from clangd while you edit it), and completion is never empty.
+- Writing a module with autosave keeps its completion and real diagnostics (the server no longer takes
+  a module that does not compile from clangd), and completion is never empty.
 
 ## 0.0.7
 

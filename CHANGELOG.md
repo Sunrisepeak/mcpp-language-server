@@ -13,8 +13,8 @@ Completion that shows up. In VS Code 1.125 and later with Copilot (built into VS
 inline completion, the completion list stayed closed while you typed -- the editor waited for the
 inline completion and did not even ask the server -- which read as "no keyword or variable
 completion"; C and C++ now open it as you type, beside the grey text. Writing a module with autosave
-no longer takes it and its importers from clangd every few seconds, and a completion clangd does not
-answer always has the file's words. A partial build description brings its stand-ins in one clangd
+no longer takes the module you are writing from clangd every few seconds, and a completion clangd
+does not answer always has the file's words. A partial build description brings its stand-ins in one clangd
 restart instead of one per module, the provisional model no longer prepares the project's modules,
 and a clangd crash keeps what an upstream report needs. The analysis and the plan are
 `.agents/docs/2026-09-30-0.0.8-plan.md`.
@@ -37,14 +37,15 @@ and a clangd crash keeps what an upstream report needs. The analysis and the pla
 
 ### Writing modules
 
-- **A module being written stays with clangd.** With autosave, a module saved mid-edit does not
-  compile, and containment took the module's own file and every importer from clangd -- no completion,
-  one error with no position instead of the real diagnostics -- until the next save handed them back:
-  in 92 s of writing a module it happened 18 times and half the completions in it were empty. While a
-  source of a failing module is open and was edited in the last two minutes, its files stay with
-  clangd; the module you edit keeps its diagnostics and completion, an importer its own names and
-  keywords with an error on the import. Two minutes after the last edit, a module whose failing text
-  is still on disk is contained as before. New fixture `module-edit-autosave`; ux scenario U16.
+- **The module you are writing keeps clangd.** With autosave, a module saved mid-edit does not
+  compile, and containment took the module's own file from clangd together with its importers -- no
+  completion, one error with no position instead of the real ones -- until the next save handed it
+  back: in 92 s of writing a module it happened 18 times and half the completions in it were empty.
+  The unit whose compile failed now always stays with clangd, which reads it from the editor with its
+  real errors and completion. Its importers are contained as before while it does not compile (keeping
+  them with clangd made clangd rebuild the modules between at every save, and on xlings an importer had
+  no diagnostics for minutes); their completion now has the file's words. New fixture
+  `module-edit-autosave`; ux scenario U16.
 - **No "preparation stalled" while you edit the module being prepared.** An edit to a source that a
   module being prepared is built from counts as progress; the report lists the preparation units
   running, since when, and what clangd says of each.
@@ -71,7 +72,7 @@ and a clangd crash keeps what an upstream report needs. The analysis and the pla
 - The diagnostic bundle records the editor settings that decide whether completion shows while you
   type (`client.editor` in `environment.json`), and the report when each method was last answered
   (`requests[*].lastAt`), how much was edited (`documents`), how often completion fell back to the
-  file's words (`completion.wordsWithoutCore`), and the modules failing while edited.
+  file's words (`completion.wordsWithoutCore`), and the preparation units running and since when.
 - `mcppls-devtools measure budgets` gives each scenario's numbers over many runs (median, 95th
   percentile, largest, 1.3 x the 95th percentile); nightly's `ux-budgets` job runs it over the night's
   rounds, for budgets set from measurements.

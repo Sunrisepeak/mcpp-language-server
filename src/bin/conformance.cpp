@@ -2044,7 +2044,8 @@ public:
             const auto it = client_.moduleFailedCount.find(documentUriOf);
             return it == client_.moduleFailedCount.end() ? 0 : it->second;
         };
-        const int moduleFailedBefore { failedDiagnosticsOf(documentUri) + (withImporter ? failedDiagnosticsOf(importerUri) : 0) };
+        const int moduleFailedBefore { failedDiagnosticsOf(documentUri) };
+        const int importerModuleFailedBefore { withImporter ? failedDiagnosticsOf(importerUri) : 0 };
         const auto began { Clock::now() };
         const auto end { began + duration };
         std::size_t scriptNumber { 0 };
@@ -2134,7 +2135,10 @@ public:
             client_.pump_until(Clock::now() + std::chrono::seconds { 2 });
         }
         const Json after = root_report();
-        const int moduleFailedDiagnostics { failedDiagnosticsOf(documentUri) + (withImporter ? failedDiagnosticsOf(importerUri) : 0) - moduleFailedBefore };
+        // The typed file's own: a file taken from clangd is given exactly such a diagnostic, so none means it kept clangd. An
+        // importer of a module that does not compile is contained by design (0.0.8 plan M-1), and only counted.
+        const int moduleFailedDiagnostics { failedDiagnosticsOf(documentUri) - moduleFailedBefore };
+        const int importerModuleFailed { withImporter ? failedDiagnosticsOf(importerUri) - importerModuleFailedBefore : 0 };
         int stalledSamples { 0 };
         for (std::size_t i { samplesBefore }; i < client_.statusSamples.size(); ++i) {
             const auto& issues { client_.statusSamples[i].issues };
@@ -2159,7 +2163,7 @@ public:
             enforce_max(check, "doomed", static_cast<double>(doomed), "files doomed", "", failures);
         }
         enforce_max(check, "timeouts", static_cast<double>(allTimeouts), "request timeouts", "", failures);
-        enforce_max(check, "moduleFailedDiagnostics", static_cast<double>(moduleFailedDiagnostics), "module-failed diagnostics published", "", failures);
+        enforce_max(check, "moduleFailedDiagnostics", static_cast<double>(moduleFailedDiagnostics), "module-failed diagnostics published for the typed file", "", failures);
         enforce_max(check, "stalled", static_cast<double>(stalledSamples), "status samples with preparation-stalled", "", failures);
         if (withImporter) {
             enforce_max(check, "importerP95", importerLatency["p95"].get<double>(), "importer completion p95", "s", failures);
@@ -2185,8 +2189,9 @@ public:
         std::string importerBrief;
         if (withImporter) {
             summary["importer"] = Json { { "file", importerFile }, { "completions", importerCompletions.size() }, { "answered", importerAnswered.size() },
-                                         { "empty", importerEmpty }, { "completion", importerLatency } };
-            importerBrief = std::format(", importer {} completions p95 {:.2f}s {} empty", importerCompletions.size(), importerLatency["p95"].get<double>(), importerEmpty);
+                                         { "empty", importerEmpty }, { "completion", importerLatency }, { "moduleFailedDiagnostics", importerModuleFailed } };
+            importerBrief = std::format(", importer {} completions p95 {:.2f}s {} empty {} module-failed", importerCompletions.size(), importerLatency["p95"].get<double>(),
+                                        importerEmpty, importerModuleFailed);
         }
         return finish_measure(std::move(failures), std::move(summary),
                               std::format("{:.0f} s at {:.0f} Hz, {} completions p95 {:.2f}s max {:.2f}s{}, {} restart(s), {} set aside, {} doomed, {} module-failed diagnostic(s), {} stalled sample(s), {} timeout(s), diagnostics after {}",

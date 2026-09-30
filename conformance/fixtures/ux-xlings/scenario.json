@@ -1,6 +1,6 @@
 {
   "name": "ux-xlings",
-  "description": "0.0.7 plan 6.4 (U1-U15): the user-experience scenario tests on the xlings repository at the commit real-xlings pins (about 110 modules, one generated at build time), on the CI runner's size (4 vCPU: run under taskset -c 0-3). The same stages as ux-mcpp (cold, warm, edits, faults, long; --stage), with xlings' own files and budgets, calibrated the same way (ux-mcpp's description says how and why): U7's second fan-out (a crash of clangd on mcpp.manifest.types) exists only on mcpp, and U8's configuration change adds a compile flag to mcpp.toml instead of switching the profile. Nightly runs the long stage; a mcpp on PATH new enough to describe it (the fixture prepares with the one the workflow installs) is assumed. U16 (0.0.8 plan 2, M-4) writes a module interface function by function with the importer open and files.autoSave afterDelay (a second after the last key, so every pause with half a statement on the screen reaches the disk, and clangd fails to build the module again and again): xlings.core.console (69 lines, no imports but std, imported by the progress renderer, the layout and the logger) is typed in and xlings.core.log (log.cpp) is the importer; nothing may be doomed, no 'module-failed' diagnostic may be published, no status sample may say preparation-stalled, clangd is not restarted, and a completion inside a function body of the importer is never empty. Its typed-file p95 is U6's 1.0 s plus a tenth for the importer's rebuilds, the importer's p95 is U7a's 1.5 s, and the engine share is U5's 0.75. U6's diagnostics refresh is 20 s here (0.0.8): the recovery restart its half-typed `import xlings.core.` on disk makes clangd need (UP-01, UP-14; the budget allows two) waits for three seconds without a keystroke (R-8), which is when the typing ends and the refresh is measured -- 14.5 s on the 0.0.7 merge's CI, 16.3 s on 0.0.8's pull request, 6 s or less in rounds without that restart.",
+  "description": "0.0.7 plan 6.4 (U1-U15): the user-experience scenario tests on the xlings repository at the commit real-xlings pins (about 110 modules, one generated at build time), on the CI runner's size (4 vCPU: run under taskset -c 0-3). The same stages as ux-mcpp (cold, warm, edits, faults, long; --stage), with xlings' own files and budgets, calibrated the same way (ux-mcpp's description says how and why): U7's second fan-out (a crash of clangd on mcpp.manifest.types) exists only on mcpp, and U8's configuration change adds a compile flag to mcpp.toml instead of switching the profile. Nightly runs the long stage; a mcpp on PATH new enough to describe it (the fixture prepares with the one the workflow installs) is assumed. U16 (0.0.8 plan 2, M-4) writes a module interface function by function with an importer open and files.autoSave afterDelay (a second after the last key, so every pause with half a statement on the screen reaches the disk and clangd fails to build the module again and again): the typed file keeps clangd -- no 'module-failed' diagnostic for it, its completion p95 U6's 1.0 s plus a tenth -- while the importer is contained whenever the module does not compile, as in 0.0.7, and answered with the file's words (never empty; its p95 is U7a's 1.5 s). The engine share is 0.4: the importer's half of the completions is mcppls's while the module is broken, by design. No status sample may say preparation-stalled and clangd is not restarted. U6's diagnostics refresh is 20 s here (0.0.8): the recovery restart its half-typed `import xlings.core.` on disk makes clangd need (UP-01, UP-14; the budget allows two) waits for three seconds without a keystroke (R-8), which is when the typing ends and the refresh is measured -- 14.5 s on the 0.0.7 merge's CI, 16.3 s on 0.0.8's pull request, 6 s or less in rounds without that restart.",
   "prepare": [
     [
       "git",
@@ -459,12 +459,11 @@
         "p95": 1.1,
         "importerP95": 1.5,
         "importerEmpty": 0,
-        "doomed": 0,
         "moduleFailedDiagnostics": 0,
         "stalled": 0,
         "restarts": 0,
         "timeouts": 0,
-        "engineShare": 0.75
+        "engineShare": 0.4
       }
     },
     {

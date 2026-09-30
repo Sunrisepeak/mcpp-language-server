@@ -83,12 +83,9 @@ diagnostic bundle shows it: `client.editor` in `environment.json`, and in the re
 answered at once by mcppls's own engine (module navigation, symbols, `import` completion, and the
 words of the file for other completion), carry one `module-failed` diagnostic on the import that leads
 to the failure, and are not sent to clangd until the failed module's own source or command changes;
-everything else keeps clangd. A module you are writing is the exception: with autosave, what is on
-disk mid-edit does not compile as a rule, so while a source of the module is open and was edited in
-the last two minutes (0.0.8), its files stay with clangd — the module you edit keeps its real
-diagnostics and completion, an importer its own names and keywords with an error on the import — and
-the report lists it under the engine's `modulesFailingWhileEdited`. Two minutes after your last edit,
-if what failed is still on disk, the module is contained as above. This is a problem
+everything else keeps clangd. The unit whose compile failed is never taken from clangd (0.0.8): it is
+the file you are writing, and clangd reads it from the editor with its real errors and completion —
+with autosave, what is on disk mid-edit does not compile as a rule. This is a problem
 in the code, so it is told where it is, as diagnostics: the status stays *ready* (listing
 `modules-doomed`, category `code`) and is never *preparing* for good. The engine's `doomedModules`
 and `filesRoutedToOwnEngine` in the report list them.
