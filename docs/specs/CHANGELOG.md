@@ -11,7 +11,7 @@ is redacted like a report and never leaves the machine (S3-4-23); a server keeps
 restart, and to leave the server off for the workspace (S3-4-25). The issue codes `engine-crash-loop`,
 `engine-start-failed`, `preparation-stalled` and `payload-corrupt` are named. Section 5.6 adds the
 command `mcppls.resetCache` (S3-5.6-1 to S3-5.6-3), and `cxxModules/report`'s `server` carries
-`sandbox`. All additive: protocol version stays 1.
+`sandbox` and `eventLoop`. All additive: protocol version stays 1.
 
 ## 2026-09-27 — S1 0.3.0: generated files
 

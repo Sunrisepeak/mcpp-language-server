@@ -229,7 +229,8 @@ interface CxxModulesReportParams { redact?: boolean }   // default true
 interface CxxModulesReport {
   generatedAt: string;             // UTC, ISO 8601
   server: { name: string; version: string; platform: string; uptimeSeconds: number; logLevel: string; logFile: string;
-            sandbox?: string | null };   // the sandbox the server runs in, e.g. "proot"; null when none was detected
+            sandbox?: string | null;     // the sandbox the server runs in, e.g. "proot"; null when none was detected
+            eventLoop?: object };        // how long the server's own loop was held, the server's own content (like roots)
   client: { name: string; version?: string } | null;   // the client's clientInfo, as it sent it
   roots: object[];                 // one entry per workspace root
   settings?: object;               // the settings in effect, where each came from, and the problems applying them

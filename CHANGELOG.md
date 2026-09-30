@@ -66,12 +66,22 @@ The analysis, the measurements and the plan are `.agents/docs/2026-09-30-stabili
   change. A file set aside and handed back while you type turns the status degraded only after 30 s.
 - **A server restarted after a crash takes its workspace back at once**: the lease records its owner's
   process, so a dead one is not waited out.
+- **A first open is not spoiled by the provisional model.** Until the build tool answers, sources are
+  read with the kit's commands; a module clangd could not find that way (xlings: a unit that did not scan
+  without the build's include paths) was given a stand-in in the build tool's plan too, and 49 modules
+  stayed unprepared until a file changed. What clangd concludes under the provisional model now stays
+  with it.
+- **The event loop says when it is held.** A turn of the server's loop that takes 250 ms or more is logged
+  with what it was spent on, and `mcppls report` counts how long client messages waited and what writing
+  to the client cost (`server.eventLoop`): on a 4-core Windows runner GalTranslPP's completions, answered
+  within their 1 s budget, reached the client after 8 to 60 s, and this is what finds out why.
 
 ### Recovery
 
 - **Reset This Workspace's Cache** (VS Code, `:McpplsResetCache` in Neovim, the server command
   `mcppls.resetCache` for other clients) stops the root's engines, removes its cache and starts again;
-  nothing to find and delete by hand.
+  nothing to find and delete by hand. A folder reached through a symbolic link or a short name (every
+  macOS temporary directory, `RUNNER~1` on Windows) is found as well.
 - **Old BMIs are pruned.** Each unit keeps the BMIs of its two newest commands; older ones are removed
   in the background when clangd starts. `mcppls cache --prune` does it for every workspace no server
   has open.
@@ -116,8 +126,11 @@ The analysis, the measurements and the plan are `.agents/docs/2026-09-30-stabili
 ### Also
 
 - Conformance fixtures: `reset-cache`, `mcpp-emit-edits`, and user-experience scenarios with response
-  budgets on pinned mcpp and xlings checkouts (`ux-mcpp`, `ux-xlings`, the `ux` CI job); `clangd-cannot-load`
-  checks the automatic bundle. CI adds `code-oss-e2e`, `proot` (the server under termux's PRoot on x64
+  budgets on pinned mcpp and xlings checkouts (`ux-mcpp`, `ux-xlings`; the `ux` CI job on every pull
+  request, three rounds a night): first responses, typing with and without autosave, fan-out saves,
+  build-graph changes, killing clangd or the server, stale locks, a truncated module file, a git checkout,
+  idle CPU and memory, the status timeline. The budgets were calibrated on the CI runner's first rounds;
+  the plan's record says why each one moved. `clangd-cannot-load` checks the automatic bundle. CI adds `code-oss-e2e`, `proot` (the server under termux's PRoot on x64
   and arm64) and a nightly Termux job.
 - Deferred: Windows CPU readings for the stuck-clangd watch (K-1), lower priority for clangd (R-9),
   symbolized crashes (K-3), moving a broken module cache aside by itself (C-3).
