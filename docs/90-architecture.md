@@ -24,6 +24,23 @@ editor / coding agent / CI
 - **Nothing the server starts may hold it.** Build tools, compiler probes, CMake and git all run
   through one runner that gives each run its own process unit, bounds the reads, and writes down
   what happened.
+- **A request has a budget for clangd, and an answer within it.** Completion and signature help get
+  1 s, hover 2 s, go-to-definition 10 s. Past it mcppls answers from what it has — for completion the
+  words of the file nearest the cursor, as an incomplete list so the editor asks again; for hover
+  while modules are prepared, a line saying so — and cancels clangd's request. The report counts,
+  per method, which engine answered (`requests.<method>.answeredBy`).
+- **Background work happens in idle time.** Implementation units are built for clangd's index one at
+  a time, and only after 10 s without typing, opening a file or a request; a restart clangd needs for
+  a changed build description waits until typing has paused for 3 s (at most 60 s). A crash or a
+  clangd that stopped answering restarts at once. Module preparation takes every worker but one when
+  an opened file waits on it, half of them otherwise.
+- **What cannot be recovered is written down at once.** When the server cannot recover by itself it
+  writes a redacted diagnostic bundle (`<cache>/bundles/auto-<code>-<time>.zip`, never uploaded) and
+  puts it on the status issue, so an editor can offer a filled-in report.
+- **Built modules do not pile up.** Each unit keeps the BMIs of its two newest commands; older ones
+  are removed in the background when clangd starts.
+- **The server knows the sandbox it runs in.** Under PRoot (termux) it starts programs the way that
+  sandbox answers; the report shows it as `server.sandbox`.
 - **The server itself makes no network calls.** Runs it starts are offline by default; model
   features are opt-in and live behind a separate process.
 

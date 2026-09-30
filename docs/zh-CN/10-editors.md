@@ -27,6 +27,10 @@ mcpp run -p devtools -- uninstall --editor vscode|zed|clion|all   # 卸载
 
 **语法高亮。** `import`、`module`、`export` 和模块名有两层上色：扩展自带的语法文件（打开即生效，边输入边上色），以及服务端的语义 token（模块名的 token 类型是 `module`，主题默认按命名空间上色，也可以在 `editor.semanticTokenColorCustomizations` 里单独指定颜色）。VS Code 自带的 C++ 语法不给 `import` 上色。
 
+**在一个工作区里关掉它。** `mcppls.enable`（默认 `true`，按工作区生效）可以让 mcppls 保持关闭；**C++ Modules: Turn Off in This Workspace** 和 **Turn On in This Workspace** 会设置它，状态项显示 “C++ Modules: off in this workspace”。其他编辑器没有这样的设置；下面各个编辑器的小节和它们的 README 说明了在那边怎么做。
+
+**无法恢复时。** mcppls 无法自行恢复时，会先写出一个诊断包，再弹出一条通知，提供 **Report Issue…**、**Restart Server**、**Reset This Workspace's Cache**、**Turn Off in This Workspace** 和 **Show Logs**；见 [50-troubleshooting.md](50-troubleshooting.md#mcppls-无法自行恢复时)。
+
 ## Claude Code
 
 一个插件把 `mcppls serve` 注册为 C、C++ 以及各种 module 扩展名（`.cppm`、`.ccm`、`.cxxm`、`.c++m`、`.ixx`、`.mpp`、`.mxx`）的语言服务端。它在项目里替代官方 clangd 插件，而不是和它并行运行。参见 [editors/claude-code/mcppls-lsp/README.md](../../editors/claude-code/mcppls-lsp/README.md)。
@@ -41,15 +45,17 @@ mcpp run -p devtools -- uninstall --editor vscode|zed|clion|all   # 卸载
 
 Zed 自带 C/C++ 的 clangd，两个都跑在同一个文件上，就成了两个引擎回答同一个问题，所以要把 mcppls 排在前面：`"languages": {"C++": {"language_servers": ["mcppls", "!clangd"]}}`。mcppls 会自己启动 clangd，并带上一份 clangd 本来不会有的模块数据库。
 
+要在某个项目里关掉 mcppls，就在项目的 `.zed/settings.json` 里用 `!` 指名这个服务端（并把 clangd 再列回去，因为项目的列表会替换你自己的）；见 [editors/zed/README.md](../../editors/zed/README.md#keeping-mcppls-off-for-one-project)。
+
 ## Neovim
 
-[`editors/nvim/`](../../editors/nvim/README.md) 里的插件（Neovim 0.10 及以上）会找到 `mcppls`——PATH 上的，或者 `--install` 放在用户数据目录下的 payload——然后通过 Neovim 自带的 LSP 客户端，为 C 和 C++ buffer 启动它。把 `editors/nvim` 加进 runtimepath，调用 `require('mcppls').setup()` 即可；0.11 及以上也可以用 `vim.lsp.enable('mcppls')`。插件提供 `:McpplsStatus`、`:McpplsRestart`、`:McpplsReload` 三个命令和一个状态栏组件。不要再为 C/C++ 另外启动 clangd：如果有第二个 C++ 服务器挂到同一个 buffer 上，插件会提示一次；设置 `disable_conflicting = true` 后插件会替你停掉它。模块关键字和模块名来自服务端的语义 token（`@lsp.type.keyword`、`@lsp.type.module`；`semantic_tokens_modules = false` 可关闭）。
+[`editors/nvim/`](../../editors/nvim/README.md) 里的插件（Neovim 0.10 及以上）会找到 `mcppls`——PATH 上的，或者 `--install` 放在用户数据目录下的 payload——然后通过 Neovim 自带的 LSP 客户端，为 C 和 C++ buffer 启动它。把 `editors/nvim` 加进 runtimepath，调用 `require('mcppls').setup()` 即可；0.11 及以上也可以用 `vim.lsp.enable('mcppls')`。插件提供 `:McpplsStatus`、`:McpplsRestart`、`:McpplsReload`、`:McpplsResetCache`（重置这个工作区的缓存并重新准备）四个命令和一个状态栏组件。不要再为 C/C++ 另外启动 clangd：如果有第二个 C++ 服务器挂到同一个 buffer 上，插件会提示一次；设置 `disable_conflicting = true` 后插件会替你停掉它。模块关键字和模块名来自服务端的语义 token（`@lsp.type.keyword`、`@lsp.type.module`；`semantic_tokens_modules = false` 可关闭）。它没有按项目的开关；README 里给了两种在某个项目里关掉它的办法（[editors/nvim/README.md](../../editors/nvim/README.md#keeping-mcppls-off-for-one-project)）。
 
 ## CLion
 
 [`editors/clion/`](../../editors/clion/README.md) 里的插件通过 IntelliJ 平台的 LSP API 注册 mcppls。
 
-`mcpp run --features clion -p devtools -- extension --editor clion --install` 会构建它、把服务端放到位，并把插件解包进每一个 CLion 的插件目录；然后重启 CLion。这个插件还没有在真正跑起来的 CLion 里验证过，详见它的 README。
+`mcpp run --features clion -p devtools -- extension --editor clion --install` 会构建它、把服务端放到位，并把插件解包进每一个 CLion 的插件目录；然后重启 CLion。这个插件还没有在真正跑起来的 CLion 里验证过，详见它的 README。这个插件没有自己的设置；要在某个项目里关掉它，就在 Settings | Plugins 里只为这个项目禁用它（[editors/clion/README.md](../../editors/clion/README.md#keeping-mcppls-off-for-one-project)）。
 
 ## 其他 LSP 客户端
 

@@ -2,7 +2,7 @@
 
 [English](../00-install.md) | **简体中文**
 
-> release 发布在 GitHub release 页面，VS Code 扩展同时也上架了 VS Code Marketplace 和 Open VSX。xlings 索引上暂时还没有。
+> release 发布在 GitHub release 页面，VS Code 扩展同时也上架了 VS Code Marketplace 和 Open VSX。xlings 索引上暂时还没有。Android 上的 Termux 运行的是 `linux-arm64` 版本（见[下文](#android-上的-termux)）。
 
 ## VS Code：从 Marketplace 安装
 
@@ -41,6 +41,14 @@ release 里的每个文件都列在它的 `MANIFEST.md` 里，说明是什么、
 | `linux-arm64` | LLVM 官方发布的 23.1.0 Linux arm64 版本（clangd/clangd 不发布 arm64 Linux 版本） | glibc 2.34、GCC 12 的 libstdc++（`GLIBCXX_3.4.30`）、zlib | Ubuntu 22.04 及以上、Debian 12 及以上、openEuler 24.03 LTS 及以上（已测试）；Fedora 36 及以上（按其软件包版本推断） |
 
 比这更老的 arm64 系统——Ubuntu 20.04、Debian 11、RHEL 和 Rocky Linux 8 与 9、Amazon Linux 2023、openEuler 22.03——上，自带的 clangd 无法启动。这时 mcppls 仍提供它自己的模块级功能（模块跳转、import 补全、模块诊断），状态栏会说明原因。Alpine 等基于 musl 的发行版，两种架构的 clangd 都无法运行。
+
+### Android 上的 Termux
+
+装了 Termux 的 Android 手机或平板运行的是 `linux-arm64` 版本，没有单独的安装包。Termux 的 PRoot（很多方案在它下面运行 Linux 系统）是受支持的环境：
+
+- **服务端**就是 `linux-arm64` payload 里静态链接的 `mcppls`。解压 `payload-linux-arm64.tar.gz`，把其中的 `payload/bin/` 加进 `PATH`（做法同[其他编辑器：从 release 安装](#其他编辑器从-release-安装)），再由你在那里运行的编辑器（比如 Neovim）启动它；或者在 Termux 里运行的兼容 VS Code 的编辑器中安装 `mcppls-linux-arm64.vsix`。
+- **clangd** 和任何 `linux-arm64` 系统上的一样，是 glibc 程序，所以上表的要求同样适用：CI 是在 Termux 里用 `proot-distro` 装的 Debian 中运行它的。clangd 在这台机器上无法运行（glibc 低于要求）时状态是 `engine-incompatible`，被沙箱拒绝启动时是 `engine-start-failed` 并写明原因；两种情况下 mcppls 都仍提供模块级功能。
+- **mcppls 为 PRoot 做了什么。** 它会检测自己运行在哪种沙箱里（`mcppls report` 里显示为 `server.sandbox`，在这里是 `proot`），并按 PRoot 的应答方式启动程序。PRoot 有两个行为曾让它无法工作：Termux 的 PRoot 拒绝“通过目录句柄启动程序”的那个调用，所以服务端启动 clangd 时会说“not supported”；PRoot 的快速路径还会在 `openat` 之后留下被改写的寄存器，读文件就报 “outside every preopened directory”（issue #32）。不需要任何配置。
 
 ## 从源码构建
 

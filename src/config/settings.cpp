@@ -67,11 +67,11 @@ const std::vector<Setting>& shipped_registry() {
         Setting {
             .key = "producerTimeout", .kind = Kind::seconds, .defaultValue = "0", .commandLine = "--producer-timeout",
             .surface = Surface::server, .applies = Applies::reload, .category = "build", .since = "0.0.1",
-            .summary = "How long a build tool may take to describe the project. `0`, the default, uses the design's own bound (a "
-                       "minute offline, ten minutes once `buildTool` is `online`); set it to watch that bound work, or longer for a "
-                       "genuinely slower build.",
-            .summaryZh = "构建工具描述项目最多可以花多长时间。默认 `0` 使用设计本身的限制（离线一分钟，`buildTool` 为 `online` 时十分钟）；"
-                         "调短可以观察限制是否生效，构建确实慢就调长。",
+            .summary = "How long a build tool may take to describe the project. `0`, the default, uses the design's own bound: offline, "
+                       "5 minutes the first time and then three times what the last run took, between 1 and 10 minutes; ten minutes "
+                       "once `buildTool` is `online`. Set it to watch that bound work, or to fix one for a build whose time varies.",
+            .summaryZh = "构建工具描述项目最多可以花多长时间。默认 `0` 使用设计本身的限制：离线时第一次 5 分钟，之后是上一次用时的三倍，"
+                         "在 1 到 10 分钟之间；`buildTool` 为 `online` 时十分钟。调短可以观察限制是否生效，构建用时起伏大时可以定一个值。",
         },
         Setting {
             .key = "untrusted", .kind = Kind::boolean, .defaultValue = "false", .commandLine = "--untrusted", .surface = Surface::server,

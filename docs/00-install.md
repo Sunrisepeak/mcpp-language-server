@@ -1,7 +1,8 @@
 # Install
 
 > Releases come from the GitHub release page, and the VS Code extension is also on the VS Code
-> Marketplace and on Open VSX. Nothing is on the xlings index yet.
+> Marketplace and on Open VSX. Nothing is on the xlings index yet. Termux on Android runs the
+> `linux-arm64` build ([below](#android-under-termux)).
 
 ## VS Code, from the Marketplace
 
@@ -58,6 +59,26 @@ On an arm64 system older than that — Ubuntu 20.04, Debian 11, RHEL and Rocky L
 Linux 2023, openEuler 22.03 — the bundled clangd cannot start. mcppls then keeps its own
 module-level features (module navigation, import completion, module diagnostics), and its status
 says why. Alpine and other musl distributions run neither architecture's clangd.
+
+### Android, under Termux
+
+An Android phone or tablet with Termux runs the `linux-arm64` build; there is no separate package
+for it. Termux's PRoot, which many setups run a Linux system under, is a supported environment:
+
+- **The server** is the static `mcppls` of the `linux-arm64` payload. Unpack
+  `payload-linux-arm64.tar.gz` and put its `payload/bin/` on `PATH`, as in [Another editor, from a
+  release](#another-editor-from-a-release), and start it from the editor you run there (Neovim, say);
+  or install `mcppls-linux-arm64.vsix` in a VS Code-compatible editor running inside Termux.
+- **clangd** is the same glibc program as on any `linux-arm64` system, so the floor in the table
+  applies: CI runs it in a Debian that `proot-distro` installs in Termux. Where it cannot run (a glibc
+  below the floor) the status says `engine-incompatible`, and where the sandbox refuses to start it,
+  `engine-start-failed` with the reason; either way mcppls keeps its module-level features.
+- **What mcppls does for PRoot.** It detects the sandbox it runs in (`mcppls report` shows it as
+  `server.sandbox`, `proot` there) and starts programs the way PRoot answers. Two PRoot behaviors
+  used to stop it: Termux's PRoot refuses the call that starts a program from a directory handle, so
+  the server said "not supported" when it started clangd, and PRoot's fast path left a register
+  rewritten after `openat`, so reads failed with "outside every preopened directory" (issue #32).
+  Nothing needs configuring.
 
 ## From source
 

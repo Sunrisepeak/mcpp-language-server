@@ -1084,8 +1084,8 @@ struct Workspace::Impl final : engine::Host {
         load.providers = options.buildDiscoveryProviders;
         // Design 4.4: a run the server starts by itself is offline unless the user allowed the
         // network; `off` means the build tool is not run at all, and what is cached or scanned is
-        // all there is. Design 4.2: the hard bound is a minute, ten when the user allowed the
-        // network and a download may be part of the answer.
+        // all there is. Design 4.2: the hard bound follows the last run (producer_deadline, G-4), ten
+        // minutes when the user allowed the network and a download may be part of the answer.
         const bool online { options.buildTool == "online" || onlineOnce };
         describingOnline = onlineOnce && options.buildTool != "online";
         if (describingOnline) journal.add("describe-online");

@@ -30,7 +30,7 @@ VS Code 扩展已经会这样做）；`重新加载模型` 只重新加载项目
 |---|---|---|---|---|---|
 | `mcppls.buildTool` | `offline`, `online`, `off` | `offline` | `--build-tool` | 重新加载模型 | 项目构建工具的运行方式。`offline`：不联网运行——如果构建工具因此无法在不下载东西的情况下描述构建，状态栏会说明缺什么，并提议在终端里运行它。`online`：允许联网，超时时间从一分钟延长到十分钟。`off`：从不运行构建工具；仍会探测构建系统、仍读取它已有的产物（要连探测也关掉，见 `buildDiscovery`）。 |
 | `mcppls.toolEnvironment` | `auto`, `editor` | `auto` | `--tool-environment` | 重启 | 构建工具在哪个环境中启动。`auto` 会在后台读取一次你登录 shell 的环境（仅限 POSIX 系统）——从桌面项或 Dock 图标启动的编辑器不带任何 shell 配置，没有这个选项，它找到的构建工具可能就不是你终端里找到的那个。在 Windows 上，编辑器的环境本就和终端一致。`editor` 始终使用编辑器进程自身的环境。 |
-| `mcppls.producerTimeout` | 非负整数（秒） | `0` | `--producer-timeout` | 重新加载模型 | 构建工具描述项目最多可以花多长时间。默认 `0` 使用设计本身的限制（离线一分钟，`buildTool` 为 `online` 时十分钟）；调短可以观察限制是否生效，构建确实慢就调长。 |
+| `mcppls.producerTimeout` | 非负整数（秒） | `0` | `--producer-timeout` | 重新加载模型 | 构建工具描述项目最多可以花多长时间。默认 `0` 使用设计本身的限制：离线时第一次 5 分钟，之后是上一次用时的三倍，在 1 到 10 分钟之间；`buildTool` 为 `online` 时十分钟。调短可以观察限制是否生效，构建用时起伏大时可以定一个值。 |
 | `mcppls.untrusted` | `true`, `false` | `false` | `--untrusted` | 重启 | 不运行任何构建工具，也不运行编译器；一个不受信任的工作区也等同于 `buildDiscovery` 为 `off`。 |
 | `mcppls.discoverCompilers` | `true`, `false` | `true` | `--no-discover` | 重新加载模型 | 为构建描述没有覆盖到的源码在本机查找编译器。关闭后，这类源码改用语义工具包。 |
 | `mcppls.buildDiscovery` | `auto`, `off` | `auto` | `--build-discovery` | 重新加载模型 | 是否探测项目的构建系统。`off`：不隐式读取或执行任何东西——只用明确配置的 `database`，否则扫描源码。`buildTool` 管的是探测到的构建工具能不能*执行*；这个开关管的是要不要去探测它。 |

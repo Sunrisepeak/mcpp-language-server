@@ -100,6 +100,17 @@ not run twice for it. Its jobs, each on Linux, macOS and Windows unless noted:
 | stability | the fixtures of the project shapes that matter (all-`.cppm`, `.cppm`/`.cpp` split, watched edits, a broken module, a hung build tool, several roots) pass three rounds in a row |
 | release candidate | every asset is present and checked against the manifest; the result is the `release-candidate` artifact |
 
+`ci.yml` itself also gates a change on the user's editor and platform, beyond those fixtures:
+
+| Job | Passes when |
+|---|---|
+| `code-oss-e2e` | the extension's end-to-end suite passes in Code - OSS (VSCodium, the version pinned as `VSCODIUM_VERSION` in `.github/versions.env`) |
+| `proot` | the server passes its checks under termux's PRoot, in both modes, on x64 and arm64 (the environment of issue #32) |
+| `ux` | the user-experience scenarios stay within their response-time budgets, on pinned checkouts of mcpp and xlings (fixtures `ux-mcpp` and `ux-xlings`) |
+
+The nightly run adds a `termux` job: termux's own userland and PRoot, with a Debian installed by
+`proot-distro`. It is a second opinion and does not fail the nightly; no real Android device is in CI.
+
 The medians and per-round timings are in each run's summary. To try a candidate by hand, download
 `release-candidate` from the run: it is exactly the set of files a release would carry.
 
@@ -128,7 +139,9 @@ release to the namespace `sunrisepeak` when the release is published: from the U
 (`release: published`), or from Release's `openvsx` job when the run published it directly. It
 downloads the files from the release, checks them against `SHA256SUMS`, checks that the token may
 publish to the namespace, then publishes each one; each VSIX carries its platform, so every platform
-gets its own file. A GitHub pre-release is published as an ordinary version.
+gets its own file. Afterwards it downloads each file back from Open VSX and compares its hash with
+`SHA256SUMS`; the job fails when Open VSX serves something else. A GitHub pre-release is published as
+an ordinary version.
 
 A version Open VSX already has is skipped (`--skip-duplicate`), so re-running is safe: **Actions →
 Publish to Open VSX → Run workflow** with the tag publishes only what is missing.

@@ -74,6 +74,16 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 | stability | 关键项目形态的 fixture（全 `.cppm`、`.cppm`/`.cpp` 混合、被监视的编辑、损坏的模块、挂起的构建工具、多个根目录）连续跑三轮都通过 |
 | release candidate | 每个 release 文件都在，并且对着发布清单核对过；结果就是 `release-candidate` 这个 artifact |
 
+`ci.yml` 本身在上述 fixture 之外，还会按用户的编辑器和平台来把关一次改动：
+
+| Job | 通过条件 |
+|---|---|
+| `code-oss-e2e` | 扩展的端到端测试在 Code - OSS（VSCodium，版本固定为 `.github/versions.env` 里的 `VSCODIUM_VERSION`）中通过 |
+| `proot` | 服务端在 termux 的 PRoot 下，两种模式、x64 和 arm64 上都通过检查（issue #32 的环境） |
+| `ux` | 用户体验场景的响应时间都在预算之内，跑在固定版本的 mcpp 和 xlings 上（fixture `ux-mcpp` 和 `ux-xlings`） |
+
+nightly 运行还多一个 `termux` job：termux 自己的用户空间和 PRoot，里面装一个由 `proot-distro` 提供的 Debian。它只是第二份参考，失败不会让 nightly 失败；CI 里没有真机 Android。
+
 中位数和每轮的用时都在每次运行的 summary 里。想手动试一试候选版本，就从这次运行里下载 `release-candidate`：里面正是一次 release 会带的那一整套文件。
 
 也可以先手动推送一个 `v*` 标签，效果相同。
@@ -94,7 +104,7 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 
 ## Open VSX
 
-Open VSX 是兼容 VS Code 的编辑器（Cursor、VSCodium、Windsurf、Trae 等）查找扩展的地方。release 一发布，`.github/workflows/publish-openvsx.yml` 就把它的每个 `mcppls-<platform>.vsix` 发到命名空间 `sunrisepeak`：无论是在网页上发布（`release: published`），还是 Release 直接发布时由它的 `openvsx` job 调用。它从 release 下载这些文件，对照 `SHA256SUMS` 检查，确认 token 有权发布到这个命名空间，然后逐个发布；每个 VSIX 自带平台信息，所以每个平台拿到的都是自己的文件。GitHub 上的 pre-release 按普通版本发布。
+Open VSX 是兼容 VS Code 的编辑器（Cursor、VSCodium、Windsurf、Trae 等）查找扩展的地方。release 一发布，`.github/workflows/publish-openvsx.yml` 就把它的每个 `mcppls-<platform>.vsix` 发到命名空间 `sunrisepeak`：无论是在网页上发布（`release: published`），还是 Release 直接发布时由它的 `openvsx` job 调用。它从 release 下载这些文件，对照 `SHA256SUMS` 检查，确认 token 有权发布到这个命名空间，然后逐个发布；每个 VSIX 自带平台信息，所以每个平台拿到的都是自己的文件。发布完成后，它会把每个文件从 Open VSX 重新下载下来，与 `SHA256SUMS` 比对哈希；Open VSX 提供的内容不一致时，这个 job 就会失败。GitHub 上的 pre-release 按普通版本发布。
 
 Open VSX 已有的版本会被跳过（`--skip-duplicate`），所以重跑是安全的：**Actions → Publish to Open VSX → Run workflow**，填上标签，只会补发缺的部分。
 

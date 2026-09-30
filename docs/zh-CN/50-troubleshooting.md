@@ -66,11 +66,15 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **编辑器找到的编译器和我终端里的不一样。** `toolEnvironment.source` 应该是 `login-shell`。如果是 `editor`，原因在 `toolEnvironment.reason` 里——从桌面项启动的编辑器不带任何 shell 配置。`mcppls.toolEnvironment` 控制这一行为。
 
-**每次启动都很慢。** 第二次会话应该很快：模型连同构建工具所读一切内容的指纹一起被缓存，与之匹配的会话会立即套用计划，并在后台确认。`project.firstOrigin` 会说明发生了哪种情况。如果它一直是 `producer`，说明指纹没有匹配上——该看报告里的 `project.producerRun` 和构建文件的时间戳。
+**每次启动都很慢。** 第二次会话应该很快：模型连同构建工具所读一切内容的指纹一起被缓存，与之匹配的会话会立即套用计划，并在后台确认；已经构建好的模块会复用，不会重建（0.0.6 及更早版本在热启动时会把每个模块都重建一遍，issue #30）。`project.firstOrigin` 会说明发生了哪种情况。如果它一直是 `producer`，说明指纹没有匹配上——该看报告里的 `project.producerRun` 和构建文件的时间戳。
+
+**补全只有文件里的词，或悬停提示说正在准备模块。** 每种请求给 clangd 的都有预算——补全和签名帮助 1 秒，悬停 2 秒，跳转到定义 10 秒——超过之后 mcppls 用手上有的东西作答，并取消发给 clangd 的请求。补全这时给出的是文件里离光标最近的那些词，是一份不完整的列表，所以你继续输入时编辑器会再问一次；悬停在模块准备期间给出的是一行说明。这是 clangd 正忙着处理模块，不是故障。报告里的 `requests.<method>.answeredBy` 按方法统计了各由哪个引擎作答。
+
+**准备模块期间编辑器有点卡。** clangd 拿到机器的线程数减一（最少 2 个、最多 8 个，内存小的机器更少）；`mcppls.engine.workers`（`auto` 或一个数字）可以覆盖这个值。有你打开的文件在等模块准备时，准备工作用掉除一个之外的全部 worker，否则用一半。为 clangd 的索引构建实现单元——也就是对从没打开过的 `.cpp` 文件做跳转到定义所需要的——一次只构建一个，而且要在你 10 秒内没有输入、没有打开文件、也没有发起请求之后才开始。clangd 因构建描述变化需要的重启，要等到输入停顿 3 秒之后（最多等 60 秒）；崩溃或者 clangd 不再应答，仍然立即重启。
 
 **clangd 反复重启。** 看 `engines[].restarts`、`engines[].details.restartBudget` 和 `events` 日志。每种原因各有十分钟三次的重启额度：引擎数据库变化（`plan`）、恢复停止应答或空转的 clangd（`recovery`）、clangd 退出（`crash`）。用完之后，同类的下一次重启依次等待一、二、四、八分钟——是退避而不是拒绝，所以卡住的 clangd 总能恢复——状态会说明（`engine-restart-capped`）并提供 **Restart clangd** 按钮（其他编辑器用 `workspace/executeCommand` `mcppls.restartEngine`），它立即重启且从不计入额度。切换工具链、profile 或 context 也从不计入，模块编译不过从来不是重启的理由。引擎数据库的每次变化都会记入日志并写明改了什么（`engine database changed: … compiled otherwise (main.cpp: argument 3: -O0 -> -O2)`），重启密集时能直接看到原因。
 
-**“clangd crashed while building NormalJsonTranslator.Core.cpp”。** clangd 会说明它在哪个文件上崩溃（崩溃上下文），隔离的就是这个文件：它改由 mcppls 自己的引擎应答，同时重启一个不带它的 clangd。报告里的 `engines[].details.lastExit` 有退出码、文件、clangd 当时在做什么，Windows 上还有异常码。五分钟内退出五次，clangd 在下次服务启动前不再使用；状态会提供 **Export Diagnostic Bundle**。
+**“clangd crashed while building NormalJsonTranslator.Core.cpp”。** clangd 会说明它在哪个文件上崩溃（崩溃上下文），隔离的就是这个文件：它改由 mcppls 自己的引擎应答，同时重启一个不带它的 clangd。报告里的 `engines[].details.lastExit` 有退出码、文件、clangd 当时在做什么，Windows 上还有异常码。五分钟内退出五次之后，clangd 会在 1、2、4、8 分钟后重新启动，状态会说明（`engine-crash-loop`，带 **Restart clangd**）；它不会在本次会话里被放弃。clangd 稳定运行满一分钟后，崩溃和超时这两类 issue 会自行清除。最后的办法见[下文](#mcppls-无法自行恢复时)。
 
 **“mcpp could not describe tools/updater/mcpp.toml”。** 构建工具描述了工作区的其余部分，并说明了它没能描述的那一部分（例如某个成员的构建程序失败）；那部分的文件按其余部分提供的信息来读，其余部分照常工作（`producer-partial`，S2 0.3.0）。修好消息里指出的问题，下次重新加载就会一并描述它。
 
@@ -78,7 +82,11 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **“C++26 was disabled in precompiled file”。** 某个模块用一种 C++ 标准构建，却在另一种标准下被导入；clang 会拒绝。mcppls 对同一上下文中的模块单元统一按其中最新的标准来读（报告里的 `plan.languageStandard`、状态 profile 里的 `standard`），所以这条错误只应来自 0.0.5 之前 clangd 构建的模块（下次改动时会重建），或者构建本身就混用了标准——那样构建工具自己的编译器也会拒绝。
 
-**刚打开项目时，最长一分钟内只有模块层面的功能。** 识别出构建系统的项目，要等构建工具描述完项目（最长一分钟，即构建工具自身的时限）才把它交给 clangd，而不是先给 clangd 一个从源码猜出来、之后还要推翻的模型；这期间由 mcppls 自己的引擎提供模块跳转、import 上的悬停和 `import` 补全。第二次会话会直接从缓存的模型开始。
+**刚打开项目时，一段时间内只有模块层面的功能。** 识别出构建系统的项目，要等构建工具描述完项目（构建工具要多久就多久，最长到它的时限：第一次 5 分钟，之后是上一次用时的三倍，在 1 到 10 分钟之间）才把它交给 clangd，而不是先给 clangd 一个从源码猜出来、之后还要推翻的模型；这期间由 mcppls 自己的引擎提供模块跳转、import 上的悬停和 `import` 补全。第二次会话会直接从缓存的模型开始。
+
+**Windows 上准备卡住，或者 clangd 一直在等某个模块。** 构建模块时被杀掉的 clangd 会留下一把锁，下一个 clangd 就一直等它（0.0.6 及更早版本）。mcppls 会在 clangd 启动之前清掉过期的模块锁，clangd 每次在日志里说自己在等另一个进程持有的锁时也会再清一次。
+
+**服务端崩溃后重启，新的服务端立即拿回工作区。** 重启后的服务端不必等待就能接管工作区：租约里记录了所有者的进程号和启动时间，所以在 Linux 上所有者已经不在会被立即认出（其他平台上租约在半分钟内过期）。
 
 **服务端把出错的现场记在哪里。** 崩溃、clangd 卡住或空转、文件被隔离、重启被推迟、某个规避措施的前提被发现不成立，每一种都会留下一份“事故”：工作区缓存下的一个目录（`incidents/<UTC 时间>-<类型>/`，保留最近二十份、一周内），里面有事发前的经过、clangd 最近的日志（clangd 以 `info` 级别记录到内存，从不写进默认日志）、每个相关文件在编辑器与磁盘上不同的那几行，以及 clangd 哪个线程在占用 CPU。诊断包会带上它们。
 
@@ -86,6 +94,38 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **“The bundled clangd cannot run on this system”。** clangd 根本没有启动起来：系统的程序加载器拒绝了它，加载器的原话在状态和日志里（例如 ``version `GLIBCXX_3.4.30' not found``）。重启改变不了这一点，所以不会再重启；这期间由 mcppls 自己的引擎应答模块跳转、`import` 补全和模块诊断。在 Linux arm64 上，内置的 clangd 需要 glibc 2.34 和 GCC 12 的 libstdc++——它能运行的系统列在[安装指南](00-install.md)里。其他平台上出现这个提示，通常是 musl 系统（Alpine），或者 payload 损坏了。由编辑器自己启动 `mcppls` 的，可以用 `--clangd PATH` 换成你自己的 clangd（23.1 或更新）。
 
+**在 Termux 或 PRoot 里。** `mcppls report` 把服务端运行所在的沙箱显示为 `server.sandbox`（比如 `proot`）。引擎在那里起不来时，状态里是 `engine-start-failed` 并写明原因；见 [Android 上的 Termux](00-install.md#android-上的-termux)。
+
+## 重置工作区缓存
+
+准备一直完不成、引擎反复崩溃，或者模型看起来不对时，重置这一个工作区的缓存，不用再手动删目录：
+
+- **VS Code**：**C++ Modules: Reset This Workspace's Cache**
+- **Neovim**：`:McpplsResetCache`
+- **其他客户端**：`workspace/executeCommand` `mcppls.resetCache`
+
+它会停掉这个根目录的引擎，删除它的缓存——模型、引擎数据库，以及 clangd 的模块缓存和锁——然后重新开始。日志保留。之后的第一次会话是冷启动。
+
+旧的模块会自动清理：每个单元保留它最新两条编译命令构建出的模块（BMI），更旧的在 clangd 启动时于后台删除。`mcppls cache --prune` 会对所有没有服务端打开的工作区做同样的清理。
+
+## mcppls 无法自行恢复时
+
+clangd 一直崩溃、引擎起不来或在这台机器上跑不了、安装已损坏，或者准备工作不再有进展：mcppls 会立即写出一个诊断包，位置是 `<cache>/bundles/auto-<code>-<time>.zip`（和任何诊断包一样做过脱敏，保留最新的 5 个，从不上传），并在日志里写明它在哪里，附上报告问题的链接。VS Code 会为此弹出一条通知，每个问题只弹一次，按钮有：
+
+| 按钮 | 作用 |
+|---|---|
+| **Report Issue…** | 打开一份已填好内容的 GitHub bug 报告，并把诊断包的位置显示给你，供你附上 |
+| **Restart Server** | 重启服务端 |
+| **Reset This Workspace's Cache** | 见[上文](#重置工作区缓存) |
+| **Turn Off in This Workspace** | 在这个工作区里把 `mcppls.enable` 设为 `false` |
+| **Show Logs** | 打开日志 |
+
+三分钟内崩溃三次的服务端不会再被重启；扩展会保存一份崩溃报告——一个文件夹，里面有客户端日志、服务端日志的末尾、它的 stderr 和基本信息——放在扩展全局存储下的 `crash-reports/` 里，并告诉你位置。
+
+## 在一个工作区里关掉 mcppls
+
+开关是 `mcppls.enable`（默认 `true`，按工作区生效）。在 VS Code 里，**C++ Modules: Turn Off in This Workspace** 会设置它，**Turn On in This Workspace** 会改回来；关闭期间状态项显示 “C++ Modules: off in this workspace”，点击它就会重新打开。Zed、CLion 和 Neovim 的做法见 [10-editors.md](10-editors.md)。
+
 ## 提交 bug 报告
 
-附上问题包（**C++ Modules: Export Diagnostic Bundle**，或 `mcppls report --bundle`），至少也附上诊断报告。两者都已替换你的用户名、主目录、主机名和密钥，也都不含你的文件内容；附上之前仍请先看一遍。
+用 [New issue](https://github.com/Sunrisepeak/mcpp-language-server/issues/new/choose) 里的模板：**Bug report** 会问版本、编辑器、操作系统和构建系统、发生了什么、你期望什么，以及复现步骤，并接收诊断包（**C++ Modules: Export Diagnostic Bundle**，或 `mcppls report --bundle`）；没有诊断包时，至少附上诊断报告。上面通知里的 **Report Issue…** 会替你把表单填好。诊断包和报告都已替换你的用户名、主目录、主机名和密钥，也都不含你的文件内容；附上之前仍请先看一遍。mcppls 所规避的 clangd 或 mcpp 缺陷汇总在 [issue #24](https://github.com/Sunrisepeak/mcpp-language-server/issues/24)：提交前先看一遍，如果你的是新问题，就在下面加一条评论。

@@ -27,8 +27,15 @@ mcpp answers with a document that names every translation unit, its module role,
 the standard library module it uses — without building anything and without writing into your
 project. That is the best case: the description comes from the tool that owns the build.
 
-Two things are worth knowing:
+A few things are worth knowing:
 
+- **How long it may take, and when it runs again.** The build tool's hard deadline is 5 minutes the
+  first time, then three times what its last run took, between 1 and 10 minutes; the project's cached
+  model serves meanwhile, or its sources when there is none (`mcppls.producerTimeout` sets a fixed
+  limit instead). Saving a source does not run it: a saved source whose module declaration and
+  imports are unchanged only updates the index. The build tool is asked again when a build file, a
+  non-source input or a source's module structure changes, and edits that keep coming are one run —
+  the wait before it grows with how long the build tool takes, up to a minute.
 - **The run is offline.** A build description is a question about the project, not an errand, so
   the server asks it with `MCPP_OFFLINE` set. If the project's dependencies are not on the machine
   yet, mcpp says so, and nothing waits for you to decide anything:
@@ -146,6 +153,15 @@ What C++26 gives you is clangd 23.1's: pack indexing, `= delete("reason")`, plac
 the C++26 library of the standard library you build with (the kit's is libc++ 23). **Contracts
 (P2900) and reflection (P2996) are not in clang 23**: code using them shows clang's errors even
 where GCC compiles it; VS Code still colors `contract_assert`, `pre` and `post`.
+
+## Standard library macros
+
+`std` is built with only the standard library's own configuration macros — `_ITERATOR_DEBUG_LEVEL`,
+`_DEBUG`, `_GLIBCXX_ASSERTIONS`, `_LIBCPP_HARDENING_MODE`, `_HAS_*` and the like — not with every `-D`
+of your project. A project macro that happens to be a header guard of the standard library would
+otherwise change what `std` contains: GalTranslPP defines `_RANGES_` for its units, which is MSVC
+STL's guard for `<ranges>`, and `std` built with it had no `std::views` ("no member named 'views' in
+namespace 'std'"). The macros left out are named in the log. Your own units keep all their macros.
 
 ## An untrusted workspace
 
