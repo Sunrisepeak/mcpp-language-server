@@ -160,6 +160,24 @@ Json document_words(std::string_view text, base::Position position, std::size_t 
     return items;
 }
 
+bool is_empty(const Json& result) {
+    if (result.is_null()) return true;
+    if (result.is_array()) return result.empty();
+    if (!result.is_object()) return false;
+    const Json* items { lsp::find(result, "items") };
+    return items == nullptr || !items->is_array() || items->empty();
+}
+
+bool in_import_directive(std::string_view linePrefix) {
+    std::string_view rest { linePrefix };
+    skip_blanks(rest);
+    if (rest.starts_with("export")) {
+        std::string_view afterExport { rest.substr(6) };
+        if (skip_blanks(afterExport) > 0) rest = afterExport;
+    }
+    return rest.starts_with("import") && (rest.size() == 6 || is_blank(rest[6]) || rest[6] == '<' || rest[6] == '"' || rest[6] == ':');
+}
+
 Json without_engine(const Json& wordItems) {
     return Json { { "isIncomplete", true }, { "items", wordItems.is_array() ? wordItems : Json::array() } };
 }

@@ -207,6 +207,21 @@ int main() {
         expect(withKeywords["isIncomplete"] == true && labels_of(withKeywords) == std::vector<std::string> { "import" }) << "the keywords join it";
     };
 
+    "a completion the core engine did not answer is told apart, and an import line keeps to module names (M-2)"_test = [] {
+        expect(completion::is_empty(Json(nullptr)));
+        expect(completion::is_empty(Json::array()));
+        expect(completion::is_empty(completion::empty_list()));
+        expect(completion::is_empty(Json { { "isIncomplete", true } })) << "a list without items";
+        expect(!completion::is_empty(Json::array({ Json { { "label", "x" } } })));
+        expect(!completion::is_empty(completion::without_engine(Json::array({ Json { { "label", "x" } } }))));
+        for (const std::string_view prefix : { "import ", "import h", "  import hello.", "export import :part", "import <vector", "import \"a.h", "import" }) {
+            expect(completion::in_import_directive(prefix)) << prefix;
+        }
+        for (const std::string_view prefix : { "", "int i", "importer", "  important", "x = import", "exportimport h", "// import h", "    ret" }) {
+            expect(!completion::in_import_directive(prefix)) << prefix;
+        }
+    };
+
     "what a person waits on waits for the core engine within a budget, and the rest wait for its timeout (R-7)"_test = [] {
         using namespace std::chrono_literals;
         namespace routing = mcppls::orchestrator;

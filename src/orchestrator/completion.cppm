@@ -57,6 +57,13 @@ Json keywords_only(const Json& keywordItems);
 // engine knows what may follow; comments and string and character literals are not read.
 Json document_words(std::string_view text, base::Position position, std::size_t limit = 50);
 
+// M-2 (plan 0.0.8): a completion result with nothing in it -- null, an empty array, or a list without items.
+bool is_empty(const Json& result);
+
+// M-2: the text of a line before the cursor is inside an import directive (`[export] import` and a blank, and
+// whatever follows), where only module names belong -- never the file's words.
+bool in_import_directive(std::string_view linePrefix);
+
 // R-7: the list that goes out when the core engine has not answered a completion in its budget: `wordItems`
 // (document_words) as an incomplete list, so the client asks again as the person types on. The keywords are
 // merged in by the caller, as into any answer (merge).
