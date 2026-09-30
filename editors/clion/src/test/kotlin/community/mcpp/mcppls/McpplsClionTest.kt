@@ -203,7 +203,14 @@ class McpplsClionTest : UsefulTestCase() {
         fixture.openFileInEditor(file("src/main.cpp"))
         fixture.openFileInEditor(file("src/greet/greet.cppm"))
         waitFor("a running mcppls", 60) { running() }
-        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        // The notice goes out through the message bus, which may deliver it a few event turns later (CI run
+        // 36773996351 asserted before it came); after it came, a moment more is left for a second one to show.
+        waitFor("the notice that both engines answer", 30) { notices.isNotEmpty() }
+        val settled = System.currentTimeMillis() + 3_000
+        while (System.currentTimeMillis() < settled) {
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            Thread.sleep(100)
+        }
         assertEquals("one notice per project: $notices", 1, notices.size)
     }
 }
