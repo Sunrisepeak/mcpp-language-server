@@ -372,6 +372,7 @@ struct Workspace::Impl final : engine::Host {
     // any time; the offline description is asked again after 30 s, 1, 2 and then every 5 minutes, and at once when a
     // watched input changes, so the better model comes on its own.
     std::size_t downloadRetries { 0 };
+    int invalidFileRetries { 0 };            // X-5: rereads of a database that was invalid while its writer was at it
     std::optional<Clock::time_point> downloadRetryAt;
     bool inferredLoadStarted { false };
     // Plan 2026-09-27 D5 (revising fix plan F4, D1): with nothing cached, the build tool has FIRST_MODEL_WAIT to
@@ -1133,6 +1134,9 @@ struct Workspace::Impl final : engine::Host {
         std::thread { [queue, generation, load, kitCopy, rootCopy, rootKey]() mutable {
             load.kit = kitCopy.get();
             auto inferred = std::make_shared<project::ProjectModel>(project::load_project(rootCopy, load));
+            // X-6 (plan 0.0.8 part 2): this load is untrusted only so that no program runs; it says nothing about the workspace.
+            // Whether the workspace is trusted is reported by the orchestrator alone (update_status).
+            std::erase_if(inferred->issues, [](const project::ModelIssue& issue) { return issue.code == "untrusted-workspace"; });
             queue->push(Event { EventKind::model_loaded, Json { { "origin", "inferred" } }, generation, std::move(inferred), rootKey });
         } }.detach();
     }
@@ -1273,6 +1277,49 @@ struct Workspace::Impl final : engine::Host {
         update_status();
     }
 
+    // X-5 (plan 0.0.8 part 2): a database the user's own tool is writing is invalid for a moment (E1: mcppls read the half of
+    // a compile_commands.json and warned). When the reload found a database invalid and a file it reads was written within
+    // the last two seconds, the reload is tried again in a second, up to five times, with no warning and no stale issue meanwhile:
+    // the last model stays. Only a database that stays invalid is reported, as before.
+    bool wait_for_file_being_written(const project::ProjectModel& loaded) {
+        using namespace std::chrono_literals;
+        const auto invalid = std::ranges::find_if(loaded.issues, [](const project::ModelIssue& issue) {
+            return issue.code == "compdb-invalid" || issue.code == "database-invalid";
+        });
+        if (invalid == loaded.issues.end()) {
+            invalidFileRetries = 0;
+            return false;
+        }
+        if (!model) return false;   // nothing to keep meanwhile: the failure is the answer
+        // The files a reload reads that are the user's: the ones the failing model still names (an explicit database), what
+        // the last model watched (a CMake build directory's or the xmake fallback's compile_commands.json) and, when the error
+        // names it, the file itself. A failed load names none of its own in the xmake case, hence the last model's.
+        std::vector<std::string> candidates;
+        for (const std::vector<std::string>* watch : { &loaded.watch, static_cast<const std::vector<std::string>*>(&model->watch) }) {
+            for (const auto& entry : *watch) {
+                if (base::is_absolute_path(entry) && entry.ends_with(".json")) candidates.push_back(entry);
+            }
+        }
+        if (const std::size_t end { invalid->message.find(" is not valid JSON") }; end != std::string::npos) candidates.push_back(invalid->message.substr(0, end));
+        const auto now { std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::file_clock::now().time_since_epoch()).count() };
+        const bool written { std::ranges::any_of(candidates, [&](const std::string& path) {
+            const auto stamp { platform::fs::stamp(path) };
+            return stamp && now - stamp->modified < std::chrono::nanoseconds { 2s }.count();
+        }) };
+        if (!written || invalidFileRetries >= 5) {
+            invalidFileRetries = 0;
+            return false;
+        }
+        ++invalidFileRetries;
+        log::info("a database of {} is invalid and was written a moment ago; reading it again in a second ({} of 5)", root, invalidFileRetries);
+        journal.add("model-reread", Json { { "attempt", invalidFileRetries } });
+        reloadAfterLoad = false;   // the read in a second includes whatever asked for this one
+        reloadAt = Clock::now() + 1s;
+        reloadMovable = false;
+        update_status();
+        return true;
+    }
+
     void handle_model_loaded(std::shared_ptr<project::ProjectModel> loadedModel, bool fromProducer = true) {
         if (!fromProducer) {
             // The scanned-sources model that stands in until the producer answers (design 4.1). The
@@ -1314,6 +1361,7 @@ struct Workspace::Impl final : engine::Host {
             downloadRetryAt = Clock::now() + BACKOFF[std::min(downloadRetries, BACKOFF.size() - 1)];
             ++downloadRetries;
         }
+        if (wait_for_file_being_written(*loadedModel)) return;
         // S2 5-9: a producer that answered before and fails now (or answers with nothing) leaves the last
         // model in place, and the status says it may be stale, rather than the project falling back to
         // scanned sources. A project that is no longer that kind of project takes the new model.
