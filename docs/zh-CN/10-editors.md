@@ -25,6 +25,8 @@ mcpp run -p devtools -- uninstall --editor vscode|zed|clion|all   # 卸载
 
 **和其他 C++ 扩展一起用。** Microsoft 的 C/C++ 扩展和官方 clangd 扩展都想当同一批文件的语言服务端。mcppls 第一次运行时会提示一次，问要不要把它们在这个工作区里的语言功能关掉；这个提示由 `mcppls.detectConflicts` 控制。之后任何时候都可以用 *Turn Off Other C++ Language Features* 在当前工作区或全局关掉它们，用 *Restore Other C++ Language Features* 恢复；C/C++ 扩展的调试器照常可用。之后又有冲突扩展启用时，会有一条提示说明。扩展没有办法禁用别的扩展：mcppls 只改它们自己的设置，而且只在你选择之后才改。
 
+**和 Copilot 一起用时的补全。** VS Code 1.125 及以后的版本，在内联补全（VS Code 已内置 GitHub Copilot）显示灰字时不打开补全列表，其他时候也要等你停下输入才打开（`editor.quickSuggestions` 的默认值 `{"other": "offWhenInlineCompletions"}`）。对 C 和 C++ 文件，插件改设为 `{"other": "on"}`：列表随输入打开，灰字同时显示在旁边。这个值会盖过为所有语言设置的 `editor.quickSuggestions`；把它写在 `"[cpp]"` 和 `"[c]"` 下就能保留你的设置（日志里会说明一次）。
+
 **语法高亮。** `import`、`module`、`export` 和模块名有两层上色：扩展自带的语法文件（打开即生效，边输入边上色），以及服务端的语义 token（模块名的 token 类型是 `module`，主题默认按命名空间上色，也可以在 `editor.semanticTokenColorCustomizations` 里单独指定颜色）。VS Code 自带的 C++ 语法不给 `import` 上色。
 
 **在一个工作区里关掉它。** `mcppls.enable`（默认 `true`，按工作区生效）可以让 mcppls 保持关闭；**C++ Modules: Turn Off in This Workspace** 和 **Turn On in This Workspace** 会设置它，状态项显示 “C++ Modules: off in this workspace”。其他编辑器没有这样的设置；下面各个编辑器的小节和它们的 README 说明了在那边怎么做。

@@ -69,6 +69,7 @@ mcpp run -p devtools -- extension --editor vscode --install  # payload、VS Code
 | 服务端怎么理解某个文件 | `mcppls check FILE` |
 | bug report 需要的一切信息 | `mcppls report` |
 | 多次运行的启动耗时，可选对照预算值 | `mcpp run -p devtools -- measure summary DIR [--max-cold S] [--max-warm S]` |
+| 各场景在多次运行中的数值（中位数、p95、最大值、1.3 × p95），用来定预算 | `mcpp run -p devtools -- measure budgets DIR` |
 
 ### 打包与发布
 

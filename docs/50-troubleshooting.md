@@ -15,6 +15,7 @@ carrying what almost every question turns out to need:
 | `toolRuns` | The last twenty external runs, each with its command, duration and outcome |
 | `plan` | What the engine was given: entries, stand-ins, what was left out and why |
 | `engines` | clangd's state, restarts, files set aside, and `workarounds`: the clangd defects this server works around for this version |
+| `requests`, `completion`, `documents` | For each method, how many requests came, how fast they were answered, by which engine and when the last one was (`lastAt`); how often completion was answered with the file's words; how many edits there were and when the last one was — edits going on while `requests["textDocument/completion"].lastAt` stands still means the editor stopped asking |
 | `events` | A journal of the session |
 | `logTail` | The end of the log |
 
@@ -31,9 +32,9 @@ e-mail address) is `<redacted>`. The project's own paths are kept — they are w
 | In the bundle | What it is |
 |---|---|
 | `report.json` | The report above |
-| `environment.json` | System, editor and extension versions, the other C/C++ extensions, your mcppls settings, the payload, the toolchains found, and a few environment variables (`PATH`, `LANG`, `LC_*`, `MCPP_*`, `XLINGS_*`) — no other |
+| `environment.json` | System, editor and extension versions, the other C/C++ extensions, your mcppls settings, the editor settings that decide whether completion shows while you type (`client.editor`: `editor.quickSuggestions` for C++ and where it comes from, inline suggestions, autosave, the inline-completion extensions installed), the payload, the toolchains found, and a few environment variables (`PATH`, `LANG`, `LC_*`, `MCPP_*`, `XLINGS_*`) — no other |
 | `logs/` | The server's logs of the last three sessions and any other of the last day, and the extension's own log |
-| `incidents/` | What the server wrote down when clangd crashed, hung or was set aside |
+| `incidents/` | What the server wrote down when clangd crashed, hung or was set aside — for a crash, LLVM's stack dump as clangd printed it and the clangd binary's version and SHA-256, what an upstream report needs |
 | `engine/` | The database clangd was given, and the plan behind it |
 | `manifest.json` | Every file with its size and SHA-256, and how many replacements each redaction rule made |
 
@@ -68,10 +69,26 @@ mcppls gives them stand-in units so that one broken module does not take the res
 with it, and names each one in the log with the reason. The real failure is in `plan.issues` or in
 your build.
 
+**No completion list while you type in VS Code, or it shows only when you stop and wait.** VS Code
+1.125 and later, with an inline-completion extension (GitHub Copilot is built into VS Code), wait for
+the inline completion before opening the list, and do not open it at all while its grey text shows:
+`editor.quickSuggestions` defaults to `{"other": "offWhenInlineCompletions"}`. The server is not even
+asked. From 0.0.8 the extension sets `{"other": "on"}` for C and C++ files (`WA-VSCODE-002`), so the
+list and the grey text show side by side. That default outranks a `editor.quickSuggestions` you set
+for every language; the log says so once, and setting it under `"[cpp]"` and `"[c]"` keeps yours. A
+diagnostic bundle shows it: `client.editor` in `environment.json`, and in the report
+`requests["textDocument/completion"]` against `documents` (edits going on, no completion requests).
+
 **A module does not compile.** Only what imports it, directly or not, is affected: those files are
-answered at once by mcppls's own engine (module navigation, symbols, `import` completion), carry one
-`module-failed` diagnostic on the import that leads to the failure, and are not sent to clangd until
-the failed module's own source or command changes; everything else keeps clangd. This is a problem
+answered at once by mcppls's own engine (module navigation, symbols, `import` completion, and the
+words of the file for other completion), carry one `module-failed` diagnostic on the import that leads
+to the failure, and are not sent to clangd until the failed module's own source or command changes;
+everything else keeps clangd. A module you are writing is the exception: with autosave, what is on
+disk mid-edit does not compile as a rule, so while a source of the module is open and was edited in
+the last two minutes (0.0.8), its files stay with clangd — the module you edit keeps its real
+diagnostics and completion, an importer its own names and keywords with an error on the import — and
+the report lists it under the engine's `modulesFailingWhileEdited`. Two minutes after your last edit,
+if what failed is still on disk, the module is contained as above. This is a problem
 in the code, so it is told where it is, as diagnostics: the status stays *ready* (listing
 `modules-doomed`, category `code`) and is never *preparing* for good. The engine's `doomedModules`
 and `filesRoutedToOwnEngine` in the report list them.
@@ -83,7 +100,9 @@ otherwise give you, and names what and where: "clangd stopped responding on main
 "the workspace is not trusted", "the macOS SDK was not found". Each status issue carries a
 `category` (`code`, `engine`, `environment`, `project`) saying whose problem it is; only the ones
 other than `code` make the state *degraded*, and only once that has lasted three seconds, so a
-condition that passes by itself never reaches the status bar.
+condition that passes by itself never reaches the status bar. Once the workspace is *ready*, modules
+rebuilt because of an edit (a save of a module most of the project imports) make it *preparing* again
+only when that takes more than 30 seconds (0.0.8); the way back to *ready* is never held.
 
 **The editor froze while typing an `import` (0.0.3 and earlier).** clangd 23.1 never finishes a
 file in which a module name ends in `.` at the end of its line (`import hello.`, `export module a.`),

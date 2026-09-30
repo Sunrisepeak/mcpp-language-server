@@ -59,6 +59,8 @@ VS Code 扩展已经会这样做）；`重新加载模型` 只重新加载项目
 | `mcppls.enable` | `true`, `false` | `true` | — | 立即生效 | 为此工作区启动 mcppls。在某个工作区的设置里设为 `false`，扩展在那里保持安装但不启动——用于它暂时还服务不了的项目，而不必卸载；状态栏上的条目可以重新打开它。 |
 | `mcppls.detectConflicts` | `true`, `false` | `true` | — | 立即生效 | 在此工作区中提议关闭另一个 C++ 扩展的语言功能（只提议一次），之后又有冲突扩展启用时会提示。仅限 VS Code：其他客户端不会在多个语言服务端之间做取舍。 |
 
+有一个编辑器设置由 VS Code 插件为 C 和 C++ 给出取值，而不是由服务端读取：`[cpp]` 和 `[c]` 下的 `editor.quickSuggestions` 为 `{"other": "on", "comments": "off", "strings": "off"}`，这样补全列表随输入打开。VS Code 从 1.125 起自己的默认值是 `{"other": "offWhenInlineCompletions"}`，在 Copilot 这类内联补全显示灰字时不打开列表（`WA-VSCODE-002`）。你写在 `"[cpp]"` 或 `"[c]"` 下的值优先；为所有语言设置的值不会生效，插件日志里会说明一次。
+
 ### 诊断与日志
 
 | 设置 | 取值 | 默认值 | 命令行 | 生效方式 | 作用 |

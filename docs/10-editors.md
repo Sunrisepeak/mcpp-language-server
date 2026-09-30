@@ -40,6 +40,13 @@ time later, *Turn Off Other C++ Language Features* does it for this workspace or
 conflicting extension that becomes active later is named in a notice. An extension has no way to
 disable another one: only their own settings are changed, and only when you choose to.
 
+**Completion alongside Copilot.** VS Code 1.125 and later keep the completion list closed while an
+inline completion (GitHub Copilot is built into VS Code) shows grey text, and open it otherwise only
+once you stop typing (`editor.quickSuggestions`'s default, `{"other": "offWhenInlineCompletions"}`).
+For C and C++ files the extension sets `{"other": "on"}` instead: the list opens as you type, and the
+grey text shows beside it. It outranks an `editor.quickSuggestions` set for every language; setting
+it under `"[cpp]"` and `"[c]"` keeps yours (the log says so, once).
+
 **Highlighting.** `import`, `module`, `export` and module names are colored twice over: by a
 grammar the extension adds (at once, as you type), and by the server's semantic tokens (module
 names as the token type `module`, which themes color as a namespace unless you give it a color of

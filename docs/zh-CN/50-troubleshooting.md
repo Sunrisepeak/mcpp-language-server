@@ -16,6 +16,7 @@
 | `toolRuns` | 最近二十次外部运行，每条都带命令、耗时和结果 |
 | `plan` | 交给引擎的内容：条目、占位单元、被省略了什么以及原因 |
 | `engines` | clangd 的状态、重启次数、被搁置的文件，以及 `workarounds`：本服务端针对这个 clangd 版本规避的 clangd 缺陷 |
+| `requests`、`completion`、`documents` | 每种请求来了多少次、答得多快、由哪个引擎作答、最后一次是什么时候（`lastAt`）；补全有多少次用文件里的词作答；编辑了多少次、最后一次在什么时候——编辑一直在继续，而 `requests["textDocument/completion"].lastAt` 停住不动，说明是编辑器不再来要补全 |
 | `events` | 本次会话的事件日志 |
 | `logTail` | 日志的末尾部分 |
 
@@ -28,9 +29,9 @@
 | 问题包里的文件 | 内容 |
 |---|---|
 | `report.json` | 上面的报告 |
-| `environment.json` | 系统、编辑器和插件的版本、其他 C/C++ 插件、你的 mcppls 设置、payload、探测到的工具链，以及少数几个环境变量（`PATH`、`LANG`、`LC_*`、`MCPP_*`、`XLINGS_*`），其他的一概不收 |
+| `environment.json` | 系统、编辑器和插件的版本、其他 C/C++ 插件、你的 mcppls 设置、决定打字时是否弹出补全的编辑器设置（`client.editor`：C++ 下的 `editor.quickSuggestions` 及其来源、内联建议、自动保存、装了哪些内联补全插件）、payload、探测到的工具链，以及少数几个环境变量（`PATH`、`LANG`、`LC_*`、`MCPP_*`、`XLINGS_*`），其他的一概不收 |
 | `logs/` | 服务端最近三次会话以及最近一天内其他会话的日志，还有插件自己的日志 |
-| `incidents/` | clangd 崩溃、卡住或文件被搁置时服务端记下的现场 |
+| `incidents/` | clangd 崩溃、卡住或文件被搁置时服务端记下的现场——崩溃时还有 clangd 打印的 LLVM 栈转储，以及 clangd 可执行文件的版本和 SHA-256，这是向上游报告需要的 |
 | `engine/` | 交给 clangd 的数据库，以及生成它的计划 |
 | `manifest.json` | 每个文件的大小和 SHA-256，以及每条脱敏规则各替换了多少处 |
 
@@ -50,9 +51,11 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **原本正常，后来某个模块突然解析不了了。** `plan.standIns` 列出了没有任何单元提供的模块——mcppls 给它们分配占位单元，这样一个坏掉的模块不会拖垮项目的其余部分，日志里也会逐个写明模块名和原因。真正的问题在 `plan.issues` 里，或者在你的构建本身。
 
-**某个模块编译不过。** 受影响的只有直接或间接导入它的文件：这些文件由 mcppls 自己的引擎立即应答（模块跳转、符号、`import` 补全），在引向失败的那条 import 上带一条 `module-failed` 诊断，并且在失败模块自己的源码或编译命令变化之前不会再交给 clangd；其余文件照常由 clangd 应答。这是代码本身的问题，所以在出问题的地方以诊断的形式告诉你：状态保持 *ready*（列出类别为 `code` 的 `modules-doomed`），也不会一直停在 *preparing*。报告里引擎的 `doomedModules` 和 `filesRoutedToOwnEngine` 会列出它们。
+**VS Code 里打字时不弹补全列表，或者停下来等一会儿才出来。** VS Code 1.125 及以后的版本，装了内联补全插件（VS Code 已内置 GitHub Copilot）时，会先等内联补全再决定开不开列表；内联补全显示灰字时就根本不开：`editor.quickSuggestions` 的默认值是 `{"other": "offWhenInlineCompletions"}`。这时服务端根本没被问到。从 0.0.8 起，插件为 C 和 C++ 文件设为 `{"other": "on"}`（`WA-VSCODE-002`），列表和灰字同时出现。这个默认值会盖过你为所有语言设的 `editor.quickSuggestions`；日志里会说明一次，把它写在 `"[cpp]"` 和 `"[c]"` 下就能保留你的设置。诊断包里能看出来：`environment.json` 的 `client.editor`，以及报告里 `requests["textDocument/completion"]` 与 `documents` 的对比（一直在编辑，却没有补全请求）。
 
-**状态说明什么，不说明什么。** 代码里的错误（少了 `;`、import 了没有任何单元提供的模块、某个模块编译不过）以诊断的形式出现在出错的位置，也就是 Problems 列表里；状态保持 *ready*。*degraded* 表示服务端丢了本来能给你的功能，并说明丢了什么、在哪里：“clangd stopped responding on main.cpp”、“the workspace is not trusted”、“the macOS SDK was not found”。每个状态 issue 都带有 `category`（`code`、`engine`、`environment`、`project`），说明这是谁的问题；只有 `code` 以外的类别会让状态变成 *degraded*，而且要持续三秒才会显示，所以自己很快就会消失的情况不会出现在状态栏上。
+**某个模块编译不过。** 受影响的只有直接或间接导入它的文件：这些文件由 mcppls 自己的引擎立即应答（模块跳转、符号、`import` 补全，其他补全给出文件里的词），在引向失败的那条 import 上带一条 `module-failed` 诊断，并且在失败模块自己的源码或编译命令变化之前不会再交给 clangd；其余文件照常由 clangd 应答。正在写的模块是例外：开着自动保存时，写到一半存到磁盘上的内容照例编译不过，所以只要这个模块的某个源文件开着、而且两分钟内编辑过（0.0.8），它的文件就留在 clangd——你在改的模块保留真实的诊断和补全，导入它的文件保留自己的名字和关键字补全，只在 import 上报一条错误——报告里引擎的 `modulesFailingWhileEdited` 会列出它。最后一次编辑两分钟后，如果磁盘上仍是编译失败的那份内容，才按上面的方式隔离。这是代码本身的问题，所以在出问题的地方以诊断的形式告诉你：状态保持 *ready*（列出类别为 `code` 的 `modules-doomed`），也不会一直停在 *preparing*。报告里引擎的 `doomedModules` 和 `filesRoutedToOwnEngine` 会列出它们。
+
+**状态说明什么，不说明什么。** 代码里的错误（少了 `;`、import 了没有任何单元提供的模块、某个模块编译不过）以诊断的形式出现在出错的位置，也就是 Problems 列表里；状态保持 *ready*。*degraded* 表示服务端丢了本来能给你的功能，并说明丢了什么、在哪里：“clangd stopped responding on main.cpp”、“the workspace is not trusted”、“the macOS SDK was not found”。每个状态 issue 都带有 `category`（`code`、`engine`、`environment`、`project`），说明这是谁的问题；只有 `code` 以外的类别会让状态变成 *degraded*，而且要持续三秒才会显示，所以自己很快就会消失的情况不会出现在状态栏上。工作区进入 *ready* 之后，因编辑而重建模块（比如保存了一个项目里大部分模块都导入的模块）要持续 30 秒以上才会重新显示 *preparing*（0.0.8）；回到 *ready* 从不延迟。
 
 **输入 `import` 时编辑器卡死（0.0.3 及更早版本）。** clangd 23.1 遇到模块名以 `.` 结尾、而且 `.` 就在行尾的文件（`import hello.`、`export module a.`）时永远处理不完，这个文件之后的所有版本都排在它后面等待；而输入任何带点的模块名都会经过这个状态。mcppls 0.0.4 改为把这一行在点后补上 `;` 再交给 clangd，clangd 会立即报告这个错误（规避措施 `WA-CLANGD-001`）；报告里的 `engines[].details.workarounds` 会列出它。
 

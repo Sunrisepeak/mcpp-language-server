@@ -62,6 +62,12 @@ either wrapped in a top-level `mcppls` object or not.
 | `mcppls.enable` | `true`, `false` | `true` | — | immediately | Start mcppls for this workspace. `false` in a workspace's settings keeps the extension installed but inactive there -- for a project it cannot serve yet -- without uninstalling it; the status bar item turns it back on. |
 | `mcppls.detectConflicts` | `true`, `false` | `true` | — | immediately | Offer once to turn off another C++ extension's language features in this workspace, and say so when one becomes active later. VS Code only: no other client arbitrates between language servers. |
 
+One editor setting is given a value for C and C++ by the VS Code extension rather than read by the server:
+`editor.quickSuggestions` is `{"other": "on", "comments": "off", "strings": "off"}` for `[cpp]` and `[c]`, so the
+completion list opens while you type. VS Code's own default since 1.125, `{"other": "offWhenInlineCompletions"}`,
+keeps it closed while an inline completion such as Copilot's shows grey text (`WA-VSCODE-002`). Your own value under
+`"[cpp]"` or `"[c]"` wins; one you set for every language does not, and the extension's log says so once.
+
 ### Diagnostics and logging
 
 | Setting | Values | Default | Command line | Applies | What it does |

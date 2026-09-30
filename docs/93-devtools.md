@@ -82,6 +82,7 @@ platforms`).
 | What the server makes of one file | `mcppls check FILE` |
 | Everything a bug report needs | `mcppls report` |
 | Startup timings over several runs, optionally against a budget | `mcpp run -p devtools -- measure summary DIR [--max-cold S] [--max-warm S]` |
+| Each scenario's numbers over many runs (median, p95, largest, 1.3 x p95), for setting its budgets | `mcpp run -p devtools -- measure budgets DIR` |
 
 ### Package and release
 

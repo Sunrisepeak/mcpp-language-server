@@ -254,6 +254,9 @@ before anything is published (`docs/92-release.md`).
 | RD13 | Each unit keeps the BMIs of its two newest commands; the rest are pruned when clangd starts (`mcppls cache --prune` for the others) (C-2) |
 | RD14 | What nothing recovers from by itself writes a redacted bundle at once and names it in the status; the person reports it, restarts, or turns mcppls off for the workspace (`mcppls.enable`), and nothing is uploaded (K-7) |
 | PD1 | Android under Termux (PRoot) is a supported platform: openkal-linux falls back from `execveat` to `execve` and the server detects the sandbox (plan 2026-09-30 D1, X-1..X-5) |
+| UD5 | In VS Code, C and C++ open the completion list while you type, alongside inline completions: the extension contributes `editor.quickSuggestions` `{other: "on"}` as their language default (WA-VSCODE-002), since VS Code 1.125's own default waits for inline completions; a person's `[cpp]` / `[c]` value wins, and one set for every language is overridden and told in the log (plan 0.0.8 E-1, E-2) |
+| RD15 | Containment (RP1.1) is for a module that is broken, not one being written: a module that fails while a source of its closure is open and was edited within two minutes stays with clangd, and is contained only if what failed is still on disk two minutes after the last edit (plan 0.0.8 M-1); a completion clangd does not answer gets the file's words, never nothing (M-2) |
+| RD16 | On the provisional model only the standard library is prepared; the project's modules wait for the build tool's commands (plan 0.0.8 R-4). The modules whose units clangd could not scan are taken together, one replan and one restart (P-1) |
 
 ## 7. Known limits
 
@@ -365,6 +368,12 @@ N-7 in idle time · R-6 stand-ins that are no change · R-7 request budgets · R
 crash loops backed off · K-4, K-5 guards that misjudged a busy clangd · K-6 the passing-degraded hold ·
 K-7 the automatic bundle · U1–U15 user-experience scenarios on mcpp and xlings · O-1..O-6 Code - OSS
 and the extension.
+
+**"plan 0.0.8" — [2026-09-30-0.0.8-plan.md](2026-09-30-0.0.8-plan.md).** E-1..E-4 the completion list VS
+Code kept closed for inline completions (WA-VSCODE-002) · M-1 a module being written is not contained ·
+M-2 completion always has the file's words · M-3 no preparation stall while its module is edited · M-4 U16
+writing a module with autosave · K-3 crash evidence for upstream · R-4 no project preparation on the
+provisional model · P-1 stand-ins together · K-6 the settled-preparing hold · O-6 the Open VSX listing wait.
 
 **"tooling architecture".** 3.2 the workspace layout · 5.1 what mcpp, mcppls and devtools each do ·
 5.5 how devtools finds the server it just built · M0–M6 its migration steps.
