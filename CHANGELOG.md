@@ -63,7 +63,10 @@ The analysis, the measurements and the plan are `.agents/docs/2026-09-30-stabili
 - **Guards no longer mistake a busy clangd for a stuck one.** A timeout behind the server's own
   background work does not set its file aside; "file is queued" does not count as no progress; the
   disk-safety wait follows how long the file took to build; a stand-in replacing a stand-in is no
-  change. A file set aside and handed back while you type turns the status degraded only after 30 s.
+  change; a unit opened in the background that takes longer than two minutes to build, while clangd goes
+  on preparing modules and answering, is left alone instead of restarting clangd (on GalTranslPP that
+  restart came every two minutes and preparation never finished). A file set aside and handed back while
+  you type turns the status degraded only after 30 s.
 - **A server restarted after a crash takes its workspace back at once**: the lease records its owner's
   process, so a dead one is not waited out.
 - **A first open is not spoiled by the provisional model.** Until the build tool answers, sources are

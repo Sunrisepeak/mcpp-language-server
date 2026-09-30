@@ -283,6 +283,7 @@ private:
     RestartGate restartGate_;
     Quarantine quarantine_;                                   // path keys
     std::optional<Clock::time_point> lastAnswerAt_;           // clangd's last answer to any client request
+    std::optional<Clock::time_point> lastBackgroundBuiltAt_;  // when a unit opened without the editor last finished building
     StuckWatch stuck_;
     SpinWatch spin_;   // import-hang plan §4: a file clangd will not finish, busy or not
     // WA-CLANGD-001: the `;` insertions in the text clangd has of each open document (client URI), for
@@ -2008,6 +2009,7 @@ private:
             if (const auto unit = background_.find(diagnosedKey); unit != background_.end() && !host_->has_document(uri)) {
                 if (!unit->second.built) {
                     unit->second.built = true;
+                    lastBackgroundBuiltAt_ = Clock::now();
                     const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - unit->second.openedAt).count();
                     if (unit->second.priming) log::debug("{} built in clangd in {} ms for its index ({})", unit->second.path, took, host_->root_directory());
                     else log::info("{} built in clangd in {} ms to find definitions ({})", unit->second.path, took, host_->root_directory());
@@ -3791,7 +3793,17 @@ private:
                 host_->record_event("background-unit-stuck", Json { { "file", unit.path }, { "clangdState", unit.state } });
                 backgroundRefused_[key] = platform::fs::stamp(unit.path);
                 closing.push_back(key);
-                if (unit.state.empty() || engine_working(unit.state)) schedule_restart_(std::format("clangd kept working on {}", base::file_name(unit.path)));
+                // Plan 2026-09-30 §13 (GalTranslPP, 4 cores): a unit that builds for longer than the limit while clangd is
+                // preparing modules, answering and finishing other units is slow, not stuck; restarting for it every two
+                // minutes threw the preparation away each time and it never finished. It is closed and left; a clangd that
+                // really stopped is what the watchdogs on requests and on preparation find.
+                const auto recent = [&](const std::optional<Clock::time_point>& at) { return at && now - *at < std::chrono::minutes { 1 }; };
+                const bool progressing { recent(lastPrimeProgressAt_) || recent(lastAnswerAt_) || recent(lastBackgroundBuiltAt_) };
+                if ((unit.state.empty() || engine_working(unit.state)) && !progressing) {
+                    schedule_restart_(std::format("clangd kept working on {}", base::file_name(unit.path)));
+                } else if (progressing) {
+                    host_->record_event("background-unit-slow", Json { { "file", unit.path } });
+                }
             } else if (unit.built && now >= unit.usedAt + BACKGROUND_IDLE && !waited_on_(key)) {
                 closing.push_back(key);
             }

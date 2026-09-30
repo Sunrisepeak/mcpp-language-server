@@ -1107,3 +1107,6 @@ scratchpad 在 `/tmp` 下，会话结束后可能被清理：#30 的失败单测
   ——请求在服务端被读到之前就等了很久，或者写回客户端时被堵。0.0.7 加了事件循环的测量（每轮 ≥ 250 ms 记日志，`server.eventLoop`：最长一轮花在什么上、
   客户端消息排队多久、写客户端的耗时），下一轮探针据此定位；这是 0.0.8 的首要项。
 - **修掉的回归**：xlings 冷启动时过渡模型下"找不到模块单元"的判定被带进 producer 的计划（R-6 让替身粘住）→ 49 个模块 doomed，见上文与提交 eb507cf。
+- **冷启动 18 分钟不 settle 的另一半原因**：producer 模型到位后，每约 2 分钟一次"clangd kept working on ITranslator.cpp / PythonManager.cpp / LuaManager.cpp"
+  重启——后台打开的单元（定义搜索）超过 `BACKGROUND_BUILD_LIMIT`（2 分钟）没建完就重启 clangd，4 核上重 GMF 的单元合法地要更久，每次重启丢掉进行中的预建。
+  改为：超时的后台单元照旧关闭、在它改变前不再打开，但只有 clangd 在最近一分钟里既没预建出模块、也没回答、也没建完别的单元时才重启（`background-unit-slow` 事件）。
