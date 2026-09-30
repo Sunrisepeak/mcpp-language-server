@@ -297,6 +297,8 @@ private:
     Quarantine quarantine_;                                   // path keys
     std::optional<Clock::time_point> lastAnswerAt_;           // clangd's last answer to any client request
     std::optional<Clock::time_point> lastBackgroundBuiltAt_;  // when a unit opened without the editor last finished building
+    std::optional<Clock::time_point> lastDiagnosticsAt_;      // K-7 (plan 0.0.8 part 2): clangd's last publish, for any file
+    std::optional<Clock::time_point> acceptingSince_;         // K-7: when this clangd began taking requests
     StuckWatch stuck_;
     SpinWatch spin_;   // import-hang plan §4: a file clangd will not finish, busy or not
     // WA-CLANGD-001: the `;` insertions in the text clangd has of each open document (client URI), for
@@ -320,6 +322,13 @@ private:
     // GENERAL_PATIENCE while module preparation makes no progress.
     static constexpr std::chrono::seconds FAILED_MODULE_PATIENCE { 5 };
     static constexpr std::chrono::seconds GENERAL_PATIENCE { 120 };
+    // K-7 (plan 0.0.8 part 2): a file clangd keeps queued is waiting for a worker (K-5) -- but not for ever. Queued this
+    // long while clangd finished nothing at all for BUSY_WITHOUT_PROGRESS (no diagnostics for any file, no answer, no
+    // module, no background unit), clangd is busy without getting anywhere, which the stuck watch (next to no CPU) does
+    // not see: after U16's module autosave on ux-xlings it kept four cores busy for more than fifteen minutes with every
+    // open file queued, and nothing but a restart ended it.
+    static constexpr std::chrono::seconds QUEUED_PATIENCE { 240 };
+    static constexpr std::chrono::seconds BUSY_WITHOUT_PROGRESS { 180 };
     static constexpr std::chrono::seconds SELF_EDIT_GRACE { 10 };
     std::map<std::string, Clock::time_point, std::less<>> awaitingSince_;     // client URI -> when it was handed to clangd
     std::map<std::string, Clock::time_point, std::less<>> modulesFailedAt_;   // module -> when clangd said it did not compile
@@ -1936,6 +1945,7 @@ private:
     void check_stuck_files_(Clock::time_point now) {
         stuckCheckAt_.reset();
         std::vector<std::tuple<std::string, std::string, bool>> stuck;   // (path, why, its module did not compile)
+        bool busyWithoutProgress { false };
         const bool preparing { lastPrimeProgressAt_ && now - *lastPrimeProgressAt_ < std::chrono::seconds { 60 } };
         for (const auto& document : host_->documents()) {
             const auto since = awaitingSince_.find(document.uri);
@@ -1961,6 +1971,7 @@ private:
             const bool busyForUs { primer_.running() > 0
                                    || std::ranges::any_of(background_, [](const auto& item) { return !item.second.built; }) };
             if (now >= due && !preparing && (queued || busyForUs)) {
+                if (queued && now - since->second >= QUEUED_PATIENCE) busyWithoutProgress = busyWithoutProgress || nothing_finished_for_(now) >= BUSY_WITHOUT_PROGRESS;
                 schedule_stuck_check_(now + std::chrono::seconds { 30 });
                 continue;
             }
@@ -1971,11 +1982,30 @@ private:
             schedule_stuck_check_(now >= due ? now + std::chrono::seconds { 30 } : due);
         }
         for (const auto& [path, why, moduleFailed] : stuck) set_aside_(path, why, moduleFailed ? Reclaim::no : Reclaim::if_busy, moduleFailed);
+        if (busyWithoutProgress && !restartAt_) {
+            const auto idle = std::chrono::duration_cast<std::chrono::seconds>(nothing_finished_for_(now)).count();
+            log::warning("clangd ({}) has kept every open file queued and finished nothing for {} s; restarting it", host_->root_directory(), idle);
+            host_->record_event("engine-busy-without-progress", Json { { "seconds", idle }, { "awaiting", awaitingDiagnostics_.size() } });
+            incident_("engine-busy-without-progress", Json { { "seconds", idle }, { "awaiting", awaitingDiagnostics_.size() } }, pending_files_(), true);
+            add_issue_(Issue { "engine-timeout", "clangd stopped making progress; it was restarted", "mcppls.restartServer" });
+            request_restart_("clangd was busy for minutes without finishing anything");
+        }
+    }
+
+    // K-7: how long clangd has finished nothing -- no diagnostics for any file, no answer, no module, no background unit
+    // -- counted from its start at the earliest.
+    Clock::duration nothing_finished_for_(Clock::time_point now) const {
+        std::optional<Clock::time_point> last { acceptingSince_ };
+        for (const auto& at : { lastDiagnosticsAt_, lastAnswerAt_, lastPrimeProgressAt_, lastBackgroundBuiltAt_ }) {
+            if (at && (!last || *at > *last)) last = at;
+        }
+        return last ? now - *last : Clock::duration::zero();
     }
 
     void accept_traffic_if_ready_() {
         if (!handshakeDone_ || !planApplied_ || accepting_) return;
         accepting_ = true;
+        acceptingSince_ = Clock::now();
         for (const auto& document : host_->documents()) {
             if (!excluded_path_(document.path) && !quarantined_(document.path)) open_or_hold_(document, planApplied_);
         }
@@ -2080,6 +2110,7 @@ private:
             return;
         }
         if (method == lsp::method::TEXT_DOCUMENT_PUBLISH_DIAGNOSTICS) {
+            lastDiagnosticsAt_ = Clock::now();
             const Json& params { message["params"] };
             if (const Json* published { lsp::find(params, "diagnostics") }; finish_prime_(params.value("uri", std::string {}), published)) return;
             const std::string uri { host_->client_uri(params.value("uri", std::string {})) };
