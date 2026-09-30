@@ -315,6 +315,7 @@ private:
 public:
     std::map<std::string, Json> diagnostics;     // uri -> latest diagnostics
     std::map<std::string, int> diagnosticsCount; // uri -> publishes received
+    std::map<std::string, int> moduleFailedCount; // uri -> publishes received that carried a diagnostic with code "module-failed"
     std::vector<std::string> progressKinds;      // $/progress kinds in order: begin, report…, end
     Json status;                                 // the latest cxxModules/status, whichever root sent it
     // usable plan W9.1: a multi-root session sends one cxxModules/status per root, each naming its
@@ -394,6 +395,7 @@ public:
         unanswered_ = 0;
         diagnostics.clear();
         diagnosticsCount.clear();
+        moduleFailedCount.clear();
         diagnosticsAt.clear();
         status = Json {};
         statusByRoot.clear();
@@ -547,6 +549,9 @@ public:
                 diagnostics[uri] = message["params"].value("diagnostics", Json::array());
                 diagnosticsAt[uri] = Clock::now();
                 ++diagnosticsCount[uri];
+                if (std::ranges::any_of(diagnostics[uri], [](const Json& one) { const auto code = one.find("code"); return code != one.end() && code->is_string() && code->get<std::string>() == "module-failed"; })) {
+                    ++moduleFailedCount[uri];
+                }
                 const std::string state { status.is_object() ? status.value("state", std::string {}) : std::string {} };
                 if (!firstDiagnostics && (state == "ready" || state == "degraded")) firstDiagnostics = Clock::now();
             } else if (method == "cxxModules/status") {
@@ -1917,10 +1922,37 @@ public:
         const std::chrono::seconds duration { check.value("seconds", 120) };
         const std::chrono::milliseconds completionEvery { check.value("completion-every-ms", 1000) };
         const std::chrono::milliseconds autosaveEvery { check.value("autosave-ms", 0) };
+        // files.autoSave "afterDelay": the buffer is saved once this long has passed since the last keystroke.
+        const std::chrono::milliseconds autosaveIdle { check.value("autosave-idle-ms", 0) };
+        const bool autosaving { autosaveEvery.count() > 0 || autosaveIdle.count() > 0 };
         const std::chrono::seconds requestTimeout { check.value("requestTimeout", 65) };
         const Json scripts = check.value("scripts", Json::array());
         if (!scripts.is_array() || scripts.empty()) return { false, "a typing check names no scripts" };
-        if (autosaveEvery.count() > 0) remember_original(absolutePath);
+        if (autosaving) remember_original(absolutePath);
+
+        // A second file that imports the typed one, opened with a probe line inside a function body; a completion is asked at the
+        // end of that line alongside the typed file's. Only the editor's buffer of it changes: nothing is written to its disk.
+        std::string importerFile;
+        std::string importerOriginal;
+        std::string importerUri;
+        Json importerPosition = Json::object();
+        if (const auto importer = check.find("importer"); importer != check.end() && importer->is_object()) {
+            importerFile = importer->value("file", std::string {});
+            if (importerFile.empty()) return { false, "a typing check's importer names no file" };
+            importerUri = uri(importerFile);
+            open(importerFile);
+            importerOriginal = text_of(importerFile);
+            std::vector<std::string> importerLines;
+            for (const auto line : base::split_lines(importerOriginal)) importerLines.emplace_back(line);
+            const std::string probeText { importer->value("text", std::string {}) };
+            const std::size_t at { std::min(static_cast<std::size_t>(std::max(0, importer->value("line", 0))), importerLines.size()) };
+            importerLines.insert(importerLines.begin() + static_cast<std::ptrdiff_t>(at), probeText);
+            std::string probed;
+            for (const auto& line : importerLines) probed += line + "\n";
+            change(importerFile, probed);
+            importerPosition = Json { { "line", at }, { "character", probeText.size() } };
+        }
+        const bool withImporter { !importerFile.empty() };
 
         std::vector<std::string> lines;
         {
@@ -1942,11 +1974,18 @@ public:
         } cursor;
         cursor.line = scripts.front().value("line", 0);
         std::vector<std::int64_t> completions;
+        std::vector<std::int64_t> importerCompletions;
         auto next_completion = Clock::now() + completionEvery;
         auto next_save = Clock::now() + autosaveEvery;
-        const auto send = [&] { change(file, join_lines(lines)); };
+        std::string savedText { join_lines(lines) };
+        auto lastKeystroke { Clock::now() };
+        const auto send = [&] {
+            lastKeystroke = Clock::now();
+            change(file, join_lines(lines));
+        };
         const auto save = [&] {
-            (void)fs::write_file_atomic(absolutePath, join_lines(lines));
+            savedText = join_lines(lines);
+            (void)fs::write_file_atomic(absolutePath, savedText);
             client_.notify("textDocument/didSave", Json { { "textDocument", Json { { "uri", documentUri } } } });
             client_.notify("workspace/didChangeWatchedFiles", Json { { "changes", Json::array({ Json { { "uri", documentUri }, { "type", 2 } } }) } });
         };
@@ -1958,23 +1997,35 @@ public:
                 auto wake { until };
                 if (completionEvery.count() > 0) wake = std::min(wake, next_completion);
                 if (autosaveEvery.count() > 0) wake = std::min(wake, next_save);
+                const bool idleSavePending { autosaveIdle.count() > 0 && join_lines(lines) != savedText };
+                if (idleSavePending) wake = std::min(wake, lastKeystroke + autosaveIdle);
                 if (wake > Clock::now()) client_.pump_until(wake);
                 const auto now { Clock::now() };
                 if (completionEvery.count() > 0 && now >= next_completion) {
                     completions.push_back(client_.send_async("textDocument/completion", Json { { "textDocument", Json { { "uri", documentUri } } },
                                                                                              { "position", Json { { "line", cursor.line }, { "character", cursor.character } } } }));
+                    if (withImporter) {
+                        importerCompletions.push_back(client_.send_async("textDocument/completion", Json { { "textDocument", Json { { "uri", importerUri } } },
+                                                                                                         { "position", importerPosition } }));
+                    }
                     next_completion += completionEvery;
                 }
                 if (autosaveEvery.count() > 0 && now >= next_save) {
                     save();
                     next_save += autosaveEvery;
                 }
+                if (idleSavePending && now >= lastKeystroke + autosaveIdle) save();
                 if (now >= until) return;
             }
         };
 
         const Json before = root_report();
         const std::size_t samplesBefore { client_.statusSamples.size() };
+        const auto failedDiagnosticsOf = [&](const std::string& documentUriOf) {
+            const auto it = client_.moduleFailedCount.find(documentUriOf);
+            return it == client_.moduleFailedCount.end() ? 0 : it->second;
+        };
+        const int moduleFailedBefore { failedDiagnosticsOf(documentUri) + (withImporter ? failedDiagnosticsOf(importerUri) : 0) };
         const auto began { Clock::now() };
         const auto end { began + duration };
         std::size_t scriptNumber { 0 };
@@ -2007,14 +2058,16 @@ public:
         // The text is what it was; a saved one is written back before the answers are waited for.
         lines = original;
         send();
-        if (autosaveEvery.count() > 0) save();
+        if (autosaving) save();
+        if (withImporter) change(importerFile, importerOriginal);
         const auto typingSeconds { seconds_since(began) };
 
         // The last completions are given until the server's own limit, and no longer: one still unanswered then is a timeout.
         {
             const auto giveUp { Clock::now() + requestTimeout };
             client_.pump_until(Clock::now() + std::chrono::milliseconds { 200 });
-            while (Clock::now() < giveUp && std::ranges::any_of(completions, [&](std::int64_t id) { return !client_.asyncRequests[id].answered; })) {
+            const auto unanswered = [&](std::int64_t id) { return !client_.asyncRequests[id].answered; };
+            while (Clock::now() < giveUp && (std::ranges::any_of(completions, unanswered) || std::ranges::any_of(importerCompletions, unanswered))) {
                 client_.pump_until(Clock::now() + std::chrono::milliseconds { 200 });
             }
         }
@@ -2027,6 +2080,17 @@ public:
             else if (request.isError) ++errors;
             else answered.push_back(seconds_between(request.sent, *request.answered));
         }
+        std::vector<double> importerAnswered;
+        int importerEmpty { 0 };
+        for (const auto id : importerCompletions) {
+            const auto& request { client_.asyncRequests[id] };
+            if (!request.answered) ++timeouts;
+            else if (request.isError) ++errors;
+            else {
+                importerAnswered.push_back(seconds_between(request.sent, *request.answered));
+                if (is_empty_result(request.method, request.result)) ++importerEmpty;
+            }
+        }
 
         // Diagnostics after the typing stops: a real mistake is typed at once and how long its diagnostic takes is timed.
         std::optional<double> refresh;
@@ -2038,7 +2102,7 @@ public:
             const std::string needle { probe->value("expect", std::string {}) };
             const auto typed { Clock::now() };
             send();
-            if (autosaveEvery.count() > 0) save();
+            if (autosaving) save();
             const std::chrono::seconds wait { probe->value("wait-seconds", 60) };
             const bool arrived { client_.wait_for([&] {
                 const auto it = client_.diagnosticsAt.find(documentUri);
@@ -2047,10 +2111,18 @@ public:
             if (arrived) refresh = seconds_since(typed);
             lines = original;
             send();
-            if (autosaveEvery.count() > 0) save();
+            if (autosaving) save();
             client_.pump_until(Clock::now() + std::chrono::seconds { 2 });
         }
         const Json after = root_report();
+        const int moduleFailedDiagnostics { failedDiagnosticsOf(documentUri) + (withImporter ? failedDiagnosticsOf(importerUri) : 0) - moduleFailedBefore };
+        int stalledSamples { 0 };
+        for (std::size_t i { samplesBefore }; i < client_.statusSamples.size(); ++i) {
+            const auto& issues { client_.statusSamples[i].issues };
+            if (std::ranges::find(issues, "preparation-stalled") != issues.end()) ++stalledSamples;
+        }
+        const long doomed { event_total(after, "file-doomed") - event_total(before, "file-doomed") };
+        const Json importerLatency = latency_stats(importerAnswered);
 
         std::vector<std::string> failures;
         const Json latency = latency_stats(answered);
@@ -2065,8 +2137,15 @@ public:
         if (after.is_object() && before.is_object()) {
             enforce_max(check, "restarts", static_cast<double>(restarts), "clangd restarts", "", failures);
             enforce_max(check, "filesSetAside", static_cast<double>(setAside), "files set aside", "", failures);
+            enforce_max(check, "doomed", static_cast<double>(doomed), "files doomed", "", failures);
         }
         enforce_max(check, "timeouts", static_cast<double>(allTimeouts), "request timeouts", "", failures);
+        enforce_max(check, "moduleFailedDiagnostics", static_cast<double>(moduleFailedDiagnostics), "module-failed diagnostics published", "", failures);
+        enforce_max(check, "stalled", static_cast<double>(stalledSamples), "status samples with preparation-stalled", "", failures);
+        if (withImporter) {
+            enforce_max(check, "importerP95", importerLatency["p95"].get<double>(), "importer completion p95", "s", failures);
+            enforce_max(check, "importerEmpty", static_cast<double>(importerEmpty), "empty importer completions", "", failures);
+        }
         if (const auto limit = budget_number(check, "diagnosticsRefresh")) {
             if (!refresh) failures.push_back(std::format("the diagnostic of the typed mistake never arrived within {} s", check.value("diagnostic-probe", Json::object()).value("wait-seconds", 60)));
             else if (*refresh > *limit) failures.push_back(std::format("diagnostics after typing took {:.2f}s, over the budget {:.2f}s", *refresh, *limit));
@@ -2079,15 +2158,21 @@ public:
         for (const auto& never : check.value("states-never", Json::array())) {
             if (statesSeen.contains(never.get<std::string>())) failures.push_back(std::format("the status was {} while typing", never.get<std::string>()));
         }
-        Json summary { { "seconds", typingSeconds }, { "hz", hz }, { "autosaveMs", autosaveEvery.count() }, { "completions", completions.size() },
+        Json summary { { "seconds", typingSeconds }, { "hz", hz }, { "autosaveMs", autosaveEvery.count() }, { "autosaveIdleMs", autosaveIdle.count() }, { "completions", completions.size() },
                        { "answered", answered.size() }, { "clientTimeouts", timeouts }, { "serverTimeouts", serverTimeouts }, { "errors", errors },
                        { "completion", latency }, { "engineShare", share ? Json(*share) : Json(nullptr) }, { "answeredBy", detail },
                        { "restarts", restarts }, { "filesSetAside", setAside }, { "diagnosticsRefresh", refresh ? Json(*refresh) : Json(nullptr) },
-                       { "statesSeen", statesSeen } };
+                       { "statesSeen", statesSeen }, { "doomed", doomed }, { "moduleFailedDiagnostics", moduleFailedDiagnostics }, { "stalledSamples", stalledSamples } };
+        std::string importerBrief;
+        if (withImporter) {
+            summary["importer"] = Json { { "file", importerFile }, { "completions", importerCompletions.size() }, { "answered", importerAnswered.size() },
+                                         { "empty", importerEmpty }, { "completion", importerLatency } };
+            importerBrief = std::format(", importer {} completions p95 {:.2f}s {} empty", importerCompletions.size(), importerLatency["p95"].get<double>(), importerEmpty);
+        }
         return finish_measure(std::move(failures), std::move(summary),
-                              std::format("{:.0f} s at {:.0f} Hz, {} completions p95 {:.2f}s max {:.2f}s, {} restart(s), {} set aside, {} timeout(s), diagnostics after {}",
-                                          typingSeconds, hz, completions.size(), latency["p95"].get<double>(), latency["max"].get<double>(), restarts, setAside, allTimeouts,
-                                          refresh ? std::format("{:.1f}s", *refresh) : std::string { "never" }));
+                              std::format("{:.0f} s at {:.0f} Hz, {} completions p95 {:.2f}s max {:.2f}s{}, {} restart(s), {} set aside, {} doomed, {} module-failed diagnostic(s), {} stalled sample(s), {} timeout(s), diagnostics after {}",
+                                          typingSeconds, hz, completions.size(), latency["p95"].get<double>(), latency["max"].get<double>(), importerBrief, restarts, setAside, doomed,
+                                          moduleFailedDiagnostics, stalledSamples, allTimeouts, refresh ? std::format("{:.1f}s", *refresh) : std::string { "never" }));
     }
 
     // ---- edit-save ----
