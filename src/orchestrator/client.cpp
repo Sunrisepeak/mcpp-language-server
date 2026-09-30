@@ -14,10 +14,30 @@ void ClientSink::reply_error(const Json& id, int code, std::string_view message)
 
 void ClientSink::notify(std::string_view method, Json params) { send(lsp::make_notification(method, std::move(params))); }
 
+namespace {
+std::mutex gWriteStatsMutex;
+WriteStats gWriteStats;
+} // namespace
+
 void StdioSink::send(const Json& message) {
-    if (auto written = platform::stdio::write_output(lsp::encode_frame(message)); !written) {
-        base::log::error("cannot write to the client: {}", written.error().message);
+    const std::string frame { lsp::encode_frame(message) };
+    const auto started = std::chrono::steady_clock::now();
+    const auto written = platform::stdio::write_output(frame);
+    const auto ms = static_cast<std::int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count());
+    {
+        const std::lock_guard lock { gWriteStatsMutex };
+        ++gWriteStats.writes;
+        gWriteStats.bytes += frame.size();
+        gWriteStats.totalMs += ms;
+        gWriteStats.maxMs = std::max(gWriteStats.maxMs, ms);
+        if (ms >= 100) ++gWriteStats.slowWrites;
     }
+    if (!written) base::log::error("cannot write to the client: {}", written.error().message);
+}
+
+WriteStats stdio_write_stats() {
+    const std::lock_guard lock { gWriteStatsMutex };
+    return gWriteStats;
 }
 
 namespace {

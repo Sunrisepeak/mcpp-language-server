@@ -13,10 +13,33 @@ import mcppls.base.text;
 import mcppls.platform.env;
 import mcppls.platform.fs;
 import mcppls.platform.preopen;
+import mcppls.platform.sandbox;
+
+// The Linux openkal's own flag (vendor/openkal-linux/src/process.cpp): whether a program is started
+// with `execveat` and a directory descriptor, or with `execve` and an absolute name. It sets the flag
+// itself when `execveat` answers ENOSYS; this file sets it before the first start where that is known.
+// Weak: a package of this workspace that does not build the vendored openkal-linux has no such symbol,
+// and simply keeps the library's own behaviour.
+extern "C" [[gnu::weak]] void okl_execveat_unavailable(int unavailable);
 
 namespace mcppls::platform {
 
 namespace {
+
+// Under PRoot a start by `execveat` is never the right one. termux's PRoot answers ENOSYS (and the
+// vendored openkal would find that out on its own, one failed attempt later); proot-me's in its ptrace
+// mode lets the kernel run it untranslated, and the program then dies at its first `brk`. `execve`
+// with an absolute name is translated by both. So a process that knows it is under PRoot starts every
+// program that way from the first.
+void prefer_execve_where_execveat_is_unreliable() {
+    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
+        static const bool once { [] {
+            if (sandbox() == "proot" && okl_execveat_unavailable != nullptr) okl_execveat_unavailable(1);
+            return true;
+        }() };
+        (void)once;
+    }
+}
 
 // Bit positions from openkal/process.h. The C header states them as macros,
 // which a module does not carry; the layout is frozen by the specification.
@@ -89,6 +112,7 @@ std::optional<std::int64_t> Process::native_pid() const {
 }
 
 base::Result<Process> Process::spawn(const SpawnOptions& options) {
+    prefer_execve_where_execveat_is_unreliable();
     if (!base::is_absolute_path(options.program)) {
         return base::fail("spawn-program", std::format("program path must be absolute: {}", options.program));
     }

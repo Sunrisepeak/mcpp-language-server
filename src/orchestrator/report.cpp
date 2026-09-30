@@ -9,6 +9,7 @@ import mcppls.base.version;
 import mcppls.platform.dirs;
 import mcppls.platform.fs;
 import mcppls.platform.net;
+import mcppls.platform.sandbox;
 import mcppls.engine.payload;
 
 namespace mcppls::orchestrator {
@@ -42,7 +43,9 @@ Json make_report(Json roots, Json client, std::string_view engine, const engine:
         { "generatedAt", utc_now("{:%FT%TZ}") },
         { "server", Json { { "name", "mcppls" }, { "version", std::string { base::VERSION } }, { "platform", std::string { mcppls::os::PLATFORM } },
                            { "uptimeSeconds", std::chrono::duration_cast<std::chrono::seconds>(uptime).count() },
-                           { "logLevel", std::string { level_name(log::level()) } }, { "logFile", log::file_path() } } },
+                           { "logLevel", std::string { level_name(log::level()) } }, { "logFile", log::file_path() },
+                           // X-5 (plan 2026-09-30): the server runs under PRoot (termux), where programs are started otherwise.
+                           { "sandbox", platform::sandbox().empty() ? Json(nullptr) : Json(platform::sandbox()) } } },
         { "client", std::move(client) },
         { "engine", std::string { engine } },
         { "payload", Json { { "directory", payload.directory }, { "clangd", payload.clangd }, { "clangdVersion", payload.clangdVersion },

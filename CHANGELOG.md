@@ -7,6 +7,145 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.7] — 2026-09-30
+
+Stability and speed while you write. A person's request is answered within a budget (completion in
+a second) instead of waiting up to 30 s behind clangd, background work waits until you pause, and
+a restart the build description needs waits until you stop typing. A clangd that keeps crashing is
+backed off instead of given up, stale module locks no longer stall preparation, and a warm start no
+longer rebuilds every BMI (#30). `std` is no longer built with the project's macros, which gave
+GalTranslPP "no member named 'views' in namespace 'std'". Android under Termux works (#32). When
+mcppls cannot recover by itself it saves a diagnostic bundle, says where, and VS Code offers a
+prefilled report, a cache reset or turning mcppls off for that workspace.
+The analysis, the measurements and the plan are `.agents/docs/2026-09-30-stability-performance-plan.md`.
+
+### Responsiveness
+
+- **Requests have a budget.** Completion and signature help wait 1 s for clangd, hover 2 s,
+  go-to-definition 10 s. Past it mcppls answers with what it has -- for a completion the words of the
+  file nearest the cursor, as an incomplete list the editor asks again for as you type; for a hover
+  while modules are being prepared, a line that says so -- and clangd's request is cancelled. On
+  GalTranslPP completion took 29.9 s at the median. `mcppls report` counts per method which engine
+  answered.
+- **clangd gets the machine's threads but one** (2 to 8, fewer with little memory), no longer a
+  quarter of the cores; module preparation takes every worker but one while a file you opened waits
+  on it, half of them otherwise. `mcppls.engine.workers` overrides the count.
+- **Background work waits for a pause.** Implementation units are built for clangd's index one at a
+  time, only after 10 s without typing, opening a file or asking for anything, and typing pauses it.
+- **Restarts wait for you to stop typing.** A restart for a changed build description, or for work
+  clangd would not let go of, waits until typing has paused 3 s (60 s at most). A crash or a clangd
+  that stopped answering still restarts at once.
+- **Editing does not rerun the build tool.** A saved source whose module declaration and imports are
+  unchanged only updates the index; mcpp is asked again only when a build file, another input or a
+  source's module structure changes, and edits that keep coming are one run.
+- **The build tool's deadline follows the project.** 5 minutes the first time, then three times the
+  last run (1 to 10 minutes), instead of a fixed 60 s: GalTranslPP's `mcpp emit build-database` takes
+  53-79 s on a 4-core runner, so every session there ran on scanned sources.
+
+### Stability
+
+- **A warm start rebuilds nothing (#30).** The cached model lost the options derived from the build
+  database, so clangd got other commands after every restart and rebuilt every module; preparation
+  now also records which command each module was built with.
+- **`std` is built as the build tool builds it (GalTranslPP).** It was compiled with a
+  representative unit's arguments, `-D`s and all; GalTranslPP defines `_RANGES_`, MSVC STL's own
+  `<ranges>` header guard, which left `std` without `std::views`. Only the standard library's
+  configuration macros (`_ITERATOR_DEBUG_LEVEL`, `_GLIBCXX_ASSERTIONS`, `_LIBCPP_HARDENING_MODE`, ...)
+  are kept now; the dropped ones are logged.
+- **A clangd that keeps crashing is not given up.** Five exits in five minutes back it off for 1, 2,
+  4, then 8 minutes (`engine-crash-loop`, with Restart clangd); mcppls's own engine answers meanwhile,
+  and the crash issues clear once clangd has stayed up a minute. 0.0.6 left the session on keyword
+  completion until you restarted by hand.
+- **Stale module locks are cleared.** A clangd killed while building a module left its lock, and on
+  Windows the next clangd waited for it forever (preparation stuck at 12/25 for eight minutes). Locks
+  are removed before clangd starts, and one another process holds is removed when clangd says it waits
+  on it.
+- **Guards no longer mistake a busy clangd for a stuck one.** A timeout behind the server's own
+  background work does not set its file aside; "file is queued" does not count as no progress; the
+  disk-safety wait follows how long the file took to build; a stand-in replacing a stand-in is no
+  change; a unit opened in the background that takes longer than two minutes to build, while clangd goes
+  on preparing modules and answering, is left alone instead of restarting clangd (on GalTranslPP that
+  restart came every two minutes and preparation never finished). A file set aside and handed back while
+  you type turns the status degraded only after 30 s.
+- **A server restarted after a crash takes its workspace back at once**: the lease records its owner's
+  process, so a dead one is not waited out.
+- **A first open is not spoiled by the provisional model.** Until the build tool answers, sources are
+  read with the kit's commands; a module clangd could not find that way (xlings: a unit that did not scan
+  without the build's include paths) was given a stand-in in the build tool's plan too, and 49 modules
+  stayed unprepared until a file changed. What clangd concludes under the provisional model now stays
+  with it.
+- **Typing on Windows no longer waits for clangd to read.** Everything sent to clangd was written from the
+  server's one event loop, and a clangd reading slowly -- a busy 4-core Windows machine, a pipe of a few
+  kilobytes, and with a half-typed import the whole file in every change -- held that loop for 11 to 13 s
+  an edit on GalTranslPP: completions budgeted at 1 s reached the editor after 8 to 60 s. What is sent to
+  clangd now waits on a thread of its own.
+- **The event loop says when it is held.** A turn of the server's loop that takes 250 ms or more is logged
+  with what it was spent on, and `mcppls report` counts how long client messages waited and what writing
+  to the client cost (`server.eventLoop`). That is how the stall above was found.
+
+### Recovery
+
+- **Reset This Workspace's Cache** (VS Code, `:McpplsResetCache` in Neovim, the server command
+  `mcppls.resetCache` for other clients) stops the root's engines, removes its cache and starts again;
+  nothing to find and delete by hand. A folder reached through a symbolic link or a short name (every
+  macOS temporary directory, `RUNNER~1` on Windows) is found as well.
+- **Old BMIs are pruned.** Each unit keeps the BMIs of its two newest commands; older ones are removed
+  in the background when clangd starts. `mcppls cache --prune` does it for every workspace no server
+  has open.
+- **What cannot be recovered from is captured when it happens.** A crash loop, a clangd that cannot
+  start or run, a corrupt installation or preparation that stopped making progress writes a redacted
+  diagnostic bundle at once (`<cache>/bundles/auto-<code>-<time>.zip`, the newest five, never uploaded)
+  and the log says where it is and where to report it. VS Code shows one notification: **Report
+  Issue...** (a prefilled bug report, and the bundle revealed for you to attach), **Restart Server**,
+  **Reset This Workspace's Cache**, **Turn Off in This Workspace**, **Show Logs**. A server that crashes
+  three times in three minutes is not restarted forever; the extension keeps a crash report.
+- **`mcppls.enable = false`** keeps mcppls off in one workspace, so a project it cannot serve does not
+  mean uninstalling it; the status item turns it back on. Zed, CLion and Neovim have their own ways,
+  in their READMEs.
+- **Issue forms**: the bug report asks for what the extension prefills and a maintainer needs; there is
+  a feature request form.
+
+### Platforms
+
+- **Android under Termux (#32).** termux's PRoot answers `execveat` with a directory handle with ENOSYS,
+  and its seccomp fast path left a register rewritten after `openat`: the server could not start
+  clangd ("not supported") and failed to read files ("outside every preopened directory"). The vendored
+  openkal-linux 0.15.1 falls back to `execve`, the server prefers it under PRoot and reports the sandbox
+  (`server.sandbox`); an engine that cannot be started there is `engine-start-failed`, with why.
+- **Code - OSS and VSCodium** run the extension's end-to-end suite in CI, as VS Code does.
+
+### Editors
+
+- The extension's description starts with its name: "mcppls - C++20/23 named modules that just
+  work: ...".
+- The palette command Reset This Workspace's Cache and the server's `mcppls.resetCache` have different
+  ids: `vscode-languageclient` registers every command a server advertises, and the same id made the
+  client fail to start ("command 'mcppls.resetWorkspaceCache' already exists").
+
+### Specifications
+
+- **S3:** an issue may carry `bundle`, a diagnostic bundle the server wrote for it by itself; it is
+  redacted, stays on the machine, and a client offers once, without blocking, to report it (S3-4-22 to
+  S3-4-25). `mcppls.resetCache` (section 5.6, S3-5.6-1 to S3-5.6-3); the codes `engine-crash-loop`,
+  `engine-start-failed`, `preparation-stalled` and `payload-corrupt`; the report's `server.sandbox`. All
+  additive; protocol version 1.
+
+### Also
+
+- Conformance fixtures: `reset-cache`, `mcpp-emit-edits`, and user-experience scenarios with response
+  budgets on pinned mcpp and xlings checkouts (`ux-mcpp`, `ux-xlings`; the `ux` CI job on every pull
+  request, three rounds a night): first responses, typing with and without autosave, fan-out saves,
+  build-graph changes, killing clangd or the server, stale locks, a truncated module file, a git checkout,
+  idle CPU and memory, the status timeline. The budgets were calibrated on the CI runner's first rounds;
+  the plan's record says why each one moved. `clangd-cannot-load` checks the automatic bundle. CI adds `code-oss-e2e`, `proot` (the server under termux's PRoot on x64
+  and arm64) and a nightly Termux job.
+- Upgrading: the first start after installing 0.0.7 describes the project again (the model cache's
+  format changed) and may build its modules once; every warm start after that rebuilds nothing. Settings,
+  caches and editor configuration need no change.
+- Deferred: Windows CPU readings for the stuck-clangd watch (K-1), lower priority for clangd (R-9),
+  symbolized crashes (K-3; clangd still crashes on Windows under the provisional model, and is backed off
+  with a bundle written), moving a broken module cache aside by itself (C-3).
+
 ## [0.0.6] — 2026-09-27
 
 Go-to-definition reaches implementation units, even when you never opened them. A Qt project's

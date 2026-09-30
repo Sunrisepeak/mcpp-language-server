@@ -282,21 +282,21 @@ jobs:
             part: 2 of 2
             os: ubuntu-24.04
             extras: true
-            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-provisioned mcpp-emit-watch mcpp-emit-watch@polling cmake-clang cmake-clang-bdb cmake-fetchcontent-offline watch-polling payload-corrupt clangd-cannot-load generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed failure-at-base failure-at-base@neovim completion-keywords diagnostic-bundle clangd-crash-context mcpp-emit-wait inferred-cxx26
+            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-provisioned mcpp-emit-watch mcpp-emit-watch@polling mcpp-emit-edits cmake-clang cmake-clang-bdb cmake-fetchcontent-offline watch-polling payload-corrupt clangd-cannot-load generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed failure-at-base failure-at-base@neovim completion-keywords diagnostic-bundle clangd-crash-context mcpp-emit-wait inferred-cxx26 reset-cache
           # generated-module{,-old-mcpp,-negotiated}'s mcpp-mock.json bakes in a POSIX driver path
           # (${env:HOME}/.mcpp/registry/..., no {exe}); it resolves the same way here as on Linux, so
           # these run on macOS but are left off win32-x64 below rather than fixed unverified.
           - platform: darwin-arm64
             os: macos-14
             extras: true
-            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave clangd-crash-context mcpp-emit-wait inferred-cxx26
+            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave clangd-crash-context mcpp-emit-wait inferred-cxx26 reset-cache
           # No mcpp on the arm64 runner (its tools are the cross-built ones), so the fixtures that
           # need no build tool and no compiler of their own: the semantic kit, clangd and the server
           # on aarch64, with module faults, a corrupt payload and polling included.
           - platform: linux-arm64
             os: ubuntu-24.04-arm
             cross-tools: true
-            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave clangd-crash-context inferred-cxx26
+            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave clangd-crash-context inferred-cxx26 reset-cache
           - platform: win32-x64
             part: 1 of 2
             os: windows-2022
@@ -305,7 +305,7 @@ jobs:
             part: 2 of 2
             os: windows-2022
             extras: true
-            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-clangxx-msvc cmake-clang-cl mcpp-msvc mcpp-watch failure-at-base clangd-cannot-load completion-keywords diagnostic-bundle mcpp-emit-wait inferred-cxx26
+            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-clangxx-msvc cmake-clang-cl mcpp-msvc mcpp-watch failure-at-base clangd-cannot-load completion-keywords diagnostic-bundle mcpp-emit-wait inferred-cxx26 reset-cache
     defaults:
       run:
         shell: bash
@@ -537,15 +537,268 @@ jobs:
       # A workspace reached through a symbolic link, which is where every macOS
       # temporary directory is (/var is /private/var): mcpp names files by their
       # resolved path, and an unsaved edit must still reach the modules that
-      # import it (check C7).
+      # import it (check C7), and a root the client names that way is still the server's
+      # own (mcppls.resetCache with the folder's URI, reset-cache R2).
       - name: A workspace reached through a symbolic link
         if: matrix.extras && runner.os == 'Linux'
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/real"
           ln -sfn "$RUNNER_TEMP/real" "$RUNNER_TEMP/link"
-          TMPDIR="$RUNNER_TEMP/link" stage/mcppls-conformance run --server payload/bin/mcppls --payload payload \
-              --fixture conformance/fixtures/mcpp-llvm --timeout 180
+          for fixture in mcpp-llvm reset-cache; do
+            TMPDIR="$RUNNER_TEMP/link" stage/mcppls-conformance run --server payload/bin/mcppls --payload payload \
+                --fixture "conformance/fixtures/$fixture" --timeout 180
+          done
+
+  # ---------------------------------------------------------------------------
+  # termux / PRoot is a supported environment (issue #32, 0.0.7 plan §1, §10.2), so it is tested,
+  # not assumed: the server runs under termux's PRoot, built here from a pinned commit, in both of
+  # PRoot's modes -- its default (a seccomp filter takes the fast path, and rewrites registers it
+  # does not restore) and PROOT_NO_SECCOMP=1 (ptrace stops on every call). Two defects of openkal-linux
+  # 0.15.0 showed up as "cannot start ...: not supported" and "program is outside every preopened
+  # directory" on every start; vendor/README.md has both. A regression of either fails the fixtures
+  # below, which is what this job is for.
+  #
+  # The server under test is payload/bin/mcppls itself, wrapped: a wrapper script generated here
+  # runs it under proot, which is how the conformance runner (--server) and the VS Code extension
+  # (MCPPLS_SERVER) are pointed at it. The payload's clangd, the kit and the fixtures' own
+  # processes are started BY the server, so they run under proot too. The runner and the editor
+  # stay outside.
+  proot:
+    name: proot (${{ matrix.platform }})
+    needs: payload
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The arm64 runner has no mcpp: its tools are the cross-built ones in the payload artifact's
+          # stage/, as in the conformance job. VS Code's suite runs on linux-x64 only, as the
+          # arm64 runner would need the display libraries installed for one more run of the same thing.
+          - { platform: linux-x64,   os: ubuntu-24.04, vscode: true }
+          - { platform: linux-arm64, os: ubuntu-24.04-arm }
+    env:
+      # termux/proot master at the time this was written. A pin, because a PRoot change must not
+      # turn this job red without anyone having touched this repository.
+      PROOT_COMMIT: d4d2a19081c3c07f75250e4ce2980b9fa2f5720f
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: payload-${{ matrix.platform }}
+      - name: Unpack the payload
+        run: tar -xzf payload-${{ matrix.platform }}.tar.gz && ls payload stage
+      - name: Cache termux/proot
+        id: proot-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/proot-bin
+          key: termux-proot-${{ env.PROOT_COMMIT }}-${{ runner.arch }}-v2
+      - name: Build termux/proot at the pinned commit
+        if: steps.proot-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q && sudo apt-get install -y -q libtalloc-dev build-essential
+          src="$RUNNER_TEMP/termux-proot"
+          mkdir -p "$src" && cd "$src"
+          git init -q .
+          git remote add origin https://github.com/termux/proot
+          git fetch -q --depth 1 origin "$PROOT_COMMIT"
+          git checkout -q FETCH_HEAD
+          git log --oneline -1
+          cd src
+          # compat.h defines SYS_SECCOMP unless it is a macro, and a glibc that declares it as an enum
+          # constant turns that into a syntax error. The definition is redundant there: drop it if,
+          # and only if, the build needs it dropped.
+          # No 32-bit loader (HAS_LOADER_32BIT empty): it needs a compiler for 32-bit ARM or x86, which the arm64
+          # runner's gcc is not (`-m32`), and nothing here runs a 32-bit program.
+          make -j"$(nproc)" HAS_LOADER_32BIT= || { sed -i '/^#    ifndef SYS_SECCOMP/,/^#    endif/d' compat.h && make -j"$(nproc)" HAS_LOADER_32BIT=; }
+          mkdir -p ~/proot-bin && cp proot ~/proot-bin/proot
+      - name: proot itself works, and is the one we built
+        run: |
+          set -euo pipefail
+          ~/proot-bin/proot -r / /bin/true
+          PROOT_NO_SECCOMP=1 ~/proot-bin/proot -r / /bin/true
+          file ~/proot-bin/proot
+      # The two wrappers. `-r /`: no guest file system, only proot's translation of every call, which
+      # is what a Debian rootfs under termux adds a root directory to.
+      - name: Wrappers that run the server under proot, in each mode
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/proot"
+          for mode in seccomp noseccomp; do
+            wrapper="$RUNNER_TEMP/proot/mcppls-$mode"
+            {
+              echo '#!/bin/sh'
+              # A line per start, so a step can say the server it ran against really ran under proot.
+              echo "echo started >> $RUNNER_TEMP/proot/started-$mode"
+              if [ "$mode" = noseccomp ]; then echo 'export PROOT_NO_SECCOMP=1'; fi
+              echo "exec $HOME/proot-bin/proot -r / $PWD/payload/bin/mcppls \"\$@\""
+            } > "$wrapper"
+            chmod +x "$wrapper"
+            cat "$wrapper"
+          done
+      # What the report says before any fixture runs: clangd started and is ready, and nothing in
+      # the output or the log says a program could not be started.
+      - name: mcppls report under proot, in each mode
+        run: |
+          set -euo pipefail
+          for mode in seccomp noseccomp; do
+            echo "::group::report ($mode)"
+            work="$RUNNER_TEMP/report-$mode"
+            rm -rf "$work" && mkdir -p "$work" && cp -R conformance/fixtures/inferred "$work/project"
+            rm -f "$work/project/scenario.json"
+            MCPPLS_CACHE_DIR="$work/cache" "$RUNNER_TEMP/proot/mcppls-$mode" report --root "$work/project" \
+                --settle 20 --payload "$PWD/payload" > "$work/report.json" 2> "$work/report.err"
+            tail -5 "$work/report.err"
+            if grep -q -e 'not supported' -e 'outside every preopened' -e 'no preopened directory is named' "$work/report.json" "$work/report.err"; then
+              grep -h -e 'not supported' -e 'outside every preopened' -e 'no preopened directory is named' "$work/report.json" "$work/report.err" | head
+              echo "::error::the server could not start a program under proot ($mode)"; exit 1
+            fi
+            state=$(jq -r '[.roots[0].engines[] | select(.name == "clangd") | .state][0]' "$work/report.json")
+            echo "clangd: $state"
+            [ "$state" = ready ] || { echo "::error::clangd is '$state' under proot ($mode)"; exit 1; }
+            echo "::endgroup::"
+          done
+      - name: Conformance fixtures under proot, in each mode
+        run: |
+          set -euo pipefail
+          failed=''
+          for mode in seccomp noseccomp; do
+            for fixture in inferred typing-import completion-keywords diagnostic-bundle watch-polling; do
+              echo "::group::$fixture ($mode)"
+              extra=()
+              # The polling fallback runs only when the client never declares dynamic watching.
+              case "$fixture" in watch-polling) extra+=(--no-dynamic-watch) ;; esac
+              if ! stage/mcppls-conformance run --server "$RUNNER_TEMP/proot/mcppls-$mode" --payload payload \
+                     ${extra[@]+"${extra[@]}"} --fixture "conformance/fixtures/$fixture" --timeout 180; then
+                failed="$failed $fixture@$mode"
+              fi
+              echo "::endgroup::"
+            done
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::failed under proot:$failed"
+            first=${failed# }; first=${first%% *}; mode=${first#*@}
+            stage/mcppls-conformance run --server "$RUNNER_TEMP/proot/mcppls-$mode" --payload payload \
+                --fixture "conformance/fixtures/${first%@*}" --timeout 60 --verbose 2>&1 | tail -200 || true
+            exit 1
+          fi
+      # The editor's own suite, on the server under proot (the extension reads MCPPLS_SERVER; see
+      # editors/vscode/src/payload.ts): what a person in termux with VS Code's server sees.
+      - uses: actions/setup-node@v7
+        if: matrix.vscode
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - name: Package the extension
+        if: matrix.vscode
+        run: |
+          set -euo pipefail
+          stage/mcppls-devtools extension --editor vscode --payload "$PWD/payload" \
+              --out "$PWD/editors/vscode/mcppls-${{ matrix.platform }}.vsix"
+      - name: VS Code end-to-end suite with the server under proot
+        if: matrix.vscode
+        working-directory: editors/vscode
+        env:
+          MCPPLS_E2E_VSIX: ${{ github.workspace }}/editors/vscode/mcppls-${{ matrix.platform }}.vsix
+        run: |
+          set -euo pipefail
+          before=$(wc -l < "$RUNNER_TEMP/proot/started-seccomp")
+          MCPPLS_SERVER="$RUNNER_TEMP/proot/mcppls-seccomp" xvfb-run -a npm test
+          # The editor started the wrapper, not some other server.
+          after=$(wc -l < "$RUNNER_TEMP/proot/started-seccomp")
+          echo "the editor started the server under proot $((after - before)) times"
+          [ "$after" -gt "$before" ]
+
+  # ---------------------------------------------------------------------------
+  # User-experience scenarios (0.0.7 plan 6.4, conformance/README.md "Scenario checks"): the mcpp and xlings
+  # repositories at pinned commits, a person's first minutes and worst moments with them, on the size of
+  # machine the plan measures against: this runner's 4 vCPU and 16 GB are the `taskset -c 0-3` tier of a
+  # developer's laptop. The budgets in the fixtures are the merge gate. Each stage is a run of the fixture
+  # (cold start, warm start on the same cache, typing and saves on that cache, faults on a cache of their
+  # own); a stage that fails does not skip the ones after it, so a run says everything that is over budget,
+  # and every stage's measure file is uploaded whether or not it passed, for the trend. The `long` stage
+  # (ten idle minutes, a git checkout twenty commits back) is nightly's.
+  ux:
+    name: ux (${{ matrix.fixture }})
+    needs: payload
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        fixture: [ux-mcpp, ux-xlings]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - name: GCC 16, which the mcpp and xlings repositories build with
+        run: mcpp toolchain install gcc 16.1.0
+      # The mcpp repository's .xlings.json asks for the mcpp it is built with, and xlings runs that one
+      # inside it, refusing to when it is not installed (nightly's self-hosting job does the same).
+      - name: The mcpp the mcpp repository asks for
+        if: matrix.fixture == 'ux-mcpp'
+        run: |
+          set -euo pipefail
+          xlings install mcpp@2026.9.21.1 -y -g
+          xlings use mcpp "$MCPP_VERSION"
+          mcpp --version
+      - uses: actions/download-artifact@v8
+        with:
+          name: payload-linux-x64
+      - name: Unpack the payload
+        run: tar -xzf payload-linux-x64.tar.gz
+      - name: The stages
+        run: |
+          set -euo pipefail
+          nproc
+          cat /proc/loadavg
+          results="$RUNNER_TEMP/ux-results"
+          work="$RUNNER_TEMP/ux-work"
+          mkdir -p "$results" "$work"
+          failed=''
+          # The workspace is fetched and prepared once, by the first stage, and every stage after it
+          # uses it as it is. A stage puts back the files it changed before it ends.
+          run_stage() {
+            local name="$1" cache="$2"; shift 2
+            echo "::group::${{ matrix.fixture }} $name"
+            if ! stage/mcppls-conformance run --server payload/bin/mcppls --payload payload \
+                --fixture conformance/fixtures/${{ matrix.fixture }} --workspace-dir "$work/workspace" --cache-dir "$work/$cache" \
+                --stage "$name" --timeout 900 --measure "$results/${{ matrix.fixture }}-$name.json" "$@"; then
+              failed="$failed $name"
+            fi
+            echo "::endgroup::"
+          }
+          run_stage cold cache-a
+          run_stage warm cache-a --expect-warm
+          run_stage edits cache-a --expect-warm
+          run_stage faults cache-b
+          {
+            echo "### ${{ matrix.fixture }}"
+            echo
+            echo '| stage | check | ok | seconds | detail |'
+            echo '|---|---|---|---|---|'
+            for file in "$results"/*.json; do
+              jq -r --arg stage "$(basename "$file" .json)" '.checks[] | "| \($stage) | \(.id) | \(.ok) | \(.seconds * 10 | round / 10) | \(.detail | tostring | .[0:150] | gsub("\\|"; "/")) |"' "$file"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$failed" ]; then
+            echo "::error::stages over budget or failing:$failed"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ux-${{ matrix.fixture }}
+          path: ${{ runner.temp }}/ux-results
 
   # ---------------------------------------------------------------------------
   # Clean machines (usable plan W5, design 20.2): no compiler, no Visual Studio, no
@@ -737,6 +990,99 @@ jobs:
           name: vsix-${{ matrix.platform }}
           path: editors/vscode/mcppls-${{ matrix.platform }}.vsix
           retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # The same extension, the same three suites, in a Code-OSS build (0.0.7 plan §7, O-2): VSCodium, at the
+  # version in .github/versions.env, downloaded per architecture and cached. What differs from Microsoft's
+  # build is what a Code-OSS user meets first (its own CLI name, `codium`; `vscode.env.appName`; the open
+  # extension registry), and nothing in vscode-e2e above would notice. MCPPLS_E2E_EDITOR points the harness at
+  # the unpacked editor (test/runTest.ts); the main suite checks the diagnostic environment names it.
+  code-oss-e2e:
+    name: Code-OSS (VSCodium) end to end (${{ matrix.platform }})
+    needs: payload
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x64,   os: ubuntu-24.04 }
+          - { platform: linux-arm64, os: ubuntu-24.04-arm }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      # The arm64 image is not the x64 one: the display server and the libraries the editor's
+      # Electron loads are installed rather than assumed (the same list vscode-e2e installs).
+      - name: What the editor needs on arm64 Linux
+        if: matrix.platform == 'linux-arm64'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends xvfb xauth libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 \
+              libgtk-3-0t64 libgbm1 libasound2t64 libxss1 libxkbfile1 libsecret-1-0
+      - name: The VSCodium version
+        run: grep '^VSCODIUM_VERSION=' .github/versions.env >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - name: Cache VSCodium
+        id: vscodium-cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/vscodium
+          key: vscodium-${{ matrix.platform }}-${{ env.VSCODIUM_VERSION }}
+      # The release publishes a checksum next to each archive; a download that does not match it
+      # is not unpacked.
+      - name: Download VSCodium
+        if: steps.vscodium-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          archive="VSCodium-${{ matrix.platform }}-${VSCODIUM_VERSION}.tar.gz"
+          base="https://github.com/VSCodium/vscodium/releases/download/${VSCODIUM_VERSION}"
+          mkdir -p "$RUNNER_TEMP/vscodium"
+          cd "$RUNNER_TEMP"
+          curl -fsSL --retry 5 -o "$archive" "$base/$archive"
+          curl -fsSL --retry 5 -o "$archive.sha256" "$base/$archive.sha256"
+          sha256sum -c "$archive.sha256"
+          tar -xzf "$archive" -C vscodium
+      - name: Find the editor
+        run: |
+          set -euo pipefail
+          test -x "$RUNNER_TEMP/vscodium/codium"
+          test -x "$RUNNER_TEMP/vscodium/bin/codium"
+          echo "MCPPLS_E2E_EDITOR=$RUNNER_TEMP/vscodium/codium" >> "$GITHUB_ENV"
+          echo "MCPPLS_E2E_EXPECT_APP_NAME=VSCodium" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v8
+        with:
+          name: payload-${{ matrix.platform }}
+      # Packaged exactly as vscode-e2e does (this also installs the npm packages and compiles the
+      # harness): the suites test the installed VSIX.
+      - name: Build and package the extension
+        run: |
+          set -euo pipefail
+          tar -xzf payload-${{ matrix.platform }}.tar.gz
+          stage/mcppls-devtools extension --editor vscode \
+              --payload "$PWD/payload" --out "$PWD/editors/vscode/mcppls-${{ matrix.platform }}.vsix"
+      - name: End-to-end tests (VSIX form)
+        working-directory: editors/vscode
+        env:
+          MCPPLS_E2E_VSIX: ${{ github.workspace }}/editors/vscode/mcppls-${{ matrix.platform }}.vsix
+        run: xvfb-run -a npm test
+      - name: End-to-end tests (conflicts scenario)
+        working-directory: editors/vscode
+        env:
+          MCPPLS_E2E_VSIX: ${{ github.workspace }}/editors/vscode/mcppls-${{ matrix.platform }}.vsix
+          MCPPLS_E2E_SCENARIO: conflicts
+        run: xvfb-run -a npm test
+      - name: End-to-end tests (stress scenario)
+        working-directory: editors/vscode
+        env:
+          MCPPLS_E2E_VSIX: ${{ github.workspace }}/editors/vscode/mcppls-${{ matrix.platform }}.vsix
+          MCPPLS_E2E_SCENARIO: stress
+        run: xvfb-run -a npm test
 
   # ---------------------------------------------------------------------------
   # The Neovim plugin (editors/nvim) through Neovim's own LSP client, on each host's payload and on

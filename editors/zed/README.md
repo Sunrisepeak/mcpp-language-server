@@ -47,6 +47,37 @@ question, so put mcppls first and turn clangd off in your settings:
 
 mcppls starts clangd itself, with a module database clangd would not otherwise have.
 
+## Keeping mcppls off for one project
+
+Zed reads a project's `.zed/settings.json` over your own settings. Naming the server with a `!` turns it
+off for that project's C and C++ files, and `"..."` keeps whatever else is enabled:
+
+```json
+{
+  "languages": {
+    "C++": { "language_servers": ["!mcppls", "clangd", "..."] },
+    "C":   { "language_servers": ["!mcppls", "clangd", "..."] }
+  }
+}
+```
+
+Naming `clangd` here matters if your own settings turned it off in favour of mcppls (as above): a
+project's list replaces yours, and without it the project would have no C++ server at all. Remove
+the block to bring mcppls back.
+
+## Resetting a workspace's cache
+
+If preparation never finishes or clangd keeps crashing, a cache left by an earlier session may be the
+cause. VS Code and Neovim have a command for it (the server does the deleting). A Zed extension
+cannot add a command to the palette, so from a terminal, after closing Zed:
+
+```bash
+mcppls cache                      # the workspaces that have a cache, with their names and sizes
+mcppls cache --clean <name>       # remove one by name prefix; `all` removes every workspace's
+```
+
+The logs are kept; the next start prepares the modules again from a clean state.
+
 ## Status
 
 The extension builds, loads as a dev extension and starts the server; it is newer and less exercised than the VS Code one, which is

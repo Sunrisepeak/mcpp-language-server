@@ -29,6 +29,10 @@ mcppls-testing = { path = "../../modules/testing" }
 [target.'cfg(os = "linux")'.dependencies]
 mcppls-os-linux = { path = "../../modules/os/linux" }
 
+# The patched openkal-linux the root mcpp.toml declares (vendor/README.md): a member is its own root
+# when built with -p, and only the root's declaration outranks openkal-musl's version requirement.
+openkal-linux = { path = "../../vendor/openkal-linux" }
+
 [target.'cfg(os = "macos")'.dependencies]
 mcppls-os-macos = { path = "../../modules/os/macos" }
 

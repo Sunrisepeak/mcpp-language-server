@@ -98,4 +98,70 @@ Json keywords_only(const Json& keywordItems) {
     return Json { { "isIncomplete", true }, { "items", keywordItems.is_array() ? keywordItems : Json::array() } };
 }
 
+Json document_words(std::string_view text, base::Position position, std::size_t limit) {
+    Json items = Json::array();
+    const auto offset = base::offset_at(text, position);
+    if (!offset) return items;
+    std::size_t start { *offset };
+    while (start > 0 && base::is_identifier_char(text[start - 1])) --start;
+    const std::string_view typed { text.substr(start, *offset - start) };
+    if (typed.empty() || std::isdigit(static_cast<unsigned char>(typed.front())) != 0) return items;
+    std::size_t before { start };
+    while (before > 0 && is_blank(text[before - 1])) --before;
+    const std::string_view lead { text.substr(before >= 2 ? before - 2 : 0, before >= 2 ? 2 : before) };
+    if (lead.ends_with('.') || lead == "->" || lead == "::") return items;
+
+    const auto folded = [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); };
+    std::map<std::string_view, std::size_t, std::less<>> nearest;   // word -> its distance from the cursor
+    for (std::size_t i { 0 }; i < text.size();) {
+        const char c { text[i] };
+        if (c == '/' && i + 1 < text.size() && text[i + 1] == '/') {
+            i = std::min(text.find('\n', i), text.size());
+        } else if (c == '/' && i + 1 < text.size() && text[i + 1] == '*') {
+            const std::size_t end { text.find("*/", i + 2) };
+            i = end == std::string_view::npos ? text.size() : end + 2;
+        } else if (c == '"' || c == '\'') {
+            std::size_t j { i + 1 };
+            while (j < text.size() && text[j] != c && text[j] != '\n') j += text[j] == '\\' ? 2 : 1;
+            i = j + 1;
+        } else if (std::isdigit(static_cast<unsigned char>(c)) != 0) {
+            while (i < text.size() && (base::is_identifier_char(text[i]) || text[i] == '.' || text[i] == '\'')) ++i;   // a number, suffix and all
+        } else if (base::is_identifier_char(c)) {
+            std::size_t j { i };
+            while (j < text.size() && base::is_identifier_char(text[j])) ++j;
+            const std::string_view word { text.substr(i, j - i) };
+            // A raw string literal: R"delimiter( ... )delimiter", with any encoding prefix.
+            // A delimiter is at most 16 characters, none of them a blank, a parenthesis or a backslash: anything else is
+            // not a raw string (a half-typed one reads as the identifier and a literal).
+            const std::size_t open { j < text.size() && text[j] == '"' ? text.find('(', j) : std::string_view::npos };
+            const std::string_view delimiter { open == std::string_view::npos ? std::string_view {} : text.substr(j + 1, open - j - 1) };
+            if (open != std::string_view::npos && (word == "R" || word == "LR" || word == "uR" || word == "UR" || word == "u8R") && delimiter.size() <= 16
+                && delimiter.find_first_of(" \t\n\\()") == std::string_view::npos) {
+                const std::string closing { std::format("){}\"", delimiter) };
+                const std::size_t end { text.find(closing, open) };
+                i = end == std::string_view::npos ? text.size() : end + closing.size();
+                continue;
+            }
+            if (i != start && word != typed && folded(word.front()) == folded(typed.front())) {
+                const std::size_t distance { i < start ? start - i : i - start };
+                if (const auto [it, added] = nearest.try_emplace(word, distance); !added) it->second = std::min(it->second, distance);
+            }
+            i = j;
+        } else {
+            ++i;
+        }
+    }
+    std::vector<std::pair<std::size_t, std::string_view>> ranked;
+    for (const auto& [word, distance] : nearest) ranked.emplace_back(distance, word);
+    std::ranges::sort(ranked);
+    for (const auto& [distance, word] : ranked | std::views::take(limit)) {
+        items.push_back(Json { { "label", std::string { word } }, { "kind", 1 }, { "sortText", std::format("{:06}", items.size()) } });
+    }
+    return items;
+}
+
+Json without_engine(const Json& wordItems) {
+    return Json { { "isIncomplete", true }, { "items", wordItems.is_array() ? wordItems : Json::array() } };
+}
+
 } // namespace mcppls::orchestrator::completion

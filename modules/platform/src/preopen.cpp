@@ -2,6 +2,7 @@ module mcppls.platform.preopen;
 
 import std;
 import openkal.fs;
+import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.text;
 
@@ -26,6 +27,19 @@ const std::vector<Preopen>& preopens() {
             if (length > name.size()) continue;
             result.push_back(Preopen { dir, std::string { name.data(), static_cast<std::size_t>(length) } });
         }
+        std::vector<std::string> names;
+        for (const auto& preopen : result) names.push_back(preopen.name);
+        if (!has_root_preopen(names)) {
+            std::string shown;
+            for (const auto& name : names) {
+                std::string clean;
+                for (const char c : name) clean += (c >= 0x20 && c < 0x7f) ? c : '?';
+                shown += std::format("{}'{}'", shown.empty() ? "" : ", ", clean);
+            }
+            base::log::warning("no preopened directory is named \"/\" (the table is: {}); programs cannot be started by "
+                               "absolute path. Under PRoot this is the register defect of an unpatched openkal-linux "
+                               "(vendor/README.md)", shown.empty() ? std::string { "empty" } : shown);
+        }
         return result;
     }() };
     return table;
@@ -34,6 +48,17 @@ const std::vector<Preopen>& preopens() {
 bool is_separator(char c) { return c == '/' || c == '\\'; }
 
 } // namespace
+
+bool has_root_preopen(std::span<const std::string> names) {
+    if (base::NATIVE_PATH_STYLE != base::PathStyle::posix) return true;
+    return std::ranges::any_of(names, [](const std::string& name) { return name == "/"; });
+}
+
+std::vector<std::string> preopen_names() {
+    std::vector<std::string> names;
+    for (const auto& preopen : preopens()) names.push_back(preopen.name);
+    return names;
+}
 
 std::optional<ResolvedName> resolve_name(std::string_view absolutePath) {
     const std::string path { base::normalize_path(absolutePath) };

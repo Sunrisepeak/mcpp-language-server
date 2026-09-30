@@ -52,6 +52,20 @@ Linux kernel headers (linux-x64 kit only)
             name only; packaging/kits/README.md and mcppls.pack.kit record what was dropped.
 
 --------------------------------------------------------------------------------
+Source carried in this repository and compiled into the mcppls executable on Linux
+
+openkal-linux (MODIFIED)
+  Version:  0.15.1 -- mcpplibs/openkal-linux 0.15.0 with two changes of ours
+  Upstream: https://github.com/mcpplibs/openkal-linux
+  License:  Apache License 2.0, text at vendor/openkal-linux/LICENSE
+  Location: vendor/openkal-linux/
+  Changes:  (1) src/sys.h: every argument register of the system-call wrappers is an in/out
+            operand; (2) src/process.cpp, src/sys.h: a program is started with execve and an
+            absolute name when execveat answers ENOSYS. Both are marked in the files and
+            explained in vendor/README.md; the directory is removed once an upstream release
+            carries them. The upstream tests, examples and CI workflow are not copied.
+
+--------------------------------------------------------------------------------
 The macOS kit (darwin-arm64) carries no bundled C library headers: Apple's SDK license does not
 allow redistributing them, so that kit requires the macOS SDK already installed on the machine
 (Xcode or the Command Line Tools) and uses it in place.

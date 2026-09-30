@@ -38,6 +38,9 @@ Customize the color the standard way: `editor.semanticTokenColorCustomizations.r
 | C++ Modules: Collect Diagnostic Report | Open the server's status and this extension's version, settings and other installed C++ extensions as JSON, ready to copy or attach to an issue; your user name, home directory, host name and secrets are replaced |
 | C++ Modules: Export Diagnostic Bundle | Write one zip with the report, the environment, the logs of the last sessions, the incidents and the engine database, redacted the same way and checked before it is written; never uploaded |
 | C++ Modules: Restart clangd | Restart clangd alone, now, whatever its restart budget says |
+| C++ Modules: Reset This Workspace's Cache | Delete this workspace's cache (models, engine database, module cache; the logs stay) and prepare again from a clean state, for when preparation never finishes or clangd keeps crashing. The status offers it for those problems. Needs mcppls 0.0.7 or later |
+| C++ Modules: Turn Off in This Workspace | Stop the server and keep it off here: writes `"mcppls.enable": false` to the workspace's settings, and the status bar item says **C++ Modules: off in this workspace** |
+| C++ Modules: Turn On in This Workspace | The other way: removes that setting (or, when it is your user setting that says false, overrides it for this workspace) and starts the server. The status bar item's click does the same |
 | C++ Modules: Run the Build Tool in a Terminal | Run the project's build command (`mcpp build` or the CMake configure step) in your own terminal, where a proxy or credentials you set by hand actually are |
 | C++ Modules: Turn Off Other C++ Language Features | Turn off the language features of other active C++ extensions, in this workspace or everywhere (user settings) |
 | C++ Modules: Restore Other C++ Language Features | Put back whatever the command above (or the one-time question) last changed, in the same scope |
@@ -49,6 +52,25 @@ With `mcppls.ai.enabled`:
 | C++ Modules: Review Changes | Review the workspace's changes against `HEAD`: findings of mcppls's rules — removed or changed exports still in use, partition misuse, unresolved imports, new compiler errors — shown as problems with their evidence as related locations. Runs git and the compiler, so only in a trusted workspace; nothing is sent to a model |
 | C++ Modules: Clear Review | Remove the review's problems |
 
+## When mcppls cannot recover
+
+Some problems the server cannot fix by itself: clangd that keeps crashing, a payload that does not
+match its checksum, a clangd that cannot use its cache, modules that never finish preparing. For
+those the server writes a diagnostic bundle on its own (it stays on your machine, with your user
+name, home directory, host name and secrets replaced) and the editor shows one notification, never a
+modal one, with what you can do next:
+
+- **Report Issue…** shows the bundle in your file manager and opens the bug report form on GitHub
+  already filled in with the versions, the editor and the system. Attach the file and send it, or
+  do not: nothing is uploaded by the extension.
+- **Restart Server**, **Reset This Workspace's Cache**, **Show Logs**.
+- **Turn Off in This Workspace**, when this project is one mcppls cannot serve yet.
+
+If the server process itself keeps dying (three times in three minutes) the extension stops
+restarting it, saves a small crash report (the extension's log, the end of the server's log,
+versions and system) under its own storage, and shows the same notification for it. With an older
+server that sends no bundle, **Report Issue…** writes one first.
+
 ## Settings
 
 All settings are optional.
@@ -58,6 +80,7 @@ All settings are optional.
 | `mcppls.compiler` | automatic | Follow this compiler instead of the discovered one |
 | `mcppls.semanticKit` | `auto` | `off` never uses the built-in standard library kit |
 | `mcppls.engine` | `clangd` | `none` runs without clangd: module-level features only |
+| `mcppls.enable` | `true` | `false` in a workspace's (or folder's) settings starts nothing there: the extension stays installed, activation stays cheap, and the status bar item says the server is off and turns it back on. Changing it takes effect at once |
 | `mcppls.ai.enabled` | `false` | Show the review commands |
 | `mcppls.detectConflicts` | `true` | Offer once to turn off other C++ extensions' language features in the workspace, and notice again if one becomes active later |
 | `mcppls.semanticTokens.modules` | `true` | Module keywords and names from the server's semantic tokens; turn off to use only your own grammar or tree-sitter colors for module syntax |

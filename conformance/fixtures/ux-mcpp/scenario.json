@@ -1,0 +1,775 @@
+{
+  "name": "ux-mcpp",
+  "description": "0.0.7 plan 6.4 (U1-U15): the user-experience scenario tests on the mcpp repository at the commit self-mcpp pins (176 modules), on the CI runner's size (4 vCPU: run under taskset -c 0-3). One scenario, five runs selected by --stage: cold (no cache: U1 first responses, U3, U4, U14, preparation time) then warm (--expect-warm, the same --cache-dir: U2) then edits (the warm cache: U5-U8 typing, fan-out saves, build-graph changes), faults (a cache of its own: U9-U11 kill clangd, kill the server, stale locks, a truncated module file) and long (nightly only: U13 ten idle minutes and U12 a git checkout twenty commits back and forth). Every stage ends with U15's timeline. The budgets are the plan's initial values (6.4), calibrated on the first rounds of the 4-vCPU CI runner (PR #33, 2026-09-30; plan 6.4 and 13 say why each changed): documentSymbol and semanticTokens need clangd's AST of the file, so they are held to the server's request timeout, not to 1 s (the editor colours with the TextMate grammar meanwhile); cold preparation, the first clangd answers, a warm start's first jump, the refresh of diagnostics after typing and the recovery from a stale lock to what the runner measured over two rounds, which differed by up to 1.9x on the same runner type, with a margin; completion by clangd at 75% (the 1 s budget on a large file typed at 10 Hz), and U7a's interactive p95 at 1.5 s, since a request clangd cannot answer while eight importers rebuild is answered by mcppls at its 1 s budget; an autosaved half-typed import sets its file aside until it is saved again (fix plan F16), and one ending in '.' spins clangd's scan of the file on disk (issue #24 UP-01, UP-14) until clangd is restarted -- once typing pauses, at most a minute later -- so U6 allows both; U7b is in the nightly stage while clangd crashes on that save (issue #24 UP-20); the faults stage restarts clangd or the server on purpose five times, each a walk from starting to ready, so its timeline allows twelve state changes a minute like the edits stage; a budget is tightened as measured rounds allow and loosened only with its reason written here; U1's first clangd answers are asked in every round of U4's cold phase, in the same window as its requests; the checks measure everything they name, budgeted or not, into --measure. Run it with --log-level debug (the fixture passes it) so that 'Built module' lines can be counted.",
+  "prepare": [
+    [
+      "git",
+      "init",
+      "-q"
+    ],
+    [
+      "git",
+      "fetch",
+      "-q",
+      "--depth",
+      "30",
+      "https://github.com/mcpp-community/mcpp",
+      "d1f1c98fa26d953e084a183a9672fc1e0ce63558"
+    ],
+    [
+      "git",
+      "checkout",
+      "-q",
+      "FETCH_HEAD"
+    ],
+    [
+      "mcpp",
+      "emit",
+      "build-database"
+    ]
+  ],
+  "server-arguments": [
+    "--log-level",
+    "debug"
+  ],
+  "checks": [
+    {
+      "id": "U1-first-response",
+      "kind": "latency",
+      "stage": "cold",
+      "phase": "now",
+      "rounds": 1,
+      "requests": [
+        {
+          "kind": "documentSymbol",
+          "file": "src/main.cpp"
+        },
+        {
+          "kind": "semanticTokens",
+          "file": "src/main.cpp"
+        },
+        {
+          "kind": "definition",
+          "name": "module-name",
+          "file": "src/main.cpp",
+          "at": [
+            4,
+            9
+          ],
+          "expect": "src/cli.cppm"
+        },
+        {
+          "kind": "documentSymbol",
+          "name": "heavy-outline",
+          "file": "src/build/execute.cppm"
+        },
+        {
+          "kind": "semanticTokens",
+          "name": "heavy-tokens",
+          "file": "src/build/execute.cppm"
+        }
+      ],
+      "budget": {
+        "definition.max": 1.0,
+        "documentSymbol.max": 61.0,
+        "semanticTokens.max": 61.0
+      }
+    },
+    {
+      "id": "U4-cold",
+      "kind": "latency",
+      "stage": "cold",
+      "phase": "cold",
+      "requests": [
+        {
+          "kind": "completion",
+          "name": "member",
+          "file": "src/pack/binfmt.cppm",
+          "at": [
+            178,
+            7
+          ]
+        },
+        {
+          "kind": "completion",
+          "name": "std",
+          "file": "src/pack/binfmt.cppm",
+          "at": [
+            45,
+            9
+          ]
+        },
+        {
+          "kind": "completion",
+          "name": "body",
+          "file": "src/pack/binfmt.cppm",
+          "at": [
+            201,
+            11
+          ]
+        },
+        {
+          "kind": "hover",
+          "file": "src/pack/binfmt.cppm",
+          "at": [
+            61,
+            29
+          ]
+        }
+      ],
+      "first-answers": [
+        {
+          "name": "first-completion",
+          "kind": "completion",
+          "file": "src/build/execute.cppm",
+          "at": [
+            253,
+            16
+          ],
+          "expect": "getline",
+          "within": 150
+        },
+        {
+          "name": "first-jump",
+          "kind": "definition",
+          "file": "src/main.cpp",
+          "at": [
+            29,
+            25
+          ],
+          "expect": "src/cli.cppm",
+          "within": 150
+        }
+      ],
+      "budget": {
+        "p95": 1.0,
+        "max": 3.0,
+        "hover.p95": 1.5,
+        "hover.max": 3.0,
+        "engineShare": 0.9
+      }
+    },
+    {
+      "id": "U4-background",
+      "kind": "latency",
+      "stage": "cold",
+      "phase": "background",
+      "seconds": 45,
+      "requests": [
+        {
+          "kind": "completion",
+          "name": "member",
+          "file": "src/pack/binfmt.cppm",
+          "at": [
+            178,
+            7
+          ]
+        },
+        {
+          "kind": "completion",
+          "name": "std",
+          "file": "src/pack/binfmt.cppm",
+          "at": [
+            45,
+            9
+          ]
+        },
+        {
+          "kind": "completion",
+          "name": "body",
+          "file": "src/pack/binfmt.cppm",
+          "at": [
+            201,
+            11
+          ]
+        },
+        {
+          "kind": "hover",
+          "file": "src/pack/binfmt.cppm",
+          "at": [
+            61,
+            29
+          ]
+        }
+      ],
+      "budget": {
+        "p95": 1.0,
+        "max": 3.0,
+        "hover.p95": 1.5,
+        "hover.max": 3.0,
+        "engineShare": 0.9
+      }
+    },
+    {
+      "id": "U3-idle",
+      "kind": "latency",
+      "stage": "cold",
+      "phase": "idle",
+      "rounds": 20,
+      "requests": [
+        {
+          "kind": "completion",
+          "name": "member",
+          "file": "src/pack/binfmt.cppm",
+          "at": [
+            178,
+            7
+          ]
+        },
+        {
+          "kind": "hover",
+          "file": "src/pack/binfmt.cppm",
+          "at": [
+            61,
+            29
+          ]
+        },
+        {
+          "kind": "definition",
+          "file": "src/main.cpp",
+          "at": [
+            29,
+            25
+          ],
+          "expect": "src/cli.cppm"
+        },
+        {
+          "kind": "semanticTokens",
+          "file": "src/pack/binfmt.cppm"
+        }
+      ],
+      "budget": {
+        "completion.p95": 0.3,
+        "hover.p95": 0.3,
+        "definition.p95": 0.5,
+        "semanticTokens.p95": 0.5,
+        "engineShare": 0.9
+      }
+    },
+    {
+      "id": "S1",
+      "kind": "status",
+      "stage": "cold",
+      "state": "ready",
+      "timeout": 300,
+      "source": "mcpp"
+    },
+    {
+      "id": "U14-memory",
+      "kind": "resources",
+      "stage": "cold",
+      "budget": {
+        "rssMB": 5000
+      }
+    },
+    {
+      "id": "U15-cold",
+      "kind": "timeline",
+      "stage": "cold",
+      "budget": {
+        "maxStallSeconds": 60,
+        "maxChangesPerMinute": 6,
+        "errorStates": 0,
+        "preparedSeconds": 300
+      }
+    },
+    {
+      "id": "U2-jump",
+      "kind": "definition",
+      "stage": "warm",
+      "file": "src/main.cpp",
+      "at": [
+        29,
+        25
+      ],
+      "expect": "src/cli.cppm",
+      "within-since-start": 10
+    },
+    {
+      "id": "U2-restarts",
+      "kind": "timeline",
+      "stage": "warm",
+      "observe-seconds": 300,
+      "budget": {
+        "firstReadySeconds": 12,
+        "restarts": 0,
+        "maxStallSeconds": 60,
+        "errorStates": 0,
+        "maxChangesPerMinute": 6
+      }
+    },
+    {
+      "id": "U2-bmi",
+      "kind": "bmi-reuse",
+      "stage": "warm",
+      "budget": {
+        "newBmi": 0,
+        "builtLines": 0
+      }
+    },
+    {
+      "id": "U5-typing",
+      "stage": "edits",
+      "kind": "typing",
+      "file": "src/build/execute.cppm",
+      "seconds": 120,
+      "hz": 10,
+      "completion-every-ms": 1000,
+      "scripts": [
+        {
+          "line": 723,
+          "text": "auto uxone = std::vector<int>{1,2,3}; uxone.push_back(4);"
+        },
+        {
+          "line": 723,
+          "text": "if (true) { int uxtwo = 1; "
+        },
+        {
+          "line": 723,
+          "text": "std::string uxthree; uxthree.siz"
+        },
+        {
+          "line": 723,
+          "text": "for (auto& e : std::vector<std::string>{}) { e."
+        },
+        {
+          "line": 17,
+          "text": "import mcpp.build."
+        },
+        {
+          "line": 17,
+          "text": "import mcpp.diag"
+        },
+        {
+          "line": 17,
+          "text": "import mcpp.toolch"
+        },
+        {
+          "line": 723,
+          "text": "auto uxfour = std::ranges::find("
+        }
+      ],
+      "diagnostic-probe": {
+        "line": 723,
+        "text": "int ux_probe_typo = ux_undeclared_name;",
+        "expect": "ux_undeclared_name"
+      },
+      "budget": {
+        "p95": 1.0,
+        "max": 3.0,
+        "timeouts": 0,
+        "restarts": 0,
+        "filesSetAside": 0,
+        "engineShare": 0.75,
+        "diagnosticsRefresh": 6.0
+      }
+    },
+    {
+      "id": "U6-typing-autosave",
+      "stage": "edits",
+      "kind": "typing",
+      "file": "src/build/execute.cppm",
+      "seconds": 120,
+      "hz": 10,
+      "completion-every-ms": 1000,
+      "scripts": [
+        {
+          "line": 723,
+          "text": "auto uxone = std::vector<int>{1,2,3}; uxone.push_back(4);"
+        },
+        {
+          "line": 723,
+          "text": "if (true) { int uxtwo = 1; "
+        },
+        {
+          "line": 723,
+          "text": "std::string uxthree; uxthree.siz"
+        },
+        {
+          "line": 723,
+          "text": "for (auto& e : std::vector<std::string>{}) { e."
+        },
+        {
+          "line": 17,
+          "text": "import mcpp.build."
+        },
+        {
+          "line": 17,
+          "text": "import mcpp.diag"
+        },
+        {
+          "line": 17,
+          "text": "import mcpp.toolch"
+        },
+        {
+          "line": 723,
+          "text": "auto uxfour = std::ranges::find("
+        }
+      ],
+      "diagnostic-probe": {
+        "line": 723,
+        "text": "int ux_probe_typo = ux_undeclared_name;",
+        "expect": "ux_undeclared_name"
+      },
+      "autosave-ms": 1000,
+      "budget": {
+        "p95": 1.0,
+        "max": 3.0,
+        "timeouts": 0,
+        "restarts": 2,
+        "filesSetAside": 10,
+        "engineShare": 0.75,
+        "diagnosticsRefresh": 6.0
+      }
+    },
+    {
+      "id": "U7a-fanout-save",
+      "kind": "edit-save",
+      "stage": "edits",
+      "file": "modules/log/src/log.cppm",
+      "marker": "export namespace mcpp::log {\n",
+      "insert": "inline int ux_probe_fn() { return 42; }\n",
+      "importers": [
+        "src/fetcher/progress.cppm",
+        "src/config.cppm",
+        "src/pm/refresh_policy.cppm",
+        "src/pm/index_refresh.cppm",
+        "src/toolchain/probe.cppm",
+        "src/toolchain/post_install.cppm",
+        "src/xlings/xlings.cppm",
+        "src/fallback/xpkg_copy.cppm"
+      ],
+      "probe": {
+        "append": "\nstatic const int ux_use = mcpp::log::ux_probe_fn();\n",
+        "expect": "ux_probe_fn"
+      },
+      "interactive": {
+        "file": "src/fetcher/progress.cppm",
+        "at": [
+          40,
+          0
+        ],
+        "every-ms": 1000
+      },
+      "wait-seconds": 240,
+      "recover-probe": {
+        "kind": "completion",
+        "file": "src/pack/binfmt.cppm",
+        "at": [
+          45,
+          12
+        ],
+        "expect": "string"
+      },
+      "budget": {
+        "republishSeconds": 20,
+        "p95": 1.5,
+        "errorStates": 0
+      }
+    },
+    {
+      "id": "U8-add-module",
+      "kind": "graph-edit",
+      "stage": "edits",
+      "action": "add",
+      "file": "src/ux_probe.cppm",
+      "module": "mcpp.ux_probe",
+      "budget": {
+        "graphSeconds": 5,
+        "restarts": 0
+      }
+    },
+    {
+      "id": "U8-remove-module",
+      "kind": "graph-edit",
+      "stage": "edits",
+      "action": "remove",
+      "file": "src/ux_probe.cppm",
+      "module": "mcpp.ux_probe",
+      "budget": {
+        "graphSeconds": 5,
+        "restarts": 0
+      }
+    },
+    {
+      "id": "U8-config",
+      "kind": "graph-edit",
+      "stage": "edits",
+      "action": "config",
+      "file": "mcpp.toml",
+      "replace": {
+        "from": "default-profile = \"release\"",
+        "with": "default-profile = \"dev\""
+      },
+      "budget": {
+        "changeSeconds": 12,
+        "revertSeconds": 12,
+        "revertNewBmi": 0
+      }
+    },
+    {
+      "id": "U7b-fanout-crash",
+      "kind": "edit-save",
+      "stage": "long",
+      "file": "modules/manifest/src/types.cppm",
+      "marker": "export namespace mcpp::manifest {\n",
+      "insert": "inline int ux_probe_fn() { return 42; }\n",
+      "importers": [
+        "src/pack/route.cppm",
+        "src/pack/host_requirements.cppm",
+        "src/pack/prebuilt.cppm",
+        "src/xlings/address_set.cppm",
+        "src/publish/pipeline.cppm",
+        "src/cli/cmd_sbom.cppm",
+        "src/modgraph/validate.cppm",
+        "src/pm/index_route.cppm"
+      ],
+      "probe": {
+        "append": "\nstatic const int ux_use = mcpp::manifest::ux_probe_fn();\n",
+        "expect": "ux_probe_fn"
+      },
+      "interactive": {
+        "file": "src/pack/route.cppm",
+        "at": [
+          40,
+          0
+        ],
+        "every-ms": 1000
+      },
+      "wait-seconds": 240,
+      "recover-probe": {
+        "kind": "completion",
+        "file": "src/pack/binfmt.cppm",
+        "at": [
+          45,
+          12
+        ],
+        "expect": "string"
+      },
+      "budget": {
+        "errorStates": 0,
+        "recoverSeconds": 60
+      }
+    },
+    {
+      "id": "U15-edits",
+      "kind": "timeline",
+      "stage": "edits",
+      "budget": {
+        "maxStallSeconds": 60,
+        "errorStates": 0,
+        "maxChangesPerMinute": 12
+      }
+    },
+    {
+      "id": "U9-kill-clangd",
+      "kind": "fault",
+      "action": "kill-clangd",
+      "stage": "faults",
+      "at-progress": 0.5,
+      "progress-fallback-seconds": 2,
+      "recover-probe": {
+        "kind": "completion",
+        "file": "src/pack/binfmt.cppm",
+        "at": [
+          45,
+          12
+        ],
+        "expect": "string"
+      },
+      "wait-seconds": 300,
+      "budget": {
+        "answerSeconds": 25
+      },
+      "open": [
+        "src/main.cpp",
+        "src/build/execute.cppm"
+      ]
+    },
+    {
+      "id": "U10-kill-server",
+      "kind": "fault",
+      "action": "kill-server",
+      "stage": "faults",
+      "recover-probe": {
+        "kind": "completion",
+        "file": "src/pack/binfmt.cppm",
+        "at": [
+          45,
+          12
+        ],
+        "expect": "string"
+      },
+      "wait-seconds": 240,
+      "budget": {
+        "readySeconds": 25,
+        "usesPrimaryCache": true,
+        "newBmi": 0,
+        "orphans": 0
+      },
+      "open": [
+        "src/main.cpp",
+        "src/build/execute.cppm"
+      ]
+    },
+    {
+      "id": "U11-lock-dead-pid",
+      "kind": "fault",
+      "action": "lock",
+      "variant": "dead-pid",
+      "module": "mcpp.ui",
+      "stage": "faults",
+      "recover-probe": {
+        "kind": "completion",
+        "file": "src/pack/binfmt.cppm",
+        "at": [
+          45,
+          12
+        ],
+        "expect": "string"
+      },
+      "wait-seconds": 120,
+      "settle-seconds": 300,
+      "budget": {
+        "recoverSeconds": 25
+      },
+      "open": [
+        "src/main.cpp",
+        "src/build/execute.cppm"
+      ]
+    },
+    {
+      "id": "U11-lock-live-pid",
+      "kind": "fault",
+      "action": "lock",
+      "variant": "live-pid",
+      "module": "mcpp.ui",
+      "stage": "faults",
+      "recover-probe": {
+        "kind": "completion",
+        "file": "src/pack/binfmt.cppm",
+        "at": [
+          45,
+          12
+        ],
+        "expect": "string"
+      },
+      "wait-seconds": 120,
+      "settle-seconds": 300,
+      "budget": {
+        "recoverSeconds": 25
+      },
+      "open": [
+        "src/main.cpp",
+        "src/build/execute.cppm"
+      ]
+    },
+    {
+      "id": "U11-lock-foreign-host",
+      "kind": "fault",
+      "action": "lock",
+      "variant": "foreign-host",
+      "module": "mcpp.ui",
+      "stage": "faults",
+      "recover-probe": {
+        "kind": "completion",
+        "file": "src/pack/binfmt.cppm",
+        "at": [
+          45,
+          12
+        ],
+        "expect": "string"
+      },
+      "wait-seconds": 120,
+      "settle-seconds": 300,
+      "budget": {
+        "recoverSeconds": 25
+      },
+      "open": [
+        "src/main.cpp",
+        "src/build/execute.cppm"
+      ]
+    },
+    {
+      "id": "U11-truncate-pcm",
+      "kind": "fault",
+      "action": "truncate-pcm",
+      "module": "mcpp.ui",
+      "stage": "faults",
+      "recover-probe": {
+        "kind": "completion",
+        "file": "src/pack/binfmt.cppm",
+        "at": [
+          45,
+          12
+        ],
+        "expect": "string"
+      },
+      "wait-seconds": 120,
+      "settle-seconds": 300,
+      "budget": {
+        "recoverSeconds": 25
+      },
+      "open": [
+        "src/main.cpp",
+        "src/build/execute.cppm"
+      ]
+    },
+    {
+      "id": "U15-faults",
+      "kind": "timeline",
+      "stage": "faults",
+      "budget": {
+        "maxStallSeconds": 60,
+        "errorStates": 0,
+        "maxChangesPerMinute": 12
+      }
+    },
+    {
+      "id": "U13-idle-10min",
+      "kind": "resources",
+      "stage": "long",
+      "idle-seconds": 600,
+      "budget": {
+        "idleCpuCores": 0.01,
+        "rssGrowth": 0.1
+      }
+    },
+    {
+      "id": "U12-git-checkout",
+      "kind": "fault",
+      "action": "git-checkout",
+      "stage": "long",
+      "rev": "HEAD~20",
+      "recover-probe": {
+        "kind": "completion",
+        "file": "src/pack/binfmt.cppm",
+        "at": [
+          45,
+          12
+        ],
+        "expect": "string"
+      },
+      "wait-seconds": 300,
+      "budget": {
+        "replanSeconds": 10,
+        "restarts": 1,
+        "answerSeconds": 45
+      },
+      "open": [
+        "src/main.cpp",
+        "src/build/execute.cppm"
+      ]
+    },
+    {
+      "id": "U15-long",
+      "kind": "timeline",
+      "stage": "long",
+      "budget": {
+        "maxStallSeconds": 60,
+        "errorStates": 0,
+        "maxChangesPerMinute": 6
+      }
+    }
+  ]
+}

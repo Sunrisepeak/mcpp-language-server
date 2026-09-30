@@ -123,9 +123,26 @@ from a desktop entry has none of your shell configuration. `mcppls.toolEnvironme
 
 **Everything is slow to start.** The second session should be fast: the model is cached with a
 fingerprint of everything the build tool read, and a session that matches plans with it at once and
-confirms it in the background. `project.firstOrigin` says which happened. If it is always
-`producer`, the fingerprint is not matching — the report's `project.producerRun` and the build
-files' timestamps are where to look.
+confirms it in the background, and modules already built are reused, not built again (0.0.6 and
+earlier rebuilt every one on a warm start, issue #30). `project.firstOrigin` says which happened. If
+it is always `producer`, the fingerprint is not matching — the report's `project.producerRun` and the
+build files' timestamps are where to look.
+
+**Completion shows only words from the file, or hover says modules are being prepared.** A request
+has a budget for clangd — completion and signature help 1 s, hover 2 s, go-to-definition 10 s — and
+past it mcppls answers with what it has and cancels clangd's request. Completion is then the words of
+the file nearest the cursor, an incomplete list, so the editor asks again as you type; hover, while
+modules are being prepared, is a line saying so. It is clangd being busy with modules, not a
+failure. `requests.<method>.answeredBy` in the report counts, per method, which engine answered.
+
+**The editor is sluggish while modules are prepared.** clangd gets the machine's threads but one
+(between 2 and 8, fewer on a machine with little memory); `mcppls.engine.workers` (`auto` or a
+number) overrides it. Preparation uses every worker but one when a file you opened is waiting on
+it, half of them otherwise. Implementation units are built for clangd's index — what go-to-definition
+into `.cpp` files you never opened needs — one at a time, and only after 10 s without typing,
+opening a file or asking for something. A restart clangd needs for a changed build description waits
+until typing has paused for 3 s (at most 60 s); a crash or a clangd that stopped answering still
+restarts at once.
 
 **clangd keeps restarting.** `engines[].restarts`, `engines[].details.restartBudget` and the `events`
 journal. Each reason has its own budget of three restarts in ten minutes: the engine database
@@ -141,8 +158,11 @@ argument 3: -O0 -> -O2)`), so a burst names its cause.
 **"clangd crashed while building NormalJsonTranslator.Core.cpp".** clangd names the file it crashed
 on (its crash context), and that file is set aside: answered by mcppls's own engine while clangd is
 restarted without it. `engines[].details.lastExit` in the report has the exit code, the file, what
-clangd was doing and, on Windows, the exception code. Five exits in five minutes and clangd is given
-up until the next server start; the status offers **Export Diagnostic Bundle**.
+clangd was doing and, on Windows, the exception code. After five exits in five
+minutes clangd is started again after 1, 2, 4, then 8 minutes, and the status says so
+(`engine-crash-loop`, with **Restart clangd**); it is not given up for the session. The crash and
+timeout issues clear by themselves once clangd has stayed up for a minute. The last resort is
+[below](#when-mcppls-cannot-recover-by-itself).
 
 **"mcpp could not describe tools/updater/mcpp.toml".** The build tool described the rest of the
 workspace and said which part it could not (a member whose build program failed, say); that part's
@@ -163,11 +183,21 @@ the newest they name (`plan.languageStandard` in the report, `standard` in the s
 this should only come from a module clangd built before 0.0.5 — it rebuilds on the next change — or
 from the build itself mixing standards, which the build tool's own compiler will refuse too.
 
-**Right after opening a project, only module-level features for up to a minute.** A project whose
-build system was found gets clangd once its build tool has described it — up to a minute, the
-build tool's own limit — rather than with a guess from its sources that clangd would then have to
+**Right after opening a project, only module-level features for a while.** A project whose
+build system was found gets clangd once its build tool has described it — as long as the build tool
+takes, up to its deadline (5 minutes the first time, then three times the last run, between 1 and 10
+minutes) — rather than with a guess from its sources that clangd would then have to
 unlearn; mcppls's own engine answers module navigation, hover on imports and `import` completion
 meanwhile. A second session starts from the cached model at once.
+
+**Preparation is stuck on Windows, or clangd waits forever for a module.** A clangd that was killed
+while building a module leaves a lock behind, and the next clangd waited on it (0.0.6 and earlier).
+mcppls clears stale module locks before clangd starts, and again whenever clangd logs that it is
+waiting on a lock another process holds.
+
+**The server crashed and the restarted one has the workspace at once.** A restarted server takes its
+workspace back without waiting: the lease records its owner's process id and start time, so on Linux a
+dead owner is recognized at once (elsewhere its lease expires within half a minute).
 
 **Where the server writes down what went wrong.** A crash, a stuck or spinning clangd, a file set
 aside, a restart held back and a broken workaround premise each leave an *incident*: a directory
@@ -192,8 +222,62 @@ in [the install guide](00-install.md). Elsewhere it usually means a musl system 
 payload. An editor that starts `mcppls` itself can give it a clangd of your own, 23.1 or later, with
 `--clangd PATH`.
 
+**On Termux or PRoot.** `mcppls report` shows the sandbox the server runs in as `server.sandbox`
+(`proot`, say). An engine that cannot be started there is the status issue `engine-start-failed`, with
+what went wrong; see [Android, under Termux](00-install.md#android-under-termux).
+
+## Resetting a workspace's cache
+
+When preparation never finishes, the engine keeps crashing or a model looks wrong, reset the cache of
+the one workspace instead of deleting directories by hand:
+
+- **VS Code**: **C++ Modules: Reset This Workspace's Cache**
+- **Neovim**: `:McpplsResetCache`
+- **Other clients**: `workspace/executeCommand` `mcppls.resetCache`
+
+It stops the root's engines, removes its cache — the models, the engine database, and clangd's
+module cache and locks — and starts again. The logs stay. The first session afterwards is a cold
+one.
+
+Old modules are pruned by themselves: each unit keeps the built modules (BMIs) of its two newest
+commands, and older ones are removed in the background when clangd starts. `mcppls cache --prune`
+does it for every workspace no server has open.
+
+## When mcppls cannot recover by itself
+
+clangd that keeps crashing, an engine that cannot start or cannot run on this machine, a corrupt
+installation, or preparation that stopped making progress: mcppls writes a diagnostic bundle at once,
+to `<cache>/bundles/auto-<code>-<time>.zip` (redacted like any bundle, the newest five kept, never
+uploaded), and logs where it is, with the link for reporting the problem. VS Code shows one
+notification for it, once per problem, with:
+
+| Button | What it does |
+|---|---|
+| **Report Issue…** | Opens a GitHub bug report with the fields filled in, and shows you the bundle to attach |
+| **Restart Server** | Restarts the server |
+| **Reset This Workspace's Cache** | As [above](#resetting-a-workspaces-cache) |
+| **Turn Off in This Workspace** | Sets `mcppls.enable` to `false` for the workspace |
+| **Show Logs** | Opens the log |
+
+A server that crashes three times in three minutes is not restarted again; the extension saves a
+crash report — a folder with the client log, the end of the server log, its stderr and basic
+information — under `crash-reports/` in its global storage, and says where.
+
+## Keeping mcppls off in one workspace
+
+`mcppls.enable` (default `true`, per workspace) is the switch. In VS Code, **C++ Modules: Turn Off in
+This Workspace** sets it and **Turn On in This Workspace** sets it back; the status item reads "C++
+Modules: off in this workspace" while it is off, and clicking it turns mcppls on. For Zed, CLion and
+Neovim, see [10-editors.md](10-editors.md).
+
 ## Filing a bug
 
-Attach the diagnostic bundle (**C++ Modules: Export Diagnostic Bundle**, or `mcppls report --bundle`),
-or at least the diagnostic report. Both have your user name, home directory, host name and secrets
-replaced, and neither carries the contents of your files; read them before attaching all the same.
+Use the templates at [New issue](https://github.com/Sunrisepeak/mcpp-language-server/issues/new/choose):
+**Bug report** asks for the version, editor, operating system and build system, what happened, what
+you expected and the steps, and takes the diagnostic bundle (**C++ Modules: Export Diagnostic
+Bundle**, or `mcppls report --bundle`) or, if there is none, at least the diagnostic report.
+**Report Issue…** in the notification above fills the form in for you. Both the bundle and the
+report have your user name, home directory, host name and secrets replaced, and neither carries the
+contents of your files; read them before attaching all the same. A defect in clangd or mcpp that
+mcppls works around is collected in [issue #24](https://github.com/Sunrisepeak/mcpp-language-server/issues/24):
+read it before filing, and add a comment if yours is new.

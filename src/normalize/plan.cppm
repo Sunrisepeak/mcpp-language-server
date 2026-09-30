@@ -15,6 +15,16 @@ import mcppls.project.scan;
 
 export namespace mcppls::normalize {
 
+// The arguments a standard library unit is built with, from a representative unit's (G-1, plan 2026-09-30).
+// A project's own macros do not reach std: the build compiles std on its own (mcpp's `mcpp:std` set,
+// CMake's synthetic target), and one of those macros can be a standard library's own header guard --
+// GalTranslPP defines _RANGES_, which is MSVC STL's guard of <ranges>, and std built with it has no
+// std::views. Kept are only the macros that configure a standard library (debug levels, ABI and
+// hardening switches); -include and -imacros go too. `dropped` receives what was left out.
+std::vector<std::string> std_unit_arguments(std::span<const std::string> representative, std::vector<std::string>* dropped = nullptr);
+// Whether a macro configures the standard library (and so must be the same for std and its importers).
+bool standard_library_macro(std::string_view name);
+
 struct EngineEntry {
     std::string directory;
     std::string file;
@@ -89,6 +99,10 @@ struct PlanInput {
     // built and are left out like providers of an unresolvable import. A module that was found and did
     // not compile is not one of them; its importers stay (robustness design C3).
     std::map<std::string, std::string, std::less<>> unresolvedModules;
+    // Where the model being planned came from (the workspace's origin: "inferred" for the provisional model of
+    // sources alone, "producer", "cache-..."): what the core engine concluded under a provisional model is no
+    // conclusion about the build tool's (plan 2026-09-30 §13, the xlings cold start).
+    std::string modelOrigin;
     // Where `import M;` units for parallel preparation are written; empty: none are planned.
     std::string primeDirectory;
     // The directory module hints name; nothing is created there. Empty: no hints.

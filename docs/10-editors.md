@@ -46,6 +46,16 @@ names as the token type `module`, which themes color as a namespace unless you g
 its own in `editor.semanticTokenColorCustomizations`). VS Code's own C++ grammar leaves `import`
 uncolored.
 
+**Turning it off for one workspace.** `mcppls.enable` (default `true`, per workspace) keeps mcppls
+off; **C++ Modules: Turn Off in This Workspace** and **Turn On in This Workspace** set it, and the
+status item reads "C++ Modules: off in this workspace". The other editors have no such setting; each
+one's page below, and its README, says how to do it there.
+
+**When something cannot be recovered.** If mcppls cannot recover by itself, one notification offers
+**Report Issue…**, **Restart Server**, **Reset This Workspace's Cache**, **Turn Off in This
+Workspace** and **Show Logs**, after writing a diagnostic bundle; see
+[50-troubleshooting.md](50-troubleshooting.md#when-mcppls-cannot-recover-by-itself).
+
 ## Claude Code
 
 A plugin registers `mcppls serve` as the language server for C, C++ and the module extensions
@@ -68,17 +78,23 @@ Zed ships clangd for C and C++, and running both over one file means two engines
 question, so put mcppls first: `"languages": {"C++": {"language_servers": ["mcppls", "!clangd"]}}`.
 mcppls starts clangd itself with a module database clangd would not otherwise have.
 
+To keep mcppls off in one project, a project's `.zed/settings.json` names the server with a `!`
+(and names clangd back, since a project's list replaces yours); see
+[editors/zed/README.md](../editors/zed/README.md#keeping-mcppls-off-for-one-project).
+
 ## Neovim
 
 The plugin at [`editors/nvim/`](../editors/nvim/README.md) (Neovim 0.10 or later) finds `mcppls` —
 on PATH, or the payload `--install` puts in the user data directory — and starts it for C and C++
 buffers through Neovim's own LSP client. Put `editors/nvim` on the runtimepath and call
 `require('mcppls').setup()`; on 0.11 and later `vim.lsp.enable('mcppls')` works too. It adds
-`:McpplsStatus`, `:McpplsRestart`, `:McpplsReload` and a statusline component. Do not also start
+`:McpplsStatus`, `:McpplsRestart`, `:McpplsReload`, `:McpplsResetCache` (resets this workspace's
+cache and prepares again) and a statusline component. Do not also start
 clangd for C and C++: the plugin names a second C++ server once if one attaches, and with
 `disable_conflicting = true` stops it for you. Module keywords and names come from the server's
 semantic tokens (`@lsp.type.keyword`, `@lsp.type.module`; `semantic_tokens_modules = false` turns
-them off).
+them off). There is no per-project switch; the README shows two ways to keep it off for one project
+([editors/nvim/README.md](../editors/nvim/README.md#keeping-mcppls-off-for-one-project)).
 
 ## CLion
 
@@ -87,7 +103,9 @@ platform's LSP API.
 
 `mcpp run --features clion -p devtools -- extension --editor clion --install` builds it, puts the
 server in place and unpacks the plugin into every CLion's plugins directory; restart CLion. It
-has not been exercised in a running CLion yet; see its README.
+has not been exercised in a running CLion yet; see its README. The plugin has no settings; to keep it
+off for one project, disable it for that project in Settings | Plugins
+([editors/clion/README.md](../editors/clion/README.md#keeping-mcppls-off-for-one-project)).
 
 ## Any other LSP client
 

@@ -7,6 +7,7 @@ import mcppls.base.path;
 import mcppls.platform.dirs;
 import mcppls.platform.fs;
 import mcppls.engine.clangd.bmi;
+import mcppls.engine.clangd.process;
 
 namespace mcppls::cli {
 namespace {
@@ -62,6 +63,35 @@ int clean(const std::string& workspaces, const std::string& wanted) {
         return 1;
     }
     std::println("mcppls cache: {} workspace(s), {:.1f} MB freed", removed, megabytes(freed));
+    return 0;
+}
+
+// C-2 (plan 2026-09-30): what a server prunes of its own workspace when clangd starts, for every workspace no server
+// has open: the BMIs of commands a unit no longer has (all but each unit's two newest) and what was moved aside.
+int prune(const std::string& workspaces) {
+    std::uint64_t freed { 0 };
+    std::size_t skipped { 0 };
+    for (const auto& workspace : fs::list_directory(workspaces)) {
+        if (!fs::is_directory(workspace)) continue;
+        if (fs::exists(base::join_path(workspace, "owner.lease"))) {
+            std::println("  {} is in use by a running server; left as it is", base::file_name(workspace));
+            ++skipped;
+            continue;
+        }
+        std::uint64_t bytes { 0 };
+        for (const auto& context : fs::list_directory(base::join_path(workspace, "contexts"))) {
+            for (const auto& build : engine::clangd::stale_module_builds(base::join_path(context, "cdb"), 2)) {
+                bytes += directory_bytes(build);
+                fs::remove_all(build);
+            }
+            const std::string trash { base::join_path(context, "trash") };
+            bytes += directory_bytes(trash);
+            fs::remove_all(trash);
+        }
+        if (bytes > 0) std::println("  {}: {:.1f} MB", base::file_name(workspace), megabytes(bytes));
+        freed += bytes;
+    }
+    std::println("mcppls cache: {:.1f} MB freed{}", megabytes(freed), skipped > 0 ? std::format("; {} workspace(s) in use skipped", skipped) : std::string {});
     return 0;
 }
 
@@ -125,6 +155,7 @@ cmdline::App cache_command(bool& handled, int& status) {
     cmdline::App command { "cache" };
     (void)command.description("What the workspace caches hold: modules, size, and what a cold start would rebuild");
     (void)command.option("clean").takes_value().help("Remove one workspace's cache by name prefix, or `all`");
+    (void)command.option("prune").help("Remove the BMIs of commands no unit has any more, in every workspace no server has open");
     (void)command.option("modules").help("List the largest cached modules of each workspace");
     (void)command.option("format").takes_value().help("text (default) | json");
     (void)command.action([&handled, &status](const cmdline::ParsedArgs& args) {
@@ -139,6 +170,10 @@ cmdline::App cache_command(bool& handled, int& status) {
         }
         if (const auto wanted = args.value("clean"); wanted && !wanted->empty()) {
             status = clean(workspaces, *wanted);
+            return;
+        }
+        if (args.is_flag_set("prune")) {
+            status = prune(workspaces);
             return;
         }
         status = report(workspaces, args.is_flag_set("modules"), json);

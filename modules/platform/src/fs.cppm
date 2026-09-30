@@ -33,6 +33,8 @@ base::Result<void> create_directories(std::string_view path);
 // (mcpplibs/openkal#31, answered in openkal 0.13 / openkal-musl 0.14).
 base::Result<void> make_executable(std::span<const std::string> paths);
 void remove_all(std::string_view path);
+// Moves a file or directory to `to` on the same volume, which must not exist yet.
+base::Result<void> rename(std::string_view from, std::string_view to);
 
 // Regular files under `root` whose extension (".cppm") is in `extensions`,
 // sorted. Directories named in `skipDirectories` and directories starting with

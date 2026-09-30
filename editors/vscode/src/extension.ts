@@ -2,7 +2,8 @@
 //
 // The extension starts the server from the bundled payload, advertises the
 // cxxModules protocol extension, shows one language status item, and otherwise
-// stays out of sight: no notifications, no status bar items, no walkthroughs.
+// stays out of sight: no walkthroughs, and a notification only for what the server cannot
+// recover from (src/fatal.ts) or a server process that keeps dying.
 
 import * as readline from 'readline';
 import * as vscode from 'vscode';
@@ -26,13 +27,17 @@ import {
 } from 'vscode-languageclient/node';
 import { CommandLineToolsController, withInstallCommandFallback } from './commandLineTools';
 import { DownloadPromptController } from './downloadPrompt';
-import { registerCommands, reloadBuildDescription } from './commands';
+import { declaresModules, exportDiagnosticBundle, extensionEnvironment, registerCommands, reloadBuildDescription } from './commands';
 import { sendTriggeredCompletion } from './completionGate';
 import { checkConflicts, ConflictCheck, watchForNewConflicts } from './conflicts';
+import { CrashCounter } from './crashCounter';
+import { serverEnabled } from './enable';
+import { transition } from './enableSwitch';
+import { FatalController } from './fatal';
 import { resolveLaunch } from './payload';
 import { ServerLogLevel, ServerLogRouter } from './serverLog';
-import { promptTestHarness, PromptKind } from './prompt';
-import { CxxModulesStatus, ModuleState, StatusController } from './status';
+import { promptTestHarness, PromptKind, ShownPrompt } from './prompt';
+import { CxxModulesStatus, ModuleIssue, ModuleState, StatusController } from './status';
 import { describeActiveWorkarounds } from './workarounds';
 
 // build description design 4.4: a value this extension does not know must not turn the network on.
@@ -45,9 +50,8 @@ const BUILD_DISCOVERY_PROVIDERS = ['mcpp', 'cmake', 'xmake', 'meson', 'compile-c
 
 const CLIENT_ID = 'mcppls';
 const CLIENT_NAME = 'C++ Modules';
-const RESTART_WINDOW_MS = 3 * 60 * 1000;
-const MAX_RESTARTS = 4;
 const RECENT_LOG_LINES = 1000;
+const STDERR_TAIL_LINES = 500;
 
 export interface TestApi {
     waitForState(state: ModuleState | readonly ModuleState[], timeoutMs: number): Promise<CxxModulesStatus>;
@@ -75,6 +79,21 @@ export interface TestApi {
     commandLineToolsInstallCount(): number;
     // Server stderr lines written to the log at each level (src/serverLog.ts).
     serverLogLineCount(level: ServerLogLevel): number;
+    // The extension's part of a report and of the diagnostic bundle: versions, the editor's appName, host, UI kind.
+    environment(): Record<string, unknown>;
+    // The commands the running server lists in `executeCommandProvider` (empty when it is not running).
+    serverCommands(): string[];
+    // What the last unrecoverable-error notification offered (test mode; nothing is put on screen).
+    lastPrompt(kind: PromptKind): ShownPrompt | undefined;
+    // Hands the notification logic the issues of a status, as if the server had sent them; returns the
+    // codes it showed a notification for. Test mode only.
+    injectIssues(issues: { code: string; message: string; category?: string; bundle?: string }[]): string[];
+    // Whether the server is running, and whether mcppls.enable lets it.
+    serverRunning(): boolean;
+    serverEnabled(): boolean;
+    statusBarText(): string;
+    // The folder of the newest crash report written this session.
+    lastCrashReport(): string | undefined;
 }
 
 // Tells the server this client understands the cxxModules extension (S3).
@@ -123,7 +142,10 @@ class ServerHost implements vscode.Disposable {
     private client: LanguageClient | undefined;
     private channel: vscode.LogOutputChannel | undefined;
     readonly serverLog = new ServerLogRouter();
-    private restarts: number[] = [];
+    private readonly crashes = new CrashCounter();
+    private readonly stderrTail: string[] = [];
+    private knownServerLog: string | undefined;
+    private knownServerVersion: string | undefined;
     private queue: Promise<void> = Promise.resolve();
     private readonly recent: string[] = [];
 
@@ -139,6 +161,14 @@ class ServerHost implements vscode.Disposable {
         // naturally re-triggers the Command Line Tools check, so both
         // one-time questions are exercised the same way by a restart.
         private readonly onStarting: () => void,
+        private readonly hooks: {
+            // mcppls.enable: false keeps the server from starting at all.
+            isEnabled: () => boolean;
+            // The client's restart budget is used up.
+            onCrashLoop: (crashes: number) => void;
+            // The issues of every status the server sends.
+            onIssues: (issues: CxxModulesStatus['issues']) => void;
+        },
     ) {}
 
     // Created on first use and kept across restarts, never revealed automatically. A log channel,
@@ -165,6 +195,18 @@ class ServerHost implements vscode.Disposable {
         return [...this.recent];
     }
 
+    stderrLines(): string[] {
+        return [...this.stderrTail];
+    }
+
+    serverLogFile(): string | undefined {
+        return this.knownServerLog;
+    }
+
+    serverVersion(): string | undefined {
+        return this.knownServerVersion;
+    }
+
     runningClient(): LanguageClient | undefined {
         return this.client && this.client.state === State.Running ? this.client : undefined;
     }
@@ -179,7 +221,7 @@ class ServerHost implements vscode.Disposable {
 
     restart(): Promise<void> {
         return this.enqueue(async () => {
-            this.restarts = [];
+            this.crashes.reset();
             await this.stopNow();
             await this.startNow();
         });
@@ -201,6 +243,11 @@ class ServerHost implements vscode.Disposable {
 
     private async startNow(): Promise<void> {
         if (this.client) {
+            return;
+        }
+        if (!this.hooks.isEnabled()) {
+            this.log('mcppls.enable is false for this workspace: the language server is not started.');
+            this.status.showOff();
             return;
         }
         this.onStarting();
@@ -235,6 +282,8 @@ class ServerHost implements vscode.Disposable {
         };
         const serverOptions: ServerOptions = { run: executable, debug: executable };
 
+        // The client this options object belongs to, for the close handler (see onClosed).
+        let created: LanguageClient | undefined;
         const compiler = (configuration.get<string>('compiler') ?? '').trim();
         const clientOptions: LanguageClientOptions = {
             documentSelector: [
@@ -252,7 +301,13 @@ class ServerHost implements vscode.Disposable {
                 },
                 stderr: (input, channel) => {
                     this.serverLog.reset();
-                    lines(input, (line) => this.serverLog.route(line, channel));
+                    lines(input, (line) => {
+                        this.serverLog.route(line, channel);
+                        this.stderrTail.push(line);
+                        if (this.stderrTail.length > STDERR_TAIL_LINES) {
+                            this.stderrTail.splice(0, this.stderrTail.length - STDERR_TAIL_LINES);
+                        }
+                    });
                 },
             },
             initializationOptions: {
@@ -304,7 +359,7 @@ class ServerHost implements vscode.Disposable {
             },
             errorHandler: {
                 error: () => ({ action: ErrorAction.Continue, handled: true }),
-                closed: () => this.onClosed(),
+                closed: () => this.onClosed(created),
             },
             initializationFailedHandler: (error) => {
                 const reason = `The language server failed to initialize: ${errorText(error)}`;
@@ -315,10 +370,12 @@ class ServerHost implements vscode.Disposable {
         };
 
         const client = new LanguageClient(CLIENT_ID, CLIENT_NAME, serverOptions, clientOptions);
+        created = client;
         client.registerFeature(new CxxModulesFeature());
         client.onNotification('cxxModules/status', (params: CxxModulesStatus) => {
             this.commandLineTools.onStatus(params);
             this.status.update(withInstallCommandFallback(params));
+            this.hooks.onIssues(params.issues);
         });
         // Messages from the server go to the log, never to notifications.
         client.onNotification(ShowMessageNotification.type, (params) => {
@@ -337,6 +394,8 @@ class ServerHost implements vscode.Disposable {
             if (!this.status.lastStatus()) {
                 this.status.showRunning();
             }
+            this.knownServerVersion = client.initializeResult?.serverInfo?.version;
+            void this.learnServerLog(client);
         } catch (error) {
             const reason = `The language server could not be started: ${errorText(error)}`;
             this.log(reason);
@@ -368,18 +427,44 @@ class ServerHost implements vscode.Disposable {
         }
     }
 
-    private onClosed(): CloseHandlerResult {
-        const now = Date.now();
-        this.restarts = this.restarts.filter((time) => now - time < RESTART_WINDOW_MS);
-        this.restarts.push(now);
-        if (this.restarts.length <= MAX_RESTARTS) {
+    // What the server's report says about where its log is, so a crash report can carry the tail of
+    // it after the process is gone. Best effort, once per start; a server that says nothing leaves
+    // the crash report with the stderr the client saw.
+    private async learnServerLog(client: LanguageClient): Promise<void> {
+        if (!declaresModules(client.initializeResult?.capabilities)) return;
+        try {
+            const report = await Promise.race([
+                client.sendRequest<{ server?: { logFile?: string; version?: string } }>('cxxModules/report', {}),
+                new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 30000)),
+            ]);
+            if (typeof report?.server?.logFile === 'string' && report.server.logFile.length > 0) {
+                this.knownServerLog = report.server.logFile;
+            }
+            if (typeof report?.server?.version === 'string' && !this.knownServerVersion) {
+                this.knownServerVersion = report.server.version;
+            }
+        } catch {
+            // The request can fail while the server is stopping; nothing depends on it.
+        }
+    }
+
+    // The client's close handler: the server process ended. A close the extension asked for (stop,
+    // restart, turning the server off, dispose) is never counted: by then `this.client` is no longer
+    // this client, and the library does not call the handler for a stop it made itself.
+    private onClosed(closed: LanguageClient | undefined): CloseHandlerResult {
+        const verdict = this.crashes.record(Date.now(), closed === undefined || closed !== this.client);
+        if (verdict.count === 0) {
+            return { action: CloseAction.DoNotRestart, handled: true };
+        }
+        if (!verdict.giveUp) {
             this.log('The language server stopped unexpectedly and is being restarted.');
             this.status.showStarting('Restarting');
             return { action: CloseAction.Restart, handled: true };
         }
-        const reason = 'The language server stopped repeatedly and was not restarted.';
+        const reason = `The language server stopped after crashing ${verdict.count} times and was not restarted.`;
         this.log(reason);
         this.status.showFailure(reason, true);
+        this.hooks.onCrashLoop(verdict.count);
         return { action: CloseAction.DoNotRestart, handled: true };
     }
 }
@@ -517,7 +602,24 @@ export function activate(context: vscode.ExtensionContext): TestApi {
         });
     };
 
-    host = new ServerHost(context, status, commandLineTools, runConflictCheck);
+    // Forward-declared like `host`: the controller needs the host's log and restart, the host needs
+    // the controller for what it tells a person when the server will not stay up.
+    let fatal: FatalController;
+    host = new ServerHost(context, status, commandLineTools, runConflictCheck, {
+        isEnabled: serverEnabled,
+        onCrashLoop: (crashes) => fatal.onCrashLoop(crashes),
+        onIssues: (issues) => { fatal.onIssues(issues); },
+    });
+    fatal = new FatalController(context, {
+        log: (line) => host.log(line),
+        restart: () => host.restart(),
+        showLogs: () => host.output().show(true),
+        serverVersion: () => host.serverVersion(),
+        recentLog: () => host.recentLog(),
+        serverStderr: () => host.stderrLines(),
+        serverLogFile: () => host.serverLogFile(),
+        exportBundle: () => exportDiagnosticBundle(serverAccess, false, true),
+    });
     activeHost = host;
     context.subscriptions.push(status, host);
     // Workaround registry design (§9): visible once per activation, so a bug report shows which of
@@ -537,8 +639,23 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     };
     registerCommands(context, serverAccess);
 
+    // The per-workspace off switch: while it is off nothing is started, and turning it on or off at
+    // runtime starts or stops the server.
+    let wasEnabled = serverEnabled();
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((event) => {
+            if (event.affectsConfiguration('mcppls.enable')) {
+                const nowEnabled = serverEnabled();
+                const change = transition(wasEnabled, nowEnabled);
+                wasEnabled = nowEnabled;
+                if (change === 'start') {
+                    host.log('mcppls.enable is on again: starting the language server.');
+                    void host.start();
+                } else if (change === 'stop') {
+                    host.log('mcppls.enable is false for this workspace: stopping the language server.');
+                    void host.stop().then(() => status.showOff());
+                }
+            }
             if (event.affectsConfiguration('mcppls.compiler') || event.affectsConfiguration('mcppls.semanticKit')
                 || event.affectsConfiguration('mcppls.engine') || event.affectsConfiguration('mcppls.buildTool')
                 || event.affectsConfiguration('mcppls.toolEnvironment') || event.affectsConfiguration('mcppls.semanticTokens.modules')
@@ -581,6 +698,14 @@ export function activate(context: vscode.ExtensionContext): TestApi {
         promptShownCount: (kind) => promptTestHarness?.shownCount(kind) ?? 0,
         commandLineToolsInstallCount: () => commandLineTools.installInvocationCount(),
         serverLogLineCount: (level) => host.serverLog.count(level),
+        environment: () => extensionEnvironment(),
+        serverCommands: () => [...(host.runningClient()?.initializeResult?.capabilities.executeCommandProvider?.commands ?? [])],
+        lastPrompt: (kind) => promptTestHarness?.lastShown(kind),
+        injectIssues: (issues) => promptTestHarness ? fatal.onIssues(issues as ModuleIssue[]).map((notice) => notice.code) : [],
+        serverRunning: () => host.runningClient() !== undefined,
+        serverEnabled: () => serverEnabled(),
+        statusBarText: () => status.barText(),
+        lastCrashReport: () => fatal.lastCrashReport,
     };
 }
 

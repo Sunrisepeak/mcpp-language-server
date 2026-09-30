@@ -30,7 +30,7 @@ VS Code 扩展已经会这样做）；`重新加载模型` 只重新加载项目
 |---|---|---|---|---|---|
 | `mcppls.buildTool` | `offline`, `online`, `off` | `offline` | `--build-tool` | 重新加载模型 | 项目构建工具的运行方式。`offline`：不联网运行——如果构建工具因此无法在不下载东西的情况下描述构建，状态栏会说明缺什么，并提议在终端里运行它。`online`：允许联网，超时时间从一分钟延长到十分钟。`off`：从不运行构建工具；仍会探测构建系统、仍读取它已有的产物（要连探测也关掉，见 `buildDiscovery`）。 |
 | `mcppls.toolEnvironment` | `auto`, `editor` | `auto` | `--tool-environment` | 重启 | 构建工具在哪个环境中启动。`auto` 会在后台读取一次你登录 shell 的环境（仅限 POSIX 系统）——从桌面项或 Dock 图标启动的编辑器不带任何 shell 配置，没有这个选项，它找到的构建工具可能就不是你终端里找到的那个。在 Windows 上，编辑器的环境本就和终端一致。`editor` 始终使用编辑器进程自身的环境。 |
-| `mcppls.producerTimeout` | 非负整数（秒） | `0` | `--producer-timeout` | 重新加载模型 | 构建工具描述项目最多可以花多长时间。默认 `0` 使用设计本身的限制（离线一分钟，`buildTool` 为 `online` 时十分钟）；调短可以观察限制是否生效，构建确实慢就调长。 |
+| `mcppls.producerTimeout` | 非负整数（秒） | `0` | `--producer-timeout` | 重新加载模型 | 构建工具描述项目最多可以花多长时间。默认 `0` 使用设计本身的限制：离线时第一次 5 分钟，之后是上一次用时的三倍，在 1 到 10 分钟之间；`buildTool` 为 `online` 时十分钟。调短可以观察限制是否生效，构建用时起伏大时可以定一个值。 |
 | `mcppls.untrusted` | `true`, `false` | `false` | `--untrusted` | 重启 | 不运行任何构建工具，也不运行编译器；一个不受信任的工作区也等同于 `buildDiscovery` 为 `off`。 |
 | `mcppls.discoverCompilers` | `true`, `false` | `true` | `--no-discover` | 重新加载模型 | 为构建描述没有覆盖到的源码在本机查找编译器。关闭后，这类源码改用语义工具包。 |
 | `mcppls.buildDiscovery` | `auto`, `off` | `auto` | `--build-discovery` | 重新加载模型 | 是否探测项目的构建系统。`off`：不隐式读取或执行任何东西——只用明确配置的 `database`，否则扫描源码。`buildTool` 管的是探测到的构建工具能不能*执行*；这个开关管的是要不要去探测它。 |
@@ -42,6 +42,7 @@ VS Code 扩展已经会这样做）；`重新加载模型` 只重新加载项目
 | 设置 | 取值 | 默认值 | 命令行 | 生效方式 | 作用 |
 |---|---|---|---|---|---|
 | `mcppls.engine` | `clangd`, `none` | `clangd` | `--engine` | 重启 | 核心引擎。无论如何，mcppls 自己的模块引擎都会运行；`none` 表示只提供模块相关功能。 |
+| `mcppls.engine.workers` | 字符串 | `auto` | `--engine-workers` | 重启 | clangd 同时构建的文件数（它的 `-j`），由模块预建、索引和你正在编辑的文件共用；总会留一个给你正在等的东西。`auto`：硬件线程数减一，介于二到八之间，且不超过内存 GB 数的一半。写数字则按数字。 |
 | `mcppls.compiler` | 字符串 | （空） | `--compiler` | 重新加载模型 | 为模块语义使用这个编译器，而不是检测到的那个：可以是绝对路径、`PATH` 上的名字，或 `kit`（强制使用内置的语义工具包）。空表示自动检测。 |
 | `mcppls.semanticKit` | `auto`, `off` | `auto` | `--semantic-kit` | 重新加载模型 | 内置的标准库工具包是否可以被使用：`auto` 在没有找到编译器时使用；`off` 从不使用（没有编译器时只剩模块相关功能）。 |
 | `mcppls.requestTimeout` | 非负整数（秒） | `60` | `--request-timeout` | 重启 | 一个引擎请求最多等待多久，超时后不经该引擎就给出答复。用户在等的请求（悬停、跳转、补全等）总共最多等 30 秒，clangd 启动或准备模块期间也算在内，之后由 mcppls 自己的引擎答复。 |
@@ -55,6 +56,7 @@ VS Code 扩展已经会这样做）；`重新加载模型` 只重新加载项目
 | `mcppls.semanticTokens.moduleType` | `true`, `false` | `false` | — | 重启 | 客户端声明自己认得自定义的 `module` 语义 token 类型和 `partition` 修饰符；除本仓库的 VS Code 扩展外都关闭，因为没有别的客户端会声明它。不是 package.json 里的设置：VS Code 扩展自己贡献了这个 token 类型，因此固定声明为开。 |
 | `mcppls.completion.triggerOnSpace` | `true`, `false` | `true` | — | 重启 | 在 `import` 或 `export import` 后输入空格时立即弹出模块列表；其他位置的空格不会发给服务端。什么都不说的客户端只有在自证是 VS Code 或其分支时才会得到这个行为；其他客户端需要用 `initializationOptions.completion.triggerOnSpace: true` 主动开启。 |
 | `mcppls.index.primeImplementationUnits` | `auto`, `off` | `auto` | `--prime-implementation-units` | 重启 | 在后台让 clangd 逐个构建模块的实现单元（每次少量），这样即使实现文件从没打开过，跳到定义也能到达只在实现单元里的定义。clangd 自己的后台索引看不到模块单元的导入（WA-CLANGD-008）。`off`：只有一次跳转请求所搜索的单元和你打开的文件会为此被索引。 |
+| `mcppls.enable` | `true`, `false` | `true` | — | 立即生效 | 为此工作区启动 mcppls。在某个工作区的设置里设为 `false`，扩展在那里保持安装但不启动——用于它暂时还服务不了的项目，而不必卸载；状态栏上的条目可以重新打开它。 |
 | `mcppls.detectConflicts` | `true`, `false` | `true` | — | 立即生效 | 在此工作区中提议关闭另一个 C++ 扩展的语言功能（只提议一次），之后又有冲突扩展启用时会提示。仅限 VS Code：其他客户端不会在多个语言服务端之间做取舍。 |
 
 ### 诊断与日志

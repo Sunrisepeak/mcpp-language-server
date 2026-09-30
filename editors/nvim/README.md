@@ -65,6 +65,31 @@ one it stopped. If that client serves only buffers mcppls also serves, it is sto
 per-buffer decision, not a global one: `vim.lsp.enable('clangd', false)`, above, is the way to stop
 it from starting at all.
 
+## Keeping mcppls off for one project
+
+The plugin has no per-project switch of its own; it starts wherever `setup()` (or
+`vim.lsp.enable('mcppls')`) ran. Two ways to keep it off for one project:
+
+- Decide before starting it, in your own configuration. For example, skip a project that has a
+  `.mcppls-off` file in its root:
+
+  ```lua
+  if vim.fn.filereadable(vim.fn.getcwd() .. '/.mcppls-off') == 0 then
+    require('mcppls').setup()
+  end
+  ```
+
+- With Neovim 0.11 and later, in a project-local `.nvim.lua` (needs `vim.o.exrc = true`; Neovim asks
+  once before it trusts the file):
+
+  ```lua
+  vim.lsp.enable('mcppls', false)   -- stops it too, if it is already running
+  ```
+
+  With `setup()` instead, the equivalent is
+  `vim.api.nvim_clear_autocmds({ group = 'mcppls' })` followed by
+  `for _, client in ipairs(vim.lsp.get_clients({ name = 'mcppls' })) do client:stop() end`.
+
 ## Options
 
 ```lua
@@ -129,6 +154,7 @@ spaces with nothing, at once.
 | `:McpplsStatus` | The project's build description, engine and any issues the server reports |
 | `:McpplsRestart` | Restart the server |
 | `:McpplsReload` | Read the build description again, e.g. after running the build tool by hand |
+| `:McpplsResetCache` | Delete this workspace's cache (models, engine database, module cache; the logs stay) and prepare again. Use it when preparation never finishes or the engine keeps crashing. Needs a server that lists `mcppls.resetCache`; with an older one, close Neovim and run `mcppls cache --clean <name>` |
 
 `require('mcppls').status()` is a statusline component: `mcppls ready · mcpp L1`,
 `mcppls preparing 12/40`, `mcppls degraded · inferred L4 · 1 issue`. The raw notification is

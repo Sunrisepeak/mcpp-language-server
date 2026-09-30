@@ -21,6 +21,28 @@
 //                                  alongside the real one. Defaults to the
 //                                  main suite.
 //
+// Editor selection (Code-OSS builds such as VSCodium; 0.0.7 plan O-1):
+//   MCPPLS_E2E_EDITOR=<editor executable>
+//                                Run in this editor instead of downloading
+//                                Microsoft's VS Code (VSIX mode, and the
+//                                development-path mode). The executable is the
+//                                one the operating system starts, unpacked
+//                                somewhere by the caller:
+//                                  Linux    <dir>/codium (a Code - OSS build: <dir>/code-oss)
+//                                  macOS    <App>.app/Contents/MacOS/Electron (or the .app itself)
+//                                  Windows  <dir>\VSCodium.exe
+//                                The command line used to install extensions is
+//                                derived from it, because test-electron's own
+//                                derivation hardcodes `bin/code`, which a Code-OSS
+//                                build does not have:
+//                                  Linux    <dir>/bin/<the executable's own name>
+//                                  macOS    <App>.app/Contents/Resources/app/bin/codium
+//                                  Windows  <dir>\bin\codium.cmd
+//                                MCPPLS_E2E_EDITOR_CLI=<path> names it when the
+//                                layout is another one. MCPPLS_E2E_EXPECT_APP_NAME
+//                                (VSCodium) makes the main suite check which
+//                                editor it really ran in.
+//
 // Payload / server selection (read by the extension itself, see src/payload.ts):
 //   MCPPLS_PAYLOAD=<assembled payload>   (or a payload/ directory in this extension)
 //   MCPPLS_SERVER=<mcppls executable>  (optional; overrides payload/bin)
@@ -153,6 +175,38 @@ function packageStub(stubDir: string): string {
     return outFile;
 }
 
+// The editor to run in, and the command line that installs extensions into it.
+function editorExecutable(): string | undefined {
+    const configured = process.env.MCPPLS_E2E_EDITOR;
+    if (!configured) {
+        return undefined;
+    }
+    if (!fs.existsSync(configured)) {
+        throw new Error(`MCPPLS_E2E_EDITOR=${configured} does not exist.`);
+    }
+    if (process.platform === 'darwin' && configured.endsWith('.app')) {
+        return path.join(configured, 'Contents', 'MacOS', 'Electron');
+    }
+    return configured;
+}
+
+
+function editorCli(executable: string): string {
+    const override = process.env.MCPPLS_E2E_EDITOR_CLI;
+    if (override) {
+        return override;
+    }
+    if (process.platform === 'darwin') {
+        // <App>.app/Contents/MacOS/Electron -> <App>.app/Contents/Resources/app/bin/codium
+        const contents = path.resolve(path.dirname(executable), '..');
+        return path.join(contents, 'Resources', 'app', 'bin', 'codium');
+    }
+    if (process.platform === 'win32') {
+        return path.join(path.dirname(executable), 'bin', 'codium.cmd');
+    }
+    return path.join(path.dirname(executable), 'bin', path.basename(executable));
+}
+
 // Installs one or more .vsix files into a fresh extensions-dir, using the
 // documented resolveCliArgsFromVSCodeExecutablePath + spawnSync recipe.
 // reuseMachineInstall: true here only suppresses that helper's own default
@@ -160,7 +214,9 @@ function packageStub(stubDir: string): string {
 // profile"); our actual isolation is the explicit, freshly created
 // directories passed alongside it.
 function installExtensions(vscodeExecutablePath: string, extensionsDirectory: string, userDataDirectory: string, vsixPaths: readonly string[]): void {
-    const [cli, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, { reuseMachineInstall: true });
+    const [cli, ...cliArgs] = process.env.MCPPLS_E2E_EDITOR
+        ? [editorCli(vscodeExecutablePath)]
+        : resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath, { reuseMachineInstall: true });
     const args = [...cliArgs, `--extensions-dir=${extensionsDirectory}`, `--user-data-dir=${userDataDirectory}`, ...ROOT_ARGS];
     for (const vsixPath of vsixPaths) {
         args.push('--install-extension', vsixPath);
@@ -186,8 +242,9 @@ interface RunOptions {
 }
 
 function runDevPathMode(options: RunOptions): Promise<number> {
+    const editor = editorExecutable();
     return runTests({
-        version: process.env.VSCODE_TEST_VERSION ?? 'stable',
+        ...(editor ? { vscodeExecutablePath: editor } : { version: process.env.VSCODE_TEST_VERSION ?? 'stable' }),
         extensionDevelopmentPath: EXTENSION_ROOT,
         extensionTestsPath: options.extensionTestsPath,
         launchArgs: [
@@ -210,7 +267,7 @@ function runDevPathMode(options: RunOptions): Promise<number> {
 }
 
 async function runVsixMode(options: RunOptions & { vsixPath: string; extraVsixPaths: readonly string[] }): Promise<number> {
-    const vscodeExecutablePath = await downloadAndUnzipVSCode({ version: process.env.VSCODE_TEST_VERSION ?? 'stable' });
+    const vscodeExecutablePath = editorExecutable() ?? await downloadAndUnzipVSCode({ version: process.env.VSCODE_TEST_VERSION ?? 'stable' });
     const extensionsDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'mcppls-ext-'));
     installExtensions(vscodeExecutablePath, extensionsDirectory, options.userDataDirectory, [options.vsixPath, ...options.extraVsixPaths]);
 

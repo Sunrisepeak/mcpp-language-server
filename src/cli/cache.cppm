@@ -1,6 +1,7 @@
 // mcppls cache: what this server's workspace caches hold, and removing one.
 //   mcppls cache [--modules] [--format text|json]
 //   mcppls cache --clean <workspace-prefix | all>
+//   mcppls cache --prune
 //
 // It is the server's command rather than a developer tool's because the cache is the server's: where
 // it lives (platform::dirs) and what a BMI file name means (engine::clangd::module_of_bmi) are this

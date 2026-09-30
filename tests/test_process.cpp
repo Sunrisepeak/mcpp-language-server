@@ -12,6 +12,8 @@ import mcppls.platform.env;
 import mcppls.platform.fs;
 import mcppls.platform.dirs;
 import mcppls.platform.stdio;
+import mcppls.lsp.connection;
+import nlohmann.json;
 
 namespace platform = mcppls::platform;
 namespace base = mcppls::base;
@@ -149,6 +151,25 @@ int main() {
 
     // The stress check's process-tree sampler (mcppls-conformance) reads this to find the server
     // it started on POSIX, where openkal's process handle is the OS pid it waits on with wait4.
+    // Plan 2026-09-30 §13: clangd reading slowly on a busy Windows machine held every send, and the server's event
+    // loop with it, 11 to 13 s an edit. What is sent to a peer is queued for a writer thread of the connection's own.
+    "a peer that reads nothing does not hold what is sent to it, and stopping it still ends"_test = [&] {
+        using namespace std::chrono_literals;
+        auto connection = mcppls::lsp::Connection::start({ .program = self, .arguments = { "--sleep" } }, [](nlohmann::json) {}, [] {});
+        expect(fatal(connection.has_value())) << (connection ? "" : connection.error().message);
+        const std::string big(64 * 1024, 'x');
+        const auto started = std::chrono::steady_clock::now();
+        bool sent { true };
+        for (int i { 0 }; i < 64; ++i) {
+            sent = sent && (*connection)->send(nlohmann::json { { "jsonrpc", "2.0" }, { "method", "m" }, { "params", big } }).has_value();
+        }
+        expect(sent);
+        expect(std::chrono::steady_clock::now() - started < 2s) << "4 MB to a peer that reads none of it";
+        const auto stopping = std::chrono::steady_clock::now();
+        (*connection)->stop(200ms);
+        expect(std::chrono::steady_clock::now() - stopping < 10s) << "the writer, blocked in a write, lets go once the peer is gone";
+    };
+
     "native_pid is the process a signal of 0 reaches while it runs, or nullopt on Windows"_test = [&] {
         auto process = platform::Process::spawn({ .program = self, .arguments = { "--sleep" } });
         expect(fatal(process.has_value())) << (process ? "" : process.error().message);

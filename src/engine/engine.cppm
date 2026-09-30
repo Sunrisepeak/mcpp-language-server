@@ -211,6 +211,10 @@ public:
     // The person asked for the engine to start over (`workspace/executeCommand mcppls.restartEngine`, fix plan F14): at once,
     // whatever its restart budget says, and not counted in it. False when there is nothing to restart.
     virtual bool restart_on_request() { return false; }
+    // The person asked to start over from an empty cache (`mcppls.resetCache`, C-1, plan 2026-09-30): the engine
+    // stops, removes what it keeps on disk and forgets what it wrote there and what it concluded from it. It is
+    // started again by restart_on_request once the workspace has planned into the empty directories. The bytes freed.
+    virtual std::uint64_t clear_cache_on_request() { return 0; }
 };
 
 } // namespace mcppls::engine

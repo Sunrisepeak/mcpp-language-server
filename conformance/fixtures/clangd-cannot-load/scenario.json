@@ -8,6 +8,7 @@
   "initialize-within": 20,
   "checks": [
     { "id": "S1", "kind": "status", "state": "error", "issue-code": "engine-incompatible" },
+    { "id": "K7-bundle", "kind": "status", "state": "error", "issue-code": "engine-incompatible", "issue-bundle": true, "timeout": 60 },
     { "id": "M1-definition", "kind": "definition", "file": "src/main.cpp", "at": [1, 9], "expect": "src/greet/greet.cppm" },
     { "id": "M4-import-completion", "kind": "completion-contains", "file": "src/scratch.cpp", "text": "import hel", "at": [0, 10], "expect": "hello.greet" },
     { "id": "M5-unresolved", "kind": "diagnostic-code", "file": "src/unresolved.cpp", "text": "import missing.module;\nint f();\n", "expect": "unresolved-module" }

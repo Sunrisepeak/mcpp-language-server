@@ -48,6 +48,7 @@ struct SessionOptions {
     std::chrono::seconds producerTimeout { 0 };
     bool verboseEngineLog { false };
     std::chrono::milliseconds requestTimeout { std::chrono::seconds { 60 } };
+    std::string engineWorkers { "auto" };   // mcppls.engine.workers (R-2): "auto" or a number
     // Registered workarounds turned off (import-hang plan §9): to see whether one is still needed.
     std::vector<std::string> disabledWorkarounds;
     // initializationOptions.semanticTokens (design doc 2026-09-25 K/§7, contract T0): native
@@ -102,6 +103,8 @@ struct Event {
     // every other kind names the root it belongs to, and engine events the engine.
     std::string rootKey;
     std::string engineId;
+    // When it was queued: how long it waited for the event loop is how late everything after it is (plan 2026-09-30 §13).
+    std::chrono::steady_clock::time_point queuedAt { std::chrono::steady_clock::now() };
 };
 
 using EventChannel = platform::Channel<Event>;
@@ -134,6 +137,11 @@ public:
     void shut_down();
     // Nothing is sent to the client before its own initialize was answered.
     void allow_status_notifications();
+    // K-7 (plan 2026-09-30): an issue this server cannot recover from by itself (engine-crash-loop, engine-start-failed,
+    // engine-incompatible, payload-corrupt, preparation-stalled) asks, once per code, for a diagnostic bundle to be
+    // written; the session writes it off the loop and gives the path back, and the issue carries it (S3 `bundle`).
+    void set_auto_bundle_request(std::function<void(std::string code)> request);
+    void note_auto_bundle(const std::string& code, const std::string& path);
 
     // ---- client-driven, already known to belong to this root ----------------------------
     void did_open(const Json& params);
@@ -160,6 +168,9 @@ public:
     void set_context(const Json& id, std::string_view context);
     // The person asked for clangd to start over (fix plan F14): false when this root has no core engine to restart.
     bool restart_core_engine();
+    // C-1 (plan 2026-09-30, `mcppls.resetCache`): this workspace's cache removed -- the cached models, the engine
+    // database, clangd's module cache and its locks -- then planned and started again. The bytes freed.
+    std::uint64_t reset_cache();
 
     // ---- the review an editor asks for (overall design 7.7) ----------------------------
     // Runs `mcppls review` on this root in the background; its findings are published as

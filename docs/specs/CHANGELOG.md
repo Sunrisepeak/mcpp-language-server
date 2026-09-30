@@ -2,6 +2,17 @@
 
 Changes to the specifications in this directory. Each specification is versioned independently.
 
+## 2026-09-30 — S3: a bundle for what cannot be recovered from, and resetting a root's cache
+
+`CxxModulesIssue` gains `bundle` (optional): the absolute path of a diagnostic bundle the server wrote
+by itself when an issue it cannot recover from without the person first appeared (S3-4-22). The bundle
+is redacted like a report and never leaves the machine (S3-4-23); a server keeps only the newest few
+(S3-4-24); a client offers, once and without blocking, to report the problem with the file attached, to
+restart, and to leave the server off for the workspace (S3-4-25). The issue codes `engine-crash-loop`,
+`engine-start-failed`, `preparation-stalled` and `payload-corrupt` are named. Section 5.6 adds the
+command `mcppls.resetCache` (S3-5.6-1 to S3-5.6-3), and `cxxModules/report`'s `server` carries
+`sandbox` and `eventLoop`. All additive: protocol version stays 1.
+
 ## 2026-09-27 — S1 0.3.0: generated files
 
 A set's `ide` object gains `generated` (optional, section 7.2): the files and directories that the

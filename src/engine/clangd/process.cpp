@@ -63,6 +63,72 @@ base::log::Level clangd_log_level(std::string_view line) {
     return base::log::Level::info;
 }
 
+std::optional<std::string> parse_module_lock_wait(std::string_view line) {
+    constexpr std::string_view MARKER { "Still waiting for module lock " };
+    const auto at = line.find(MARKER);
+    if (at == std::string_view::npos) return std::nullopt;
+    std::string_view rest { line.substr(at + MARKER.size()) };
+    if (const auto after = rest.rfind(" after "); after != std::string_view::npos) rest = rest.substr(0, after);
+    rest = base::trim(rest);
+    if (rest.empty()) return std::nullopt;
+    return std::string { rest };
+}
+
+std::string module_lock_directory(std::string_view databaseDirectory) {
+    return base::join_path(databaseDirectory, ".cache/clangd/modules/.locks");
+}
+
+std::size_t clear_module_locks(std::string_view databaseDirectory) {
+    std::size_t removed { 0 };
+    for (const auto& entry : platform::fs::list_directory(module_lock_directory(databaseDirectory))) {
+        platform::fs::remove_all(entry);
+        ++removed;
+    }
+    return removed;
+}
+
+std::vector<std::string> stale_module_builds(std::string_view databaseDirectory, std::size_t keep) {
+    std::vector<std::string> stale;
+    const auto newest_write = [](const std::string& directory) {
+        std::int64_t newest { std::numeric_limits<std::int64_t>::min() };
+        for (const auto& entry : platform::fs::list_directory(directory)) {
+            if (const auto stamp = platform::fs::stamp(entry)) newest = std::max(newest, stamp->modified);
+        }
+        return newest;
+    };
+    for (const auto& unit : platform::fs::list_directory(base::join_path(databaseDirectory, ".cache/clangd/modules"))) {
+        if (base::file_name(unit).starts_with('.') || !platform::fs::is_directory(unit)) continue;   // .locks
+        std::vector<std::pair<std::int64_t, std::string>> builds;
+        for (const auto& build : platform::fs::list_directory(unit)) {
+            if (platform::fs::is_directory(build)) builds.emplace_back(newest_write(build), build);
+        }
+        if (builds.size() <= keep) continue;
+        std::ranges::sort(builds, std::greater {});
+        for (auto& [written, build] : builds | std::views::drop(keep)) stale.push_back(std::move(build));
+    }
+    return stale;
+}
+
+std::optional<std::int64_t> module_lock_owner(std::string_view lockPath) {
+    // The lock is a link to, or a file beside, "<lock>-<random>" holding "<host> <pid>"; either way one of
+    // the files that start with the lock's name says who holds it.
+    const std::string directory { base::parent_path(lockPath) };
+    const std::string name { base::file_name(lockPath) };
+    for (const auto& entry : platform::fs::list_directory(directory)) {
+        if (!base::file_name(entry).starts_with(name)) continue;
+        const auto text = platform::fs::read_file(entry);
+        if (!text) continue;
+        const std::string_view content { base::trim(*text) };
+        const auto space = content.rfind(' ');
+        if (space == std::string_view::npos) continue;
+        std::int64_t pid { 0 };
+        const std::string_view digits { content.substr(space + 1) };
+        const auto [end, error] = std::from_chars(digits.data(), digits.data() + digits.size(), pid);
+        if (error == std::errc {} && end == digits.data() + digits.size() && pid > 0) return pid;
+    }
+    return std::nullopt;
+}
+
 bool loader_failure(std::string_view line) {
     // clangd's own log lines start with a severity letter and a timestamp ("E[10:31:02.1] ..."); a
     // loader's never do, and one of them quoting these words is a message about a file, not this.

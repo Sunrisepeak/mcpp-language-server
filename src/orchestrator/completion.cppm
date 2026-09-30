@@ -51,4 +51,15 @@ Json merge(const Json& engineResult, const Json& keywordItems);
 // asks again as the person types on.
 Json keywords_only(const Json& keywordItems);
 
+// R-7 (plan 2026-09-30): the identifiers of `text` that begin like the word typed before `position`, nearest first
+// and at most `limit`, as completion items -- what mcppls has to offer while the core engine has not answered a
+// completion in its budget. None before anything is typed, and none after `.`, `->` or `::`, where only the core
+// engine knows what may follow; comments and string and character literals are not read.
+Json document_words(std::string_view text, base::Position position, std::size_t limit = 50);
+
+// R-7: the list that goes out when the core engine has not answered a completion in its budget: `wordItems`
+// (document_words) as an incomplete list, so the client asks again as the person types on. The keywords are
+// merged in by the caller, as into any answer (merge).
+Json without_engine(const Json& wordItems);
+
 } // namespace mcppls::orchestrator::completion

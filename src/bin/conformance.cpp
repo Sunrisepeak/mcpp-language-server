@@ -4,7 +4,7 @@
 //   mcppls-conformance run --server <mcppls> --fixture <dir> [--payload DIR] [--clangd PATH] [--kit DIR]
 //                            [--msvc-env FILE] [--timeout SECONDS] [--keep] [--verbose]
 //                            [--workspace-dir DIR] [--cache-dir DIR] [--measure FILE] [--expect-warm]
-//                            [--navigation-budget SECONDS]
+//                            [--navigation-budget SECONDS] [--stage NAME]
 //   mcppls-conformance prepare <kind> [argument]      a fixture's own prepare step (scenario.json)
 //   mcppls-conformance version
 import std;
@@ -82,6 +82,9 @@ struct Options {
     std::string isolatedHome;
     // issue #23 fix plan F18: where `bundle` checks leave a copy of the bundle they checked, for CI to keep; empty: nowhere.
     std::string keepBundles;
+    // 0.0.7 plan 6.4: a check with a "stage" runs only when `--stage` names it (a fixture's cold start, warm start, edits and
+    // faults are separate runs sharing one workspace and, but for the faults, one cache); without `--stage` every check runs.
+    std::string stage;
 };
 
 // Replaces HOME (POSIX) and USERPROFILE (Windows) in a spawn's environment, so
@@ -328,6 +331,29 @@ public:
     // runner reports its own writes to them the way an editor's file system watcher would.
     std::map<std::string, Json> watchers;
     std::optional<Clock::time_point> firstDiagnostics;   // the first diagnostics published once the server is ready or degraded
+    // 0.0.7 plan 6.4 (scenario tests): every status with its progress and issue codes, so `timeline` can say how long a
+    // project stayed not ready without a module being prepared; kept across server restarts, each marked in restartMarks.
+    struct StatusSample {
+        Clock::time_point at;
+        std::string state;
+        long done { 0 };
+        long total { 0 };
+        std::vector<std::string> issues;
+    };
+    std::vector<StatusSample> statusSamples;
+    std::vector<Clock::time_point> restartMarks;
+    std::map<std::string, Clock::time_point> diagnosticsAt;   // uri -> when its latest diagnostics arrived
+    // Requests sent without waiting (typing keeps going while a completion is unanswered, as it does in an editor).
+    struct AsyncRequest {
+        std::string method;
+        Clock::time_point sent;
+        std::optional<Clock::time_point> answered;
+        bool isError { false };
+        Json result { nullptr };
+    };
+    std::map<std::int64_t, AsyncRequest> asyncRequests;
+    // The server's OS pid where the platform can say; read by the clangd watcher's thread, so atomic.
+    std::atomic<std::int64_t> serverPid { -1 };
 
     base::Result<void> start(const Options& options, const std::vector<std::string>& serverArguments, const std::string& workspace,
                              const std::string& cacheDirectory) {
@@ -356,10 +382,50 @@ public:
             });
         if (!connection) return std::unexpected { connection.error() };
         connection_ = std::move(*connection);
+        serverPid = connection_->native_pid().value_or(-1);
         return {};
     }
 
+    // A new server after this one was killed or stopped (`fault` checks): what belongs to the old session goes, what the
+    // scenario's timeline is made of stays.
+    void reset() {
+        connection_.reset();
+        inbox_ = std::make_shared<mcppls::platform::Channel<Json>>();
+        unanswered_ = 0;
+        diagnostics.clear();
+        diagnosticsCount.clear();
+        diagnosticsAt.clear();
+        status = Json {};
+        statusByRoot.clear();
+        watchers.clear();
+        asyncRequests.clear();
+        serverPid = -1;
+        restartMarks.push_back(Clock::now());
+        statusSamples.push_back({ Clock::now(), "restart", 0, 0, {} });
+    }
+
     void notify(std::string_view method, Json params) { (void)connection_->send(lsp::make_notification(method, std::move(params))); }
+
+    std::int64_t send_async(std::string_view method, Json params) {
+        const std::int64_t id { nextId_++ };
+        asyncRequests[id] = { std::string { method }, Clock::now(), std::nullopt, false, Json { nullptr } };
+        (void)connection_->send(lsp::make_request(id, method, std::move(params)));
+        return id;
+    }
+
+    // Reads what the server sends until `deadline`, without waiting for anything in particular.
+    void pump_until(Clock::time_point deadline) {
+        while (Clock::now() < deadline) {
+            auto message = inbox_->pop_until(deadline);
+            if (message) {
+                dispatch(*message);
+            } else if (inbox_->closed() && inbox_->size() == 0) {
+                std::this_thread::sleep_for(std::min(std::chrono::milliseconds { 50 }, std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now())));
+            }
+        }
+    }
+
+    bool server_alive() { return connection_ != nullptr && !connection_->exit_code().has_value(); }
 
     // A response with enough detail for the stress check to tell a real error apart from a real,
     // empty answer — both of which `request` below collapses to `Json(nullptr)`, which is fine for
@@ -479,6 +545,7 @@ public:
             if (method == "textDocument/publishDiagnostics") {
                 const std::string uri { message["params"].value("uri", std::string {}) };
                 diagnostics[uri] = message["params"].value("diagnostics", Json::array());
+                diagnosticsAt[uri] = Clock::now();
                 ++diagnosticsCount[uri];
                 const std::string state { status.is_object() ? status.value("state", std::string {}) : std::string {} };
                 if (!firstDiagnostics && (state == "ready" || state == "degraded")) firstDiagnostics = Clock::now();
@@ -489,6 +556,15 @@ public:
                 statusHistory.push_back(status.value("state", std::string {}));
                 statusHistoryByRoot[statusRoot].push_back(statusHistory.back());
                 statusTimeline.emplace_back(Clock::now(), statusHistory.back());
+                {
+                    StatusSample sample { Clock::now(), statusHistory.back(), 0, 0, {} };
+                    if (const Json* progress { lsp::find(status, "progress") }; progress != nullptr && progress->is_object()) {
+                        sample.done = progress->value("done", 0L);
+                        sample.total = progress->value("total", 0L);
+                    }
+                    for (const auto& issue : status.value("issues", Json::array())) sample.issues.push_back(issue.value("code", std::string {}));
+                    statusSamples.push_back(std::move(sample));
+                }
                 if (!firstReady && statusHistory.back() == "ready") firstReady = Clock::now();
                 if (verbose_) say("  status: {}", lsp::dump(status));
             } else if (method == "$/progress") {
@@ -505,6 +581,16 @@ public:
             } else if (verbose_ && method == "window/logMessage") {
                 say("  log: {}", message["params"].value("message", std::string {}));
             }
+            break;
+        }
+        case lsp::Kind::response: {
+            const Json* id { lsp::find(message, "id") };
+            if (id == nullptr || !id->is_number_integer()) break;
+            const auto it = asyncRequests.find(id->get<std::int64_t>());
+            if (it == asyncRequests.end() || it->second.answered) break;
+            it->second.answered = Clock::now();
+            it->second.isError = message.contains("error");
+            it->second.result = message.value("result", Json {});
             break;
         }
         default: break;
@@ -804,6 +890,7 @@ private:
     bool active_ { false };
     // The near-universal Linux default (CLK_TCK=100 on every mainstream distribution this project
     // targets); a wrong guess only skews cpuSeconds, which stays a best-effort number either way.
+public:
     static constexpr long TICKS_PER_SECOND { 100 };
 
     static std::optional<std::int64_t> parent_of(std::int64_t pid) {
@@ -872,6 +959,37 @@ private:
         return { tree.begin(), tree.end() };
     }
 
+    // The kernel's short name of a process (`clangd` for the payload's clangd), for finding it under the server.
+    static std::string comm_of(std::int64_t pid) {
+        auto comm = fs::read_file(std::format("/proc/{}/comm", pid));
+        if (!comm) return {};
+        return std::string { base::trim(*comm) };
+    }
+
+    // VmHWM, the process's own high-water mark of resident memory: a peak that falls between two samples is not lost.
+    static std::optional<double> hwm_kb_of(std::int64_t pid) {
+        auto status = fs::read_file(std::format("/proc/{}/status", pid));
+        if (!status) return std::nullopt;
+        for (auto line : base::split_lines(*status)) {
+            if (!line.starts_with("VmHWM:")) continue;
+            std::istringstream rest { std::string { line.substr(6) } };
+            double kb { 0 };
+            rest >> kb;
+            return rest.fail() ? std::nullopt : std::optional<double> { kb };
+        }
+        return std::nullopt;
+    }
+
+    // clangd processes among the descendants of `serverPid`.
+    static std::vector<std::int64_t> clangd_pids(std::int64_t serverPid) {
+        std::vector<std::int64_t> found;
+        for (const auto pid : tree_pids(serverPid)) {
+            if (pid != serverPid && comm_of(pid).starts_with("clangd")) found.push_back(pid);
+        }
+        return found;
+    }
+
+private:
     void sample_once(std::int64_t root) {
         const auto pids = tree_pids(root);
         double rss { 0 };
@@ -924,6 +1042,313 @@ public:
     }
 };
 
+// ---- scenario tests (0.0.7 plan 6.4, conformance/README.md): helpers shared by latency, typing, edit-save, fault, timeline, bmi-reuse, resources ----
+
+// The first field of /proc/loadavg, recorded beside every measurement: a run on a loaded machine explains itself.
+Json load_average() {
+    auto text = fs::read_file("/proc/loadavg");
+    if (!text) return nullptr;
+    std::istringstream stream { *text };
+    double load { 0 };
+    stream >> load;
+    return stream.fail() ? Json(nullptr) : Json(load);
+}
+
+// A budget number under `key`, when the check's "budget" names it.
+std::optional<double> budget_number(const Json& check, std::string_view key) {
+    const auto budget = check.find("budget");
+    if (budget == check.end() || !budget->is_object()) return std::nullopt;
+    const auto found = budget->find(std::string { key });
+    if (found == budget->end() || !found->is_number()) return std::nullopt;
+    return found->get<double>();
+}
+
+// A budget enforced as a maximum: adds a sentence to `failures` when `measured` is over it. A measurement a platform could
+// not make (nullopt) is not enforced, as everywhere else in this runner.
+void enforce_max(const Json& check, std::string_view key, std::optional<double> measured, std::string_view what, std::string_view unit,
+                 std::vector<std::string>& failures) {
+    const auto limit = budget_number(check, key);
+    if (!limit || !measured || *measured <= *limit) return;
+    failures.push_back(std::format("{} {:.2f}{} is over the budget {:.2f}{}", what, *measured, unit, *limit, unit));
+}
+
+void enforce_min(const Json& check, std::string_view key, std::optional<double> measured, std::string_view what,
+                 std::vector<std::string>& failures) {
+    const auto limit = budget_number(check, key);
+    if (!limit || !measured || *measured >= *limit) return;
+    failures.push_back(std::format("{} {:.2f} is under the budget {:.2f}", what, *measured, *limit));
+}
+
+Json latency_stats(std::vector<double> seconds) {
+    std::ranges::sort(seconds);
+    return Json { { "n", seconds.size() }, { "p50", percentile(seconds, 0.5) }, { "p95", percentile(seconds, 0.95) },
+                  { "max", seconds.empty() ? 0.0 : seconds.back() } };
+}
+
+std::string state_or_none(const Json& status) { return status.is_object() ? status.value("state", std::string {}) : std::string {}; }
+
+// Every module file clangd published under a cache directory, path -> size and modification time. clangd keeps a copy for
+// its readers with a timestamp in its name (`mcpp.log-20260930-010313-591880.pcm`): not a build, so not listed.
+std::map<std::string, std::string> all_module_files(const std::string& cacheDirectory) {
+    static const std::regex COPY { R"(-\d{8}-\d{6}-\d+\.pcm$)" };
+    std::map<std::string, std::string> files;
+    if (cacheDirectory.empty()) return files;
+    std::vector<std::string> pending { cacheDirectory };
+    while (!pending.empty()) {
+        const std::string directory { pending.back() };
+        pending.pop_back();
+        for (const auto& entry : fs::list_directory(directory)) {
+            if (fs::is_directory(entry)) {
+                pending.push_back(entry);
+                continue;
+            }
+            const std::string name { base::file_name(entry) };
+            if (!name.ends_with(".pcm") || !entry.contains("/modules/") || std::regex_search(name, COPY)) continue;
+            const auto stamp = fs::stamp(entry);
+            files[entry] = stamp ? std::format("{}:{}", stamp->size, stamp->modified) : std::string {};
+        }
+    }
+    return files;
+}
+
+// The module files the engine wrote since `before` (a file that was not there, or is there with another stamp), told
+// apart: `rebuilt` for a unit that had a module file before -- what a warm start or a restart must not do -- and `first`
+// for one that had none, a module no file of the earlier session needed (xlings: the files a warm session opens need 24
+// modules the cold one never built).
+struct Builds {
+    std::size_t rebuilt { 0 };
+    std::size_t first { 0 };
+};
+Builds builds_since(const std::map<std::string, std::string>& before, const std::map<std::string, std::string>& now) {
+    // A module file is <modules>/<unit>-<hash>/<command hash>/<name>.pcm: its unit is two directories up.
+    const auto unit_of = [](const std::string& path) { return base::parent_path(base::parent_path(path)); };
+    std::set<std::string> unitsBefore;
+    for (const auto& [path, stamp] : before) unitsBefore.insert(unit_of(path));
+    Builds builds;
+    for (const auto& [path, stamp] : now) {
+        const auto it = before.find(path);
+        if (it != before.end() && it->second == stamp) continue;
+        if (unitsBefore.contains(unit_of(path))) ++builds.rebuilt;
+        else ++builds.first;
+    }
+    return builds;
+}
+
+// The server's own log files written since the run started, read as they grow and counted for the phrases a scenario test asks
+// about ("Built module", "Still waiting for module lock"). The log is rotated at 5 MB with two files kept, and at the debug level
+// clangd's own output fills that in a couple of minutes: a count made once at the end would have lost the start of the run, so the
+// files are followed. A rotation is noticed by the file getting shorter, and what was unread of it is read from its `.1`.
+class LogTailer {
+private:
+    static constexpr std::array<std::string_view, 2> NEEDLES { "Built module", "Still waiting for module lock" };
+    std::string directory_;
+    std::set<std::string> before_;
+    std::mutex mutex_;
+    std::mutex pollMutex_;
+    std::map<std::string, std::uintmax_t> position_;
+    std::map<std::string, std::uintmax_t> size_;
+    std::map<std::string, long> counts_;
+    bool clangdOutputSeen_ { false };
+    std::jthread thread_;
+
+    // Complete lines of `path` from `from` to `to`, counted; returns how far it got.
+    std::uintmax_t read_lines(const std::string& path, std::uintmax_t from, std::uintmax_t to) {
+        if (to <= from) return from;
+        std::ifstream stream { std::filesystem::path { path }, std::ios::binary };
+        if (!stream) return from;
+        stream.seekg(static_cast<std::streamoff>(from));
+        std::string chunk(static_cast<std::size_t>(to - from), '\0');
+        stream.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+        chunk.resize(static_cast<std::size_t>(stream.gcount()));
+        const std::size_t end { chunk.rfind('\n') };
+        if (end == std::string::npos) return from;
+        std::lock_guard lock { mutex_ };
+        std::size_t start { 0 };
+        while (start <= end) {
+            std::size_t stop { chunk.find('\n', start) };
+            const std::string_view line { std::string_view { chunk }.substr(start, stop - start) };
+            if (line.contains(" clangd (")) clangdOutputSeen_ = true;
+            for (const auto needle : NEEDLES) {
+                if (line.contains(needle)) ++counts_[std::string { needle }];
+            }
+            start = stop + 1;
+        }
+        return from + end + 1;
+    }
+
+public:
+    void poll() {
+        if (directory_.empty()) return;
+        std::lock_guard polling { pollMutex_ };
+        for (const auto& path : fs::list_directory(directory_)) {
+            const std::string name { base::file_name(path) };
+            if (!name.starts_with("server-") || !name.ends_with(".log") || before_.contains(path)) continue;
+            std::error_code failed;
+            const auto size { std::filesystem::file_size(path, failed) };
+            if (failed) continue;
+            const auto known { size_.find(path) };
+            auto& position { position_[path] };
+            if (known != size_.end() && size < known->second) {
+                // Rotated: what was not read of the old content is in `<path>.1`.
+                const std::string old { path + ".1" };
+                std::error_code oldFailed;
+                position = read_lines(old, position, std::filesystem::file_size(old, oldFailed));
+                position = 0;
+            }
+            size_[path] = size;
+            position = read_lines(path, position, size);
+        }
+    }
+
+    void start(std::string directory, std::set<std::string> before) {
+        directory_ = std::move(directory);
+        before_ = std::move(before);
+        thread_ = std::jthread { [this](std::stop_token token) {
+            while (!token.stop_requested()) {
+                poll();
+                std::this_thread::sleep_for(std::chrono::milliseconds { 500 });
+            }
+        } };
+    }
+
+    long count(std::string_view needle) {
+        std::lock_guard lock { mutex_ };
+        const auto it = counts_.find(std::string { needle });
+        return it == counts_.end() ? 0 : it->second;
+    }
+
+    // Whether the files carry clangd's own output: at the default log level they do not, and a count of nothing then says nothing.
+    bool clangd_output_seen() {
+        std::lock_guard lock { mutex_ };
+        return clangdOutputSeen_;
+    }
+
+    ~LogTailer() {
+        thread_.request_stop();
+        if (thread_.joinable()) thread_.join();
+    }
+};
+
+// SIGKILL where the platform names processes by number. False elsewhere: a fault the platform cannot cause is skipped, not passed.
+bool kill_process(std::int64_t pid) {
+    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+        (void)pid;
+        return false;
+    } else {
+        mcppls::platform::SpawnOptions spawn;
+        spawn.program = "/bin/sh";
+        spawn.arguments = { "-c", std::format("kill -KILL {}", pid) };
+        auto result = mcppls::platform::run(std::move(spawn), std::chrono::seconds { 10 });
+        return result && result->exitCode == 0;
+    }
+}
+
+bool process_alive(std::int64_t pid) { return fs::exists(std::format("/proc/{}", pid)); }
+
+std::string host_name() {
+    if (auto text = fs::read_file("/proc/sys/kernel/hostname")) return std::string { base::trim(*text) };
+    return mcppls::platform::env::get("HOSTNAME").value_or("localhost");
+}
+
+// 0.0.7 plan 6.4 (scenario tests): the clangd under the server, sampled from /proc every half second for the whole run.
+// `ProcessSampler` above measures a window one check asks for; scenario tests ask afterwards ("how much of a core did
+// clangd use while nobody was asking?") and for the peak over the whole run, across the restarts a fault causes. Where the
+// platform is not Linux, or the server's pid is not known, nothing is sampled and every answer is nullopt: never a failure.
+class ClangdWatcher {
+private:
+    struct Sample {
+        Clock::time_point at;
+        double cpuSeconds;   // across every clangd pid ever seen: a killed clangd's cost is not lost
+    };
+    std::function<std::int64_t()> serverPid_;
+    std::mutex mutex_;
+    std::map<std::int64_t, long> ticksByPid_;
+    std::vector<Sample> samples_;
+    double peakMB_ { 0 };
+    bool active_ { false };
+    std::jthread thread_;
+
+    void sample() {
+        const std::int64_t server { serverPid_() };
+        if (server <= 0) return;
+        const auto pids = ProcessSampler::clangd_pids(server);
+        double rssKB { 0 };
+        double hwmKB { 0 };
+        std::lock_guard lock { mutex_ };
+        for (const auto pid : pids) {
+            if (auto ticks = ProcessSampler::cpu_ticks_of(pid)) {
+                auto& best = ticksByPid_[pid];
+                best = std::max(best, *ticks);
+            }
+            if (auto kb = ProcessSampler::rss_kb_of(pid)) rssKB += *kb;
+            if (auto kb = ProcessSampler::hwm_kb_of(pid)) hwmKB = std::max(hwmKB, *kb);
+        }
+        peakMB_ = std::max({ peakMB_, rssKB / 1024.0, hwmKB / 1024.0 });
+        long ticks { 0 };
+        for (const auto& [pid, best] : ticksByPid_) ticks += best;
+        samples_.push_back({ Clock::now(), static_cast<double>(ticks) / static_cast<double>(ProcessSampler::TICKS_PER_SECOND) });
+    }
+
+public:
+    explicit ClangdWatcher(std::function<std::int64_t()> serverPid) : serverPid_ { std::move(serverPid) } {
+        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
+            if (!fs::is_directory("/proc")) return;
+            active_ = true;
+            thread_ = std::jthread { [this](std::stop_token token) {
+                while (!token.stop_requested()) {
+                    sample();
+                    std::this_thread::sleep_for(std::chrono::milliseconds { 500 });
+                }
+            } };
+        }
+    }
+
+    bool active() const { return active_; }
+
+    // The largest resident set clangd had, in megabytes, over the run so far; nullopt without /proc or before clangd ran.
+    std::optional<double> peak_rss_mb() {
+        std::lock_guard lock { mutex_ };
+        return active_ && peakMB_ > 0 ? std::optional<double> { peakMB_ } : std::nullopt;
+    }
+
+    // clangd's resident set now, in megabytes.
+    std::optional<double> rss_mb_now() {
+        if (!active_ || serverPid_() <= 0) return std::nullopt;
+        double kb { 0 };
+        for (const auto pid : ProcessSampler::clangd_pids(serverPid_())) kb += ProcessSampler::rss_kb_of(pid).value_or(0.0);
+        return kb > 0 ? std::optional<double> { kb / 1024.0 } : std::nullopt;
+    }
+
+    // Cores clangd used on average between two times (1.0 is one core busy throughout); nullopt when the window holds
+    // fewer than two samples a few seconds apart.
+    std::optional<double> cpu_cores(Clock::time_point from, Clock::time_point to) {
+        std::lock_guard lock { mutex_ };
+        const Sample* first { nullptr };
+        const Sample* last { nullptr };
+        for (const auto& s : samples_) {
+            if (s.at < from || s.at > to) continue;
+            if (first == nullptr) first = &s;
+            last = &s;
+        }
+        if (first == nullptr || last == first) return std::nullopt;
+        const double span { std::chrono::duration<double>(last->at - first->at).count() };
+        if (span < 2.0) return std::nullopt;
+        return (last->cpuSeconds - first->cpuSeconds) / span;
+    }
+
+    // clangd's own pids right now.
+    std::vector<std::int64_t> pids() const {
+        const std::int64_t server { serverPid_() };
+        if (!active_ || server <= 0) return {};
+        return ProcessSampler::clangd_pids(server);
+    }
+
+    ~ClangdWatcher() {
+        thread_.request_stop();
+        if (thread_.joinable()) thread_.join();
+    }
+};
+
 class Scenario {
 private:
     Client& client_;
@@ -957,7 +1382,22 @@ private:
     }
 
 public:
+    // What the run needs to know that the scenario's own constructor does not: when it began, the initialize a restarted server
+    // is sent again, and what the cache held before the server started.
+    void set_scenario_context(Clock::time_point began, Json initializeParams, std::map<std::string, std::string> pcmBefore, std::set<std::string> logsBefore) {
+        begin_ = began;
+        initializeParams_ = std::move(initializeParams);
+        pcmBefore_ = std::move(pcmBefore);
+        tailer_.start(base::join_path(cacheDirectory_, "logs"), std::move(logsBefore));
+    }
+
+    Json take_measure() { return std::exchange(measure_, Json(nullptr)); }
+
+    // Seconds from initialize to now, for a check's "within-since-start".
+    double since_start() const { return seconds_since(begin_); }
+
     void finish() {
+        restore_files();
         if (mcp_) mcp_->stop();
         if (mcpDaemon_) mcpDaemon_->stop();
     }
@@ -1059,6 +1499,1347 @@ public:
         return { false, last };
     }
 
+    // ---- scenario tests (0.0.7 plan 6.4; conformance/README.md "Scenario checks") ----------------------------------------
+
+    Clock::time_point begin_ { Clock::now() };                    // initialize was sent: "since start" is measured from here
+    Json initializeParams_ = Json::object();                      // sent again to a server a fault restarted
+    std::map<std::string, std::string> pcmBefore_;                // module files in the cache before the server started
+    LogTailer tailer_;                                            // counts what the server's log says as it is written
+    std::map<std::string, std::string> restoreOnFinish_;          // absolute path -> what to write back when the run ends
+    ClangdWatcher watcher_ { [this] { return client_.serverPid.load(); } };
+    Json measure_ = nullptr;                                      // what the last check measured, for --measure
+
+    static double seconds_since(Clock::time_point from) { return std::chrono::duration<double>(Clock::now() - from).count(); }
+    static double seconds_between(Clock::time_point from, Clock::time_point to) { return std::chrono::duration<double>(to - from).count(); }
+
+    // The first root's part of cxxModules/report, or null when the server did not answer in time.
+    Json root_report(std::chrono::seconds timeout = std::chrono::seconds { 60 }) {
+        auto answer = client_.request("cxxModules/report", Json::object(), timeout);
+        if (!answer || !answer->is_object()) return nullptr;
+        const Json roots = answer->value("roots", Json::array());
+        return roots.is_array() && !roots.empty() ? roots.front() : Json(nullptr);
+    }
+
+    static long event_total(const Json& root, std::string_view kind) {
+        if (!root.is_object() || !root.contains("eventTotals") || !root["eventTotals"].is_object()) return 0;
+        return root["eventTotals"].value(std::string { kind }, 0L);
+    }
+
+    // How many requests of `method` each engine answered, as the report counts them (cumulative since the server started).
+    static std::map<std::string, long> answered_by(const Json& root, std::string_view method) {
+        std::map<std::string, long> counts;
+        if (!root.is_object() || !root.contains("requests") || !root["requests"].is_object()) return counts;
+        const auto it = root["requests"].find(std::string { method });
+        if (it == root["requests"].end() || !it->contains("answeredBy")) return counts;
+        for (const auto& item : (*it)["answeredBy"].items()) counts[item.key()] = item.value().get<long>();
+        return counts;
+    }
+
+    // What the requests of `method` between two reports cost the core engine: the share of them some engine other than
+    // mcppls's own fallback answered (clangd alone, or merged with mcppls's). nullopt when none were counted.
+    static std::optional<double> engine_share(const Json& before, const Json& after, std::string_view method, Json* detail = nullptr) {
+        const auto was = answered_by(before, method);
+        const auto is = answered_by(after, method);
+        long total { 0 };
+        long fallback { 0 };
+        Json counted = Json::object();
+        for (const auto& [engine, count] : is) {
+            const auto earlier = was.find(engine);
+            const long delta { count - (earlier == was.end() ? 0 : earlier->second) };
+            if (delta <= 0) continue;
+            counted[engine] = delta;
+            total += delta;
+            if (engine == "mcppls") fallback += delta;
+        }
+        if (detail != nullptr) *detail = counted;
+        if (total == 0) return std::nullopt;
+        return static_cast<double>(total - fallback) / static_cast<double>(total);
+    }
+
+    // The status is ready or degraded and clangd has been quiet, under 0.3 of a core for eight seconds: what a person waits
+    // for before typing into a project that was just opened. Without /proc, ready for five seconds is what is asked.
+    bool settle(std::chrono::seconds timeout) {
+        const auto deadline = Clock::now() + timeout;
+        std::optional<Clock::time_point> readySince;
+        while (Clock::now() < deadline) {
+            client_.pump_until(std::min(deadline, Clock::now() + std::chrono::milliseconds { 500 }));
+            const std::string state { state_of(client_.status) };
+            if (state != "ready" && state != "degraded") {
+                readySince.reset();
+                continue;
+            }
+            if (!readySince) readySince = Clock::now();
+            if (!watcher_.active()) {
+                if (Clock::now() - *readySince >= std::chrono::seconds { 5 }) return true;
+                continue;
+            }
+            const auto now = Clock::now();
+            if (now - *readySince < std::chrono::seconds { 8 }) continue;
+            const auto cores = watcher_.cpu_cores(now - std::chrono::seconds { 8 }, now);
+            if (cores && *cores < 0.3) return true;
+            // Ready for a minute is settled as a person sees it, whatever clangd does in the background meanwhile: R-5
+            // builds implementation units for the index one at a time in idle time, a core busy for minutes on xlings.
+            if (now - *readySince >= std::chrono::minutes { 1 }) return true;
+        }
+        return false;
+    }
+
+    // A file written back when the run ends, whatever became of the check that changed it: the workspace is reused by the
+    // next stage, and a fixture's own sources must be the ones it was prepared with.
+    void remember_original(const std::string& absolutePath) {
+        if (restoreOnFinish_.contains(absolutePath)) return;
+        restoreOnFinish_[absolutePath] = fs::read_file(absolutePath).value_or("");
+    }
+
+    void restore_files() {
+        for (const auto& [path, content] : restoreOnFinish_) (void)fs::write_file(path, content);
+        restoreOnFinish_.clear();
+        for (const auto& path : createdOnFinish_) {
+            std::error_code ignored;
+            std::filesystem::remove(path, ignored);
+        }
+        createdOnFinish_.clear();
+    }
+
+    struct ProbeRequest {
+        std::string name;
+        std::string kind;
+        std::string method;
+        std::string file;
+        Json params;
+        std::string expect;   // definition: a path suffix the answer must end with
+    };
+
+    std::optional<ProbeRequest> probe_request(const Json& one) const {
+        ProbeRequest request;
+        request.kind = one.value("kind", std::string {});
+        request.file = one.value("file", std::string { "src/main.cpp" });
+        request.name = one.value("name", request.kind);
+        request.expect = one.value("expect", std::string {});
+        Json params { { "textDocument", Json { { "uri", uri(request.file) } } } };
+        if (request.kind == "completion" || request.kind == "hover" || request.kind == "definition") {
+            request.method = request.kind == "completion" ? "textDocument/completion" : request.kind == "hover" ? "textDocument/hover" : "textDocument/definition";
+            params["position"] = position(one.at("at"));
+            if (request.kind == "completion" && one.contains("trigger")) {
+                params["context"] = Json { { "triggerKind", 2 }, { "triggerCharacter", one.value("trigger", std::string {}) } };
+            }
+        } else if (request.kind == "semanticTokens") {
+            request.method = "textDocument/semanticTokens/full";
+        } else if (request.kind == "documentSymbol") {
+            request.method = "textDocument/documentSymbol";
+        } else {
+            return std::nullopt;
+        }
+        request.params = std::move(params);
+        return request;
+    }
+
+    static bool answer_empty(const ProbeRequest& request, const Json& result) {
+        if (request.kind == "semanticTokens") return !result.is_object() || result.value("data", Json::array()).empty();
+        return is_empty_result(request.method, result);
+    }
+
+    // Whether an answer to a request of `kind` is the right one: a `definition` names a location ending in `expected` (any
+    // location when it is empty), a `completion` offers a label starting with it, a `hover` says it.
+    static bool probe_right(const std::string& kind, const std::string& expected, const Json& result) {
+        if (kind == "completion") {
+            const auto labels = completion_labels(result);
+            return std::ranges::any_of(labels, [&](const std::string& label) { return label.starts_with(expected); });
+        }
+        if (kind == "hover") return hover_text(result).contains(expected);
+        const auto uris = location_uris(result);
+        return expected.empty() ? !uris.empty() : std::ranges::any_of(uris, [&](const std::string& found) { return ends_with_path(found, expected); });
+    }
+
+    // How long from `since` until the probe is answered as it should be: nullopt when it never is within `wait`. A probe is a
+    // `definition` (the default: a location ending in `expect`), a `completion` (a label starting with `expect`) or a `hover`
+    // (text containing `expect`), at `at` in `file`. A jump is often answered by mcppls's own engine before clangd is up; a
+    // completion of a std name is clangd's alone, so a fault that is about clangd asks for the latter.
+    std::optional<double> time_to_answer(const Json& probe, Clock::time_point since, std::chrono::seconds wait) {
+        const std::string file { probe.value("file", std::string { "src/main.cpp" }) };
+        open(file);
+        const std::string expected { probe.value("expect", std::string {}) };
+        const std::string kind { probe.value("kind", std::string { "definition" }) };
+        const std::string method { kind == "completion" ? "textDocument/completion" : kind == "hover" ? "textDocument/hover" : "textDocument/definition" };
+        const auto deadline = Clock::now() + wait;
+        while (Clock::now() < deadline) {
+            const auto left = std::chrono::duration_cast<std::chrono::seconds>(deadline - Clock::now());
+            auto outcome = client_.request_full(method, Json { { "textDocument", Json { { "uri", uri(file) } } }, { "position", position(probe.at("at")) } },
+                                                std::clamp(left, std::chrono::seconds { 1 }, std::chrono::seconds { 15 }));
+            if (!outcome.timedOut && !outcome.isError && probe_right(kind, expected, outcome.result)) return seconds_since(since);
+            client_.pump_until(Clock::now() + std::chrono::milliseconds { 300 });
+        }
+        return std::nullopt;
+    }
+
+    // A server that replaces the one a fault ended: the same arguments, workspace and cache, the same initialize, and every
+    // document open that an editor still has open. False, with why, when it does not come up.
+    bool restart_server(std::string& why) {
+        client_.reset();
+        if (auto started = client_.start(options_, serverArguments_, workspace_, cacheDirectory_); !started) {
+            why = "cannot start the server again: " + started.error().message;
+            return false;
+        }
+        auto initialized = client_.request("initialize", initializeParams_, std::chrono::seconds { 120 });
+        if (!initialized || !initialized->is_object()) {
+            why = "the new server did not answer initialize";
+            return false;
+        }
+        client_.notify("initialized", Json::object());
+        auto previous = std::move(open_);
+        open_.clear();
+        for (const auto& [path, buffer] : previous) open(path, buffer.first);
+        return true;
+    }
+
+    // Whether the `ready` at `index` of the status history held: 0.0.6 says `ready` for a moment before it says `preparing` on a
+    // start with nothing built, and that is not a project a person can use, so a ready that lasts less than a second and a half
+    // (until the next state that is not ready, or until now) does not count.
+    bool ready_holds(std::size_t index) const {
+        const auto& samples = client_.statusSamples;
+        if (index >= samples.size() || samples[index].state != "ready") return false;
+        auto until { Clock::now() };
+        for (std::size_t next { index + 1 }; next < samples.size(); ++next) {
+            if (samples[next].state != "ready") {
+                until = samples[next].at;
+                break;
+            }
+        }
+        return until - samples[index].at >= std::chrono::milliseconds { 1500 };
+    }
+
+    // Seconds from `since` until the status was ready again and stayed so: 0 when it never left ready; nullopt while it has not come back.
+    std::optional<double> ready_seconds_since(Clock::time_point since) const {
+        bool leftReady { false };
+        for (std::size_t i { 0 }; i < client_.statusSamples.size(); ++i) {
+            const auto& sample = client_.statusSamples[i];
+            if (sample.at < since) continue;
+            if (ready_holds(i)) return seconds_between(since, sample.at);
+            if (sample.state != "ready") leftReady = true;
+        }
+        if (!leftReady && state_of(client_.status) == "ready") return 0.0;
+        return std::nullopt;
+    }
+
+    bool preparing_since(Clock::time_point since) const {
+        return std::ranges::any_of(client_.statusSamples, [&](const auto& sample) { return sample.at >= since && sample.state == "preparing"; });
+    }
+
+    // Waits until the preparation has got `fraction` of the way through, while it is still preparing. A status carries `progress`
+    // only while the server counts what there is to prepare (xlings' start, whose transitional model is replaced, reports none):
+    // then `fallback` seconds in the state `preparing` stand for it.
+    bool wait_for_progress(double fraction, std::chrono::seconds timeout, std::chrono::seconds fallback = std::chrono::seconds { 3 }) {
+        return client_.wait_for([&] {
+            if (client_.statusSamples.empty()) return false;
+            const auto& latest = client_.statusSamples.back();
+            if (latest.state != "preparing") return false;
+            if (latest.total > 0) return static_cast<double>(latest.done) >= fraction * static_cast<double>(latest.total);
+            return Clock::now() - latest.at >= fallback;
+        }, timeout);
+    }
+
+    std::pair<bool, std::string> finish_measure(std::vector<std::string> failures, Json summary, const std::string& brief) {
+        summary["load"] = load_average();
+        measure_ = summary;
+        if (failures.empty()) return { true, brief };
+        return { false, std::format("{}; {}", base::join(failures, "; "), brief) };
+    }
+
+    // ---- latency ----
+
+    std::pair<bool, std::string> run_latency(const Json& check) {
+        std::vector<ProbeRequest> specs;
+        for (const auto& one : check.value("requests", Json::array())) {
+            auto spec = probe_request(one);
+            if (!spec) return { false, std::format("unknown request {}", lsp::dump(one)) };
+            specs.push_back(std::move(*spec));
+        }
+        // "first-answers": requests asked in every round until each is answered as it should be; the time since initialize of the
+        // first right answer is measured and held to its own "within" (the plan's U1: the first clangd completion in a heavy file,
+        // the first correct jump), while the phase's other requests are timed as usual.
+        struct FirstAnswer {
+            ProbeRequest spec;
+            std::string name;
+            double within { 0 };
+            std::optional<double> at;
+        };
+        std::vector<FirstAnswer> firsts;
+        for (const auto& one : check.value("first-answers", Json::array())) {
+            auto spec = probe_request(one);
+            if (!spec) return { false, std::format("unknown first answer {}", lsp::dump(one)) };
+            firsts.push_back({ std::move(*spec), one.value("name", std::string {}), one.value("within", 0.0), std::nullopt });
+        }
+        if (specs.empty() && firsts.empty()) return { false, "a latency check names no requests" };
+        for (const auto& spec : specs) open(spec.file);
+        for (const auto& first : firsts) open(first.spec.file);
+        const std::string phase { check.value("phase", std::string { "now" }) };
+        const std::chrono::milliseconds interval { check.value("interval-ms", 700) };
+        const std::chrono::seconds requestTimeout { check.value("requestTimeout", 65) };
+        const std::chrono::seconds startWithin { check.value("start-within", 240) };
+        const std::chrono::seconds phaseSeconds { check.value("seconds", phase == "background" ? 45 : 600) };
+        const int wantedRounds { check.value("rounds", phase == "idle" || phase == "now" ? 20 : 0) };
+        const auto ready = [&] {
+            const std::string state { state_of(client_.status) };
+            return state == "ready" || state == "degraded";
+        };
+        if (phase == "cold") {
+            // While the preparation runs: a check that starts once it is over would measure nothing of what it is named for.
+            if (!client_.wait_for([&] { return state_of(client_.status) == "preparing"; }, startWithin)) {
+                return { false, "the project was never preparing: a cold phase needs a cold cache" };
+            }
+        } else if (phase == "background") {
+            if (!client_.wait_for(ready, startWithin)) return { false, "the project did not become ready" };
+        } else if (phase == "idle") {
+            if (!settle(startWithin)) return { false, "the project did not settle: clangd never went quiet" };
+        } else if (phase != "now") {
+            return { false, std::format("unknown phase {}", phase) };
+        }
+
+        const Json before = root_report();
+        const auto began { Clock::now() };
+        struct Counts {
+            int timeouts { 0 };
+            int errors { 0 };
+            int empty { 0 };
+            int wrong { 0 };
+        };
+        std::map<std::string, std::vector<double>> latencies;
+        std::map<std::string, std::vector<double>> byName;   // the same, one entry per named request: where the slow one is
+        std::map<std::string, Counts> counts;
+        int rounds { 0 };
+        std::string unusable;
+        std::optional<Clock::time_point> graceEnd;
+        const std::chrono::seconds grace { check.value("first-answers-grace", 60) };
+        for (;;) {
+            for (auto& first : firsts) {
+                if (first.at) continue;
+                const auto outcome { client_.request_full(first.spec.method, first.spec.params, requestTimeout) };
+                if (!outcome.timedOut && !outcome.isError && probe_right(first.spec.kind, first.spec.expect, outcome.result)) first.at = since_start();
+            }
+            for (const auto& spec : specs) {
+                const auto started { Clock::now() };
+                const auto outcome { client_.request_full(spec.method, spec.params, requestTimeout) };
+                latencies[spec.kind].push_back(seconds_since(started));
+                byName[spec.name + " " + spec.file].push_back(latencies[spec.kind].back());
+                auto& count = counts[spec.kind];
+                if (outcome.timedOut) {
+                    ++count.timeouts;
+                } else if (outcome.isError) {
+                    ++count.errors;
+                } else {
+                    if (answer_empty(spec, outcome.result)) ++count.empty;
+                    if (!spec.expect.empty() && !probe_right(spec.kind, spec.expect, outcome.result)) ++count.wrong;
+                }
+            }
+            ++rounds;
+            unusable = client_.unusable();
+            if (!unusable.empty()) break;
+            const bool phaseOver { wantedRounds > 0 ? rounds >= wantedRounds
+                                   : phase == "cold" ? state_of(client_.status) != "preparing" || Clock::now() - began >= phaseSeconds
+                                                     : Clock::now() - began >= phaseSeconds };
+            if (phaseOver) {
+                // The first answers still owed get a grace period after the phase is over, and no more.
+                if (std::ranges::all_of(firsts, [](const FirstAnswer& first) { return first.at.has_value(); })) break;
+                if (!graceEnd) graceEnd = Clock::now() + grace;
+                if (Clock::now() >= *graceEnd) break;
+            }
+            client_.pump_until(Clock::now() + interval);
+        }
+        const Json after = root_report();
+
+        std::vector<std::string> failures;
+        if (!unusable.empty()) failures.push_back(unusable);
+        Json kinds = Json::object();
+        std::vector<std::string> brief;
+        for (const auto& [kind, samples] : latencies) {
+            Json stats = latency_stats(samples);
+            const auto& count = counts[kind];
+            stats["timeouts"] = count.timeouts;
+            stats["errors"] = count.errors;
+            stats["empty"] = count.empty;
+            stats["wrong"] = count.wrong;
+            const auto limit = [&](std::string_view key) { return budget_number(check, std::format("{}.{}", kind, key)).or_else([&] { return budget_number(check, key); }); };
+            const auto enforce = [&](std::string_view key, double measured, std::string_view unit) {
+                if (const auto max = limit(key); max && measured > *max) failures.push_back(std::format("{} {} {:.2f}{} is over the budget {:.2f}{}", kind, key, measured, unit, *max, unit));
+            };
+            enforce("p50", stats["p50"].get<double>(), "s");
+            enforce("p95", stats["p95"].get<double>(), "s");
+            enforce("max", stats["max"].get<double>(), "s");
+            if (const auto max = budget_number(check, "timeouts"); max && count.timeouts > *max) failures.push_back(std::format("{} {} timeout(s)", kind, count.timeouts));
+            if (const auto max = budget_number(check, "wrong"); max && count.wrong > *max) failures.push_back(std::format("{} {} answer(s) not naming the expected file", kind, count.wrong));
+            if (const auto max = budget_number(check, "maxEmptyShare"); max && !samples.empty() && static_cast<double>(count.empty) / static_cast<double>(samples.size()) > *max) {
+                failures.push_back(std::format("{} {} of {} answers empty", kind, count.empty, samples.size()));
+            }
+            kinds[kind] = std::move(stats);
+            brief.push_back(std::format("{} p95 {:.2f}s max {:.2f}s", kind, kinds[kind]["p95"].get<double>(), kinds[kind]["max"].get<double>()));
+        }
+        // Speed alone is not enough: a fallback answers at once. The share of answers a real engine gave is held too.
+        Json shares = Json::object();
+        std::set<std::string> shareKinds;
+        for (const auto& kind : check.value("engine-share-kinds", Json::array({ "completion", "hover" }))) shareKinds.insert(kind.get<std::string>());
+        for (const auto& spec : specs) {
+            if (!shareKinds.contains(spec.kind) || shares.contains(spec.method)) continue;
+            Json detail;
+            const auto share = engine_share(before, after, spec.method, &detail);
+            shares[spec.method] = Json { { "share", share ? Json(*share) : Json(nullptr) }, { "answeredBy", detail } };
+            enforce_min(check, "engineShare", share, std::format("engine share of {}", spec.kind), failures);
+            if (share) brief.push_back(std::format("{} by engine {:.0f}%", spec.kind, *share * 100.0));
+        }
+        Json firstAnswers = Json::object();
+        for (const auto& first : firsts) {
+            firstAnswers[first.name] = first.at ? Json(*first.at) : Json(nullptr);
+            if (!first.at) failures.push_back(std::format("first answer '{}' never came", first.name));
+            else if (first.within > 0 && *first.at > first.within) failures.push_back(std::format("first answer '{}' came {:.1f}s after initialize, over the budget {:.1f}s", first.name, *first.at, first.within));
+            brief.push_back(std::format("{} first answered {}", first.name, first.at ? std::format("{:.1f}s in", *first.at) : std::string { "never" }));
+        }
+        Json requests = Json::object();
+        for (const auto& [name, samples] : byName) requests[name] = latency_stats(samples);
+        Json summary { { "phase", phase }, { "rounds", rounds }, { "seconds", seconds_since(began) }, { "kinds", std::move(kinds) }, { "requests", std::move(requests) },
+                       { "firstAnswers", std::move(firstAnswers) }, { "engineShare", std::move(shares) } };
+        return finish_measure(std::move(failures), std::move(summary), std::format("{}, {} round(s): {}", phase, rounds, base::join(brief, "; ")));
+    }
+
+    // ---- typing ----
+
+    // Whether a diagnostic of the file's latest publication names `needle`.
+    bool diagnostic_mentions(const std::string& documentUri, std::string_view needle) {
+        const auto it = client_.diagnostics.find(documentUri);
+        if (it == client_.diagnostics.end()) return false;
+        return std::ranges::any_of(it->second, [&](const Json& diagnostic) { return diagnostic.value("message", std::string {}).contains(needle); });
+    }
+
+    std::pair<bool, std::string> run_typing(const Json& check, const std::string& file) {
+        open(file);
+        const std::string documentUri { uri(file) };
+        const std::string absolutePath { base::join_path(workspace_, file) };
+        const double hz { std::max(0.5, check.value("hz", 10.0)) };
+        const auto period = std::chrono::duration<double>(1.0 / hz);
+        const std::chrono::seconds duration { check.value("seconds", 120) };
+        const std::chrono::milliseconds completionEvery { check.value("completion-every-ms", 1000) };
+        const std::chrono::milliseconds autosaveEvery { check.value("autosave-ms", 0) };
+        const std::chrono::seconds requestTimeout { check.value("requestTimeout", 65) };
+        const Json scripts = check.value("scripts", Json::array());
+        if (!scripts.is_array() || scripts.empty()) return { false, "a typing check names no scripts" };
+        if (autosaveEvery.count() > 0) remember_original(absolutePath);
+
+        std::vector<std::string> lines;
+        {
+            const std::string current { text_of(file) };
+            for (const auto line : base::split_lines(current)) lines.emplace_back(line);
+        }
+        const std::vector<std::string> original { lines };
+        const auto join_lines = [](const std::vector<std::string>& all) {
+            std::string text;
+            for (const auto& line : all) text += line + "\n";
+            return text;
+        };
+        std::mt19937_64 rng { static_cast<std::uint64_t>(check.value("seed", 7)) };
+        const auto uniform = [&](double low, double high) { return std::uniform_real_distribution<double> { low, high }(rng); };
+
+        struct Cursor {
+            int line { 0 };
+            int character { 0 };
+        } cursor;
+        cursor.line = scripts.front().value("line", 0);
+        std::vector<std::int64_t> completions;
+        auto next_completion = Clock::now() + completionEvery;
+        auto next_save = Clock::now() + autosaveEvery;
+        const auto send = [&] { change(file, join_lines(lines)); };
+        const auto save = [&] {
+            (void)fs::write_file_atomic(absolutePath, join_lines(lines));
+            client_.notify("textDocument/didSave", Json { { "textDocument", Json { { "uri", documentUri } } } });
+            client_.notify("workspace/didChangeWatchedFiles", Json { { "changes", Json::array({ Json { { "uri", documentUri }, { "type", 2 } } }) } });
+        };
+        // What an editor does while a person types: keystrokes keep coming when an answer is late, and a completion is asked
+        // for at the cursor now and then; nothing here waits for an answer.
+        const auto elapse = [&](std::chrono::duration<double> span) {
+            const auto until { Clock::now() + std::chrono::duration_cast<Clock::duration>(span) };
+            for (;;) {
+                auto wake { until };
+                if (completionEvery.count() > 0) wake = std::min(wake, next_completion);
+                if (autosaveEvery.count() > 0) wake = std::min(wake, next_save);
+                if (wake > Clock::now()) client_.pump_until(wake);
+                const auto now { Clock::now() };
+                if (completionEvery.count() > 0 && now >= next_completion) {
+                    completions.push_back(client_.send_async("textDocument/completion", Json { { "textDocument", Json { { "uri", documentUri } } },
+                                                                                             { "position", Json { { "line", cursor.line }, { "character", cursor.character } } } }));
+                    next_completion += completionEvery;
+                }
+                if (autosaveEvery.count() > 0 && now >= next_save) {
+                    save();
+                    next_save += autosaveEvery;
+                }
+                if (now >= until) return;
+            }
+        };
+
+        const Json before = root_report();
+        const std::size_t samplesBefore { client_.statusSamples.size() };
+        const auto began { Clock::now() };
+        const auto end { began + duration };
+        std::size_t scriptNumber { 0 };
+        while (Clock::now() < end && client_.unusable().empty()) {
+            const Json& script { scripts[scriptNumber++ % scripts.size()] };
+            const std::string text { script.value("text", std::string {}) };
+            const std::size_t line { std::min(static_cast<std::size_t>(std::max(0, script.value("line", 0))), lines.size()) };
+            lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(line), std::string {});   // a fresh line to type on
+            send();
+            cursor = { static_cast<int>(line), 0 };
+            for (const char c : text) {
+                lines[line].push_back(c);
+                ++cursor.character;
+                send();
+                elapse(period * uniform(0.6, 1.4));
+                if (Clock::now() > end) break;
+            }
+            elapse(std::chrono::duration<double>(uniform(0.5, 2.5)));   // a pause with broken text on the screen
+            while (!lines[line].empty()) {
+                lines[line].pop_back();
+                --cursor.character;
+                send();
+                elapse(period * 0.5);
+            }
+            lines.erase(lines.begin() + static_cast<std::ptrdiff_t>(line));
+            cursor = { static_cast<int>(line), 0 };
+            send();
+            elapse(std::chrono::duration<double>(uniform(0.3, 1.0)));
+        }
+        // The text is what it was; a saved one is written back before the answers are waited for.
+        lines = original;
+        send();
+        if (autosaveEvery.count() > 0) save();
+        const auto typingSeconds { seconds_since(began) };
+
+        // The last completions are given until the server's own limit, and no longer: one still unanswered then is a timeout.
+        {
+            const auto giveUp { Clock::now() + requestTimeout };
+            client_.pump_until(Clock::now() + std::chrono::milliseconds { 200 });
+            while (Clock::now() < giveUp && std::ranges::any_of(completions, [&](std::int64_t id) { return !client_.asyncRequests[id].answered; })) {
+                client_.pump_until(Clock::now() + std::chrono::milliseconds { 200 });
+            }
+        }
+        std::vector<double> answered;
+        int timeouts { 0 };
+        int errors { 0 };
+        for (const auto id : completions) {
+            const auto& request { client_.asyncRequests[id] };
+            if (!request.answered) ++timeouts;
+            else if (request.isError) ++errors;
+            else answered.push_back(seconds_between(request.sent, *request.answered));
+        }
+
+        // Diagnostics after the typing stops: a real mistake is typed at once and how long its diagnostic takes is timed.
+        std::optional<double> refresh;
+        if (const auto probe = check.find("diagnostic-probe"); probe != check.end() && probe->is_object()) {
+            auto marked { original };
+            const std::size_t at { std::min(static_cast<std::size_t>(std::max(0, probe->value("line", 0))), marked.size()) };
+            marked.insert(marked.begin() + static_cast<std::ptrdiff_t>(at), probe->value("text", std::string {}));
+            lines = marked;
+            const std::string needle { probe->value("expect", std::string {}) };
+            const auto typed { Clock::now() };
+            send();
+            if (autosaveEvery.count() > 0) save();
+            const std::chrono::seconds wait { probe->value("wait-seconds", 60) };
+            const bool arrived { client_.wait_for([&] {
+                const auto it = client_.diagnosticsAt.find(documentUri);
+                return it != client_.diagnosticsAt.end() && it->second > typed && diagnostic_mentions(documentUri, needle);
+            }, wait) };
+            if (arrived) refresh = seconds_since(typed);
+            lines = original;
+            send();
+            if (autosaveEvery.count() > 0) save();
+            client_.pump_until(Clock::now() + std::chrono::seconds { 2 });
+        }
+        const Json after = root_report();
+
+        std::vector<std::string> failures;
+        const Json latency = latency_stats(answered);
+        enforce_max(check, "p95", latency["p95"].get<double>(), "completion p95", "s", failures);
+        enforce_max(check, "max", latency["max"].get<double>(), "completion max", "s", failures);
+        const long restarts { event_total(after, "engine-start") - event_total(before, "engine-start") };
+        const long setAside { event_total(after, "file-set-aside") - event_total(before, "file-set-aside") };
+        const long serverTimeouts { event_total(after, "request-timeout") - event_total(before, "request-timeout") };
+        // The two counts are of one thing seen from both sides and are added: the client waits past the server's own limit, so a
+        // request the server gave up on is not also a timeout here.
+        const long allTimeouts { timeouts + serverTimeouts };
+        if (after.is_object() && before.is_object()) {
+            enforce_max(check, "restarts", static_cast<double>(restarts), "clangd restarts", "", failures);
+            enforce_max(check, "filesSetAside", static_cast<double>(setAside), "files set aside", "", failures);
+        }
+        enforce_max(check, "timeouts", static_cast<double>(allTimeouts), "request timeouts", "", failures);
+        if (const auto limit = budget_number(check, "diagnosticsRefresh")) {
+            if (!refresh) failures.push_back(std::format("the diagnostic of the typed mistake never arrived within {} s", check.value("diagnostic-probe", Json::object()).value("wait-seconds", 60)));
+            else if (*refresh > *limit) failures.push_back(std::format("diagnostics after typing took {:.2f}s, over the budget {:.2f}s", *refresh, *limit));
+        }
+        Json detail;
+        const auto share { engine_share(before, after, "textDocument/completion", &detail) };
+        enforce_min(check, "engineShare", share, "engine share of completion", failures);
+        std::set<std::string> statesSeen;
+        for (std::size_t i { samplesBefore }; i < client_.statusSamples.size(); ++i) statesSeen.insert(client_.statusSamples[i].state);
+        for (const auto& never : check.value("states-never", Json::array())) {
+            if (statesSeen.contains(never.get<std::string>())) failures.push_back(std::format("the status was {} while typing", never.get<std::string>()));
+        }
+        Json summary { { "seconds", typingSeconds }, { "hz", hz }, { "autosaveMs", autosaveEvery.count() }, { "completions", completions.size() },
+                       { "answered", answered.size() }, { "clientTimeouts", timeouts }, { "serverTimeouts", serverTimeouts }, { "errors", errors },
+                       { "completion", latency }, { "engineShare", share ? Json(*share) : Json(nullptr) }, { "answeredBy", detail },
+                       { "restarts", restarts }, { "filesSetAside", setAside }, { "diagnosticsRefresh", refresh ? Json(*refresh) : Json(nullptr) },
+                       { "statesSeen", statesSeen } };
+        return finish_measure(std::move(failures), std::move(summary),
+                              std::format("{:.0f} s at {:.0f} Hz, {} completions p95 {:.2f}s max {:.2f}s, {} restart(s), {} set aside, {} timeout(s), diagnostics after {}",
+                                          typingSeconds, hz, completions.size(), latency["p95"].get<double>(), latency["max"].get<double>(), restarts, setAside, allTimeouts,
+                                          refresh ? std::format("{:.1f}s", *refresh) : std::string { "never" }));
+    }
+
+    // ---- edit-save ----
+
+    std::pair<bool, std::string> run_edit_save(const Json& check) {
+        const std::string interfaceFile { check.value("file", std::string {}) };
+        const std::string absoluteInterface { base::join_path(workspace_, interfaceFile) };
+        const std::string marker { check.value("marker", std::string {}) };
+        const std::string inserted { check.value("insert", std::string {}) };
+        auto original = fs::read_file(absoluteInterface);
+        if (!original) return { false, std::format("{}: {}", interfaceFile, original.error().message) };
+        const std::size_t at { original->find(marker) };
+        if (marker.empty() || at == std::string::npos) return { false, std::format("{} has no '{}'", interfaceFile, marker) };
+        const std::string edited { original->substr(0, at + marker.size()) + inserted + original->substr(at + marker.size()) };
+        remember_original(absoluteInterface);
+
+        std::vector<std::string> importers;
+        for (const auto& importer : check.value("importers", Json::array())) importers.push_back(importer.get<std::string>());
+        if (importers.empty()) return { false, "an edit-save check names no importers" };
+        // The first importer carries the mistake whose diagnostic the edit clears: it uses what the interface does not yet declare.
+        const Json probe = check.value("probe", Json::object());
+        const std::string needle { probe.value("expect", std::string {}) };
+        open(importers.front(), text_of(importers.front()) + probe.value("append", std::string {}));
+        for (std::size_t i { 1 }; i < importers.size(); ++i) open(importers[i]);
+        open(interfaceFile);
+        const std::string probeUri { uri(importers.front()) };
+        const std::chrono::seconds settleWithin { check.value("settle-seconds", 900) };
+        if (!settle(settleWithin)) return { false, "the project did not settle before the edit" };
+        if (!needle.empty() && !client_.wait_for([&] { return diagnostic_mentions(probeUri, needle); }, std::chrono::seconds { 60 })) {
+            return { false, std::format("{} shows no diagnostic naming '{}' before the edit: the probe measures nothing", importers.front(), needle) };
+        }
+
+        std::map<std::string, int> publishedBefore;
+        for (const auto& importer : importers) publishedBefore[importer] = client_.diagnosticsCount[uri(importer)];
+        const Json before = root_report();
+        const std::size_t samplesBefore { client_.statusSamples.size() };
+        const std::string interactiveFile { check.value("interactive", Json::object()).value("file", importers.front()) };
+        const Json interactiveAt = check.value("interactive", Json::object()).value("at", Json::array({ 0, 0 }));
+        const std::chrono::milliseconds interactiveEvery { check.value("interactive", Json::object()).value("every-ms", 1000) };
+        const std::chrono::seconds waitFor { check.value("wait-seconds", 120) };
+
+        // The person saves the interface: on disk, in the buffer, and told to the server both ways.
+        (void)fs::write_file_atomic(absoluteInterface, edited);
+        change(interfaceFile, edited);
+        const auto saved { Clock::now() };
+        client_.notify("textDocument/didSave", Json { { "textDocument", Json { { "uri", uri(interfaceFile) } } } });
+        client_.notify("workspace/didChangeWatchedFiles", Json { { "changes", Json::array({ Json { { "uri", uri(interfaceFile) }, { "type", 2 } } }) } });
+
+        std::vector<std::int64_t> completions;
+        std::optional<double> probeCleared;
+        std::optional<double> allRepublished;
+        auto next_completion { Clock::now() };
+        const auto deadline { saved + waitFor };
+        while (Clock::now() < deadline && (!allRepublished || (!probeCleared && !needle.empty()))) {
+            if (Clock::now() >= next_completion) {
+                completions.push_back(client_.send_async("textDocument/completion", Json { { "textDocument", Json { { "uri", uri(interactiveFile) } } }, { "position", position(interactiveAt) } }));
+                next_completion += interactiveEvery;
+            }
+            client_.pump_until(std::min(deadline, Clock::now() + std::chrono::milliseconds { 100 }));
+            if (!probeCleared && !needle.empty()) {
+                const auto it = client_.diagnosticsAt.find(probeUri);
+                if (it != client_.diagnosticsAt.end() && it->second > saved && !diagnostic_mentions(probeUri, needle)) probeCleared = seconds_since(saved);
+            }
+            if (!allRepublished && std::ranges::all_of(importers, [&](const std::string& importer) { return client_.diagnosticsCount[uri(importer)] > publishedBefore[importer]; })) {
+                allRepublished = seconds_since(saved);
+            }
+        }
+        // After the edit the project must be usable again: a jump lands where it should, whatever clangd did meanwhile.
+        std::optional<double> recovered;
+        if (const auto recover = check.find("recover-probe"); recover != check.end() && recover->is_object()) {
+            recovered = time_to_answer(*recover, saved, waitFor);
+        }
+        {
+            const auto giveUp { Clock::now() + std::chrono::seconds { 10 } };
+            while (Clock::now() < giveUp && std::ranges::any_of(completions, [&](std::int64_t id) { return !client_.asyncRequests[id].answered; })) {
+                client_.pump_until(Clock::now() + std::chrono::milliseconds { 200 });
+            }
+        }
+        std::vector<double> answered;
+        int unanswered { 0 };
+        for (const auto id : completions) {
+            const auto& request { client_.asyncRequests[id] };
+            if (request.answered) answered.push_back(seconds_between(request.sent, *request.answered));
+            else ++unanswered;
+        }
+        std::set<std::string> statesSeen;
+        int errorSamples { 0 };
+        for (std::size_t i { samplesBefore }; i < client_.statusSamples.size(); ++i) {
+            statesSeen.insert(client_.statusSamples[i].state);
+            if (client_.statusSamples[i].state == "error") ++errorSamples;
+        }
+        const Json after = root_report();
+
+        // Put the interface back: the next stage starts from the prepared workspace, and what returns is one more change.
+        (void)fs::write_file_atomic(absoluteInterface, *original);
+        change(interfaceFile, *original);
+        client_.notify("textDocument/didSave", Json { { "textDocument", Json { { "uri", uri(interfaceFile) } } } });
+        client_.notify("workspace/didChangeWatchedFiles", Json { { "changes", Json::array({ Json { { "uri", uri(interfaceFile) }, { "type", 2 } } }) } });
+        const bool restoreSettled { !check.value("settle-after", true) || settle(std::chrono::seconds { check.value("settle-after-seconds", 300) }) };
+
+        std::vector<std::string> failures;
+        const Json latency = latency_stats(answered);
+        if (allRepublished) enforce_max(check, "republishSeconds", allRepublished, "importers' diagnostics", "s", failures);
+        else failures.push_back(std::format("not every importer's diagnostics were published again within {} s", waitFor.count()));
+        if (!needle.empty()) {
+            if (probeCleared) enforce_max(check, "probeSeconds", probeCleared, "the probe diagnostic", "s", failures);
+            else failures.push_back(std::format("the diagnostic naming '{}' never cleared within {} s", needle, waitFor.count()));
+        }
+        enforce_max(check, "p95", latency["p95"].get<double>(), "completion p95", "s", failures);
+        enforce_max(check, "max", latency["max"].get<double>(), "completion max", "s", failures);
+        if (unanswered > 0) failures.push_back(std::format("{} completion(s) unanswered", unanswered));
+        if (check.contains("recover-probe")) {
+            if (recovered) enforce_max(check, "recoverSeconds", recovered, "the probe after the save", "s", failures);
+            else failures.push_back(std::format("the probe was never answered as it should be within {} s", waitFor.count()));
+        }
+        if (const auto limit = budget_number(check, "errorStates"); limit && errorSamples > *limit) failures.push_back(std::format("the status was error {} time(s)", errorSamples));
+        if (before.is_object() && after.is_object()) {
+            enforce_max(check, "restarts", static_cast<double>(event_total(after, "engine-start") - event_total(before, "engine-start")), "clangd restarts", "", failures);
+        }
+        Json detail;
+        const auto share { engine_share(before, after, "textDocument/completion", &detail) };
+        enforce_min(check, "engineShare", share, "engine share of completion", failures);
+        if (!restoreSettled) failures.push_back("the project did not settle after the interface was restored");
+        Json summary { { "importers", importers.size() }, { "republishSeconds", allRepublished ? Json(*allRepublished) : Json(nullptr) },
+                       { "probeSeconds", probeCleared ? Json(*probeCleared) : Json(nullptr) }, { "recoverSeconds", recovered ? Json(*recovered) : Json(nullptr) },
+                       { "completion", latency }, { "completionsUnanswered", unanswered }, { "statesSeen", statesSeen }, { "errorSamples", errorSamples },
+                       { "restarts", event_total(after, "engine-start") - event_total(before, "engine-start") }, { "engineShare", share ? Json(*share) : Json(nullptr) } };
+        const auto text = [](const std::optional<double>& value) { return value ? std::format("{:.1f}s", *value) : std::string { "never" }; };
+        return finish_measure(std::move(failures), std::move(summary),
+                              std::format("{} importers republished after {}, probe cleared after {}, interactive p95 {:.2f}s max {:.2f}s, jump after {}, states {}", importers.size(),
+                                          text(allRepublished), text(probeCleared), latency["p95"].get<double>(), latency["max"].get<double>(), text(recovered), lsp::dump(statesSeen)));
+    }
+
+    // ---- fault ----
+
+    struct Injected {
+        std::size_t files { 0 };
+        std::string what;
+    };
+
+    // The lock files a fault wrote, taken away when the check ends: a server left waiting for a lock nobody holds gets it back at
+    // once, and the next check does not begin in the state this one broke.
+    std::vector<std::string> injectedLocks_;
+
+    // Stale module locks for `module`, as clangd 23.1 leaves them: `.locks/<hash>.lock`, a symlink to `<hash>.lock-<random>`
+    // whose content is "hostname pid". `variant` says whose: a dead pid on this host is broken by clangd; a live pid, or
+    // another host's, is waited for (up to 260 s a generation, 0.0.6). The module's published files are removed so that it has
+    // to be built and its lock is taken.
+    std::optional<Injected> inject_lock(const std::string& module, const std::string& variant, std::string& why) {
+        const auto published = module_files(cacheDirectory_, module);
+        if (published.empty()) {
+            why = std::format("no module file of {} in the cache to build again", module);
+            return std::nullopt;
+        }
+        std::set<std::string> sourceDirectories;
+        for (const auto& [path, stamp] : published) {
+            sourceDirectories.insert(base::parent_path(base::parent_path(path)));
+            std::error_code ignored;
+            std::filesystem::remove(path, ignored);
+        }
+        const std::string host { variant == "foreign-host" ? std::string { "some-other-host" } : host_name() };
+        const std::string pid { variant == "dead-pid" ? std::string { "3999999" } : std::string { "1" } };
+        std::size_t created { 0 };
+        for (const auto& directory : sourceDirectories) {
+            const std::string name { base::file_name(directory) };
+            const std::size_t dash { name.rfind('-') };
+            if (dash == std::string::npos) continue;
+            const std::string hash { name.substr(dash + 1) };
+            const std::string locks { base::join_path(base::parent_path(directory), ".locks") };
+            (void)fs::create_directories(locks);
+            const std::string owner { base::join_path(locks, hash + ".lock-deadbeef") };
+            const std::string link { base::join_path(locks, hash + ".lock") };
+            if (!fs::write_file(owner, host + " " + pid)) continue;
+            std::error_code ignored;
+            std::filesystem::remove(link, ignored);
+            std::filesystem::create_symlink(owner, link, ignored);
+            if (!ignored) {
+                ++created;
+                injectedLocks_.push_back(owner);
+                injectedLocks_.push_back(link);
+            }
+        }
+        if (created == 0) {
+            why = "no lock could be written beside the module files";
+            return std::nullopt;
+        }
+        return Injected { created, std::format("{} lock(s) held by {} {}", created, host, pid) };
+    }
+
+    std::size_t truncate_module_files(const std::string& module) {
+        std::size_t truncated { 0 };
+        for (const auto& [path, stamp] : module_files(cacheDirectory_, module)) {
+            std::error_code failed;
+            const auto size { std::filesystem::file_size(path, failed) };
+            if (failed) continue;
+            std::filesystem::resize_file(path, size / 2, failed);
+            if (!failed) ++truncated;
+        }
+        return truncated;
+    }
+
+    std::pair<bool, std::string> run_fault(const Json& check) {
+        const std::string action { check.value("action", std::string {}) };
+        const std::chrono::seconds waitFor { check.value("wait-seconds", 120) };
+        const Json recoverProbe = check.value("recover-probe", Json::object());
+        if (!recoverProbe.contains("at")) return { false, "a fault check names a recover-probe: the request whose right answer shows the project is usable again" };
+        struct LockCleanup {
+            std::vector<std::string>& files;
+            ~LockCleanup() {
+                for (const auto& file : files) {
+                    std::error_code ignored;
+                    std::filesystem::remove(file, ignored);
+                }
+                files.clear();
+            }
+        } lockCleanup { injectedLocks_ };
+        // What an editor has open when the fault happens: the preparation is of what is open, and a restarted server is given it again.
+        for (const auto& one : check.value("open", Json::array())) open(one.get<std::string>());
+        open(recoverProbe.value("file", std::string { "src/main.cpp" }));
+        std::vector<std::string> failures;
+        Json summary { { "action", action } };
+
+        // Where the fault happens: while a preparation is under way ("at-progress"), or once the project is settled.
+        const auto arrive = [&]() -> std::optional<std::string> {
+            if (check.contains("at-progress")) {
+                const double fraction { check.value("at-progress", 0.3) };
+                if (!wait_for_progress(fraction, std::chrono::seconds { check.value("progress-timeout", 300) }, std::chrono::seconds { check.value("progress-fallback-seconds", 3) })) {
+                    return std::format("the preparation never got {:.0f}% of the way, or was over first", fraction * 100);
+                }
+            } else if (!settle(std::chrono::seconds { check.value("settle-seconds", 900) })) {
+                return std::string { "the project did not settle before the fault" };
+            }
+            return std::nullopt;
+        };
+        const auto text = [](const std::optional<double>& value) { return value ? std::format("{:.1f}s", *value) : std::string { "never" }; };
+
+        Clock::time_point t0 { Clock::now() };
+        std::string brief;
+        long restartsBefore { 0 };
+        Json rootBefore;
+        std::map<std::string, std::string> pcmBefore;
+
+        if (action == "kill-clangd") {
+            if (!watcher_.active()) return { true, "skipped: this platform cannot name clangd's process" };
+            const int count { check.value("count", 1) };
+            std::vector<double> newClangd;
+            long doneAtKill { 0 };
+            for (int k { 0 }; k < count; ++k) {
+                if (check.contains("at-progress")) {
+                    const double fraction { check.value("at-progress", 0.3) + 0.1 * k };
+                    if (!wait_for_progress(fraction, std::chrono::seconds { 300 }, std::chrono::seconds { check.value("progress-fallback-seconds", 3) })) return { false, std::format("the preparation never got {:.0f}% of the way, or was over first", fraction * 100) };
+                } else if (k == 0) {
+                    if (const auto why = arrive()) return { false, *why };
+                }
+                if (k == 0) {
+                    rootBefore = root_report();
+                    restartsBefore = event_total(rootBefore, "engine-start");
+                }
+                const auto pids { watcher_.pids() };
+                if (pids.empty()) return { false, "no clangd process is running under the server" };
+                doneAtKill = client_.statusSamples.empty() ? 0 : client_.statusSamples.back().done;
+                t0 = Clock::now();
+                for (const auto pid : pids) (void)kill_process(pid);
+                // The server starts another; how long that takes is what a person sees as clangd being gone.
+                std::optional<double> replaced;
+                while (seconds_since(t0) < 60 && !replaced) {
+                    client_.pump_until(Clock::now() + std::chrono::milliseconds { 50 });
+                    const auto now { watcher_.pids() };
+                    if (std::ranges::any_of(now, [&](std::int64_t pid) { return std::ranges::find(pids, pid) == pids.end(); })) replaced = seconds_since(t0);
+                }
+                if (replaced) newClangd.push_back(*replaced);
+                else failures.push_back(std::format("no new clangd within 60 s of kill {}", k + 1));
+                if (k + 1 < count) client_.pump_until(Clock::now() + std::chrono::seconds { 4 });
+            }
+            summary["newClangdSeconds"] = newClangd;
+            if (!newClangd.empty()) enforce_max(check, "newClangdSeconds", *std::ranges::max_element(newClangd), "the slowest new clangd", "s", failures);
+            const auto definition { time_to_answer(recoverProbe, t0, waitFor) };
+            const bool resumed { client_.wait_for([&] {
+                if (state_of(client_.status) == "ready") return true;
+                return !client_.statusSamples.empty() && client_.statusSamples.back().done > doneAtKill;
+            }, waitFor) };
+            (void)client_.wait_for([&] { return ready_seconds_since(t0).has_value(); }, waitFor);
+            const auto ready { ready_seconds_since(t0) };
+            // How many clangds the server started for the kills it saw: one each is what a kill asks for.
+            if (const Json after = root_report(); after.is_object() && rootBefore.is_object()) {
+                summary["clangdStarts"] = event_total(after, "engine-start") - restartsBefore;
+                enforce_max(check, "clangdStarts", static_cast<double>(event_total(after, "engine-start") - restartsBefore), "clangds started for the kills", "", failures);
+            }
+            summary["answerSeconds"] = definition ? Json(*definition) : Json(nullptr);
+            summary["preparationResumed"] = resumed;
+            summary["readySeconds"] = ready ? Json(*ready) : Json(nullptr);
+            if (!definition) failures.push_back(std::format("the probe was not answered within {} s of the last kill", waitFor.count()));
+            else enforce_max(check, "answerSeconds", definition, "the first answer of the probe", "s", failures);
+            if (!resumed) failures.push_back("the preparation did not go on");
+            if (!ready) failures.push_back(std::format("the status was not ready again within {} s of the kill", waitFor.count()));
+            enforce_max(check, "readySeconds", ready, "ready again", "s", failures);
+            brief = std::format("{} kill(s), new clangd after {}, jump after {}, ready {}, preparation {}", count, text(newClangd.empty() ? std::nullopt : std::optional<double> { newClangd.back() }),
+                                text(definition), text(ready), resumed ? "went on" : "did not go on");
+        } else if (action == "kill-server" || action == "lock" || action == "truncate-pcm") {
+            if (action == "kill-server" && !watcher_.active()) return { true, "skipped: this platform cannot name the server's process" };
+            if (const auto why = arrive()) return { false, *why };
+            pcmBefore = all_module_files(cacheDirectory_);
+            tailer_.poll();
+            const long lockWaitsBefore { tailer_.count("Still waiting for module lock") };
+            const std::string module { check.value("module", std::string {}) };
+            std::vector<std::int64_t> clangdBefore { watcher_.pids() };
+            std::string why;
+            if (action == "kill-server") {
+                const std::int64_t server { client_.serverPid.load() };
+                if (server <= 0 || !kill_process(server)) return { false, "the server could not be killed" };
+                const auto gap { std::chrono::milliseconds { check.value("gap-ms", 0) } };
+                if (gap.count() > 0) std::this_thread::sleep_for(gap);
+            } else {
+                // A lock and a damaged file are found by the server that starts next: this one ends first, as it does when a
+                // person closes the editor, and the damage is done to a cache nobody is using.
+                client_.stop();
+                if (action == "lock") {
+                    const auto injected { inject_lock(module, check.value("variant", std::string { "dead-pid" }), why) };
+                    if (!injected) return { false, why };
+                    summary["injected"] = injected->what;
+                } else {
+                    const auto truncated { truncate_module_files(module) };
+                    if (truncated == 0) return { false, std::format("no module file of {} in the cache to truncate", module) };
+                    summary["truncated"] = truncated;
+                }
+            }
+            t0 = Clock::now();
+            if (!restart_server(why)) return { false, why };
+            const auto definition { time_to_answer(recoverProbe, t0, waitFor) };
+            const bool ready { client_.wait_for([&] { return ready_seconds_since(t0).has_value(); }, std::max(std::chrono::seconds { 1 }, waitFor - std::chrono::duration_cast<std::chrono::seconds>(Clock::now() - t0))) };
+            const auto readyAt { ready_seconds_since(t0) };
+            const bool preparing { preparing_since(t0) };
+            client_.pump_until(Clock::now() + std::chrono::seconds { 3 });
+            const Json rootAfter = root_report();
+            const std::size_t built { builds_since(pcmBefore, all_module_files(cacheDirectory_)).rebuilt };
+            const bool primaryCache { !rootAfter.value("cacheDirectory", std::string {}).contains("/instances/")
+                                      && std::ranges::none_of(client_.status.value("notices", Json::array()), [](const Json& notice) { return notice.value("code", std::string {}) == "shared-workspace"; }) };
+            long orphans { 0 };
+            if (action == "kill-server") {
+                // Killed with the server, or left running with nobody to serve? Looked at ten seconds after, and put an end to.
+                const auto wait { std::chrono::seconds { 10 } - std::chrono::duration_cast<std::chrono::seconds>(Clock::now() - t0) };
+                if (wait.count() > 0) client_.pump_until(Clock::now() + wait);
+                for (const auto pid : clangdBefore) {
+                    if (process_alive(pid)) {
+                        ++orphans;
+                        (void)kill_process(pid);
+                    }
+                }
+                summary["orphanedClangd"] = orphans;
+                enforce_max(check, "orphans", static_cast<double>(orphans), "clangd left running", "", failures);
+            }
+            tailer_.poll();
+            const bool logged { tailer_.clangd_output_seen() };
+            const long lockWaits { tailer_.count("Still waiting for module lock") - lockWaitsBefore };
+            summary["lockWaitLines"] = logged ? Json(lockWaits) : Json(nullptr);
+            if (logged) enforce_max(check, "lockWaitLines", static_cast<double>(lockWaits), "module lock waits", "", failures);
+            summary["answerSeconds"] = definition ? Json(*definition) : Json(nullptr);
+            summary["readySeconds"] = readyAt ? Json(*readyAt) : Json(nullptr);
+            summary["preparationResumed"] = preparing;
+            summary["newBmi"] = built;
+            summary["usesPrimaryCache"] = primaryCache;
+            summary["clangdRestarts"] = std::max(0L, event_total(rootAfter, "engine-start") - 1);
+            if (!definition) failures.push_back(std::format("the probe was not answered within {} s of the new server", waitFor.count()));
+            else enforce_max(check, "answerSeconds", definition, "the first answer of the probe", "s", failures);
+            if (!ready) failures.push_back(std::format("the status was not ready within {} s of the new server", waitFor.count()));
+            else enforce_max(check, "readySeconds", readyAt, "ready", "s", failures);
+            if (definition && ready && readyAt) enforce_max(check, "recoverSeconds", std::max(*definition, *readyAt), "recovery", "s", failures);
+            enforce_max(check, "newBmi", static_cast<double>(built), "module files built again", "", failures);
+            if (check.value("budget", Json::object()).value("usesPrimaryCache", false) && !primaryCache) failures.push_back("the new server used a private cache instead of the workspace's");
+            brief = std::format("new server: jump after {}, ready after {}, {} module file(s) built, {} cache", text(definition), text(readyAt), built,
+                                primaryCache ? "the workspace's" : "a private");
+        } else if (action == "git-checkout") {
+            return run_git_checkout(check, recoverProbe);
+        } else {
+            return { false, std::format("unknown fault action {}", action) };
+        }
+        return finish_measure(std::move(failures), std::move(summary), brief);
+    }
+
+    // `git checkout` away and back: what a person does between two tasks. The files the checkout changed are told to the
+    // server the way an editor's file watcher would; the first leg measures how fast the project is described again, the
+    // second (back at the commit the probe is valid at) how fast it is usable.
+    std::pair<bool, std::string> run_git_checkout(const Json& check, const Json& recoverProbe) {
+        auto git = mcppls::platform::env::find_executable("git");
+        if (!git) return { false, "git is not on PATH" };
+        const auto run_git = [&](std::vector<std::string> arguments) -> std::optional<std::string> {
+            mcppls::platform::SpawnOptions spawn;
+            spawn.program = *git;
+            spawn.arguments = std::move(arguments);
+            spawn.workDirectory = workspace_;
+            auto result = mcppls::platform::run(std::move(spawn), std::chrono::minutes { 5 });
+            if (!result || result->exitCode != 0) return std::nullopt;
+            return result->output;
+        };
+        const auto head = run_git({ "rev-parse", "HEAD" });
+        if (!head) return { false, "the workspace is not a git repository" };
+        const std::string home { std::string { base::trim(*head) } };
+        const std::string away { check.value("rev", std::string { "HEAD~20" }) };
+        const std::chrono::seconds waitFor { check.value("wait-seconds", 300) };
+        if (!settle(std::chrono::seconds { check.value("settle-seconds", 900) })) return { false, "the project did not settle before the checkout" };
+        std::vector<std::string> failures;
+        Json legs = Json::array();
+        std::string brief;
+        for (int leg { 0 }; leg < 2; ++leg) {
+            const std::string target { leg == 0 ? away : home };
+            const Json before = root_report();
+            // What changes: a name-status list with no renames, so every line is an addition (1), a change (2) or a deletion (3).
+            const auto changes = run_git({ "diff", "--name-status", "--no-renames", "HEAD", target });
+            if (!changes) return { false, std::format("git cannot compare HEAD with {}", target) };
+            Json reported = Json::array();
+            std::size_t changed { 0 };
+            for (const auto line : base::split_lines(*changes)) {
+                const auto tab { line.find('\t') };
+                if (tab == std::string_view::npos || tab == 0) continue;
+                const int type { line[0] == 'A' ? 1 : line[0] == 'D' ? 3 : 2 };
+                const std::string path { base::join_path(workspace_, std::string { line.substr(tab + 1) }) };
+                if (client_.watches(path, type)) reported.push_back(Json { { "uri", base::path_to_uri(path) }, { "type", type } });
+                ++changed;
+            }
+            // Open documents keep their text, as they do when a person switches branch with the files unchanged in the editor.
+            const auto t0 { Clock::now() };
+            const std::size_t samplesBefore { client_.statusSamples.size() };
+            if (!run_git({ "checkout", "-q", target })) return { false, std::format("git checkout {} failed", target) };
+            for (auto& [path, buffer] : open_) {
+                if (auto fresh = fs::read_file(base::join_path(workspace_, path)); fresh && *fresh != buffer.first) change(path, *fresh);
+            }
+            if (!reported.empty()) client_.notify("workspace/didChangeWatchedFiles", Json { { "changes", reported } });
+            // Described again: the status left `ready` for `loading` and came out of it.
+            std::optional<double> replanned;
+            client_.wait_for([&] {
+                bool loading { false };
+                for (std::size_t i { samplesBefore }; i < client_.statusSamples.size(); ++i) {
+                    if (client_.statusSamples[i].state == "loading") loading = true;
+                    else if (loading) {
+                        replanned = seconds_between(t0, client_.statusSamples[i].at);
+                        return true;
+                    }
+                }
+                return false;
+            }, waitFor);
+            std::optional<double> definition;
+            if (leg == 1) definition = time_to_answer(recoverProbe, t0, waitFor);
+            const bool settled { settle(waitFor) };
+            const Json after = root_report();
+            const long restarts { event_total(after, "engine-start") - event_total(before, "engine-start") };
+            Json entry { { "rev", target }, { "filesChanged", changed }, { "replanSeconds", replanned ? Json(*replanned) : Json(nullptr) },
+                         { "restarts", restarts }, { "settled", settled }, { "answerSeconds", definition ? Json(*definition) : Json(nullptr) } };
+            legs.push_back(entry);
+            if (!replanned) failures.push_back(std::format("leg {}: the server never described the project again after the checkout of {}", leg + 1, target));
+            else enforce_max(check, "replanSeconds", replanned, std::format("leg {} replan", leg + 1), "s", failures);
+            enforce_max(check, "restarts", static_cast<double>(restarts), std::format("leg {} clangd restarts", leg + 1), "", failures);
+            if (leg == 1) {
+                if (!definition) failures.push_back("the probe was not answered after going back");
+                else enforce_max(check, "answerSeconds", definition, "the first answer of the probe after going back", "s", failures);
+            }
+            brief += std::format("{}{}: {} file(s), replanned {}, {} restart(s)", leg == 0 ? "" : "; ", target, changed, replanned ? std::format("{:.1f}s", *replanned) : std::string { "never" }, restarts);
+        }
+        return finish_measure(std::move(failures), Json { { "legs", legs } }, brief);
+    }
+
+    // ---- timeline ----
+
+    std::pair<bool, std::string> run_timeline(const Json& check) {
+        if (const int observe { check.value("observe-seconds", 0) }; observe > 0) client_.pump_until(Clock::now() + std::chrono::seconds { observe });
+        const auto now { Clock::now() };
+        const auto& samples { client_.statusSamples };
+
+        // The longest time the project was loading, preparing or stalled without a module being prepared: a status that
+        // changes state but never advances `progress.done` is not progress. `degraded` and `ready` are settled.
+        double longestStall { 0.0 };
+        std::optional<Clock::time_point> since { begin_ };
+        long lastDone { -1 };
+        long lastTotal { -1 };
+        const auto close = [&](Clock::time_point at) {
+            if (since) longestStall = std::max(longestStall, seconds_between(*since, at));
+            since.reset();
+        };
+        for (const auto& sample : samples) {
+            if (sample.state == "restart") {
+                close(sample.at);
+                since = sample.at;
+                lastDone = lastTotal = -1;
+                continue;
+            }
+            const bool waiting { sample.state == "loading" || sample.state == "preparing"
+                                 || std::ranges::find(sample.issues, "preparation-stalled") != sample.issues.end() };
+            if (!waiting) {
+                close(sample.at);
+                lastDone = lastTotal = -1;
+                continue;
+            }
+            if (!since) {
+                since = sample.at;
+                lastDone = sample.done;
+                lastTotal = sample.total;
+            } else if (sample.done > lastDone || sample.total != lastTotal) {
+                close(sample.at);
+                since = sample.at;
+                lastDone = sample.done;
+                lastTotal = sample.total;
+            }
+        }
+        if (since) longestStall = std::max(longestStall, seconds_between(*since, now));
+
+        // State changes in the busiest minute, and the times the status was `error`.
+        std::vector<Clock::time_point> changes;
+        std::string previous;
+        int errors { 0 };
+        for (const auto& sample : samples) {
+            if (sample.state == "restart") {
+                previous.clear();
+                continue;
+            }
+            if (sample.state == "error") ++errors;
+            if (!previous.empty() && sample.state != previous) changes.push_back(sample.at);
+            previous = sample.state;
+        }
+        std::size_t busiest { 0 };
+        for (std::size_t i { 0 }; i < changes.size(); ++i) {
+            std::size_t inWindow { 0 };
+            for (std::size_t j { i }; j < changes.size() && changes[j] - changes[i] < std::chrono::seconds { 60 }; ++j) ++inWindow;
+            busiest = std::max(busiest, inWindow);
+        }
+
+        // Ready, and prepared: the first `ready` that held, and the last one after a preparation, from the start of the run.
+        std::optional<double> firstReady;
+        std::optional<double> prepared;
+        bool sawPreparing { false };
+        for (std::size_t i { 0 }; i < samples.size(); ++i) {
+            const auto& sample = samples[i];
+            if (sample.state == "restart") break;   // the first server's own start is what these are about
+            if (sample.state == "preparing") sawPreparing = true;
+            if (ready_holds(i)) {
+                if (!firstReady) firstReady = seconds_between(begin_, sample.at);
+                // The last one: a project whose model is replaced (xlings' transitional model, the producer's answer) is prepared
+                // twice, and it is the second time that a person waits for.
+                if (sawPreparing) prepared = seconds_between(begin_, sample.at);
+                sawPreparing = false;
+            }
+        }
+        const Json root = root_report();
+        const long clangdStarts { event_total(root, "engine-start") };
+        const long clangdRestarts { std::max(0L, clangdStarts - 1) };
+
+        std::vector<std::string> failures;
+        enforce_max(check, "maxStallSeconds", longestStall, "not ready without progress for", "s", failures);
+        enforce_max(check, "maxChangesPerMinute", static_cast<double>(busiest), "state changes in a minute", "", failures);
+        enforce_max(check, "errorStates", static_cast<double>(errors), "status error", "", failures);
+        if (root.is_object()) enforce_max(check, "restarts", static_cast<double>(clangdRestarts), "clangd restarts", "", failures);
+        enforce_max(check, "firstReadySeconds", firstReady, "first ready at", "s", failures);
+        if (const auto limit = budget_number(check, "preparedSeconds")) {
+            if (!prepared) failures.push_back("the preparation never finished");
+            else enforce_max(check, "preparedSeconds", prepared, "preparation finished at", "s", failures);
+        }
+        Json summary { { "statuses", samples.size() }, { "longestStallSeconds", longestStall }, { "stateChanges", changes.size() }, { "busiestMinuteChanges", busiest },
+                       { "errorStates", errors }, { "clangdRestarts", root.is_object() ? Json(clangdRestarts) : Json(nullptr) },
+                       { "firstReadySeconds", firstReady ? Json(*firstReady) : Json(nullptr) }, { "preparedSeconds", prepared ? Json(*prepared) : Json(nullptr) },
+                       { "serverRestarts", client_.restartMarks.size() } };
+        const auto number = [](const std::optional<double>& value) { return value ? std::format("{:.1f}s", *value) : std::string { "-" }; };
+        return finish_measure(std::move(failures), std::move(summary),
+                              std::format("longest stall {:.1f}s, {} state changes ({} in the busiest minute), {} error, clangd restarts {}, first ready {}, prepared {}", longestStall,
+                                          changes.size(), busiest, errors, root.is_object() ? std::to_string(clangdRestarts) : std::string { "?" }, number(firstReady), number(prepared)));
+    }
+
+    // ---- bmi-reuse ----
+
+    std::pair<bool, std::string> run_bmi_reuse(const Json& check) {
+        if (check.value("settle", true) && !settle(std::chrono::seconds { check.value("settle-seconds", 900) })) return { false, "the project did not settle" };
+        const auto now { all_module_files(cacheDirectory_) };
+        if (pcmBefore_.empty()) {
+            measure_ = Json { { "cold", true }, { "moduleFiles", now.size() } };
+            return { !expectWarm_, std::format("a cold start: {} module file(s) were built and none was there before", now.size()) };
+        }
+        const Builds builds { builds_since(pcmBefore_, now) };
+        tailer_.poll();
+        const bool logged { tailer_.clangd_output_seen() };
+        // Every module built logs one line; those of modules built for the first time are not rebuilds.
+        const long lines { std::max(0L, tailer_.count("Built module") - static_cast<long>(builds.first)) };
+        std::vector<std::string> failures;
+        enforce_max(check, "newBmi", static_cast<double>(builds.rebuilt), "module files built again", "", failures);
+        // Log lines only count where the log carries clangd's own output: at the default level it does not, and 0 would say nothing.
+        if (logged) enforce_max(check, "builtLines", static_cast<double>(lines), "'Built module' lines of modules built before", "", failures);
+        Json summary { { "moduleFilesBefore", pcmBefore_.size() }, { "moduleFilesNow", now.size() }, { "newBmi", builds.rebuilt },
+                       { "firstBuilds", builds.first }, { "builtModuleLines", logged ? Json(lines) : Json(nullptr) } };
+        return finish_measure(std::move(failures), std::move(summary),
+                              std::format("{} of {} module file(s) built again, {} module(s) built for the first time{}", builds.rebuilt, pcmBefore_.size(),
+                                          builds.first,
+                                          logged ? std::format(", {} 'Built module' line(s) of modules built before", lines) : std::string { ", the log carries no clangd output (--log-level debug)" }));
+    }
+
+    // ---- resources ----
+
+    std::pair<bool, std::string> run_resources(const Json& check) {
+        std::vector<std::string> failures;
+        Json summary = Json::object();
+        std::string brief;
+        std::optional<double> idleCores;
+        std::optional<double> growth;
+        if (const int idle { check.value("idle-seconds", 0) }; idle > 0) {
+            if (!settle(std::chrono::seconds { check.value("settle-seconds", 900) })) return { false, "the project did not settle before the idle period" };
+            // A clangd that has just gone quiet has not yet loaded what it will keep: the window starts after a warm-up minute, or
+            // its growth would be measured against a process that is not full-sized yet.
+            client_.pump_until(Clock::now() + std::chrono::seconds { check.value("warmup-seconds", 60) });
+            const auto rssBefore { watcher_.rss_mb_now() };
+            const auto from { Clock::now() };
+            client_.pump_until(from + std::chrono::seconds { idle });
+            idleCores = watcher_.cpu_cores(from, Clock::now());
+            const auto rssAfter { watcher_.rss_mb_now() };
+            if (rssBefore && rssAfter && *rssBefore > 0) growth = (*rssAfter - *rssBefore) / *rssBefore;
+            summary["idleSeconds"] = idle;
+            summary["idleCpuCores"] = idleCores ? Json(*idleCores) : Json(nullptr);
+            summary["rssGrowth"] = growth ? Json(*growth) : Json(nullptr);
+            summary["rssBeforeMB"] = rssBefore ? Json(*rssBefore) : Json(nullptr);
+            summary["rssAfterMB"] = rssAfter ? Json(*rssAfter) : Json(nullptr);
+            enforce_max(check, "idleCpuCores", idleCores, "clangd's CPU while nobody asked, in cores,", "", failures);
+            enforce_max(check, "rssGrowth", growth, "clangd's memory growth", "", failures);
+            brief = std::format("idle {} s: clangd {} core(s), memory {} ", idle, idleCores ? std::format("{:.3f}", *idleCores) : std::string { "?" },
+                                growth ? std::format("{:+.1f}%", *growth * 100.0) : std::string { "?" });
+        }
+        const auto peak { watcher_.peak_rss_mb() };
+        summary["peakRssMB"] = peak ? Json(*peak) : Json(nullptr);
+        enforce_max(check, "rssMB", peak, "clangd's peak resident memory", "MB", failures);
+        brief += peak ? std::format("peak RSS {:.0f} MB", *peak) : std::string { "peak RSS unknown here" };
+        return finish_measure(std::move(failures), std::move(summary), brief);
+    }
+
+
+    // ---- graph-edit ----
+
+    bool graph_has(const std::string& module) {
+        auto answer = client_.request("cxxModules/graph", Json::object(), std::chrono::seconds { 20 });
+        if (!answer || !answer->is_object()) return false;
+        return std::ranges::any_of(answer->value("modules", Json::array()), [&](const Json& one) { return one.value("name", std::string {}) == module; });
+    }
+
+    // What an editor's file watcher does for a change on disk; with nothing registered (--no-dynamic-watch) the server's own polling has to notice.
+    void report_file_change(const std::string& path, int type) {
+        const std::string canonical { fs::canonical_path(path) };
+        if (client_.watches(path, type) || (!canonical.empty() && client_.watches(canonical, type))) {
+            client_.notify("workspace/didChangeWatchedFiles", Json { { "changes", Json::array({ Json { { "uri", base::path_to_uri(path) }, { "type", type } } }) } });
+        }
+    }
+
+    // Seconds from `t0` until the server described the project again after a change: the status went to `loading` and came out
+    // of it. nullopt when it never did within `wait`.
+    std::optional<double> replanned_since(Clock::time_point t0, std::size_t samplesBefore, std::chrono::seconds wait) {
+        std::optional<double> replanned;
+        client_.wait_for([&] {
+            bool loading { false };
+            for (std::size_t i { samplesBefore }; i < client_.statusSamples.size(); ++i) {
+                if (client_.statusSamples[i].state == "loading") {
+                    loading = true;
+                } else if (loading) {
+                    replanned = seconds_between(t0, client_.statusSamples[i].at);
+                    return true;
+                }
+            }
+            return false;
+        }, wait);
+        return replanned;
+    }
+
+    std::set<std::string> createdOnFinish_;   // files a graph-edit added, removed when the run ends
+
+    std::pair<bool, std::string> run_graph_edit(const Json& check) {
+        const std::string action { check.value("action", std::string {}) };
+        const std::string file { check.value("file", std::string {}) };
+        const std::string path { base::join_path(workspace_, file) };
+        const std::string module { check.value("module", std::string {}) };
+        const std::chrono::seconds waitFor { check.value("wait-seconds", 60) };
+        const std::chrono::seconds quiet { check.value("quiet-seconds", 10) };
+        std::vector<std::string> failures;
+        Json summary { { "action", action } };
+        std::string brief;
+        const Json before = root_report();
+        const auto text = [](const std::optional<double>& value) { return value ? std::format("{:.1f}s", *value) : std::string { "never" }; };
+
+        if (action == "add" || action == "remove") {
+            const bool adding { action == "add" };
+            if (adding) {
+                (void)fs::create_directories(base::parent_path(path));
+                const bool existed { fs::exists(path) };
+                if (!existed) createdOnFinish_.insert(path);
+                else remember_original(path);
+                const std::string content { check.value("content", std::format("export module {};\nimport std;\nexport int ux_value() {{ return 1; }}\n", module)) };
+                if (auto written = fs::write_file(path, content); !written) return { false, written.error().message };
+                report_file_change(path, existed ? 2 : 1);
+            } else {
+                if (!fs::exists(path)) return { false, std::format("{} does not exist", file) };
+                std::error_code ignored;
+                std::filesystem::remove(path, ignored);
+                createdOnFinish_.erase(path);
+                report_file_change(path, 3);
+            }
+            const auto t0 { Clock::now() };
+            std::optional<double> graphSeconds;
+            while (seconds_since(t0) < static_cast<double>(waitFor.count()) && !graphSeconds) {
+                if (graph_has(module) == adding) graphSeconds = seconds_since(t0);
+                else client_.pump_until(Clock::now() + std::chrono::milliseconds { 250 });
+            }
+            client_.pump_until(Clock::now() + quiet);
+            const Json after = root_report();
+            const long restarts { event_total(after, "engine-start") - event_total(before, "engine-start") };
+            summary["graphSeconds"] = graphSeconds ? Json(*graphSeconds) : Json(nullptr);
+            summary["restarts"] = restarts;
+            if (!graphSeconds) failures.push_back(std::format("the module graph {} {} within {} s", adding ? "never listed" : "still lists", module, waitFor.count()));
+            else enforce_max(check, "graphSeconds", graphSeconds, "the module graph", "s", failures);
+            if (before.is_object() && after.is_object()) enforce_max(check, "restarts", static_cast<double>(restarts), "clangd restarts", "", failures);
+            brief = std::format("{} {}: the graph followed after {}, {} restart(s)", adding ? "added" : "removed", file, text(graphSeconds), restarts);
+        } else if (action == "config") {
+            // A build input changes and comes back: the project is described again both times, the first time with new commands
+            // (BMIs are built for them: not measured), the second time with commands it has seen, so nothing is built again.
+            const Json replace = check.value("replace", Json::object());
+            const std::string from { replace.value("from", std::string {}) };
+            remember_original(path);
+            auto original = fs::read_file(path);
+            if (!original || from.empty() || !original->contains(from)) return { false, std::format("{} has no '{}'", file, from) };
+            const std::string changed { base::replace_all(*original, from, replace.value("with", std::string {})) };
+            if (!settle(std::chrono::seconds { check.value("settle-seconds", 900) })) return { false, "the project did not settle before the change" };
+            std::size_t samplesBefore { client_.statusSamples.size() };
+            auto t0 { Clock::now() };
+            (void)fs::write_file(path, changed);
+            report_file_change(path, 2);
+            const auto changeSeconds { replanned_since(t0, samplesBefore, waitFor) };
+            const bool settledAfterChange { settle(std::chrono::seconds { check.value("settle-seconds", 900) }) };
+            const auto pcmBeforeRevert { all_module_files(cacheDirectory_) };
+            samplesBefore = client_.statusSamples.size();
+            const Json beforeRevert = root_report();
+            t0 = Clock::now();
+            (void)fs::write_file(path, *original);
+            report_file_change(path, 2);
+            const auto revertSeconds { replanned_since(t0, samplesBefore, waitFor) };
+            const bool settledAfterRevert { settle(std::chrono::seconds { check.value("settle-seconds", 900) }) };
+            const std::size_t rebuilt { builds_since(pcmBeforeRevert, all_module_files(cacheDirectory_)).rebuilt };
+            const Json after = root_report();
+            summary["changeSeconds"] = changeSeconds ? Json(*changeSeconds) : Json(nullptr);
+            summary["revertSeconds"] = revertSeconds ? Json(*revertSeconds) : Json(nullptr);
+            summary["revertNewBmi"] = rebuilt;
+            summary["revertRestarts"] = event_total(after, "engine-start") - event_total(beforeRevert, "engine-start");
+            if (!changeSeconds) failures.push_back("the server never described the project again after the change");
+            else enforce_max(check, "changeSeconds", changeSeconds, "the project described again after the change", "s", failures);
+            if (!revertSeconds) failures.push_back("the server never described the project again after the change was undone");
+            else enforce_max(check, "revertSeconds", revertSeconds, "the project described again after the change was undone", "s", failures);
+            enforce_max(check, "revertNewBmi", static_cast<double>(rebuilt), "module files built again after the change was undone", "", failures);
+            if (!settledAfterChange || !settledAfterRevert) failures.push_back("the project did not settle");
+            brief = std::format("changed {}: described again after {}; undone: after {}, {} module file(s) built again", file, text(changeSeconds), text(revertSeconds), rebuilt);
+        } else {
+            return { false, std::format("unknown graph-edit action {}", action) };
+        }
+        return finish_measure(std::move(failures), std::move(summary), brief);
+    }
+
     std::pair<bool, std::string> run(const Json& check) {
         // A check may bound its own wait below the run's --timeout.
         const std::chrono::seconds runTimeout { timeout_ };
@@ -1116,8 +2897,11 @@ public:
                     // S3-4-16 (plan 2026-09-27 B-2): whether the issue lets a client offer to fetch what is missing.
                     const std::optional<bool> wantedAskOnline { check.contains("issue-ask-online") ? std::optional { check.value("issue-ask-online", false) }
                                                                                                     : std::nullopt };
+                    // K-7 (plan 2026-09-30): the issue names the diagnostic bundle written for it, and the file is there.
+                    const bool wantedBundle { check.value("issue-bundle", false) };
                     matched = matched && std::ranges::any_of(snapshot.value("issues", Json::array()), [&](const Json& issue) {
                         if (issue.value("code", std::string {}) != issueCode->get<std::string>()) return false;
+                        if (wantedBundle && (!issue.contains("bundle") || !fs::is_regular_file(issue.value("bundle", std::string {})))) return false;
                         if (wantedAskOnline && issue.value("askOnline", false) != *wantedAskOnline) return false;
                         if (!wantedMessage.empty() && !issue.value("message", std::string {}).contains(wantedMessage)) return false;
                         if (!wantedCategory.empty() && issue.value("category", std::string {}) != wantedCategory) return false;
@@ -1401,6 +3185,21 @@ public:
                 content = std::move(*copied);
             }
             const std::string path { base::join_path(workspace_, file) };
+            // 0.0.7 scenario tests: `replace` ({"from": "...", "with": "..."}) rewrites part of the file as it is, and `restore`
+            // writes back what it was before the first such change, or before the run began (the run also does it when it ends).
+            if (check.value("restore", false)) {
+                const auto kept = restoreOnFinish_.find(path);
+                if (kept == restoreOnFinish_.end()) return { false, std::format("{}: nothing was changed, nothing to restore", file) };
+                content = kept->second;
+                restoreOnFinish_.erase(kept);
+            } else if (const auto replace = check.find("replace"); replace != check.end() && replace->is_object()) {
+                remember_original(path);
+                auto current = fs::read_file(path);
+                if (!current) return { false, std::format("{}: {}", file, current.error().message) };
+                const std::string from { replace->value("from", std::string {}) };
+                if (from.empty() || !current->contains(from)) return { false, std::format("{} has no '{}'", file, from) };
+                content = base::replace_all(*current, from, replace->value("with", std::string {}));
+            }
             (void)fs::create_directories(base::parent_path(path));
             // With "folder", the reload must be that root's own (usable plan W9.1): a change routed
             // to another root would reload that one instead.
@@ -1418,6 +3217,16 @@ public:
             const std::string canonical { fs::canonical_path(path) };
             if (client_.watches(path, type) || client_.watches(canonical, type)) {
                 client_.notify("workspace/didChangeWatchedFiles", Json { { "changes", Json::array({ Json { { "uri", base::path_to_uri(path) }, { "type", type } } }) } });
+            }
+            // G-5 (plan 2026-09-30): "expect-reload": false is a change that must NOT load the model again (an edit that
+            // leaves every module's structure as it was), watched for "settle" seconds (default 10).
+            if (check.contains("expect-reload") && !check.value("expect-reload", true)) {
+                const auto settle = std::chrono::seconds { check.value("settle", 10) };
+                const bool reloaded { client_.wait_for([&] {
+                    const auto& states = history();
+                    return states.size() > seen && std::ranges::find(states.begin() + static_cast<std::ptrdiff_t>(seen), states.end(), "loading") != states.end();
+                }, settle) };
+                return { !reloaded, reloaded ? std::format("{}: the model loaded again", file) : std::format("{}: no reload in {} s, as expected", file, settle.count()) };
             }
             if (!check.value("expect-reload", false)) return { true, file };
             // S2 5: a change to an input the producer named loads the model again.
@@ -1441,11 +3250,27 @@ public:
             return { published && errors.empty(), published ? lsp::dump(errors) : std::string { "no diagnostics were published" } };
         }
         if (kind == "execute-command") {
-            // overall design 7.7: a command the server declared, answered without an error.
+            // overall design 7.7: a command the server declared, answered without an error. "{workspace-uri}" in an
+            // argument is the workspace folder's URI as this client sent it (not canonical: /tmp is /private/tmp on macOS).
+            Json arguments = check.value("arguments", Json::array());
+            const std::function<void(Json&)> expand = [&](Json& value) {
+                if (value.is_string()) value = base::replace_all(value.get<std::string>(), "{workspace-uri}", base::path_to_uri(workspace_));
+                else if (value.is_array() || value.is_object()) {
+                    for (auto& item : value) expand(item);
+                }
+            };
+            expand(arguments);
             const auto answer = client_.request("workspace/executeCommand",
-                                                Json { { "command", check.value("command", std::string {}) }, { "arguments", check.value("arguments", Json::array()) } },
+                                                Json { { "command", check.value("command", std::string {}) }, { "arguments", std::move(arguments) } },
                                                 timeout_);
-            return { answer.has_value(), answer ? lsp::dump(*answer) : std::string { "no answer, or an error" } };
+            // "expect": fields the answer must carry with these values (an error answers nothing).
+            bool expected { answer.has_value() };
+            if (const auto expect = check.find("expect"); expected && expect != check.end() && expect->is_object()) {
+                for (const auto& item : expect->items()) {
+                    expected = expected && answer->is_object() && answer->contains(item.key()) && (*answer)[item.key()] == item.value();
+                }
+            }
+            return { expected, answer ? lsp::dump(*answer) : std::string { "no answer, or an error" } };
         }
         if (kind == "diagnostic-code") {
             open(file);
@@ -1753,6 +3578,14 @@ public:
             });
             return { ok, result.is_object() ? lsp::dump(result).substr(0, 160) : std::string { "no response" } };
         }
+        if (kind == "latency") return run_latency(check);
+        if (kind == "typing") return run_typing(check, file);
+        if (kind == "edit-save") return run_edit_save(check);
+        if (kind == "fault") return run_fault(check);
+        if (kind == "timeline") return run_timeline(check);
+        if (kind == "bmi-reuse") return run_bmi_reuse(check);
+        if (kind == "resources") return run_resources(check);
+        if (kind == "graph-edit") return run_graph_edit(check);
         if (kind == "stress") {
             // Real-project stress testing (real-project plan RP0): seeded random use.
             // Files matching "files" are opened, some in quick succession without waiting for an
@@ -1967,6 +3800,13 @@ int run(Options options) {
         const std::string module { check.value("module", std::string { "std" }) };
         moduleFilesBefore[module] = module_files(cacheDirectory, module);
     }
+    // Scenario tests count what the server built since it started: the module files and the log files there were before.
+    std::map<std::string, std::string> pcmBefore;
+    std::set<std::string> logsBefore;
+    if (std::ranges::any_of(scenario.value("checks", Json::array()), [](const Json& check) { return check.value("kind", std::string {}) == "bmi-reuse"; })) {
+        pcmBefore = all_module_files(cacheDirectory);
+    }
+    for (const auto& file : fs::list_directory(base::join_path(cacheDirectory, "logs"))) logsBefore.insert(file);
     if (auto started = client.start(options, serverArguments, workspace, cacheDirectory); !started) {
         say("conformance: cannot start the server: {}", started.error().message);
         return 2;
@@ -2032,7 +3872,7 @@ int run(Options options) {
     // A scenario's own "client-info": the client this runner says it is (fix plan 2026-09-26 F9: what a
     // server tells VS Code differs from what it tells any other client).
     if (const auto info = scenario.find("client-info"); info != scenario.end() && info->is_object()) initializeParams["clientInfo"] = *info;
-    auto initialized = client.request("initialize", std::move(initializeParams), std::chrono::seconds { 120 });
+    auto initialized = client.request("initialize", initializeParams, std::chrono::seconds { 120 });
     if (!initialized || !initialized->is_object()) {
         say("FAIL initialize: no result");
         return 1;
@@ -2055,6 +3895,7 @@ int run(Options options) {
                                           : Json::object();
     Scenario runner { client, options, serverArguments, workspace, options.timeout, std::move(prepared), cacheDirectory, options.expectWarm,
                       std::move(moduleFilesBefore), semanticTokensLegend, initialized->value("capabilities", Json::object()) };
+    runner.set_scenario_context(begin, initializeParams, std::move(pcmBefore), std::move(logsBefore));
     int failures { advertised ? 0 : 1 };
     // "initialize-within": seconds. The handshake is answered at all, and in time (0.0.3 plan B1).
     if (const auto within = scenario.find("initialize-within"); within != scenario.end() && within->is_number()) {
@@ -2085,6 +3926,11 @@ int run(Options options) {
                 continue;
             }
         }
+        // `stage`: a check for one run of a fixture that has several (cold, warm, edits, faults, long): the others skip it.
+        if (const auto stage = check.find("stage"); stage != check.end() && !options.stage.empty()) {
+            const bool named { stage->is_array() ? std::ranges::any_of(*stage, [&](const Json& one) { return one == Json(options.stage); }) : *stage == Json(options.stage) };
+            if (!named) continue;
+        }
         if (const auto reason = client.unusable(); !reason.empty()) {
             if (!optional) ++failures;
             say("{} {} {} (not run) {}", optional ? "SKIP" : "FAIL", id, check.value("kind", std::string {}), reason);
@@ -2092,11 +3938,25 @@ int run(Options options) {
         }
         const auto started = Clock::now();
         auto [ok, detail] = runner.run(check);
-        if (!ok && !optional) ++failures;
         const double seconds { std::chrono::duration<double>(Clock::now() - started).count() };
+        // 0.0.7 scenario tests: two budgets any check can carry. "within-since-start": the check had what it waits for that many
+        // seconds after initialize (a retried check ends when it first holds); "max-seconds": the check itself took no longer.
+        if (ok) {
+            if (const auto within = check.find("within-since-start"); within != check.end() && within->is_number() && runner.since_start() > within->get<double>()) {
+                ok = false;
+                detail = std::format("held {:.1f} s after initialize, over the budget {:.1f} s: {}", runner.since_start(), within->get<double>(), detail);
+            }
+            if (const auto longest = check.find("max-seconds"); longest != check.end() && longest->is_number() && seconds > longest->get<double>()) {
+                ok = false;
+                detail = std::format("took {:.1f} s, over the budget {:.1f} s: {}", seconds, longest->get<double>(), detail);
+            }
+        }
+        if (!ok && !optional) ++failures;
         say("{} {} {} ({:.1f}s) {}", ok ? "PASS" : (optional ? "SKIP" : "FAIL"), id, check.value("kind", std::string {}), seconds, detail);
-        measured.push_back(Json { { "id", id }, { "kind", check.value("kind", std::string {}) }, { "ok", ok }, { "seconds", seconds },
-                                  { "since-start", std::chrono::duration<double>(Clock::now() - begin).count() }, { "detail", detail } });
+        Json entry { { "id", id }, { "kind", check.value("kind", std::string {}) }, { "ok", ok }, { "seconds", seconds },
+                     { "since-start", std::chrono::duration<double>(Clock::now() - begin).count() }, { "detail", detail } };
+        if (Json measure = runner.take_measure(); !measure.is_null()) entry["measure"] = std::move(measure);
+        measured.push_back(std::move(entry));
     }
     runner.finish();
     client.stop();
@@ -2717,6 +4577,7 @@ int main(int argc, char* argv[]) {
     (void)runCommand.option("plain-client").help("Alias for --client plain");
     (void)runCommand.option("client").takes_value().help("The capabilities a real editor sends: vscode, neovim, zed or plain (default: this runner's own, the full experimental.cxxModules block)");
     (void)runCommand.option("stress-seed").takes_value().help("Overrides every stress check's own \"seed\" (mcppls-devtools stress --seed)");
+    (void)runCommand.option("stage").takes_value().help("Run only the checks of this stage (a check's \"stage\"), and those with none");
     (void)runCommand.option("keep-bundles").takes_value().help("Directory a copy of every diagnostic bundle a bundle check exported is left in");
     (void)runCommand.action([&](const cmdline::ParsedArgs& args) {
         Options options;
@@ -2735,6 +4596,7 @@ int main(int argc, char* argv[]) {
         options.expectWarm = args.is_flag_set("expect-warm");
         options.noDynamicWatch = args.is_flag_set("no-dynamic-watch");
         options.plainClient = args.is_flag_set("plain-client");
+        options.stage = args.value("stage").value_or("");
         options.keepBundles = args.value("keep-bundles") ? absolute(*args.value("keep-bundles")) : std::string {};
         if (auto clientName = args.value("client")) {
             if (*clientName == "vscode") options.client = Options::ClientProfile::vscode;

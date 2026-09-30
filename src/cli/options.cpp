@@ -33,6 +33,13 @@ orchestrator::EngineFactories engine_factories(const orchestrator::SessionOption
         clangd.payloadCorrupt = payloadCorrupt;
         clangd.verboseLog = options.verboseEngineLog;
         clangd.requestTimeout = options.requestTimeout;
+        if (options.engineWorkers != "auto" && !options.engineWorkers.empty()) {
+            std::size_t workers { 0 };
+            const std::string_view text { options.engineWorkers };
+            const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), workers);
+            if (error == std::errc {} && end == text.data() + text.size() && workers > 0) clangd.workers = workers;
+            else base::log::warning("mcppls.engine.workers is '{}', neither auto nor a number; using auto", options.engineWorkers);
+        }
         clangd.disabledWorkarounds = options.disabledWorkarounds;
         clangd.primeImplementationUnits = options.primeImplementationUnits != "off";
         return engine::clangd::make_engine(std::move(clangd));
@@ -74,6 +81,7 @@ orchestrator::SessionOptions session_options(const cmdline::ParsedArgs& args) {
     // longer, and a test that means to watch the bound fire needs it much shorter.
     options.producerTimeout = settings.seconds_value("producerTimeout");
     options.requestTimeout = std::chrono::duration_cast<std::chrono::milliseconds>(settings.seconds_value("requestTimeout"));
+    options.engineWorkers = settings.string_value("engine.workers");
     // This very program, for the reviews an editor asks for: named as the process started it, else found on PATH.
     if (const auto arguments = platform::env::arguments(); !arguments.empty()) {
         const std::string started { arguments.front() };

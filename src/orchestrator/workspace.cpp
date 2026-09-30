@@ -67,17 +67,17 @@ constexpr std::array<std::string_view, 10> BUILD_FILES { "mcpp.toml", "mcpp.lock
 constexpr std::array<std::string_view, 7> WATCH_POLL_SKIP_DIRECTORIES { "target", "build", "node_modules", "out",
                                                                         "_build", "cmake-build-debug", "cmake-build-release" };
 
-// F15 (fix plan 2026-09-26): a completion at the start of a declaration waits this long for the core
-// engine; past it the module-syntax keywords go out alone, as an incomplete list the client asks
-// again for as the person types on. A clangd stuck on the file no longer takes `import` with it.
-constexpr std::chrono::milliseconds KEYWORD_PATIENCE { 1500 };
-
 // Changes to cxxModules/status that keep its state are sent at most this often (S3 4).
 constexpr std::chrono::milliseconds STATUS_COALESCE { 250 };
 // import-hang plan §6: a change from a working state to degraded goes out only once it has lasted this
 // long, so a condition that passes by itself (a file set aside and handed back as the user types) never
 // reaches the editor. error goes out at once.
 constexpr std::chrono::milliseconds DEGRADED_HOLD { 3000 };
+// K-6 (plan 2026-09-30): what comes and goes by itself as the person types -- a file set aside and handed back, a
+// restart held back by its budget -- makes the state degraded only once it has lasted this long. A crash, a clangd
+// that stopped answering and every problem of the project or its environment go out after DEGRADED_HOLD.
+constexpr std::chrono::milliseconds PASSING_DEGRADED_HOLD { 30000 };
+constexpr std::array<std::string_view, 2> PASSING_ISSUES { "file-quarantined", "engine-restart-capped" };
 
 // The module structure of a scan, for deciding whether an edit changes the engine database.
 std::string structure_of(const project::ScanResult& scan) {
@@ -125,6 +125,17 @@ std::map<std::string, platform::fs::FileStamp> watched_files_snapshot_of(std::st
 std::string uri_of_params(const Json& params) {
     const Json* uri { lsp::find_path(params, { "textDocument", "uri" }) };
     return uri != nullptr && uri->is_string() ? uri->get<std::string>() : std::string {};
+}
+
+// G-4 (plan 2026-09-30, revising BD5's one minute): the offline producer's hard deadline. A constant cannot fit
+// every project: mcpp describes GalTranslPP in 53-79 s on a 4-core runner, the minute killed it, and a project
+// the producer never finishes describing never gets its model -- nor a cache, so every session started over. So
+// three times what the producer took last time, within a minute and ten; with no history, five minutes (the
+// scanned-sources model serves meanwhile, so the person does not wait for it).
+std::chrono::milliseconds producer_deadline(std::int64_t lastProducerMs) {
+    using namespace std::chrono_literals;
+    if (lastProducerMs <= 0) return std::chrono::milliseconds { 5min };
+    return std::clamp<std::chrono::milliseconds>(std::chrono::milliseconds { lastProducerMs * 3 }, 60s, std::chrono::milliseconds { 10min });
 }
 
 } // namespace
@@ -252,10 +263,10 @@ struct Workspace::Impl final : engine::Host {
         std::string path;
         std::string text;
         Json message;
-        // F15: a completion's module-syntax keywords, merged into whatever the engines answer, and
-        // when they go out without the core engine.
+        // F15: a completion's module-syntax keywords, merged into whatever the engines answer.
         Json keywords;
-        std::optional<Clock::time_point> keywordsBy;
+        // R-7 (plan 2026-09-30): when mcppls answers without the core engine (routing::answer_budget).
+        std::optional<Clock::time_point> budgetAt;
     };
     std::map<std::uint64_t, Job> jobs;
     std::uint64_t nextJob { 1 };
@@ -280,6 +291,9 @@ struct Workspace::Impl final : engine::Host {
 
     // Timers.
     std::optional<Clock::time_point> reloadAt;
+    // reloadAt may be moved by edits (schedule_reload(true)): it was set by edits, or is a retry minutes away. A reload
+    // a build description asked for is not moved.
+    bool reloadMovable { false };
     std::optional<Clock::time_point> replanAt;
     // import-hang plan §5: when each open file (path key) was last changed in the editor. An import that nothing
     // provides in a file changed within EDITING_WINDOW is most likely still being typed.
@@ -324,11 +338,16 @@ struct Workspace::Impl final : engine::Host {
     // Written by the load thread, read by the event loop: how long the producer has been running
     // once it passed its soft bound. Nothing else crosses that boundary.
     std::shared_ptr<std::atomic<std::int64_t>> producerSlowMs { std::make_shared<std::atomic<std::int64_t>>(0) };
+    std::optional<Clock::time_point> loadStartedAt;   // when the load in flight started
+    std::int64_t lastProducerMs { 0 };                // how long this project's producer last took to answer; 0 unknown
     std::optional<Clock::time_point> producerSoftAt;
     std::optional<Clock::time_point> lastManualReloadAt;
     std::string journaledToolEnvironment;                // the environment source the journal last recorded
 
     std::string lastStatus;                  // the last cxxModules/status sent, serialized
+    std::function<void(std::string)> autoBundleRequest;          // K-7
+    std::map<std::string, std::string, std::less<>> autoBundles;  // issue code -> the bundle written for it
+    std::set<std::string, std::less<>> autoBundleRequested;       // codes a bundle was asked for in this session
     State lastSentState { State::starting };
     std::optional<Clock::time_point> lastStatusSentAt;
     std::optional<Clock::time_point> statusFlushAt;   // a coalesced change goes out then
@@ -538,7 +557,7 @@ struct Workspace::Impl final : engine::Host {
         consider(statusFlushAt);
         consider(leaseRenewAt);
         consider(tokensRefreshAt);
-        for (const auto& [id, job] : jobs) consider(job.keywordsBy);
+        for (const auto& [id, job] : jobs) consider(job.budgetAt);
         for (const auto& engine : engines) consider(engine->next_deadline());
         return deadline;
     }
@@ -663,9 +682,9 @@ struct Workspace::Impl final : engine::Host {
             return;
         }
         job.answerers = std::move(selection.answerers);
-        if (job.keywords.is_array() && !job.keywords.empty() && coreEngine != nullptr
+        if (const auto budget = answer_budget(job.method); budget && coreEngine != nullptr
             && std::ranges::find(job.answerers, coreEngine) != job.answerers.end()) {
-            job.keywordsBy = job.started + KEYWORD_PATIENCE;
+            job.budgetAt = job.started + *budget;
         }
         ask_next(jobId);
     }
@@ -708,13 +727,22 @@ struct Workspace::Impl final : engine::Host {
         ask_next(jobId);
     }
 
-    // F15: the keywords go out without the core engine, which has not answered in KEYWORD_PATIENCE.
-    // The job is finished first, so the engines' answers to the cancellation find nothing to finish.
-    void answer_keywords_without_engine(std::uint64_t jobId) {
-        const Json clientId { jobs.at(jobId).clientId };
-        ++keywordsWithoutEngine;
-        jobs.at(jobId).answeredBy = "mcppls";
-        finish_job(jobId, Json(nullptr));
+    // R-7 (plan 2026-09-30): the core engine has not answered in the request's budget (answer_budget). mcppls answers
+    // with what it has -- a completion the file's words as an incomplete list, with the keywords (F15) merged in by
+    // finish_job; a hover what explain_if_preparing says -- and the core engine's request is cancelled. The job is
+    // finished first, so the engines' answers to the cancellation find nothing to finish. The core engine's own
+    // timeouts and watchdogs still see the request until clangd lets go of it.
+    void answer_without_core(std::uint64_t jobId) {
+        Job& job = jobs.at(jobId);
+        const Json clientId { job.clientId };
+        if (job.keywords.is_array() && !job.keywords.empty()) ++keywordsWithoutEngine;
+        job.answeredBy = "mcppls";
+        Json result;
+        if (job.method == lsp::method::TEXT_DOCUMENT_COMPLETION) {
+            const auto position = position_of(job.params);
+            result = completion::without_engine(position ? completion::document_words(job.text, *position) : Json::array());
+        }
+        finish_job(jobId, std::move(result));
         for (const auto& engine : engines) engine->cancel(clientId);
     }
 
@@ -907,6 +935,7 @@ struct Workspace::Impl final : engine::Host {
         }
         producerPath = cached->producer;
         producerVersion = cached->producerVersion;
+        lastProducerMs = cached->producerMs;
         const std::string current { project::inputs_fingerprint(root, cached->model.watch, detection.manifest,
                                                                 cached->producer, cached->producerVersion) };
         if (current == cached->fingerprint) {
@@ -969,6 +998,9 @@ struct Workspace::Impl final : engine::Host {
             { "profile", Json::array({ candidate.profile.kind, candidate.profile.compiler, candidate.profile.stdlib, candidate.profile.target }) },
             { "facts", std::move(facts) },
             { "database", Json::parse(spec::to_json(candidate.database).dump()) },
+            // Issue #30: the plan builds the engine's arguments from derived options and from stated ones
+            // differently, so two models that differ only here are not the same model.
+            { "optionsDerived", Json::parse(project::derived_options_to_json(candidate.database).dump()) },
         };
         return description.dump();
     }
@@ -982,6 +1014,7 @@ struct Workspace::Impl final : engine::Host {
         cached.model = *model;
         cached.producer = producerPath;
         cached.producerVersion = producerVersion;
+        cached.producerMs = lastProducerMs;
         cached.fingerprint = project::inputs_fingerprint(root, model->watch, detectedManifest, producerPath, producerVersion);
         cached.savedAtMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
@@ -1054,24 +1087,24 @@ struct Workspace::Impl final : engine::Host {
         load.providers = options.buildDiscoveryProviders;
         // Design 4.4: a run the server starts by itself is offline unless the user allowed the
         // network; `off` means the build tool is not run at all, and what is cached or scanned is
-        // all there is. Design 4.2: the hard bound is a minute, ten when the user allowed the
-        // network and a download may be part of the answer.
+        // all there is. Design 4.2: the hard bound follows the last run (producer_deadline, G-4), ten
+        // minutes when the user allowed the network and a download may be part of the answer.
         const bool online { options.buildTool == "online" || onlineOnce };
         describingOnline = onlineOnce && options.buildTool != "online";
         if (describingOnline) journal.add("describe-online");
         onlineOnce = false;
         load.offline = !online;
         load.runBuildTool = options.buildTool != "off";
-        load.producerHard = options.producerTimeout.count() > 0
-                                ? std::chrono::milliseconds { options.producerTimeout }
-                                : (online ? std::chrono::milliseconds { std::chrono::minutes { 10 } }
-                                          : std::chrono::milliseconds { std::chrono::seconds { 60 } });
+        load.producerHard = options.producerTimeout.count() > 0 ? std::chrono::milliseconds { options.producerTimeout }
+                            : online                             ? std::chrono::milliseconds { std::chrono::minutes { 10 } }
+                                                                 : producer_deadline(lastProducerMs);
         load.producerSoft = std::chrono::seconds { 5 };
         // With a model already in hand nothing waits for the environment; without one, the producer
         // is worth the wait, because a producer found through the wrong PATH describes another build.
         load.environmentWait = model ? std::chrono::milliseconds { 0 } : std::chrono::milliseconds { std::chrono::seconds { 10 } };
         load.rootKey = key;
         producerSlowMs->store(0);
+        loadStartedAt = Clock::now();
         load.onSlow = [slow = producerSlowMs](std::chrono::milliseconds elapsed) { slow->store(elapsed.count()); };
         producerSoftAt = Clock::now() + load.producerSoft + std::chrono::milliseconds { 200 };
         std::shared_ptr<const spec::Kit> kitCopy = kit ? std::make_shared<const spec::Kit>(*kit) : nullptr;
@@ -1102,6 +1135,11 @@ struct Workspace::Impl final : engine::Host {
         loading = false;
         loadGiveUpAt.reset();
         producerElapsed.reset();
+        // G-4: what this project's producer takes is what its next deadline is made of.
+        if (loadStartedAt && loadedModel->source != project::SourceKind::inferred) {
+            lastProducerMs = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - *loadStartedAt).count();
+        }
+        loadStartedAt.reset();
         // Fix plan F4: the build tool answered, whatever it said; clangd waits no longer. A model kept below
         // (a failed or poorer reload) is planned again for it.
         if (coreWaitUntil && !coreWaitOver) {
@@ -1140,6 +1178,7 @@ struct Workspace::Impl final : engine::Host {
             // Design 4.1: try again in five minutes, or sooner if a build file changes (which sets
             // this to a second and a half). Nothing else would ever ask again.
             reloadAt = Clock::now() + std::chrono::minutes { 5 };
+            reloadMovable = true;
             if (reloadAfterLoad) {
                 reloadAfterLoad = false;
                 start_model_load();
@@ -1157,6 +1196,7 @@ struct Workspace::Impl final : engine::Host {
             log::warning("model reload ({}): {}", root, staleModelReason);
             journal.add("model-kept", Json { { "reason", staleModelReason }, { "kept", model->tier }, { "offered", loadedModel->tier } });
             reloadAt = Clock::now() + std::chrono::minutes { 5 };
+            reloadMovable = true;
             if (reloadAfterLoad) {
                 reloadAfterLoad = false;
                 start_model_load();
@@ -1286,6 +1326,7 @@ struct Workspace::Impl final : engine::Host {
             if (auto disk = platform::fs::read_file(document->path)) input.editingDiskImports[document->path] = project::required_names(project::scan_source(*disk));
             if (!lastEdit || edited->second > *lastEdit) lastEdit = edited->second;
         }
+        input.modelOrigin = modelOrigin;
         if (coreEngine != nullptr) coreEngine->configure_plan(input);
         normalize::EnginePlan newPlan { normalize::plan_engine(input) };
         // A stand-in held back for a file being edited is planned once the file has been quiet for EDITING_WINDOW.
@@ -1354,7 +1395,73 @@ struct Workspace::Impl final : engine::Host {
         return coreEngine != nullptr && model && modelOrigin == "inferred" && loading && !coreWaitOver
                && detectedSource != project::SourceKind::inferred && options.trusted && options.buildTool != "off";
     }
-    void schedule_reload() { reloadAt = Clock::now() + std::chrono::milliseconds { 1500 }; }
+    // `fromEdits`: asked for by changes under the workspace rather than by a build description. Such a reload waits as
+    // long as the producer takes to answer (at most a minute), so edits that keep coming are one run, not a queue of them.
+    // A reload a build description asked for is not put off by edits that follow it: it reads them too.
+    void schedule_reload(bool fromEdits = false) {
+        using namespace std::chrono_literals;
+        if (fromEdits && reloadAt && !reloadMovable) return;
+        const auto wait = fromEdits ? std::clamp<std::chrono::milliseconds>(std::chrono::milliseconds { lastProducerMs }, 1500ms, 60s) : 1500ms;
+        reloadAt = Clock::now() + wait;
+        reloadMovable = fromEdits;
+    }
+
+    // K-7: the issues nothing here recovers from by itself.
+    static constexpr std::array<std::string_view, 5> UNRECOVERABLE_ISSUES { "engine-crash-loop", "engine-start-failed", "engine-incompatible",
+                                                                           "payload-corrupt", "preparation-stalled" };
+
+    // K-7: the first time one of them appears, its bundle is asked for, whatever the client: the log says where it is too.
+    void request_auto_bundles() {
+        if (!autoBundleRequest) return;
+        for (const auto& engine : engines) {
+            for (const auto& issue : engine->status().issues) {
+                if (std::ranges::find(UNRECOVERABLE_ISSUES, issue.code) == UNRECOVERABLE_ISSUES.end()) continue;
+                if (!autoBundles.contains(issue.code) && autoBundleRequested.insert(issue.code).second) autoBundleRequest(issue.code);
+            }
+        }
+    }
+
+    // K-7: and the status issue carries the bundle once it is written.
+    void attach_auto_bundles(Json& issues) const {
+        for (auto& issue : issues) {
+            const std::string code { issue.value("code", std::string {}) };
+            if (std::ranges::find(UNRECOVERABLE_ISSUES, code) == UNRECOVERABLE_ISSUES.end()) continue;
+            if (const auto written = autoBundles.find(code); written != autoBundles.end()) issue["bundle"] = written->second;
+        }
+    }
+
+    // G-5: whether a source's module structure on disk (or in the editor) is other than what the model says of its unit.
+    // A source the model has no unit for is new to it; a unit that states neither what it provides nor what it imports
+    // is compared with the last plan's view of it.
+    bool model_structure_differs(std::string_view path, const project::ScanResult& disk) const {
+        const auto* scan = &disk;
+        if (!model) return true;
+        const std::string key { base::path_key(path) };
+        for (const auto& set : model->database.sets) {
+            for (const auto& unit : set.units) {
+                if (base::path_key(spec::absolute_source(unit)) != key) continue;
+                if (unit.providedModules.empty() && unit.requiredModules.empty()) {
+                    const auto known = structures.find(key);
+                    return known == structures.end() || known->second != structure_of(*scan);
+                }
+                const std::string provided { unit.providedModules.empty() ? std::string {} : unit.providedModules.front().first };
+                std::vector<std::string> modelRequires { unit.requiredModules };
+                std::vector<std::string> scannedRequires { project::required_names(*scan) };
+                // An implementation unit's own module (`module m;` requires m) is implied, whether or not a producer lists it.
+                if (scan->declaration) {
+                    const std::string& own { scan->declaration->module };
+                    std::erase(modelRequires, own);
+                    std::erase(scannedRequires, own);
+                }
+                std::ranges::sort(modelRequires);
+                std::ranges::sort(scannedRequires);
+                modelRequires.erase(std::ranges::unique(modelRequires).begin(), modelRequires.end());
+                scannedRequires.erase(std::ranges::unique(scannedRequires).begin(), scannedRequires.end());
+                return provided != project::provided_name(*scan) || modelRequires != scannedRequires;
+            }
+        }
+        return true;
+    }
 
     // ---- diagnostics and status -------------------------------------------------------
 
@@ -1403,6 +1510,21 @@ struct Workspace::Impl final : engine::Host {
             profile = Json { { "kind", "semantic-kit" }, { "stdlib", "unknown" }, { "target", std::string { mcppls::os::PLATFORM } } };
         }
         return profile;
+    }
+
+    // K-6: whether what makes the state degraded is only what passes by itself (PASSING_ISSUES).
+    bool degraded_only_in_passing() const {
+        if ((model && !model->issues.empty()) || !staleModelReason.empty() || (kit && spec::requires_macos_sdk(*kit) && macosSdk.empty())) return false;
+        if (std::ranges::any_of(plan.issues, [](const auto& issue) { return issue.category != "code"; })) return false;
+        bool passing { false };
+        for (const auto& engine : engines) {
+            for (const auto& issue : engine->status().issues) {
+                if (issue.category == "code") continue;
+                if (std::ranges::find(PASSING_ISSUES, issue.code) == PASSING_ISSUES.end()) return false;
+                passing = true;
+            }
+        }
+        return passing;
     }
 
     State compute_state() const {
@@ -1527,12 +1649,14 @@ struct Workspace::Impl final : engine::Host {
 
     void update_status() {
         if (!initializeAnswered) return;   // see the field's own comment
+        request_auto_bundles();
         const State state { compute_state() };
         if (state == State::degraded && lastReportedState != State::degraded) {
             const auto now = Clock::now();
             if (!degradedSince) degradedSince = now;
-            if (now < *degradedSince + DEGRADED_HOLD) {
-                if (!statusFlushAt || *degradedSince + DEGRADED_HOLD < *statusFlushAt) statusFlushAt = *degradedSince + DEGRADED_HOLD;
+            const auto hold = degraded_only_in_passing() ? PASSING_DEGRADED_HOLD : DEGRADED_HOLD;
+            if (now < *degradedSince + hold) {
+                if (!statusFlushAt || *degradedSince + hold < *statusFlushAt) statusFlushAt = *degradedSince + hold;
                 return;
             }
         }
@@ -1645,6 +1769,7 @@ struct Workspace::Impl final : engine::Host {
         };
         if (!notices.empty()) params["notices"] = std::move(notices);
         if (core && core->toPrepare > 0) params["progress"] = Json { { "done", core->prepared }, { "total", core->toPrepare } };
+        attach_auto_bundles(params["issues"]);
         std::string serialized { lsp::dump(params) };
         if (serialized == lastStatus) {
             statusFlushAt.reset();
@@ -1667,15 +1792,23 @@ struct Workspace::Impl final : engine::Host {
     // ---- timers -----------------------------------------------------------------------
 
     void handle_timers() {
+        for (const auto& engine : engines) {
+            const auto before = Clock::now();
+            engine->handle_timers();
+            // Plan 2026-09-30 §13: which engine held the event loop (the session says that it was held).
+            if (const auto took = Clock::now() - before; took >= std::chrono::milliseconds { 250 }) {
+                journal.add("timers-slow", Json { { "engine", std::string { engine->id() } },
+                                                  { "ms", std::chrono::duration_cast<std::chrono::milliseconds>(took).count() } });
+            }
+        }
         const auto now = Clock::now();
-        for (const auto& engine : engines) engine->handle_timers();
         {
             std::vector<std::uint64_t> due;
             for (const auto& [id, job] : jobs) {
-                if (job.keywordsBy && *job.keywordsBy <= now) due.push_back(id);
+                if (job.budgetAt && *job.budgetAt <= now) due.push_back(id);
             }
             for (const auto id : due) {
-                if (jobs.contains(id)) answer_keywords_without_engine(id);
+                if (jobs.contains(id)) answer_without_core(id);
             }
         }
         if (leaseRenewAt && *leaseRenewAt <= now) {
@@ -1804,6 +1937,14 @@ void Workspace::start(Json clientParams, bool clientSupportsStatus, bool usePoll
     impl_->lastResortAt = Clock::now() + std::chrono::seconds { 120 };
 }
 
+void Workspace::set_auto_bundle_request(std::function<void(std::string)> request) { impl_->autoBundleRequest = std::move(request); }
+
+void Workspace::note_auto_bundle(const std::string& code, const std::string& path) {
+    impl_->autoBundles[code] = path;
+    impl_->journal.add("auto-bundle", Json { { "code", code }, { "path", path } });
+    impl_->update_status();
+}
+
 void Workspace::allow_status_notifications() {
     if (impl_->initializeAnswered) return;
     impl_->initializeAnswered = true;
@@ -1893,6 +2034,7 @@ void Workspace::did_save(const Json& message, const Json& params) {
 void Workspace::handle_watched_files(const Json& changes) {
     ++impl_->snapshotGeneration;
     bool reload { false };
+    bool describedAgain { false };   // a build file or another input of the producer's, not a source: reloaded without the edit delay
     bool replan { false };
     for (const auto& change : changes) {
         const std::string path { impl_->path_of_uri(change.value("uri", std::string {})) };
@@ -1900,30 +2042,42 @@ void Workspace::handle_watched_files(const Json& changes) {
         const std::string_view name { base::file_name(path) };
         const int type { change.value("type", 2) };
         // S2 5: an input the producer named changes what it would answer, so the model is loaded again.
-        // A source among them still updates the index at once below; the reload only confirms the model.
-        if (impl_->model && impl_->model->source != project::SourceKind::inferred && name != "compile_commands.json"
-            && matches_watch_entries(impl_->model->watch, impl_->root, path)) {
-            reload = true;
-        }
+        const bool producerInput { impl_->model && impl_->model->source != project::SourceKind::inferred && name != "compile_commands.json"
+                                   && matches_watch_entries(impl_->model->watch, impl_->root, path) };
         if (is_build_file(name)) {
             // mcpp rewrites its own compile_commands.json while the model loads.
             if (name == "compile_commands.json" && impl_->model && impl_->model->source == project::SourceKind::mcpp) continue;
-            reload = true;
+            reload = describedAgain = true;
             continue;
         }
-        if (!project::is_cxx_source_name(path) || impl_->documents_.find_by_path(path) != nullptr) continue;
-        if (type == 3) {
-            impl_->index.remove(path);
-        } else if (auto text = platform::fs::read_file(path)) {
-            impl_->index.update(path, *text);
+        if (!project::is_cxx_source_name(path)) {
+            if (producerInput) reload = describedAgain = true;   // an input the producer named that is not a source: what it reads changed
+            continue;
         }
+        const bool open { impl_->documents_.find_by_path(path) != nullptr };
+        std::optional<std::string> diskText;
+        if (type != 3) {
+            if (auto text = platform::fs::read_file(path)) diskText = std::move(*text);
+        }
+        if (!open) {
+            if (type == 3) impl_->index.remove(path);
+            else if (diskText) impl_->index.update(path, *diskText);
+        }
+        // G-5 (plan 2026-09-30): a producer names every source as an input (mcpp: src/**/*.cpp and the rest), yet what
+        // it answers changes only with the set of sources and with a source's module structure -- the module it
+        // provides and those it imports. Every save used to run it again, and with autosave that was once for every
+        // pause in typing: on GalTranslPP a minute of CPU each time, beside clangd. An edit inside functions leaves
+        // the model as it is; the index and the plan already have it.
+        // What is on disk is what the producer reads: an open file changed under the editor (a checkout) counts too.
+        if (producerInput && (type != 2 || !diskText || impl_->model_structure_differs(path, project::scan_source(*diskText)))) reload = true;
+        if (open) continue;
         if (impl_->model && impl_->model->source == project::SourceKind::inferred && type != 2) reload = true;
         else replan = true;
     }
     if (reload || replan) {
         for (const auto& engine : impl_->engines) engine->sources_changed();
     }
-    if (reload) impl_->schedule_reload();
+    if (reload) impl_->schedule_reload(!describedAgain);
     else if (replan) impl_->schedule_replan();
     const Json message = lsp::make_notification("workspace/didChangeWatchedFiles", Json { { "changes", changes } });
     for (const auto& engine : impl_->engines) engine->notify(message);
@@ -2065,6 +2219,27 @@ Json Workspace::report() const {
                   { "plan", std::move(plan) }, { "engines", std::move(engines) }, { "requests", std::move(requests) },
                   { "completion", std::move(completionCosts) },
                   { "eventTotals", impl.journal.totals() }, { "events", impl.journal.recent(300) } };
+}
+
+std::uint64_t Workspace::reset_cache() {
+    auto& impl = *impl_;
+    std::uint64_t freed { 0 };
+    for (const auto& engine : impl.engines) freed += engine->clear_cache_on_request();
+    for (const auto& entry : platform::fs::list_directory(impl.cacheDirectory)) {
+        const std::string_view name { base::file_name(entry) };
+        if (!name.starts_with("model.") || !name.ends_with(".json")) continue;
+        if (const auto stamp = platform::fs::stamp(entry)) freed += stamp->size;
+        platform::fs::remove_all(entry);
+    }
+    log::info("the cache of {} was reset on request ({} bytes freed)", root_, freed);
+    impl.journal.add("cache-reset", Json { { "bytes", freed } });
+    // The model in hand is planned into the empty directories at once, so clangd starts on a database; the build
+    // tool is asked again as well, and its answer is cached anew.
+    if (impl.model) impl.replan();
+    if (impl.coreEngine != nullptr) (void)impl.coreEngine->restart_on_request();
+    impl.start_model_load();
+    impl.update_status();
+    return freed;
 }
 
 bool Workspace::restart_core_engine() {

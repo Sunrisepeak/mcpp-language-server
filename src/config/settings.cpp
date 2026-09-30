@@ -67,11 +67,11 @@ const std::vector<Setting>& shipped_registry() {
         Setting {
             .key = "producerTimeout", .kind = Kind::seconds, .defaultValue = "0", .commandLine = "--producer-timeout",
             .surface = Surface::server, .applies = Applies::reload, .category = "build", .since = "0.0.1",
-            .summary = "How long a build tool may take to describe the project. `0`, the default, uses the design's own bound (a "
-                       "minute offline, ten minutes once `buildTool` is `online`); set it to watch that bound work, or longer for a "
-                       "genuinely slower build.",
-            .summaryZh = "构建工具描述项目最多可以花多长时间。默认 `0` 使用设计本身的限制（离线一分钟，`buildTool` 为 `online` 时十分钟）；"
-                         "调短可以观察限制是否生效，构建确实慢就调长。",
+            .summary = "How long a build tool may take to describe the project. `0`, the default, uses the design's own bound: offline, "
+                       "5 minutes the first time and then three times what the last run took, between 1 and 10 minutes; ten minutes "
+                       "once `buildTool` is `online`. Set it to watch that bound work, or to fix one for a build whose time varies.",
+            .summaryZh = "构建工具描述项目最多可以花多长时间。默认 `0` 使用设计本身的限制：离线时第一次 5 分钟，之后是上一次用时的三倍，"
+                         "在 1 到 10 分钟之间；`buildTool` 为 `online` 时十分钟。调短可以观察限制是否生效，构建用时起伏大时可以定一个值。",
         },
         Setting {
             .key = "untrusted", .kind = Kind::boolean, .defaultValue = "false", .commandLine = "--untrusted", .surface = Surface::server,
@@ -123,6 +123,16 @@ const std::vector<Setting>& shipped_registry() {
             .summary = "The core semantic engine. mcppls's own module engine always runs beside it; `none` means module-level "
                        "features only.",
             .summaryZh = "核心引擎。无论如何，mcppls 自己的模块引擎都会运行；`none` 表示只提供模块相关功能。",
+            .clientConfigurable = true,
+        },
+        Setting {
+            .key = "engine.workers", .kind = Kind::string, .defaultValue = "auto", .commandLine = "--engine-workers",
+            .surface = Surface::server, .applies = Applies::restart, .category = "engines", .since = "0.0.7",
+            .summary = "How many files clangd builds at once (its `-j`), shared by module preparation, indexing and the files you edit; "
+                       "one is always kept for what you are waiting on. `auto`: one fewer than the hardware threads, between two and "
+                       "eight, and no more than half the memory in gigabytes. A number sets it.",
+            .summaryZh = "clangd 同时构建的文件数（它的 `-j`），由模块预建、索引和你正在编辑的文件共用；总会留一个给你正在等的东西。`auto`："
+                         "硬件线程数减一，介于二到八之间，且不超过内存 GB 数的一半。写数字则按数字。",
             .clientConfigurable = true,
         },
         Setting {
@@ -200,6 +210,15 @@ const std::vector<Setting>& shipped_registry() {
             .summaryZh = "在后台让 clangd 逐个构建模块的实现单元（每次少量），这样即使实现文件从没打开过，跳到定义也能到达只在实现单元里的"
                          "定义。clangd 自己的后台索引看不到模块单元的导入（WA-CLANGD-008）。`off`：只有一次跳转请求所搜索的单元和你打开的"
                          "文件会为此被索引。",
+            .clientConfigurable = true,
+        },
+        Setting {
+            .key = "enable", .kind = Kind::boolean, .defaultValue = "true", .surface = Surface::client,
+            .applies = Applies::immediately, .category = "editor", .since = "0.0.7",
+            .summary = "Start mcppls for this workspace. `false` in a workspace's settings keeps the extension installed but inactive "
+                       "there -- for a project it cannot serve yet -- without uninstalling it; the status bar item turns it back on.",
+            .summaryZh = "为此工作区启动 mcppls。在某个工作区的设置里设为 `false`，扩展在那里保持安装但不启动——用于它暂时还服务不了的项目，"
+                         "而不必卸载；状态栏上的条目可以重新打开它。",
             .clientConfigurable = true,
         },
         Setting {

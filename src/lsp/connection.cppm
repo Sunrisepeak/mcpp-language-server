@@ -1,6 +1,6 @@
 // A JSON-RPC peer running as a child process: messages written to its standard
-// input, messages read from its standard output on a reader thread, and its
-// standard error drained on another. Messages are LSP frames, or single lines
+// input on a writer thread, messages read from its standard output on a reader
+// thread, and its standard error drained on another. Messages are LSP frames, or single lines
 // the way the Model Context Protocol's standard streams carry them.
 export module mcppls.lsp.connection;
 
@@ -24,6 +24,15 @@ private:
     platform::Process process_;
     std::jthread reader_;
     std::jthread errorReader_;
+    // Plan 2026-09-30 §13: what is sent waits here, not on the caller. A peer that reads slowly -- clangd on a busy
+    // 4-core Windows machine, whose pipe holds a few kilobytes -- made every send wait for it, and the server's event
+    // loop with every request budget and watchdog on it: 11 to 13 s for each edit on GalTranslPP.
+    std::jthread writer_;
+    std::mutex outMutex_;
+    std::condition_variable outReady_;
+    std::deque<std::string> outgoing_;
+    bool outClosing_ { false };                   // stop(): no more sends; the writer closes the input once the queue is out
+    std::atomic<bool> writeFailed_ { false };
     std::atomic<bool> closed_ { false };
     Framing framing_ { Framing::content_length };
 
@@ -39,6 +48,7 @@ public:
     static base::Result<std::unique_ptr<Connection>> start(platform::SpawnOptions options, MessageHandler onMessage,
                                                            ClosedHandler onClosed, ErrorLineHandler onErrorLine = {},
                                                            Framing framing = Framing::content_length);
+    // Queues the message for the writer thread; fails only once the peer is gone or a write failed.
     base::Result<void> send(const Json& message);
     // Ends the peer: closes its input, waits up to `grace`, then terminates it.
     void stop(std::chrono::milliseconds grace);

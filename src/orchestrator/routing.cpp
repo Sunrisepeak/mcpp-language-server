@@ -44,6 +44,20 @@ Selection select_engines(std::span<engine::Engine* const> engines, const engine:
     return selection;
 }
 
+std::optional<std::chrono::milliseconds> answer_budget(std::string_view method) {
+    using namespace std::chrono_literals;
+    // Typing: an answer later than this reaches a person who has typed on.
+    if (method == "textDocument/completion" || method == "textDocument/signatureHelp") return 1000ms;
+    // Pointing: the pointer is still there for a moment, and a hover while modules are prepared says so.
+    if (method == "textDocument/hover" || method == "textDocument/documentHighlight") return 2000ms;
+    // Asking to be taken somewhere: worth a while, not the core engine's whole timeout.
+    if (method == "textDocument/definition" || method == "textDocument/declaration" || method == "textDocument/typeDefinition"
+        || method == "textDocument/implementation") {
+        return 10000ms;
+    }
+    return std::nullopt;
+}
+
 Json merge_results(std::string_view method, std::span<const std::pair<std::string, Json>> results) {
     Json moduleResult;
     Json engineResult;
@@ -142,7 +156,7 @@ Json merge_capabilities(const Json& engineCapabilities) {
     Json& commands = capabilities["executeCommandProvider"]["commands"];
     if (!commands.is_array()) commands = Json::array();
     for (const std::string_view command : { "mcppls.review.run", "mcppls.review.clear", "mcppls.reloadBuildDescription", "mcppls.describeOnline", "mcppls.restartEngine",
-                                             "mcppls.exportBundle" }) {
+                                             "mcppls.exportBundle", "mcppls.resetCache" }) {
         if (std::ranges::find(commands, Json(command)) == commands.end()) commands.push_back(std::string { command });
     }
     return capabilities;

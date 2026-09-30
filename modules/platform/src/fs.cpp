@@ -102,6 +102,13 @@ void remove_all(std::string_view path) {
     std::filesystem::remove_all(native(path), error);
 }
 
+base::Result<void> rename(std::string_view from, std::string_view to) {
+    std::error_code error;
+    std::filesystem::rename(native(from), native(to), error);
+    if (error) return base::fail("rename", std::format("cannot move {} to {}: {}", from, to, error.message()));
+    return {};
+}
+
 std::vector<std::string> list_files(std::string_view root, std::span<const std::string_view> extensions,
                                     std::span<const std::string_view> skipDirectories) {
     std::vector<std::string> result;

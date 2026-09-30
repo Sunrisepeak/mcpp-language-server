@@ -83,8 +83,11 @@ public:
         while (!exitRequested_) {
             const auto deadline = next_deadline_();
             std::optional<Event> event { deadline ? events_->pop_until(*deadline) : events_->pop() };
+            const auto began = Clock::now();
             if (event) handle_(*event);
+            const auto handled = Clock::now();
             handle_timers_();
+            note_loop_(event, began, handled, Clock::now());
         }
         for (auto& root : roots_) root->shut_down();
         return shutdownRequested_ ? 0 : 1;
@@ -185,7 +188,10 @@ private:
         case EventKind::review_finished:
             if (auto* root = root_by_key_(event.rootKey)) root->handle_review_finished(event.message);
             break;
-        case EventKind::bundle_written: finish_bundle_(event.message); break;
+        case EventKind::bundle_written:
+            if (event.message.value("auto", false)) finish_auto_bundle_(event.rootKey, event.message);
+            else finish_bundle_(event.message);
+            break;
         }
     }
 
@@ -249,6 +255,33 @@ private:
             std::size_t restarted { 0 };
             for (auto& root : roots_) restarted += root->restart_core_engine() ? 1 : 0;
             reply_(id, Json { { "restarted", restarted } });
+            return;
+        }
+        // C-1 (plan 2026-09-30): the person's way out of a cache that went wrong, instead of deleting it by hand.
+        // `arguments: [{ root: <folder uri> }]` names one root; none names every root. Not the name of the editor's own
+        // command (mcppls.resetWorkspaceCache): a client registers every command a server declares.
+        if (method == lsp::method::WORKSPACE_EXECUTE_COMMAND && params.value("command", std::string {}) == "mcppls.resetCache") {
+            const Json arguments = params.value("arguments", Json::array());
+            std::string wanted;
+            if (arguments.is_array() && !arguments.empty() && arguments[0].is_object()) wanted = arguments[0].value("root", std::string {});
+            // Under the name the root was created with (canonical_path: /var is /private/var on macOS).
+            std::optional<std::string> wantedPath;
+            if (!wanted.empty()) {
+                if (auto path = base::uri_to_path(wanted)) wantedPath = platform::fs::canonical_path(*path);
+                else wantedPath = platform::fs::canonical_path(wanted);
+            }
+            std::uint64_t freed { 0 };
+            std::size_t reset { 0 };
+            for (auto& root : roots_) {
+                if (wantedPath && !base::same_path(*wantedPath, root->root())) continue;
+                freed += root->reset_cache();
+                ++reset;
+            }
+            if (!wanted.empty() && reset == 0) {
+                reply_error_(id, lsp::INVALID_PARAMS, std::format("{} is not a workspace folder of this server", wanted));
+                return;
+            }
+            reply_(id, Json { { "ok", true }, { "freedBytes", freed }, { "roots", reset } });
             return;
         }
         // overall design 7.7: the review of the workspace's changes, run in the background, its findings published as diagnostics.
@@ -330,6 +363,7 @@ private:
         options_.mcpp = settings.string_value("mcpp");
         options_.producerTimeout = settings.seconds_value("producerTimeout");
         options_.requestTimeout = std::chrono::duration_cast<std::chrono::milliseconds>(settings.seconds_value("requestTimeout"));
+        options_.engineWorkers = settings.string_value("engine.workers");
         options_.disabledWorkarounds = settings.list_value("disableWorkaround");
         options_.semanticTokensModules = settings.bool_value("semanticTokens.modules");
         options_.semanticTokensModuleType = settings.bool_value("semanticTokens.moduleType");
@@ -414,6 +448,7 @@ private:
         // S3 4: status names the root by the client's own URI, which a symbolic link, an 8.3 short
         // name or a different spelling would otherwise make differ from the canonical path used inside.
         handle->set_client_uri(folder.uri);
+        handle->set_auto_bundle_request([this, key = root](std::string code) { write_auto_bundle_(key, std::move(code)); });
         roots_.push_back(std::move(created));
         std::function<void(Json)> onEngineSettled;
         if (isFirst) onEngineSettled = [this](Json capabilities) { answer_initialize_(capabilities); };
@@ -450,8 +485,71 @@ private:
         Json roots = Json::array();
         for (const auto& root : roots_) roots.push_back(root->report());
         const Json* clientInfo { lsp::find(clientParams_, "clientInfo") };
-        return orchestrator::make_report(std::move(roots), clientInfo != nullptr ? *clientInfo : Json(nullptr), options_.engine, payload_, payloadCorrupt_,
-                                         std::chrono::steady_clock::now() - started_, options_.settings.to_json());
+        Json report = orchestrator::make_report(std::move(roots), clientInfo != nullptr ? *clientInfo : Json(nullptr), options_.engine, payload_, payloadCorrupt_,
+                                                std::chrono::steady_clock::now() - started_, options_.settings.to_json());
+        if (report.contains("server") && report["server"].is_object()) report["server"]["eventLoop"] = loop_.to_json();
+        return report;
+    }
+
+    // Plan 2026-09-30 §13: every request budget and every watchdog runs on this one loop, so a turn of it that takes long
+    // makes all of them late. GalTranslPP on a 4-core Windows runner: completions budgeted at 1 s reached the client after
+    // 8 to 60 s. What held the loop, and how long client messages waited behind it, is logged and reported.
+    struct LoopStats {
+        static constexpr std::chrono::milliseconds STALL { 250 };
+        static constexpr std::chrono::milliseconds QUEUED { 1000 };
+        std::size_t stalls { 0 };
+        std::size_t lateMessages { 0 };
+        std::int64_t maxEventMs { 0 };
+        std::int64_t maxTimersMs { 0 };
+        std::int64_t maxQueuedMs { 0 };
+        std::string slowest;                     // what the longest turn was spent on
+        std::optional<Clock::time_point> loggedAt;
+        Json to_json() const {
+            const auto writes = orchestrator::stdio_write_stats();
+            return Json { { "stalls", stalls }, { "lateClientMessages", lateMessages }, { "maxEventMs", maxEventMs },
+                          { "maxTimersMs", maxTimersMs }, { "maxQueuedMs", maxQueuedMs }, { "slowest", slowest },
+                          { "writes", Json { { "count", writes.writes }, { "bytes", writes.bytes }, { "slow", writes.slowWrites },
+                                             { "maxMs", writes.maxMs }, { "totalMs", writes.totalMs } } } };
+        }
+    };
+    LoopStats loop_;
+
+    void note_loop_(const std::optional<Event>& event, Clock::time_point began, Clock::time_point handled, Clock::time_point done) {
+        const auto ms = [](auto duration) { return static_cast<std::int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(duration).count()); };
+        std::string what;
+        if (event) {
+            static constexpr std::array<std::string_view, 8> KINDS { "a client message", "the client closing", "an engine event", "a loaded model",
+                                                                     "an external event", "a finished review", "a tool run", "a written bundle" };
+            what = event->kind == EventKind::client_message ? event->message.value("method", std::string { "a response" })
+                                                            : std::string { KINDS[static_cast<std::size_t>(event->kind)] };
+            if (event->kind == EventKind::engine_event && event->message.is_object()) {
+                std::string detail { event->message.value("kind", std::string {}) };
+                if (const Json* inner = lsp::find(event->message, "message"); inner != nullptr && inner->is_object()) {
+                    detail += " " + inner->value("method", std::string { "response" });
+                }
+                what += std::format(" ({}: {})", event->engineId, detail);
+            }
+            if (event->kind == EventKind::client_message) {
+                const auto queued = ms(began - event->queuedAt);
+                loop_.maxQueuedMs = std::max(loop_.maxQueuedMs, queued);
+                if (queued >= LoopStats::QUEUED.count()) ++loop_.lateMessages;
+            }
+        }
+        const auto eventMs = ms(handled - began);
+        const auto timersMs = ms(done - handled);
+        loop_.maxTimersMs = std::max(loop_.maxTimersMs, timersMs);
+        if (eventMs > loop_.maxEventMs) {
+            loop_.maxEventMs = eventMs;
+            if (eventMs >= LoopStats::STALL.count()) loop_.slowest = what;
+        }
+        if (eventMs < LoopStats::STALL.count() && timersMs < LoopStats::STALL.count()) return;
+        ++loop_.stalls;
+        // At most one line a second: a loop that is slow is slow for every turn.
+        const auto now = Clock::now();
+        if (loop_.loggedAt && now - *loop_.loggedAt < std::chrono::seconds { 1 }) return;
+        loop_.loggedAt = now;
+        log::warning("the event loop took {} ms for {} and {} ms for its timers; requests and watchdogs waited meanwhile ({} such turns so far)",
+                     eventMs, what.empty() ? std::string { "nothing" } : what, timersMs, loop_.stalls);
     }
 
     // issue #23 fix plan F18: `mcppls.exportBundle [{hideProjectPaths, noSourceExcerpts, includeDumps,
@@ -490,6 +588,52 @@ private:
                                    : Json { { "error", written.error().message }, { "residue", written.error().residue } };
             events->push(Event { EventKind::bundle_written, std::move(outcome) });
         } }.detach();
+    }
+
+    // K-7 (plan 2026-09-30): what a person needs to report a problem this server cannot recover from, captured when it
+    // happens rather than after they have restarted and lost it. Written like mcppls.exportBundle with its defaults
+    // (redacted; never uploaded), as <cache>/bundles/auto-<code>-<time>.zip; the newest five are kept.
+    void write_auto_bundle_(const std::string& rootKey, std::string code) {
+        bundle::BundleInput input;
+        input.report = full_report_();
+        input.client = Json::object();
+        if (const Json* initialization = lsp::find(clientParams_, "initializationOptions")) input.initializationOptions = *initialization;
+        bundle::BundleOptions options;
+        const std::string directory { base::join_path(platform::dirs::cache_directory(), "bundles") };
+        options.output = base::join_path(directory, std::format("auto-{}-{:%Y%m%dT%H%M%SZ}.zip", code,
+                                                               std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now())));
+        log::info("{}: writing a diagnostic bundle for {}", rootKey, code);
+        std::thread { [events = events_, input = std::move(input), options, rootKey, code = std::move(code), directory] {
+            auto written = bundle::write_bundle(input, options);
+            std::vector<std::string> automatic;
+            for (auto& entry : platform::fs::list_directory(directory)) {
+                if (base::file_name(entry).starts_with("auto-")) automatic.push_back(std::move(entry));
+            }
+            // Newest first, by when each was written (a FileStamp orders by size first).
+            const auto written_at = [](const std::string& file) {
+                const auto stamp = platform::fs::stamp(file);
+                return stamp ? stamp->modified : std::numeric_limits<std::int64_t>::min();
+            };
+            std::ranges::sort(automatic, std::greater {}, written_at);
+            for (std::size_t i { 5 }; i < automatic.size(); ++i) platform::fs::remove_all(automatic[i]);
+            Json outcome = written ? Json { { "auto", true }, { "code", code }, { "path", written->path } }
+                                   : Json { { "auto", true }, { "code", code }, { "error", written.error().message } };
+            events->push(Event { EventKind::bundle_written, std::move(outcome), 0, nullptr, rootKey });
+        } }.detach();
+    }
+
+    void finish_auto_bundle_(const std::string& rootKey, const Json& outcome) {
+        const std::string code { outcome.value("code", std::string {}) };
+        if (outcome.contains("error")) {
+            log::warning("{}: the diagnostic bundle for {} could not be written: {}", rootKey, code, outcome.value("error", std::string {}));
+            return;
+        }
+        const std::string path { outcome.value("path", std::string {}) };
+        log::warning("{}: mcppls cannot recover from {} by itself. A diagnostic bundle was saved to {} (it stays on this machine). "
+                     "Please report it at https://github.com/Sunrisepeak/mcpp-language-server/issues/new?template=bug_report.yml with the bundle "
+                     "attached; restarting the editor, or turning mcppls off for this workspace (mcppls.enable), works around it meanwhile",
+                     rootKey, code, path);
+        if (auto* root = root_by_key_(rootKey)) root->note_auto_bundle(code, path);
     }
 
     void finish_bundle_(const Json& outcome) {

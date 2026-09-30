@@ -25,6 +25,17 @@ public:
     void send(const Json& message) override;
 };
 
+// Plan 2026-09-30 §13: what writing to the client has cost the event loop. A client that reads slowly makes a write
+// wait, and the loop with it: every request budget and watchdog is late by as much.
+struct WriteStats {
+    std::uint64_t writes { 0 };
+    std::uint64_t bytes { 0 };
+    std::uint64_t slowWrites { 0 };   // that took 100 ms or more
+    std::int64_t maxMs { 0 };
+    std::int64_t totalMs { 0 };
+};
+WriteStats stdio_write_stats();
+
 // The id a request an engine of a root sends to the client travels under: the root's key, the
 // engine's id and generation, and the engine's own id, so the session can find the engine again
 // and rule out a stale engine when the client eventually responds.
