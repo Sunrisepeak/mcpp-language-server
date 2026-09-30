@@ -1577,6 +1577,9 @@ public:
             if (now - *readySince < std::chrono::seconds { 8 }) continue;
             const auto cores = watcher_.cpu_cores(now - std::chrono::seconds { 8 }, now);
             if (cores && *cores < 0.3) return true;
+            // Ready for a minute is settled as a person sees it, whatever clangd does in the background meanwhile: R-5
+            // builds implementation units for the index one at a time in idle time, a core busy for minutes on xlings.
+            if (now - *readySince >= std::chrono::minutes { 1 }) return true;
         }
         return false;
     }
