@@ -143,6 +143,12 @@ private:
     std::map<std::string, std::vector<std::string>, std::less<>> fileImports_;      // path key -> modules it imports directly
     std::map<std::string, std::string, std::less<>> fileModule_;                    // path key -> its module, any role
     static constexpr std::chrono::seconds PREPARATION_STALL_TIMEOUT { 60 };
+    // M-1 (plan 0.0.8): how long the sources a failed module is built from must be left alone before its importers are given
+    // back to clangd to try again. The module's own unit stays with clangd; retrying at every autosave of a module being
+    // written handed its importers back and took them again hundreds of times a minute (ux-mcpp U16: 377 in 94 s), and
+    // clangd, rebuilding them each time, answered the file being written late.
+    static constexpr std::chrono::seconds DOOM_RETRY_QUIET { 3 };
+    std::optional<Clock::time_point> doomRetryAt_;
     static constexpr std::chrono::minutes PRIME_DEADLINE { 3 };   // how long a prime unit is waited for
 
     // Parallel module preparation (primer.cppm): `import M;` units opened in clangd.
@@ -987,8 +993,26 @@ public:
         // A module that failed to compile is tried again only when its own unit or command changes
         // (real-project plan RP1.1, design P1): a save elsewhere in the project is not, by itself, a reason to
         // hand a doomed file back to clangd only to fail the same way again.
-        if (forget_changed_doom_()) recompute_doom_();
+        retry_doom_when_quiet_(Clock::now());
         if (forget_changed_unresolved_()) host_->request_replan();
+    }
+
+    // A failed module whose inputs changed is tried again once they have been left alone for DOOM_RETRY_QUIET: at once when
+    // nobody is typing in them, after the pause when somebody is.
+    void retry_doom_when_quiet_(Clock::time_point now) {
+        doomRetryAt_.reset();
+        std::optional<Clock::time_point> lastTouched;
+        for (const auto& root : doomRoots_ | std::views::values) {
+            for (const auto& input : root.inputs | std::views::keys) {
+                const auto touched = touchedAt_.find(base::path_key(input));
+                if (touched != touchedAt_.end() && (!lastTouched || touched->second > *lastTouched)) lastTouched = touched->second;
+            }
+        }
+        if (lastTouched && now < *lastTouched + DOOM_RETRY_QUIET) {
+            doomRetryAt_ = *lastTouched + DOOM_RETRY_QUIET;
+            return;
+        }
+        if (forget_changed_doom_()) recompute_doom_();
     }
 
     bool claims(const RequestView& request) const override {
@@ -1190,6 +1214,7 @@ public:
         for (const auto& [module, at] : primeDeadlines_) consider(at);
         consider(restartAt_);
         consider(stuckCheckAt_);
+        consider(doomRetryAt_);
         if (pendingExit_) consider(pendingExit_->at + EXIT_CONTEXT_WAIT);
         if (upSince_) consider(*upSince_ + RECOVERED_AFTER);
         for (const auto& [uri, closing] : closingAfterBuild_) consider(closing.second);
@@ -1360,6 +1385,7 @@ public:
             if (const auto* planned = primer_.find(module)) (void)finish_prime_(base::path_to_uri(planned->primeFile));
         }
         if (stuckCheckAt_ && *stuckCheckAt_ <= now) check_stuck_files_(now);
+        if (doomRetryAt_ && *doomRetryAt_ <= now) retry_doom_when_quiet_(now);
         reconsider_deferred_reclaims_(now);
         if (restartAt_ && *restartAt_ <= now) {
             if (const auto later = quiet_restart_at_(now)) {
