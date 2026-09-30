@@ -1115,7 +1115,7 @@
   },
   {
    "script": "src/orchestrator/workspace.cpp",
-   "contains": "void attach_auto_bundles(Json& issues) {"
+   "contains": "void request_auto_bundles() {"
   }
  ],
  "S3-4-23": [
