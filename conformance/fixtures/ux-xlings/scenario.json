@@ -1,6 +1,6 @@
 {
   "name": "ux-xlings",
-  "description": "0.0.7 plan 6.4 (U1-U15): the user-experience scenario tests on the xlings repository at the commit real-xlings pins (about 110 modules, one generated at build time), on the CI runner's size (4 vCPU: run under taskset -c 0-3). The same stages as ux-mcpp (cold, warm, edits, faults, long; --stage), with xlings' own files and budgets, calibrated the same way (ux-mcpp's description says how and why): U7's second fan-out (a crash of clangd on mcpp.manifest.types) exists only on mcpp, and U8's configuration change adds a compile flag to mcpp.toml instead of switching the profile. Nightly runs the long stage; a mcpp on PATH new enough to describe it (the fixture prepares with the one the workflow installs) is assumed.",
+  "description": "0.0.7 plan 6.4 (U1-U15): the user-experience scenario tests on the xlings repository at the commit real-xlings pins (about 110 modules, one generated at build time), on the CI runner's size (4 vCPU: run under taskset -c 0-3). The same stages as ux-mcpp (cold, warm, edits, faults, long; --stage), with xlings' own files and budgets, calibrated the same way (ux-mcpp's description says how and why): U7's second fan-out (a crash of clangd on mcpp.manifest.types) exists only on mcpp, and U8's configuration change adds a compile flag to mcpp.toml instead of switching the profile. Nightly runs the long stage; a mcpp on PATH new enough to describe it (the fixture prepares with the one the workflow installs) is assumed. U16 (0.0.8 plan 2, M-4) writes a module interface function by function with the importer open and files.autoSave afterDelay (a second after the last key, so every pause with half a statement on the screen reaches the disk, and clangd fails to build the module again and again): xlings.core.console (69 lines, no imports but std, imported by the progress renderer, the layout and the logger) is typed in and xlings.core.log (log.cpp) is the importer; nothing may be doomed, no 'module-failed' diagnostic may be published, no status sample may say preparation-stalled, clangd is not restarted, and a completion inside a function body of the importer is never empty. Its typed-file p95 is U6's 1.0 s plus a tenth for the importer's rebuilds, the importer's p95 is U7a's 1.5 s, and the engine share is U5's 0.75.",
   "prepare": [
     [
       "git",
@@ -421,6 +421,50 @@
         "filesSetAside": 10,
         "engineShare": 0.75,
         "diagnosticsRefresh": 6.0
+      }
+    },
+    {
+      "id": "U16-module-autosave",
+      "stage": "edits",
+      "kind": "typing",
+      "file": "src/core/console.cppm",
+      "seconds": 90,
+      "hz": 10,
+      "completion-every-ms": 1000,
+      "autosave-idle-ms": 1000,
+      "scripts": [
+        {
+          "line": 68,
+          "text": "int ux_add(int a_number, int b_number) { return a_number + b_"
+        },
+        {
+          "line": 68,
+          "text": "std::string ux_twice(std::string_view text) { std::string doubled = std::string(text); doubled +="
+        },
+        {
+          "line": 68,
+          "text": "bool ux_longer(std::string_view a_text, std::string_view b_text) { if (a_text.size() > b_text."
+        },
+        {
+          "line": 68,
+          "text": "int ux_count(const std::vector<int>& values) { int total = 0; for (auto value : values) { total += va"
+        }
+      ],
+      "importer": {
+        "file": "src/core/log.cpp",
+        "line": 23,
+        "text": "    int ux_probe_value = 1; ux_probe_"
+      },
+      "budget": {
+        "p95": 1.1,
+        "importerP95": 1.5,
+        "importerEmpty": 0,
+        "doomed": 0,
+        "moduleFailedDiagnostics": 0,
+        "stalled": 0,
+        "restarts": 0,
+        "timeouts": 0,
+        "engineShare": 0.75
       }
     },
     {
