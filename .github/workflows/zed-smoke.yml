@@ -69,7 +69,8 @@ jobs:
           set -euo pipefail
           echo "$ZED_LINUX_X86_64_SHA256  $RUNNER_TEMP/zed-download/zed.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/zed-download/zed.tar.gz" -C "$RUNNER_TEMP"
-          "$RUNNER_TEMP/zed.app/libexec/zed-editor" --version
+          # The pinned tarball's hash is the version check: the editor binary takes no --version (its CLI, bin/zed, does).
+          test -x "$RUNNER_TEMP/zed.app/libexec/zed-editor"
       # The crate compiled to WebAssembly by the same devtools that installs it (the runner's own
       # rustup provides cargo; devtools adds the wasm32-wasip2 target).
       - name: Build the extension
