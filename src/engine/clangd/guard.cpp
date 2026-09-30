@@ -280,6 +280,18 @@ LineLimiter::Decision LineLimiter::admit(GuardClock::time_point now) {
     return decision;
 }
 
+std::string worker_file(std::string_view threadName) {
+    if (const std::size_t colon { threadName.rfind(':') }; colon != std::string_view::npos) {
+        const std::string_view prefix { threadName.substr(0, colon) };
+        const bool worker { std::string_view { "ASTWorker" }.ends_with(prefix) || std::string_view { "PreambleWorker" }.ends_with(prefix) };
+        return worker ? std::string { threadName.substr(colon + 1) } : std::string {};
+    }
+    // Too long a file name for any of the prefix to be left: only the end of the file name, known by its extension.
+    static constexpr std::array<std::string_view, 12> SOURCES { ".cpp", ".cppm", ".cc", ".cxx", ".c++", ".ixx", ".mpp", ".ccm", ".cxxm", ".c", ".h", ".hpp" };
+    const bool source { std::ranges::any_of(SOURCES, [&](std::string_view extension) { return threadName.ends_with(extension); }) };
+    return source && threadName.size() >= 15 ? std::string { threadName } : std::string {};
+}
+
 bool engine_working(std::string_view state) {
     for (std::size_t start { 0 }; start <= state.size();) {
         const std::size_t comma { state.find(',', start) };

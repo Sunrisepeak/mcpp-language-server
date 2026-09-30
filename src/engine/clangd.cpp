@@ -11,6 +11,7 @@ import mcppls.base.text;
 import mcppls.base.uri;
 import mcppls.platform.env;
 import mcppls.platform.fs;
+import mcppls.platform.process;
 import mcppls.lsp.jsonrpc;
 import mcppls.lsp.protocol;
 import mcppls.project.scan;
@@ -305,6 +306,23 @@ private:
     std::optional<Clock::time_point> lastResultAt_;
     std::optional<Clock::time_point> acceptingSince_;         // K-7: when this clangd began taking requests
     int busyRestartGeneration_ { -1 };                        // K-7: the clangd it was already asked for, said once
+    // K-8 (plan 0.0.8 part 2): a build clangd let go of and never stopped. A file closed in clangd while its build spins
+    // (a doomed importer on ux-xlings, closed mid-build at every autosave of the module it imports) leaves the build's
+    // thread running with nobody to answer: three of them took all three workers ("TWorker:log.cpp" at a full core
+    // each, 250-330 s of CPU), every open file stayed queued, and neither the stuck watch (next to no CPU) nor the spin
+    // watch (a file clangd reports building) saw it. A worker thread at a full core for ORPHAN_SPIN whose file clangd
+    // is not building restarts clangd. Linux only (per-thread CPU); K-7 is what the others have.
+    static constexpr std::chrono::seconds SPIN_SAMPLE { 15 };
+    static constexpr std::chrono::seconds ORPHAN_SPIN { 60 };
+    struct WorkerThread {
+        double seconds { 0 };
+        std::optional<Clock::time_point> hotSince;
+        std::string file;
+    };
+    std::map<std::int64_t, WorkerThread> workerThreads_;
+    std::optional<Clock::time_point> spinSampleAt_;
+    std::optional<Clock::time_point> lastSpinSample_;
+    int spinRestartGeneration_ { -1 };
     StuckWatch stuck_;
     SpinWatch spin_;   // import-hang plan §4: a file clangd will not finish, busy or not
     // WA-CLANGD-001: the `;` insertions in the text clangd has of each open document (client URI), for
@@ -1250,6 +1268,7 @@ public:
         consider(restartAt_);
         consider(stuckCheckAt_);
         consider(doomRetryAt_);
+        if (accepting_) consider(spinSampleAt_);
         if (pendingExit_) consider(pendingExit_->at + EXIT_CONTEXT_WAIT);
         if (upSince_) consider(*upSince_ + RECOVERED_AFTER);
         for (const auto& [uri, closing] : closingAfterBuild_) consider(closing.second);
@@ -1427,6 +1446,7 @@ public:
         }
         if (stuckCheckAt_ && *stuckCheckAt_ <= now) check_stuck_files_(now);
         if (doomRetryAt_ && *doomRetryAt_ <= now) retry_doom_when_quiet_(now);
+        if (accepting_ && spinSampleAt_ && *spinSampleAt_ <= now) sample_worker_threads_(now);
         reconsider_deferred_reclaims_(now);
         if (restartAt_ && *restartAt_ <= now) {
             if (const auto later = quiet_restart_at_(now)) {
@@ -1999,6 +2019,48 @@ private:
         }
     }
 
+    // K-8: samples clangd's worker threads, and restarts it when one has kept a full core busy for ORPHAN_SPIN on a file
+    // it is not building.
+    void sample_worker_threads_(Clock::time_point now) {
+        spinSampleAt_ = now + SPIN_SAMPLE;
+        const auto pid = process_ ? process_->pid() : std::nullopt;
+        if (!pid) return;
+        const auto threads = platform::thread_cpu(*pid);
+        std::map<std::int64_t, WorkerThread> next;
+        for (const auto& thread : threads) {
+            std::string file { worker_file(thread.name) };
+            if (file.empty()) continue;
+            WorkerThread worker { thread.seconds, std::nullopt, std::move(file) };
+            if (const auto was = workerThreads_.find(thread.id); was != workerThreads_.end() && lastSpinSample_) {
+                const double interval { std::chrono::duration<double>(now - *lastSpinSample_).count() };
+                if (interval > 0 && (thread.seconds - was->second.seconds) / interval >= 0.8) worker.hotSince = was->second.hotSince.value_or(*lastSpinSample_);
+            }
+            next.emplace(thread.id, std::move(worker));
+        }
+        workerThreads_ = std::move(next);
+        lastSpinSample_ = now;
+        if (spinRestartGeneration_ == generation_ || restartAt_) return;
+        for (const auto& [id, worker] : workerThreads_) {
+            if (!worker.hotSince || now - *worker.hotSince < ORPHAN_SPIN || building_file_(worker.file)) continue;
+            spinRestartGeneration_ = generation_;
+            const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(now - *worker.hotSince).count();
+            log::warning("clangd ({}) has kept a core busy for {} s on {}, which it is not building; restarting it", host_->root_directory(), seconds, worker.file);
+            host_->record_event("engine-orphan-spin", Json { { "file", worker.file }, { "seconds", seconds } });
+            incident_("engine-orphan-spin", Json { { "file", worker.file }, { "seconds", seconds } }, pending_files_(), true);
+            add_issue_(Issue { "engine-timeout", "clangd stopped making progress; it was restarted", "mcppls.restartServer" });
+            request_restart_("clangd kept building a file it had let go of");
+            return;
+        }
+    }
+
+    // K-8: whether clangd reports a build under way for a file whose name ends with `tail` (a worker thread's file).
+    bool building_file_(std::string_view tail) const {
+        return std::ranges::any_of(fileStatus_, [&](const auto& item) {
+            const std::string path { host_->path_of_uri(item.first) };
+            return base::file_name(path.empty() ? item.first : path).ends_with(tail) && engine_working(item.second);
+        });
+    }
+
     // K-7: how long clangd has finished nothing -- no diagnostics for any file, no answer, no module, no background unit
     // -- counted from its start at the earliest.
     Clock::duration nothing_finished_for_(Clock::time_point now) const {
@@ -2013,6 +2075,9 @@ private:
         if (!handshakeDone_ || !planApplied_ || accepting_) return;
         accepting_ = true;
         acceptingSince_ = Clock::now();
+        workerThreads_.clear();
+        lastSpinSample_.reset();
+        spinSampleAt_ = *acceptingSince_ + SPIN_SAMPLE;
         for (const auto& document : host_->documents()) {
             if (!excluded_path_(document.path) && !quarantined_(document.path)) open_or_hold_(document, planApplied_);
         }

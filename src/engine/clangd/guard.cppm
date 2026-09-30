@@ -209,6 +209,11 @@ std::set<std::string> doomed_modules(const std::map<std::string, std::vector<std
 // waiting for a worker.
 bool engine_working(std::string_view state);
 
+// K-8 (plan 0.0.8 part 2): the file a clangd worker thread is named for. clangd names a file's threads "ASTWorker:<file>"
+// and "PreambleWorker:<file>", and Linux keeps the last 15 characters: "TWorker:log.cpp" is log.cpp, "rker:doctor.cpp"
+// doctor.cpp, "ilename.cppm" the end of a longer name. Empty for any other thread (the main one, the background index's).
+std::string worker_file(std::string_view threadName);
+
 // clangd's workers (-j), which also bound its background index (R-2, plan 2026-09-30, revising C7). One fewer than the
 // machine's hardware threads, at least two and at most eight, and no more than half its memory in gigabytes where that
 // is known (a module build in clangd peaks at one to two gigabytes). C7's quarter of the physical cores left an 8- or

@@ -661,6 +661,13 @@ int main() {
         expect(cld::engine_working("parsing main file") && cld::engine_working("parsing includes") && cld::engine_working("running Hover"));
         expect(cld::engine_working("parsing includes, file is queued")) << "building its preamble while the file waits for a worker";
         expect(!cld::engine_working("idle") && !cld::engine_working("file is queued") && !cld::engine_working("preamble (queued)"));
+        // K-8 (plan 0.0.8 part 2): the file a worker thread is named for, as Linux truncates the name (15 characters).
+        expect(cld::worker_file("TWorker:log.cpp") == "log.cpp" && cld::worker_file("rker:doctor.cpp") == "doctor.cpp");
+        expect(cld::worker_file("er:console.cppm") == "console.cppm" && cld::worker_file("ASTWorker:a.cpp") == "a.cpp");
+        expect(cld::worker_file("mbleWorker:b.cc") == "b.cc") << "a preamble thread";
+        expect(cld::worker_file("_long_name.cppm") == "_long_name.cppm") << "the end of a long file name";
+        expect(cld::worker_file("clangd.main").empty() && cld::worker_file("ground-worker-2").empty() && cld::worker_file("llvm-worker-0").empty());
+        expect(cld::worker_file("Something:x.cpp").empty()) << "not a worker's prefix";
         expect(!cld::engine_working("preamble (queued), file is queued") && !cld::engine_working(""));
     };
 
