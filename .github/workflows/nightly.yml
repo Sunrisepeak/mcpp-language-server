@@ -20,6 +20,14 @@ jobs:
   ci:
     uses: ./.github/workflows/ci.yml
 
+  # The Zed extension in a real Zed (editors/zed/tests/smoke.sh), on the payload ci.yml just built.
+  # Every night, so a Zed or lavapipe that stops working shows up here before a pull request meets it.
+  zed:
+    name: real Zed
+    needs: ci
+    if: ${{ !cancelled() }}
+    uses: ./.github/workflows/zed-smoke.yml
+
   timing:
     name: startup timing (${{ matrix.platform }})
     needs: ci

@@ -1142,6 +1142,61 @@ jobs:
           if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi
 
   # ---------------------------------------------------------------------------
+  # The Zed extension's choice of server (editors/zed/src/resolve.rs) as a plain Rust test on the
+  # runner, and the crate still compiling to the wasm Zed loads. Every pull request: a few seconds.
+  zed-unit:
+    name: Zed extension (cargo test)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Unit tests
+        run: cargo test --manifest-path editors/zed/Cargo.toml
+      - name: The wasm build Zed loads
+        run: |
+          rustup target add wasm32-wasip2
+          cargo build --release --target wasm32-wasip2 --manifest-path editors/zed/Cargo.toml
+
+  # Whether the pull request needs the real Zed (zed-smoke.yml): it touches the extension, the
+  # server's protocol layer or orchestrator, or devtools (which installs the extension), or it is
+  # the pull request of a release/* branch or into one. Same method as packaging-changes below.
+  zed-changes:
+    name: does the pull request need the real Zed
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.files.outputs.run }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - id: files
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          run=false
+          case "$BASE_REF" in release/*) echo "into $BASE_REF"; run=true ;; esac
+          case "$HEAD_REF" in release/*) echo "from $HEAD_REF"; run=true ;; esac
+          while read -r file; do
+            case "$file" in
+              editors/zed/*|src/lsp/*|src/orchestrator/*|tools/devtools/*|.github/workflows/zed-smoke.yml|.github/versions.env)
+                echo "the real Zed: $file"; run=true ;;
+            esac
+          done < <(git diff --name-only HEAD^1 HEAD)
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+  # A pull request that changes release packaging gets the same smoke from release-checks.yml, so
+  # it is not run twice here. nightly.yml and every release candidate run it on their own.
+  zed-smoke:
+    name: real Zed
+    needs: [payload, zed-changes, packaging-changes]
+    if: needs.zed-changes.outputs.run == 'true' && needs.packaging-changes.outputs.changed != 'true'
+    uses: ./.github/workflows/zed-smoke.yml
+
+  # ---------------------------------------------------------------------------
   # The agent task benchmark's baseline/reference pairs (tools/bench/README.md, design
   # §10.2, work item A2): no agent and no API key, just `mcpp build`/`mcpp test`
   # (and a declarative content check) against each task's baseline project copy,

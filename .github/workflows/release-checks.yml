@@ -10,6 +10,8 @@ name: Release checks
 #   plugins       the Zed and CLion plugins, packaged exactly as a release ships them
 #   install       each host: the Zed and CLion plugins installed from those archives by devtools,
 #                 the installed server answering a project, and uninstall leaving nothing behind
+#   zed           the Zed extension in a real Zed on Linux, under both the recommended settings and
+#                 Zed's defaults (zed-smoke.yml)
 #   performance   each host: five cold and five warm starts, medians against a budget; on Linux the
 #                 server on this repository itself as well
 #   stability     each host: the fixtures of the project shapes that matter most, three rounds in a
@@ -128,6 +130,11 @@ jobs:
           done
           # The source of a linked install is untouched by removing the link.
           test -f "$t/mcppls-zed/extension.toml"
+
+  # Not the install above: this one starts Zed itself and asks the installed extension for mcppls.
+  zed:
+    name: real Zed
+    uses: ./.github/workflows/zed-smoke.yml
 
   performance:
     name: performance (${{ matrix.platform }})
@@ -321,7 +328,7 @@ jobs:
   # Everything a release would publish, staged and checked. Release takes this artifact as it is.
   candidate:
     name: release candidate
-    needs: [plugins, install, performance, self-hosting, stability]
+    needs: [plugins, install, zed, performance, self-hosting, stability]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
