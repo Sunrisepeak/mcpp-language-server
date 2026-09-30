@@ -1,0 +1,730 @@
+{
+  "name": "ux-xlings",
+  "description": "0.0.7 plan 6.4 (U1-U15): the user-experience scenario tests on the xlings repository at the commit real-xlings pins (about 110 modules, one generated at build time), on the CI runner's size (4 vCPU: run under taskset -c 0-3). The same stages as ux-mcpp (cold, warm, edits, faults, long; --stage), with xlings' own files and budgets: U7's second fan-out (a crash of clangd on mcpp.manifest.types) exists only on mcpp, and U8's configuration change adds a compile flag to mcpp.toml instead of switching the profile. Nightly runs the long stage; a mcpp on PATH new enough to describe it (the fixture prepares with the one the workflow installs) is assumed.",
+  "prepare": [
+    [
+      "git",
+      "init",
+      "-q"
+    ],
+    [
+      "git",
+      "fetch",
+      "-q",
+      "--depth",
+      "30",
+      "https://github.com/openxlings/xlings.git",
+      "84572b0cc8502a16afaa4ae00867aef17f18c2c2"
+    ],
+    [
+      "git",
+      "checkout",
+      "-q",
+      "FETCH_HEAD"
+    ],
+    [
+      "mcpp",
+      "emit",
+      "build-database"
+    ]
+  ],
+  "server-arguments": [
+    "--log-level",
+    "debug"
+  ],
+  "checks": [
+    {
+      "id": "U1-first-response",
+      "kind": "latency",
+      "stage": "cold",
+      "phase": "now",
+      "rounds": 1,
+      "requests": [
+        {
+          "kind": "documentSymbol",
+          "file": "src/main.cpp"
+        },
+        {
+          "kind": "semanticTokens",
+          "file": "src/main.cpp"
+        },
+        {
+          "kind": "definition",
+          "name": "module-name",
+          "file": "src/main.cpp",
+          "at": [
+            2,
+            7
+          ],
+          "expect": "src/cli.cppm"
+        },
+        {
+          "kind": "documentSymbol",
+          "name": "heavy-outline",
+          "file": "src/core/xself/doctor.cpp"
+        },
+        {
+          "kind": "semanticTokens",
+          "name": "heavy-tokens",
+          "file": "src/core/xself/doctor.cpp"
+        }
+      ],
+      "budget": {
+        "max": 1.0
+      }
+    },
+    {
+      "id": "U4-cold",
+      "kind": "latency",
+      "stage": "cold",
+      "phase": "cold",
+      "requests": [
+        {
+          "kind": "completion",
+          "name": "member",
+          "file": "src/core/semver.cppm",
+          "at": [
+            120,
+            22
+          ]
+        },
+        {
+          "kind": "completion",
+          "name": "std",
+          "file": "src/core/semver.cppm",
+          "at": [
+            64,
+            9
+          ]
+        },
+        {
+          "kind": "completion",
+          "name": "body",
+          "file": "src/core/semver.cppm",
+          "at": [
+            110,
+            9
+          ]
+        },
+        {
+          "kind": "hover",
+          "file": "src/core/semver.cppm",
+          "at": [
+            107,
+            43
+          ]
+        }
+      ],
+      "first-answers": [
+        {
+          "name": "first-completion",
+          "kind": "completion",
+          "file": "src/core/xself/doctor.cpp",
+          "at": [
+            95,
+            12
+          ],
+          "expect": "error_code",
+          "within": 35
+        },
+        {
+          "name": "first-jump",
+          "kind": "definition",
+          "file": "src/main.cpp",
+          "at": [
+            33,
+            22
+          ],
+          "expect": "platform/linux.cpp",
+          "within": 35
+        }
+      ],
+      "budget": {
+        "p95": 1.0,
+        "max": 3.0,
+        "hover.p95": 1.5,
+        "hover.max": 3.0,
+        "engineShare": 0.9
+      }
+    },
+    {
+      "id": "U4-background",
+      "kind": "latency",
+      "stage": "cold",
+      "phase": "background",
+      "seconds": 45,
+      "requests": [
+        {
+          "kind": "completion",
+          "name": "member",
+          "file": "src/core/semver.cppm",
+          "at": [
+            120,
+            22
+          ]
+        },
+        {
+          "kind": "completion",
+          "name": "std",
+          "file": "src/core/semver.cppm",
+          "at": [
+            64,
+            9
+          ]
+        },
+        {
+          "kind": "completion",
+          "name": "body",
+          "file": "src/core/semver.cppm",
+          "at": [
+            110,
+            9
+          ]
+        },
+        {
+          "kind": "hover",
+          "file": "src/core/semver.cppm",
+          "at": [
+            107,
+            43
+          ]
+        }
+      ],
+      "budget": {
+        "p95": 1.0,
+        "max": 3.0,
+        "hover.p95": 1.5,
+        "hover.max": 3.0,
+        "engineShare": 0.9
+      }
+    },
+    {
+      "id": "U3-idle",
+      "kind": "latency",
+      "stage": "cold",
+      "phase": "idle",
+      "rounds": 20,
+      "requests": [
+        {
+          "kind": "completion",
+          "name": "member",
+          "file": "src/core/semver.cppm",
+          "at": [
+            120,
+            22
+          ]
+        },
+        {
+          "kind": "hover",
+          "file": "src/core/semver.cppm",
+          "at": [
+            107,
+            43
+          ]
+        },
+        {
+          "kind": "definition",
+          "file": "src/main.cpp",
+          "at": [
+            33,
+            22
+          ],
+          "expect": "platform/linux.cpp"
+        },
+        {
+          "kind": "semanticTokens",
+          "file": "src/core/semver.cppm"
+        }
+      ],
+      "budget": {
+        "completion.p95": 0.3,
+        "hover.p95": 0.3,
+        "definition.p95": 0.5,
+        "semanticTokens.p95": 0.5,
+        "engineShare": 0.9
+      }
+    },
+    {
+      "id": "S1",
+      "kind": "status",
+      "stage": "cold",
+      "state": "ready",
+      "timeout": 300,
+      "source": "mcpp",
+      "tier": 1
+    },
+    {
+      "id": "U14-memory",
+      "kind": "resources",
+      "stage": "cold",
+      "budget": {
+        "rssMB": 4000
+      }
+    },
+    {
+      "id": "U15-cold",
+      "kind": "timeline",
+      "stage": "cold",
+      "budget": {
+        "maxStallSeconds": 60,
+        "maxChangesPerMinute": 6,
+        "errorStates": 0,
+        "preparedSeconds": 70
+      }
+    },
+    {
+      "id": "U2-jump",
+      "kind": "definition",
+      "stage": "warm",
+      "file": "src/main.cpp",
+      "at": [
+        33,
+        22
+      ],
+      "expect": "platform/linux.cpp",
+      "within-since-start": 3
+    },
+    {
+      "id": "U2-restarts",
+      "kind": "timeline",
+      "stage": "warm",
+      "observe-seconds": 300,
+      "budget": {
+        "firstReadySeconds": 5,
+        "restarts": 0,
+        "maxStallSeconds": 60,
+        "errorStates": 0,
+        "maxChangesPerMinute": 6
+      }
+    },
+    {
+      "id": "U2-bmi",
+      "kind": "bmi-reuse",
+      "stage": "warm",
+      "budget": {
+        "newBmi": 0,
+        "builtLines": 0
+      }
+    },
+    {
+      "id": "U5-typing",
+      "stage": "edits",
+      "kind": "typing",
+      "file": "src/core/xself/doctor.cpp",
+      "seconds": 120,
+      "hz": 10,
+      "completion-every-ms": 1000,
+      "scripts": [
+        {
+          "line": 60,
+          "text": "auto uxone = std::vector<int>{1,2,3}; uxone.push_back(4);"
+        },
+        {
+          "line": 60,
+          "text": "if (true) { int uxtwo = 1; "
+        },
+        {
+          "line": 60,
+          "text": "std::string uxthree; uxthree.siz"
+        },
+        {
+          "line": 60,
+          "text": "for (auto& e : std::vector<std::string>{}) { e."
+        },
+        {
+          "line": 42,
+          "text": "import xlings.core."
+        },
+        {
+          "line": 42,
+          "text": "import xlings.platform"
+        },
+        {
+          "line": 42,
+          "text": "import xlings.libs."
+        },
+        {
+          "line": 60,
+          "text": "auto uxfour = std::ranges::find("
+        }
+      ],
+      "diagnostic-probe": {
+        "line": 60,
+        "text": "int ux_probe_typo = ux_undeclared_name;",
+        "expect": "ux_undeclared_name"
+      },
+      "budget": {
+        "p95": 1.0,
+        "max": 3.0,
+        "timeouts": 0,
+        "restarts": 0,
+        "filesSetAside": 0,
+        "engineShare": 0.9,
+        "diagnosticsRefresh": 3.0
+      }
+    },
+    {
+      "id": "U6-typing-autosave",
+      "stage": "edits",
+      "kind": "typing",
+      "file": "src/core/xself/doctor.cpp",
+      "seconds": 120,
+      "hz": 10,
+      "completion-every-ms": 1000,
+      "scripts": [
+        {
+          "line": 60,
+          "text": "auto uxone = std::vector<int>{1,2,3}; uxone.push_back(4);"
+        },
+        {
+          "line": 60,
+          "text": "if (true) { int uxtwo = 1; "
+        },
+        {
+          "line": 60,
+          "text": "std::string uxthree; uxthree.siz"
+        },
+        {
+          "line": 60,
+          "text": "for (auto& e : std::vector<std::string>{}) { e."
+        },
+        {
+          "line": 42,
+          "text": "import xlings.core."
+        },
+        {
+          "line": 42,
+          "text": "import xlings.platform"
+        },
+        {
+          "line": 42,
+          "text": "import xlings.libs."
+        },
+        {
+          "line": 60,
+          "text": "auto uxfour = std::ranges::find("
+        }
+      ],
+      "diagnostic-probe": {
+        "line": 60,
+        "text": "int ux_probe_typo = ux_undeclared_name;",
+        "expect": "ux_undeclared_name"
+      },
+      "autosave-ms": 1000,
+      "budget": {
+        "p95": 1.0,
+        "max": 3.0,
+        "timeouts": 0,
+        "restarts": 0,
+        "filesSetAside": 0,
+        "engineShare": 0.9,
+        "diagnosticsRefresh": 3.0
+      }
+    },
+    {
+      "id": "U7a-fanout-save",
+      "kind": "edit-save",
+      "stage": "edits",
+      "file": "modules/platform/src/platform.cppm",
+      "marker": "namespace platform {\n",
+      "insert": "    export inline int ux_probe_fn() { return 42; }\n",
+      "importers": [
+        "src/core/xim/resolver.cpp",
+        "src/core/xvm/shim_table.cpp",
+        "src/core/mirror/registry.cpp",
+        "src/core/xself/update.cpp",
+        "src/core/xself/repair.cpp",
+        "src/core/log.cpp",
+        "src/core/xvm/lock.cpp",
+        "src/core/mirror/expand.cpp"
+      ],
+      "probe": {
+        "append": "\nstatic const int ux_use = xlings::platform::ux_probe_fn();\n",
+        "expect": "ux_probe_fn"
+      },
+      "interactive": {
+        "file": "src/core/xim/resolver.cpp",
+        "at": [
+          40,
+          0
+        ],
+        "every-ms": 1000
+      },
+      "wait-seconds": 240,
+      "recover-probe": {
+        "kind": "completion",
+        "file": "src/core/semver.cppm",
+        "at": [
+          64,
+          12
+        ],
+        "expect": "string"
+      },
+      "budget": {
+        "republishSeconds": 20,
+        "p95": 1.0,
+        "errorStates": 0
+      }
+    },
+    {
+      "id": "U8-add-module",
+      "kind": "graph-edit",
+      "stage": "edits",
+      "action": "add",
+      "file": "src/core/ux_probe.cppm",
+      "module": "xlings.ux_probe",
+      "budget": {
+        "graphSeconds": 5,
+        "restarts": 0
+      }
+    },
+    {
+      "id": "U8-remove-module",
+      "kind": "graph-edit",
+      "stage": "edits",
+      "action": "remove",
+      "file": "src/core/ux_probe.cppm",
+      "module": "xlings.ux_probe",
+      "budget": {
+        "graphSeconds": 5,
+        "restarts": 0
+      }
+    },
+    {
+      "id": "U8-config",
+      "kind": "graph-edit",
+      "stage": "edits",
+      "action": "config",
+      "file": "mcpp.toml",
+      "replace": {
+        "from": "\"-DUNICODE\"",
+        "with": "\"-DUNICODE\", \"-DUX_PROBE=1\""
+      },
+      "budget": {
+        "changeSeconds": 5,
+        "revertSeconds": 5,
+        "revertNewBmi": 0
+      }
+    },
+    {
+      "id": "U15-edits",
+      "kind": "timeline",
+      "stage": "edits",
+      "budget": {
+        "maxStallSeconds": 60,
+        "errorStates": 0,
+        "maxChangesPerMinute": 6
+      }
+    },
+    {
+      "id": "U9-kill-clangd",
+      "kind": "fault",
+      "action": "kill-clangd",
+      "stage": "faults",
+      "at-progress": 0.5,
+      "progress-fallback-seconds": 2,
+      "recover-probe": {
+        "kind": "completion",
+        "file": "src/core/semver.cppm",
+        "at": [
+          64,
+          12
+        ],
+        "expect": "string"
+      },
+      "wait-seconds": 300,
+      "budget": {
+        "answerSeconds": 15
+      },
+      "open": [
+        "src/main.cpp",
+        "src/core/xself/doctor.cpp"
+      ]
+    },
+    {
+      "id": "U10-kill-server",
+      "kind": "fault",
+      "action": "kill-server",
+      "stage": "faults",
+      "recover-probe": {
+        "kind": "completion",
+        "file": "src/core/semver.cppm",
+        "at": [
+          64,
+          12
+        ],
+        "expect": "string"
+      },
+      "wait-seconds": 240,
+      "budget": {
+        "readySeconds": 5,
+        "usesPrimaryCache": true,
+        "newBmi": 0,
+        "orphans": 0
+      },
+      "open": [
+        "src/main.cpp",
+        "src/core/xself/doctor.cpp"
+      ]
+    },
+    {
+      "id": "U11-lock-dead-pid",
+      "kind": "fault",
+      "action": "lock",
+      "variant": "dead-pid",
+      "module": "xlings.core.config",
+      "stage": "faults",
+      "recover-probe": {
+        "kind": "completion",
+        "file": "src/core/semver.cppm",
+        "at": [
+          64,
+          12
+        ],
+        "expect": "string"
+      },
+      "wait-seconds": 120,
+      "settle-seconds": 300,
+      "budget": {
+        "recoverSeconds": 15
+      },
+      "open": [
+        "src/main.cpp",
+        "src/core/xself/doctor.cpp"
+      ]
+    },
+    {
+      "id": "U11-lock-live-pid",
+      "kind": "fault",
+      "action": "lock",
+      "variant": "live-pid",
+      "module": "xlings.core.config",
+      "stage": "faults",
+      "recover-probe": {
+        "kind": "completion",
+        "file": "src/core/semver.cppm",
+        "at": [
+          64,
+          12
+        ],
+        "expect": "string"
+      },
+      "wait-seconds": 120,
+      "settle-seconds": 300,
+      "budget": {
+        "recoverSeconds": 15
+      },
+      "open": [
+        "src/main.cpp",
+        "src/core/xself/doctor.cpp"
+      ]
+    },
+    {
+      "id": "U11-lock-foreign-host",
+      "kind": "fault",
+      "action": "lock",
+      "variant": "foreign-host",
+      "module": "xlings.core.config",
+      "stage": "faults",
+      "recover-probe": {
+        "kind": "completion",
+        "file": "src/core/semver.cppm",
+        "at": [
+          64,
+          12
+        ],
+        "expect": "string"
+      },
+      "wait-seconds": 120,
+      "settle-seconds": 300,
+      "budget": {
+        "recoverSeconds": 15
+      },
+      "open": [
+        "src/main.cpp",
+        "src/core/xself/doctor.cpp"
+      ]
+    },
+    {
+      "id": "U11-truncate-pcm",
+      "kind": "fault",
+      "action": "truncate-pcm",
+      "module": "xlings.core.config",
+      "stage": "faults",
+      "recover-probe": {
+        "kind": "completion",
+        "file": "src/core/semver.cppm",
+        "at": [
+          64,
+          12
+        ],
+        "expect": "string"
+      },
+      "wait-seconds": 120,
+      "settle-seconds": 300,
+      "budget": {
+        "recoverSeconds": 15
+      },
+      "open": [
+        "src/main.cpp",
+        "src/core/xself/doctor.cpp"
+      ]
+    },
+    {
+      "id": "U15-faults",
+      "kind": "timeline",
+      "stage": "faults",
+      "budget": {
+        "maxStallSeconds": 60,
+        "errorStates": 0,
+        "maxChangesPerMinute": 6
+      }
+    },
+    {
+      "id": "U13-idle-10min",
+      "kind": "resources",
+      "stage": "long",
+      "idle-seconds": 600,
+      "budget": {
+        "idleCpuCores": 0.01,
+        "rssGrowth": 0.1
+      }
+    },
+    {
+      "id": "U12-git-checkout",
+      "kind": "fault",
+      "action": "git-checkout",
+      "stage": "long",
+      "rev": "HEAD~20",
+      "recover-probe": {
+        "kind": "completion",
+        "file": "src/core/semver.cppm",
+        "at": [
+          64,
+          12
+        ],
+        "expect": "string"
+      },
+      "wait-seconds": 300,
+      "budget": {
+        "replanSeconds": 10,
+        "restarts": 1,
+        "answerSeconds": 35
+      },
+      "open": [
+        "src/main.cpp",
+        "src/core/xself/doctor.cpp"
+      ]
+    },
+    {
+      "id": "U15-long",
+      "kind": "timeline",
+      "stage": "long",
+      "budget": {
+        "maxStallSeconds": 60,
+        "errorStates": 0,
+        "maxChangesPerMinute": 6
+      }
+    }
+  ]
+}
