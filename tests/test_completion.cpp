@@ -238,9 +238,10 @@ int main() {
         const std::string text { "int main() {\n    auto v = obj.si\n}\n" };
         const auto early = completion::word_key(text, Position { 1, 18 });   // after "obj.s"
         const auto later = completion::word_key(text, Position { 1, 19 });   // after "obj.si"
-        expect(early.has_value() && later.has_value() && *early == *later) << "one word, typed on";
-        expect(later->before == "    auto v = obj.") << later->before;
-        expect(completion::word_key(text, Position { 1, 9 }) != later) << "another word on the line";
+        expect(early.has_value() && later.has_value() && completion::typed_on(*early, *later)) << "one word, typed on";
+        expect(!completion::typed_on(*later, *early)) << "typed back: an answer for 'si' does not cover 's'";
+        expect(later->before == "    auto v = obj." && later->typed == "si") << later->before << "|" << later->typed;
+        expect(!completion::typed_on(*completion::word_key(text, Position { 1, 9 }), *later)) << "another word on the line";
         expect(completion::word_key(text, Position { 9, 0 }) == std::nullopt);
         expect(completion::word_key("si", Position { 0, 2 })->before.empty()) << "a word at the start of the text";
 

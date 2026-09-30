@@ -299,6 +299,7 @@ private:
     std::optional<Clock::time_point> lastBackgroundBuiltAt_;  // when a unit opened without the editor last finished building
     std::optional<Clock::time_point> lastDiagnosticsAt_;      // K-7 (plan 0.0.8 part 2): clangd's last publish, for any file
     std::optional<Clock::time_point> acceptingSince_;         // K-7: when this clangd began taking requests
+    int busyRestartGeneration_ { -1 };                        // K-7: the clangd it was already asked for, said once
     StuckWatch stuck_;
     SpinWatch spin_;   // import-hang plan §4: a file clangd will not finish, busy or not
     // WA-CLANGD-001: the `;` insertions in the text clangd has of each open document (client URI), for
@@ -1982,7 +1983,8 @@ private:
             schedule_stuck_check_(now >= due ? now + std::chrono::seconds { 30 } : due);
         }
         for (const auto& [path, why, moduleFailed] : stuck) set_aside_(path, why, moduleFailed ? Reclaim::no : Reclaim::if_busy, moduleFailed);
-        if (busyWithoutProgress && !restartAt_) {
+        if (busyWithoutProgress && !restartAt_ && busyRestartGeneration_ != generation_) {
+            busyRestartGeneration_ = generation_;
             const auto idle = std::chrono::duration_cast<std::chrono::seconds>(nothing_finished_for_(now)).count();
             log::warning("clangd ({}) has kept every open file queued and finished nothing for {} s; restarting it", host_->root_directory(), idle);
             host_->record_event("engine-busy-without-progress", Json { { "seconds", idle }, { "awaiting", awaitingDiagnostics_.size() } });

@@ -316,7 +316,11 @@ struct Workspace::Impl final : engine::Host {
     struct LateAnswer {
         completion::WordKey key;
         Json result;
+        Clock::time_point at;
     };
+    // A late answer is for the word as it was a moment ago: the file around it may have changed since (a member added
+    // elsewhere), so it serves the next requests of that word and not a return to it minutes later.
+    static constexpr std::chrono::seconds LATE_ANSWER_KEPT { 5 };
     std::map<std::string, LateAnswer, std::less<>> lateAnswers;   // document URI -> the last late answer, for its word
 
     // Project model and plan.
@@ -822,7 +826,7 @@ struct Workspace::Impl final : engine::Host {
         auto key = completion::word_key(job.text, position);
         if (!prefix || completion::in_import_directive(*prefix) || !key) return false;
         if (const auto answer = lateAnswers.find(uri); answer != lateAnswers.end()) {
-            if (answer->second.key == *key) {
+            if (completion::typed_on(answer->second.key, *key) && Clock::now() - answer->second.at <= LATE_ANSWER_KEPT) {
                 job.coreAnswered = true;
                 job.answeredBy = std::string { coreEngine->id() };
                 ++lateCompletionsServed;
@@ -834,7 +838,7 @@ struct Workspace::Impl final : engine::Host {
         for (auto it = lateCompletions.begin(); it != lateCompletions.end();) {
             if (it->second.uri != uri) {
                 ++it;
-            } else if (it->second.key == *key) {
+            } else if (completion::typed_on(it->second.key, *key)) {
                 it->second.waiting.push_back(jobId);
                 job.waitsForLate = true;
                 if (const auto budget = answer_budget(job.method)) job.budgetAt = job.started + *budget;
@@ -856,7 +860,7 @@ struct Workspace::Impl final : engine::Host {
         // An empty answer or an error is nothing to give: whoever waits for it gets the file's words at its budget.
         if (answer.kind != engine::Answer::Kind::result || completion::is_empty(answer.value)) return;
         ++lateCompletionsArrived;
-        lateAnswers[late.uri] = LateAnswer { late.key, answer.value };
+        lateAnswers[late.uri] = LateAnswer { late.key, answer.value, Clock::now() };
         for (const std::uint64_t waiter : late.waiting) {
             auto job = jobs.find(waiter);
             if (job == jobs.end()) continue;

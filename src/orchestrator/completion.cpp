@@ -188,7 +188,11 @@ std::optional<WordKey> word_key(std::string_view text, base::Position position) 
     std::size_t start { *offset };
     while (start > 0 && base::is_identifier_char(text[start - 1])) --start;
     const std::size_t lineStart { start == 0 ? 0 : text.rfind('\n', start - 1) + 1 };   // npos + 1 is 0
-    return WordKey { position.line, std::string { text.substr(lineStart, start - lineStart) } };
+    return WordKey { position.line, std::string { text.substr(lineStart, start - lineStart) }, std::string { text.substr(start, *offset - start) } };
+}
+
+bool typed_on(const WordKey& earlier, const WordKey& later) {
+    return earlier.line == later.line && earlier.before == later.before && later.typed.starts_with(earlier.typed);
 }
 
 namespace {

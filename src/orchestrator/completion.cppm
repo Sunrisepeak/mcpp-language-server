@@ -69,15 +69,19 @@ bool in_import_directive(std::string_view linePrefix);
 // merged in by the caller, as into any answer (merge).
 Json without_engine(const Json& wordItems);
 
-// C-2 (plan 0.0.8 part 2): the word a completion is asked in -- its line, and the text of that line before the word.
-// Two requests with the same key complete the same word, however much of it has been typed.
+// C-2 (plan 0.0.8 part 2): the word a completion is asked in -- its line, the text of that line before the word -- and
+// what of the word has been typed up to the cursor.
 struct WordKey {
     int line { 0 };
     std::string before;
+    std::string typed;
     bool operator==(const WordKey&) const = default;
 };
 // nullopt when `position` is not in `text`.
 std::optional<WordKey> word_key(std::string_view text, base::Position position);
+// `later` is the same word as `earlier` typed on: what an answer for `earlier` offers still covers it, since the client
+// filters it by what was typed since. A word typed back (a backspace), or another word, is not.
+bool typed_on(const WordKey& earlier, const WordKey& later);
 
 // C-2: a completion answered for an earlier position in the same word, for `position`: each item's edit that replaced
 // the word up to the old cursor replaces it up to this one (a client drops an item whose range does not contain the
