@@ -243,6 +243,12 @@ was not coming, not compiling (a long compile keeps a core busy, and is left alo
 journal has an `engine-stuck` entry with the numbers. clangd 23.1 has been seen to do this after a
 module's source changed twice within a second. On Windows, where the server cannot read clangd's CPU
 time, this is not detected; files clangd stops answering for are still set aside one by one.
+The same words come for the opposite case (0.0.8): clangd busy on every core for minutes while the
+files you have open stay "queued" and nothing finishes -- no diagnostics for any file, no answer, no
+module, for three minutes, with a file queued for four. That was seen after a module imported by much
+of a project was rewritten with autosave; the stuck watch above does not see it, since clangd keeps
+the CPU busy. The `events` journal has an `engine-busy-without-progress` entry, and an incident keeps
+clangd's log.
 
 **"The bundled clangd cannot run on this system".** clangd did not start at all: the system's
 program loader refused it, and its message is in the status and the log (for example
