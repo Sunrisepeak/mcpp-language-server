@@ -460,10 +460,11 @@
         "importerEmpty": 0,
         "moduleFailedDiagnostics": 0,
         "stalled": 0,
-        "restarts": 0,
-        "timeouts": 0,
+        "restarts": 1,
+        "timeouts": 3,
         "engineShare": 0.4
-      }
+      },
+      "budget-why": "Rewriting a module under autosave reliably trips a clangd defect: a build of an importer it let go of keeps spinning (0.0.8 part 2 K-8). One recovery restart, and the few requests it cuts short, is the designed answer; the completions' own budgets stay."
     },
     {
       "id": "U7a-fanout-save",

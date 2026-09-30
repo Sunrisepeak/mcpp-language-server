@@ -310,10 +310,11 @@ private:
     // (a doomed importer on ux-xlings, closed mid-build at every autosave of the module it imports) leaves the build's
     // thread running with nobody to answer: three of them took all three workers ("TWorker:log.cpp" at a full core
     // each, 250-330 s of CPU), every open file stayed queued, and neither the stuck watch (next to no CPU) nor the spin
-    // watch (a file clangd reports building) saw it. A worker thread at a full core for ORPHAN_SPIN whose file clangd
-    // is not building restarts clangd. Linux only (per-thread CPU); K-7 is what the others have.
-    static constexpr std::chrono::seconds SPIN_SAMPLE { 15 };
-    static constexpr std::chrono::seconds ORPHAN_SPIN { 60 };
+    // watch (a file clangd reports building) saw it. A worker thread at a full core for ORPHAN_SPIN on a file clangd has
+    // not said it was building since restarts clangd: no real build goes half a minute without a status. Linux only
+    // (per-thread CPU); K-7 is what the others have.
+    static constexpr std::chrono::seconds SPIN_SAMPLE { 10 };
+    static constexpr std::chrono::seconds ORPHAN_SPIN { 30 };
     struct WorkerThread {
         double seconds { 0 };
         std::optional<Clock::time_point> hotSince;
@@ -323,6 +324,9 @@ private:
     std::optional<Clock::time_point> spinSampleAt_;
     std::optional<Clock::time_point> lastSpinSample_;
     int spinRestartGeneration_ { -1 };
+    // K-8: when clangd last said it was building each file (by file name): a worker busy on a file clangd keeps saying it
+    // builds is that build (the file being typed, rebuilt at every key), never an orphan.
+    std::map<std::string, Clock::time_point, std::less<>> workingAt_;
     StuckWatch stuck_;
     SpinWatch spin_;   // import-hang plan §4: a file clangd will not finish, busy or not
     // WA-CLANGD-001: the `;` insertions in the text clangd has of each open document (client URI), for
@@ -2041,7 +2045,7 @@ private:
         lastSpinSample_ = now;
         if (spinRestartGeneration_ == generation_ || restartAt_) return;
         for (const auto& [id, worker] : workerThreads_) {
-            if (!worker.hotSince || now - *worker.hotSince < ORPHAN_SPIN || building_file_(worker.file)) continue;
+            if (!worker.hotSince || now - *worker.hotSince < ORPHAN_SPIN || reported_building_since_(worker.file, *worker.hotSince)) continue;
             spinRestartGeneration_ = generation_;
             const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(now - *worker.hotSince).count();
             log::warning("clangd ({}) has kept a core busy for {} s on {}, which it is not building; restarting it", host_->root_directory(), seconds, worker.file);
@@ -2053,12 +2057,10 @@ private:
         }
     }
 
-    // K-8: whether clangd reports a build under way for a file whose name ends with `tail` (a worker thread's file).
-    bool building_file_(std::string_view tail) const {
-        return std::ranges::any_of(fileStatus_, [&](const auto& item) {
-            const std::string path { host_->path_of_uri(item.first) };
-            return base::file_name(path.empty() ? item.first : path).ends_with(tail) && engine_working(item.second);
-        });
+    // K-8: whether clangd said it was building a file whose name ends with `tail` (a worker thread's file) at any time
+    // since `since` -- not only at this moment, which can fall between two rebuilds of a file being typed.
+    bool reported_building_since_(std::string_view tail, Clock::time_point since) const {
+        return std::ranges::any_of(workingAt_, [&](const auto& item) { return item.second >= since && std::string_view { item.first }.ends_with(tail); });
     }
 
     // K-7: how long clangd has finished nothing -- no diagnostics for any file, no answer, no module, no background unit
@@ -2076,6 +2078,7 @@ private:
         accepting_ = true;
         acceptingSince_ = Clock::now();
         workerThreads_.clear();
+        workingAt_.clear();
         lastSpinSample_.reset();
         spinSampleAt_ = *acceptingSince_ + SPIN_SAMPLE;
         for (const auto& document : host_->documents()) {
@@ -2166,6 +2169,11 @@ private:
             const Json* params { lsp::find(message, "params") };
             if (params != nullptr && params->is_object()) {
                 const std::string uri { host_->client_uri(params->value("uri", std::string {})) };
+                // K-8: every file's, a prime unit's and a background unit's too -- their builds of long module closures are real.
+                if (engine_working(params->value("state", std::string {}))) {
+                    const std::string statusPath { host_->path_of_uri(uri) };
+                    workingAt_[std::string { base::file_name(statusPath.empty() ? uri : statusPath) }] = Clock::now();
+                }
                 if (host_->has_document(uri)) {
                     fileStatus_[uri] = params->value("state", std::string {});
                     spin_.state(uri, fileStatus_[uri], Clock::now());

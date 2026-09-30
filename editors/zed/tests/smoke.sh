@@ -198,9 +198,12 @@ wait_for 'mcppls is initialized by a client named "Zed"' has_client
 wait_for "mcppls is sent $file (didOpen)" has_didopen
 wait_for "mcppls publishes diagnostics for $file" has_diagnostics
 
-log=$(ls "$root"/cache/logs/server-*.log 2>/dev/null | head -1 || true)
-test -n "$log" || fail "mcppls wrote no log file under MCPPLS_CACHE_DIR"
-grep -q '\[debug\]' "$log" || fail "$log has no debug line: --log-level debug did not reach the server"
+# The server's own log, at the level the wrapper passed. Any of its log files (Zed may have started a second instance,
+# which logs to a file of its own), and a moment for the lines to reach the disk (CI run 36787135201 looked too soon).
+has_log()       { ls "$root"/cache/logs/server-*.log >/dev/null 2>&1; }
+has_debug_log() { grep -qs '\[debug\]' "$root"/cache/logs/server-*.log; }
+wait_for "mcppls wrote its log under MCPPLS_CACHE_DIR" has_log
+wait_for "the log is at debug level (--log-level debug reached the server)" has_debug_log
 say "ok   mcppls's own log, at debug: $log"
 
 mcppls_pid=$(server_pids | head -1)
