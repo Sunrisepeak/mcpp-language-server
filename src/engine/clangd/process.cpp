@@ -200,16 +200,37 @@ LogReader::Read LogReader::read(std::string_view line) {
     inCrash_ = false;
     if (trimmed.starts_with("Exception Code: ")) {
         read.important = true;
-        if (crash_) {
-            crash_->exception = std::string { base::trim(trimmed.substr(16)) };
-            read.crash = crash_;
-        }
+        // K-3 (plan 0.0.8): a crash outside an AST worker has no context before it; its code and frames are kept all the same.
+        if (!crash_) crash_ = CrashContext {};
+        crash_->exception = std::string { base::trim(trimmed.substr(16)) };
+        read.crash = crash_;
+        inStack_ = true;
         return read;
     }
     if (trimmed.starts_with("PLEASE submit a bug report") || trimmed.starts_with("Stack dump:")) {
         read.important = true;
+        if (trimmed.starts_with("Stack dump:")) {
+            inStack_ = true;
+            if (!crash_) crash_ = CrashContext {};
+        }
         return read;
     }
+    // K-3 (plan 0.0.8): the stack dump's lines -- "0.<tab>Program arguments: ...", " #0 0x... (clangd+0x...)" -- kept
+    // for the report of a crash, as few as clangd prints (none are symbolized: the bundled clangd has no symbols).
+    const bool frame { trimmed.starts_with('#') && trimmed.size() > 1 && std::isdigit(static_cast<unsigned char>(trimmed[1])) != 0 };
+    const bool entry { inStack_ && !trimmed.empty() && std::isdigit(static_cast<unsigned char>(trimmed.front())) != 0
+                       && trimmed.find_first_not_of("0123456789") != std::string_view::npos && trimmed[trimmed.find_first_not_of("0123456789")] == '.' };
+    if ((frame || entry) && inStack_) {
+        read.important = true;
+        if (!crash_) crash_ = CrashContext {};
+        inStack_ = true;
+        if (crash_->stack.size() < CrashContext::MAX_STACK_LINES) {
+            crash_->stack.emplace_back(trimmed);
+            read.crash = crash_;
+        }
+        return read;
+    }
+    inStack_ = false;
     // A scan failure: its header, the lines without a severity that continue it, and its closing line.
     static constexpr std::string_view SCANNING { "Scanning modules dependencies for " };
     static constexpr std::string_view FAILED { " failed: " };

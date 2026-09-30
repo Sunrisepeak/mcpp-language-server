@@ -226,4 +226,14 @@ std::size_t preparation_limit(std::size_t workers, bool waitingOnPreparation);
 // The machine's memory in bytes, where it can be read cheaply (Linux /proc/meminfo); nullopt elsewhere.
 std::optional<std::uint64_t> total_memory_bytes();
 
+// M-1 (plan 0.0.8): a module that does not compile is somebody's work in progress while a source of its closure is
+// open in the editor and was edited within `grace` -- with autosave, what is on disk mid-edit does not compile as a
+// rule, and containment (RP1.1) that takes such a module's files from clangd leaves the person writing it with no
+// completion and no real diagnostics, every few seconds. `lastEdits`: for each source of the closure that is open,
+// when it was last edited (nullopt: open, not edited). The moment the work stops counting as in progress, or
+// nullopt when it does not now.
+inline constexpr std::chrono::minutes EDITING_GRACE { 2 };
+std::optional<GuardClock::time_point> editing_until(std::span<const std::optional<GuardClock::time_point>> lastEdits, GuardClock::time_point now,
+                                                    GuardClock::duration grace = EDITING_GRACE);
+
 } // namespace mcppls::engine::clangd

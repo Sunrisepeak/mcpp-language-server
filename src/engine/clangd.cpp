@@ -6,6 +6,7 @@ import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.log;
 import mcppls.base.path;
+import mcppls.base.sha256;
 import mcppls.base.text;
 import mcppls.base.uri;
 import mcppls.platform.env;
@@ -138,10 +139,23 @@ private:
         std::string reason;
     };
     std::map<std::string, DoomedFile, std::less<>> doomedFiles_;                // path key -> why
+    // M-1 (plan 0.0.8): a module that did not compile while a source of its closure was being edited. Containment
+    // waits until nobody has edited it for EDITING_GRACE, and then dooms it only if what failed is still what is on
+    // disk; meanwhile its files stay with clangd.
+    struct FailureWhileEditing {
+        std::string reason;
+        std::string editedFile;     // the source being edited when it failed
+        Clock::time_point failedAt;
+        std::map<std::string, std::optional<platform::fs::FileStamp>, std::less<>> inputs;   // the closure's sources, as they were
+    };
+    std::map<std::string, FailureWhileEditing, std::less<>> failuresWhileEditing_;
+    std::optional<Clock::time_point> editingReviewAt_;
+    std::map<std::string, Clock::time_point, std::less<>> editedAt_;             // path key -> its last didChange
     std::map<std::string, std::vector<std::string>, std::less<>> moduleRequires_;   // module -> the modules it imports, from the plan
     std::map<std::string, std::vector<std::string>, std::less<>> fileImports_;      // path key -> modules it imports directly
     std::map<std::string, std::string, std::less<>> fileModule_;                    // path key -> its module, any role
     static constexpr std::chrono::seconds PREPARATION_STALL_TIMEOUT { 60 };
+    static constexpr std::chrono::minutes PRIME_DEADLINE { 3 };   // how long a prime unit is waited for
 
     // Parallel module preparation (primer.cppm): `import M;` units opened in clangd.
     Primer primer_;
@@ -226,6 +240,7 @@ private:
     // (the person's doing) and a model from another source (crash accounting starts over) from the rest.
     std::string toolchainKey_;
     std::string modelOrigin_;
+    bool provisionalModel_ { false };   // R-4 (plan 0.0.8): the plan is the provisional model's
     // Fix plan F3: how the last clangd exit went. The exit and clangd's crash context arrive on different
     // threads, in either order; the exit is settled EXIT_CONTEXT_WAIT later, with whatever came by then.
     static constexpr std::chrono::milliseconds EXIT_CONTEXT_WAIT { 500 };
@@ -238,6 +253,7 @@ private:
     std::optional<PendingExit> pendingExit_;
     std::map<int, CrashContext> crashContexts_;   // by generation, the latest few
     Json lastExit_ = nullptr;
+    mutable std::optional<std::pair<std::string, std::string>> executableDigest_;   // K-3: (executable, its sha256), once
     // Fix plan F6: files clangd could not scan for their modules, and why.
     struct ScanFailures {
         std::size_t count { 0 };
@@ -246,6 +262,9 @@ private:
         std::string firstReason;
     };
     ScanFailures scanFailures_;
+    // P-1 (plan 0.0.8): every unit clangd could not scan for a header or its command -- the project's or the
+    // environment's reason, not a half-typed file -- in this clangd's lifetime: path key -> (reason, its stamp then).
+    std::map<std::string, std::pair<std::string, std::optional<platform::fs::FileStamp>>, std::less<>> unscannableUnits_;
     // Fix plan F17: clangd's latest log lines (in memory only), what clangd said about each file lately,
     // the last plan's differences, and when an incident of each kind was last written.
     std::shared_ptr<LogRing> logRing_ { std::make_shared<LogRing>(4000, 4 * 1024 * 1024) };
@@ -462,6 +481,23 @@ public:
         for (const auto& [name, root] : doomRoots_) doomed[name] = Json { { "reason", root.reason }, { "provider", root.provider } };
         Json doomedFiles = Json::array();
         for (const auto& [key, info] : doomedFiles_) doomedFiles.push_back(Json { { "file", key }, { "rootModule", info.rootModule }, { "viaModule", info.viaModule } });
+        const auto reportedAt = Clock::now();
+        const auto secondsAgo = [&](Clock::time_point at) { return std::chrono::duration_cast<std::chrono::seconds>(reportedAt - at).count(); };
+        Json failingWhileEdited = Json::object();
+        for (const auto& [name, failure] : failuresWhileEditing_) {
+            failingWhileEdited[name] = Json { { "reason", failure.reason }, { "file", failure.editedFile }, { "secondsAgo", secondsAgo(failure.failedAt) } };
+        }
+        // M-3 (plan 0.0.8): which prime units are open in clangd, for how long, and what clangd says it does with each.
+        Json runningUnits = Json::array();
+        for (const auto& [pathKey, module] : primeModuleByPath_) {
+            Json unit { { "module", module } };
+            if (const auto deadline = primeDeadlines_.find(module); deadline != primeDeadlines_.end()) unit["seconds"] = secondsAgo(deadline->second - PRIME_DEADLINE);
+            if (const auto* planned = primer_.find(module)) {
+                const auto status = fileStatus_.find(base::path_to_uri(planned->primeFile));
+                unit["fileStatus"] = status == fileStatus_.end() ? std::string {} : status->second;
+            }
+            runningUnits.push_back(std::move(unit));
+        }
         const auto [done, wanted] = primer_.progress();
         return Json {
             { "executable", options_.executable },
@@ -485,8 +521,9 @@ public:
             { "modulesThatDidNotCompile", std::move(compileFailures) },
             { "doomedModules", std::move(doomed) },
             { "filesRoutedToOwnEngine", std::move(doomedFiles) },
+            { "modulesFailingWhileEdited", std::move(failingWhileEdited) },
             { "stdFromSemanticKit", stdFromKit_ },
-            { "preparation", Json { { "done", done }, { "wanted", wanted }, { "running", primer_.running() },
+            { "preparation", Json { { "done", done }, { "wanted", wanted }, { "running", primer_.running() }, { "runningUnits", std::move(runningUnits) },
                                     { "limit", preparation_limit(workers_, waiting_on_preparation_()) }, { "workers", workers_ } } },
             { "pendingRequests", pending_.size() },
             { "deferredRequests", deferred_.size() },
@@ -603,6 +640,7 @@ public:
         const bool fromProvisional { modelOrigin_ == "inferred" && !plan->modelOrigin.empty() && plan->modelOrigin != "inferred" };
         toolchainKey_ = plan->toolchainKey;
         modelOrigin_ = plan->modelOrigin;
+        provisionalModel_ = plan->provisional;
         if (fromProvisional) forget_provisional_verdicts_();
         write_prime_sources_(*plan);
         const std::string database { normalize::to_compile_commands(*plan).dump(1) };
@@ -807,6 +845,10 @@ public:
         if (event.change == DocumentChange::opened || event.change == DocumentChange::changed) {
             lastActiveAt_ = Clock::now();
             if (event.change == DocumentChange::changed) lastTypedAt_ = lastActiveAt_;
+        }
+        if ((event.change == DocumentChange::changed || event.change == DocumentChange::saved) && !document.path.empty()) {
+            if (event.change == DocumentChange::changed) editedAt_[base::path_key(document.path)] = Clock::now();
+            note_edit_during_preparation_(document.path);
         }
         switch (event.change) {
         case DocumentChange::opened:
@@ -1089,7 +1131,8 @@ public:
             host_->record_event("engine-log-left-out", Json { { "count", event.value("count", std::size_t { 0 }) } });
         } else if (kind == "crash-context") {
             // Fix plan F3: which file clangd crashed on, in its own words. The exit may have come first.
-            crashContexts_[generation_] = CrashContext { event.value("action", std::string {}), event.value("file", std::string {}), event.value("exception", std::string {}) };
+            crashContexts_[generation_] = CrashContext { event.value("action", std::string {}), event.value("file", std::string {}), event.value("exception", std::string {}),
+                                                         event.value("stack", std::vector<std::string> {}) };
             while (crashContexts_.size() > 4) crashContexts_.erase(crashContexts_.begin());
         } else if (kind == "scan-failed") {
             note_scan_failure_(event.value("file", std::string {}), event.value("reason", std::string {}), event.value("driver", false));
@@ -1133,6 +1176,7 @@ public:
         const bool notFound { reason.find("file not found") != std::string::npos };
         host_->record_event("scan-failed", Json { { "file", file }, { "reason", reason }, { "driver", driver } });
         if (!driver && !notFound) return;
+        unscannableUnits_[base::path_key(file)] = { reason, platform::fs::stamp(file) };
         if (!scanFailures_.firstReason.empty()) return;
         scanFailures_.firstFile = file;
         scanFailures_.firstReason = reason;
@@ -1147,6 +1191,7 @@ public:
 
     // A new database or a new clangd: whatever made scans fail may be gone; one that is not says so again.
     void forget_scan_failures_() {
+        unscannableUnits_.clear();
         if (scanFailures_.firstReason.empty()) return;
         scanFailures_ = ScanFailures {};
         std::erase_if(issues_, [](const Issue& issue) { return issue.code == "module-scan-failed"; });
@@ -1161,6 +1206,7 @@ public:
         for (const auto& [module, at] : primeDeadlines_) consider(at);
         consider(restartAt_);
         consider(stuckCheckAt_);
+        consider(editingReviewAt_);
         if (pendingExit_) consider(pendingExit_->at + EXIT_CONTEXT_WAIT);
         if (upSince_) consider(*upSince_ + RECOVERED_AFTER);
         for (const auto& [uri, closing] : closingAfterBuild_) consider(closing.second);
@@ -1331,6 +1377,7 @@ public:
             if (const auto* planned = primer_.find(module)) (void)finish_prime_(base::path_to_uri(planned->primeFile));
         }
         if (stuckCheckAt_ && *stuckCheckAt_ <= now) check_stuck_files_(now);
+        if (editingReviewAt_ && *editingReviewAt_ <= now) review_failures_while_editing_(now);
         reconsider_deferred_reclaims_(now);
         if (restartAt_ && *restartAt_ <= now) {
             if (const auto later = quiet_restart_at_(now)) {
@@ -1511,7 +1558,7 @@ private:
                 }
                 if (read.crash) {
                     sink(Json { { "kind", "crash-context" }, { "generation", generation }, { "action", read.crash->action },
-                                { "file", read.crash->file }, { "exception", read.crash->exception } });
+                                { "file", read.crash->file }, { "exception", read.crash->exception }, { "stack", read.crash->stack } });
                 }
                 if (read.scanFailure) {
                     sink(Json { { "kind", "scan-failed" }, { "generation", generation }, { "file", read.scanFailure->file },
@@ -2133,6 +2180,14 @@ private:
         host_->status_changed();
     }
 
+    // K-3 (plan 0.0.8): which clangd crashed, exactly -- the sha256 of the executable, read once, on the first crash.
+    std::string executable_sha256_() const {
+        if (executableDigest_ && executableDigest_->first == options_.executable) return executableDigest_->second;
+        const auto content = platform::fs::read_file(options_.executable);
+        executableDigest_ = std::pair { options_.executable, content ? base::sha256_hex(*content) : std::string {} };
+        return executableDigest_->second;
+    }
+
     // Fix plan F3: an exit settled with what clangd said about it. Its crash context names the file it crashed
     // on, and only that file is set aside; without one (a signal with no context, an exit code), what it was
     // asked about or given just before is, as before. The exit code is read now, when the process is surely gone.
@@ -2158,7 +2213,11 @@ private:
                            { "exitCode", code ? Json(*code) : Json(nullptr) },
                            { "crashFile", known ? Json(context->second.file) : Json(nullptr) },
                            { "crashAction", known ? Json(context->second.action) : Json(nullptr) },
-                           { "exception", known && !context->second.exception.empty() ? Json(context->second.exception) : Json(nullptr) },
+                           { "exception", context != crashContexts_.end() && !context->second.exception.empty() ? Json(context->second.exception) : Json(nullptr) },
+                           // K-3 (plan 0.0.8): what an upstream report of the crash needs -- LLVM's stack dump as clangd printed it
+                           // (module offsets: the release clangd has no symbols) and which clangd binary it was, exactly.
+                           { "stack", context != crashContexts_.end() ? Json(context->second.stack) : Json::array() },
+                           { "clangd", Json { { "version", options_.version }, { "sha256", executable_sha256_() } } },
                            { "unansweredRequests", exit.unanswered },
                            { "suspects", Json(std::vector<std::string> { suspects.begin(), suspects.end() }) } };
         host_->record_event("engine-exit", Json { { "recentExits", crashes_.size() }, { "suspects", lastExit_["suspects"] }, { "exitCode", lastExit_["exitCode"] },
@@ -2259,7 +2318,10 @@ private:
             // instead of waiting out clangd's request timeout or its preparation deadline. The standard
             // library is excepted: it already gets the whole-project kit fallback above, which fixes
             // every importer at once instead of setting them all aside one by one.
-            if (!stdFailed && !doomRoots_.contains(parsed.module)) {
+            if (!stdFailed && !doomRoots_.contains(parsed.module) && defer_while_edited_(parsed.module, parsed.reason, now)) {
+                // M-1 (plan 0.0.8): somebody is writing this module -- its files stay with clangd, which reads the one being
+                // edited from its buffer, and gives an importer its own locals and keywords with an error on the import.
+            } else if (!stdFailed && !doomRoots_.contains(parsed.module)) {
                 DoomRoot root { parsed.reason, {}, {}, modelOrigin_, {} };
                 if (const auto provider = moduleSources_.find(parsed.module); provider != moduleSources_.end()) {
                     root.provider = provider->second;
@@ -2289,7 +2351,32 @@ private:
             unresolved.stamp = platform::fs::stamp(provider->second);
             unresolved.command = moduleCommands_.contains(parsed.module) ? moduleCommands_.find(parsed.module)->second : std::string {};
         }
+        const bool unitPlanned { !unresolved.provider.empty() };
         unresolvedModules_.emplace(parsed.module, std::move(unresolved));
+        // P-1 (plan 0.0.8): clangd reports the modules it cannot find one at a time -- it stops building at the first
+        // import it cannot resolve -- so each was a replan, a stand-in and a clangd restart of its own: four rounds of
+        // about 26 s on GalTranslPP with a partial model, one module each. It has said by then which units it could
+        // not scan: every module provided by one of those (for a header or the command, and not changed since) cannot
+        // be found either, and is taken now, together, for one replan and one restart.
+        if (unitPlanned) {
+            std::vector<std::string> together;
+            for (const auto& [module, source] : moduleSources_) {
+                if (module == "std" || module == "std.compat" || unresolvedModules_.contains(module) || generated_path_(source)) continue;
+                const auto unscannable = unscannableUnits_.find(base::path_key(source));
+                if (unscannable == unscannableUnits_.end()) continue;
+                const auto stamp = platform::fs::stamp(source);
+                if (stamp != unscannable->second.second) continue;
+                const auto command = moduleCommands_.find(module);
+                unresolvedModules_.emplace(module, UnresolvedModule { std::format("clangd could not scan its unit: {}", unscannable->second.first), source, stamp,
+                                                                      command == moduleCommands_.end() ? std::string {} : command->second, modelOrigin_ });
+                together.push_back(module);
+            }
+            if (!together.empty()) {
+                log::info("{} more module{} whose unit clangd could not scan taken with {} ({}): {}", together.size(), together.size() == 1 ? "" : "s",
+                          parsed.module, host_->root_directory(), base::join(together, ", "));
+                host_->record_event("modules-unresolved-together", Json { { "module", parsed.module }, { "with", together } });
+            }
+        }
         host_->request_replan();
     }
 
@@ -2365,6 +2452,96 @@ private:
             }
         }
         return sources;
+    }
+
+    // M-1 (plan 0.0.8): whether `module`, which just failed to compile, is somebody's work in progress (guard.cppm,
+    // editing_until): if so it is remembered instead of doomed, and looked at again once the editing stops.
+    bool defer_while_edited_(const std::string& module, const std::string& reason, Clock::time_point now) {
+        const auto sources = closure_sources_(module);
+        std::vector<std::optional<Clock::time_point>> edits;
+        std::string editedFile;
+        std::optional<Clock::time_point> latest;
+        for (const auto& document : host_->documents()) {
+            if (document.path.empty()) continue;
+            const std::string key { base::path_key(document.path) };
+            if (std::ranges::none_of(sources, [&](const std::string& source) { return base::path_key(source) == key; })) continue;
+            const auto edited = editedAt_.find(key);
+            edits.push_back(edited == editedAt_.end() ? std::nullopt : std::optional<Clock::time_point> { edited->second });
+            if (edited != editedAt_.end() && (!latest || edited->second > *latest)) {
+                latest = edited->second;
+                editedFile = document.path;
+            }
+        }
+        const auto until = editing_until(edits, now);
+        if (!until) return false;
+        FailureWhileEditing failure { reason, editedFile, now, {} };
+        for (const auto& source : sources) failure.inputs.emplace(source, platform::fs::stamp(source));
+        const bool first { !failuresWhileEditing_.contains(module) };
+        failuresWhileEditing_[module] = std::move(failure);
+        if (first) {
+            log::info("module {} does not compile while {} is being edited ({}); its files stay with clangd: {}", module, editedFile,
+                      host_->root_directory(), reason);
+            host_->record_event("module-failed-while-editing", Json { { "module", module }, { "file", editedFile }, { "reason", reason } });
+        }
+        if (!editingReviewAt_ || *until < *editingReviewAt_) editingReviewAt_ = until;
+        return true;
+    }
+
+    // M-1: each failure while editing, once nobody has edited its closure for EDITING_GRACE: what failed is still on
+    // disk -- the module is broken, not being written -- so containment (RP1.1) dooms it now; anything changed since,
+    // and it is forgotten, for clangd reports the new text if that fails as well.
+    void review_failures_while_editing_(Clock::time_point now) {
+        editingReviewAt_.reset();
+        std::vector<std::string> doomNow;
+        for (auto it = failuresWhileEditing_.begin(); it != failuresWhileEditing_.end();) {
+            const auto sources = closure_sources_(it->first);
+            std::vector<std::optional<Clock::time_point>> edits;
+            for (const auto& document : host_->documents()) {
+                if (document.path.empty()) continue;
+                const std::string key { base::path_key(document.path) };
+                if (std::ranges::none_of(sources, [&](const std::string& source) { return base::path_key(source) == key; })) continue;
+                const auto edited = editedAt_.find(key);
+                edits.push_back(edited == editedAt_.end() ? std::nullopt : std::optional<Clock::time_point> { edited->second });
+            }
+            if (const auto until = editing_until(edits, now)) {
+                if (!editingReviewAt_ || *until < *editingReviewAt_) editingReviewAt_ = until;
+                ++it;
+                continue;
+            }
+            const bool unchanged { std::ranges::all_of(it->second.inputs, [](const auto& input) { return platform::fs::stamp(input.first) == input.second; }) };
+            if (unchanged && !doomRoots_.contains(it->first)) {
+                DoomRoot root { it->second.reason, {}, {}, modelOrigin_, std::move(it->second.inputs) };
+                if (const auto provider = moduleSources_.find(it->first); provider != moduleSources_.end()) {
+                    root.provider = provider->second;
+                    root.command = moduleCommands_.contains(it->first) ? moduleCommands_.find(it->first)->second : std::string {};
+                }
+                doomRoots_.emplace(it->first, std::move(root));
+                doomNow.push_back(it->first);
+            } else {
+                host_->record_event("module-failure-while-editing-cleared", Json { { "module", it->first } });
+            }
+            it = failuresWhileEditing_.erase(it);
+        }
+        if (!doomNow.empty()) {
+            log::info("module {} still does not compile, and nobody has edited it for {} minutes ({}); containment takes it",
+                      doomNow.front(), std::chrono::duration_cast<std::chrono::minutes>(EDITING_GRACE).count(), host_->root_directory());
+            recompute_doom_();
+        }
+    }
+
+    // M-3 (plan 0.0.8): an edit to a source that a module being prepared is built from is progress, not a stall: the
+    // person is changing what preparation waits for. hello111: a minute of typing in the module being prepared was
+    // reported as "preparation-stalled ... cannot recover by itself", with a bundle, and it completed 0.3 s later.
+    void note_edit_during_preparation_(std::string_view path) {
+        if (!primer_.busy() || primeModuleByPath_.empty()) return;
+        const std::string key { base::path_key(path) };
+        for (const auto& module : primeModuleByPath_ | std::views::values) {
+            const auto sources = closure_sources_(module);
+            if (std::ranges::any_of(sources, [&](const std::string& source) { return base::path_key(source) == key; })) {
+                lastPrimeProgressAt_ = Clock::now();
+                return;
+            }
+        }
     }
 
     bool forget_changed_doom_() {
@@ -3279,6 +3456,8 @@ private:
         doomRoots_.clear();
         doomedModules_.clear();
         doomedFiles_.clear();
+        failuresWhileEditing_.clear();
+        editingReviewAt_.reset();
         reportedFailures_.clear();
         modulesFailedAt_.clear();
         stdFromKit_ = false;
@@ -3869,7 +4048,12 @@ private:
 
     void prepare_imports_of_(const DocumentView& document, bool pump = true) {
         if (document.path.empty() || excluded_path_(document.path)) return;
-        const auto names = host_->imports_of(document.path);
+        auto names = host_->imports_of(document.path);
+        // R-4 (plan 0.0.8): on the provisional model only the standard library is prepared. The project's modules would be
+        // built with the kit's commands, which the build tool's model replaces a few seconds on -- a restart and every one
+        // of them again -- and on Windows clangd crashed four to five times while doing so (GalTranslPP, #34). They are
+        // prepared once that model is in: apply() calls prepare_modules_ again.
+        if (provisionalModel_) std::erase_if(names, [](const std::string& name) { return name != "std" && name != "std.compat"; });
         if (primer_.want(names) > 0 && pump) pump_primer_();
     }
 
@@ -4013,7 +4197,7 @@ private:
             }
             note_database_read_();
             primeModuleByPath_[base::path_key(module->primeFile)] = module->name;
-            primeDeadlines_[module->name] = Clock::now() + std::chrono::minutes { 3 };
+            primeDeadlines_[module->name] = Clock::now() + PRIME_DEADLINE;
         }
         host_->status_changed();
     }

@@ -77,6 +77,11 @@ constexpr std::chrono::milliseconds DEGRADED_HOLD { 3000 };
 // restart held back by its budget -- makes the state degraded only once it has lasted this long. A crash, a clangd
 // that stopped answering and every problem of the project or its environment go out after DEGRADED_HOLD.
 constexpr std::chrono::milliseconds PASSING_DEGRADED_HOLD { 30000 };
+// K-6 (plan 0.0.8): once the workspace has settled, modules rebuilt because of an edit (a save that most of the project
+// imports, a module being written) make it preparing again only when that lasts this long. U15 counted the edits
+// stage flipping ready -> preparing -> ready up to nine times a minute on mcpp and xlings, for rebuilds of seconds; a
+// person saw the status flicker at every save. The way back to ready is never held.
+constexpr std::chrono::milliseconds SETTLED_PREPARING_HOLD { 30000 };
 constexpr std::array<std::string_view, 2> PASSING_ISSUES { "file-quarantined", "engine-restart-capped" };
 
 // The module structure of a scan, for deciding whether an edit changes the engine database.
@@ -232,6 +237,7 @@ struct Workspace::Impl final : engine::Host {
         double maxMs { 0 };
         std::deque<double> recentMs;   // the latest durations, for percentiles
         std::map<std::string, std::size_t, std::less<>> answeredBy;
+        std::string lastAt;            // UTC, when the latest one was answered (0.0.8 plan E-3)
     };
     std::map<std::string, MethodStats, std::less<>> requestStats;
     // F9 (D4): what space-triggered completion costs. Most never pass the gate and cost one look at a line.
@@ -243,6 +249,10 @@ struct Workspace::Impl final : engine::Host {
     };
     SpaceTriggerStats spaceTrigger;
     std::size_t keywordsWithoutEngine { 0 };   // F15: keyword completions answered before the core engine did
+    std::size_t wordsWithoutCore { 0 };        // M-2 (plan 0.0.8): completions the core engine did not answer, given the file's words
+    // E-3 (plan 0.0.8): how much the person edited, so a report shows edits going on while a request stopped coming.
+    std::size_t documentChanges { 0 };
+    std::string lastDocumentChangeAt;
     bool vscodeLike { false };                 // the client runs VS Code's commands (completion::vscode_like)
 
     // Requests in flight across engines.
@@ -267,6 +277,9 @@ struct Workspace::Impl final : engine::Host {
         Json keywords;
         // R-7 (plan 2026-09-30): when mcppls answers without the core engine (routing::answer_budget).
         std::optional<Clock::time_point> budgetAt;
+        // M-2 (plan 0.0.8): the core engine gave an answer, even an empty one; a completion it did not answer
+        // (not asked, unavailable, failed) gets the file's words in finish_job.
+        bool coreAnswered { false };
     };
     std::map<std::uint64_t, Job> jobs;
     std::uint64_t nextJob { 1 };
@@ -352,6 +365,7 @@ struct Workspace::Impl final : engine::Host {
     std::optional<Clock::time_point> lastStatusSentAt;
     std::optional<Clock::time_point> statusFlushAt;   // a coalesced change goes out then
     std::optional<Clock::time_point> degradedSince;   // when compute_state() turned degraded, while that is held back
+    std::optional<Clock::time_point> preparingSince;  // K-6: when a settled workspace turned preparing, while that is held back
     State lastReportedState { State::starting };      // the state last let through DEGRADED_HOLD
 
     Impl(std::string root_, std::string key_, SessionOptions options_, engine::PayloadPaths payload_, bool payloadCorrupt_,
@@ -760,6 +774,7 @@ struct Workspace::Impl final : engine::Host {
             if (current == jobs.end()) return;
             switch (answer.kind) {
             case engine::Answer::Kind::result:
+                if (coreEngine != nullptr && engineId == coreEngine->id()) current->second.coreAnswered = true;
                 if (!answer.value.is_null()) {
                     current->second.answeredBy = engineId;
                     finish_job(jobId, std::move(answer.value));
@@ -769,8 +784,9 @@ struct Workspace::Impl final : engine::Host {
                 return;
             case engine::Answer::Kind::unavailable: ask_next(jobId); return;
             case engine::Answer::Kind::error:
-                // F15: a completion that has keywords to give gives them rather than the engine's error.
-                if (current->second.keywords.is_array() && !current->second.keywords.empty()) finish_job(jobId, Json(nullptr));
+                // F15, M-2 (plan 0.0.8): a completion gives what mcppls has -- the file's words, the keywords --
+                // rather than the engine's error, which an editor shows as no completion at all.
+                if (current->second.method == lsp::method::TEXT_DOCUMENT_COMPLETION) finish_job(jobId, Json(nullptr));
                 else finish_job_with_error(jobId, std::move(answer.value));
                 return;
             case engine::Answer::Kind::cancelled: finish_job_cancelled(jobId); return;
@@ -813,6 +829,7 @@ struct Workspace::Impl final : engine::Host {
         if (stats.recentMs.size() > 256) stats.recentMs.pop_front();
         stats.maxMs = std::max(stats.maxMs, ms);
         if (!job.answeredBy.empty()) ++stats.answeredBy[job.answeredBy];
+        stats.lastAt = std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now()));
         if (ms >= 5000) {
             journal.add("slow-request", Json { { "method", job.method }, { "file", job.path }, { "ms", static_cast<std::int64_t>(ms) },
                                                { "outcome", std::string { outcome } }, { "answeredBy", job.answeredBy } });
@@ -850,6 +867,21 @@ struct Workspace::Impl final : engine::Host {
     void finish_job(std::uint64_t jobId, Json result) {
         auto it = jobs.find(jobId);
         if (it == jobs.end()) return;
+        // M-2 (plan 0.0.8): a completion the core engine did not answer -- not asked, because the file is set
+        // aside, doomed or the engine is backing off, or unable to -- has at least what R-7's budget answer has:
+        // the file's words, as an incomplete list. Never on an import line, where only module names belong.
+        if (it->second.method == lsp::method::TEXT_DOCUMENT_COMPLETION && coreEngine != nullptr && !it->second.coreAnswered
+            && completion::is_empty(result)) {
+            if (const auto position = position_of(it->second.params)) {
+                const auto prefix = completion::line_prefix(it->second.text, *position);
+                Json words { prefix && !completion::in_import_directive(*prefix) ? completion::document_words(it->second.text, *position) : Json::array() };
+                if (!words.empty()) {
+                    result = completion::without_engine(std::move(words));
+                    if (it->second.answeredBy.empty()) it->second.answeredBy = "mcppls";
+                    ++wordsWithoutCore;
+                }
+            }
+        }
         // F15: the module-syntax keywords, with the engine's items, or alone (and incomplete, so the
         // client asks again) when the engine gave none.
         if (it->second.keywords.is_array() && !it->second.keywords.empty()) {
@@ -1135,6 +1167,9 @@ struct Workspace::Impl final : engine::Host {
         loading = false;
         loadGiveUpAt.reset();
         producerElapsed.reset();
+        // R-4 (plan 0.0.8): the build tool answered, whatever it said, so the provisional model is provisional no more: a
+        // model it keeps (it failed, or described nothing better) is planned again, and the project's modules are prepared.
+        if (model && modelOrigin == "inferred") replanAt = Clock::now();
         // G-4: what this project's producer takes is what its next deadline is made of.
         if (loadStartedAt && loadedModel->source != project::SourceKind::inferred) {
             lastProducerMs = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - *loadStartedAt).count();
@@ -1347,6 +1382,7 @@ struct Workspace::Impl final : engine::Host {
         // Fix plan F14: what the person chose; a change of it restarts clangd without counting against it.
         plan.toolchainKey = std::format("{}|{}|{}|{}|{}", model->profile.kind, model->profile.compiler, model->profile.stdlib, model->profile.target, contextSet);
         plan.modelOrigin = modelOrigin;
+        plan.provisional = model_is_provisional();
         journal.add("plan", Json { { "context", contextSet.empty() ? std::string { "default" } : contextSet }, { "entries", plan.entries.size() },
                                    { "stdUnits", plan.stdUnits }, { "standIns", plan.stubModules }, { "openSources", plan.openSources },
                                    { "leftOut", plan.excludedFiles.size() },
@@ -1391,9 +1427,11 @@ struct Workspace::Impl final : engine::Host {
     // mcppls.buildDiscovery.askBeforeDownload (plan 2026-09-27 B-7).
     bool ask_before_download() const { return options.buildDiscoveryAskBeforeDownload; }
 
-    bool core_waits_for_producer() const {
-        return coreEngine != nullptr && model && modelOrigin == "inferred" && loading && !coreWaitOver
-               && detectedSource != project::SourceKind::inferred && options.trusted && options.buildTool != "off";
+    bool core_waits_for_producer() const { return coreEngine != nullptr && model && !coreWaitOver && model_is_provisional(); }
+    // R-4 (plan 0.0.8): the model in hand is the provisional one, the sources read with the kit's commands, and the
+    // project's build tool is still expected to describe it.
+    bool model_is_provisional() const {
+        return modelOrigin == "inferred" && loading && detectedSource != project::SourceKind::inferred && options.trusted && options.buildTool != "off";
     }
     // `fromEdits`: asked for by changes under the workspace rather than by a build description. Such a reload waits as
     // long as the producer takes to answer (at most a minute), so edits that keep coming are one run, not a queue of them.
@@ -1661,6 +1699,15 @@ struct Workspace::Impl final : engine::Host {
             }
         }
         if (state != State::degraded) degradedSince.reset();
+        if (state == State::preparing && (lastReportedState == State::ready || lastReportedState == State::degraded)) {
+            const auto now = Clock::now();
+            if (!preparingSince) preparingSince = now;
+            if (now < *preparingSince + SETTLED_PREPARING_HOLD) {
+                if (!statusFlushAt || *preparingSince + SETTLED_PREPARING_HOLD < *statusFlushAt) statusFlushAt = *preparingSince + SETTLED_PREPARING_HOLD;
+                return;
+            }
+        }
+        if (state != State::preparing) preparingSince.reset();
         lastReportedState = state;
         // Before the gate below, not after it. `clientSupportsStatus` means the client understands
         // this repository's own `cxxModules/status` — which is its VS Code extension and nothing
@@ -1981,6 +2028,8 @@ void Workspace::did_change(const Json& message, const Json& params) {
                                      ? params["textDocument"].value("version", std::int64_t { 0 }) : 0 };
     if (!impl_->documents_.change(uri, version, params.value("contentChanges", Json::array()))) return;
     ++impl_->snapshotGeneration;
+    ++impl_->documentChanges;
+    impl_->lastDocumentChangeAt = std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now()));
     const Document* document { impl_->documents_.find(uri) };
     if (!document->path.empty()) {
         impl_->editedAt[base::path_key(document->path)] = Clock::now();
@@ -2207,17 +2256,18 @@ Json Workspace::report() const {
         for (const auto& [engineId, count] : stats.answeredBy) answeredBy[engineId] = count;
         requests[method] = Json { { "count", stats.count }, { "empty", stats.empty }, { "errors", stats.errors }, { "cancelled", stats.cancelled },
                                   { "p50Ms", percentile(0.5) }, { "p95Ms", percentile(0.95) }, { "maxMs", static_cast<std::int64_t>(stats.maxMs) },
-                                  { "answeredBy", std::move(answeredBy) } };
+                                  { "answeredBy", std::move(answeredBy) }, { "lastAt", stats.lastAt } };
     }
     // F9, F15: what space-triggered completion cost, and how often keywords answered without the core engine.
     Json completionCosts { { "spaceTrigger", Json { { "count", impl.spaceTrigger.count }, { "passed", impl.spaceTrigger.passed },
                                                      { "maxMicros", impl.spaceTrigger.maxMicros }, { "totalMicros", impl.spaceTrigger.totalMicros } } },
-                           { "keywordsWithoutEngine", impl.keywordsWithoutEngine } };
+                           { "keywordsWithoutEngine", impl.keywordsWithoutEngine }, { "wordsWithoutCore", impl.wordsWithoutCore } };
     return Json { { "root", root_ }, { "key", key_ }, { "cacheDirectory", impl.cacheDirectory },
                   { "trusted", impl.options.trusted }, { "state", std::string { to_string(impl.compute_state()) } }, { "project", std::move(project) },
                   { "toolEnvironment", std::move(environment) }, { "toolRuns", std::move(toolRuns) },
                   { "plan", std::move(plan) }, { "engines", std::move(engines) }, { "requests", std::move(requests) },
                   { "completion", std::move(completionCosts) },
+                  { "documents", Json { { "changes", impl.documentChanges }, { "lastChangeAt", impl.lastDocumentChangeAt } } },
                   { "eventTotals", impl.journal.totals() }, { "events", impl.journal.recent(300) } };
 }
 

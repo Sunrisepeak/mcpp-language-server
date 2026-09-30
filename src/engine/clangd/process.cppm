@@ -53,10 +53,16 @@ std::vector<std::string> clangd_arguments(const ProcessConfig& config);
 //     Filename: D:/p/NormalJsonTranslator.Core.cpp
 //     Directory: ... / Command Line: ... / Version: 1
 //   Exception Code: 0x80000003                            (Windows only)
+// and LLVM's own crash report after it (K-3, plan 0.0.8), which is what an upstream report needs:
+//   Stack dump:
+//   0.	Program arguments: clangd ...
+//    #0 0x00007ff6a1b2c3d4 (C:\...\clangd.exe+0x1b2c3d4)
 struct CrashContext {
-    std::string action;      // "Build AST", "building preamble", ...
+    std::string action;      // "Build AST", "building preamble", ...; empty when clangd crashed outside those
     std::string file;        // the file clangd was working on
     std::string exception;   // Windows' exception code; empty elsewhere
+    std::vector<std::string> stack;   // the stack dump's lines (numbered entries and frames), at most MAX_STACK_LINES
+    static constexpr std::size_t MAX_STACK_LINES { 64 };
 };
 
 // "E[..] Scanning modules dependencies for <file> failed: <first line>", continued by lines without a
@@ -83,6 +89,7 @@ public:
 
 private:
     std::optional<CrashContext> crash_;
+    bool inStack_ { false };   // inside LLVM's stack dump (K-3)
     bool inCrash_ { false };
     std::optional<ScanFailure> scan_;
     bool scanHasError_ { false };

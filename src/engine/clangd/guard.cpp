@@ -308,6 +308,16 @@ std::size_t preparation_limit(std::size_t workers, bool waitingOnPreparation) {
     return waitingOnPreparation ? background : std::max<std::size_t>(1, background / 2);
 }
 
+std::optional<GuardClock::time_point> editing_until(std::span<const std::optional<GuardClock::time_point>> lastEdits, GuardClock::time_point now,
+                                                    GuardClock::duration grace) {
+    std::optional<GuardClock::time_point> latest;
+    for (const auto& edit : lastEdits) {
+        if (edit && (!latest || *edit > *latest)) latest = edit;
+    }
+    if (!latest || *latest + grace <= now) return std::nullopt;
+    return *latest + grace;
+}
+
 std::optional<std::uint64_t> total_memory_bytes() {
     const auto info = platform::fs::read_file("/proc/meminfo");
     if (!info) return std::nullopt;

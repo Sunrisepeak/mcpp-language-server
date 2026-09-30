@@ -737,6 +737,19 @@ int main() {
         expect(cld::preparation_limit(2, true) == 1u && cld::preparation_limit(1, false) == 1u && cld::preparation_limit(0, true) == 1u) << "never less than one";
     };
 
+    "a module that does not compile while a source of it is being edited is work in progress, for two minutes after the last edit (M-1)"_test = [] {
+        using namespace std::chrono_literals;
+        const auto now = cld::GuardClock::now();
+        using Edits = std::vector<std::optional<cld::GuardClock::time_point>>;
+        expect(!cld::editing_until(Edits {}, now).has_value()) << "no source of it is open";
+        expect(!cld::editing_until(Edits { std::nullopt }, now).has_value()) << "open, not edited: a module that is simply broken";
+        expect(cld::editing_until(Edits { now - 10s }, now) == now + 110s) << "edited ten seconds ago";
+        expect(cld::editing_until(Edits { now - 90s, std::nullopt, now - 5s }, now) == now + 115s) << "the latest edit of any source counts";
+        expect(!cld::editing_until(Edits { now - 120s }, now).has_value()) << "two minutes without an edit: containment may take it";
+        expect(cld::editing_until(Edits { now - 20s }, now, 30s) == now + 10s);
+        expect(cld::EDITING_GRACE == 2min);
+    };
+
     // The throttle above is right only when the file being waited for can progress without
     // preparation. A modules TU usually cannot: it is blocked on exactly these BMIs, so throttling
     // starves the work that would answer it and the freed workers idle. Measured before this
@@ -807,6 +820,40 @@ int main() {
         expect(fatal(read.crash.has_value()));
         expect(read.crash->action == "building preamble" && read.crash->file == "/p/src/main.cpp");
         expect(!posix.read("  Filename: /p/other.cpp").crash) << "one file per context";
+    };
+
+    "LLVM's stack dump after a crash is kept for its report, as clangd prints it (K-3)"_test = [] {
+        // Windows: the context, the exception code, then the frames with module offsets (the release clangd has no symbols).
+        cld::LogReader windows;
+        (void)windows.read("Signalled during AST worker action: Build AST");
+        (void)windows.read("  Filename: D:/a/G/G/NormalJsonTranslator.Core.cpp");
+        (void)windows.read("Exception Code: 0x80000003");
+        auto read = windows.read(" #0 0x00007ff6d1a2b3c4 (C:\\p\\clangd.exe+0x1a2b3c4)");
+        expect(fatal(read.crash.has_value()));
+        expect(read.important);
+        read = windows.read(" #1 0x00007ff6d1a2b000 (C:\\p\\clangd.exe+0x1a2b000)");
+        expect(fatal(read.crash.has_value()));
+        expect(read.crash->stack.size() == 2U && read.crash->stack[0].starts_with("#0 0x00007ff6d1a2b3c4") && read.crash->exception == "0x80000003");
+        expect(read.crash->file == "D:/a/G/G/NormalJsonTranslator.Core.cpp") << "the context stays with its frames";
+        expect(!windows.read("I[18:14:52.000] clangd version 23.1.0").crash) << "the dump ends at the next log line";
+        expect(!windows.read(" #2 0x0 (/p/clangd+0x0)").crash) << "a frame-like line after it is not the dump's";
+        // POSIX: a crash outside an AST worker, with LLVM's numbered entries before the frames.
+        cld::LogReader posix;
+        expect(posix.read("Stack dump:").important);
+        read = posix.read("0.\tProgram arguments: /p/clangd --experimental-modules-support");
+        expect(fatal(read.crash.has_value()));
+        read = posix.read("1.\t<eof> parser at end of file");
+        read = posix.read(" #0 0x000055d0f1a2b3c4 (/p/clangd+0x1a2b3c4)");
+        expect(fatal(read.crash.has_value()));
+        expect(read.crash->action.empty() && read.crash->file.empty() && read.crash->stack.size() == 3U);
+        // At most MAX_STACK_LINES, whatever a crash prints.
+        for (std::size_t i { 0 }; i < 100; ++i) (void)posix.read(std::format(" #{} 0x1 (/p/clangd+0x1)", i + 1));
+        read = posix.read(" #101 0x1 (/p/clangd+0x1)");
+        expect(!read.crash.has_value() || read.crash->stack.size() <= cld::CrashContext::MAX_STACK_LINES);
+        // A log line that merely starts with a digit is not a stack entry outside a dump.
+        cld::LogReader quiet;
+        expect(!quiet.read("3.\tnot a dump").crash);
+        expect(!quiet.read("#include <vector>").crash);
     };
 
     "a failed module scan is read with its reason, whether the driver's or the source's (fix plan F6)"_test = [] {

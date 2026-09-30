@@ -74,6 +74,9 @@ struct EnginePlan {
     // the person's doing (they switched the toolchain or the context) and is never counted against clangd.
     std::string toolchainKey;
     std::string modelOrigin;                  // cache-fresh | cache-stale | cache-confirmed | producer | inferred
+    // R-4 (plan 0.0.8): the model is the provisional one -- sources read with the kit's commands while the build tool,
+    // which the project has, has not answered yet. Its module commands are replaced when it does.
+    bool provisional { false };
     // The C++ standard the context's module units are read with (C++26 alignment): one for the whole context, since
     // every BMI a unit imports must have been built with its standard. When the units name several, the newest is
     // taken and the others raised to it; `standardsSeen` lists what they named, `standardsRaised` how many were.
