@@ -139,18 +139,6 @@ private:
         std::string reason;
     };
     std::map<std::string, DoomedFile, std::less<>> doomedFiles_;                // path key -> why
-    // M-1 (plan 0.0.8): a module that did not compile while a source of its closure was being edited. Containment
-    // waits until nobody has edited it for EDITING_GRACE, and then dooms it only if what failed is still what is on
-    // disk; meanwhile its files stay with clangd.
-    struct FailureWhileEditing {
-        std::string reason;
-        std::string editedFile;     // the source being edited when it failed
-        Clock::time_point failedAt;
-        std::map<std::string, std::optional<platform::fs::FileStamp>, std::less<>> inputs;   // the closure's sources, as they were
-    };
-    std::map<std::string, FailureWhileEditing, std::less<>> failuresWhileEditing_;
-    std::optional<Clock::time_point> editingReviewAt_;
-    std::map<std::string, Clock::time_point, std::less<>> editedAt_;             // path key -> its last didChange
     std::map<std::string, std::vector<std::string>, std::less<>> moduleRequires_;   // module -> the modules it imports, from the plan
     std::map<std::string, std::vector<std::string>, std::less<>> fileImports_;      // path key -> modules it imports directly
     std::map<std::string, std::string, std::less<>> fileModule_;                    // path key -> its module, any role
@@ -483,10 +471,6 @@ public:
         for (const auto& [key, info] : doomedFiles_) doomedFiles.push_back(Json { { "file", key }, { "rootModule", info.rootModule }, { "viaModule", info.viaModule } });
         const auto reportedAt = Clock::now();
         const auto secondsAgo = [&](Clock::time_point at) { return std::chrono::duration_cast<std::chrono::seconds>(reportedAt - at).count(); };
-        Json failingWhileEdited = Json::object();
-        for (const auto& [name, failure] : failuresWhileEditing_) {
-            failingWhileEdited[name] = Json { { "reason", failure.reason }, { "file", failure.editedFile }, { "secondsAgo", secondsAgo(failure.failedAt) } };
-        }
         // M-3 (plan 0.0.8): which prime units are open in clangd, for how long, and what clangd says it does with each.
         Json runningUnits = Json::array();
         for (const auto& [pathKey, module] : primeModuleByPath_) {
@@ -521,7 +505,6 @@ public:
             { "modulesThatDidNotCompile", std::move(compileFailures) },
             { "doomedModules", std::move(doomed) },
             { "filesRoutedToOwnEngine", std::move(doomedFiles) },
-            { "modulesFailingWhileEdited", std::move(failingWhileEdited) },
             { "stdFromSemanticKit", stdFromKit_ },
             { "preparation", Json { { "done", done }, { "wanted", wanted }, { "running", primer_.running() }, { "runningUnits", std::move(runningUnits) },
                                     { "limit", preparation_limit(workers_, waiting_on_preparation_()) }, { "workers", workers_ } } },
@@ -847,7 +830,6 @@ public:
             if (event.change == DocumentChange::changed) lastTypedAt_ = lastActiveAt_;
         }
         if ((event.change == DocumentChange::changed || event.change == DocumentChange::saved) && !document.path.empty()) {
-            if (event.change == DocumentChange::changed) editedAt_[base::path_key(document.path)] = Clock::now();
             note_edit_during_preparation_(document.path);
         }
         switch (event.change) {
@@ -1208,7 +1190,6 @@ public:
         for (const auto& [module, at] : primeDeadlines_) consider(at);
         consider(restartAt_);
         consider(stuckCheckAt_);
-        consider(editingReviewAt_);
         if (pendingExit_) consider(pendingExit_->at + EXIT_CONTEXT_WAIT);
         if (upSince_) consider(*upSince_ + RECOVERED_AFTER);
         for (const auto& [uri, closing] : closingAfterBuild_) consider(closing.second);
@@ -1379,7 +1360,6 @@ public:
             if (const auto* planned = primer_.find(module)) (void)finish_prime_(base::path_to_uri(planned->primeFile));
         }
         if (stuckCheckAt_ && *stuckCheckAt_ <= now) check_stuck_files_(now);
-        if (editingReviewAt_ && *editingReviewAt_ <= now) review_failures_while_editing_(now);
         reconsider_deferred_reclaims_(now);
         if (restartAt_ && *restartAt_ <= now) {
             if (const auto later = quiet_restart_at_(now)) {
@@ -2320,10 +2300,7 @@ private:
             // instead of waiting out clangd's request timeout or its preparation deadline. The standard
             // library is excepted: it already gets the whole-project kit fallback above, which fixes
             // every importer at once instead of setting them all aside one by one.
-            if (!stdFailed && !doomRoots_.contains(parsed.module) && defer_while_edited_(parsed.module, parsed.reason, now)) {
-                // M-1 (plan 0.0.8): somebody is writing this module -- its files stay with clangd, which reads the one being
-                // edited from its buffer, and gives an importer its own locals and keywords with an error on the import.
-            } else if (!stdFailed && !doomRoots_.contains(parsed.module)) {
+            if (!stdFailed && !doomRoots_.contains(parsed.module)) {
                 DoomRoot root { parsed.reason, {}, {}, modelOrigin_, {} };
                 if (const auto provider = moduleSources_.find(parsed.module); provider != moduleSources_.end()) {
                     root.provider = provider->second;
@@ -2456,85 +2433,6 @@ private:
         return sources;
     }
 
-    // M-1: when each source of `sources` that is open in the editor was last edited (nullopt: open, not edited), and
-    // the one edited last.
-    struct ClosureEdits {
-        std::vector<std::optional<Clock::time_point>> edits;
-        std::string lastEdited;
-    };
-    ClosureEdits closure_edits_(const std::vector<std::string>& sources) const {
-        ClosureEdits found;
-        std::optional<Clock::time_point> latest;
-        for (const auto& document : host_->documents()) {
-            if (document.path.empty()) continue;
-            const std::string key { base::path_key(document.path) };
-            if (std::ranges::none_of(sources, [&](const std::string& source) { return base::path_key(source) == key; })) continue;
-            const auto edited = editedAt_.find(key);
-            found.edits.push_back(edited == editedAt_.end() ? std::nullopt : std::optional<Clock::time_point> { edited->second });
-            if (edited != editedAt_.end() && (!latest || edited->second > *latest)) {
-                latest = edited->second;
-                found.lastEdited = document.path;
-            }
-        }
-        return found;
-    }
-
-    // M-1 (plan 0.0.8): whether `module`, which just failed to compile, is somebody's work in progress (guard.cppm,
-    // editing_until): if so it is remembered instead of doomed, and looked at again once the editing stops.
-    bool defer_while_edited_(const std::string& module, const std::string& reason, Clock::time_point now) {
-        const auto sources = closure_sources_(module);
-        const ClosureEdits closure { closure_edits_(sources) };
-        const auto until = editing_until(closure.edits, now);
-        if (!until) return false;
-        const std::string& editedFile { closure.lastEdited };
-        FailureWhileEditing failure { reason, editedFile, now, {} };
-        for (const auto& source : sources) failure.inputs.emplace(source, platform::fs::stamp(source));
-        const bool first { !failuresWhileEditing_.contains(module) };
-        failuresWhileEditing_[module] = std::move(failure);
-        if (first) {
-            log::info("module {} does not compile while {} is being edited ({}); its files stay with clangd: {}", module, editedFile,
-                      host_->root_directory(), reason);
-            host_->record_event("module-failed-while-editing", Json { { "module", module }, { "file", editedFile }, { "reason", reason } });
-        }
-        if (!editingReviewAt_ || *until < *editingReviewAt_) editingReviewAt_ = until;
-        const auto unbuildable = doomed_modules(moduleRequires_, module);
-        abandon_preparation_of_(std::vector<std::string> { unbuildable.begin(), unbuildable.end() });
-        return true;
-    }
-
-    // M-1: each failure while editing, once nobody has edited its closure for EDITING_GRACE: what failed is still on
-    // disk -- the module is broken, not being written -- so containment (RP1.1) dooms it now; anything changed since,
-    // and it is forgotten, for clangd reports the new text if that fails as well.
-    void review_failures_while_editing_(Clock::time_point now) {
-        editingReviewAt_.reset();
-        std::vector<std::string> doomNow;
-        for (auto it = failuresWhileEditing_.begin(); it != failuresWhileEditing_.end();) {
-            if (const auto until = editing_until(closure_edits_(closure_sources_(it->first)).edits, now)) {
-                if (!editingReviewAt_ || *until < *editingReviewAt_) editingReviewAt_ = until;
-                ++it;
-                continue;
-            }
-            const bool unchanged { std::ranges::all_of(it->second.inputs, [](const auto& input) { return platform::fs::stamp(input.first) == input.second; }) };
-            if (unchanged && !doomRoots_.contains(it->first)) {
-                DoomRoot root { it->second.reason, {}, {}, modelOrigin_, std::move(it->second.inputs) };
-                if (const auto provider = moduleSources_.find(it->first); provider != moduleSources_.end()) {
-                    root.provider = provider->second;
-                    root.command = moduleCommands_.contains(it->first) ? moduleCommands_.find(it->first)->second : std::string {};
-                }
-                doomRoots_.emplace(it->first, std::move(root));
-                doomNow.push_back(it->first);
-            } else {
-                host_->record_event("module-failure-while-editing-cleared", Json { { "module", it->first } });
-            }
-            it = failuresWhileEditing_.erase(it);
-        }
-        if (!doomNow.empty()) {
-            log::info("module {} still does not compile, and nobody has edited it for {} minutes ({}); containment takes it",
-                      doomNow.front(), std::chrono::duration_cast<std::chrono::minutes>(EDITING_GRACE).count(), host_->root_directory());
-            recompute_doom_();
-        }
-    }
-
     // M-3 (plan 0.0.8): an edit to a source that a module being prepared is built from is progress, not a stall: the
     // person is changing what preparation waits for. hello111: a minute of typing in the module being prepared was
     // reported as "preparation-stalled ... cannot recover by itself", with a bundle, and it completed 0.3 s later.
@@ -2599,7 +2497,17 @@ private:
             next.emplace(file, DoomedFile { root->second, viaModule, doomRoots_.at(root->second).reason });
         };
         for (const auto& [file, module] : fileModule_) {
-            if (doomedModules_.contains(module)) consider(file, module);
+            if (!doomedModules_.contains(module)) continue;
+            // M-1 (plan 0.0.8): the unit whose compile failed stays with clangd. It needs no BMI of itself, so clangd reads
+            // it at once, from the editor's text, with its real errors where they are and its completion: writing a module
+            // with autosave, what is on disk mid-edit does not compile as a rule, and taking it from clangd left the person
+            // writing it empty completion (48% of it in 92 s) and one error with no position, every few seconds. Its
+            // importers are contained as before; their completion has the file's words (M-2).
+            if (const auto provider = moduleSources_.find(module); doomRoots_.contains(module) && provider != moduleSources_.end()
+                && base::path_key(provider->second) == file) {
+                continue;
+            }
+            consider(file, module);
         }
         for (const auto& [file, imports] : fileImports_) {
             for (const auto& imported : imports) {
@@ -2620,10 +2528,6 @@ private:
         abandon_preparation_of_(std::vector<std::string> { doomedModules_.begin(), doomedModules_.end() });
     }
 
-    // RP1.3, and M-1 (plan 0.0.8) for a module being written: the preparation of modules that cannot build now is given
-    // up -- their prime units closed, marked resolved -- so it neither holds a worker nor keeps the status preparing with
-    // nothing to show for it (U15 on mcpp and xlings: a unit waiting on the module being written kept the workspace
-    // "preparing" for 140-185 s). clangd builds them for the files that need them once they compile again.
     void abandon_preparation_of_(const std::vector<std::string>& modules) {
         for (const auto& module : modules) {
             primeDeadlines_.erase(module);
@@ -3470,8 +3374,6 @@ private:
         doomRoots_.clear();
         doomedModules_.clear();
         doomedFiles_.clear();
-        failuresWhileEditing_.clear();
-        editingReviewAt_.reset();
         reportedFailures_.clear();
         modulesFailedAt_.clear();
         stdFromKit_ = false;
@@ -4267,6 +4169,9 @@ private:
         primeDeadlines_.clear();
         heldPrimeUnits_.clear();
         primer_.reset();
+        // A new clangd prepares from nothing: its progress is measured from when it starts, not from the last one's (ux-xlings:
+        // "preparation-stalled ... cannot recover" written 2 s after a restart, from the previous clangd's last progress).
+        lastPrimeProgressAt_.reset();
         // reset() forgets every module's state, doomed ones included (its own doc comment: "as after an
         // engine restart"); a fresh clangd still cannot build them, so they are marked doomed again at
         // once rather than waiting out the same failure a second time (real-project plan RP1.1, design P1).

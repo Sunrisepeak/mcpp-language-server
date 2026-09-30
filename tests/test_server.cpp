@@ -737,19 +737,6 @@ int main() {
         expect(cld::preparation_limit(2, true) == 1u && cld::preparation_limit(1, false) == 1u && cld::preparation_limit(0, true) == 1u) << "never less than one";
     };
 
-    "a module that does not compile while a source of it is being edited is work in progress, for two minutes after the last edit (M-1)"_test = [] {
-        using namespace std::chrono_literals;
-        const auto now = cld::GuardClock::now();
-        using Edits = std::vector<std::optional<cld::GuardClock::time_point>>;
-        expect(!cld::editing_until(Edits {}, now).has_value()) << "no source of it is open";
-        expect(!cld::editing_until(Edits { std::nullopt }, now).has_value()) << "open, not edited: a module that is simply broken";
-        expect(cld::editing_until(Edits { now - 10s }, now) == now + 110s) << "edited ten seconds ago";
-        expect(cld::editing_until(Edits { now - 90s, std::nullopt, now - 5s }, now) == now + 115s) << "the latest edit of any source counts";
-        expect(!cld::editing_until(Edits { now - 120s }, now).has_value()) << "two minutes without an edit: containment may take it";
-        expect(cld::editing_until(Edits { now - 20s }, now, 30s) == now + 10s);
-        expect(cld::EDITING_GRACE == 2min);
-    };
-
     // The throttle above is right only when the file being waited for can progress without
     // preparation. A modules TU usually cannot: it is blocked on exactly these BMIs, so throttling
     // starves the work that would answer it and the freed workers idle. Measured before this
