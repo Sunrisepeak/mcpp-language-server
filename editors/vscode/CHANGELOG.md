@@ -10,6 +10,11 @@
 - **Export Diagnostic Bundle** records the editor settings that decide whether completion shows.
 - Writing a module with autosave keeps its completion and real diagnostics (the server no longer takes
   a module that does not compile from clangd), and completion is never empty.
+- In a large project, completion no longer falls behind with every save: a completion clangd answers
+  late reaches the word you are still typing, and saving no longer makes clangd rebuild modules no open
+  file needs.
+- xmake projects follow `xmake.lua` and your own `xmake f` settings as you change them, without the
+  server writing anything into the project.
 
 ## 0.0.7
 
