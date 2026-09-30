@@ -679,7 +679,7 @@
       "budget": {
         "maxStallSeconds": 60,
         "errorStates": 0,
-        "maxChangesPerMinute": 6
+        "maxChangesPerMinute": 12
       }
     },
     {

@@ -1095,6 +1095,7 @@ scratchpad 在 `/tmp` 下，会话结束后可能被清理：#30 的失败单测
 | U7a 扇出保存期间的交互请求 p95 | 1 s | 0.88 / 1.00–1.18 s | 1.5 s | 8 个 importer 重建时 clangd 答不上，R-7 在 1 s 回退作答，p95 恰在 1.00 s 附近 |
 | U7b `mcpp.manifest.types` 扇出保存 | 60 s 内恢复 | 不恢复，8 次重启 | 移到 nightly 的 long 阶段 | clangd 在这次保存上崩溃（#24 UP-20，K-3 符号化推迟）；0.0.7 不再放弃 clangd 并退避 |
 | U15 编辑阶段每分钟状态变化 | ≤ 6 | 9 / 9 | ≤ 12 | 扇出保存触发的 preparing ↔ ready；0.0.8 看 preparing 的迟滞 |
+| U15 故障阶段每分钟状态变化 | ≤ 6 | 6–7 / 6 | ≤ 12 | 该阶段故意重启 clangd / 服务端五次，每次都从 starting 走到 ready |
 | U9 杀 clangd 后首答 | 15 s | 18.9 s / 4.5 s | 25 s | mcpp 预建进行中被杀 |
 | U10 杀服务端后 ready | 5 s | 10.2 / 8.4 s | 15 s | 跳转 2.0–2.5 s 即可用，0 个 BMI 重建、用主缓存 |
 | U8 配置变更 | 5 s | 2.2 / 5.3 s | 8 s | xlings 的 producer 本身约 5 s |
