@@ -139,8 +139,12 @@ The analysis, the measurements and the plan are `.agents/docs/2026-09-30-stabili
   idle CPU and memory, the status timeline. The budgets were calibrated on the CI runner's first rounds;
   the plan's record says why each one moved. `clangd-cannot-load` checks the automatic bundle. CI adds `code-oss-e2e`, `proot` (the server under termux's PRoot on x64
   and arm64) and a nightly Termux job.
+- Upgrading: the first start after installing 0.0.7 describes the project again (the model cache's
+  format changed) and may build its modules once; every warm start after that rebuilds nothing. Settings,
+  caches and editor configuration need no change.
 - Deferred: Windows CPU readings for the stuck-clangd watch (K-1), lower priority for clangd (R-9),
-  symbolized crashes (K-3), moving a broken module cache aside by itself (C-3).
+  symbolized crashes (K-3; clangd still crashes on Windows under the provisional model, and is backed off
+  with a bundle written), moving a broken module cache aside by itself (C-3).
 
 ## [0.0.6] — 2026-09-27
 
