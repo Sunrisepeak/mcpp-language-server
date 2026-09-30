@@ -717,6 +717,90 @@ jobs:
           [ "$after" -gt "$before" ]
 
   # ---------------------------------------------------------------------------
+  # User-experience scenarios (0.0.7 plan 6.4, conformance/README.md "Scenario checks"): the mcpp and xlings
+  # repositories at pinned commits, a person's first minutes and worst moments with them, on the size of
+  # machine the plan measures against: this runner's 4 vCPU and 16 GB are the `taskset -c 0-3` tier of a
+  # developer's laptop. The budgets in the fixtures are the merge gate. Each stage is a run of the fixture
+  # (cold start, warm start on the same cache, typing and saves on that cache, faults on a cache of their
+  # own); a stage that fails does not skip the ones after it, so a run says everything that is over budget,
+  # and every stage's measure file is uploaded whether or not it passed, for the trend. The `long` stage
+  # (ten idle minutes, a git checkout twenty commits back) is nightly's.
+  ux:
+    name: ux (${{ matrix.fixture }})
+    needs: payload
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        fixture: [ux-mcpp, ux-xlings]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - name: GCC 16, which the mcpp and xlings repositories build with
+        run: mcpp toolchain install gcc 16.1.0
+      # The mcpp repository's .xlings.json asks for the mcpp it is built with, and xlings runs that one
+      # inside it, refusing to when it is not installed (nightly's self-hosting job does the same).
+      - name: The mcpp the mcpp repository asks for
+        if: matrix.fixture == 'ux-mcpp'
+        run: |
+          set -euo pipefail
+          xlings install mcpp@2026.9.21.1 -y -g
+          xlings use mcpp "$MCPP_VERSION"
+          mcpp --version
+      - uses: actions/download-artifact@v8
+        with:
+          name: payload-linux-x64
+      - name: Unpack the payload
+        run: tar -xzf payload-linux-x64.tar.gz
+      - name: The stages
+        run: |
+          set -euo pipefail
+          nproc
+          cat /proc/loadavg
+          results="$RUNNER_TEMP/ux-results"
+          work="$RUNNER_TEMP/ux-work"
+          mkdir -p "$results" "$work"
+          failed=''
+          # The workspace is fetched and prepared once, by the first stage, and every stage after it
+          # uses it as it is. A stage puts back the files it changed before it ends.
+          run_stage() {
+            local name="$1" cache="$2"; shift 2
+            echo "::group::${{ matrix.fixture }} $name"
+            if ! stage/mcppls-conformance run --server payload/bin/mcppls --payload payload \
+                --fixture conformance/fixtures/${{ matrix.fixture }} --workspace-dir "$work/workspace" --cache-dir "$work/$cache" \
+                --stage "$name" --timeout 900 --measure "$results/${{ matrix.fixture }}-$name.json" "$@"; then
+              failed="$failed $name"
+            fi
+            echo "::endgroup::"
+          }
+          run_stage cold cache-a
+          run_stage warm cache-a --expect-warm
+          run_stage edits cache-a --expect-warm
+          run_stage faults cache-b
+          {
+            echo "### ${{ matrix.fixture }}"
+            echo
+            echo '| stage | check | ok | seconds | detail |'
+            echo '|---|---|---|---|---|'
+            for file in "$results"/*.json; do
+              jq -r --arg stage "$(basename "$file" .json)" '.checks[] | "| \($stage) | \(.id) | \(.ok) | \(.seconds * 10 | round / 10) | \(.detail | tostring | .[0:150] | gsub("\\|"; "/")) |"' "$file"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$failed" ]; then
+            echo "::error::stages over budget or failing:$failed"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ux-${{ matrix.fixture }}
+          path: ${{ runner.temp }}/ux-results
+
+  # ---------------------------------------------------------------------------
   # Clean machines (usable plan W5, design 20.2): no compiler, no Visual Studio, no
   # Command Line Tools. Linux runs in a bare container; the Windows and macOS images
   # cannot be emptied, so their toolchains are hidden and asserted invisible first.

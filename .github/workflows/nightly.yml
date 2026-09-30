@@ -249,3 +249,88 @@ jobs:
         with:
           name: nightly-${{ matrix.fixture }}-${{ matrix.platform }}
           path: ${{ runner.temp }}/self
+
+  # The user-experience scenarios of ci.yml's `ux` job (0.0.7 plan 6.4), three times each, so that a budget missed
+  # by runner noise shows as one failed round of three and a real regression as three; the `long` stage
+  # (U13's ten idle minutes, U12's git checkout twenty commits back and forth) runs in the first round only.
+  # A round on two cores, the plan's low tier, is recorded and never fails the workflow: it is here to see
+  # how far a two-core machine is from the budgets, not to hold it to them. Measure files are uploaded.
+  ux:
+    name: ux (${{ matrix.fixture }}, ${{ matrix.round }})
+    needs: ci
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    continue-on-error: ${{ matrix.round == 'two-core' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        fixture: [ux-mcpp, ux-xlings]
+        round: ['1', '2', '3']
+        include:
+          - { fixture: ux-mcpp,    round: two-core, cores: '0-1' }
+          - { fixture: ux-xlings,  round: two-core, cores: '0-1' }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - name: GCC 16, which the mcpp and xlings repositories build with
+        run: mcpp toolchain install gcc 16.1.0
+      - name: The mcpp the mcpp repository asks for
+        if: matrix.fixture == 'ux-mcpp'
+        run: |
+          set -euo pipefail
+          xlings install mcpp@2026.9.21.1 -y -g
+          xlings use mcpp "$MCPP_VERSION"
+          mcpp --version
+      - uses: actions/download-artifact@v8
+        with:
+          name: payload-linux-x64
+      - name: Unpack the payload
+        run: tar -xzf payload-linux-x64.tar.gz
+      - name: The stages
+        run: |
+          set -euo pipefail
+          nproc
+          cat /proc/loadavg
+          results="$RUNNER_TEMP/ux-results"
+          work="$RUNNER_TEMP/ux-work"
+          mkdir -p "$results" "$work"
+          # The two-core round pins the runner and, through it, the server and clangd it starts.
+          pin=(); [ -n "${{ matrix.cores }}" ] && pin=(taskset -c "${{ matrix.cores }}")
+          failed=''
+          run_stage() {
+            local name="$1" cache="$2"; shift 2
+            echo "::group::${{ matrix.fixture }} ${{ matrix.round }} $name"
+            if ! ${pin[@]+"${pin[@]}"} stage/mcppls-conformance run --server payload/bin/mcppls --payload payload \
+                --fixture conformance/fixtures/${{ matrix.fixture }} --workspace-dir "$work/workspace" --cache-dir "$work/$cache" \
+                --stage "$name" --timeout 900 --measure "$results/${{ matrix.fixture }}-${{ matrix.round }}-$name.json" "$@"; then
+              failed="$failed $name"
+            fi
+            echo "::endgroup::"
+          }
+          run_stage cold cache-a
+          run_stage warm cache-a --expect-warm
+          run_stage edits cache-a --expect-warm
+          run_stage faults cache-b
+          if [ "${{ matrix.round }}" = 1 ]; then run_stage long cache-a --expect-warm; fi
+          {
+            echo "### ${{ matrix.fixture }}, round ${{ matrix.round }}"
+            echo
+            echo '| stage | check | ok | seconds | detail |'
+            echo '|---|---|---|---|---|'
+            for file in "$results"/*.json; do
+              jq -r --arg stage "$(basename "$file" .json)" '.checks[] | "| \($stage) | \(.id) | \(.ok) | \(.seconds * 10 | round / 10) | \(.detail | tostring | .[0:150] | gsub("\\|"; "/")) |"' "$file"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$failed" ]; then
+            echo "::error::stages over budget or failing:$failed"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: nightly-ux-${{ matrix.fixture }}-${{ matrix.round }}
+          path: ${{ runner.temp }}/ux-results
