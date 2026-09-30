@@ -67,9 +67,10 @@ mcpp 给出的文档里列出了每个翻译单元、它的模块角色、它的
 
 ## 用哪个 C++ 标准，以及 C++26
 
-标准以构建为准：一个单元的命令里写的 `-std=`（或 `/std:`）是什么，mcppls 就交给 clangd 什么；`/std:c++latest` 即 C++26。另有两条规则：
+标准以构建为准：一个单元的命令里写的 `-std=`（或 `/std:`）是什么，mcppls 就交给 clangd 什么；`/std:c++latest` 即 C++26。另有三条规则：
 
 - **同一上下文中的模块单元用同一个标准。** 模块的 BMI 只能在构建它时所用的标准下导入——`std` 按 C++23 构建时，C++26 文件里的 `import std` 会直接失败（"C++26 was disabled in precompiled file"）。因此同一上下文里导入、提供或属于某个模块的单元，统一按其中最新的标准来读，不涉及模块的普通单元保留自己的标准；有单元被提升时日志会说明，报告中的 `plan.languageStandard`、`plan.standardsSeen`、`plan.standardsRaised` 给出具体情况，状态中的 profile 也会写明所用标准。
+- **命令里没写标准时**（比如 xmake 没写 `set_languages`）。其中的模块单元——导入、提供或属于某个模块的单元，包括 `std` 自己的单元——按 C++23 读（`gnu++23`；MSVC 目标用 `c++23`），这是 `import std` 所针对的标准，不管编译器自己的默认是什么：Clang 默认的 gnu++17 根本没有模块。日志会说明一次，报告中的 `plan.standardAssumed` 为 `true`；构建写了标准的，照构建的来。普通单元按构建编译器自己的默认读（在与 Clang 默认不同的时候：GCC 16 是 gnu++20；GCC 15 起的 C 是 gnu23），和构建编译它的方式一致。构建给模块单元写的标准低于 C++20 时会提示一次（`module-standard-too-old`）：模块需要 C++20。
 - **没有任何构建描述的源文件，按读取它们的编译器所支持的最新标准来读**：语义工具包（clang 23、libc++ 23）、GCC 14 及以上、Clang 17 及以上为 C++26（Clang 20 之前写作 `c++2c`）；更老的编译器为 C++23，即支持 `import std` 的最低标准。
 
 C++26 能用到什么，取决于 clangd 23.1：包索引（pack indexing）、`= delete("reason")`、占位变量 `_`、`static_assert` 自定义消息、`#embed`、可变参数友元，以及 clang 23 已实现的其余特性；标准库部分取决于你构建所用的标准库（语义工具包为 libc++ 23）。**契约（P2900）和反射（P2996）clang 23 尚未实现**：使用它们的代码即使 GCC 能编译，clangd 里也会报错；VS Code 仍会为 `contract_assert`、`pre`、`post` 着色。

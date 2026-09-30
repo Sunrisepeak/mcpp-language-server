@@ -334,6 +334,59 @@ int main() {
         }
     };
 
+    "module units whose build names no standard are read as C++23, other units as their compiler does (X-3)"_test = [] {
+        // An xmake project without set_languages, built by GCC 16: no command names a standard.
+        const std::map<std::string, std::string> sources {
+            { "/p/src/app.cpp", "import std;\nimport core;\nint main() {}\n" },
+            { "/p/src/core.cppm", "export module core;\nimport std;\n" },
+            { "/p/src/old.cpp", "int old() { return 0; }\n" },
+            { "/p/src/plain.c", "int c(void) { return 0; }\n" },
+        };
+        s::Database database;
+        database.hasIde = true;
+        s::Set set;
+        set.name = "app";
+        set.hasIde = true;
+        set.toolchain = "gcc-16.1.0-x86_64-linux-gnu";
+        for (const auto& [path, text] : sources) {
+            s::TranslationUnit unit;
+            unit.source = path;
+            unit.workDirectory = "/p";
+            unit.arguments = { path.ends_with(".c") ? "/opt/gcc/bin/gcc" : "/opt/gcc/bin/g++", "-O2", "-c", path };
+            set.units.push_back(std::move(unit));
+        }
+        database.sets.push_back(set);
+        std::map<std::string, ToolchainFacts, std::less<>> facts { { set.toolchain, gcc_facts() } };
+        n::PlanInput input;
+        input.database = &database;
+        input.facts = &facts;
+        input.engineDriverDirectory = "/payload/clangd/bin";
+        input.scanner = [&](std::string_view path) {
+            const auto it = sources.find(std::string { path });
+            return it == sources.end() ? p::ScanResult {} : p::scan_source(it->second);
+        };
+        input.metadataReader = [](std::string_view) {
+            return std::vector<s::ModuleEntry> { { "std", "/opt/gcc/include/c++/16/bits/std.cc", true, {}, {} } };
+        };
+        const auto plan = n::plan_engine(input);
+        expect(plan.standardAssumed && plan.languageStandard == "gnu++23") << plan.languageStandard;
+        expect(plan.standardsRaised == 0u && plan.standardsSeen.empty());
+        std::size_t modular { 0 };
+        for (const auto& entry : plan.entries) {
+            const auto count = std::ranges::count_if(entry.arguments, [](const std::string& argument) { return argument.starts_with("-std="); });
+            expect(count == 1) << entry.file << ": one standard, " << count;
+            const auto standard = std::ranges::find_if(entry.arguments, [](const std::string& argument) { return argument.starts_with("-std="); });
+            if (standard == entry.arguments.end()) continue;
+            if (entry.file == "/p/src/old.cpp") expect(*standard == "-std=gnu++20") << "a unit with no module is read as GCC 16 builds it";
+            else if (entry.file == "/p/src/plain.c") expect(*standard == "-std=gnu23") << "a C unit as GCC 16 builds it";
+            else {
+                expect(*standard == "-std=gnu++23") << entry.file << ": " << *standard;
+                ++modular;
+            }
+        }
+        expect(modular == 3u) << "app, core and std";
+    };
+
     "a plan resolves, injects std once and leaves out what cannot resolve"_test = [] {
         const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
             std::format("mcppls-test-plan-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };

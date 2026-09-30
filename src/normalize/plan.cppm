@@ -83,6 +83,8 @@ struct EnginePlan {
     std::string languageStandard;
     std::vector<std::string> standardsSeen;
     std::size_t standardsRaised { 0 };
+    // X-3 (plan 0.0.8 part 2): no module unit named a standard, and `languageStandard` is C++23, mcppls's own choice.
+    bool standardAssumed { false };
 };
 
 // "c++26", "gnu++2c", "c++latest": the year of the C++ standard (2026) and whether GNU extensions are on; nullopt for

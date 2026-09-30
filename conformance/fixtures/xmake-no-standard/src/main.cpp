@@ -1,7 +1,6 @@
 import std;
-import hello.greet;
 
-int main(int argc, char* argv[]) {
-    std::println("{}", hello::greet("mcpp"));
+int main() {
+    std::println("{}", std::string_view { "hello" });
     return 0;
 }

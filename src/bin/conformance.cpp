@@ -520,6 +520,12 @@ public:
         while (auto message = inbox_->pop_until(Clock::now() + quiet)) dispatch(*message);
     }
 
+    // For `duration`, whatever arrives meanwhile: unlike drain, a server that keeps talking does not make it longer.
+    void pump_for(std::chrono::milliseconds duration) {
+        const auto until = Clock::now() + duration;
+        while (auto message = inbox_->pop_until(until)) dispatch(*message);
+    }
+
     void dispatch(const Json& message) {
         switch (lsp::kind_of(message)) {
         case lsp::Kind::request: {
@@ -3362,7 +3368,8 @@ public:
             };
             const auto cut = static_cast<std::size_t>(static_cast<double>(complete.size()) * check.value("cut", 0.5));
             if (auto written = write(complete.substr(0, cut)); !written) return { false, written.error().message };
-            client_.drain(std::chrono::milliseconds { check.value("after-ms", 300) });
+            // A fixed time, the writer's: drain's "until quiet" never ended while the server re-read the file each second.
+            client_.pump_for(std::chrono::milliseconds { check.value("after-ms", 300) });
             if (auto written = write(complete); !written) return { false, written.error().message };
             return { true, std::format("{} cut at {} of {} bytes, complete again", file, cut, complete.size()) };
         }

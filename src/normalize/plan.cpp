@@ -201,7 +201,22 @@ void unify_language_standard(EnginePlan& plan) {
         }
     }
     plan.standardsSeen.assign(seen.begin(), seen.end());
-    if (!best) return;
+    if (!best) {
+        // X-3 (plan 0.0.8 part 2): no module unit names a standard. They are read as C++23, the standard `import std` is
+        // made for -- every standard library ships its `std` module for it -- whatever the compiler's own default
+        // (Clang's gnu++17 has no modules at all). A standard the build names is followed instead, above.
+        bool assumed { false };
+        for (auto& entry : plan.entries) {
+            if (!modular(entry) || entry.arguments.size() <= 1 || standard_argument(entry)) continue;
+            const bool msvcTarget { std::ranges::any_of(entry.arguments, [](const std::string& argument) {
+                return argument.starts_with("--target=") && argument.find("windows-msvc") != std::string::npos; }) };
+            plan.languageStandard = msvcTarget ? "c++23" : "gnu++23";
+            entry.arguments.insert(entry.arguments.begin() + 1, "-std=" + plan.languageStandard);
+            assumed = true;
+        }
+        plan.standardAssumed = assumed;
+        return;
+    }
     plan.languageStandard = bestSpelling;
     // X-3 (plan 0.0.8 part 2): module units read below C++20 have no modules at all; the build fails the same way, so the
     // fix is in its configuration, said once here rather than as every import's error.
@@ -376,7 +391,9 @@ EnginePlan plan_engine(const PlanInput& input) {
             // read with the semantic kit; C units, which import nothing, keep their toolchain.
             const bool toolchain { usable(facts) && !(input.preferKit && input.kit != nullptr && !candidate.c) };
             if (toolchain && (facts->toolchain.family == spec::Family::gcc || facts->toolchain.family == spec::Family::clang)) {
-                candidate.arguments = translate_gnu(GnuInput { arguments, candidate.source, unit.workDirectory, facts, importable, input.noAlignedAllocationWithMsvcStl, candidate.c });
+                const bool modular { !candidate.required.empty() || !candidate.provided.empty() || !candidate.module.empty() };
+                candidate.arguments = translate_gnu(GnuInput { arguments, candidate.source, unit.workDirectory, facts, importable,
+                                                               input.noAlignedAllocationWithMsvcStl, candidate.c, modular });
                 if (facts->toolchain.family == spec::Family::gcc) candidate.driver = candidate.c ? clangCDriver : clangDriver;
                 else candidate.driver = candidate.c ? c_driver_beside(facts->toolchain.driver) : facts->toolchain.driver;
             } else if (toolchain) {

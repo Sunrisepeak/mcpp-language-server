@@ -32,11 +32,12 @@ struct GnuInput {
     bool importable { false };
     bool noAlignedAllocationWithMsvcStl { true };   // the core engine's trait (overall design 5.4)
     bool c { false };                               // the unit is compiled as C
+    bool modular { false };                         // the unit takes part in modules: it imports, provides or implements one
 };
 
 // X-3 (plan 0.0.8 part 2): the standard GCC `version` compiles a C++ (or, `c`, a C) unit with when its command names
 // none -- "gnu++20" for GCC 16 -- or nullopt when that is Clang's own default too (gnu++17, gnu17) or the version
-// cannot be read.
+// cannot be read. A module unit that names none is not read with it: the plan gives those C++23 (plan.cppm).
 std::optional<std::string_view> gcc_default_standard(std::string_view version, bool c);
 
 // Arguments without argv[0], output, dependency files, BMI and scanning flags,

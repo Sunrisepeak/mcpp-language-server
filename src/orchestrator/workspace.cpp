@@ -334,6 +334,7 @@ struct Workspace::Impl final : engine::Host {
     std::set<std::string> openedOutsideModel;
     std::set<std::string> plannedFiles;      // path keys of the plan's units and of the files it left out
     std::vector<std::string> loggedStandards;   // the standards the last log line about raising them named
+    bool loggedStandardAssumed { false };        // X-3 (plan 0.0.8 part 2): said once that C++23 was chosen for the module units
     // S5 2.2: advanced whenever a document, a watched file, the model or the plan changes.
     std::uint64_t snapshotGeneration { 0 };
 
@@ -1301,10 +1302,12 @@ struct Workspace::Impl final : engine::Host {
             }
         }
         if (const std::size_t end { invalid->message.find(" is not valid JSON") }; end != std::string::npos) candidates.push_back(invalid->message.substr(0, end));
+        // "A moment ago" is generous: the load that found the file cut short may itself have waited seconds for the event loop
+        // or the watch to settle -- on a loaded machine 2 s missed a writer that finished 2.5 s after it started.
         const auto now { std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::file_clock::now().time_since_epoch()).count() };
         const bool written { std::ranges::any_of(candidates, [&](const std::string& path) {
             const auto stamp { platform::fs::stamp(path) };
-            return stamp && now - stamp->modified < std::chrono::nanoseconds { 2s }.count();
+            return stamp && now - stamp->modified < std::chrono::nanoseconds { 10s }.count();
         }) };
         if (!written || invalidFileRetries >= 5) {
             invalidFileRetries = 0;
@@ -1553,7 +1556,12 @@ struct Workspace::Impl final : engine::Host {
                                    { "stdUnits", plan.stdUnits }, { "standIns", plan.stubModules }, { "openSources", plan.openSources },
                                    { "leftOut", plan.excludedFiles.size() },
                                    { "issues", plan.issues.size() }, { "languageStandard", plan.languageStandard },
-                                   { "standardsRaised", plan.standardsRaised } });
+                                   { "standardsRaised", plan.standardsRaised }, { "standardAssumed", plan.standardAssumed } });
+        if (plan.standardAssumed && !loggedStandardAssumed) {
+            loggedStandardAssumed = true;
+            log::info("the build of {} names no C++ standard for its module units; they are read as {}, the standard `import std` is for "
+                      "(a standard the build sets is followed instead)", root, plan.languageStandard);
+        }
         if (plan.standardsRaised > 0 && loggedStandards != plan.standardsSeen) {
             loggedStandards = plan.standardsSeen;
             std::string seen;
@@ -2409,6 +2417,7 @@ Json Workspace::report() const {
     }
     Json plan { { "context", impl.contextSet.empty() ? std::string { "default" } : impl.contextSet }, { "entries", impl.plan.entries.size() },
                 { "languageStandard", impl.plan.languageStandard }, { "standardsSeen", impl.plan.standardsSeen }, { "standardsRaised", impl.plan.standardsRaised },
+                { "standardAssumed", impl.plan.standardAssumed },
                 { "stdUnits", impl.plan.stdUnits }, { "standIns", impl.plan.stubModules }, { "openSources", impl.plan.openSources },
                 { "leftOutCount", impl.plan.excludedFiles.size() },
                 { "leftOut", std::move(leftOut) }, { "issueCount", impl.plan.issues.size() }, { "issues", std::move(planIssues) } };

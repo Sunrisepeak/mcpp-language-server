@@ -259,7 +259,7 @@ before anything is published (`docs/92-release.md`).
 | RD16 | On the provisional model only the standard library is prepared; the project's modules wait for the build tool's commands (plan 0.0.8 R-4). The modules whose units clangd could not scan are taken together, one replan and one restart (P-1) |
 | RD17 | A unit opened in clangd to prepare a module is closed as soon as the module is built; its BMI stays in clangd's module cache on disk. Held open, clangd re-checked every one of them on each save (plan 0.0.8 part 2 C-1) |
 | UD6 | A completion clangd answers after its budget is not thrown away: the requests the same word makes meanwhile wait for it, and it goes to them with its edits ended at each cursor; a request in another word cancels it (plan 0.0.8 part 2 C-2) |
-| RD18 | A command that names no C or C++ standard is read with the one its build compiler uses, where Clang's differs (GCC 16: gnu++20); module units below C++20 are said once (plan 0.0.8 part 2 X-3) |
+| RD18 | Module units whose build names no C++ standard are read as C++23, the standard `import std` is for, whatever the compiler's default; a standard any module unit names is followed instead. Other units that name none are read with their build compiler's own default where Clang's differs (GCC 16: gnu++20). Module units below C++20 are said once (plan 0.0.8 part 2 X-3) |
 
 ## 7. Known limits
 

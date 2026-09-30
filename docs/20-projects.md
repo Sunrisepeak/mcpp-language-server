@@ -151,7 +151,7 @@ profile is a semantic kit rather than a build toolchain.
 ## Which C++ standard, and C++26
 
 The standard is the build's: whatever `-std=` (or `/std:`) a unit's command says, mcppls gives
-clangd; `/std:c++latest` is C++26. Two rules go further.
+clangd; `/std:c++latest` is C++26. Three rules go further.
 
 - **One standard per context for module units.** A module's BMI can only be imported under the
   standard it was built with — `import std` in a C++26 file fails outright when `std` was built as
@@ -159,6 +159,14 @@ clangd; `/std:c++latest` is C++26. Two rules go further.
   or belong to a module are read with the newest standard among them, and a plain unit keeps its own;
   the log says when some were raised, and the report's `plan.languageStandard`,
   `plan.standardsSeen` and `plan.standardsRaised` say which. The status profile names the standard.
+- **A command that names no standard** (xmake without `set_languages`, for one). Its module units --
+  anything that imports, provides or belongs to a module, `std`'s own unit included -- are read as
+  C++23 (`gnu++23`; `c++23` for an MSVC target), the standard `import std` is made for, whatever the
+  compiler's own default: Clang's gnu++17 has no modules at all. The log says it once and the report's
+  `plan.standardAssumed` is `true`; a standard the build does name is followed instead. A plain unit
+  is read with its build compiler's own default where that differs from Clang's (GCC 16: gnu++20;
+  C from GCC 15: gnu23), as the build compiles it. Module units a build names a standard older than
+  C++20 for are said once (`module-standard-too-old`): modules need C++20.
 - **Sources nothing describes are read with the newest standard their compiler takes**: C++26 with
   the semantic kit (clang 23, libc++ 23), GCC 14 and later, and Clang 17 and later (spelled `c++2c`
   before Clang 20); C++23, the oldest standard with `import std`, for older compilers.

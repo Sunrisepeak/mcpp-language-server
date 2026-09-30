@@ -69,9 +69,9 @@ std::vector<std::string> translate_gnu(const GnuInput& input) {
     if (gcc) {
         const auto& facts = *input.facts;
         // X-3 (plan 0.0.8 part 2): a command that names no standard is read with the one GCC compiles it with, not
-        // Clang's. xmake writes no -std when xmake.lua sets no language; GCC 16 then builds `import std` as gnu++20,
-        // while Clang's gnu++17 could not even scan GCC's std.cc (20 errors), and preparation waited on it for good.
-        if (!has_prefix_argument(out, "-std=") && !has_prefix_argument(out, "--std=")) {
+        // Clang's (GCC 16: gnu++20, where Clang has gnu++17). Module units are left to the plan, which reads those that
+        // name none as C++23 (unify_language_standard).
+        if ((input.c || !input.modular) && !has_prefix_argument(out, "-std=") && !has_prefix_argument(out, "--std=")) {
             if (const auto standard = gcc_default_standard(facts.toolchain.version, input.c)) out.push_back(std::format("-std={}", *standard));
         }
         out.emplace_back("--no-default-config");
