@@ -2454,26 +2454,37 @@ private:
         return sources;
     }
 
-    // M-1 (plan 0.0.8): whether `module`, which just failed to compile, is somebody's work in progress (guard.cppm,
-    // editing_until): if so it is remembered instead of doomed, and looked at again once the editing stops.
-    bool defer_while_edited_(const std::string& module, const std::string& reason, Clock::time_point now) {
-        const auto sources = closure_sources_(module);
+    // M-1: when each source of `sources` that is open in the editor was last edited (nullopt: open, not edited), and
+    // the one edited last.
+    struct ClosureEdits {
         std::vector<std::optional<Clock::time_point>> edits;
-        std::string editedFile;
+        std::string lastEdited;
+    };
+    ClosureEdits closure_edits_(const std::vector<std::string>& sources) const {
+        ClosureEdits found;
         std::optional<Clock::time_point> latest;
         for (const auto& document : host_->documents()) {
             if (document.path.empty()) continue;
             const std::string key { base::path_key(document.path) };
             if (std::ranges::none_of(sources, [&](const std::string& source) { return base::path_key(source) == key; })) continue;
             const auto edited = editedAt_.find(key);
-            edits.push_back(edited == editedAt_.end() ? std::nullopt : std::optional<Clock::time_point> { edited->second });
+            found.edits.push_back(edited == editedAt_.end() ? std::nullopt : std::optional<Clock::time_point> { edited->second });
             if (edited != editedAt_.end() && (!latest || edited->second > *latest)) {
                 latest = edited->second;
-                editedFile = document.path;
+                found.lastEdited = document.path;
             }
         }
-        const auto until = editing_until(edits, now);
+        return found;
+    }
+
+    // M-1 (plan 0.0.8): whether `module`, which just failed to compile, is somebody's work in progress (guard.cppm,
+    // editing_until): if so it is remembered instead of doomed, and looked at again once the editing stops.
+    bool defer_while_edited_(const std::string& module, const std::string& reason, Clock::time_point now) {
+        const auto sources = closure_sources_(module);
+        const ClosureEdits closure { closure_edits_(sources) };
+        const auto until = editing_until(closure.edits, now);
         if (!until) return false;
+        const std::string& editedFile { closure.lastEdited };
         FailureWhileEditing failure { reason, editedFile, now, {} };
         for (const auto& source : sources) failure.inputs.emplace(source, platform::fs::stamp(source));
         const bool first { !failuresWhileEditing_.contains(module) };
@@ -2494,16 +2505,7 @@ private:
         editingReviewAt_.reset();
         std::vector<std::string> doomNow;
         for (auto it = failuresWhileEditing_.begin(); it != failuresWhileEditing_.end();) {
-            const auto sources = closure_sources_(it->first);
-            std::vector<std::optional<Clock::time_point>> edits;
-            for (const auto& document : host_->documents()) {
-                if (document.path.empty()) continue;
-                const std::string key { base::path_key(document.path) };
-                if (std::ranges::none_of(sources, [&](const std::string& source) { return base::path_key(source) == key; })) continue;
-                const auto edited = editedAt_.find(key);
-                edits.push_back(edited == editedAt_.end() ? std::nullopt : std::optional<Clock::time_point> { edited->second });
-            }
-            if (const auto until = editing_until(edits, now)) {
+            if (const auto until = editing_until(closure_edits_(closure_sources_(it->first)).edits, now)) {
                 if (!editingReviewAt_ || *until < *editingReviewAt_) editingReviewAt_ = until;
                 ++it;
                 continue;

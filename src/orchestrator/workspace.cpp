@@ -366,6 +366,7 @@ struct Workspace::Impl final : engine::Host {
     std::optional<Clock::time_point> statusFlushAt;   // a coalesced change goes out then
     std::optional<Clock::time_point> degradedSince;   // when compute_state() turned degraded, while that is held back
     std::optional<Clock::time_point> preparingSince;  // K-6: when a settled workspace turned preparing, while that is held back
+    bool settled { false };                           // K-6: it has been ready or degraded with the core engine serving
     State lastReportedState { State::starting };      // the state last let through DEGRADED_HOLD
 
     Impl(std::string root_, std::string key_, SessionOptions options_, engine::PayloadPaths payload_, bool payloadCorrupt_,
@@ -874,7 +875,7 @@ struct Workspace::Impl final : engine::Host {
             && completion::is_empty(result)) {
             if (const auto position = position_of(it->second.params)) {
                 const auto prefix = completion::line_prefix(it->second.text, *position);
-                Json words { prefix && !completion::in_import_directive(*prefix) ? completion::document_words(it->second.text, *position) : Json::array() };
+                Json words = prefix && !completion::in_import_directive(*prefix) ? completion::document_words(it->second.text, *position) : Json::array();
                 if (!words.empty()) {
                     result = completion::without_engine(std::move(words));
                     if (it->second.answeredBy.empty()) it->second.answeredBy = "mcppls";
@@ -1688,7 +1689,8 @@ struct Workspace::Impl final : engine::Host {
     void update_status() {
         if (!initializeAnswered) return;   // see the field's own comment
         request_auto_bundles();
-        const State state { compute_state() };
+        const State computed { compute_state() };
+        State state { computed };
         if (state == State::degraded && lastReportedState != State::degraded) {
             const auto now = Clock::now();
             if (!degradedSince) degradedSince = now;
@@ -1699,15 +1701,19 @@ struct Workspace::Impl final : engine::Host {
             }
         }
         if (state != State::degraded) degradedSince.reset();
-        if (state == State::preparing && (lastReportedState == State::ready || lastReportedState == State::degraded)) {
+        // K-6 (plan 0.0.8): only the state is held -- the issues and the engines still go out as they are. "Settled" is
+        // a ready or degraded state while the core engine serves: the ready of a workspace whose clangd is still starting
+        // is not one (failure-at-base: preparation right after it was held, and the failure it found with it).
+        if (state == State::preparing && settled && (lastReportedState == State::ready || lastReportedState == State::degraded)) {
             const auto now = Clock::now();
             if (!preparingSince) preparingSince = now;
             if (now < *preparingSince + SETTLED_PREPARING_HOLD) {
                 if (!statusFlushAt || *preparingSince + SETTLED_PREPARING_HOLD < *statusFlushAt) statusFlushAt = *preparingSince + SETTLED_PREPARING_HOLD;
-                return;
+                state = lastReportedState;
             }
         }
-        if (state != State::preparing) preparingSince.reset();
+        if (computed != State::preparing) preparingSince.reset();
+        if ((computed == State::ready || computed == State::degraded) && (coreEngine == nullptr || coreEngine->status().accepting)) settled = true;
         lastReportedState = state;
         // Before the gate below, not after it. `clientSupportsStatus` means the client understands
         // this repository's own `cxxModules/status` — which is its VS Code extension and nothing
