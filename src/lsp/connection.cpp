@@ -55,6 +55,24 @@ base::Result<std::unique_ptr<Connection>> Connection::start(platform::SpawnOptio
         self->closed_.store(true);
         if (onClosed) onClosed();
     } };
+    connection->writer_ = std::jthread { [self] {
+        while (true) {
+            std::string frame;
+            {
+                std::unique_lock lock { self->outMutex_ };
+                self->outReady_.wait(lock, [&] { return !self->outgoing_.empty() || self->outClosing_; });
+                if (self->outgoing_.empty()) break;   // closing, and everything queued is out
+                frame = std::move(self->outgoing_.front());
+                self->outgoing_.pop_front();
+            }
+            if (!self->process_.write(frame)) {
+                self->writeFailed_.store(true);
+                break;
+            }
+        }
+        // The input is closed here, by the one thread that writes to it: the peer reads its end and may exit by itself.
+        self->process_.close_input();
+    } };
     if (onErrorLine) {
         connection->errorReader_ = std::jthread { [self, onErrorLine = std::move(onErrorLine)] {
             std::string pending;
@@ -78,12 +96,24 @@ base::Result<std::unique_ptr<Connection>> Connection::start(platform::SpawnOptio
 
 base::Result<void> Connection::send(const Json& message) {
     if (closed_.load()) return base::fail("connection-closed", "the peer has exited");
-    return process_.write(framing_ == Framing::lines ? dump(message) + "\n" : encode_frame(message));
+    if (writeFailed_.load()) return base::fail("connection-write", "the peer stopped reading its input");
+    std::string frame { framing_ == Framing::lines ? dump(message) + "\n" : encode_frame(message) };
+    {
+        const std::lock_guard lock { outMutex_ };
+        if (outClosing_) return base::fail("connection-closed", "the peer is being stopped");
+        outgoing_.push_back(std::move(frame));
+    }
+    outReady_.notify_one();
+    return {};
 }
 
 void Connection::stop(std::chrono::milliseconds grace) {
     if (!process_.valid()) return;
-    process_.close_input();
+    {
+        const std::lock_guard lock { outMutex_ };
+        outClosing_ = true;
+    }
+    outReady_.notify_one();   // the writer sends what is queued, then closes the input
     auto waited = process_.wait_for(grace);
     if (!waited || !waited->has_value()) {
         process_.terminate();
@@ -92,6 +122,8 @@ void Connection::stop(std::chrono::milliseconds grace) {
         if (!asked || !asked->has_value()) process_.kill();
         (void)process_.wait();
     }
+    // A writer still blocked in a write returns once the peer is gone and its pipe with it.
+    if (writer_.joinable()) writer_.join();
     if (reader_.joinable()) reader_.join();
     if (errorReader_.joinable()) errorReader_.join();
 }

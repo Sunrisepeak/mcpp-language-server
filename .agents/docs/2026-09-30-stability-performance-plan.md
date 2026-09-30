@@ -1114,6 +1114,10 @@ R-5 在空闲时逐个构建实现单元，xlings 上一个核会忙好几分钟
 - **仍不好**：冷启动 18 分钟未 settle，clangd 退出 4 次（崩溃，K-3）；打字时客户端测到的补全 8–60 s，而服务端自己记的是中位 1.0 s（16 次里 9 次由预算作答）
   ——请求在服务端被读到之前就等了很久，或者写回客户端时被堵。0.0.7 加了事件循环的测量（每轮 ≥ 250 ms 记日志，`server.eventLoop`：最长一轮花在什么上、
   客户端消息排队多久、写客户端的耗时），下一轮探针据此定位；这是 0.0.8 的首要项。
+- **打字卡顿的根因（第二轮探针，run 36665178915，事件循环测量）**：每个 `textDocument/didChange` 让事件循环停 11–13 s——服务端在事件循环里
+  同步写 clangd 的 stdin，Windows 的匿名管道只有几 KB，而半截 import 触发 WA-CLANGD-001 改写后每次改动都发整个文件；4 核忙时 clangd 读得慢
+  （它收到 didChange 的间隔约 1 s，而客户端每秒发 10 个），写就一直堵着，预算、看门狗全被拖后。写客户端一侧没有问题（150 次、最慢 0 ms）。
+  修法：`lsp::Connection` 的发送进队列，由连接自己的写线程写（`tests/test_process.cpp`：对一个不读输入的对端发 4 MB 不阻塞，停止时写线程随管道断开退出）。
 - **修掉的回归**：xlings 冷启动时过渡模型下"找不到模块单元"的判定被带进 producer 的计划（R-6 让替身粘住）→ 49 个模块 doomed，见上文与提交 eb507cf。
 - **冷启动 18 分钟不 settle 的另一半原因**：producer 模型到位后，每约 2 分钟一次"clangd kept working on ITranslator.cpp / PythonManager.cpp / LuaManager.cpp"
   重启——后台打开的单元（定义搜索）超过 `BACKGROUND_BUILD_LIMIT`（2 分钟）没建完就重启 clangd，4 核上重 GMF 的单元合法地要更久，每次重启丢掉进行中的预建。

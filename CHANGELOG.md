@@ -74,10 +74,14 @@ The analysis, the measurements and the plan are `.agents/docs/2026-09-30-stabili
   without the build's include paths) was given a stand-in in the build tool's plan too, and 49 modules
   stayed unprepared until a file changed. What clangd concludes under the provisional model now stays
   with it.
+- **Typing on Windows no longer waits for clangd to read.** Everything sent to clangd was written from the
+  server's one event loop, and a clangd reading slowly -- a busy 4-core Windows machine, a pipe of a few
+  kilobytes, and with a half-typed import the whole file in every change -- held that loop for 11 to 13 s
+  an edit on GalTranslPP: completions budgeted at 1 s reached the editor after 8 to 60 s. What is sent to
+  clangd now waits on a thread of its own.
 - **The event loop says when it is held.** A turn of the server's loop that takes 250 ms or more is logged
   with what it was spent on, and `mcppls report` counts how long client messages waited and what writing
-  to the client cost (`server.eventLoop`): on a 4-core Windows runner GalTranslPP's completions, answered
-  within their 1 s budget, reached the client after 8 to 60 s, and this is what finds out why.
+  to the client cost (`server.eventLoop`). That is how the stall above was found.
 
 ### Recovery
 
