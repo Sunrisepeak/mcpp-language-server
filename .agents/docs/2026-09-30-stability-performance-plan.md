@@ -1097,8 +1097,8 @@ scratchpad 在 `/tmp` 下，会话结束后可能被清理：#30 的失败单测
 | U15 编辑阶段每分钟状态变化 | ≤ 6 | 9 / 9 | ≤ 12 | 扇出保存触发的 preparing ↔ ready；0.0.8 看 preparing 的迟滞 |
 | U15 故障阶段每分钟状态变化 | ≤ 6 | 6–7 / 6 | ≤ 12 | 该阶段故意重启 clangd / 服务端五次，每次都从 starting 走到 ready |
 | U9 杀 clangd 后首答 | 15 s | 18.9 s / 4.5 s | 25 s | mcpp 预建进行中被杀 |
-| U10 杀服务端后 ready | 5 s | 10.2 / 8.4 s | 15 s | 跳转 2.0–2.5 s 即可用，0 个 BMI 重建、用主缓存 |
-| U8 配置变更 | 5 s | 2.2 / 5.3 s | 8 s | xlings 的 producer 本身约 5 s |
+| U10 杀服务端后 ready | 5 s | 10.2 / 8.4–15.0 s | 25 s | 跳转 2.0–2.5 s 即可用，0 个 BMI 重建、用主缓存 |
+| U8 配置变更 | 5 s | 2.2 / 5.3–8.1 s | 12 s | xlings 的 producer 本身约 5–8 s |
 
 第二轮（run 36665807556，同型 runner）xlings 整体慢了约 1.7–1.9 倍（冷预建 168 s、U11 恢复 15 s、打字后诊断刷新 5 s），据两轮再放宽：xlings 首答 90 s、
 冷预建 200 s；两个项目的 U2 首跳 10 s、首次 ready 12 s、U5 / U6 诊断刷新 6 s、U11 恢复 25 s。运行器的 settle 另加"ready 满一分钟即算 settle"：

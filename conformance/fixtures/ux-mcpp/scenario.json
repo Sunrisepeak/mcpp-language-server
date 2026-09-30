@@ -502,8 +502,8 @@
         "with": "default-profile = \"dev\""
       },
       "budget": {
-        "changeSeconds": 8,
-        "revertSeconds": 8,
+        "changeSeconds": 12,
+        "revertSeconds": 12,
         "revertNewBmi": 0
       }
     },
@@ -602,7 +602,7 @@
       },
       "wait-seconds": 240,
       "budget": {
-        "readySeconds": 15,
+        "readySeconds": 25,
         "usesPrimaryCache": true,
         "newBmi": 0,
         "orphans": 0
