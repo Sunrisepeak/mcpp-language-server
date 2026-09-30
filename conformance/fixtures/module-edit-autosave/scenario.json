@@ -1,0 +1,83 @@
+{
+  "name": "module-edit-autosave",
+  "description": "0.0.8 plan 2, M-1 to M-4 (the hello project, with files.autoSave afterDelay): a module interface is written function by function while its importer is open. Each pause with half a statement on the screen (the runner leaves the broken text up for 0.5 to 2.5 s) is written to disk once a second has passed since the last key, so clangd fails to build the module, over and over. 0.0.7 took that for a broken module: it dooms the module's own file and its importers (RP1.1), takes them from clangd, publishes one 'module-failed' diagnostic without a position for each, and answers their completions from mcppls's own engine (empty, in 2 ms) until the next save hands them back, so the files flip every few seconds and, in the reproduction, 106 of 223 completions in the module being edited were empty. A module being edited is not a broken module: nothing is doomed (M-1), clangd keeps answering in the module and in the importer, a completion clangd cannot be asked about still offers the file's words and keywords (M-2), a preparation that waits for an edit is not stalled (M-3), and no 'module-failed' diagnostic is published. The importer holds a probe line, `int probe_value = 1; probe_v`, inside main(); a correct answer has `probe_value`, and none may be empty. One typing check on the module interface, 30 s at 10 Hz, autosave 1000 ms after the last key (autosave-idle-ms); the budgets are 0 for everything that is a defect and 2 s for the completions of both files, which clangd answers in tens of milliseconds on a project this size.",
+  "server-arguments": [
+    "--no-discover"
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "inferred",
+      "state": "ready",
+      "engine-name": "clangd"
+    },
+    {
+      "id": "T0-before",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet",
+      "timeout": 90
+    },
+    {
+      "id": "T1-write-the-module",
+      "kind": "typing",
+      "file": "src/greet/greet.cppm",
+      "seconds": 30,
+      "hz": 10,
+      "completion-every-ms": 700,
+      "autosave-idle-ms": 1000,
+      "scripts": [
+        {
+          "line": 5,
+          "text": "int add(int a_number, int b_number) { return a_number + b_"
+        },
+        {
+          "line": 5,
+          "text": "std::string twice(std::string_view text) { std::string doubled = std::string(text); doubled +="
+        },
+        {
+          "line": 5,
+          "text": "bool longer(std::string_view a_text, std::string_view b_text) { if (a_text.size() > b_text."
+        },
+        {
+          "line": 5,
+          "text": "int count_of(const std::vector<int>& values) { int total = 0; for (auto value : values) { total += va"
+        }
+      ],
+      "importer": {
+        "file": "src/main.cpp",
+        "line": 5,
+        "text": "    int probe_value = 1; probe_v"
+      },
+      "budget": {
+        "p95": 2.0,
+        "importerP95": 2.0,
+        "importerEmpty": 0,
+        "doomed": 0,
+        "stalled": 0,
+        "moduleFailedDiagnostics": 0,
+        "restarts": 0,
+        "timeouts": 0
+      },
+      "states-never": [
+        "error"
+      ]
+    },
+    {
+      "id": "T2-features-after",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet",
+      "timeout": 30
+    }
+  ]
+}
