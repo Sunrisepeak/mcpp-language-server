@@ -43,9 +43,16 @@ mcpp run -p devtools -- uninstall --editor vscode|zed|clion|all   # 卸载
 
 ## Zed
 
-[`editors/zed/`](../../editors/zed/README.md) 里的扩展会在 PATH 上找到 `mcppls` 并启动它。`mcpp run -p devtools -- extension --editor zed --install` 会构建好扩展和服务端，只留一步：命令面板 → "zed: install dev extension" → `editors/zed`。加上 `--link` 可以让工具自己把这一步也做了。参见 [editors/zed/README.md](../../editors/zed/README.md)。
+[`editors/zed/`](../../editors/zed/README.md) 里的扩展会在 PATH 上找到 `mcppls` 并启动它。安装分两步：
 
-Zed 自带 C/C++ 的 clangd，两个都跑在同一个文件上，就成了两个引擎回答同一个问题，所以要把 mcppls 排在前面：`"languages": {"C++": {"language_servers": ["mcppls", "!clangd"]}}`。mcppls 会自己启动 clangd，并带上一份 clangd 本来不会有的模块数据库。
+1. `mcpp run -p devtools -- extension --editor zed --install` 会构建好扩展和服务端，只留一步：命令面板 → "zed: install dev extension" → `editors/zed`。加上 `--link` 可以让工具自己把这一步也做了。
+2. 在 Zed 的设置里（`zed: open settings`）把 mcppls 排在前面，并关掉 clangd：
+
+   ```json
+   { "languages": { "C++": { "language_servers": ["mcppls", "!clangd"] } } }
+   ```
+
+Zed 自带 C/C++ 的 clangd，不做第 2 步它会和 mcppls 同时跑在同一个文件上：两个引擎回答同一个问题，诊断也有两份。mcppls 仍然能正常回答（CI 会用 Zed 的默认设置在真实的 Zed 里打开一个项目来检查这一点），但它会自己启动 clangd，并带上一份 clangd 本来不会有的模块数据库，所以 Zed 自带的那个没有任何帮助。参见 [editors/zed/README.md](../../editors/zed/README.md)。
 
 要在某个项目里关掉 mcppls，就在项目的 `.zed/settings.json` 里用 `!` 指名这个服务端（并把 clangd 再列回去，因为项目的列表会替换你自己的）；见 [editors/zed/README.md](../../editors/zed/README.md#keeping-mcppls-off-for-one-project)。
 

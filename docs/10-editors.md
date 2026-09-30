@@ -77,13 +77,22 @@ for a project rather than running beside it. See
 ## Zed
 
 The extension at [`editors/zed/`](../editors/zed/README.md) finds `mcppls` on PATH and starts it.
-`mcpp run -p devtools -- extension --editor zed --install` builds it and the server, then leaves
-one step: command palette → "zed: install dev extension" → `editors/zed`. Add `--link` to have the
-tool make that same link itself. See [editors/zed/README.md](../editors/zed/README.md).
+Install it in two steps:
 
-Zed ships clangd for C and C++, and running both over one file means two engines answering the same
-question, so put mcppls first: `"languages": {"C++": {"language_servers": ["mcppls", "!clangd"]}}`.
-mcppls starts clangd itself with a module database clangd would not otherwise have.
+1. `mcpp run -p devtools -- extension --editor zed --install` builds it and the server, then leaves
+   one step: command palette → "zed: install dev extension" → `editors/zed`. Add `--link` to have
+   the tool make that same link itself.
+2. Put mcppls first and clangd off in Zed's settings (`zed: open settings`):
+
+   ```json
+   { "languages": { "C++": { "language_servers": ["mcppls", "!clangd"] } } }
+   ```
+
+Zed ships clangd for C and C++, and without step 2 it runs beside mcppls: two engines answering the
+same question, two sets of diagnostics. mcppls still answers (CI opens a project in a real Zed with
+Zed's default settings and checks that), but it starts clangd itself, with a module database clangd
+would not otherwise have, so Zed's own copy adds nothing. See
+[editors/zed/README.md](../editors/zed/README.md).
 
 To keep mcppls off in one project, a project's `.zed/settings.json` names the server with a `!`
 (and names clangd back, since a project's list replaces yours); see
