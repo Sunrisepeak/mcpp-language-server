@@ -40,6 +40,13 @@ time later, *Turn Off Other C++ Language Features* does it for this workspace or
 conflicting extension that becomes active later is named in a notice. An extension has no way to
 disable another one: only their own settings are changed, and only when you choose to.
 
+**Completion alongside Copilot.** VS Code 1.125 and later keep the completion list closed while an
+inline completion (GitHub Copilot is built into VS Code) shows grey text, and open it otherwise only
+once you stop typing (`editor.quickSuggestions`'s default, `{"other": "offWhenInlineCompletions"}`).
+For C and C++ files the extension sets `{"other": "on"}` instead: the list opens as you type, and the
+grey text shows beside it. It outranks an `editor.quickSuggestions` set for every language; setting
+it under `"[cpp]"` and `"[c]"` keeps yours (the log says so, once).
+
 **Highlighting.** `import`, `module`, `export` and module names are colored twice over: by a
 grammar the extension adds (at once, as you type), and by the server's semantic tokens (module
 names as the token type `module`, which themes color as a namespace unless you give it a color of
@@ -70,13 +77,22 @@ for a project rather than running beside it. See
 ## Zed
 
 The extension at [`editors/zed/`](../editors/zed/README.md) finds `mcppls` on PATH and starts it.
-`mcpp run -p devtools -- extension --editor zed --install` builds it and the server, then leaves
-one step: command palette → "zed: install dev extension" → `editors/zed`. Add `--link` to have the
-tool make that same link itself. See [editors/zed/README.md](../editors/zed/README.md).
+Install it in two steps:
 
-Zed ships clangd for C and C++, and running both over one file means two engines answering the same
-question, so put mcppls first: `"languages": {"C++": {"language_servers": ["mcppls", "!clangd"]}}`.
-mcppls starts clangd itself with a module database clangd would not otherwise have.
+1. `mcpp run -p devtools -- extension --editor zed --install` builds it and the server, then leaves
+   one step: command palette → "zed: install dev extension" → `editors/zed`. Add `--link` to have
+   the tool make that same link itself.
+2. Put mcppls first and clangd off in Zed's settings (`zed: open settings`):
+
+   ```json
+   { "languages": { "C++": { "language_servers": ["mcppls", "!clangd"] } } }
+   ```
+
+Zed ships clangd for C and C++, and without step 2 it runs beside mcppls: two engines answering the
+same question, two sets of diagnostics. mcppls still answers (CI opens a project in a real Zed with
+Zed's default settings and checks that), but it starts clangd itself, with a module database clangd
+would not otherwise have, so Zed's own copy adds nothing. See
+[editors/zed/README.md](../editors/zed/README.md).
 
 To keep mcppls off in one project, a project's `.zed/settings.json` names the server with a `!`
 (and names clangd back, since a project's list replaces yours); see
@@ -102,9 +118,16 @@ The plugin at [`editors/clion/`](../editors/clion/README.md) registers mcppls th
 platform's LSP API.
 
 `mcpp run --features clion -p devtools -- extension --editor clion --install` builds it, puts the
-server in place and unpacks the plugin into every CLion's plugins directory; restart CLion. It
-has not been exercised in a running CLion yet; see its README. The plugin has no settings; to keep it
-off for one project, disable it for that project in Settings | Plugins
+server in place and unpacks the plugin into every CLion's plugins directory; restart CLion. CLion
+2025.2 and later are supported; it is built against, and tested inside, CLion 2026.2.3.
+
+A file is answered by one engine. A project CLion models itself -- a loaded CMake, compilation
+database or Makefile workspace, or a `CMakeLists.txt` at the root -- is answered by CLion's own C/C++
+engine, and mcppls does not start for it. Every other project (mcpp, xmake, a plain folder) is
+mcppls's. Settings | Tools | mcppls has one checkbox, "Also for projects CLion models", that turns
+mcppls on for the first kind too; both engines then answer, and the plugin says so once per
+project. To keep mcppls off for one project whatever it is, disable the plugin for that project in
+Settings | Plugins
 ([editors/clion/README.md](../editors/clion/README.md#keeping-mcppls-off-for-one-project)).
 
 ## Any other LSP client

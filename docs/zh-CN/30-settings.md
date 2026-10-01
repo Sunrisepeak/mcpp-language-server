@@ -86,6 +86,8 @@ VS Code 扩展已经会这样做）；`重新加载模型` 只重新加载项目
 | `MCPPLS_CACHE_DIR` | 路径 | （空） | — | 重启 | 覆盖 mcppls 原本在用户缓存目录下选定的整个缓存目录（工作区模型、工具链探测结果、日志、诊断包）。 |
 <!-- settings:end -->
 
+有一个编辑器设置由 VS Code 插件为 C 和 C++ 给出取值，而不是由服务端读取：`[cpp]` 和 `[c]` 下的 `editor.quickSuggestions` 为 `{"other": "on", "comments": "off", "strings": "off"}`，这样补全列表随输入打开。VS Code 从 1.125 起自己的默认值是 `{"other": "offWhenInlineCompletions"}`，在 Copilot 这类内联补全显示灰字时不打开列表（`WA-VSCODE-002`）。你写在 `"[cpp]"` 或 `"[c]"` 下的值优先；为所有语言设置的值不会生效，插件日志里会说明一次。
+
 ## 命令
 
 | 命令 | 作用 |

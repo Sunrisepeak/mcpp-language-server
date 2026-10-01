@@ -74,12 +74,17 @@ struct EnginePlan {
     // the person's doing (they switched the toolchain or the context) and is never counted against clangd.
     std::string toolchainKey;
     std::string modelOrigin;                  // cache-fresh | cache-stale | cache-confirmed | producer | inferred
+    // R-4 (plan 0.0.8): the model is the provisional one -- sources read with the kit's commands while the build tool,
+    // which the project has, has not answered yet. Its module commands are replaced when it does.
+    bool provisional { false };
     // The C++ standard the context's module units are read with (C++26 alignment): one for the whole context, since
     // every BMI a unit imports must have been built with its standard. When the units name several, the newest is
     // taken and the others raised to it; `standardsSeen` lists what they named, `standardsRaised` how many were.
     std::string languageStandard;
     std::vector<std::string> standardsSeen;
     std::size_t standardsRaised { 0 };
+    // X-3 (plan 0.0.8 part 2): no module unit named a standard, and `languageStandard` is C++23, mcppls's own choice.
+    bool standardAssumed { false };
 };
 
 // "c++26", "gnu++2c", "c++latest": the year of the C++ standard (2026) and whether GNU extensions are on; nullopt for

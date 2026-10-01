@@ -53,10 +53,16 @@ std::vector<std::string> clangd_arguments(const ProcessConfig& config);
 //     Filename: D:/p/NormalJsonTranslator.Core.cpp
 //     Directory: ... / Command Line: ... / Version: 1
 //   Exception Code: 0x80000003                            (Windows only)
+// and LLVM's own crash report after it (K-3, plan 0.0.8), which is what an upstream report needs:
+//   Stack dump:
+//   0.	Program arguments: clangd ...
+//    #0 0x00007ff6a1b2c3d4 (C:\...\clangd.exe+0x1b2c3d4)
 struct CrashContext {
-    std::string action;      // "Build AST", "building preamble", ...
+    std::string action;      // "Build AST", "building preamble", ...; empty when clangd crashed outside those
     std::string file;        // the file clangd was working on
     std::string exception;   // Windows' exception code; empty elsewhere
+    std::vector<std::string> stack;   // the stack dump's lines (numbered entries and frames), at most MAX_STACK_LINES
+    static constexpr std::size_t MAX_STACK_LINES { 64 };
 };
 
 // "E[..] Scanning modules dependencies for <file> failed: <first line>", continued by lines without a
@@ -83,6 +89,7 @@ public:
 
 private:
     std::optional<CrashContext> crash_;
+    bool inStack_ { false };   // inside LLVM's stack dump (K-3)
     bool inCrash_ { false };
     std::optional<ScanFailure> scan_;
     bool scanHasError_ { false };
@@ -104,6 +111,32 @@ private:
     std::deque<std::string> lines_;
     std::size_t bytes_ { 0 };
     std::size_t dropped_ { 0 };
+};
+
+// C-4 (plan 0.0.8 part 2): what clangd's log says building each file cost -- its preambles and the modules it imports
+// ("Built preamble of size .. for file F version V in S seconds", "Built prerequisite modules for file F in S seconds"),
+// and how many times its AST was built ("ASTWorker building file F version V ..."). The files are as clangd names them.
+struct FileBuildTimes {
+    std::size_t preambles { 0 };
+    double preambleSeconds { 0 };
+    double preambleMaxSeconds { 0 };
+    std::size_t moduleBuilds { 0 };
+    double moduleSeconds { 0 };
+    double moduleMaxSeconds { 0 };
+    std::size_t asts { 0 };
+};
+std::map<std::string, FileBuildTimes, std::less<>> build_times(std::string_view log);
+// The same, kept as clangd writes its log: `add` takes each line on the thread reading clangd's standard error, and
+// `times` is what a report reads -- parsing the whole log for a report held the event loop for seconds.
+class BuildTimesLog {
+public:
+    void add(std::string_view line);
+    std::map<std::string, FileBuildTimes, std::less<>> times() const;
+
+private:
+    static constexpr std::size_t MAX_FILES { 2000 };
+    mutable std::mutex mutex_;
+    std::map<std::string, FileBuildTimes, std::less<>> times_;
 };
 
 // clangd's log line for a module it could not build:

@@ -1,6 +1,6 @@
 {
   "name": "ux-mcpp",
-  "description": "0.0.7 plan 6.4 (U1-U15): the user-experience scenario tests on the mcpp repository at the commit self-mcpp pins (176 modules), on the CI runner's size (4 vCPU: run under taskset -c 0-3). One scenario, five runs selected by --stage: cold (no cache: U1 first responses, U3, U4, U14, preparation time) then warm (--expect-warm, the same --cache-dir: U2) then edits (the warm cache: U5-U8 typing, fan-out saves, build-graph changes), faults (a cache of its own: U9-U11 kill clangd, kill the server, stale locks, a truncated module file) and long (nightly only: U13 ten idle minutes and U12 a git checkout twenty commits back and forth). Every stage ends with U15's timeline. The budgets are the plan's initial values (6.4), calibrated on the first rounds of the 4-vCPU CI runner (PR #33, 2026-09-30; plan 6.4 and 13 say why each changed): documentSymbol and semanticTokens need clangd's AST of the file, so they are held to the server's request timeout, not to 1 s (the editor colours with the TextMate grammar meanwhile); cold preparation, the first clangd answers, a warm start's first jump, the refresh of diagnostics after typing and the recovery from a stale lock to what the runner measured over two rounds, which differed by up to 1.9x on the same runner type, with a margin; completion by clangd at 75% (the 1 s budget on a large file typed at 10 Hz), and U7a's interactive p95 at 1.5 s, since a request clangd cannot answer while eight importers rebuild is answered by mcppls at its 1 s budget; an autosaved half-typed import sets its file aside until it is saved again (fix plan F16), and one ending in '.' spins clangd's scan of the file on disk (issue #24 UP-01, UP-14) until clangd is restarted -- once typing pauses, at most a minute later -- so U6 allows both; U7b is in the nightly stage while clangd crashes on that save (issue #24 UP-20); the faults stage restarts clangd or the server on purpose five times, each a walk from starting to ready, so its timeline allows twelve state changes a minute like the edits stage; a budget is tightened as measured rounds allow and loosened only with its reason written here; U1's first clangd answers are asked in every round of U4's cold phase, in the same window as its requests; the checks measure everything they name, budgeted or not, into --measure. Run it with --log-level debug (the fixture passes it) so that 'Built module' lines can be counted.",
+  "description": "0.0.7 plan 6.4 (U1-U15): the user-experience scenario tests on the mcpp repository at the commit self-mcpp pins (176 modules), on the CI runner's size (4 vCPU: run under taskset -c 0-3). One scenario, five runs selected by --stage: cold (no cache: U1 first responses, U3, U4, U14, preparation time) then warm (--expect-warm, the same --cache-dir: U2) then edits (the warm cache: U5-U8 typing, fan-out saves, build-graph changes), faults (a cache of its own: U9-U11 kill clangd, kill the server, stale locks, a truncated module file) and long (nightly only: U13 ten idle minutes and U12 a git checkout twenty commits back and forth). Every stage ends with U15's timeline. The budgets are the plan's initial values (6.4), calibrated on the first rounds of the 4-vCPU CI runner (PR #33, 2026-09-30; plan 6.4 and 13 say why each changed): documentSymbol and semanticTokens need clangd's AST of the file, so they are held to the server's request timeout, not to 1 s (the editor colours with the TextMate grammar meanwhile); cold preparation, the first clangd answers, a warm start's first jump, the refresh of diagnostics after typing and the recovery from a stale lock to what the runner measured over two rounds, which differed by up to 1.9x on the same runner type, with a margin; completion by clangd at 75% (the 1 s budget on a large file typed at 10 Hz), and U7a's interactive p95 at 1.5 s, since a request clangd cannot answer while eight importers rebuild is answered by mcppls at its 1 s budget; an autosaved half-typed import sets its file aside until it is saved again (fix plan F16), and one ending in '.' spins clangd's scan of the file on disk (issue #24 UP-01, UP-14) until clangd is restarted -- once typing pauses, at most a minute later -- so U6 allows both; U7b is in the nightly stage while clangd crashes on that save (issue #24 UP-20); the faults stage restarts clangd or the server on purpose five times, each a walk from starting to ready, so its timeline allows twelve state changes a minute like the edits stage; a budget is tightened as measured rounds allow and loosened only with its reason written here; U1's first clangd answers are asked in every round of U4's cold phase, in the same window as its requests; the checks measure everything they name, budgeted or not, into --measure. Run it with --log-level debug (the fixture passes it) so that 'Built module' lines can be counted. U16 (0.0.8 plan 2, M-4) writes a module interface function by function with an importer open and files.autoSave afterDelay (a second after the last key, so every pause with half a statement on the screen reaches the disk and clangd fails to build the module again and again): the typed file keeps clangd -- no 'module-failed' diagnostic for it, its completion p95 U6's 1.0 s plus a tenth -- while the importer is contained whenever the module does not compile, as in 0.0.7, and answered with the file's words (never empty; its p95 is U7a's 1.5 s). The engine share is 0.4: the importer's half of the completions is mcppls's while the module is broken, by design. No status sample may say preparation-stalled and clangd is not restarted.",
   "prepare": [
     [
       "git",
@@ -423,6 +423,50 @@
       }
     },
     {
+      "id": "U16-module-autosave",
+      "stage": "edits",
+      "kind": "typing",
+      "file": "src/pack/digest.cppm",
+      "seconds": 90,
+      "hz": 10,
+      "completion-every-ms": 1000,
+      "autosave-idle-ms": 1000,
+      "scripts": [
+        {
+          "line": 37,
+          "text": "int ux_add(int a_number, int b_number) { return a_number + b_"
+        },
+        {
+          "line": 37,
+          "text": "std::string ux_twice(std::string_view text) { std::string doubled = std::string(text); doubled +="
+        },
+        {
+          "line": 37,
+          "text": "bool ux_longer(std::string_view a_text, std::string_view b_text) { if (a_text.size() > b_text."
+        },
+        {
+          "line": 37,
+          "text": "int ux_count(const std::vector<int>& values) { int total = 0; for (auto value : values) { total += va"
+        }
+      ],
+      "importer": {
+        "file": "src/pack/prebuilt.cppm",
+        "line": 69,
+        "text": "    int ux_probe_value = 1; ux_probe_"
+      },
+      "budget": {
+        "p95": 1.1,
+        "importerP95": 1.5,
+        "importerEmpty": 0,
+        "moduleFailedDiagnostics": 0,
+        "stalled": 0,
+        "restarts": 1,
+        "timeouts": 3,
+        "engineShare": 0.4
+      },
+      "budget-why": "Rewriting a module under autosave reliably trips a clangd defect: a build of an importer it let go of keeps spinning (0.0.8 part 2 K-8). One recovery restart, and the few requests it cuts short, is the designed answer; the completions' own budgets stay."
+    },
+    {
       "id": "U7a-fanout-save",
       "kind": "edit-save",
       "stage": "edits",
@@ -462,10 +506,11 @@
         "expect": "string"
       },
       "budget": {
-        "republishSeconds": 20,
+        "republishSeconds": 33,
         "p95": 1.5,
         "errorStates": 0
-      }
+      },
+      "budget-why": "Set from measurements (0.0.8 part 2): ux-mcpp's importers republished after 6.9, 13.6, 17.3, 17.7, 21.4 and 25.2 s over six CI runs on 4-core runners (part 1 measured 31 s), so 1.3 times the 95th percentile, the rule of `measure budgets`."
     },
     {
       "id": "U8-add-module",

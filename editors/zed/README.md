@@ -10,6 +10,8 @@ server, which drives its own pinned clangd with the module database it built.
 
 ## Install
 
+**1. The extension and the server.**
+
 ```bash
 mcpp run -p devtools -- extension --editor zed --install
 ```
@@ -24,17 +26,8 @@ To skip the palette, add `--link`: it makes the same link the palette would,
 `<Zed data>/extensions/installed/mcppls` → this directory, and a running Zed picks it up at once.
 Where a link cannot be made (Windows without developer mode) it copies the two files instead.
 
-```bash
-mcpp run -p devtools -- uninstall --editor zed     # the extension, its work directory, and the
-                                                   # server when CLion no longer uses it either
-```
-
-Removing it from Zed's Extensions view works as well.
-
-## Use
-
-Zed ships clangd for C and C++. Running both over the same file means two engines answering one
-question, so put mcppls first and turn clangd off in your settings:
+**2. Put mcppls first and clangd off.** Open the settings (command palette → **zed: open
+settings**) and add:
 
 ```json
 {
@@ -45,7 +38,19 @@ question, so put mcppls first and turn clangd off in your settings:
 }
 ```
 
-mcppls starts clangd itself, with a module database clangd would not otherwise have.
+Zed ships clangd for C and C++. Without this step it runs beside mcppls, two engines answering one
+question, and diagnostics can appear twice. mcppls still works that way — CI opens a project in a
+real Zed with Zed's default settings and checks that mcppls answers — but it starts clangd itself,
+with a module database clangd would not otherwise have, so Zed's own copy adds nothing.
+
+To remove it again:
+
+```bash
+mcpp run -p devtools -- uninstall --editor zed     # the extension, its work directory, and the
+                                                   # server when CLion no longer uses it either
+```
+
+Removing it from Zed's Extensions view works as well.
 
 ## Keeping mcppls off for one project
 
@@ -83,3 +88,13 @@ The logs are kept; the next start prepares the modules again from a clean state.
 The extension builds, loads as a dev extension and starts the server; it is newer and less exercised than the VS Code one, which is
 where the status bar, the diagnostic report and the conflict handling live. If something behaves
 differently here, that is worth an issue.
+
+It is tested in two layers. `cargo test` in this directory covers the choice of server (PATH, else
+the installed payload, else the error that names the fix) on every pull request. `tests/smoke.sh`
+runs a real Zed (the stable release pinned as `ZED_VERSION` in `.github/versions.env`, on Linux,
+under xvfb with software Vulkan) on a project with the extension installed, once with the settings
+of step 2 and once with Zed's defaults, and checks from the conversation that Zed initialized
+mcppls, sent it the open file and received diagnostics, that Zed's own clangd is off or on as the
+settings say, and that mcppls exits with Zed. `ZED_EDITOR=<zed>/libexec/zed-editor
+MCPPLS_PAYLOAD=<payload> MCPPLS_DEVTOOLS=<mcppls-devtools> tests/smoke.sh recommended|default` runs
+it locally against an X display.

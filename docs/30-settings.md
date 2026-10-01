@@ -89,6 +89,12 @@ either wrapped in a top-level `mcppls` object or not.
 | `MCPPLS_CACHE_DIR` | a path | *(empty)* | — | restart | Overrides the whole cache directory mcppls otherwise picks under the user's cache home (workspace models, toolchain probes, logs, diagnostic bundles). |
 <!-- settings:end -->
 
+One editor setting is given a value for C and C++ by the VS Code extension rather than read by the server:
+`editor.quickSuggestions` is `{"other": "on", "comments": "off", "strings": "off"}` for `[cpp]` and `[c]`, so the
+completion list opens while you type. VS Code's own default since 1.125, `{"other": "offWhenInlineCompletions"}`,
+keeps it closed while an inline completion such as Copilot's shows grey text (`WA-VSCODE-002`). Your own value under
+`"[cpp]"` or `"[c]"` wins; one you set for every language does not, and the extension's log says so once.
+
 ## Commands
 
 | Command | What it does |

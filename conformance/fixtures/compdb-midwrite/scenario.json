@@ -1,0 +1,72 @@
+{
+  "name": "compdb-midwrite",
+  "description": "0.0.8 part 2 X-5 (E1: a user regenerated compile_commands.json and mcppls read half of it, warned, and raised a stale-model issue that was gone a moment later). The user's compile_commands.json (written by the runner's `prepare compdb-midwrite`: -DVERSION_ONE) is cut to half its size and written complete again 300 ms later, now saying -DVERSION_TWO (W1); then once more with a writer that takes 2.5 s (W2: the server reads the half, is told by the file's age that the writer is at it, and reads again a second later -- the model-reread event). The server reads it again instead of reporting it: no compdb-invalid issue, no model-stale event or issue at any time, and the model follows the complete file.",
+  "prepare": [
+    ["{conformance}", "prepare", "compdb-midwrite", "{env:CONFORMANCE_CLANGXX|clang++}"]
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "compile-commands",
+      "state": "ready",
+      "timeout": 120
+    },
+    {
+      "id": "E1-version-one",
+      "kind": "engine-command",
+      "file": "src/main.cpp",
+      "contains": ["-DVERSION_ONE"],
+      "timeout": 30
+    },
+    {
+      "id": "W1-rewrite-in-place",
+      "kind": "write-midway",
+      "file": "compile_commands.json",
+      "replace": { "from": "-DVERSION_ONE", "with": "-DVERSION_TWO" },
+      "cut": 0.5,
+      "after-ms": 300
+    },
+    {
+      "id": "E2-the-model-follows",
+      "kind": "engine-command",
+      "file": "src/main.cpp",
+      "contains": ["-DVERSION_TWO"],
+      "absent": ["-DVERSION_ONE"],
+      "timeout": 30
+    },
+    {
+      "id": "W2-a-slow-writer",
+      "kind": "write-midway",
+      "file": "compile_commands.json",
+      "replace": { "from": "-DVERSION_TWO", "with": "-DVERSION_THREE" },
+      "cut": 0.5,
+      "after-ms": 2500
+    },
+    {
+      "id": "E3-the-model-follows-the-slow-writer-too",
+      "kind": "engine-command",
+      "file": "src/main.cpp",
+      "contains": ["-DVERSION_THREE"],
+      "absent": ["-DVERSION_TWO"],
+      "timeout": 30
+    },
+    {
+      "id": "R1-nothing-was-reported",
+      "kind": "report",
+      "timeout": 20,
+      "expect": [
+        { "path": "/roots/0/project/issues/*/code", "equals": "compdb-invalid", "max-matches": 0 },
+        { "path": "/roots/0/events/*/kind", "equals": "model-stale", "max-matches": 0 },
+        { "path": "/roots/0/events/*/kind", "equals": "model-reread", "min-matches": 1 }
+      ]
+    },
+    {
+      "id": "S2",
+      "kind": "status",
+      "source": "compile-commands",
+      "state": "ready",
+      "timeout": 30
+    }
+  ]
+}

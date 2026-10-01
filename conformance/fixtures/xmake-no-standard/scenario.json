@@ -1,0 +1,65 @@
+{
+  "name": "xmake-no-standard",
+  "description": "0.0.8 part 2 X-3, X-7 (the xmake bundle of 2026-09-30, E4): an xmake project that never says set_languages, built by GCC 16, whose main.cpp imports std -- no module file, so xmake's commands name no standard at all. Clang's own gnu++17 could not even scan libstdc++'s std.cc (20 errors) and preparation waited on it. Module units whose build names no standard are read as C++23, the standard `import std` is for, and the report says it was mcppls's choice; std::println, which C++20 does not have, is found. (With a module file, xmake itself adds -std=c++20, and that is followed.)",
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "xmake",
+      "profile-kind": "build-toolchain",
+      "tier": 3,
+      "state": "ready",
+      "timeout": 180
+    },
+    {
+      "id": "E1-cxx23-for-import-std",
+      "kind": "engine-command",
+      "file": "src/main.cpp",
+      "contains": [
+        "-std=gnu++23"
+      ],
+      "timeout": 30
+    },
+    {
+      "id": "C6-std-is-prepared",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        3,
+        10
+      ],
+      "expect": "println",
+      "timeout": 120
+    },
+    {
+      "id": "C1",
+      "kind": "diagnostics-empty",
+      "file": "src/main.cpp"
+    },
+    {
+      "id": "R1-nothing-is-stuck",
+      "kind": "report",
+      "timeout": 20,
+      "expect": [
+        {
+          "path": "/roots/0/project/issues/*/code",
+          "equals": "preparation-stalled",
+          "max-matches": 0
+        },
+        {
+          "path": "/roots/0/project/issues/*/code",
+          "equals": "module-scan-failed",
+          "max-matches": 0
+        },
+        {
+          "path": "/roots/0/plan/standardAssumed",
+          "equals": true
+        }
+      ]
+    },
+    {
+      "id": "W1",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}

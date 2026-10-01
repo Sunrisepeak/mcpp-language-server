@@ -16,6 +16,7 @@
 | `toolRuns` | 最近二十次外部运行，每条都带命令、耗时和结果 |
 | `plan` | 交给引擎的内容：条目、占位单元、被省略了什么以及原因 |
 | `engines` | clangd 的状态、重启次数、被搁置的文件，以及 `workarounds`：本服务端针对这个 clangd 版本规避的 clangd 缺陷 |
+| `requests`、`completion`、`documents` | 每种请求来了多少次、答得多快、由哪个引擎作答、最后一次是什么时候（`lastAt`）；补全有多少次用文件里的词作答；编辑了多少次、最后一次在什么时候——编辑一直在继续，而 `requests["textDocument/completion"].lastAt` 停住不动，说明是编辑器不再来要补全 |
 | `events` | 本次会话的事件日志 |
 | `logTail` | 日志的末尾部分 |
 
@@ -28,9 +29,9 @@
 | 问题包里的文件 | 内容 |
 |---|---|
 | `report.json` | 上面的报告 |
-| `environment.json` | 系统、编辑器和插件的版本、其他 C/C++ 插件、你的 mcppls 设置、payload、探测到的工具链，以及少数几个环境变量（`PATH`、`LANG`、`LC_*`、`MCPP_*`、`XLINGS_*`），其他的一概不收 |
+| `environment.json` | 系统、编辑器和插件的版本、其他 C/C++ 插件、你的 mcppls 设置、决定打字时是否弹出补全的编辑器设置（`client.editor`：C++ 下的 `editor.quickSuggestions` 及其来源、内联建议、自动保存、装了哪些内联补全插件）、payload、探测到的工具链，以及少数几个环境变量（`PATH`、`LANG`、`LC_*`、`MCPP_*`、`XLINGS_*`），其他的一概不收 |
 | `logs/` | 服务端最近三次会话以及最近一天内其他会话的日志，还有插件自己的日志 |
-| `incidents/` | clangd 崩溃、卡住或文件被搁置时服务端记下的现场 |
+| `incidents/` | clangd 崩溃、卡住或文件被搁置时服务端记下的现场——崩溃时还有 clangd 打印的 LLVM 栈转储，以及 clangd 可执行文件的版本和 SHA-256，这是向上游报告需要的 |
 | `engine/` | 交给 clangd 的数据库，以及生成它的计划 |
 | `manifest.json` | 每个文件的大小和 SHA-256，以及每条脱敏规则各替换了多少处 |
 
@@ -50,9 +51,11 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **原本正常，后来某个模块突然解析不了了。** `plan.standIns` 列出了没有任何单元提供的模块——mcppls 给它们分配占位单元，这样一个坏掉的模块不会拖垮项目的其余部分，日志里也会逐个写明模块名和原因。真正的问题在 `plan.issues` 里，或者在你的构建本身。
 
-**某个模块编译不过。** 受影响的只有直接或间接导入它的文件：这些文件由 mcppls 自己的引擎立即应答（模块跳转、符号、`import` 补全），在引向失败的那条 import 上带一条 `module-failed` 诊断，并且在失败模块自己的源码或编译命令变化之前不会再交给 clangd；其余文件照常由 clangd 应答。这是代码本身的问题，所以在出问题的地方以诊断的形式告诉你：状态保持 *ready*（列出类别为 `code` 的 `modules-doomed`），也不会一直停在 *preparing*。报告里引擎的 `doomedModules` 和 `filesRoutedToOwnEngine` 会列出它们。
+**VS Code 里打字时不弹补全列表，或者停下来等一会儿才出来。** VS Code 1.125 及以后的版本，装了内联补全插件（VS Code 已内置 GitHub Copilot）时，会先等内联补全再决定开不开列表；内联补全显示灰字时就根本不开：`editor.quickSuggestions` 的默认值是 `{"other": "offWhenInlineCompletions"}`。这时服务端根本没被问到。从 0.0.8 起，插件为 C 和 C++ 文件设为 `{"other": "on"}`（`WA-VSCODE-002`），列表和灰字同时出现。这个默认值会盖过你为所有语言设的 `editor.quickSuggestions`；日志里会说明一次，把它写在 `"[cpp]"` 和 `"[c]"` 下就能保留你的设置。诊断包里能看出来：`environment.json` 的 `client.editor`，以及报告里 `requests["textDocument/completion"]` 与 `documents` 的对比（一直在编辑，却没有补全请求）。
 
-**状态说明什么，不说明什么。** 代码里的错误（少了 `;`、import 了没有任何单元提供的模块、某个模块编译不过）以诊断的形式出现在出错的位置，也就是 Problems 列表里；状态保持 *ready*。*degraded* 表示服务端丢了本来能给你的功能，并说明丢了什么、在哪里：“clangd stopped responding on main.cpp”、“the workspace is not trusted”、“the macOS SDK was not found”。每个状态 issue 都带有 `category`（`code`、`engine`、`environment`、`project`），说明这是谁的问题；只有 `code` 以外的类别会让状态变成 *degraded*，而且要持续三秒才会显示，所以自己很快就会消失的情况不会出现在状态栏上。
+**某个模块编译不过。** 受影响的只有直接或间接导入它的文件：这些文件由 mcppls 自己的引擎立即应答（模块跳转、符号、`import` 补全，其他补全给出文件里的词），在引向失败的那条 import 上带一条 `module-failed` 诊断，并且在失败模块自己的源码或编译命令变化之前不会再交给 clangd；其余文件照常由 clangd 应答。编译失败的那个单元本身从不被拿走（0.0.8）：它就是你正在写的文件，clangd 从编辑器读取它，给出真实的报错和补全——开着自动保存时，写到一半存到磁盘上的内容照例编译不过。这是代码本身的问题，所以在出问题的地方以诊断的形式告诉你：状态保持 *ready*（列出类别为 `code` 的 `modules-doomed`），也不会一直停在 *preparing*。报告里引擎的 `doomedModules` 和 `filesRoutedToOwnEngine` 会列出它们。
+
+**状态说明什么，不说明什么。** 代码里的错误（少了 `;`、import 了没有任何单元提供的模块、某个模块编译不过）以诊断的形式出现在出错的位置，也就是 Problems 列表里；状态保持 *ready*。*degraded* 表示服务端丢了本来能给你的功能，并说明丢了什么、在哪里：“clangd stopped responding on main.cpp”、“the workspace is not trusted”、“the macOS SDK was not found”。每个状态 issue 都带有 `category`（`code`、`engine`、`environment`、`project`），说明这是谁的问题；只有 `code` 以外的类别会让状态变成 *degraded*，而且要持续三秒才会显示，所以自己很快就会消失的情况不会出现在状态栏上。工作区进入 *ready* 之后，因编辑而重建模块（比如保存了一个项目里大部分模块都导入的模块）要持续 30 秒以上才会重新显示 *preparing*（0.0.8）；回到 *ready* 从不延迟。
 
 **输入 `import` 时编辑器卡死（0.0.3 及更早版本）。** clangd 23.1 遇到模块名以 `.` 结尾、而且 `.` 就在行尾的文件（`import hello.`、`export module a.`）时永远处理不完，这个文件之后的所有版本都排在它后面等待；而输入任何带点的模块名都会经过这个状态。mcppls 0.0.4 改为把这一行在点后补上 `;` 再交给 clangd，clangd 会立即报告这个错误（规避措施 `WA-CLANGD-001`）；报告里的 `engines[].details.workarounds` 会列出它。
 
@@ -68,9 +71,11 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **每次启动都很慢。** 第二次会话应该很快：模型连同构建工具所读一切内容的指纹一起被缓存，与之匹配的会话会立即套用计划，并在后台确认；已经构建好的模块会复用，不会重建（0.0.6 及更早版本在热启动时会把每个模块都重建一遍，issue #30）。`project.firstOrigin` 会说明发生了哪种情况。如果它一直是 `producer`，说明指纹没有匹配上——该看报告里的 `project.producerRun` 和构建文件的时间戳。
 
-**补全只有文件里的词，或悬停提示说正在准备模块。** 每种请求给 clangd 的都有预算——补全和签名帮助 1 秒，悬停 2 秒，跳转到定义 10 秒——超过之后 mcppls 用手上有的东西作答，并取消发给 clangd 的请求。补全这时给出的是文件里离光标最近的那些词，是一份不完整的列表，所以你继续输入时编辑器会再问一次；悬停在模块准备期间给出的是一行说明。这是 clangd 正忙着处理模块，不是故障。报告里的 `requests.<method>.answeredBy` 按方法统计了各由哪个引擎作答。
+**补全只有文件里的词，或悬停提示说正在准备模块。** 每种请求给 clangd 的都有预算——补全和签名帮助 1 秒，悬停 2 秒，跳转到定义 10 秒——超过之后 mcppls 用手上有的东西作答。补全这时给出的是文件里离光标最近的那些词，是一份不完整的列表，所以你继续输入时编辑器会再问一次；悬停在模块准备期间给出的是一行说明。这是 clangd 正忙着处理模块，不是故障。从 0.0.8 起，clangd 迟到的补全不再丢弃：它最多再算 10 秒，你在同一个词里继续输入时发出的请求都等它，一到就交给它们，所以在 clangd 重建得慢的文件里，列表仍会在你打完这个词之前出现。报告里的 `requests.<method>.answeredBy` 按方法统计了各由哪个引擎作答；`completion.late` 统计 clangd 迟到的答案和用上它们的请求；`slowestFiles` 列出最慢的十个文件，以及每个文件有多少次补全只拿到了词；`engines[].details.buildTimes` 说明 clangd 构建每个文件花在哪里（preamble、导入的模块、AST 构建次数）。
 
-**准备模块期间编辑器有点卡。** clangd 拿到机器的线程数减一（最少 2 个、最多 8 个，内存小的机器更少）；`mcppls.engine.workers`（`auto` 或一个数字）可以覆盖这个值。有你打开的文件在等模块准备时，准备工作用掉除一个之外的全部 worker，否则用一半。为 clangd 的索引构建实现单元——也就是对从没打开过的 `.cpp` 文件做跳转到定义所需要的——一次只构建一个，而且要在你 10 秒内没有输入、没有打开文件、也没有发起请求之后才开始。clangd 因构建描述变化需要的重启，要等到输入停顿 3 秒之后（最多等 60 秒）；崩溃或者 clangd 不再应答，仍然立即重启。
+**模块单元里出现"未使用的头文件"警告。** 这是 clangd 的 include cleaner，默认开启，mcppls 不关它：在模块接口的全局模块片段、实现单元和导入方里，它和在普通文件里一样，只报没有任何东西用到的头文件（有一个 conformance fixture 在 clangd 升级时守着这一点）。要关掉，在项目的 `.clangd` 或你的 clangd `config.yaml` 里写 `Diagnostics: { UnusedIncludes: None }`；mcppls 启动的 clangd 两处都会读。
+
+**准备模块期间编辑器有点卡。** clangd 拿到机器的线程数减一（最少 2 个、最多 8 个，内存小的机器更少）；`mcppls.engine.workers`（`auto` 或一个数字）可以覆盖这个值。有你打开的文件在等模块准备时，准备工作用掉除一个之外的全部 worker，否则用一半。为 clangd 的索引构建实现单元——也就是对从没打开过的 `.cpp` 文件做跳转到定义所需要的——一次只构建一个，而且要在你 10 秒内没有输入、没有打开文件、也没有发起请求之后才开始。clangd 因构建描述变化需要的重启，要等到输入停顿 3 秒之后（最多等 60 秒）；崩溃或者 clangd 不再应答，仍然立即重启。从 0.0.8 起，mcppls 为准备模块而在 clangd 里打开的单元，在模块一建好就关掉（BMI 留在 clangd 磁盘上的模块缓存里）：以前它们要等全部准备结束才关，期间每次保存都要被 clangd 重新检查一遍，开着自动保存时，就占走了你正在编辑的文件要等的 worker。
 
 **clangd 反复重启。** 看 `engines[].restarts`、`engines[].details.restartBudget` 和 `events` 日志。每种原因各有十分钟三次的重启额度：引擎数据库变化（`plan`）、恢复停止应答或空转的 clangd（`recovery`）、clangd 退出（`crash`）。用完之后，同类的下一次重启依次等待一、二、四、八分钟——是退避而不是拒绝，所以卡住的 clangd 总能恢复——状态会说明（`engine-restart-capped`）并提供 **Restart clangd** 按钮（其他编辑器用 `workspace/executeCommand` `mcppls.restartEngine`），它立即重启且从不计入额度。切换工具链、profile 或 context 也从不计入，模块编译不过从来不是重启的理由。引擎数据库的每次变化都会记入日志并写明改了什么（`engine database changed: … compiled otherwise (main.cpp: argument 3: -O0 -> -O2)`），重启密集时能直接看到原因。
 
@@ -90,7 +95,7 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **服务端把出错的现场记在哪里。** 崩溃、clangd 卡住或空转、文件被隔离、重启被推迟、某个规避措施的前提被发现不成立，每一种都会留下一份“事故”：工作区缓存下的一个目录（`incidents/<UTC 时间>-<类型>/`，保留最近二十份、一周内），里面有事发前的经过、clangd 最近的日志（clangd 以 `info` 级别记录到内存，从不写进默认日志）、每个相关文件在编辑器与磁盘上不同的那几行，以及 clangd 哪个线程在占用 CPU。诊断包会带上它们。
 
-**“clangd stopped making progress; it was restarted”。** clangd 有请求一直没答，期间也没答任何别的请求，并且五秒内几乎没用 CPU：它在等一个不会来的东西，而不是在编译（编译会一直占着一个核，这种情况不会被打断）。`events` 日志里有一条带具体数字的 `engine-stuck`。已经观察到 clangd 23.1 在某个模块的源文件一秒内被改两次之后出现这种情况。在 Windows 上服务端读不到 clangd 的 CPU 时间，所以检测不到；clangd 不再应答的文件仍会被逐个搁置。
+**“clangd stopped making progress; it was restarted”。** clangd 有请求一直没答，期间也没答任何别的请求，并且五秒内几乎没用 CPU：它在等一个不会来的东西，而不是在编译（编译会一直占着一个核，这种情况不会被打断）。`events` 日志里有一条带具体数字的 `engine-stuck`。已经观察到 clangd 23.1 在某个模块的源文件一秒内被改两次之后出现这种情况。在 Windows 上服务端读不到 clangd 的 CPU 时间，所以检测不到；clangd 不再应答的文件仍会被逐个搁置。同样的提示也用于相反的情况（0.0.8）：clangd 在每个核上忙了几分钟，你打开的文件却一直处于"queued"，什么也没完成——三分钟里没有任何文件的诊断、没有应答、没有模块建好，而且有文件已经排队四分钟。这种情况出现在一个被项目大部分代码导入的模块开着自动保存被重写之后；上面那种卡死检测看不到它，因为 clangd 一直在占用 CPU。`events` 日志里有一条 `engine-busy-without-progress`，事故记录会保存 clangd 的日志。在 Linux 上能更早发现原因：某个 clangd 工作线程在一个 clangd 这段时间里从没说过在构建的文件上占满一个核达半分钟（文件关闭时 clangd 放手、却从未停下的构建），会立即重启 clangd（`engine-orphan-spin`，事故记录里有这个线程和它的 CPU 时间）。
 
 **“The bundled clangd cannot run on this system”。** clangd 根本没有启动起来：系统的程序加载器拒绝了它，加载器的原话在状态和日志里（例如 ``version `GLIBCXX_3.4.30' not found``）。重启改变不了这一点，所以不会再重启；这期间由 mcppls 自己的引擎应答模块跳转、`import` 补全和模块诊断。在 Linux arm64 上，内置的 clangd 需要 glibc 2.34 和 GCC 12 的 libstdc++——它能运行的系统列在[安装指南](00-install.md)里。其他平台上出现这个提示，通常是 musl 系统（Alpine），或者 payload 损坏了。由编辑器自己启动 `mcppls` 的，可以用 `--clangd PATH` 换成你自己的 clangd（23.1 或更新）。
 

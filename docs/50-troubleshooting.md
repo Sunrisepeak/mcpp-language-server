@@ -15,6 +15,7 @@ carrying what almost every question turns out to need:
 | `toolRuns` | The last twenty external runs, each with its command, duration and outcome |
 | `plan` | What the engine was given: entries, stand-ins, what was left out and why |
 | `engines` | clangd's state, restarts, files set aside, and `workarounds`: the clangd defects this server works around for this version |
+| `requests`, `completion`, `documents` | For each method, how many requests came, how fast they were answered, by which engine and when the last one was (`lastAt`); how often completion was answered with the file's words; how many edits there were and when the last one was — edits going on while `requests["textDocument/completion"].lastAt` stands still means the editor stopped asking |
 | `events` | A journal of the session |
 | `logTail` | The end of the log |
 
@@ -31,9 +32,9 @@ e-mail address) is `<redacted>`. The project's own paths are kept — they are w
 | In the bundle | What it is |
 |---|---|
 | `report.json` | The report above |
-| `environment.json` | System, editor and extension versions, the other C/C++ extensions, your mcppls settings, the payload, the toolchains found, and a few environment variables (`PATH`, `LANG`, `LC_*`, `MCPP_*`, `XLINGS_*`) — no other |
+| `environment.json` | System, editor and extension versions, the other C/C++ extensions, your mcppls settings, the editor settings that decide whether completion shows while you type (`client.editor`: `editor.quickSuggestions` for C++ and where it comes from, inline suggestions, autosave, the inline-completion extensions installed), the payload, the toolchains found, and a few environment variables (`PATH`, `LANG`, `LC_*`, `MCPP_*`, `XLINGS_*`) — no other |
 | `logs/` | The server's logs of the last three sessions and any other of the last day, and the extension's own log |
-| `incidents/` | What the server wrote down when clangd crashed, hung or was set aside |
+| `incidents/` | What the server wrote down when clangd crashed, hung or was set aside — for a crash, LLVM's stack dump as clangd printed it and the clangd binary's version and SHA-256, what an upstream report needs |
 | `engine/` | The database clangd was given, and the plan behind it |
 | `manifest.json` | Every file with its size and SHA-256, and how many replacements each redaction rule made |
 
@@ -68,10 +69,23 @@ mcppls gives them stand-in units so that one broken module does not take the res
 with it, and names each one in the log with the reason. The real failure is in `plan.issues` or in
 your build.
 
+**No completion list while you type in VS Code, or it shows only when you stop and wait.** VS Code
+1.125 and later, with an inline-completion extension (GitHub Copilot is built into VS Code), wait for
+the inline completion before opening the list, and do not open it at all while its grey text shows:
+`editor.quickSuggestions` defaults to `{"other": "offWhenInlineCompletions"}`. The server is not even
+asked. From 0.0.8 the extension sets `{"other": "on"}` for C and C++ files (`WA-VSCODE-002`), so the
+list and the grey text show side by side. That default outranks a `editor.quickSuggestions` you set
+for every language; the log says so once, and setting it under `"[cpp]"` and `"[c]"` keeps yours. A
+diagnostic bundle shows it: `client.editor` in `environment.json`, and in the report
+`requests["textDocument/completion"]` against `documents` (edits going on, no completion requests).
+
 **A module does not compile.** Only what imports it, directly or not, is affected: those files are
-answered at once by mcppls's own engine (module navigation, symbols, `import` completion), carry one
-`module-failed` diagnostic on the import that leads to the failure, and are not sent to clangd until
-the failed module's own source or command changes; everything else keeps clangd. This is a problem
+answered at once by mcppls's own engine (module navigation, symbols, `import` completion, and the
+words of the file for other completion), carry one `module-failed` diagnostic on the import that leads
+to the failure, and are not sent to clangd until the failed module's own source or command changes;
+everything else keeps clangd. The unit whose compile failed is never taken from clangd (0.0.8): it is
+the file you are writing, and clangd reads it from the editor with its real errors and completion —
+with autosave, what is on disk mid-edit does not compile as a rule. This is a problem
 in the code, so it is told where it is, as diagnostics: the status stays *ready* (listing
 `modules-doomed`, category `code`) and is never *preparing* for good. The engine's `doomedModules`
 and `filesRoutedToOwnEngine` in the report list them.
@@ -83,7 +97,9 @@ otherwise give you, and names what and where: "clangd stopped responding on main
 "the workspace is not trusted", "the macOS SDK was not found". Each status issue carries a
 `category` (`code`, `engine`, `environment`, `project`) saying whose problem it is; only the ones
 other than `code` make the state *degraded*, and only once that has lasted three seconds, so a
-condition that passes by itself never reaches the status bar.
+condition that passes by itself never reaches the status bar. Once the workspace is *ready*, modules
+rebuilt because of an edit (a save of a module most of the project imports) make it *preparing* again
+only when that takes more than 30 seconds (0.0.8); the way back to *ready* is never held.
 
 **The editor froze while typing an `import` (0.0.3 and earlier).** clangd 23.1 never finishes a
 file in which a module name ends in `.` at the end of its line (`import hello.`, `export module a.`),
@@ -130,10 +146,22 @@ build files' timestamps are where to look.
 
 **Completion shows only words from the file, or hover says modules are being prepared.** A request
 has a budget for clangd — completion and signature help 1 s, hover 2 s, go-to-definition 10 s — and
-past it mcppls answers with what it has and cancels clangd's request. Completion is then the words of
-the file nearest the cursor, an incomplete list, so the editor asks again as you type; hover, while
-modules are being prepared, is a line saying so. It is clangd being busy with modules, not a
-failure. `requests.<method>.answeredBy` in the report counts, per method, which engine answered.
+past it mcppls answers with what it has. Completion is then the words of the file nearest the
+cursor, an incomplete list, so the editor asks again as you type; hover, while modules are being
+prepared, is a line saying so. It is clangd being busy with modules, not a failure. From 0.0.8,
+clangd's late completion is not thrown away: it keeps working for up to 10 s, the requests you make
+while typing the same word wait for it, and it goes to them as soon as it comes, so in a file clangd
+rebuilds slowly the list still arrives before you finish the word. `requests.<method>.answeredBy`
+in the report counts, per method, which engine answered; `completion.late` counts clangd's late
+answers and the requests they went to; `slowestFiles` names the ten slowest files and, per file,
+how many completions got only words; `engines[].details.buildTimes` says what building each file
+cost clangd (preamble, imported modules, AST builds).
+
+**Unused-include warnings in module units.** They are clangd's include cleaner, on by default, and
+mcppls leaves it on: in a module interface's global module fragment, an implementation unit and an
+importer it reports only headers nothing uses, as in any other file (a conformance fixture keeps
+that true across clangd updates). To turn it off, add `Diagnostics: { UnusedIncludes: None }` to the
+project's `.clangd` or to your clangd `config.yaml`; the clangd mcppls starts reads both.
 
 **The editor is sluggish while modules are prepared.** clangd gets the machine's threads but one
 (between 2 and 8, fewer on a machine with little memory); `mcppls.engine.workers` (`auto` or a
@@ -142,7 +170,10 @@ it, half of them otherwise. Implementation units are built for clangd's index �
 into `.cpp` files you never opened needs — one at a time, and only after 10 s without typing,
 opening a file or asking for something. A restart clangd needs for a changed build description waits
 until typing has paused for 3 s (at most 60 s); a crash or a clangd that stopped answering still
-restarts at once.
+restarts at once. From 0.0.8 each unit mcppls opens in clangd to prepare a module is closed as
+soon as that module is built (its BMI stays in clangd's module cache on disk): kept open until all
+preparation was done, every one of them was checked again on each save, and with autosave that took
+the workers the file you typed in was waiting for.
 
 **clangd keeps restarting.** `engines[].restarts`, `engines[].details.restartBudget` and the `events`
 journal. Each reason has its own budget of three restarts in ten minutes: the engine database
@@ -212,6 +243,15 @@ was not coming, not compiling (a long compile keeps a core busy, and is left alo
 journal has an `engine-stuck` entry with the numbers. clangd 23.1 has been seen to do this after a
 module's source changed twice within a second. On Windows, where the server cannot read clangd's CPU
 time, this is not detected; files clangd stops answering for are still set aside one by one.
+The same words come for the opposite case (0.0.8): clangd busy on every core for minutes while the
+files you have open stay "queued" and nothing finishes -- no diagnostics for any file, no answer, no
+module, for three minutes, with a file queued for four. That was seen after a module imported by much
+of a project was rewritten with autosave; the stuck watch above does not see it, since clangd keeps
+the CPU busy. The `events` journal has an `engine-busy-without-progress` entry, and an incident keeps
+clangd's log. On Linux the cause is found sooner: a clangd worker thread that has kept a core busy for
+half a minute on a file clangd has not said it was building (a build clangd let go of when the file was closed, and
+never stopped) restarts clangd at once (`engine-orphan-spin`, with the thread and its CPU in the
+incident).
 
 **"The bundled clangd cannot run on this system".** clangd did not start at all: the system's
 program loader refused it, and its message is in the status and the log (for example

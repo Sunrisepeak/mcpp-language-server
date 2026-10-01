@@ -1,0 +1,52 @@
+{
+  "name": "partial-scan-standins",
+  "description": "0.0.8 plan 3.2, P-1 (issue #34-2; GalTranslPP run 36676829043): three module interfaces include a header no command can reach (<nothere/x.h>) after a chain of tiny headers that takes clangd longer and longer to preprocess (none, about two seconds, about four), and main.cpp imports all three. clangd's scans of them fail at different times, and it names one more module it cannot find each time (\"Failed to build module X; Don't get the module unit for module X\"), as it does on a real project where each scan takes tens of seconds. 0.0.7 recorded each report and planned again 800 ms later, gave the module an empty stand-in unit, and so changed the database, which restarted clangd two seconds later; a restart ends the scans still running, so the next module was named by the next session -- one restart and about 26 s per module on GalTranslPP (four rounds, 144 s). The reports of modules clangd cannot find are gathered before planning again (quiet for 5 s, at most 20 s) and all the stand-ins enter the database once: the check waits for a settled status with all three modules unresolved, and then allows at most one clangd restart because a module's unit left the engine database. The headers are generated: the chain is w<x>0.h to w<x>N.h, each including the next twice.",
+  "server-arguments": [
+    "--no-discover"
+  ],
+  "checks": [
+    {
+      "id": "P0-open-the-importer",
+      "kind": "responds",
+      "method": "textDocument/hover",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        26
+      ],
+      "timeout": 60
+    },
+    {
+      "id": "P1-settles",
+      "kind": "report",
+      "timeout": 120,
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/preparation/running",
+          "equals": 0
+        },
+        {
+          "path": "/roots/0/engines/*/details/restartScheduled",
+          "equals": false
+        },
+        {
+          "path": "/roots/0/engines/*/details/unresolvedModules",
+          "min-items": 3
+        }
+      ]
+    },
+    {
+      "id": "P2-one-restart-for-the-stand-ins",
+      "kind": "report",
+      "not-before-since-start": 45,
+      "timeout": 15,
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/restarts/*/reason",
+          "contains": "left the engine database",
+          "max-matches": 1
+        }
+      ]
+    }
+  ]
+}

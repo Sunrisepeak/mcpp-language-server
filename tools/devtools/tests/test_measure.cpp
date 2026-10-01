@@ -25,6 +25,29 @@ std::string scratch(std::string_view name) {
 int main() {
     using namespace mcppls::testing;
 
+    "the scenarios' numbers are gathered over every run, at any depth, for budgets (U-*)"_test = [&] {
+        const std::string directory { scratch("budgets") };
+        const auto write_run = [&](std::string_view sub, double p95, double share) {
+            const std::string folder { base::join_path(directory, sub) };
+            (void) fs::create_directories(folder);
+            const std::string run { std::format(R"({{"fixture":"ux","checks":[{{"id":"U6","kind":"typing","ok":true,)"
+                                                R"("measure":{{"completion":{{"p95":{},"n":10}},"engineShare":{},"statesSeen":[],"file":"x"}}}},)"
+                                                R"({{"id":"S1","kind":"status","ok":true}}]}})", p95, share) };
+            (void) fs::write_file(base::join_path(folder, "ux-edits.json"), run);
+        };
+        write_run("round-1", 0.4, 0.8);
+        write_run("round-2", 0.6, 0.9);
+        (void) fs::write_file(base::join_path(directory, "notes.json"), R"({"not":"a measure file"})");
+        auto text = measure::budgets(directory);
+        expect(fatal(text.has_value()));
+        expect(text->contains("| U6 | completion.p95 | 2 |")) << *text;
+        expect(text->contains("| U6 | engineShare | 2 |")) << *text;
+        expect(text->contains("| U6 | completion.n | 2 |"));
+        expect(!text->contains("statesSeen") && !text->contains("| S1 |")) << "arrays and checks without a measure are left out";
+        expect(text->contains("0.78 |")) << "1.3 x the 95th percentile of 0.4 and 0.6: " << *text;
+        expect(!measure::budgets("/definitely/not/a/real/directory-mcppls-test").has_value());
+    };
+
     "an empty directory renders the header alone"_test = [&] {
         const std::string directory { scratch("empty") };
         auto text = measure::summarize(directory);

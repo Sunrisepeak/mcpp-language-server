@@ -1,6 +1,6 @@
 {
   "name": "ux-xlings",
-  "description": "0.0.7 plan 6.4 (U1-U15): the user-experience scenario tests on the xlings repository at the commit real-xlings pins (about 110 modules, one generated at build time), on the CI runner's size (4 vCPU: run under taskset -c 0-3). The same stages as ux-mcpp (cold, warm, edits, faults, long; --stage), with xlings' own files and budgets, calibrated the same way (ux-mcpp's description says how and why): U7's second fan-out (a crash of clangd on mcpp.manifest.types) exists only on mcpp, and U8's configuration change adds a compile flag to mcpp.toml instead of switching the profile. Nightly runs the long stage; a mcpp on PATH new enough to describe it (the fixture prepares with the one the workflow installs) is assumed.",
+  "description": "0.0.7 plan 6.4 (U1-U15): the user-experience scenario tests on the xlings repository at the commit real-xlings pins (about 110 modules, one generated at build time), on the CI runner's size (4 vCPU: run under taskset -c 0-3). The same stages as ux-mcpp (cold, warm, edits, faults, long; --stage), with xlings' own files and budgets, calibrated the same way (ux-mcpp's description says how and why): U7's second fan-out (a crash of clangd on mcpp.manifest.types) exists only on mcpp, and U8's configuration change adds a compile flag to mcpp.toml instead of switching the profile. Nightly runs the long stage; a mcpp on PATH new enough to describe it (the fixture prepares with the one the workflow installs) is assumed. U16 (0.0.8 plan 2, M-4) writes a module interface function by function with an importer open and files.autoSave afterDelay (a second after the last key, so every pause with half a statement on the screen reaches the disk and clangd fails to build the module again and again): the typed file keeps clangd -- no 'module-failed' diagnostic for it, its completion p95 U6's 1.0 s plus a tenth -- while the importer is contained whenever the module does not compile, as in 0.0.7, and answered with the file's words (never empty; its p95 is U7a's 1.5 s). The engine share is 0.4: the importer's half of the completions is mcppls's while the module is broken, by design. No status sample may say preparation-stalled and clangd is not restarted. U6's diagnostics refresh is 20 s here (0.0.8): the recovery restart its half-typed `import xlings.core.` on disk makes clangd need (UP-01, UP-14; the budget allows two) waits for three seconds without a keystroke (R-8), which is when the typing ends and the refresh is measured -- 14.5 s on the 0.0.7 merge's CI, 16.3 s on 0.0.8's pull request, 6 s or less in rounds without that restart.",
   "prepare": [
     [
       "git",
@@ -420,8 +420,52 @@
         "restarts": 2,
         "filesSetAside": 10,
         "engineShare": 0.75,
-        "diagnosticsRefresh": 6.0
+        "diagnosticsRefresh": 20.0
       }
+    },
+    {
+      "id": "U16-module-autosave",
+      "stage": "edits",
+      "kind": "typing",
+      "file": "src/core/console.cppm",
+      "seconds": 90,
+      "hz": 10,
+      "completion-every-ms": 1000,
+      "autosave-idle-ms": 1000,
+      "scripts": [
+        {
+          "line": 68,
+          "text": "int ux_add(int a_number, int b_number) { return a_number + b_"
+        },
+        {
+          "line": 68,
+          "text": "std::string ux_twice(std::string_view text) { std::string doubled = std::string(text); doubled +="
+        },
+        {
+          "line": 68,
+          "text": "bool ux_longer(std::string_view a_text, std::string_view b_text) { if (a_text.size() > b_text."
+        },
+        {
+          "line": 68,
+          "text": "int ux_count(const std::vector<int>& values) { int total = 0; for (auto value : values) { total += va"
+        }
+      ],
+      "importer": {
+        "file": "src/core/log.cpp",
+        "line": 23,
+        "text": "    int ux_probe_value = 1; ux_probe_"
+      },
+      "budget": {
+        "p95": 1.1,
+        "importerP95": 1.5,
+        "importerEmpty": 0,
+        "moduleFailedDiagnostics": 0,
+        "stalled": 0,
+        "restarts": 1,
+        "timeouts": 3,
+        "engineShare": 0.15
+      },
+      "budget-why": "Rewriting a module under autosave reliably trips a clangd defect: a build of an importer it let go of keeps spinning (0.0.8 part 2 K-8). One recovery restart, and the few requests it cuts short, is the designed answer; the completions' own budgets stay. On xlings, where that restart comes in this scenario, clangd answers fewer of the completions while it is back: the engine share measured 0.20-0.31 over the runs with it, so 0.15 (the lowest over 1.3)."
     },
     {
       "id": "U7a-fanout-save",
@@ -463,10 +507,11 @@
         "expect": "string"
       },
       "budget": {
-        "republishSeconds": 20,
+        "republishSeconds": 33,
         "p95": 1.5,
         "errorStates": 0
-      }
+      },
+      "budget-why": "Set from measurements (0.0.8 part 2): ux-mcpp's importers republished after 6.9, 13.6, 17.3, 17.7, 21.4 and 25.2 s over six CI runs on 4-core runners (part 1 measured 31 s), so 1.3 times the 95th percentile, the rule of `measure budgets`."
     },
     {
       "id": "U8-add-module",

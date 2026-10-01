@@ -254,6 +254,14 @@ before anything is published (`docs/92-release.md`).
 | RD13 | Each unit keeps the BMIs of its two newest commands; the rest are pruned when clangd starts (`mcppls cache --prune` for the others) (C-2) |
 | RD14 | What nothing recovers from by itself writes a redacted bundle at once and names it in the status; the person reports it, restarts, or turns mcppls off for the workspace (`mcppls.enable`), and nothing is uploaded (K-7) |
 | PD1 | Android under Termux (PRoot) is a supported platform: openkal-linux falls back from `execveat` to `execve` and the server detects the sandbox (plan 2026-09-30 D1, X-1..X-5) |
+| UD5 | In VS Code, C and C++ open the completion list while you type, alongside inline completions: the extension contributes `editor.quickSuggestions` `{other: "on"}` as their language default (WA-VSCODE-002), since VS Code 1.125's own default waits for inline completions; a person's `[cpp]` / `[c]` value wins, and one set for every language is overridden and told in the log (plan 0.0.8 E-1, E-2) |
+| RD15 | Containment (RP1.1) takes a failed module's importers from clangd, never the unit whose compile failed: clangd reads it from the editor, with its real errors and completion (plan 0.0.8 M-1); a completion clangd does not answer gets the file's words, never nothing (M-2) |
+| RD16 | On the provisional model only the standard library is prepared; the project's modules wait for the build tool's commands (plan 0.0.8 R-4). The modules whose units clangd could not scan are taken together, one replan and one restart (P-1) |
+| RD17 | A unit opened in clangd to prepare a module is closed as soon as the module is built; its BMI stays in clangd's module cache on disk. Held open, clangd re-checked every one of them on each save (plan 0.0.8 part 2 C-1) |
+| UD6 | A completion clangd answers after its budget is not thrown away: the requests the same word makes meanwhile wait for it, and it goes to them with its edits ended at each cursor; a request in another word cancels it. The kept request is detached: nobody waits for it, so its running out is no timeout and no sign of a stuck clangd (plan 0.0.8 part 2 C-2) |
+| RD19 | A file clangd keeps queued is waiting for a worker (K-5), for four minutes at most: queued that long while clangd finished nothing for three -- no diagnostics for any file, no answer, no module, no background unit -- clangd is restarted as a recovery, with an incident (plan 0.0.8 part 2 K-7) |
+| RD20 | A clangd worker thread at a full core for half a minute on a file clangd has not said it was building meanwhile -- a build clangd let go of and never stopped -- restarts clangd, once per clangd, with an incident (Linux, per-thread CPU; plan 0.0.8 part 2 K-8) |
+| RD18 | Module units whose build names no C++ standard are read as C++23, the standard `import std` is for, whatever the compiler's default; a standard any module unit names is followed instead. Other units that name none are read with their build compiler's own default where Clang's differs (GCC 16: gnu++20). Module units below C++20 are said once (plan 0.0.8 part 2 X-3) |
 
 ## 7. Known limits
 
@@ -365,6 +373,17 @@ N-7 in idle time · R-6 stand-ins that are no change · R-7 request budgets · R
 crash loops backed off · K-4, K-5 guards that misjudged a busy clangd · K-6 the passing-degraded hold ·
 K-7 the automatic bundle · U1–U15 user-experience scenarios on mcpp and xlings · O-1..O-6 Code - OSS
 and the extension.
+
+**"plan 0.0.8" — [2026-09-30-0.0.8-plan.md](2026-09-30-0.0.8-plan.md).** E-1..E-4 the completion list VS
+Code kept closed for inline completions (WA-VSCODE-002) · M-1 the unit that fails keeps clangd ·
+M-2 completion always has the file's words · M-3 no preparation stall while its module is edited · M-4 U16
+writing a module with autosave · K-3 crash evidence for upstream · R-4 no project preparation on the
+provisional model · P-1 stand-ins together · K-6 the settled-preparing hold · O-6 the Open VSX listing wait.
+
+**"plan 0.0.8 part 2" — [2026-10-01-0.0.8-part2-plan.md](2026-10-01-0.0.8-part2-plan.md).** C-1 prepared units
+close at once · C-2 late completions reach their word · C-4 slow files and build times in the report · X-1..X-7 xmake
+followed without touching the project · X-3 the build compiler's own standard · X-4 a standard library unit that does
+not scan · I-1 include cleaner stays on · CL-1..CL-4 CLion 2026.2.3, one engine per file · Z-1..Z-3 Zed in CI.
 
 **"tooling architecture".** 3.2 the workspace layout · 5.1 what mcpp, mcppls and devtools each do ·
 5.5 how devtools finds the server it just built · M0–M6 its migration steps.

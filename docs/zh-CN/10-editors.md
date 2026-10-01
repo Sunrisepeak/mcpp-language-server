@@ -25,6 +25,8 @@ mcpp run -p devtools -- uninstall --editor vscode|zed|clion|all   # 卸载
 
 **和其他 C++ 扩展一起用。** Microsoft 的 C/C++ 扩展和官方 clangd 扩展都想当同一批文件的语言服务端。mcppls 第一次运行时会提示一次，问要不要把它们在这个工作区里的语言功能关掉；这个提示由 `mcppls.detectConflicts` 控制。之后任何时候都可以用 *Turn Off Other C++ Language Features* 在当前工作区或全局关掉它们，用 *Restore Other C++ Language Features* 恢复；C/C++ 扩展的调试器照常可用。之后又有冲突扩展启用时，会有一条提示说明。扩展没有办法禁用别的扩展：mcppls 只改它们自己的设置，而且只在你选择之后才改。
 
+**和 Copilot 一起用时的补全。** VS Code 1.125 及以后的版本，在内联补全（VS Code 已内置 GitHub Copilot）显示灰字时不打开补全列表，其他时候也要等你停下输入才打开（`editor.quickSuggestions` 的默认值 `{"other": "offWhenInlineCompletions"}`）。对 C 和 C++ 文件，插件改设为 `{"other": "on"}`：列表随输入打开，灰字同时显示在旁边。这个值会盖过为所有语言设置的 `editor.quickSuggestions`；把它写在 `"[cpp]"` 和 `"[c]"` 下就能保留你的设置（日志里会说明一次）。
+
 **语法高亮。** `import`、`module`、`export` 和模块名有两层上色：扩展自带的语法文件（打开即生效，边输入边上色），以及服务端的语义 token（模块名的 token 类型是 `module`，主题默认按命名空间上色，也可以在 `editor.semanticTokenColorCustomizations` 里单独指定颜色）。VS Code 自带的 C++ 语法不给 `import` 上色。
 
 **在一个工作区里关掉它。** `mcppls.enable`（默认 `true`，按工作区生效）可以让 mcppls 保持关闭；**C++ Modules: Turn Off in This Workspace** 和 **Turn On in This Workspace** 会设置它，状态项显示 “C++ Modules: off in this workspace”。其他编辑器没有这样的设置；下面各个编辑器的小节和它们的 README 说明了在那边怎么做。
@@ -41,9 +43,16 @@ mcpp run -p devtools -- uninstall --editor vscode|zed|clion|all   # 卸载
 
 ## Zed
 
-[`editors/zed/`](../../editors/zed/README.md) 里的扩展会在 PATH 上找到 `mcppls` 并启动它。`mcpp run -p devtools -- extension --editor zed --install` 会构建好扩展和服务端，只留一步：命令面板 → "zed: install dev extension" → `editors/zed`。加上 `--link` 可以让工具自己把这一步也做了。参见 [editors/zed/README.md](../../editors/zed/README.md)。
+[`editors/zed/`](../../editors/zed/README.md) 里的扩展会在 PATH 上找到 `mcppls` 并启动它。安装分两步：
 
-Zed 自带 C/C++ 的 clangd，两个都跑在同一个文件上，就成了两个引擎回答同一个问题，所以要把 mcppls 排在前面：`"languages": {"C++": {"language_servers": ["mcppls", "!clangd"]}}`。mcppls 会自己启动 clangd，并带上一份 clangd 本来不会有的模块数据库。
+1. `mcpp run -p devtools -- extension --editor zed --install` 会构建好扩展和服务端，只留一步：命令面板 → "zed: install dev extension" → `editors/zed`。加上 `--link` 可以让工具自己把这一步也做了。
+2. 在 Zed 的设置里（`zed: open settings`）把 mcppls 排在前面，并关掉 clangd：
+
+   ```json
+   { "languages": { "C++": { "language_servers": ["mcppls", "!clangd"] } } }
+   ```
+
+Zed 自带 C/C++ 的 clangd，不做第 2 步它会和 mcppls 同时跑在同一个文件上：两个引擎回答同一个问题，诊断也有两份。mcppls 仍然能正常回答（CI 会用 Zed 的默认设置在真实的 Zed 里打开一个项目来检查这一点），但它会自己启动 clangd，并带上一份 clangd 本来不会有的模块数据库，所以 Zed 自带的那个没有任何帮助。参见 [editors/zed/README.md](../../editors/zed/README.md)。
 
 要在某个项目里关掉 mcppls，就在项目的 `.zed/settings.json` 里用 `!` 指名这个服务端（并把 clangd 再列回去，因为项目的列表会替换你自己的）；见 [editors/zed/README.md](../../editors/zed/README.md#keeping-mcppls-off-for-one-project)。
 
@@ -55,7 +64,9 @@ Zed 自带 C/C++ 的 clangd，两个都跑在同一个文件上，就成了两�
 
 [`editors/clion/`](../../editors/clion/README.md) 里的插件通过 IntelliJ 平台的 LSP API 注册 mcppls。
 
-`mcpp run --features clion -p devtools -- extension --editor clion --install` 会构建它、把服务端放到位，并把插件解包进每一个 CLion 的插件目录；然后重启 CLion。这个插件还没有在真正跑起来的 CLion 里验证过，详见它的 README。这个插件没有自己的设置；要在某个项目里关掉它，就在 Settings | Plugins 里只为这个项目禁用它（[editors/clion/README.md](../../editors/clion/README.md#keeping-mcppls-off-for-one-project)）。
+`mcpp run --features clion -p devtools -- extension --editor clion --install` 会构建它、把服务端放到位，并把插件解包进每一个 CLion 的插件目录；然后重启 CLion。支持 CLion 2025.2 及以上；插件基于 CLion 2026.2.3 构建，并在这个版本里测试。
+
+一个文件只由一个引擎回答。CLion 自己建模的项目（已加载的 CMake、compilation database 或 Makefile 工作区，或者根目录有 `CMakeLists.txt`）由 CLion 自带的 C/C++ 引擎回答，mcppls 不启动；其余项目（mcpp、xmake、普通文件夹）由 mcppls 回答。Settings | Tools | mcppls 里有一个选项"Also for projects CLion models"，打开后 mcppls 也用于前一类项目；两个引擎会同时回答，插件对每个项目提示一次。要在某个项目里无论如何都关掉 mcppls，就在 Settings | Plugins 里只为这个项目禁用插件（[editors/clion/README.md](../../editors/clion/README.md#keeping-mcppls-off-for-one-project)）。
 
 ## 其他 LSP 客户端
 

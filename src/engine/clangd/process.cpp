@@ -50,6 +50,82 @@ std::optional<ModuleFailure> parse_module_failure(std::string_view line) {
     return failure;
 }
 
+namespace {
+
+// One line of clangd's log into `times` (build_times); false when it says nothing about a build.
+bool note_build_line(std::map<std::string, FileBuildTimes, std::less<>>& times, std::string_view line, std::size_t maxFiles) {
+    static constexpr std::string_view PREAMBLE { "Built preamble of size " };
+    static constexpr std::string_view MODULES { "Built prerequisite modules for file " };
+    static constexpr std::string_view AST { "ASTWorker building file " };
+    // The seconds of "... in S seconds" at the end of a line, and the text before " in ".
+    const auto seconds_at_end = [](std::string_view text) -> std::optional<std::pair<std::string_view, double>> {
+        if (!text.ends_with(" seconds")) return std::nullopt;
+        text.remove_suffix(8);
+        const std::size_t in { text.rfind(" in ") };
+        if (in == std::string_view::npos) return std::nullopt;
+        const std::string_view number { text.substr(in + 4) };
+        double value { 0 };
+        const auto [end, error] = std::from_chars(number.data(), number.data() + number.size(), value);
+        if (error != std::errc {} || end != number.data() + number.size()) return std::nullopt;
+        return std::pair { text.substr(0, in), value };
+    };
+    const auto entry = [&](std::string_view file) -> FileBuildTimes* {
+        if (const auto it = times.find(file); it != times.end()) return &it->second;
+        if (times.size() >= maxFiles) return nullptr;
+        return &times[std::string { file }];
+    };
+    if (const std::size_t at { line.find(PREAMBLE) }; at != std::string_view::npos) {
+        const auto timed = seconds_at_end(base::trim(line.substr(at)));
+        const std::size_t file { timed ? timed->first.find(" for file ") : std::string_view::npos };
+        const std::size_t version { timed ? timed->first.rfind(" version ") : std::string_view::npos };
+        if (file == std::string_view::npos || version == std::string_view::npos || version < file) return false;
+        FileBuildTimes* slot { entry(timed->first.substr(file + 10, version - file - 10)) };
+        if (slot == nullptr) return false;
+        ++slot->preambles;
+        slot->preambleSeconds += timed->second;
+        slot->preambleMaxSeconds = std::max(slot->preambleMaxSeconds, timed->second);
+        return true;
+    }
+    if (const std::size_t at { line.find(MODULES) }; at != std::string_view::npos) {
+        const auto timed = seconds_at_end(base::trim(line.substr(at + MODULES.size())));
+        FileBuildTimes* slot { timed ? entry(timed->first) : nullptr };
+        if (slot == nullptr) return false;
+        ++slot->moduleBuilds;
+        slot->moduleSeconds += timed->second;
+        slot->moduleMaxSeconds = std::max(slot->moduleMaxSeconds, timed->second);
+        return true;
+    }
+    if (const std::size_t at { line.find(AST) }; at != std::string_view::npos) {
+        const std::string_view rest { line.substr(at + AST.size()) };
+        const std::size_t version { rest.find(" version ") };
+        FileBuildTimes* slot { version == std::string_view::npos ? nullptr : entry(rest.substr(0, version)) };
+        if (slot == nullptr) return false;
+        ++slot->asts;
+        return true;
+    }
+    return false;
+}
+
+} // namespace
+
+std::map<std::string, FileBuildTimes, std::less<>> build_times(std::string_view log) {
+    std::map<std::string, FileBuildTimes, std::less<>> times;
+    for (const auto line : base::split_lines(log)) (void)note_build_line(times, line, std::numeric_limits<std::size_t>::max());
+    return times;
+}
+
+void BuildTimesLog::add(std::string_view line) {
+    // Most lines are neither: a look for "Built" or "ASTWorker" before the lock.
+    if (line.find("Built pre") == std::string_view::npos && line.find("ASTWorker building") == std::string_view::npos) return;
+    const std::lock_guard lock { mutex_ };
+    (void)note_build_line(times_, line, MAX_FILES);
+}
+
+std::map<std::string, FileBuildTimes, std::less<>> BuildTimesLog::times() const {
+    const std::lock_guard lock { mutex_ };
+    return times_;
+}
+
 base::log::Level clangd_log_level(std::string_view line) {
     if (line.size() >= 2 && line[1] == '[') {
         switch (line[0]) {
@@ -200,16 +276,37 @@ LogReader::Read LogReader::read(std::string_view line) {
     inCrash_ = false;
     if (trimmed.starts_with("Exception Code: ")) {
         read.important = true;
-        if (crash_) {
-            crash_->exception = std::string { base::trim(trimmed.substr(16)) };
-            read.crash = crash_;
-        }
+        // K-3 (plan 0.0.8): a crash outside an AST worker has no context before it; its code and frames are kept all the same.
+        if (!crash_) crash_ = CrashContext {};
+        crash_->exception = std::string { base::trim(trimmed.substr(16)) };
+        read.crash = crash_;
+        inStack_ = true;
         return read;
     }
     if (trimmed.starts_with("PLEASE submit a bug report") || trimmed.starts_with("Stack dump:")) {
         read.important = true;
+        if (trimmed.starts_with("Stack dump:")) {
+            inStack_ = true;
+            if (!crash_) crash_ = CrashContext {};
+        }
         return read;
     }
+    // K-3 (plan 0.0.8): the stack dump's lines -- "0.<tab>Program arguments: ...", " #0 0x... (clangd+0x...)" -- kept
+    // for the report of a crash, as few as clangd prints (none are symbolized: the bundled clangd has no symbols).
+    const bool frame { trimmed.starts_with('#') && trimmed.size() > 1 && std::isdigit(static_cast<unsigned char>(trimmed[1])) != 0 };
+    const bool entry { inStack_ && !trimmed.empty() && std::isdigit(static_cast<unsigned char>(trimmed.front())) != 0
+                       && trimmed.find_first_not_of("0123456789") != std::string_view::npos && trimmed[trimmed.find_first_not_of("0123456789")] == '.' };
+    if ((frame || entry) && inStack_) {
+        read.important = true;
+        if (!crash_) crash_ = CrashContext {};
+        inStack_ = true;
+        if (crash_->stack.size() < CrashContext::MAX_STACK_LINES) {
+            crash_->stack.emplace_back(trimmed);
+            read.crash = crash_;
+        }
+        return read;
+    }
+    inStack_ = false;
     // A scan failure: its header, the lines without a severity that continue it, and its closing line.
     static constexpr std::string_view SCANNING { "Scanning modules dependencies for " };
     static constexpr std::string_view FAILED { " failed: " };

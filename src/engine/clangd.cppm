@@ -73,6 +73,7 @@ struct PendingRequest {
     Clock::time_point limit {};       // how long a request may be kept waiting at most (wait_limit); see keep_waiting
     Reply reply;
     Clock::time_point sent {};        // when it was sent to clangd
+    bool detached { false };          // C-2 (plan 0.0.8 part 2): answered elsewhere; nobody waits for it (Engine::detach)
 };
 
 // usable plan W7: a request whose deadline passed while the modules its file imports are still

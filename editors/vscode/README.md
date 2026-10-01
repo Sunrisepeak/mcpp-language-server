@@ -89,6 +89,16 @@ All settings are optional.
 | `mcppls.buildTool` | `offline` | How mcppls may run the project's build tool (mcpp, CMake) to learn how it is built: `offline` runs it without the network, offering to run it in a terminal when it needs a download; `online` lets it reach the network, with up to ten minutes; `off` never runs it, using only the cache or scanned sources |
 | `mcppls.toolEnvironment` | `auto` | Which environment build tools are started in: `auto` reads the login shell's environment once in the background on Linux and macOS (Windows always matches the editor); `editor` always uses the editor process's own environment |
 
+## Completion while you type
+
+VS Code 1.125 and later keep the completion list closed while an inline completion (GitHub Copilot is
+built into VS Code) shows grey text, and otherwise open it only once you stop typing: that is VS Code's
+default for `editor.quickSuggestions`, `{"other": "offWhenInlineCompletions"}`. For C and C++ files this
+extension sets `{"other": "on", "comments": "off", "strings": "off"}` instead (`WA-VSCODE-002`): the list
+opens as you type and the grey text shows beside it. A value you set under `"[cpp]"` or `"[c]"` wins; one
+set for every language does not, and the log says so once. **Export Diagnostic Bundle** records the value
+C++ files get and where it comes from.
+
 ## Other C++ extensions
 
 If the Microsoft C/C++ extension or the clangd extension also serves C++ files, results appear twice. The extension asks once whether to turn their language features off for the workspace; nothing changes without your answer. cpptools keeps its debugger either way — only its IntelliSense engine is turned off.

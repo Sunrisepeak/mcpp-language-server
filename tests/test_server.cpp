@@ -661,6 +661,13 @@ int main() {
         expect(cld::engine_working("parsing main file") && cld::engine_working("parsing includes") && cld::engine_working("running Hover"));
         expect(cld::engine_working("parsing includes, file is queued")) << "building its preamble while the file waits for a worker";
         expect(!cld::engine_working("idle") && !cld::engine_working("file is queued") && !cld::engine_working("preamble (queued)"));
+        // K-8 (plan 0.0.8 part 2): the file a worker thread is named for, as Linux truncates the name (15 characters).
+        expect(cld::worker_file("TWorker:log.cpp") == "log.cpp" && cld::worker_file("rker:doctor.cpp") == "doctor.cpp");
+        expect(cld::worker_file("er:console.cppm") == "console.cppm" && cld::worker_file("ASTWorker:a.cpp") == "a.cpp");
+        expect(cld::worker_file("mbleWorker:b.cc") == "b.cc") << "a preamble thread";
+        expect(cld::worker_file("_long_name.cppm") == "_long_name.cppm") << "the end of a long file name";
+        expect(cld::worker_file("clangd.main").empty() && cld::worker_file("ground-worker-2").empty() && cld::worker_file("llvm-worker-0").empty());
+        expect(cld::worker_file("Something:x.cpp").empty()) << "not a worker's prefix";
         expect(!cld::engine_working("preamble (queued), file is queued") && !cld::engine_working(""));
     };
 
@@ -785,6 +792,31 @@ int main() {
         expect(std::ranges::find(verbose, std::string { "--log=verbose" }) != verbose.end());
     };
 
+    "clangd's log says what each file's builds cost (C-4, plan 0.0.8 part 2)"_test = [] {
+        const std::string log {
+            "I[02:31:56.391] ASTWorker building file D:\\a\\G\\Trans Agent.cpp version 1 with command \n"
+            "[D:\\a\\G]\n"
+            "clang++ --driver-mode=g++ -c D:\\a\\G\\Trans Agent.cpp\n"
+            "I[02:31:56.403] Built preamble of size 253644 for file D:\\a\\G\\Trans Agent.cpp version 1 in 7.25 seconds\n"
+            "I[02:31:56.419] Built prerequisite modules for file D:\\a\\G\\Trans Agent.cpp in 2.5 seconds\n"
+            "I[02:32:10.001] ASTWorker building file D:\\a\\G\\Trans Agent.cpp version 2 with command \n"
+            "I[02:32:10.403] Built preamble of size 253644 for file D:\\a\\G\\Trans Agent.cpp version 2 in 0.75 seconds\n"
+            "I[02:32:11.419] Built prerequisite modules for file /p/other.cpp in 0.02 seconds\n"
+            "I[02:32:11.500] Built preamble of size 1 for file /p/broken.cpp version 1 in soon seconds\n"
+        };
+        const auto times = cld::build_times(log);
+        expect(times.size() == 2u) << "a line whose seconds do not read is left out";
+        const auto& agent = times.at("D:\\a\\G\\Trans Agent.cpp");
+        expect(agent.preambles == 2u && agent.asts == 2u && agent.moduleBuilds == 1u);
+        expect(agent.preambleSeconds == 8.0 && agent.preambleMaxSeconds == 7.25 && agent.moduleSeconds == 2.5);
+        expect(times.at("/p/other.cpp").moduleBuilds == 1u && times.at("/p/other.cpp").preambles == 0u);
+
+        cld::BuildTimesLog kept;
+        for (const auto line : mcppls::base::split_lines(log)) kept.add(line);
+        const auto sameTimes = kept.times();
+        expect(sameTimes.size() == 2u && sameTimes.at("D:\\a\\G\\Trans Agent.cpp").preambleSeconds == 8.0) << "kept line by line, the same";
+    };
+
     "clangd's crash context names the file it crashed on (fix plan F3)"_test = [] {
         // As the Windows CI of issue #23 printed it (GalTranslPP, clangd 23.1.0).
         cld::LogReader reader;
@@ -807,6 +839,40 @@ int main() {
         expect(fatal(read.crash.has_value()));
         expect(read.crash->action == "building preamble" && read.crash->file == "/p/src/main.cpp");
         expect(!posix.read("  Filename: /p/other.cpp").crash) << "one file per context";
+    };
+
+    "LLVM's stack dump after a crash is kept for its report, as clangd prints it (K-3)"_test = [] {
+        // Windows: the context, the exception code, then the frames with module offsets (the release clangd has no symbols).
+        cld::LogReader windows;
+        (void)windows.read("Signalled during AST worker action: Build AST");
+        (void)windows.read("  Filename: D:/a/G/G/NormalJsonTranslator.Core.cpp");
+        (void)windows.read("Exception Code: 0x80000003");
+        auto read = windows.read(" #0 0x00007ff6d1a2b3c4 (C:\\p\\clangd.exe+0x1a2b3c4)");
+        expect(fatal(read.crash.has_value()));
+        expect(read.important);
+        read = windows.read(" #1 0x00007ff6d1a2b000 (C:\\p\\clangd.exe+0x1a2b000)");
+        expect(fatal(read.crash.has_value()));
+        expect(read.crash->stack.size() == 2U && read.crash->stack[0].starts_with("#0 0x00007ff6d1a2b3c4") && read.crash->exception == "0x80000003");
+        expect(read.crash->file == "D:/a/G/G/NormalJsonTranslator.Core.cpp") << "the context stays with its frames";
+        expect(!windows.read("I[18:14:52.000] clangd version 23.1.0").crash) << "the dump ends at the next log line";
+        expect(!windows.read(" #2 0x0 (/p/clangd+0x0)").crash) << "a frame-like line after it is not the dump's";
+        // POSIX: a crash outside an AST worker, with LLVM's numbered entries before the frames.
+        cld::LogReader posix;
+        expect(posix.read("Stack dump:").important);
+        read = posix.read("0.\tProgram arguments: /p/clangd --experimental-modules-support");
+        expect(fatal(read.crash.has_value()));
+        read = posix.read("1.\t<eof> parser at end of file");
+        read = posix.read(" #0 0x000055d0f1a2b3c4 (/p/clangd+0x1a2b3c4)");
+        expect(fatal(read.crash.has_value()));
+        expect(read.crash->action.empty() && read.crash->file.empty() && read.crash->stack.size() == 3U);
+        // At most MAX_STACK_LINES, whatever a crash prints.
+        for (std::size_t i { 0 }; i < 100; ++i) (void)posix.read(std::format(" #{} 0x1 (/p/clangd+0x1)", i + 1));
+        read = posix.read(" #101 0x1 (/p/clangd+0x1)");
+        expect(!read.crash.has_value() || read.crash->stack.size() <= cld::CrashContext::MAX_STACK_LINES);
+        // A log line that merely starts with a digit is not a stack entry outside a dump.
+        cld::LogReader quiet;
+        expect(!quiet.read("3.\tnot a dump").crash);
+        expect(!quiet.read("#include <vector>").crash);
     };
 
     "a failed module scan is read with its reason, whether the driver's or the source's (fix plan F6)"_test = [] {

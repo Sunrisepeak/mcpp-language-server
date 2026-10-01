@@ -1,4 +1,6 @@
-// Canary for WA-VSCODE-001 (design 2026-09-25 §9, src/workarounds.ts): the injection grammar in
+// Canaries for this extension's registered workarounds (src/workarounds.ts).
+//
+// WA-VSCODE-001 (design 2026-09-25 §9): the injection grammar in
 // syntaxes/mcppls-modules.tmLanguage.json exists only because VS Code's own built-in cpp grammar
 // defines a `module_import` repository rule but no `include` anywhere in the grammar actually uses
 // it, so `import std;` gets no keyword scope from VS Code alone. This fails on purpose, naming the
@@ -59,5 +61,26 @@ test('WA-VSCODE-001 canary: the built-in cpp grammar still does not include modu
         'WA-VSCODE-001 is no longer needed: remove the injection grammar '
         + '(syntaxes/mcppls-modules.tmLanguage.json) and its entry in src/workarounds.ts -- '
         + "VS Code's own cpp grammar now includes module_import.",
+    );
+});
+
+// WA-VSCODE-002 (0.0.8 plan E-1): package.json contributes `editor.quickSuggestions` `{other: "on"}` for C
+// and C++ only because VS Code's own default became `offWhenInlineCompletions` (in a release after 1.108;
+// 1.125.1 already has it). This fails, naming the workaround, once VS Code's own default is something
+// else again -- the signal to re-check whether the contribution is still needed. Older editors (1.91 to
+// 1.108, whose default is "on") have nothing to check.
+test('WA-VSCODE-002 canary: VS Code\'s own default still waits for inline completions', function () {
+    const [major, minor] = vscode.version.split('.').map((part) => Number.parseInt(part, 10));
+    if (major < 1 || (major === 1 && minor < 125)) {
+        this.skip();
+    }
+    const inspected = vscode.workspace.getConfiguration('editor').inspect<unknown>('quickSuggestions');
+    const other = (inspected?.defaultValue as { other?: unknown } | undefined)?.other;
+    assert.strictEqual(
+        other,
+        'offWhenInlineCompletions',
+        `WA-VSCODE-002 may no longer be needed: VS Code ${vscode.version}'s own default for editor.quickSuggestions.other is `
+        + `${JSON.stringify(other)} -- if the completion list opens alongside inline completions again, remove the `
+        + '`configurationDefaults` of package.json, src/quickSuggestions.ts\'s log line and the entry in src/workarounds.ts.',
     );
 });

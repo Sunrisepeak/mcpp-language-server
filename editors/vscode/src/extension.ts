@@ -27,7 +27,7 @@ import {
 } from 'vscode-languageclient/node';
 import { CommandLineToolsController, withInstallCommandFallback } from './commandLineTools';
 import { DownloadPromptController } from './downloadPrompt';
-import { declaresModules, exportDiagnosticBundle, extensionEnvironment, registerCommands, reloadBuildDescription } from './commands';
+import { declaresModules, editorEnvironment, exportDiagnosticBundle, extensionEnvironment, registerCommands, reloadBuildDescription } from './commands';
 import { sendTriggeredCompletion } from './completionGate';
 import { checkConflicts, ConflictCheck, watchForNewConflicts } from './conflicts';
 import { CrashCounter } from './crashCounter';
@@ -39,6 +39,7 @@ import { ServerLogLevel, ServerLogRouter } from './serverLog';
 import { promptTestHarness, PromptKind, ShownPrompt } from './prompt';
 import { CxxModulesStatus, ModuleIssue, ModuleState, StatusController } from './status';
 import { describeActiveWorkarounds } from './workarounds';
+import { overriddenByLanguageDefault } from './quickSuggestions';
 
 // build description design 4.4: a value this extension does not know must not turn the network on.
 function buildToolSetting(value: string | undefined): string {
@@ -81,6 +82,8 @@ export interface TestApi {
     serverLogLineCount(level: ServerLogLevel): number;
     // The extension's part of a report and of the diagnostic bundle: versions, the editor's appName, host, UI kind.
     environment(): Record<string, unknown>;
+    // The editor settings of that part that decide whether completion shows while typing (0.0.8 plan E-3).
+    editor(): Record<string, unknown>;
     // The commands the running server lists in `executeCommandProvider` (empty when it is not running).
     serverCommands(): string[];
     // What the last unrecoverable-error notification offered (test mode; nothing is put on screen).
@@ -625,6 +628,11 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     // Workaround registry design (§9): visible once per activation, so a bug report shows which of
     // this extension's own workarounds (as opposed to the server's) were on.
     host.log(describeActiveWorkarounds());
+    // WA-VSCODE-002 (0.0.8 plan E-2): the language default for C and C++ outranks a setting that names no
+    // language, so whoever set `editor.quickSuggestions` for every language is told, once, how to keep theirs.
+    const quickSuggestionsOverridden = overriddenByLanguageDefault(
+        vscode.workspace.getConfiguration('editor', { languageId: 'cpp' }).inspect('quickSuggestions'));
+    if (quickSuggestionsOverridden) host.log(quickSuggestionsOverridden);
     // Coexistence design (§10): a conflict that becomes active after activation -- another C++
     // extension installed, enabled, or its setting turned back on -- gets a notice, once per
     // conflict per session, distinct from the one-time question above.
@@ -699,6 +707,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
         commandLineToolsInstallCount: () => commandLineTools.installInvocationCount(),
         serverLogLineCount: (level) => host.serverLog.count(level),
         environment: () => extensionEnvironment(),
+        editor: () => editorEnvironment(),
         serverCommands: () => [...(host.runningClient()?.initializeResult?.capabilities.executeCommandProvider?.commands ?? [])],
         lastPrompt: (kind) => promptTestHarness?.lastShown(kind),
         injectIssues: (issues) => promptTestHarness ? fatal.onIssues(issues as ModuleIssue[]).map((notice) => notice.code) : [],

@@ -160,8 +160,71 @@ Json document_words(std::string_view text, base::Position position, std::size_t 
     return items;
 }
 
+bool is_empty(const Json& result) {
+    if (result.is_null()) return true;
+    if (result.is_array()) return result.empty();
+    if (!result.is_object()) return false;
+    const Json* items { lsp::find(result, "items") };
+    return items == nullptr || !items->is_array() || items->empty();
+}
+
+bool in_import_directive(std::string_view linePrefix) {
+    std::string_view rest { linePrefix };
+    skip_blanks(rest);
+    if (rest.starts_with("export")) {
+        std::string_view afterExport { rest.substr(6) };
+        if (skip_blanks(afterExport) > 0) rest = afterExport;
+    }
+    return rest.starts_with("import") && (rest.size() == 6 || is_blank(rest[6]) || rest[6] == '<' || rest[6] == '"' || rest[6] == ':');
+}
+
 Json without_engine(const Json& wordItems) {
     return Json { { "isIncomplete", true }, { "items", wordItems.is_array() ? wordItems : Json::array() } };
+}
+
+std::optional<WordKey> word_key(std::string_view text, base::Position position) {
+    const auto offset = base::offset_at(text, position);
+    if (!offset) return std::nullopt;
+    std::size_t start { *offset };
+    while (start > 0 && base::is_identifier_char(text[start - 1])) --start;
+    const std::size_t lineStart { start == 0 ? 0 : text.rfind('\n', start - 1) + 1 };   // npos + 1 is 0
+    return WordKey { position.line, std::string { text.substr(lineStart, start - lineStart) }, std::string { text.substr(start, *offset - start) } };
+}
+
+bool typed_on(const WordKey& earlier, const WordKey& later) {
+    return earlier.line == later.line && earlier.before == later.before && later.typed.starts_with(earlier.typed);
+}
+
+namespace {
+
+// A range on `position`'s line that starts at or before it, ended at it; false when it cannot be.
+bool end_range_at(Json& range, base::Position position) {
+    if (!range.is_object() || !range.contains("start") || !range.contains("end")) return false;
+    const Json& start { range["start"] };
+    if (start.value("line", -1) != position.line || range["end"].value("line", -1) != position.line) return false;
+    if (start.value("character", -1) > position.character) return false;
+    range["end"] = Json { { "line", position.line }, { "character", position.character } };
+    return true;
+}
+
+} // namespace
+
+Json retarget(const Json& result, base::Position position) {
+    const bool list { result.is_object() };
+    Json out { { "isIncomplete", list && result.value("isIncomplete", false) }, { "items", Json::array() } };
+    const Json* items { list ? lsp::find(result, "items") : &result };
+    if (items == nullptr || !items->is_array()) return out;
+    for (Json item : *items) {
+        if (item.contains("textEdit") && item["textEdit"].is_object()) {
+            Json& edit { item["textEdit"] };
+            // TextEdit has a range; InsertReplaceEdit an insert and a replace range, both starting at the word.
+            const bool kept { edit.contains("range") ? end_range_at(edit["range"], position)
+                                                     : end_range_at(edit["insert"], position) && end_range_at(edit["replace"], position) };
+            if (!kept) continue;
+        }
+        out["items"].push_back(std::move(item));
+    }
+    return out;
 }
 
 } // namespace mcppls::orchestrator::completion

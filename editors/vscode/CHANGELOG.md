@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.8
+
+- The completion list opens while you type in C and C++ files, alongside Copilot's or another inline
+  completion's grey text. VS Code 1.125 and later otherwise keep it closed while grey text shows and
+  open it only after you stop typing (`editor.quickSuggestions` defaults to
+  `offWhenInlineCompletions`); the extension sets `{"other": "on"}` for `[cpp]` and `[c]`. A value you
+  set under `"[cpp]"` / `"[c]"` wins; one set for every language is overridden, and the log says so once.
+- **Export Diagnostic Bundle** records the editor settings that decide whether completion shows.
+- Writing a module with autosave keeps its completion and real diagnostics (the server no longer takes
+  a module that does not compile from clangd), and completion is never empty.
+- In a large project, completion no longer falls behind with every save: a completion clangd answers
+  late reaches the word you are still typing, and saving no longer makes clangd rebuild modules no open
+  file needs.
+- xmake projects follow `xmake.lua` and your own `xmake f` settings as you change them, without the
+  server writing anything into the project.
+
 ## 0.0.7
 
 - Faster answers while you type: completion waits for clangd at most a second before mcppls answers

@@ -7,6 +7,162 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.8] — 2026-10-01
+
+Completion that shows up. In VS Code 1.125 and later with Copilot (built into VS Code) or another
+inline completion, the completion list stayed closed while you typed -- the editor waited for the
+inline completion and did not even ask the server -- which read as "no keyword or variable
+completion"; C and C++ now open it as you type, beside the grey text. Writing a module with autosave
+no longer takes the module you are writing from clangd every few seconds, and a completion clangd
+does not answer always has the file's words. A partial build description brings its stand-ins in one clangd
+restart instead of one per module, the provisional model no longer prepares the project's modules,
+and a clangd crash keeps what an upstream report needs. The analysis and the plan are
+`.agents/docs/2026-09-30-0.0.8-plan.md`.
+
+In a large project, completion no longer falls further behind with every save until it stops
+showing: units mcppls opened to prepare modules are closed once built, a completion clangd answers
+late reaches the word it was asked in, and a clangd that keeps every file queued without finishing
+anything is restarted. xmake projects follow `xmake.lua` and your own `xmake f` without mcppls writing
+anything into the project, and a build that names no C++ standard gets C++23 for its modules, the
+standard `import std` is for. CLion (built for 2026.2.3) and Zed are opened for real in CI, and in
+CLion a file is answered by one engine. That second part is `.agents/docs/2026-10-01-0.0.8-part2-plan.md`.
+
+### Completion
+
+- **The completion list opens while you type in C and C++, alongside inline completions.** VS Code
+  1.125 changed `editor.quickSuggestions` to `{"other": "offWhenInlineCompletions"}`: with an
+  inline-completion provider installed, the list was not opened while grey text showed, and otherwise
+  only after 750 ms without a keystroke. On the reporter's project the server received 24 completion
+  requests in 18 minutes of editing, and none while they reproduced it; it answered them in 21 ms at
+  the median. The VS Code extension now sets `{"other": "on"}` as the language default of `[cpp]` and
+  `[c]` (workaround `WA-VSCODE-002`, with a canary that fails once VS Code's own default changes);
+  other languages keep the editor's default, a `[cpp]` / `[c]` value of yours wins, and one you set for
+  every language is overridden with a line in the log saying how to keep it.
+- **A completion clangd did not answer is never empty.** A file clangd does not serve (set aside,
+  contained, clangd backing off after crashes) and a completion clangd answered with an error get the
+  words of the file nearest the cursor and the keywords, as an incomplete list -- not on an import
+  line, where only module names belong.
+- **Completion in a file clangd rebuilds slowly still arrives.** Past its 1 s budget a completion
+  got the file's words and clangd's request was cancelled, so the next keystroke queued behind the
+  same rebuild and missed its budget too: on a large Qt and modules project, 25 of 48 completions got
+  only words, and in some files clangd's never came. clangd's late answer now keeps working for up to
+  10 s, the requests you make while typing the same word wait for it, and it reaches them as soon as it
+  comes, its edits ending at each cursor; moving on to another word cancels it. Nobody waits for the
+  kept request, so its running out is not a timeout.
+- **Saving no longer rebuilds modules nothing open needs.** Each unit mcppls opens in clangd to
+  prepare a module was kept open until all preparation was done, and clangd checks every open file
+  again on each save: with autosave, the modules behind 15 such units (70 on xlings) were rebuilt at
+  every pause, on the workers the file you typed in was waiting for. They are closed as soon as their
+  module is built; the BMI stays in clangd's module cache on disk and is reused.
+
+### Writing modules
+
+- **The module you are writing keeps clangd.** With autosave, a module saved mid-edit does not
+  compile, and containment took the module's own file from clangd together with its importers -- no
+  completion, one error with no position instead of the real ones -- until the next save handed it
+  back: in 92 s of writing a module it happened 18 times and half the completions in it were empty.
+  The unit whose compile failed now always stays with clangd, which reads it from the editor with its
+  real errors and completion. Its importers are contained as before while it does not compile (keeping
+  them with clangd made clangd rebuild the modules between at every save, and on xlings an importer had
+  no diagnostics for minutes); their completion now has the file's words. New fixture
+  `module-edit-autosave`; ux scenario U16.
+- **No "preparation stalled" while you edit the module being prepared.** An edit to a source that a
+  module being prepared is built from counts as progress; the report lists the preparation units
+  running, since when, and what clangd says of each.
+- **The status stays ready through a save.** Once the workspace has settled, modules rebuilt because
+  of an edit make it *preparing* again only when that lasts 30 s.
+
+### Build descriptions and clangd
+
+- **A partial model's stand-ins arrive together.** clangd reports the modules it cannot find one per
+  session, so a partial model (a workspace member whose build program failed) brought its stand-ins in
+  one clangd restart each -- four rounds of about 26 s on GalTranslPP. The modules whose units clangd
+  already could not scan (a header or the command) are taken with the first report: one replan, one
+  restart.
+- **The provisional model prepares only the standard library.** With nothing cached, the project's
+  modules were built with the kit's commands and built again with the build tool's a few seconds
+  later. They are now prepared once the build tool's model is in. (clangd on Windows still crashes on
+  GalTranslPP's files while the provisional model serves them: those are the files' own builds, not
+  preparation; issue #34.)
+- **A clangd busy for minutes without finishing anything is restarted.** A file clangd keeps queued
+  is waiting for a worker, and was left to wait; after a module imported by much of a project was
+  rewritten with autosave, clangd kept every core busy for more than fifteen minutes with every open
+  file queued and nothing done, which the stuck watch (next to no CPU) did not see. A file queued for
+  four minutes while clangd finished nothing for three now restarts it as a recovery, with an incident.
+  The cause, named by that incident: a module's importer closed in clangd while its build ran --
+  containment closes importers of a module that does not compile -- sometimes leaves the build's thread
+  spinning with nobody to answer, and three such threads take all of clangd's workers. On Linux a
+  worker thread at a full core for half a minute on a file clangd has not said it was building
+  restarts clangd at once.
+- **Modules of a build that names no C++ standard are read as C++23.** xmake writes no `-std` when
+  `xmake.lua` sets no language, and clangd read `import std` with Clang's own gnu++17, which has no
+  modules -- it could not even scan GCC's `std.cc`, while GCC 16 built it. Module units whose build
+  names no standard are now read as C++23, the standard `import std` is for (the log says so once, and
+  the report's `plan.standardAssumed`); a standard the build names is followed. Other units that name
+  none are read with their compiler's own default where it differs from Clang's (GCC 16: gnu++20), and
+  module units a build puts below C++20 are said once.
+- **A standard library module that does not compile says so.** A scan failure of `std`'s own unit,
+  or of a unit outside the workspace, was taken for a half-typed file and ignored; it is now an issue
+  naming the module and clangd's first error.
+- **A clangd crash keeps what an upstream report needs**: LLVM's stack dump as clangd printed it and
+  the clangd binary's version and SHA-256, in the incident and in the report's `lastExit` (the
+  released clangd carries no symbols).
+
+### xmake
+
+- **xmake describes the project whenever it can run.** mcppls runs xmake privately and no longer
+  reads a `compile_commands.json` of yours first, so edits to `xmake.lua` (a late `set_languages`, a
+  new target) reach the model with nothing to regenerate. The file is read only when xmake cannot run
+  (xmake not on PATH, `mcppls.buildTool: off`, the private run failing on a project it never
+  described); then it is watched, and a notice says once when it is older than your `xmake.lua`. Set
+  `mcppls.buildTool` to `off` to read your own file on purpose. A project that used to read its own
+  file may get one model replacement on the first start after upgrading.
+- **Your own `xmake f` choices are followed.** mcppls reads `.xmake/<plat>/<arch>/xmake.conf` (read
+  only) and configures its private run with the same platform, architecture, mode, toolchain and
+  project options, so a debug project is described with `-O0 -g` rather than release flags. An option
+  xmake refuses is left out with a notice, and nothing is ever written into your project.
+- A `compile_commands.json` a tool is rewriting is read again a second later (up to five times)
+  instead of being reported as invalid and raising a model-stale issue for a moment.
+- The scanned-sources model shown while the build tool is still working no longer says the workspace
+  is untrusted.
+
+### Editors
+
+- **CLion: one engine per file.** A project CLion models itself (a loaded CMake, compilation
+  database or Makefile workspace, or a `CMakeLists.txt` at the root) is answered by CLion's own
+  engine, and mcppls starts for every other project, so a file no longer gets two lists of
+  completions and two sets of diagnostics. Settings | Tools | mcppls, "Also for projects CLion
+  models", turns mcppls on for those too and says once per project that both engines answer.
+- **CLion 2026.2.3.** The plugin is built against CLion 2026.2.3 and still loads in 2025.2 and later;
+  the Plugin Verifier checks both on every pull request, and a headless CLion 2026.2.3 test (the
+  server runs, a wrong import is diagnosed, `import ` completes a module name, closing the project
+  stops the server) runs on release branches, nightly and pull requests that reach the plugin.
+- **Zed in CI.** A real Zed (Linux, pinned stable, software Vulkan) opens a project and must
+  initialize mcppls, send it the open file and receive diagnostics, with the recommended
+  `language_servers` setting and with Zed's defaults, where both servers run; quitting Zed must leave no
+  mcppls. The extension's choice of server is covered by `cargo test` on every pull request. The Zed
+  README and the editors page make putting mcppls first and clangd off an install step.
+
+### Diagnosis and CI
+
+- The diagnostic bundle records the editor settings that decide whether completion shows while you
+  type (`client.editor` in `environment.json`), and the report when each method was last answered
+  (`requests[*].lastAt`), how much was edited (`documents`), how often completion fell back to the
+  file's words (`completion.wordsWithoutCore`), and the preparation units running and since when.
+- `mcppls-devtools measure budgets` gives each scenario's numbers over many runs (median, 95th
+  percentile, largest, 1.3 x the 95th percentile); nightly's `ux-budgets` job runs it over the night's
+  rounds, for budgets set from measurements.
+- The Open VSX release check waits up to ten minutes for a VSIX to be listed.
+- The report names the ten slowest files and, per file, how many completions got only words
+  (`slowestFiles`), what building each file cost clangd (`engines[].details.buildTimes`: preambles,
+  imported modules, AST builds) and how often clangd's late completions were used (`completion.late`).
+- clangd's include cleaner stays on in module units: a new fixture, `include-cleaner-modules`, holds
+  that in a module interface's global module fragment, an implementation unit and an importer it
+  reports no header something uses; the troubleshooting page says how to turn it off (`.clangd`).
+- Conformance: fixtures `xmake-basic`, `xmake-late-config`, `xmake-user-mode`, `xmake-no-standard` and
+  `compdb-midwrite` (the Linux job installs xmake and GCC 16 from xlings), and the runner's checks
+  `engine-command`, `status-never`, `write-midway` and `diagnostic-code-lines`.
+
 ## [0.0.7] — 2026-09-30
 
 Stability and speed while you write. A person's request is answered within a budget (completion in

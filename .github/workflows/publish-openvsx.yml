@@ -92,12 +92,14 @@ jobs:
             want=$(grep " ${vsix}\$" SHA256SUMS | cut -d' ' -f1)
             [ -n "$want" ] || { echo "::error::SHA256SUMS has no entry for $vsix"; failed=1; continue; }
             url=""
-            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            # O-6 (plan 0.0.8): Open VSX took more than three minutes to list 0.0.7's darwin-arm64 after it was published
+            # (run 36692618794): up to ten minutes before this counts as a failure.
+            for attempt in $(seq 1 40); do
               url=$(curl -fsS --retry 3 "$api/$target/$version" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("files", {}).get("download", ""))' 2>/dev/null || true)
               [ -n "$url" ] && break
-              echo "$target $version is not listed yet ($attempt/12)"; sleep 15
+              echo "$target $version is not listed yet ($attempt/40)"; sleep 15
             done
-            if [ -z "$url" ]; then echo "::error::Open VSX does not list $target $version after 3 minutes"; failed=1; continue; fi
+            if [ -z "$url" ]; then echo "::error::Open VSX does not list $target $version after 10 minutes"; failed=1; continue; fi
             curl -fsSL --retry 3 -o "served-$vsix" "$url"
             got=$(sha256sum "served-$vsix" | cut -d' ' -f1)
             if [ "$got" = "$want" ]; then

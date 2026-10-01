@@ -7,9 +7,14 @@ name: Release checks
 #   ci.yml           on a pull request that changes release packaging, after CI's own jobs, so such
 #                    a pull request is checked the way a release is without running CI twice
 #
+#   (The CLion plugin inside a real CLion, clion-verify and clion-e2e, is in ci.yml: both callers run
+#   all of it first, so the release checks have those results too.)
+#
 #   plugins       the Zed and CLion plugins, packaged exactly as a release ships them
 #   install       each host: the Zed and CLion plugins installed from those archives by devtools,
 #                 the installed server answering a project, and uninstall leaving nothing behind
+#   zed           the Zed extension in a real Zed on Linux, under both the recommended settings and
+#                 Zed's defaults (zed-smoke.yml)
 #   performance   each host: five cold and five warm starts, medians against a budget; on Linux the
 #                 server on this repository itself as well
 #   stability     each host: the fixtures of the project shapes that matter most, three rounds in a
@@ -103,17 +108,17 @@ jobs:
         run: |
           set -euo pipefail
           tar -xzf payload-${{ matrix.platform }}.tar.gz
-          t="$RUNNER_TEMP/editors"; rm -rf "$t"; mkdir -p "$t/clion/CLion2025.2"
+          t="$RUNNER_TEMP/editors"; rm -rf "$t"; mkdir -p "$t/clion/CLion2026.2"
           # From inside the directory: GNU tar reads `D:` in a Windows `-C D:\...` as a remote host.
           archive="$PWD/$(ls mcppls-zed-*.tar.gz)"
           (cd "$t" && tar -xzf "$archive")
           dev="stage/mcppls-devtools${{ matrix.exe }}"
-          where=(--server-dir "$t/server" --zed-dir "$t/zed" --clion-dir "$t/clion/CLion2025.2")
+          where=(--server-dir "$t/server" --zed-dir "$t/zed" --clion-dir "$t/clion/CLion2026.2")
 
           "$dev" extension --editor zed --install --link --plugin "$t/mcppls-zed" --payload payload "${where[@]}"
           test -f "$t/zed/extensions/installed/mcppls/extension.wasm"
           "$dev" extension --editor clion --install --plugin "$(ls mcppls-clion-*.zip)" --payload payload "${where[@]}"
-          ls "$t"/clion/CLion2025.2/mcppls-clion/lib/mcppls-clion-*.jar
+          ls "$t"/clion/CLion2026.2/mcppls-clion/lib/mcppls-clion-*.jar
 
           # The server both plugins fall back to answers a project.
           "$t/server/bin/mcppls${{ matrix.exe }}" --version
@@ -123,11 +128,16 @@ jobs:
           "$dev" uninstall --editor zed "${where[@]}"
           test -d "$t/server"   # CLion still uses it
           "$dev" uninstall --editor clion "${where[@]}"
-          for gone in "$t/server" "$t/zed/extensions/installed/mcppls" "$t/clion/CLion2025.2/mcppls-clion"; do
+          for gone in "$t/server" "$t/zed/extensions/installed/mcppls" "$t/clion/CLion2026.2/mcppls-clion"; do
             if [ -e "$gone" ]; then echo "::error::$gone is still there after uninstall"; exit 1; fi
           done
           # The source of a linked install is untouched by removing the link.
           test -f "$t/mcppls-zed/extension.toml"
+
+  # Not the install above: this one starts Zed itself and asks the installed extension for mcppls.
+  zed:
+    name: real Zed
+    uses: ./.github/workflows/zed-smoke.yml
 
   performance:
     name: performance (${{ matrix.platform }})
@@ -321,7 +331,7 @@ jobs:
   # Everything a release would publish, staged and checked. Release takes this artifact as it is.
   candidate:
     name: release candidate
-    needs: [plugins, install, performance, self-hosting, stability]
+    needs: [plugins, install, zed, performance, self-hosting, stability]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7

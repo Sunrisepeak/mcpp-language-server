@@ -39,7 +39,11 @@ mcpp 给出的文档里列出了每个翻译单元、它的模块角色、它的
 
 ## xmake
 
-有 `xmake.lua` 就是 xmake 工程。根目录或 `.vscode/` 里已有的 `compile_commands.json`（xmake 的 VS Code 插件写在那里）会直接读取。否则 mcppls 用 xmake 自己的命令 `xmake project -k compile_commands` 获取一份，这个命令不编译任何东西——但它会配置并扫描模块，所以 mcppls 把 xmake 的配置目录和构建目录指向自己的缓存（`XMAKE_CONFIGDIR`、`--builddir`），你的工程保持不变。它离线运行（`--policies=package.fetch_only,network.mode:private`）：没有安装的包会让它停下，并给出和上面一样的询问。第一次描述要几秒钟（实测约 6–8 秒，大部分是 xmake 在探测工具链）；这期间工程按源码提供服务。模块角色靠扫描得到，所以 xmake 工程是 L3。
+有 `xmake.lua` 就是 xmake 工程。mcppls 用 xmake 自己的命令 `xmake project -k compile_commands` 向 xmake 要一份，这个命令不编译任何东西——但它会配置并扫描模块，所以 mcppls 把 xmake 的配置目录和构建目录指向自己的缓存（`XMAKE_CONFIGDIR`、`--builddir`），你的工程保持不变：不生成、不修改、不删除里面的任何文件，包括你自己的 `compile_commands.json`。它离线运行（`--policies=package.fetch_only,network.mode:private`）：没有安装的包会让它停下，并给出和上面一样的询问。第一次描述要几秒钟（实测约 6–8 秒，大部分是 xmake 在探测工具链）；这期间工程按源码提供服务。模块角色靠扫描得到，所以 xmake 工程是 L3。
+
+模型会跟着你的操作走，不需要手动做任何事：任何一个 `xmake.lua` 变了，就重新描述工程；你自己运行 `xmake f` 也一样——mcppls 读取它留在 `.xmake/<plat>/<arch>/xmake.conf` 里的内容（只读；有多个时取最新的那个），并让自己的私有运行用同样的方式配置：平台、架构、模式（`-m debug` 得到 `-O0 -g`，而不是 release 的参数）、工具链、SDK、运行库、kind，以及你的 `xmake.lua` 声明的选项。如果 xmake 拒绝其中某个选项（`xmake.lua` 里已经没有声明的那种），mcppls 会只带标准选项再配置一次，状态栏会说明哪些没有带上。
+
+你自己的 `compile_commands.json`（在根目录或 `.vscode/` 里，xmake 的 VS Code 插件写在那里）在 mcppls 能运行 xmake 时**不会被读取**：它只反映你上一次运行 `xmake project` 时的样子，跟不上 `xmake.lua`，两个来源轮流生效会互相打架。mcppls 运行不了 xmake 时——工作区不受信任、`PATH` 上没有 xmake，或 `mcppls.buildTool` 是 `off`——才会原样读取它，并监视它；如果它比某个 `xmake.lua`（或你的 `xmake.conf`）旧，会有一条通知说一次：运行 `xmake project -k compile_commands` 更新它。想让 mcppls 有意去读你自己的文件，把 `mcppls.buildTool` 设为 `off`。
 
 ## meson
 
@@ -63,9 +67,10 @@ mcpp 给出的文档里列出了每个翻译单元、它的模块角色、它的
 
 ## 用哪个 C++ 标准，以及 C++26
 
-标准以构建为准：一个单元的命令里写的 `-std=`（或 `/std:`）是什么，mcppls 就交给 clangd 什么；`/std:c++latest` 即 C++26。另有两条规则：
+标准以构建为准：一个单元的命令里写的 `-std=`（或 `/std:`）是什么，mcppls 就交给 clangd 什么；`/std:c++latest` 即 C++26。另有三条规则：
 
 - **同一上下文中的模块单元用同一个标准。** 模块的 BMI 只能在构建它时所用的标准下导入——`std` 按 C++23 构建时，C++26 文件里的 `import std` 会直接失败（"C++26 was disabled in precompiled file"）。因此同一上下文里导入、提供或属于某个模块的单元，统一按其中最新的标准来读，不涉及模块的普通单元保留自己的标准；有单元被提升时日志会说明，报告中的 `plan.languageStandard`、`plan.standardsSeen`、`plan.standardsRaised` 给出具体情况，状态中的 profile 也会写明所用标准。
+- **命令里没写标准时**（比如 xmake 没写 `set_languages`）。其中的模块单元——导入、提供或属于某个模块的单元，包括 `std` 自己的单元——按 C++23 读（`gnu++23`；MSVC 目标用 `c++23`），这是 `import std` 所针对的标准，不管编译器自己的默认是什么：Clang 默认的 gnu++17 根本没有模块。日志会说明一次，报告中的 `plan.standardAssumed` 为 `true`；构建写了标准的，照构建的来。普通单元按构建编译器自己的默认读（在与 Clang 默认不同的时候：GCC 16 是 gnu++20；GCC 15 起的 C 是 gnu23），和构建编译它的方式一致。构建给模块单元写的标准低于 C++20 时会提示一次（`module-standard-too-old`）：模块需要 C++20。
 - **没有任何构建描述的源文件，按读取它们的编译器所支持的最新标准来读**：语义工具包（clang 23、libc++ 23）、GCC 14 及以上、Clang 17 及以上为 C++26（Clang 20 之前写作 `c++2c`）；更老的编译器为 C++23，即支持 `import std` 的最低标准。
 
 C++26 能用到什么，取决于 clangd 23.1：包索引（pack indexing）、`= delete("reason")`、占位变量 `_`、`static_assert` 自定义消息、`#embed`、可变参数友元，以及 clang 23 已实现的其余特性；标准库部分取决于你构建所用的标准库（语义工具包为 libc++ 23）。**契约（P2900）和反射（P2996）clang 23 尚未实现**：使用它们的代码即使 GCC 能编译，clangd 里也会报错；VS Code 仍会为 `contract_assert`、`pre`、`post` 着色。

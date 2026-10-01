@@ -1,0 +1,97 @@
+name: Zed smoke
+
+# The Zed extension in a real Zed (editors/zed/tests/smoke.sh; plan 0.0.8 part 2, Z-2 and Z-3), on
+# Linux only: the pinned stable Zed (ZED_VERSION in .github/versions.env) under xvfb-run, rendering
+# with mesa's lavapipe. One job per settings: `recommended` (mcppls first, clangd off) and `default`
+# (Zed's own, where both servers run).
+#
+# Called from the workflows that check a whole candidate, on the payload artifact their own run made:
+#
+#   ci.yml            a pull request that touches the Zed extension, the server's protocol layer or
+#                     orchestrator, or devtools, or that merges into a release/* branch
+#   nightly.yml       every night, after ci.yml
+#   release-checks    every release candidate (and a pull request that changes release packaging)
+#
+# It needs the `payload-linux-x64` artifact of the calling run.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  zed:
+    name: Zed (linux-x64, ${{ matrix.mode }} settings)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [recommended, default]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Version pins
+        run: |
+          set -euo pipefail
+          while IFS='=' read -r name value; do
+            case "$name" in ''|\#*) continue ;; esac
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done < .github/versions.env
+      - uses: actions/download-artifact@v8
+        with:
+          name: payload-linux-x64
+      - name: Unpack the payload
+        run: tar -xzf payload-linux-x64.tar.gz
+      # Zed needs a display and a Vulkan driver: xvfb for the first, lavapipe (software Vulkan)
+      # for the second. The libraries are what a desktop has and a runner image may not.
+      - name: Display, Vulkan and the libraries Zed loads
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb mesa-vulkan-drivers libvulkan1 libegl1 libgl1 libgbm1 \
+              libxkbcommon0 libxkbcommon-x11-0 libwayland-client0 libx11-xcb1 libxcb1 libfontconfig1 libasound2t64
+      - name: Zed ${{ env.ZED_VERSION }}
+        id: zed-cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/zed-download
+          key: zed-linux-x86_64-${{ env.ZED_VERSION }}-${{ env.ZED_LINUX_X86_64_SHA256 }}
+      - name: Download Zed
+        if: steps.zed-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/zed-download"
+          curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 -o "$RUNNER_TEMP/zed-download/zed.tar.gz" \
+              "https://github.com/zed-industries/zed/releases/download/v${ZED_VERSION}/zed-linux-x86_64.tar.gz"
+      - name: Unpack Zed
+        run: |
+          set -euo pipefail
+          echo "$ZED_LINUX_X86_64_SHA256  $RUNNER_TEMP/zed-download/zed.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/zed-download/zed.tar.gz" -C "$RUNNER_TEMP"
+          # The pinned tarball's hash is the version check: the editor binary takes no --version (its CLI, bin/zed, does).
+          test -x "$RUNNER_TEMP/zed.app/libexec/zed-editor"
+      # The crate compiled to WebAssembly by the same devtools that installs it (the runner's own
+      # rustup provides cargo; devtools adds the wasm32-wasip2 target).
+      - name: Build the extension
+        run: stage/mcppls-devtools extension --editor zed
+      - name: Zed on a project, ${{ matrix.mode }} settings
+        env:
+          ZED_EDITOR: ${{ runner.temp }}/zed.app/libexec/zed-editor
+          MCPPLS_PAYLOAD: ${{ github.workspace }}/payload
+          MCPPLS_DEVTOOLS: ${{ github.workspace }}/stage/mcppls-devtools
+          ZED_SMOKE_DIR: ${{ runner.temp }}/zs
+          # Zed downloads its clangd from GitHub on first use; here that has to work.
+          ZED_SMOKE_REQUIRE_CLANGD: '1'
+        run: xvfb-run -a -s '-screen 0 1280x1024x24' editors/zed/tests/smoke.sh ${{ matrix.mode }}
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: zed-smoke-${{ matrix.mode }}
+          path: |
+            ${{ runner.temp }}/zs/*.log
+            ${{ runner.temp }}/zs/zed.out
+            ${{ runner.temp }}/zs/cache/logs
+            ${{ runner.temp }}/zs/home/.local/share/zed/logs
+          if-no-files-found: ignore
+          retention-days: 7

@@ -190,6 +190,10 @@ public:
     // Answers the client's request `message`; `reply` is called exactly once, on the event loop.
     virtual void request(const RequestView& request, const Json& message, Reply reply) = 0;
     virtual void cancel(const Json& clientRequestId) = 0;
+    // C-2 (plan 0.0.8 part 2): the client has its answer to `clientRequestId` from elsewhere; the engine may finish it
+    // (the reply still comes) but nobody waits for it, so it is no timeout, no sign of a stuck engine and no reason to set
+    // its file aside. One not yet sent is cancelled.
+    virtual void detach(const Json& clientRequestId) { cancel(clientRequestId); }
     // The client's response to a request this engine sent it (Host::client_request_id).
     virtual void client_response(int generation, const Json& engineRequestId, const Json& response) = 0;
 

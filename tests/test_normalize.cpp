@@ -88,6 +88,31 @@ int main() {
         expect(!contains(out, "c++-module"));
     };
 
+    "X-3: a command with no standard is read with the one GCC builds it with, where Clang's differs"_test = [] {
+        expect(n::gcc_default_standard("16.1.0", false) == std::optional<std::string_view> { "gnu++20" });
+        expect(n::gcc_default_standard("15.2.0", false) == std::nullopt) << "gnu++17 is Clang's default too";
+        expect(n::gcc_default_standard("11", false) == std::nullopt);
+        expect(n::gcc_default_standard("10.5.0", false) == std::optional<std::string_view> { "gnu++14" });
+        expect(n::gcc_default_standard("15.1.0", true) == std::optional<std::string_view> { "gnu23" });
+        expect(n::gcc_default_standard("13.3.0", true) == std::nullopt) << "gnu17 is Clang's default too";
+        expect(n::gcc_default_standard("", false) == std::nullopt && n::gcc_default_standard("unknown", false) == std::nullopt);
+
+        auto facts = gcc_facts();
+        facts.toolchain.version = "16.1.0";
+        const std::vector<std::string> bare { "/opt/gcc/bin/g++", "-O3", "-c", "/p/src/main.cpp" };
+        auto out = n::translate_gnu(n::GnuInput { bare, "/p/src/main.cpp", "/p", &facts, false });
+        expect(std::ranges::count(out, std::string { "-std=gnu++20" }) == 1) << std::format("{}", out);
+        const std::vector<std::string> stated { "/opt/gcc/bin/g++", "-std=c++23", "-c", "/p/src/main.cpp" };
+        out = n::translate_gnu(n::GnuInput { stated, "/p/src/main.cpp", "/p", &facts, false });
+        expect(contains(out, "-std=c++23") && !contains(out, "-std=gnu++20")) << "a stated standard is the build's";
+        const std::vector<std::string> cUnit { "/opt/gcc/bin/gcc", "-c", "/p/src/x.c" };
+        out = n::translate_gnu(n::GnuInput { cUnit, "/p/src/x.c", "/p", &facts, false, true, true });
+        expect(contains(out, "-std=gnu23") && !contains(out, "-std=gnu++20")) << std::format("{}", out);
+        facts.toolchain.version = "14.2.0";
+        out = n::translate_gnu(n::GnuInput { bare, "/p/src/main.cpp", "/p", &facts, false });
+        expect(!contains_prefix(out, "-std=")) << "GCC 14 and Clang agree: nothing is added, and the command stays as 0.0.7 wrote it";
+    };
+
     "P3: Clang strips BMI arguments and keeps the rest"_test = [] {
         ToolchainFacts facts;
         facts.toolchain.family = s::Family::clang;
@@ -307,6 +332,59 @@ int main() {
             else if (entry.file == "/p/src/plain.c") expect(*standard == "-std=c17") << "a C unit keeps its own";
             else expect(*standard == "-std=c++26") << entry.file << ": " << *standard << " -- std, core and app share one";
         }
+    };
+
+    "module units whose build names no standard are read as C++23, other units as their compiler does (X-3)"_test = [] {
+        // An xmake project without set_languages, built by GCC 16: no command names a standard.
+        const std::map<std::string, std::string> sources {
+            { "/p/src/app.cpp", "import std;\nimport core;\nint main() {}\n" },
+            { "/p/src/core.cppm", "export module core;\nimport std;\n" },
+            { "/p/src/old.cpp", "int old() { return 0; }\n" },
+            { "/p/src/plain.c", "int c(void) { return 0; }\n" },
+        };
+        s::Database database;
+        database.hasIde = true;
+        s::Set set;
+        set.name = "app";
+        set.hasIde = true;
+        set.toolchain = "gcc-16.1.0-x86_64-linux-gnu";
+        for (const auto& [path, text] : sources) {
+            s::TranslationUnit unit;
+            unit.source = path;
+            unit.workDirectory = "/p";
+            unit.arguments = { path.ends_with(".c") ? "/opt/gcc/bin/gcc" : "/opt/gcc/bin/g++", "-O2", "-c", path };
+            set.units.push_back(std::move(unit));
+        }
+        database.sets.push_back(set);
+        std::map<std::string, ToolchainFacts, std::less<>> facts { { set.toolchain, gcc_facts() } };
+        n::PlanInput input;
+        input.database = &database;
+        input.facts = &facts;
+        input.engineDriverDirectory = "/payload/clangd/bin";
+        input.scanner = [&](std::string_view path) {
+            const auto it = sources.find(std::string { path });
+            return it == sources.end() ? p::ScanResult {} : p::scan_source(it->second);
+        };
+        input.metadataReader = [](std::string_view) {
+            return std::vector<s::ModuleEntry> { { "std", "/opt/gcc/include/c++/16/bits/std.cc", true, {}, {} } };
+        };
+        const auto plan = n::plan_engine(input);
+        expect(plan.standardAssumed && plan.languageStandard == "gnu++23") << plan.languageStandard;
+        expect(plan.standardsRaised == 0u && plan.standardsSeen.empty());
+        std::size_t modular { 0 };
+        for (const auto& entry : plan.entries) {
+            const auto count = std::ranges::count_if(entry.arguments, [](const std::string& argument) { return argument.starts_with("-std="); });
+            expect(count == 1) << entry.file << ": one standard, " << count;
+            const auto standard = std::ranges::find_if(entry.arguments, [](const std::string& argument) { return argument.starts_with("-std="); });
+            if (standard == entry.arguments.end()) continue;
+            if (entry.file == "/p/src/old.cpp") expect(*standard == "-std=gnu++20") << "a unit with no module is read as GCC 16 builds it";
+            else if (entry.file == "/p/src/plain.c") expect(*standard == "-std=gnu23") << "a C unit as GCC 16 builds it";
+            else {
+                expect(*standard == "-std=gnu++23") << entry.file << ": " << *standard;
+                ++modular;
+            }
+        }
+        expect(modular == 3u) << "app, core and std";
     };
 
     "a plan resolves, injects std once and leaves out what cannot resolve"_test = [] {

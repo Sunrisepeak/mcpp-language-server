@@ -408,6 +408,147 @@ int main() {
         expect(p::xmake_configuration_key(true, manifest) == p::xmake_configuration_key(true, manifest));
     };
 
+    "X-2: an xmake.conf is parsed as text, top-level scalars only"_test = [] {
+        // Recorded 2026-10-01 from `xmake f -m debug --fancy=y --tag=zz` (xmake v3.1.1) in a project that declares two options.
+        const std::string conf {
+            "{\n    __toolchains_linux_x86_64 = {\n        \"envs\",\n        \"gcc\"\n    },\n    arch = \"x86_64\",\n    builddir = \"build\",\n"
+            "    ccache = true,\n    fancy = true,\n    host = \"linux\",\n    kind = \"static\",\n    mode = \"debug\",\n    ndk_stdcxx = true,\n"
+            "    network = \"public\",\n    pkg_searchdirs = \"/tmp\",\n    plat = \"linux\",\n    proxy_pac = \"pac.lua\",\n    tag = \"zz\",\n"
+            "    theme = \"default\"\n}" };
+        const auto options = p::parse_xmake_conf(conf);
+        const auto get = [&](std::string_view name) -> const p::XmakeOption* {
+            const auto it = std::ranges::find_if(options, [&](const p::XmakeOption& option) { return option.name == name; });
+            return it == options.end() ? nullptr : &*it;
+        };
+        expect(fatal(get("mode") != nullptr));
+        expect(get("mode")->value == "debug" && !get("mode")->flag);
+        expect(fatal(get("fancy") != nullptr));
+        expect(get("fancy")->value == "true" && get("fancy")->flag);
+        expect(get("ccache")->flag);
+        expect(get("envs") == nullptr) << "a nested table's items are not keys";
+        expect(get("__toolchains_linux_x86_64") == nullptr) << "a table is not a scalar";
+
+        // Strings with escapes and quotes, false, numbers and expressions the parser does not take, a comment-free Lua it never runs.
+        const auto odd = p::parse_xmake_conf("{ a = 'it\\'s', b = false, n = 3, e = 1 + 2, t = { x = \"no\" }, z = \"last\" }");
+        expect(odd == (std::vector<p::XmakeOption> { { "a", "it's", false }, { "b", "false", true }, { "z", "last", false } }));
+        expect(p::parse_xmake_conf("").empty());
+        expect(p::parse_xmake_conf("not a table").empty());
+        expect(p::parse_xmake_conf("{ mode = \"debug\"").size() == 1) << "a file cut short keeps what was complete";
+    };
+
+    "X-2: the private configuration follows the user's choices, without internal keys"_test = [] {
+        const std::vector<p::XmakeOption> user {
+            { "arch", "x86_64", false }, { "builddir", "build", false }, { "ccache", "true", true }, { "fancy", "true", true },
+            { "host", "linux", false }, { "kind", "static", false }, { "mode", "debug", false }, { "ndk_stdcxx", "true", true },
+            { "network", "public", false }, { "pkg_searchdirs", "/tmp", false }, { "plat", "linux", false }, { "policies", "x", false },
+            { "proxy_pac", "pac.lua", false }, { "__private", "1", false }, { "tag", "zz", false }, { "theme", "default", false },
+            { "toolchain", "gcc", false }, { "sdk", "", false }, { "clean", "true", true } };
+        const auto arguments = p::xmake_configure_arguments("/c/build", true, user);
+        expect(arguments == (std::vector<std::string> { "f", "-c", "-p", "linux", "-a", "x86_64", "-m", "debug", "--fancy=y", "--kind=static",
+                                                         "--tag=zz", "--toolchain=gcc", "--confirm=no",
+                                                         "--policies=package.fetch_only,network.mode:private", "--builddir=/c/build" }))
+            << b::join(arguments, " ");
+        expect(p::xmake_configure_arguments("/c/build", false, user).back() == "--builddir=/c/build");
+        const auto online = p::xmake_configure_arguments("/c/build", false, user);
+        expect(std::ranges::find(online, "-y") != online.end());
+
+        // The retry after "Invalid option": the standard ones only, and the notice names what was left out.
+        const auto reduced = p::xmake_configure_arguments("/c/build", true, user, true);
+        expect(reduced == (std::vector<std::string> { "f", "-c", "-p", "linux", "-a", "x86_64", "-m", "debug", "--kind=static", "--toolchain=gcc",
+                                                       "--confirm=no", "--policies=package.fetch_only,network.mode:private", "--builddir=/c/build" }))
+            << b::join(reduced, " ");
+        expect(p::xmake_left_out(user) == (std::vector<std::string> { "fancy", "tag" }));
+        for (const char* name : { "plat", "arch", "mode", "toolchain", "sdk", "runtimes", "kind" }) expect(p::xmake_option_is_standard(name)) << name;
+        for (const char* name : { "builddir", "host", "theme", "network", "proxy_pac", "ccache", "policies", "pkg_searchdirs", "ndk_stdcxx", "__toolchains_linux_x86_64" }) {
+            expect(p::xmake_option_is_internal(name)) << name;
+        }
+        expect(!p::xmake_option_is_internal("fancy"));
+
+        // No .xmake/: the arguments are today's.
+        expect(p::xmake_configure_arguments("/c/build", false) == (std::vector<std::string> { "f", "-c", "-y", "--builddir=/c/build" }));
+
+        // What xmake v3.1.1 printed for `xmake f -c --nosuch=1` (exit code 255).
+        expect(p::xmake_unknown_option("[38;2;0;255;0m        --tag=TAG   The tag option\nerror: Invalid option: --nosuch=1\n"));
+        expect(p::xmake_unknown_option("error: unknown option: --x"));
+        expect(!p::xmake_unknown_option("The packages(fmt) not found"));
+    };
+
+    "X-2: the newest .xmake/<plat>/<arch>/xmake.conf is the user's configuration, read only"_test = [] {
+        const std::string root { make_root("xmake-conf") };
+        expect(!p::read_xmake_user_config(root).has_value()) << "no .xmake/: today's behaviour";
+        write(root, ".xmake/linux/x86_64/xmake.conf", "{ mode = \"release\", plat = \"linux\" }");
+        write(root, ".xmake/linux/x86_64/cache/other", "x");
+        const auto first = p::read_xmake_user_config(root);
+        expect(fatal(first.has_value()));
+        expect(first->path == b::join_path(root, ".xmake/linux/x86_64/xmake.conf"));
+        expect(first->options.size() == 2);
+        // A later `xmake f` for another architecture is the last one.
+        std::this_thread::sleep_for(std::chrono::milliseconds { 30 });
+        write(root, ".xmake/linux/arm64/xmake.conf", "{ mode = \"debug\", plat = \"linux\", arch = \"arm64\" }");
+        const auto second = p::read_xmake_user_config(root);
+        expect(fatal(second.has_value()));
+        expect(second->path == b::join_path(root, ".xmake/linux/arm64/xmake.conf"));
+        expect(second->options.size() == 3);
+        fs::remove_all(root);
+    };
+
+    "X-2: the configuration key includes the user's xmake.conf, X-1: staleness of the project's file"_test = [] {
+        const std::pair<std::uint64_t, std::int64_t> manifest { 64, 1000 };
+        const std::pair<std::uint64_t, std::int64_t> conf { 300, 5000 };
+        expect(p::xmake_configuration_key(true, manifest, conf) != p::xmake_configuration_key(true, manifest));
+        expect(p::xmake_configuration_key(true, manifest, conf) != p::xmake_configuration_key(true, manifest, std::pair<std::uint64_t, std::int64_t> { 300, 6000 }))
+            << "a new `xmake f` configures again";
+        expect(p::xmake_configuration_key(true, manifest, conf) != p::xmake_configuration_key(true, manifest, std::pair<std::uint64_t, std::int64_t> { 301, 5000 }));
+        expect(p::xmake_configuration_key(true, manifest, conf) == p::xmake_configuration_key(true, manifest, conf));
+        expect(p::xmake_configuration_key(true, manifest) == p::xmake_configuration_key(true, manifest, std::nullopt));
+
+        const std::array<std::int64_t, 2> older { 100, 200 };
+        const std::array<std::int64_t, 2> newer { 100, 500 };
+        expect(!p::xmake_commands_out_of_date(300, older));
+        expect(p::xmake_commands_out_of_date(300, newer)) << "any input newer than the file";
+        expect(!p::xmake_commands_out_of_date(300, std::array<std::int64_t, 1> { 300 })) << "the same time is not older";
+        expect(!p::xmake_commands_out_of_date(300, std::span<const std::int64_t> {}));
+    };
+
+    "X-1: xmake's own file is read only when xmake cannot run, and says when it is older than xmake.lua"_test = [] {
+        const std::string root { make_root("xmake-fallback") };
+        write(root, "src/main.cpp", "int main() { return 0; }\n");
+        write(root, "compile_commands.json",
+              nlohmann::json::array({ nlohmann::json { { "directory", root }, { "file", b::join_path(root, "src/main.cpp") },
+                                                       { "arguments", nlohmann::json::array({ "g++", "-c", b::join_path(root, "src/main.cpp") }) } } })
+                  .dump());
+        std::this_thread::sleep_for(std::chrono::milliseconds { 30 });
+        write(root, "xmake.lua", "target(\"x\")\n");   // written after the file: the file is older
+        const p::XmakeProvider provider;
+        const auto claim = provider.detect(root);
+        expect(fatal(claim.has_value() && !claim->compileCommands.empty()));
+        p::ProviderContext context;
+        context.scanner = p::file_scanner();
+        context.prober = [](std::string_view, std::span<const std::string>) -> std::optional<mcppls::toolchain::ToolchainFacts> { return std::nullopt; };
+
+        // Untrusted, or the build tool off: the file is the only source, watched, with one notice.
+        for (const bool trusted : { false, true }) {
+            context.trusted = trusted;
+            context.runBuildTool = false;
+            const auto answer = provider.existing(*claim, context);
+            expect(fatal(answer.has_value() && answer->database.has_value()));
+            expect(std::ranges::count_if(answer->database->notices, [](const auto& notice) { return notice.first == "xmake-commands-stale"; }) == 1);
+            expect(std::ranges::find(answer->database->watch, claim->compileCommands) != answer->database->watch.end()) << "watched in the fallback only";
+        }
+        const auto watched = provider.watch_inputs(*claim);
+        expect(std::ranges::find(watched, claim->compileCommands) == watched.end());
+        expect(std::ranges::find(watched, std::string { ".xmake/*/*/xmake.conf" }) != watched.end());
+
+        // A file newer than xmake.lua has nothing to say.
+        std::this_thread::sleep_for(std::chrono::milliseconds { 30 });
+        write(root, "compile_commands.json", fs::read_file(claim->compileCommands).value());
+        context.trusted = false;
+        const auto fresh = provider.existing(*claim, context);
+        expect(fatal(fresh.has_value() && fresh->database.has_value()));
+        expect(fresh->database->notices.empty());
+        fs::remove_all(root);
+    };
+
     "B-5: xmake detect() and existing() read what is already there"_test = [] {
         const std::string root { make_root("xmake") };
         write(root, "xmake.lua", "target(\"hello\")\n    set_kind(\"binary\")\n    add_files(\"src/*.cpp\")\n");

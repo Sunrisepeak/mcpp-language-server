@@ -277,35 +277,35 @@ jobs:
           - platform: linux-x64
             part: 1 of 2
             os: ubuntu-24.04
-            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mingw mcpp-split-gcc mcpp-watch multi-root mcpp-llvm mcpp-watch@polling mcpp-emit mcpp-rules-generated s1-two-sets compdb-lto-msvc failure-at-base@vscode generated-module-negotiated typing-import typing-import-spin workaround-canaries typing-autosave compdb-rejected-command compdb-mixed-standards mcpp-emit-partial mcpp-emit-partial-download
+            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mingw mcpp-split-gcc mcpp-watch multi-root mcpp-llvm mcpp-watch@polling mcpp-emit mcpp-rules-generated s1-two-sets compdb-lto-msvc failure-at-base@vscode generated-module-negotiated typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins compdb-rejected-command compdb-mixed-standards mcpp-emit-partial mcpp-emit-partial-download compdb-midwrite xmake-basic xmake-late-config xmake-user-mode xmake-no-standard
           - platform: linux-x64
             part: 2 of 2
             os: ubuntu-24.04
             extras: true
-            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-provisioned mcpp-emit-watch mcpp-emit-watch@polling mcpp-emit-edits cmake-clang cmake-clang-bdb cmake-fetchcontent-offline watch-polling payload-corrupt clangd-cannot-load generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed failure-at-base failure-at-base@neovim completion-keywords diagnostic-bundle clangd-crash-context mcpp-emit-wait inferred-cxx26 reset-cache
+            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-provisioned mcpp-emit-watch mcpp-emit-watch@polling mcpp-emit-edits cmake-clang cmake-clang-bdb cmake-fetchcontent-offline watch-polling payload-corrupt clangd-cannot-load generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed failure-at-base failure-at-base@neovim completion-keywords diagnostic-bundle clangd-crash-context mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache include-cleaner-modules
           # generated-module{,-old-mcpp,-negotiated}'s mcpp-mock.json bakes in a POSIX driver path
           # (${env:HOME}/.mcpp/registry/..., no {exe}); it resolves the same way here as on Linux, so
           # these run on macOS but are left off win32-x64 below rather than fixed unverified.
           - platform: darwin-arm64
             os: macos-14
             extras: true
-            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave clangd-crash-context mcpp-emit-wait inferred-cxx26 reset-cache
+            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache include-cleaner-modules
           # No mcpp on the arm64 runner (its tools are the cross-built ones), so the fixtures that
           # need no build tool and no compiler of their own: the semantic kit, clangd and the server
           # on aarch64, with module faults, a corrupt payload and polling included.
           - platform: linux-arm64
             os: ubuntu-24.04-arm
             cross-tools: true
-            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave clangd-crash-context inferred-cxx26 reset-cache
+            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context inferred-cxx26 reset-cache include-cleaner-modules
           - platform: win32-x64
             part: 1 of 2
             os: windows-2022
-            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-split-msvc cmake-msvc-std compdb-clangxx-msvc-std multi-root compdb-clang-cl-std mcpp-llvm-msvc failure-at-base@vscode typing-import typing-import-spin workaround-canaries typing-autosave
+            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-split-msvc cmake-msvc-std compdb-clangxx-msvc-std multi-root compdb-clang-cl-std mcpp-llvm-msvc failure-at-base@vscode typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins
           - platform: win32-x64
             part: 2 of 2
             os: windows-2022
             extras: true
-            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-clangxx-msvc cmake-clang-cl mcpp-msvc mcpp-watch failure-at-base clangd-cannot-load completion-keywords diagnostic-bundle mcpp-emit-wait inferred-cxx26 reset-cache
+            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-clangxx-msvc cmake-clang-cl mcpp-msvc mcpp-watch failure-at-base clangd-cannot-load completion-keywords diagnostic-bundle mcpp-emit-wait inferred-cxx26 reset-cache include-cleaner-modules
     defaults:
       run:
         shell: bash
@@ -318,6 +318,21 @@ jobs:
           set -euo pipefail
           case " ${{ matrix.fixtures }} " in *" mcpp-gcc "*|*" mcpp-split-gcc "*|*" mingw "*) mcpp toolchain install gcc 16.1.0 ;; esac
           if [ "$RUNNER_OS" = Linux ]; then sudo apt-get update -q && sudo apt-get install -y -q ninja-build; fi
+      # 0.0.8 part 2 X-7: the xmake fixtures run xmake itself (pinned in .github/versions.env, from xlings like every other
+      # tool here) with GCC 16 first on PATH: xmake picks the compiler it finds, and only GCC 16 has libstdc++'s std module.
+      - name: xmake and GCC 16 for the xmake fixtures
+        if: runner.os == 'Linux' && contains(matrix.fixtures, 'xmake-')
+        run: |
+          set -euo pipefail
+          for package in "xmake@$XMAKE_VERSION" gcc@16.1.0; do
+            for attempt in 1 2 3; do
+              if xlings install "$package" -y -g; then break; fi
+              [ "$attempt" = 3 ] && { echo "::error::$package could not be installed"; exit 1; }
+              sleep 30
+            done
+          done
+          xmake --version | head -1
+          g++ --version | head -1
       # usable plan W3, closing the loop with mcpp itself: what `mcpp emit build-database` prints for
       # each of this host's mcpp fixtures, against the S1 and S2 schemas, S1's semantic rules and the
       # contract of mcpp-community/mcpp#636 (docs/specs/tools/validate.py). The fixtures below then have the
@@ -799,6 +814,17 @@ jobs:
         with:
           name: ux-${{ matrix.fixture }}
           path: ${{ runner.temp }}/ux-results
+      # The server's logs and incidents of a failed stage (each incident keeps clangd's log): what a stall, a
+      # restart or a set-aside file was, which the measurements above only count.
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: ux-${{ matrix.fixture }}-server
+          path: |
+            ${{ runner.temp }}/ux-work/cache-*/logs
+            ${{ runner.temp }}/ux-work/cache-*/workspaces/*/incidents
+          if-no-files-found: ignore
+          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # Clean machines (usable plan W5, design 20.2): no compiler, no Visual Studio, no
@@ -1140,6 +1166,175 @@ jobs:
             done
           done
           if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi
+
+  # ---------------------------------------------------------------------------
+  # The Zed extension's choice of server (editors/zed/src/resolve.rs) as a plain Rust test on the
+  # runner, and the crate still compiling to the wasm Zed loads. Every pull request: a few seconds.
+  zed-unit:
+    name: Zed extension (cargo test)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Unit tests
+        run: cargo test --manifest-path editors/zed/Cargo.toml
+      - name: The wasm build Zed loads
+        run: |
+          rustup target add wasm32-wasip2
+          cargo build --release --target wasm32-wasip2 --manifest-path editors/zed/Cargo.toml
+
+  # Whether the pull request needs the real Zed (zed-smoke.yml): it touches the extension, the
+  # server's protocol layer or orchestrator, or devtools (which installs the extension), or it is
+  # the pull request of a release/* branch or into one. Same method as packaging-changes below.
+  zed-changes:
+    name: does the pull request need the real Zed
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.files.outputs.run }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - id: files
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          run=false
+          case "$BASE_REF" in release/*) echo "into $BASE_REF"; run=true ;; esac
+          case "$HEAD_REF" in release/*) echo "from $HEAD_REF"; run=true ;; esac
+          while read -r file; do
+            case "$file" in
+              editors/zed/*|src/lsp/*|src/orchestrator/*|tools/devtools/*|.github/workflows/zed-smoke.yml|.github/versions.env)
+                echo "the real Zed: $file"; run=true ;;
+            esac
+          done < <(git diff --name-only HEAD^1 HEAD)
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+  # A pull request that changes release packaging gets the same smoke from release-checks.yml, so
+  # it is not run twice here. nightly.yml and every release candidate run it on their own.
+  zed-smoke:
+    name: real Zed
+    needs: [payload, zed-changes, packaging-changes]
+    if: needs.zed-changes.outputs.run == 'true' && needs.packaging-changes.outputs.changed != 'true'
+    uses: ./.github/workflows/zed-smoke.yml
+
+  # ---------------------------------------------------------------------------
+  # The CLion plugin (editors/clion), 0.0.8 part 2 CL-2 and CL-3. Gradle comes from xlings like the
+  # rest of the tools here, and the JDK with it. The IDEs Gradle downloads (about 1.9 GB each) are
+  # kept in the Gradle cache under a key that carries their versions, so they are fetched once per
+  # bump, not once per run.
+  #
+  # verifyPlugin (the JetBrains Plugin Verifier) runs on every pull request: the plugin against CLion
+  # 2025.2, the oldest build it claims, and against the one it is built on.
+  clion-verify:
+    name: CLion plugin verifier
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - name: Gradle from xlings
+        run: xlings install gradle -y -g
+      - name: Cache the CLion downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.gradle/caches/modules-2
+          key: gradle-clion-${{ hashFiles('editors/clion/gradle.properties', 'editors/clion/build.gradle.kts') }}
+      - name: Verify the plugin
+        working-directory: editors/clion
+        run: gradle --no-daemon verifyPlugin
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: clion-verifier
+          path: editors/clion/build/reports/pluginVerifier
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Whether the real-CLion test below runs. It takes a CLion download and a few minutes, so a pull
+  # request runs it only when it reaches the plugin, the protocol layer the plugin talks, the part of
+  # the server that answers it, or the tool that installs it -- or is a release branch's. Everything
+  # that is not a pull request (a push to main, the nightly, Release, prerelease checks) runs it.
+  clion-changes:
+    name: does the change reach the CLion plugin
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.files.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - id: files
+        env:
+          EVENT: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          changed=false
+          if [ "$EVENT" != pull_request ]; then
+            changed=true
+          elif [[ "$HEAD_REF" == release/* || "$BASE_REF" == release/* ]]; then
+            echo "a release branch"; changed=true
+          else
+            while read -r file; do
+              case "$file" in
+                editors/clion/*|src/lsp/*|src/orchestrator/*|tools/devtools/*)
+                  echo "reaches the plugin: $file"; changed=true ;;
+              esac
+            done < <(git diff --name-only HEAD^1 HEAD)
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+  # CLion 2026.2.3 itself, headless, with the platform's test framework: the plugin starts the
+  # mcppls this run built (first on the PATH, as the plugin finds it), and the test asserts what a
+  # person sees in an mcpp project -- the server Running, a diagnostic, a module-name completion, the
+  # process gone when the project closes -- and the one-engine rule on a CMake project
+  # (editors/clion/src/test). What CLion's own engine answers for the same file is printed in the log.
+  clion-e2e:
+    name: CLion 2026.2.3 (headless)
+    needs: [payload, clion-changes]
+    if: needs.clion-changes.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - name: Gradle from xlings
+        run: xlings install gradle -y -g
+      - uses: actions/download-artifact@v8
+        with:
+          name: payload-linux-x64
+      - name: Unpack the payload
+        run: tar -xzf payload-linux-x64.tar.gz
+      - name: Cache the CLion downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.gradle/caches/modules-2
+          key: gradle-clion-${{ hashFiles('editors/clion/gradle.properties', 'editors/clion/build.gradle.kts') }}
+      - name: Tests in CLion
+        working-directory: editors/clion
+        env:
+          MCPPLS_PAYLOAD_BIN: ${{ github.workspace }}/payload/bin
+        run: |
+          set -euo pipefail
+          "$MCPPLS_PAYLOAD_BIN/mcppls" version
+          gradle --no-daemon test
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: clion-e2e
+          path: |
+            editors/clion/build/reports/tests
+            editors/clion/build/test-results
+            editors/clion/build/idea-sandbox/*/log
+          if-no-files-found: ignore
+          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # The agent task benchmark's baseline/reference pairs (tools/bench/README.md, design
