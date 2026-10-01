@@ -19,6 +19,9 @@ struct ProcessConfig {
     std::vector<std::string> extraArguments;
     bool verboseLog { false };
     std::size_t workers { 0 };       // clangd's -j; 0: clangd's own default. Extra arguments naming -j win.
+    // --experimental-modules-support. WA-CLANGD-009: off for a project that uses no modules, where it only costs every
+    // request a scan of the file's module dependencies.
+    bool modulesSupport { true };
 };
 
 class Process {

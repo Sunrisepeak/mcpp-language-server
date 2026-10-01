@@ -36,6 +36,8 @@ inline constexpr std::string_view MSVC_STL_ALIGNED_ALLOCATION { "WA-CLANGD-005" 
 inline constexpr std::string_view DIRECTIVE_SEMICOLON_POSITION { "WA-CLANGD-006" };
 inline constexpr std::string_view UNSAVED_IMPORT_NOT_FOUND { "WA-CLANGD-007" };
 inline constexpr std::string_view BACKGROUND_INDEX_WITHOUT_MODULES { "WA-CLANGD-008" };
+inline constexpr std::string_view MODULE_SCAN_PER_REQUEST { "WA-CLANGD-009" };
+inline constexpr std::string_view CONST_CORRECTNESS_VIEWS { "WA-CLANGD-010" };
 
 std::span<const Workaround> workarounds();
 const Workaround* find_workaround(std::string_view id);
@@ -85,5 +87,18 @@ std::optional<LineRange> directive_missing_semicolon(std::string_view text, int 
 
 // WA-CLANGD-007. The module of clangd's "module 'X' not found" (any capitalisation of the first letter).
 std::optional<std::string> module_not_found_name(std::string_view message);
+
+// WA-CLANGD-010. clang-tidy 23.1's misc-const-correctness says a variable holding a range view "can be declared
+// 'const'" when the view cannot be iterated as const: filter_view, drop_while_view, chunk_by_view and split_view
+// cache their begin(), so they have no const begin(), and a view built on one of them has none either. Declared
+// const, `v | std::views::transform(f)`, a range-for or std::ranges::fold_left over it no longer compiles (issue #37,
+// UP-22). Whether `message` is such a diagnostic: the variable's type (the `aka` one where clangd gives it) is a
+// standard range view, `std::ranges::...` or the bare name libc++ prints, with one of those four views in it.
+// A variable of another type, a view that is const-iterable (transform_view over an array), and lazy_split_view
+// (const-iterable over a forward range) are left alone.
+bool const_correctness_on_non_const_view(std::string_view message);
+
+// WA-CLANGD-009 has no helper here: it is carried out where clangd is started (ProcessConfig::modulesSupport) and
+// where a plan is applied (clangd.cpp, plan_uses_modules), since it reads the plan.
 
 } // namespace mcppls::engine::clangd

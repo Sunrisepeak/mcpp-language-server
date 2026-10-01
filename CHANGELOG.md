@@ -7,6 +7,22 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [Unreleased]
+
+### Fixed
+
+- **Completion on a project without modules is as fast as plain clangd's again** (issue #37). clangd's
+  modules support scans a file's module dependencies again for every completion; on vulkan-hpp that took
+  completion from 82 ms to 254 ms at the median, 869 ms at worst, in sources and headers alike. A project
+  whose plan has no module unit, no module import, no `import std` and no stand-in now gets clangd without
+  `--experimental-modules-support`; the verdict is kept for the next session, and the first plan that uses
+  modules restarts clangd with it (workaround `WA-CLANGD-009`, UP-23 in issue #24). Through mcppls, the
+  same completions went from 259 ms to 97 ms at the median.
+- **No "can be declared 'const'" for a view that cannot be const** (issue #37). clang-tidy 23.1's
+  `misc-const-correctness` says so of a variable holding a filter, drop_while, chunk_by or split view, or
+  a view built on one, although none of them has a const `begin()`; that diagnostic is dropped and the
+  check's others are kept (workaround `WA-CLANGD-010`, UP-22 in issue #24).
+
 ## [0.0.8] — 2026-10-01
 
 Completion that shows up. In VS Code 1.125 and later with Copilot (built into VS Code) or another

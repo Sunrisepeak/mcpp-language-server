@@ -123,6 +123,21 @@ not built by clangd until the file is saved (it reads imports from disk); while 
 project, that is an information-level "module 'X' is in the project; clangd loads it once the file is
 saved", not an error (`WA-CLANGD-007`).
 
+**A view "can be declared 'const'", and declared so it does not compile (clang-tidy).** clang-tidy 23.1's
+`misc-const-correctness` says so of a variable holding a `std::views::filter`, `drop_while`, `chunk_by`
+or `split` view, or a view built on one, although such a view has no const `begin()` (issue #37). It runs
+only when your clangd config sets `Diagnostics.ClangTidy.FastCheckFilter: None`. From 0.0.9 mcppls drops
+that diagnostic and keeps the check's other ones (workaround `WA-CLANGD-010`). Before then, or to keep
+the check quiet altogether, set `misc-const-correctness.AnalyzeValues: false` under
+`Diagnostics.ClangTidy.CheckOptions` in the project's `.clangd`.
+
+**Completion is slower than plain clangd on a project without modules (0.0.8 and earlier).** clangd's
+modules support scans a file's module dependencies again for every completion, which costs a heavy
+header such as `vulkan.hpp` about 170 ms each time (issue #37). From 0.0.9, a project that has no module
+units, no module imports and no `import std` gets clangd without its modules support; the first import
+you add restarts clangd with it (workaround `WA-CLANGD-009`, `engine-restart` in the report's
+`events`).
+
 **"clangd would not finish main.cpp".** A file's build ran past its budget — five times its own
 last build, never under 20 s — while the editor waited on it: clangd will not finish it, busy or
 not. The file is answered by mcppls's own engine, with module-level features, until its text

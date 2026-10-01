@@ -63,6 +63,10 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **“Import directive must end with a ';'” 标在了别的行上，或刚输入的 import 报 “module X not found”。** clangd 把缺少 `;` 的指令报在它后面的代码上；mcppls 会把这条诊断移回指令所在行（规避措施 `WA-CLANGD-006`）。刚输入、还没保存的 import，clangd 要等文件保存后才会构建（它从磁盘读取 import）；只要这个模块在项目里，这时给出的是信息级提示 “module 'X' is in the project; clangd loads it once the file is saved”，而不是错误（`WA-CLANGD-007`）。
 
+**某个 view 被提示 “can be declared 'const'”，加了 const 却编译不过（clang-tidy）。** clang-tidy 23.1 的 `misc-const-correctness` 会对保存 `std::views::filter`、`drop_while`、`chunk_by`、`split` 视图（或建立在它们之上的视图）的变量给出这条提示，但这类视图没有 const 的 `begin()`（issue #37）。只有 clangd 配置里设了 `Diagnostics.ClangTidy.FastCheckFilter: None` 时这项检查才会运行。从 0.0.9 起 mcppls 会去掉这条诊断，这项检查的其他诊断照常保留（规避措施 `WA-CLANGD-010`）。在此之前，或者想让这项检查完全安静，可以在项目的 `.clangd` 里 `Diagnostics.ClangTidy.CheckOptions` 下设置 `misc-const-correctness.AnalyzeValues: false`。
+
+**不用模块的项目里，补全比直接用 clangd 慢（0.0.8 及更早版本）。** 开启模块支持时，clangd 每次补全都要重新扫描一遍文件的模块依赖，像 `vulkan.hpp` 这样很重的头文件每次要多花约 170 ms（issue #37）。从 0.0.9 起，没有模块单元、没有模块 import、也没有 `import std` 的项目，clangd 启动时不开模块支持；加入第一个 import 时会重启一次 clangd 并开启它（规避措施 `WA-CLANGD-009`，报告的 `events` 里有对应的 `engine-restart`）。
+
 **“clangd would not finish main.cpp”。** 某个文件的构建超出了预算——该文件上次构建耗时的五倍，最少 20 秒——而编辑器还在等它：不管 clangd 忙不忙，它都不会完成这个文件了。这个文件改由 mcppls 自己的引擎应答（提供模块层面的功能），直到它的文本发生变化（让 clangd 卡住的那份文本永远不会再交给它），同时立即重启一个不带这个文件的 clangd。`events` 日志里有一条带具体数字的 `engine-spin`。
 
 **某个规避措施还需要吗？** `--disable-workaround WA-CLANGD-<n>`（可重复）可以关掉一个；日志开头几行会列出正在使用的规避措施。每个规避措施在一致性测试里都有一个对应的检测项（`workaround-canaries`），clangd 更新修好了对应缺陷后，这个检测项就会失败。
