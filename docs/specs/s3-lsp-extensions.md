@@ -75,6 +75,13 @@ interface CxxModulesStatusParams {
   progress?: { done: number; total: number };
   issues?: CxxModulesIssue[];      // reasons for degradation; absent or empty when there are none
   notices?: CxxModulesIssue[];     // facts worth showing that reduce no feature, e.g. a producer that writes into the project
+  onlineRun?: OnlineRun;           // how the last download the client asked for ended (S3-4-26)
+}
+
+interface OnlineRun {
+  outcome: "fetched" | "failed";   // the build tool described the project with what it fetched, or did not
+  message: string;                 // one sentence for a person: what was fetched, or why it failed
+  at: string;                      // when it ended (RFC 3339); a new value is a new run
 }
 
 interface EngineStatus {
@@ -143,6 +150,8 @@ Each issue **SHOULD** carry a `category` saying whose problem it is. <a id="S3-4
 A server **SHOULD NOT** send `degraded` for a condition that ends by itself within a few seconds (a file set aside and handed back while the user types): it holds a change to `degraded` until it has lasted a short interval, and sends `error` at once. <a id="S3-4-15"></a><sup>S3-4-15</sup>
 
 A `producer-needs-download` issue says that the build tool, run without the network as a server runs it on its own, cannot describe the project until something is downloaded. A server **MAY** set `askOnline` on it when, asked by `workspace/executeCommand` with the command `mcppls.describeOnline`, it will describe the project once with the network allowed; every later description is without it again. <a id="S3-4-16"></a><sup>S3-4-16</sup> Until the client asks, and while the download runs, the server **MUST** go on serving the root from what it has (its sources, a partial description) <a id="S3-4-17"></a><sup>S3-4-17</sup>, and **MUST NOT** reach the network on its own. <a id="S3-4-18"></a><sup>S3-4-18</sup> A client that offers the download **MUST NOT** block anything on the question: no modal dialog, and no request, activation or startup waits for the answer. <a id="S3-4-19"></a><sup>S3-4-19</sup> It **SHOULD** ask at most once per root and set of missing things. <a id="S3-4-20"></a><sup>S3-4-20</sup> It **MUST NOT** act on an answer that comes after the root's status no longer carries the issue: the person may have built the project in their own terminal meanwhile, and the server's own offline retries find that by themselves. <a id="S3-4-21"></a><sup>S3-4-21</sup> A client that does not know `askOnline` sees an issue with a command, as before.
+
+A server that described a root with the network because a client asked (`mcppls.describeOnline`) **SHOULD** say how that ended in `onlineRun`, and keep it in the status of that root until another such run ends. <a id="S3-4-26"></a><sup>S3-4-26</sup> A client **SHOULD** tell the person each run once, told apart by `at`, without blocking anything (S3-4-18); a failed run's `message` says what failed, and the root's issues say what is still missing. <a id="S3-4-27"></a><sup>S3-4-27</sup> A client **MAY** remember, per workspace and only on the person's say-so, that every download the server offers is to be fetched, and then call `mcppls.describeOnline` without asking; it **MUST** offer a way to take that back. <a id="S3-4-28"></a><sup>S3-4-28</sup>
 
 An issue the server cannot recover from without the person — an engine that keeps exiting, cannot be started or cannot run on the machine, a corrupt installation, preparation that stopped making progress — is what a bug report is written about, and what it needs is gone once the editor is restarted. For such an issue a server **SHOULD** write a diagnostic bundle by itself when the issue first appears, and name it in `bundle`. <a id="S3-4-22"></a><sup>S3-4-22</sup> The bundle **MUST** be redacted as a report is (S3-5.5-3), and stay on the machine it was written on: neither the server nor the client sends it anywhere. <a id="S3-4-23"></a><sup>S3-4-23</sup> A server **SHOULD** keep only the few newest bundles it wrote by itself. <a id="S3-4-24"></a><sup>S3-4-24</sup> A client that presents `bundle` **SHOULD** offer, once per issue and without blocking anything, to report the problem with the file attached by the person, to restart and to leave the server off for the workspace. <a id="S3-4-25"></a><sup>S3-4-25</sup> A client that does not know `bundle` sees the issue as before.
 

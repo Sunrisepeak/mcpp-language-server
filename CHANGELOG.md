@@ -7,9 +7,18 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
-## [Unreleased]
+## [0.0.9] — 2026-10-01
 
-### Fixed
+Completion on a project without modules as fast as plain clangd's, and the rest of issue #37. clangd's
+modules support made every completion in a header-heavy project about three times slower (vulkan-hpp:
+259 ms at the median through mcppls, now 97 ms); a project that uses no modules now gets clangd without
+it. A view that cannot be const is no longer said to be, settings no longer show `undefined`, an xmake
+project no longer starts with a configuration that must fail, a download that is needed says what it is
+and what else helps, and a fetch you ask for reports how it ended. A second editor window, or a server
+left behind by a reload, no longer makes the next one start cold. The analysis and the plan are
+`.agents/docs/2026-10-01-0.0.9-plan.md`.
+
+### Completion and diagnostics
 
 - **Completion on a project without modules is as fast as plain clangd's again** (issue #37). clangd's
   modules support scans a file's module dependencies again for every completion; on vulkan-hpp that took
@@ -22,6 +31,37 @@ product version unchanged.
   `misc-const-correctness` says so of a variable holding a filter, drop_while, chunk_by or split view, or
   a view built on one, although none of them has a const `begin()`; that diagnostic is dropped and the
   check's others are kept (workaround `WA-CLANGD-010`, UP-22 in issue #24).
+
+### Starting
+
+- **A second instance plans with the owner's model at once** (issue #37). A server that finds the
+  workspace served by another instance works in a private directory; it now reads the owner's cached
+  project model, read only, instead of planning from scanned sources and restarting clangd when the
+  build tool answered (3 to 4.4 s of slow first requests on vulkan-rt).
+- **A server whose editor is gone leaves.** The client's process id from `initialize` is watched (Linux
+  and macOS, when the process is visible at the start); once it is gone the server exits as if its input
+  had closed, and the next server owns the workspace instead of starting cold beside a leftover one.
+- **clangd waits for a build tool that is known to answer soon.** With no cached model, clangd started
+  on the model scanned from sources after 2.5 s and was restarted when the build tool answered, building
+  its preambles twice. How long each build tool took is now kept per workspace, and clangd waits up to
+  1.2 times that (at most 5.5 s more); mcppls's own engine answers meanwhile, as before.
+- **A clangd restart no longer holds the event loop.** The old clangd is stopped on its own thread and
+  the new one starts once it is gone; a clangd building a preamble takes 2.4 to 3.9 s to exit, and every
+  request waited for it (446 ms and 1803 ms in the reporter's logs, up to 2.5 s).
+
+### Build tools
+
+- **A download you asked for says how it ended, and can be allowed for a workspace.** After "Download
+  and Continue", the status carries the outcome (S3 `onlineRun`), and VS Code tells it once: fetched, or
+  failed with what failed and buttons for the log and the terminal. "Always Download in This Workspace"
+  fetches every download the build description needs without asking, while the build tool still runs
+  offline otherwise; "C++ Modules: Ask Before Downloading in This Workspace" takes it back. Nothing is
+  written into the project.
+
+### Packaging
+
+- **A released payload is no longer marked `dirty`.** Its build record counted files the build itself
+  leaves in the checkout; only a tracked file that differs from the commit counts now.
 
 ## [0.0.8] — 2026-10-01
 
