@@ -138,7 +138,10 @@ nlohmann::json provenance(const std::string& root) {
     record["builtAt"] = std::format("{:%FT%TZ}", now);
     if (const std::string commit { git_output(root, { "rev-parse", "HEAD" }) }; !commit.empty()) {
         record["commit"] = commit;
-        record["dirty"] = !git_output(root, { "status", "--porcelain" }).empty();
+        // R-2 (plan 0.0.9): whether a tracked file differs from the commit. Files the build itself leaves in the checkout
+        // (CI's `cross/` and `host-devtools`) are untracked and say nothing about the source: counting them marked every
+        // released payload dirty (0.0.8's included).
+        record["dirty"] = !git_output(root, { "status", "--porcelain", "--untracked-files=no" }).empty();
     }
     return record;
 }
