@@ -167,7 +167,9 @@ prepared, is a line saying so. It is clangd being busy with modules, not a failu
 clangd's late completion is not thrown away: it keeps working for up to 10 s, the requests you make
 while typing the same word wait for it, and it goes to them as soon as it comes, so in a file clangd
 rebuilds slowly the list still arrives before you finish the word. `requests.<method>.answeredBy`
-in the report counts, per method, which engine answered; `completion.late` counts clangd's late
+in the report counts, per method, which engine answered; `engineP50Ms` and `engineP95Ms` are the time
+clangd (or another engine) took for the requests it answered and `overheadP50Ms` and `overheadP95Ms` the
+time mcppls added around it, so a slow completion shows whose time it was; `completion.late` counts clangd's late
 answers and the requests they went to; `slowestFiles` names the ten slowest files and, per file,
 how many completions got only words; `engines[].details.buildTimes` says what building each file
 cost clangd (preamble, imported modules, AST builds).

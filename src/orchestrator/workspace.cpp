@@ -236,6 +236,9 @@ struct Workspace::Impl final : engine::Host {
         std::size_t cancelled { 0 };
         double maxMs { 0 };
         std::deque<double> recentMs;   // the latest durations, for percentiles
+        // M-1 (plan 0.0.9): the same requests' time in the engine that answered, and the time outside it, for the ones an
+        // engine answered. Pairs, so a request's two parts stay together when the oldest leave.
+        std::deque<std::pair<double, double>> recentEngineMs;   // {engine, overhead}
         std::map<std::string, std::size_t, std::less<>> answeredBy;
         std::string lastAt;            // UTC, when the latest one was answered (0.0.8 plan E-3)
     };
@@ -295,6 +298,10 @@ struct Workspace::Impl final : engine::Host {
         bool coreAnswered { false };
         // C-2 (plan 0.0.8 part 2): the job asked nothing of its own and waits for a late completion of the same word.
         bool waitsForLate { false };
+        // M-1 (plan 0.0.9): when the request went to the engine whose answer went out, and when that engine replied.
+        // The difference is the engine's share of the request's time; the rest is mcppls's own.
+        std::optional<Clock::time_point> engineSentAt;
+        std::optional<Clock::time_point> engineRepliedAt;
     };
     std::map<std::uint64_t, Job> jobs;
     std::uint64_t nextJob { 1 };
@@ -715,6 +722,7 @@ struct Workspace::Impl final : engine::Host {
         if (!selection.mergers.empty()) {
             job.merging = true;
             job.awaiting = selection.mergers.size();
+            job.engineSentAt = Clock::now();
             // Semantic tokens: the core engine's own answer arrives in its own legend's indices;
             // remapped into this server's legend right here, once, so routing::merge_results (and
             // everything downstream) only ever sees the server's own index space (routing itself
@@ -882,6 +890,7 @@ struct Workspace::Impl final : engine::Host {
             return;
         }
         engine::Engine* answerer { job.answerers[job.next++] };
+        job.engineSentAt = Clock::now();
         answerer->request(job.view, job.message, [this, jobId, engineId = std::string { answerer->id() }](engine::Answer answer) {
             auto current = jobs.find(jobId);
             if (current == jobs.end()) {
@@ -892,6 +901,7 @@ struct Workspace::Impl final : engine::Host {
             case engine::Answer::Kind::result:
                 if (coreEngine != nullptr && engineId == coreEngine->id()) current->second.coreAnswered = true;
                 if (!answer.value.is_null()) {
+                    current->second.engineRepliedAt = Clock::now();
                     current->second.answeredBy = engineId;
                     finish_job(jobId, std::move(answer.value));
                     return;
@@ -924,6 +934,7 @@ struct Workspace::Impl final : engine::Host {
         }
         if (--job.awaiting > 0) return;
         job.answeredBy = "merged";
+        job.engineRepliedAt = Clock::now();
         if (job.cancelled) {
             finish_job_cancelled(jobId);
         } else if (job.error) {
@@ -945,6 +956,11 @@ struct Workspace::Impl final : engine::Host {
         if (stats.recentMs.size() > 256) stats.recentMs.pop_front();
         stats.maxMs = std::max(stats.maxMs, ms);
         if (!job.answeredBy.empty()) ++stats.answeredBy[job.answeredBy];
+        if (job.engineSentAt && job.engineRepliedAt && outcome == "result") {
+            const double engineMs { std::chrono::duration<double, std::milli>(*job.engineRepliedAt - *job.engineSentAt).count() };
+            stats.recentEngineMs.emplace_back(engineMs, std::max(0.0, ms - engineMs));
+            if (stats.recentEngineMs.size() > 256) stats.recentEngineMs.pop_front();
+        }
         stats.lastAt = std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now()));
         if (!job.path.empty() && (fileRequestStats.size() < FILE_STATS_LIMIT || fileRequestStats.contains(job.path))) {
             auto& file = fileRequestStats[job.path];
@@ -2447,9 +2463,28 @@ Json Workspace::report() const {
         };
         Json answeredBy = Json::object();
         for (const auto& [engineId, count] : stats.answeredBy) answeredBy[engineId] = count;
-        requests[method] = Json { { "count", stats.count }, { "empty", stats.empty }, { "errors", stats.errors }, { "cancelled", stats.cancelled },
-                                  { "p50Ms", percentile(0.5) }, { "p95Ms", percentile(0.95) }, { "maxMs", static_cast<std::int64_t>(stats.maxMs) },
-                                  { "answeredBy", std::move(answeredBy) }, { "lastAt", stats.lastAt } };
+        Json entry { { "count", stats.count }, { "empty", stats.empty }, { "errors", stats.errors }, { "cancelled", stats.cancelled },
+                     { "p50Ms", percentile(0.5) }, { "p95Ms", percentile(0.95) }, { "maxMs", static_cast<std::int64_t>(stats.maxMs) },
+                     { "answeredBy", std::move(answeredBy) }, { "lastAt", stats.lastAt } };
+        // M-1 (plan 0.0.9): where the time of the requests an engine answered went, in the engine and outside it.
+        if (!stats.recentEngineMs.empty()) {
+            std::vector<double> engineMs, overheadMs;
+            for (const auto& [engine, overhead] : stats.recentEngineMs) {
+                engineMs.push_back(engine);
+                overheadMs.push_back(overhead);
+            }
+            std::ranges::sort(engineMs);
+            std::ranges::sort(overheadMs);
+            const auto at = [](const std::vector<double>& sorted, double fraction) {
+                return static_cast<std::int64_t>(sorted[std::min(sorted.size() - 1, static_cast<std::size_t>(fraction * static_cast<double>(sorted.size())))]);
+            };
+            entry["engineAnswered"] = engineMs.size();
+            entry["engineP50Ms"] = at(engineMs, 0.5);
+            entry["engineP95Ms"] = at(engineMs, 0.95);
+            entry["overheadP50Ms"] = at(overheadMs, 0.5);
+            entry["overheadP95Ms"] = at(overheadMs, 0.95);
+        }
+        requests[method] = std::move(entry);
     }
     // C-4 (plan 0.0.8 part 2): the ten files whose slowest method is slowest at the 95th percentile.
     std::vector<std::pair<std::int64_t, Json>> files;

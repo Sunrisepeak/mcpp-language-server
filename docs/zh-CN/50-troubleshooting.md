@@ -75,7 +75,7 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **每次启动都很慢。** 第二次会话应该很快：模型连同构建工具所读一切内容的指纹一起被缓存，与之匹配的会话会立即套用计划，并在后台确认；已经构建好的模块会复用，不会重建（0.0.6 及更早版本在热启动时会把每个模块都重建一遍，issue #30）。`project.firstOrigin` 会说明发生了哪种情况。如果它一直是 `producer`，说明指纹没有匹配上——该看报告里的 `project.producerRun` 和构建文件的时间戳。
 
-**补全只有文件里的词，或悬停提示说正在准备模块。** 每种请求给 clangd 的都有预算——补全和签名帮助 1 秒，悬停 2 秒，跳转到定义 10 秒——超过之后 mcppls 用手上有的东西作答。补全这时给出的是文件里离光标最近的那些词，是一份不完整的列表，所以你继续输入时编辑器会再问一次；悬停在模块准备期间给出的是一行说明。这是 clangd 正忙着处理模块，不是故障。从 0.0.8 起，clangd 迟到的补全不再丢弃：它最多再算 10 秒，你在同一个词里继续输入时发出的请求都等它，一到就交给它们，所以在 clangd 重建得慢的文件里，列表仍会在你打完这个词之前出现。报告里的 `requests.<method>.answeredBy` 按方法统计了各由哪个引擎作答；`completion.late` 统计 clangd 迟到的答案和用上它们的请求；`slowestFiles` 列出最慢的十个文件，以及每个文件有多少次补全只拿到了词；`engines[].details.buildTimes` 说明 clangd 构建每个文件花在哪里（preamble、导入的模块、AST 构建次数）。
+**补全只有文件里的词，或悬停提示说正在准备模块。** 每种请求给 clangd 的都有预算——补全和签名帮助 1 秒，悬停 2 秒，跳转到定义 10 秒——超过之后 mcppls 用手上有的东西作答。补全这时给出的是文件里离光标最近的那些词，是一份不完整的列表，所以你继续输入时编辑器会再问一次；悬停在模块准备期间给出的是一行说明。这是 clangd 正忙着处理模块，不是故障。从 0.0.8 起，clangd 迟到的补全不再丢弃：它最多再算 10 秒，你在同一个词里继续输入时发出的请求都等它，一到就交给它们，所以在 clangd 重建得慢的文件里，列表仍会在你打完这个词之前出现。报告里的 `requests.<method>.answeredBy` 按方法统计了各由哪个引擎作答；`engineP50Ms`、`engineP95Ms` 是引擎作答的那些请求在引擎里花的时间，`overheadP50Ms`、`overheadP95Ms` 是 mcppls 在其外加的时间，由此看出一次慢的补全慢在谁；`completion.late` 统计 clangd 迟到的答案和用上它们的请求；`slowestFiles` 列出最慢的十个文件，以及每个文件有多少次补全只拿到了词；`engines[].details.buildTimes` 说明 clangd 构建每个文件花在哪里（preamble、导入的模块、AST 构建次数）。
 
 **模块单元里出现"未使用的头文件"警告。** 这是 clangd 的 include cleaner，默认开启，mcppls 不关它：在模块接口的全局模块片段、实现单元和导入方里，它和在普通文件里一样，只报没有任何东西用到的头文件（有一个 conformance fixture 在 clangd 升级时守着这一点）。要关掉，在项目的 `.clangd` 或你的 clangd `config.yaml` 里写 `Diagnostics: { UnusedIncludes: None }`；mcppls 启动的 clangd 两处都会读。
 
