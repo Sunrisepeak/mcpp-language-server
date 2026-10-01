@@ -132,7 +132,7 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
     model.detected = detection.kind;
     if (!options.buildDiscovery) {
         model.notices.push_back(ModelIssue { "build-discovery-off",
-            "mcppls.buildDiscovery is off, so nothing was detected, read or run implicitly; only an "
+            "mcppls.buildDiscovery.mode is off, so nothing was detected, read or run implicitly; only an "
             "explicitly configured database is used, and the sources are scanned otherwise" });
     }
     const Scanner scanner { options.scanner ? options.scanner : file_scanner() };

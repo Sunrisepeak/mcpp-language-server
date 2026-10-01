@@ -122,7 +122,7 @@ downloaded stops it with the same offer. L3, like xmake.
 
 ## Turning discovery off
 
-`mcppls.buildDiscovery = off` makes mcppls detect no build system at all: nothing is read or run
+`mcppls.buildDiscovery.mode = off` makes mcppls detect no build system at all: nothing is read or run
 implicitly, and only a database you name with `mcppls.database` is used, else the sources are scanned
 (L4). `mcppls.buildDiscovery.providers` leaves out single build systems instead — for example, only
 ever read an existing CMake build directory and never run xmake. `mcppls.buildTool = off` is the

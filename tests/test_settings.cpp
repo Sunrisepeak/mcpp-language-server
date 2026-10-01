@@ -134,7 +134,7 @@ int main() {
         // The whole `initialize` params works too: only its `initializationOptions` key is read.
         settings::Settings values;
         values.apply_initialization_options(Json { { "initializationOptions", Json { { "engine", "none" } } }, { "capabilities", Json::object() } });
-        expect(values.string_value("engine") == "none");
+        expect(values.string_value("engine.name") == "none") << "the earlier name `engine` is an alias";
     };
 
     "an unknown enumeration value falls back to the default and is recorded as a problem, never silently"_test = [] {
@@ -204,6 +204,7 @@ int main() {
             seen.insert(key);
             const settings::Setting* row { settings::find(settings::registry(), key) };
             expect(fatal(row != nullptr)) << name << " is in package.json but not the registry";
+            expect(row->key == key) << name << " is a registry alias; package.json carries the row's current name";
             expect(row->surface == settings::Surface::server || row->surface == settings::Surface::client) << name;
             expect(row->clientConfigurable) << name << " is in package.json but the registry does not expect it there";
 
@@ -231,6 +232,85 @@ int main() {
             if (!row.clientConfigurable) continue;
             expect(seen.contains(row.key)) << row.key << " should be in package.json (clientConfigurable) but is not";
         }
+    };
+
+
+    // S-4 (plan 0.0.9): what made `mcppls.engine.workers` show `undefined` in VS Code's settings UI
+    // cannot come back unnoticed.
+    "package.json: no setting is the parent of another unless it is an object, and a pattern is satisfied by its own default"_test = [] {
+        const auto text = fs::read_file(base::join_path(repository_root(), "editors/vscode/package.json"));
+        expect(fatal(text.has_value()));
+        const Json manifest = Json::parse(*text);
+        const Json& properties = manifest.at("contributes").at("configuration").at("properties");
+        std::vector<std::string> names;
+        for (const auto& entry : properties.items()) names.push_back(entry.key());
+        for (const auto& parent : names) {
+            if (properties.at(parent).value("type", std::string {}) == "object") continue;
+            for (const auto& other : names) {
+                expect(!other.starts_with(parent + ".")) << parent << " is not an object, so " << other << " cannot live under it";
+            }
+        }
+        for (const auto& entry : properties.items()) {
+            const Json& schema { entry.value() };
+            if (!schema.contains("pattern")) continue;
+            const std::string& name { entry.key() };
+            expect(schema.contains("patternErrorMessage")) << name << " has a pattern and no patternErrorMessage";
+            if (!schema.contains("default") || !schema.at("default").is_string()) continue;
+            const std::regex pattern { schema.at("pattern").get<std::string>(), std::regex::ECMAScript };
+            expect(std::regex_search(schema.at("default").get<std::string>(), pattern)) << name << "'s default does not match its own pattern";
+        }
+    };
+
+    "null in initializationOptions is not set, and in didChangeConfiguration puts the key back to its default (S-3)"_test = [] {
+        settings::Settings values;
+        values.apply_initialization_options(Json { { "compiler", nullptr }, { "engine.name", nullptr }, { "buildDiscovery", nullptr } });
+        expect(values.problems().empty());
+        expect(values.origin("compiler") == settings::Origin::defaulted);
+        expect(values.origin("engine.name") == settings::Origin::defaulted);
+
+        values.apply_initialization_options(Json { { "compiler", "/usr/bin/clang++" }, { "engine.workers", "4" } });
+        expect(values.string_value("compiler") == "/usr/bin/clang++");
+        auto result = values.apply_configuration_change(Json { { "settings", Json { { "mcppls", Json { { "compiler", nullptr } } } } } });
+        expect(values.problems().empty());
+        expect(values.string_value("compiler").empty());
+        expect(values.origin("compiler") == settings::Origin::defaulted);
+        expect(std::ranges::find(result.changedKeys, std::string { "compiler" }) != result.changedKeys.end());
+        expect(values.string_value("engine.workers") == "4") << "a key the change does not mention is left alone";
+        result = values.apply_configuration_change(Json { { "compiler", nullptr } });
+        expect(result.changedKeys.empty()) << "clearing what is already the default changes nothing";
+    };
+
+    "the earlier names engine and buildDiscovery are still read, flat or nested, and never collide with their sub-settings (S-1)"_test = [] {
+        for (const Json& shape : {
+                 Json { { "engine", "none" }, { "buildDiscovery", "off" } },
+                 Json { { "engine.name", "none" }, { "buildDiscovery.mode", "off" } },
+                 Json { { "engine", Json { { "name", "none" } } }, { "buildDiscovery", Json { { "mode", "off" } } } },
+                 Json { { "mcppls", Json { { "engine", "none" }, { "buildDiscovery", "off" } } } },
+             }) {
+            settings::Settings values;
+            values.apply_initialization_options(shape);
+            expect(values.problems().empty()) << shape.dump();
+            expect(values.string_value("engine.name") == "none") << shape.dump();
+            expect(values.string_value("buildDiscovery.mode") == "off") << shape.dump();
+            expect(values.origin("engine.name") == settings::Origin::client) << shape.dump();
+        }
+        // A nested object under the old name is the sub-settings' own value, not a wrong kind of value for the parent.
+        settings::Settings values;
+        values.apply_initialization_options(Json { { "engine", Json { { "workers", "4" } } },
+                                                   { "buildDiscovery", Json { { "providers", Json::array({ "cmake" }) }, { "askBeforeDownload", false } } } });
+        expect(values.problems().empty());
+        expect(values.string_value("engine.workers") == "4");
+        expect(values.string_value("engine.name") == "clangd");
+        expect(values.origin("buildDiscovery.mode") == settings::Origin::defaulted);
+        expect(values.list_value("buildDiscovery.providers") == std::vector<std::string> { "cmake" });
+        expect(!values.bool_value("buildDiscovery.askBeforeDownload"));
+
+        const auto result = values.apply_configuration_change(
+            Json { { "settings", Json { { "engine", Json { { "workers", "2" } } }, { "buildDiscovery", "off" } } } });
+        expect(values.problems().empty());
+        expect(values.string_value("engine.workers") == "2");
+        expect(values.string_value("buildDiscovery.mode") == "off");
+        expect(std::ranges::find(result.reloadKeys, std::string { "buildDiscovery.mode" }) != result.reloadKeys.end());
     };
 
     return report();

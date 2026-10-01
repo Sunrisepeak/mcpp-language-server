@@ -355,7 +355,7 @@ private:
     // each layer (`apply_initialization_options` above, `apply_configuration_change` below).
     void sync_settings_() {
         const auto& settings = options_.settings;
-        options_.engine = settings.string_value("engine");
+        options_.engine = settings.string_value("engine.name");
         options_.buildTool = settings.string_value("buildTool");
         options_.toolEnvironment = settings.string_value("toolEnvironment");
         options_.discoverCompilers = settings.bool_value("discoverCompilers");
@@ -367,7 +367,7 @@ private:
         options_.disabledWorkarounds = settings.list_value("disableWorkaround");
         options_.semanticTokensModules = settings.bool_value("semanticTokens.modules");
         options_.semanticTokensModuleType = settings.bool_value("semanticTokens.moduleType");
-        options_.buildDiscovery = settings.string_value("buildDiscovery");
+        options_.buildDiscovery = settings.string_value("buildDiscovery.mode");
         options_.buildDiscoveryProviders = settings.list_value("buildDiscovery.providers");
         options_.buildDiscoveryAskBeforeDownload = settings.bool_value("buildDiscovery.askBeforeDownload");
         options_.primeImplementationUnits = settings.string_value("index.primeImplementationUnits");

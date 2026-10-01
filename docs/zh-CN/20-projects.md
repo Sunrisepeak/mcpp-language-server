@@ -51,7 +51,7 @@ mcpp 给出的文档里列出了每个翻译单元、它的模块角色、它的
 
 ## 关闭探测
 
-`mcppls.buildDiscovery = off` 让 mcppls 完全不探测构建系统：不隐式读取或运行任何东西，只使用你用 `mcppls.database` 指定的数据库，否则扫描源码（L4）。`mcppls.buildDiscovery.providers` 则只去掉个别构建系统——比如只读现有的 CMake 构建目录、永远不运行 xmake。`mcppls.buildTool = off` 是更窄的开关：仍然探测构建系统、读取它们已有的输出，只是从不运行。见 [30-settings.md](30-settings.md)。
+`mcppls.buildDiscovery.mode = off` 让 mcppls 完全不探测构建系统：不隐式读取或运行任何东西，只使用你用 `mcppls.database` 指定的数据库，否则扫描源码（L4）。`mcppls.buildDiscovery.providers` 则只去掉个别构建系统——比如只读现有的 CMake 构建目录、永远不运行 xmake。`mcppls.buildTool = off` 是更窄的开关：仍然探测构建系统、读取它们已有的输出，只是从不运行。见 [30-settings.md](30-settings.md)。
 
 ## compile_commands.json
 
