@@ -7,7 +7,7 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
-## [0.0.8] — 2026-09-30
+## [0.0.8] — 2026-10-01
 
 Completion that shows up. In VS Code 1.125 and later with Copilot (built into VS Code) or another
 inline completion, the completion list stayed closed while you typed -- the editor waited for the
