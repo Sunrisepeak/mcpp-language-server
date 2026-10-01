@@ -506,10 +506,11 @@
         "expect": "string"
       },
       "budget": {
-        "republishSeconds": 20,
+        "republishSeconds": 33,
         "p95": 1.5,
         "errorStates": 0
-      }
+      },
+      "budget-why": "Set from measurements (0.0.8 part 2): ux-mcpp's importers republished after 6.9, 13.6, 17.3, 17.7, 21.4 and 25.2 s over six CI runs on 4-core runners (part 1 measured 31 s), so 1.3 times the 95th percentile, the rule of `measure budgets`."
     },
     {
       "id": "U8-add-module",

@@ -25,6 +25,9 @@ private val CXX_EXTENSIONS = setOf(
 
 private val TOLD_ABOUT_TWO_ENGINES = Key.create<Boolean>("community.mcpp.mcppls.toldAboutTwoEngines")
 
+// Whether this project was told that both engines answer its files (once per project); the tests read it.
+internal fun toldAboutTwoEngines(project: Project): Boolean = project.getUserData(TOLD_ABOUT_TWO_ENGINES) == true
+
 internal class McpplsServerSupportProvider : LspServerSupportProvider {
     override fun fileOpened(
         project: Project,
