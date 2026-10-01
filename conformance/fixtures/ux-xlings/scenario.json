@@ -463,9 +463,9 @@
         "stalled": 0,
         "restarts": 1,
         "timeouts": 3,
-        "engineShare": 0.4
+        "engineShare": 0.15
       },
-      "budget-why": "Rewriting a module under autosave reliably trips a clangd defect: a build of an importer it let go of keeps spinning (0.0.8 part 2 K-8). One recovery restart, and the few requests it cuts short, is the designed answer; the completions' own budgets stay."
+      "budget-why": "Rewriting a module under autosave reliably trips a clangd defect: a build of an importer it let go of keeps spinning (0.0.8 part 2 K-8). One recovery restart, and the few requests it cuts short, is the designed answer; the completions' own budgets stay. On xlings, where that restart comes in this scenario, clangd answers fewer of the completions while it is back: the engine share measured 0.20-0.31 over the runs with it, so 0.15 (the lowest over 1.3)."
     },
     {
       "id": "U7a-fanout-save",
