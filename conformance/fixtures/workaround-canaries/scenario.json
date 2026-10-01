@@ -1,6 +1,9 @@
 {
   "name": "workaround-canaries",
-  "description": "Import-hang plan \u00a79: each registered clangd workaround's defect, run against the payload's clangd. A check here failing means an update of clangd fixed the defect, and the workaround it names can be removed (src/engine/clangd/workarounds.cpp).",
+  "description": "Import-hang plan §9: each registered clangd workaround's defect, run against the payload's clangd. A check here failing means an update of clangd fixed the defect, and the workaround it names can be removed (src/engine/clangd/workarounds.cpp). WA-CLANGD-001 runs clangd --check; WA-CLANGD-009 and 010 drive the clangd over LSP (kind clangd-lsp, 0.0.9 plan M-3), since clangd --check prints no clang-tidy diagnostics and times no completion.",
+  "prepare": [
+    ["{conformance}", "prepare", "heavy-headers", "120"]
+  ],
   "server-arguments": [
     "--no-discover"
   ],
@@ -12,6 +15,31 @@
       "expect": "hangs",
       "seconds": 10,
       "says": "WA-CLANGD-001 is no longer needed: this clangd finishes `import hello.` at once; remove it from src/engine/clangd/workarounds.cpp and the typing-import-spin fixture"
+    },
+    {
+      "id": "WA-CLANGD-009",
+      "kind": "clangd-lsp",
+      "only-on": ["linux"],
+      "action": "completion-ratio",
+      "file": "src/heavy_use.cpp",
+      "at": [3, 11],
+      "arguments": ["--log=error", "--background-index=false", "--experimental-modules-support"],
+      "baseline-arguments": ["--log=error", "--background-index=false"],
+      "rounds": 10,
+      "passes": 2,
+      "min-ratio": 1.8,
+      "says": "WA-CLANGD-009 is no longer needed: with --experimental-modules-support this clangd does not scan a file's module dependencies again for every completion of a project without modules (120 headers of 60 templates each took 3 to 5 times as long, measured with 23.1.0); remove it from src/engine/clangd/workarounds.cpp and the no-modules and ux-heavy-headers fixtures"
+    },
+    {
+      "id": "WA-CLANGD-010",
+      "kind": "clangd-lsp",
+      "only-on": ["linux"],
+      "action": "diagnostics",
+      "file": "src/tidy/views.cpp",
+      "code": "misc-const-correctness",
+      "lines": [4, 5, 6],
+      "arguments": ["--log=error", "--background-index=false"],
+      "says": "WA-CLANGD-010 is no longer needed: this clangd no longer says a variable holding a filter view (line 4) or a view over one (line 5) can be declared const, and line 6, an int never changed, is told; remove it from src/engine/clangd/workarounds.cpp and the tidy-const-views fixture"
     }
   ]
 }
