@@ -58,6 +58,17 @@ left behind by a reload, no longer makes the next one start cold. The analysis a
   offline otherwise; "C++ Modules: Ask Before Downloading in This Workspace" takes it back. Nothing is
   written into the project.
 
+### Diagnostic bundle and tests
+
+- **A slow request shows whose time it was.** The report's `requests.<method>` splits the requests an
+  engine answered into `engineP50Ms`/`engineP95Ms` (the engine's own time) and
+  `overheadP50Ms`/`overheadP95Ms` (what mcppls added).
+- The conformance suite talks to clangd directly for two canaries: WA-CLANGD-009 (completion with
+  `--experimental-modules-support` more than 1.8 times slower on a heavy header) and WA-CLANGD-010 (the
+  filter view's const advice). New fixtures `no-modules` and `tidy-const-views`, and a ux scenario,
+  `ux-heavy-headers`, that holds completion through mcppls to 1.3 times clangd's own plus 30 ms on a
+  project without modules (it fails with WA-CLANGD-009 turned off: 530 ms against 56 ms).
+
 ### Packaging
 
 - **A released payload is no longer marked `dirty`.** Its build record counted files the build itself
