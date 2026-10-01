@@ -35,7 +35,9 @@ suite('mcppls.enable switch', function () {
     suiteTeardown(async () => {
         await vscode.workspace.getConfiguration('mcppls').update('enable', undefined, vscode.ConfigurationTarget.Workspace);
         const workspace = process.env.MCPPLS_E2E_WORKSPACE;
-        if (workspace) fs.rmSync(path.join(workspace, '.vscode'), { recursive: true, force: true });
+        // Windows can still hold the directory while VS Code writes its settings (ENOTEMPTY, EPERM on CI): Node retries
+        // those with maxRetries.
+        if (workspace) fs.rmSync(path.join(workspace, '.vscode'), { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     });
 
     test('false in the workspace stops the server and says so; true starts it again', async () => {

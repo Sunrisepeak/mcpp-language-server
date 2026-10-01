@@ -43,9 +43,19 @@ EngineTraits traits_for_version(std::string_view version, std::span<const std::s
         .hangsOnTrailingDotModuleName = on(TRAILING_DOT_MODULE_NAME),
         .misplacesDirectiveSemicolon = on(DIRECTIVE_SEMICOLON_POSITION),
         .readsImportsFromDisk = on(UNSAVED_IMPORT_NOT_FOUND),
+        .scansModulesOnEveryRequest = on(MODULE_SCAN_PER_REQUEST),
+        .flagsNonConstViewsConst = on(CONST_CORRECTNESS_VIEWS),
         .kitStdlibVersion = std::string { version },
         .tested = version == "23.1.0",
     };
+}
+
+bool plan_uses_modules(const normalize::EnginePlan& plan) {
+    if (!plan.modules.empty() || plan.stdUnits > 0 || !plan.stubModules.empty()) return true;
+    if (std::ranges::any_of(plan.issues, [](const normalize::PlanIssue& issue) { return !issue.module.empty(); })) return true;
+    return std::ranges::any_of(plan.entries, [](const normalize::EngineEntry& entry) {
+        return !entry.provides.empty() || !entry.module.empty() || !entry.imports.empty();
+    });
 }
 
 bool is_interactive(std::string_view method) {
@@ -94,6 +104,11 @@ private:
     };
 
     std::string databaseDirectory_;
+    // WA-CLANGD-009: whether the clangd started next gets --experimental-modules-support. On, unless the last session
+    // found that the project uses no modules (modules_verdict_path_), until the first plan says; then on for good once
+    // a plan uses modules, so a project is not switched back and forth while modules come and go.
+    bool modulesSupport_ { true };
+    std::string modulesVerdict_;   // what modules_verdict_path_ holds, as last written
     std::string primeDirectory_;
     std::string moduleHintDirectory_;
     std::string stubDirectory_;       // stand-ins for modules nothing usable provides (robustness design C2)
@@ -339,6 +354,11 @@ private:
     // cannot read clangd's CPU does not wake the loop again and again for the same request.
     std::optional<Clock::time_point> stuckTriedFor_;
     bool stuckAtCap_ { false };
+    // P-3 (plan 0.0.9): a clangd restart_ let go of is being stopped off the event loop, and the next one starts
+    // once it is gone ("reaped").
+    bool reaping_ { false };
+    bool startWhenReaped_ { false };
+    std::jthread reaper_;   // joined where nothing may outlive the old clangd: a cache cleared, the engine shut down
     bool cpuReadInFlight_ { false };   // a reading of clangd's CPU is on its way back (read_cpu_)
     std::jthread cpuReading_;          // the thread taking it; joined when the engine goes, at most the ps(1) bound later   // a stuck clangd was found at the restart cap, and that was said
     // robustness design O1, O3: for a report of a problem.
@@ -612,6 +632,13 @@ public:
         moduleHintDirectory_ = base::join_path(cache, "contexts/default/module-hints");   // never created
         stubDirectory_ = base::join_path(cache, "contexts/default/stubs");
         (void)platform::fs::create_directories(databaseDirectory_);
+        // WA-CLANGD-009: the last session's verdict, so a project without modules starts clangd without the flag and
+        // its first plan does not restart clangd. A cache without one starts with it, as every version before did.
+        if (traits_.scansModulesOnEveryRequest) {
+            const auto verdict = platform::fs::read_file(modules_verdict_path_());
+            modulesSupport_ = !(verdict && base::trim(*verdict) == "off");
+            if (verdict) modulesVerdict_ = std::string { base::trim(*verdict) };
+        }
         // clangd starts without a database; the first plan is written before any document reaches it.
         platform::fs::remove_all(base::join_path(databaseDirectory_, "compile_commands.json"));
         log::info("clangd {} at {}", options_.version.empty() ? "?" : options_.version, options_.executable.empty() ? "(none)" : options_.executable);
@@ -634,6 +661,7 @@ public:
     void shut_down() override {
         if (process_ && process_->running() && handshakeDone_) (void)send_(lsp::make_notification("exit", nullptr));
         if (process_) process_->stop(std::chrono::seconds { 2 });
+        if (reaper_.joinable()) reaper_.join();   // P-3: a clangd being let go of is gone before the server is
     }
 
     void configure_plan(normalize::PlanInput& input) const override {
@@ -763,7 +791,16 @@ public:
         writtenArguments_ = std::move(newArguments);
         for (auto& [key, held] : held_) held.planned = true;
         (void)structureChanged;
-        const bool restartNeeded { (providerLeft || argumentsChanged) && planApplied_ && handshakeDone_ };
+        // WA-CLANGD-009: with its modules support clangd scans a file's module dependencies again for every completion
+        // (UP-23: 82 ms -> 254 ms at the median, 869 ms at worst, on vulkan-hpp in issue #37), so a project that uses no
+        // modules gets a clangd without it. It goes off only with the first plan, before clangd was given a document, so
+        // the restart costs nothing; it comes back, for the rest of the session, with the first plan that uses modules
+        // (an import typed into a file of a project that had none). The verdict is kept for the next session.
+        const bool usesModules { plan_uses_modules(*plan) };
+        const bool modulesSwitch { traits_.scansModulesOnEveryRequest && usesModules != modulesSupport_ && (usesModules || !planApplied_) };
+        if (traits_.scansModulesOnEveryRequest) remember_modules_verdict_(usesModules);
+        if (modulesSwitch) modulesSupport_ = usesModules;
+        const bool restartNeeded { ((providerLeft || argumentsChanged) && planApplied_ && handshakeDone_) || modulesSwitch };
         if (!restartNeeded && accepting_) {
             for (const auto& document : host_->documents()) {
                 if (document.path.empty()) continue;
@@ -850,7 +887,12 @@ public:
         const bool unresolvedForgot { forget_changed_unresolved_() };
         const bool doomForgot { forget_changed_doom_() };
         recompute_doom_();
-        if (restartNeeded) {
+        if (modulesSwitch) {
+            // The person's project, not clangd failing: at once, and never counted against clangd.
+            request_restart_(usesModules ? "the project uses modules, so clangd gets its modules support (WA-CLANGD-009)"
+                                         : "the project uses no modules, so clangd runs without its modules support (WA-CLANGD-009)",
+                             RestartCause::user);
+        } else if (restartNeeded) {
             const std::string reason { providerLeft
                 ? std::format("a module's unit left the engine database ({})", providersMoved.front())
                 : std::format("units are compiled with other arguments ({})", base::file_name(argumentsChangedFor.front())) };
@@ -1170,6 +1212,15 @@ public:
         const std::string kind { event.value("kind", std::string {}) };
         // Whichever process it was read from, the reading is back and another may start.
         if (kind == "cpu") cpuReadInFlight_ = false;
+        // P-3: the clangd restart_ let go of is gone; whichever generation asked, the one due now starts.
+        if (kind == "reaped") {
+            reaping_ = false;
+            if (startWhenReaped_) {
+                startWhenReaped_ = false;
+                start_process_();
+            }
+            return;
+        }
         if (event.value("generation", -1) != generation_) return;
         if (kind == "message") {
             handle_message_(event["message"]);
@@ -1582,6 +1633,7 @@ private:
         config.verboseLog = options_.verboseLog;
         workers_ = engine_workers(std::thread::hardware_concurrency(), total_memory_bytes(), options_.workers);
         config.workers = workers_;
+        config.modulesSupport = modulesSupport_;   // WA-CLANGD-009
         config.extraArguments = options_.extraArguments;
         // Extra engine arguments for troubleshooting, e.g. MCPPLS_ENGINE_ARGUMENTS="-j=8 --background-index-priority=background".
         if (auto extra = platform::env::get("MCPPLS_ENGINE_ARGUMENTS")) {
@@ -1717,9 +1769,29 @@ private:
         answer_searches_();
         forget_primes_();
         ++generation_;   // late events of the old process are ignored
-        if (process_) process_->stop(std::chrono::milliseconds { 500 });
         diagnosed_.clear();
         host_->forget_engine_diagnostics(ENGINE_ID);
+        // P-3 (plan 0.0.9): the old clangd is stopped off the event loop, and the new one starts when it is gone. A
+        // clangd building a preamble takes 2.4-3.9 s to leave whether its input closes or it is sent SIGTERM (measured
+        // on vulkan-hpp), and stopping it here held every request and watchdog meanwhile: 446 ms, 1803 ms in issue
+        // #37's bundles, up to 2.5 s by the bounds. The new one waits for the old because start_process_ clears the
+        // module locks an earlier clangd left (C-4), which holds only once no clangd uses the cache.
+        // Nothing reaches clangd meanwhile: requests wait for the new one as they did for a synchronous restart.
+        handshakeDone_ = false;
+        accepting_ = false;
+        if (process_) {
+            reaping_ = true;
+            // The previous reaper is done by now ("reaped" cleared reaping_ before process_ could be set again); assigning
+            // joins it at once.
+            reaper_ = std::jthread { [old = std::shared_ptr<Process> { std::move(process_) }, sink = sink_] {
+                old->stop(std::chrono::milliseconds { 500 });
+                sink(Json { { "kind", "reaped" } });
+            } };
+        }
+        if (reaping_) {
+            startWhenReaped_ = true;
+            return;
+        }
         start_process_();
     }
 
@@ -1915,7 +1987,20 @@ private:
     // WA-CLANGD-007: clangd scans an open file's imports from disk (UP-14), so an import typed into the buffer and not
     // saved yet is "not found" although the project provides it; that is information, not an error, until the save.
     void rewrite_diagnostics_(const std::string& uri, Json& diagnostics) const {
-        if ((!traits_.misplacesDirectiveSemicolon && !traits_.readsImportsFromDisk) || !diagnostics.is_array()) return;
+        if (!diagnostics.is_array()) return;
+        // WA-CLANGD-010: clang-tidy 23.1's misc-const-correctness wants a variable holding a filter, drop_while, chunk_by
+        // or split view const (UP-22, issue #37), which then does not compile: such a view has no const begin(). Dropped.
+        if (traits_.flagsNonConstViewsConst) {
+            Json kept = Json::array();
+            for (auto& diagnostic : diagnostics) {
+                const Json* codeValue { diagnostic.is_object() ? lsp::find(diagnostic, "code") : nullptr };
+                const bool tidy { codeValue != nullptr && codeValue->is_string() && codeValue->get<std::string>() == "misc-const-correctness" };
+                if (tidy && const_correctness_on_non_const_view(diagnostic.value("message", std::string {}))) continue;
+                kept.push_back(std::move(diagnostic));
+            }
+            diagnostics = std::move(kept);
+        }
+        if (!traits_.misplacesDirectiveSemicolon && !traits_.readsImportsFromDisk) return;
         std::optional<DocumentView> document;
         for (const auto& each : host_->documents()) {
             if (each.uri == uri) document = each;
@@ -3533,6 +3618,11 @@ private:
         forget_primes_();
         ++generation_;
         if (process_) process_->stop(std::chrono::milliseconds { 500 });
+        // P-3: stopped is gone. A restart after this starts clangd itself, or, while a "reaped" is still on its way,
+        // once that arrives -- never a second reaper for a process already stopped.
+        process_.reset();
+        if (reaper_.joinable()) reaper_.join();   // one being let go of after a restart may still use the cache
+        modulesVerdict_.clear();                  // WA-CLANGD-009: the file goes with the cache; the next plan writes it again
         handshakeDone_ = false;
         accepting_ = false;
         restartAt_.reset();
@@ -4206,6 +4296,19 @@ private:
     }
 
     std::string built_modules_path_() const { return base::join_path(databaseDirectory_, "module-builds.json"); }
+
+    // WA-CLANGD-009: "on" or "off", beside the context's database; a cache reset forgets it with the rest.
+    std::string modules_verdict_path_() const { return base::join_path(base::parent_path(databaseDirectory_), "modules-support"); }
+
+    void remember_modules_verdict_(bool usesModules) {
+        const std::string_view verdict { usesModules ? "on" : "off" };
+        if (verdict == modulesVerdict_) return;
+        if (auto written = platform::fs::write_file_atomic(modules_verdict_path_(), verdict); !written) {
+            log::warning("cannot keep whether {} uses modules: {}", host_->root_directory(), written.error().message);
+            return;
+        }
+        modulesVerdict_ = verdict;
+    }
 
     void load_built_modules_() {
         if (builtModulesLoaded_) return;

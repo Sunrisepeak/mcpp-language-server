@@ -42,6 +42,8 @@ struct EngineTraits {
     bool hangsOnTrailingDotModuleName { false };      // `import a.` at the end of a line spins it; it is given `import a.;`
     bool misplacesDirectiveSemicolon { false };       // a directive missing its `;` is reported on the next line; moved back
     bool readsImportsFromDisk { false };              // an import only in an unsaved buffer is "not found"; told as information
+    bool scansModulesOnEveryRequest { false };        // modules support costs every request a scan; off for a project with no modules
+    bool flagsNonConstViewsConst { false };           // misc-const-correctness wants a filter view const; the diagnostic is dropped
     std::string kitStdlibVersion;                     // the libc++ version a semantic kit must have for it (S4-4-5); empty: any
     bool tested { false };                            // a version this server's conformance suite runs against
 };

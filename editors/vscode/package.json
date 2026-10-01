@@ -2,7 +2,7 @@
   "name": "mcpp-language-server",
   "displayName": "C++ Modules Language Server",
   "description": "mcppls - C++20/23 named modules that just work: go to definition, completion, hover and references across modules for any compiler, with clangd and a standard library kit built in.",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "publisher": "sunrisepeak",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -202,6 +202,11 @@
         "category": "C++ Modules"
       },
       {
+        "command": "mcppls.askBeforeDownloading",
+        "title": "Ask Before Downloading in This Workspace",
+        "category": "C++ Modules"
+      },
+      {
         "command": "mcppls.turnOffOtherCppFeatures",
         "title": "Turn Off Other C++ Language Features",
         "category": "C++ Modules"
@@ -237,10 +242,11 @@
         "mcppls.engine.workers": {
           "type": "string",
           "default": "auto",
-          "pattern": "^(auto|[1-9][0-9]?)$",
+          "pattern": "^(auto|[1-9][0-9]?)?$",
+          "patternErrorMessage": "auto, or a whole number from 1 to 99",
           "description": "How many files clangd builds at once (its -j), shared by module preparation, indexing and the files you edit; one is always kept for what you are waiting on. auto: one fewer than the hardware threads, between two and eight, and no more than half the memory in gigabytes. A number sets it. Takes effect when the server restarts."
         },
-        "mcppls.engine": {
+        "mcppls.engine.name": {
           "type": "string",
           "enum": [
             "clangd",
@@ -317,7 +323,7 @@
           ],
           "description": "Which environment mcppls starts your build tools in. An editor started from a desktop entry, a Dock icon or a launcher does not carry your shell configuration, so the tool it finds may not be the one your terminal finds."
         },
-        "mcppls.buildDiscovery": {
+        "mcppls.buildDiscovery.mode": {
           "type": "string",
           "enum": [
             "auto",
@@ -349,7 +355,7 @@
             "meson",
             "compile-commands"
           ],
-          "description": "Which build system providers mcppls.buildDiscovery may use; leave one out to stop mcppls from detecting it."
+          "description": "Which build system providers mcppls.buildDiscovery.mode may use; leave one out to stop mcppls from detecting it."
         },
         "mcppls.buildDiscovery.askBeforeDownload": {
           "type": "boolean",

@@ -1,0 +1,10 @@
+{
+  "name": "tidy-const-views",
+  "description": "0.0.9 plan M-3, WA-CLANGD-010: clang-tidy's misc-const-correctness says a variable holding a filter view, or a view over one, can be declared const, and adding it breaks the build, since such a view caches begin() and has no const one (UP-22). The project's .clangd turns on the check for everything (FastCheckFilter: None, without which clang-tidy leaves it out of a file that includes a standard library), and the file has two such variables and one int that is never changed: the server shows the int and not the views. T1 waits for clangd's diagnostics (a diagnostic-code-lines check alone can read the empty set mcppls publishes before clangd has built the file, as on a Windows runner); T2 then holds the lines exactly. The standard library is the semantic kit's libc++ on every platform; workaround-canaries holds the same file against clangd alone, with the host's.",
+  "server-arguments": ["--no-discover"],
+  "checks": [
+    { "id": "S1", "kind": "status", "state": "ready", "engine-name": "clangd" },
+    { "id": "T1-the-int-is-told", "kind": "diagnostic-code", "file": "src/main.cpp", "expect": "misc-const-correctness", "line": 6, "timeout": 60 },
+    { "id": "T2-const-advice-only-where-true", "kind": "diagnostic-code-lines", "file": "src/main.cpp", "code": "misc-const-correctness", "lines": [6] }
+  ]
+}

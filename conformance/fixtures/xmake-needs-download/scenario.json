@@ -1,0 +1,146 @@
+{
+  "name": "xmake-needs-download",
+  "description": "Plan 0.0.9 D-1, D-2, D-3, D-6, run against a stand-in xmake (fake-bin/xmake, first on the server's PATH; POSIX only) that says what xmake 3.1.1 says. The project's .xmake/linux/x86_64/xmake.conf holds a project option (fancy) and keys xmake wrote itself (proxy, dotnet, dotnet_sdkver), which `xmake f` refuses. (a) Offline, `xmake f` fails on missing packages: the status says what xmake would fetch or build (build tools included), that the run stayed offline and that the system package manager works too, offers to fetch them (askOnline), and the project directory is untouched. (b) The person accepts (mcppls.describeOnline) and the install fails: the status carries producer-install-failed with the packages, xmake's error lines and its install log, and offers nothing to fetch. (c) `xmake f` passes but `xmake project` finds packages missing: the same needs-download, not xmake-configure-failed (D-6). (d) The packages are there: the model is xmake's, and across all of it `xmake f` ran once per load -- keys xmake wrote itself were never passed on, so no retry and no xmake-options-left-out.",
+  "server-path-prepend": "{workspace}/fake-bin",
+  "prepare": [
+    ["chmod", "+x", "{workspace}/fake-bin/xmake"]
+  ],
+  "checks": [
+    {
+      "id": "A1-the-status-says-what-is-missing",
+      "kind": "status",
+      "source": "inferred",
+      "issue-code": "producer-needs-download",
+      "issue-message": "libtool, libpthread-stubs",
+      "issue-command": "mcppls.runBuildToolInTerminal",
+      "issue-category": "environment",
+      "timeout": 60
+    },
+    {
+      "id": "A2-build-tools-and-the-offline-run-are-named",
+      "kind": "status",
+      "issue-code": "producer-needs-download",
+      "issue-message": "build tools included"
+    },
+    {
+      "id": "A3-and-the-system-package-manager-is-a-way",
+      "kind": "status",
+      "issue-code": "producer-needs-download",
+      "issue-message": "system package manager"
+    },
+    {
+      "id": "A4-a-client-may-offer-to-fetch-it",
+      "kind": "status",
+      "issue-code": "producer-needs-download",
+      "issue-ask-online": true
+    },
+    {
+      "id": "A5-nothing-was-written-into-the-project",
+      "kind": "workspace-unchanged"
+    },
+    {
+      "id": "B1-the-person-accepts",
+      "kind": "execute-command",
+      "command": "mcppls.describeOnline"
+    },
+    {
+      "id": "B2-the-install-failed-and-the-status-says-why",
+      "kind": "status",
+      "issue-code": "producer-install-failed",
+      "issue-message": "error: install libtool failed!",
+      "issue-command": "mcppls.runBuildToolInTerminal",
+      "issue-category": "environment",
+      "timeout": 60
+    },
+    {
+      "id": "B3-with-the-packages-and-the-log",
+      "kind": "status",
+      "issue-code": "producer-install-failed",
+      "issue-message": "installdir.failed/logs/install.txt"
+    },
+    {
+      "id": "B3b-the-status-says-the-fetch-failed",
+      "kind": "status",
+      "online-run": "failed",
+      "online-run-message": "installdir.failed/logs/install.txt"
+    },
+    {
+      "id": "B4-nothing-is-offered-that-would-fail-the-same-way",
+      "kind": "report",
+      "timeout": 20,
+      "expect": [
+        { "path": "/roots/0/project/needsDownload", "absent": true }
+      ]
+    },
+    {
+      "id": "C1-the-packages-are-missing-at-the-project-stage",
+      "kind": "write-file",
+      "file": "xmake.lua",
+      "replace": { "from": "CONFIGURE_MISSING", "with": "PROJECT_MISSING" },
+      "notify": true
+    },
+    {
+      "id": "C1b-xmake-f-ran-again",
+      "kind": "report",
+      "timeout": 30,
+      "expect": [
+        { "path": "/roots/0/events/*/detail/purpose", "equals": "configure", "min-matches": 3 }
+      ]
+    },
+    {
+      "id": "C2-it-is-needs-download-not-a-configure-failure",
+      "kind": "status",
+      "issue-code": "producer-needs-download",
+      "issue-message": "libsdl3",
+      "issue-ask-online": true,
+      "timeout": 60
+    },
+    {
+      "id": "D1-the-packages-are-there",
+      "kind": "write-file",
+      "file": "xmake.lua",
+      "replace": { "from": "PROJECT_MISSING", "with": "THERE" },
+      "notify": true
+    },
+    {
+      "id": "D1b-xmake-f-ran-again",
+      "kind": "report",
+      "timeout": 30,
+      "expect": [
+        { "path": "/roots/0/events/*/detail/purpose", "equals": "configure", "min-matches": 4 }
+      ]
+    },
+    {
+      "id": "D2-the-model-is-xmake-s",
+      "kind": "status",
+      "source": "xmake",
+      "timeout": 60
+    },
+    {
+      "id": "D3-no-option-was-left-out",
+      "kind": "status-never",
+      "after-ready": false,
+      "issue-codes": ["xmake-options-left-out", "xmake-configure-failed"]
+    },
+    {
+      "id": "D4-configure-ran-once-for-each-of-the-four-loads",
+      "kind": "report",
+      "timeout": 20,
+      "expect": [
+        { "path": "/roots/0/events/*/detail/purpose", "equals": "configure", "max-matches": 4 },
+        { "path": "/roots/0/events/*/detail/purpose", "equals": "configure", "min-matches": 4 },
+        { "path": "/roots/0/project/source", "equals": "xmake" }
+      ]
+    },
+    {
+      "id": "W1-put-back",
+      "kind": "write-file",
+      "file": "xmake.lua",
+      "restore": true
+    },
+    {
+      "id": "U1-the-project-directory-is-as-it-was",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}

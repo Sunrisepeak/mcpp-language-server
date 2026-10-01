@@ -277,26 +277,26 @@ jobs:
           - platform: linux-x64
             part: 1 of 2
             os: ubuntu-24.04
-            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mingw mcpp-split-gcc mcpp-watch multi-root mcpp-llvm mcpp-watch@polling mcpp-emit mcpp-rules-generated s1-two-sets compdb-lto-msvc failure-at-base@vscode generated-module-negotiated typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins compdb-rejected-command compdb-mixed-standards mcpp-emit-partial mcpp-emit-partial-download compdb-midwrite xmake-basic xmake-late-config xmake-user-mode xmake-no-standard
+            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mingw mcpp-split-gcc mcpp-watch multi-root mcpp-llvm mcpp-watch@polling mcpp-emit mcpp-rules-generated s1-two-sets compdb-lto-msvc failure-at-base@vscode generated-module-negotiated typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins compdb-rejected-command compdb-mixed-standards mcpp-emit-partial mcpp-emit-partial-download compdb-midwrite xmake-basic xmake-late-config xmake-user-mode xmake-no-standard xmake-needs-download
           - platform: linux-x64
             part: 2 of 2
             os: ubuntu-24.04
             extras: true
-            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-provisioned mcpp-emit-watch mcpp-emit-watch@polling mcpp-emit-edits cmake-clang cmake-clang-bdb cmake-fetchcontent-offline watch-polling payload-corrupt clangd-cannot-load generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed failure-at-base failure-at-base@neovim completion-keywords diagnostic-bundle clangd-crash-context mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache include-cleaner-modules
+            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-provisioned mcpp-emit-watch mcpp-emit-watch@polling mcpp-emit-edits cmake-clang cmake-clang-bdb cmake-fetchcontent-offline watch-polling payload-corrupt clangd-cannot-load generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed failure-at-base failure-at-base@neovim completion-keywords diagnostic-bundle clangd-crash-context mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache include-cleaner-modules no-modules tidy-const-views
           # generated-module{,-old-mcpp,-negotiated}'s mcpp-mock.json bakes in a POSIX driver path
           # (${env:HOME}/.mcpp/registry/..., no {exe}); it resolves the same way here as on Linux, so
           # these run on macOS but are left off win32-x64 below rather than fixed unverified.
           - platform: darwin-arm64
             os: macos-14
             extras: true
-            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache include-cleaner-modules
+            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache include-cleaner-modules no-modules tidy-const-views
           # No mcpp on the arm64 runner (its tools are the cross-built ones), so the fixtures that
           # need no build tool and no compiler of their own: the semantic kit, clangd and the server
           # on aarch64, with module faults, a corrupt payload and polling included.
           - platform: linux-arm64
             os: ubuntu-24.04-arm
             cross-tools: true
-            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context inferred-cxx26 reset-cache include-cleaner-modules
+            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context inferred-cxx26 reset-cache include-cleaner-modules no-modules tidy-const-views
           - platform: win32-x64
             part: 1 of 2
             os: windows-2022
@@ -305,7 +305,7 @@ jobs:
             part: 2 of 2
             os: windows-2022
             extras: true
-            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-clangxx-msvc cmake-clang-cl mcpp-msvc mcpp-watch failure-at-base clangd-cannot-load completion-keywords diagnostic-bundle mcpp-emit-wait inferred-cxx26 reset-cache include-cleaner-modules
+            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-clangxx-msvc cmake-clang-cl mcpp-msvc mcpp-watch failure-at-base clangd-cannot-load completion-keywords diagnostic-bundle mcpp-emit-wait inferred-cxx26 reset-cache include-cleaner-modules no-modules tidy-const-views
     defaults:
       run:
         shell: bash
@@ -739,7 +739,9 @@ jobs:
   # (cold start, warm start on the same cache, typing and saves on that cache, faults on a cache of their
   # own); a stage that fails does not skip the ones after it, so a run says everything that is over budget,
   # and every stage's measure file is uploaded whether or not it passed, for the trend. The `long` stage
-  # (ten idle minutes, a git checkout twenty commits back) is nightly's.
+  # (ten idle minutes, a git checkout twenty commits back) is nightly's. ux-heavy-headers (0.0.9 plan M-2)
+  # needs no checkout: it generates a project of heavy headers and holds completion through the server to
+  # what clangd alone does on it, in its one stage.
   ux:
     name: ux (${{ matrix.fixture }})
     needs: payload
@@ -748,7 +750,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fixture: [ux-mcpp, ux-xlings]
+        fixture: [ux-mcpp, ux-xlings, ux-heavy-headers]
     defaults:
       run:
         shell: bash
@@ -756,6 +758,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
       - name: GCC 16, which the mcpp and xlings repositories build with
+        if: matrix.fixture != 'ux-heavy-headers'
         run: mcpp toolchain install gcc 16.1.0
       # The mcpp repository's .xlings.json asks for the mcpp it is built with, and xlings runs that one
       # inside it, refusing to when it is not installed (nightly's self-hosting job does the same).
@@ -792,10 +795,15 @@ jobs:
             fi
             echo "::endgroup::"
           }
-          run_stage cold cache-a
-          run_stage warm cache-a --expect-warm
-          run_stage edits cache-a --expect-warm
-          run_stage faults cache-b
+          if [ "${{ matrix.fixture }}" = ux-heavy-headers ]; then
+            # 0.0.9 plan M-2: one run, of a generated project: completion through the server against clangd alone.
+            run_stage edits cache-a
+          else
+            run_stage cold cache-a
+            run_stage warm cache-a --expect-warm
+            run_stage edits cache-a --expect-warm
+            run_stage faults cache-b
+          fi
           {
             echo "### ${{ matrix.fixture }}"
             echo

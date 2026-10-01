@@ -50,6 +50,12 @@
       "timeout": 60
     },
     {
+      "id": "D8-and-the-status-says-the-fetch-succeeded",
+      "kind": "status",
+      "online-run": "fetched",
+      "online-run-message": "fetched what the build description needed"
+    },
+    {
       "id": "D4-nothing-was-written-into-the-project",
       "kind": "workspace-unchanged"
     }

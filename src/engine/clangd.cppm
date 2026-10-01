@@ -6,6 +6,7 @@ export module mcppls.engine.clangd;
 
 import std;
 import nlohmann.json;
+import mcppls.normalize.plan;
 import mcppls.engine;
 import mcppls.engine.clangd.process;
 
@@ -18,6 +19,11 @@ inline constexpr std::string_view ENGINE_ID { "clangd" };
 // have not run through the conformance suite; any other version gets every compensation.
 // `disabled`: registered workarounds (WA-CLANGD-<n>) turned off whatever the version.
 EngineTraits traits_for_version(std::string_view version, std::span<const std::string> disabled = {});
+
+// WA-CLANGD-009: whether the project of `plan` uses C++ modules at all -- a unit that is part of or provides a module,
+// imports one (`import std;` included), or an import nothing provides (a stand-in, or an issue naming the module).
+// A project that does not gets a clangd without --experimental-modules-support.
+bool plan_uses_modules(const normalize::EnginePlan& plan);
 
 struct Options {
     std::string executable;        // empty, or a file that does not exist: the engine is unavailable

@@ -7,6 +7,97 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.9] — 2026-10-02
+
+Completion on a project without modules as fast as plain clangd's, and the rest of issue #37. clangd's
+modules support made every completion in a header-heavy project about three times slower (vulkan-hpp:
+259 ms at the median through mcppls, now 97 ms); a project that uses no modules now gets clangd without
+it. A view that cannot be const is no longer said to be, settings no longer show `undefined`, an xmake
+project no longer starts with a configuration that must fail, a download that is needed says what it is
+and what else helps, and a fetch you ask for reports how it ended. A second editor window, or a server
+left behind by a reload, no longer makes the next one start cold. The analysis and the plan are
+`.agents/docs/2026-10-01-0.0.9-plan.md`.
+
+### Completion and diagnostics
+
+- **Completion on a project without modules is as fast as plain clangd's again** (issue #37). clangd's
+  modules support scans a file's module dependencies again for every completion; on vulkan-hpp that took
+  completion from 82 ms to 254 ms at the median, 869 ms at worst, in sources and headers alike. A project
+  whose plan has no module unit, no module import, no `import std` and no stand-in now gets clangd without
+  `--experimental-modules-support`; the verdict is kept for the next session, and the first plan that uses
+  modules restarts clangd with it (workaround `WA-CLANGD-009`, UP-23 in issue #24). Through mcppls, the
+  same completions went from 259 ms to 97 ms at the median.
+- **No "can be declared 'const'" for a view that cannot be const** (issue #37). clang-tidy 23.1's
+  `misc-const-correctness` says so of a variable holding a filter, drop_while, chunk_by or split view, or
+  a view built on one, although none of them has a const `begin()`; that diagnostic is dropped and the
+  check's others are kept (workaround `WA-CLANGD-010`, UP-22 in issue #24).
+
+### Starting
+
+- **A second instance plans with the owner's model at once** (issue #37). A server that finds the
+  workspace served by another instance works in a private directory; it now reads the owner's cached
+  project model, read only, instead of planning from scanned sources and restarting clangd when the
+  build tool answered (3 to 4.4 s of slow first requests on vulkan-rt).
+- **A server whose editor is gone leaves.** The client's process id from `initialize` is watched (Linux
+  and macOS, when the process is visible at the start); once it is gone the server exits as if its input
+  had closed, and the next server owns the workspace instead of starting cold beside a leftover one.
+- **clangd waits for a build tool that is known to answer soon.** With no cached model, clangd started
+  on the model scanned from sources after 2.5 s and was restarted when the build tool answered, building
+  its preambles twice. How long each build tool took is now kept per workspace, and clangd waits up to
+  1.2 times that (at most 5.5 s more); mcppls's own engine answers meanwhile, as before.
+- **A clangd restart no longer holds the event loop.** The old clangd is stopped on its own thread and
+  the new one starts once it is gone; a clangd building a preamble takes 2.4 to 3.9 s to exit, and every
+  request waited for it (446 ms and 1803 ms in the reporter's logs, up to 2.5 s).
+
+### Settings
+
+- **The settings screen no longer shows `undefined`, and `engine.workers` takes effect.**
+  `mcppls.engine` and `mcppls.buildDiscovery` were plain values that were also the parents of other
+  settings, and VS Code drops a child's default when its parent is a plain value:
+  `mcppls.engine.workers` showed `undefined` and "Value must match regex", and the build discovery
+  checkbox showed unchecked. They are now `mcppls.engine.name` and `mcppls.buildDiscovery.mode`. The
+  old names still apply in every editor, Neovim and Zed `init_options` included; VS Code offers once to
+  move your values to the new names and changes nothing until you click. `mcppls.engine.workers` now
+  reaches the server, accepts `auto` or 1 to 99 (empty means `auto`), and a change restarts it. A `null`
+  in `initializationOptions` means not set, and in `didChangeConfiguration` returns the setting to its
+  default; the bundle no longer reports "compiler as the wrong kind of value" for an unset compiler.
+
+### Build tools
+
+- **xmake no longer starts with a configuration that must fail.** mcppls asks `xmake f --help` which
+  options it takes and passes on only the `xmake.conf` keys on that list. The keys xmake wrote there
+  itself (`proxy`, `dotnet`, `dotnet_sdkver`) were passed back, `xmake f` refused them, and every start
+  ran it twice and showed a wrong "run `xmake f -c`" notice.
+- **A needed download says what it is and what else works.** The message says these are packages xmake
+  would fetch or build for the project's requirements (build tools included, such as `libtool` or
+  `libpthread-stubs` for a library built from source), that the run stayed offline, and that installing
+  them with the system package manager works too. A run with the network allowed whose install fails
+  reports `producer-install-failed` with xmake's error lines and its install log, instead of "stayed
+  offline" and an offer to download the same thing again. Missing packages found by `xmake project` are
+  reported the same way.
+- **A download you asked for says how it ended, and can be allowed for a workspace.** After "Download
+  and Continue", the status carries the outcome (S3 `onlineRun`), and VS Code tells it once: fetched, or
+  failed with what failed and buttons for the log and the terminal. "Always Download in This Workspace"
+  fetches every download the build description needs without asking, while the build tool still runs
+  offline otherwise; "C++ Modules: Ask Before Downloading in This Workspace" takes it back. Nothing is
+  written into the project.
+
+### Diagnostic bundle and tests
+
+- **A slow request shows whose time it was.** The report's `requests.<method>` splits the requests an
+  engine answered into `engineP50Ms`/`engineP95Ms` (the engine's own time) and
+  `overheadP50Ms`/`overheadP95Ms` (what mcppls added).
+- The conformance suite talks to clangd directly for two canaries: WA-CLANGD-009 (completion with
+  `--experimental-modules-support` more than 1.8 times slower on a heavy header) and WA-CLANGD-010 (the
+  filter view's const advice). New fixtures `no-modules` and `tidy-const-views`, and a ux scenario,
+  `ux-heavy-headers`, that holds completion through mcppls to 1.3 times clangd's own plus 30 ms on a
+  project without modules (it fails with WA-CLANGD-009 turned off: 530 ms against 56 ms).
+
+### Packaging
+
+- **A released payload is no longer marked `dirty`.** Its build record counted files the build itself
+  leaves in the checkout; only a tracked file that differs from the commit counts now.
+
 ## [0.0.8] — 2026-10-01
 
 Completion that shows up. In VS Code 1.125 and later with Copilot (built into VS Code) or another

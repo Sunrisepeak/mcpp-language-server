@@ -107,6 +107,68 @@ Answer read_project_database(const Claim& claim, const ProviderContext& context)
     return answer;
 }
 
+// D-1 (plan 0.0.9): what `xmake f` accepts in this project, from `xmake f --help` run where configure runs (the project's
+// directory, the same environment, offline). Kept in the private directory under xmake's path and time and xmake.lua's stamp, so
+// it is asked once and again only when either changes. Empty when xmake gave no usable help: the caller keeps the reduced retry.
+std::vector<std::string> accepted_options(const Claim& claim, const ProviderContext& context, const std::string& xmake,
+                                          const std::vector<std::string>& environment) {
+    const auto toolStamp { fs::stamp(xmake) };
+    // An option() may be declared in any xmake.lua the root includes: the newest of them, and how many there are, is in the key.
+    std::int64_t manifestsModified { 0 };
+    const auto manifests { xmake_manifests(claim) };
+    for (const auto& manifest : manifests) {
+        if (const auto stamp = fs::stamp(manifest)) manifestsModified = std::max(manifestsModified, stamp->modified);
+    }
+    const std::string key { std::format("{} {} {} {} {}", xmake, toolStamp ? toolStamp->modified : 0, toolStamp ? toolStamp->size : 0,
+                                        manifestsModified, manifests.size()) };
+    const std::string cachePath { base::join_path(context.privateDirectory, "xmake-help") };
+    if (const auto cached = fs::read_file(cachePath)) {
+        const auto lines { base::split_lines(*cached) };
+        if (!lines.empty() && lines.front() == key) {
+            std::vector<std::string> names;
+            for (const auto line : lines | std::views::drop(1)) {
+                if (!base::trim(line).empty()) names.emplace_back(base::trim(line));
+            }
+            return names;
+        }
+    }
+    const auto help = platform::toolrun::run({
+        .program = xmake,
+        .arguments = { "f", "--help" },
+        .workDirectory = claim.root,
+        .purpose = "xmake-help",
+        .root = context.rootKey,
+        .network = platform::toolrun::Network::offline,
+        .bounds = platform::RunBounds { .hard = std::chrono::seconds { 15 } },
+        .environment = environment,
+        .environmentWait = context.environmentWait,
+    });
+    if (!help || help->timedOut) return {};
+    const auto names { xmake_help_options(help->output + "\n" + help->error) };
+    // A help text with no `--plat` is not xmake's help of `f`: nothing is learned from it, and nothing is kept.
+    if (!std::ranges::contains(names, std::string { "plat" })) return {};
+    (void)fs::write_file(cachePath, key + "\n" + base::join(names, "\n"));
+    return names;
+}
+
+// D-2, D-6: the failure of either stage as the user can act on it, when the output names packages xmake could not have: offline,
+// the download that the user decides; online, an install that was tried and failed. Empty when the output names no package.
+std::optional<Answer> missing_packages_answer(const std::string& output, bool offline) {
+    auto missing { xmake_missing_packages(output) };
+    if (!offline && missing.empty()) {
+        // With the network allowed xmake does not say "not found": it says which install failed, and where its log is.
+        missing = xmake_failed_installs(output);
+        if (missing.empty() && xmake_install_log(output).empty()) return std::nullopt;
+    } else if (missing.empty()) {
+        return std::nullopt;
+    }
+    if (offline) {
+        return Answer { .outcome = Outcome::needs_download, .code = std::string { spec::NEEDS_DOWNLOAD },
+                        .reason = xmake_needs_download_reason(missing), .missing = std::move(missing) };
+    }
+    return Answer { .code = std::string { spec::INSTALL_FAILED }, .reason = xmake_install_failed_reason(missing, output), .missing = std::move(missing) };
+}
+
 // Runs xmake privately: two commands, in a directory of ours, never the project's (see the comment in the body).
 Answer run_private(const Claim& claim, const ProviderContext& context, const std::string& xmake) {
     context.producerUsed = xmake;
@@ -139,10 +201,18 @@ Answer run_private(const Claim& claim, const ProviderContext& context, const std
     if (!hasConfig || stale) {
         fs::remove_all(configuredMarker);   // a failed `xmake f -c` leaves no configuration worth keeping
         fs::remove_all(leftOutMarker);
+        // D-1: asked only when xmake.conf holds something that is neither internal nor standard; the answer is kept.
+        std::vector<std::string> accepted;
+        if (user && !xmake_left_out(user->options).empty()) {
+            accepted = accepted_options(claim, context, xmake, environment);
+            if (const auto skipped { xmake_not_accepted(user->options, accepted) }; !skipped.empty()) {
+                base::log::info("xmake f does not take {} of {}; these are keys xmake wrote itself, so they are not passed on", base::join(skipped, ", "), user->path);
+            }
+        }
         const auto configure = [&](bool reduced) {
             return platform::toolrun::run({
                 .program = xmake,
-                .arguments = xmake_configure_arguments(buildDirectory, context.offline, user ? std::span<const XmakeOption> { user->options } : std::span<const XmakeOption> {}, reduced),
+                .arguments = xmake_configure_arguments(buildDirectory, context.offline, user ? std::span<const XmakeOption> { user->options } : std::span<const XmakeOption> {}, reduced, accepted),
                 .workDirectory = claim.root,
                 .purpose = "configure",
                 .root = context.rootKey,
@@ -156,7 +226,8 @@ Answer run_private(const Claim& claim, const ProviderContext& context, const std
         };
         auto configured = configure(false);
         // X-2: an option the user's xmake.conf still holds, that xmake.lua no longer declares, is refused (exit 255 with v3.1.1).
-        // One retry with the standard options only; what was left out is said in a notice.
+        // One retry with the standard options only; what was left out is said in a notice. D-1: with the list `xmake f --help`
+        // gave there is nothing left to refuse, so this is the fallback for when that list could not be had.
         if (configured && !configured->timedOut && configured->exitCode != 0 && user && !xmake_left_out(user->options).empty()
             && xmake_unknown_option(configured->output + "\n" + configured->error)) {
             const auto leftOut { xmake_left_out(user->options) };
@@ -170,12 +241,7 @@ Answer run_private(const Claim& claim, const ProviderContext& context, const std
         }
         if (configured->exitCode != 0) {
             const std::string combined { configured->output + "\n" + configured->error };
-            if (auto missing = xmake_missing_packages(combined); !missing.empty()) {
-                return Answer { .outcome = Outcome::needs_download, .code = std::string { spec::NEEDS_DOWNLOAD },
-                                .reason = std::format("xmake needs {} downloaded, and this run stayed offline (network.mode:private)",
-                                                      base::join(missing, ", ")),
-                                .missing = missing };
-            }
+            if (auto packages = missing_packages_answer(combined, context.offline)) return std::move(*packages);
             return Answer { .code = "xmake-configure-failed",
                             .reason = std::format("xmake f failed ({}): {}", configured->exitCode,
                                                   base::trim(configured->error.empty() ? configured->output : configured->error)) };
@@ -202,6 +268,8 @@ Answer run_private(const Claim& claim, const ProviderContext& context, const std
                         .reason = "xmake project -k compile_commands did not finish in time" };
     }
     if (described->exitCode != 0) {
+        // D-6: the project stage reads the packages too; they can be missing here when `xmake f` did not need them.
+        if (auto packages = missing_packages_answer(described->output + "\n" + described->error, context.offline)) return std::move(*packages);
         return Answer { .code = "xmake-configure-failed",
                         .reason = std::format("xmake project -k compile_commands failed ({}): {}", described->exitCode,
                                               base::trim(described->error.empty() ? described->output : described->error)) };
@@ -306,6 +374,89 @@ std::vector<std::string> xmake_left_out(std::span<const XmakeOption> user) {
     return names;
 }
 
+std::vector<std::string> xmake_help_options(std::string_view text) {
+    std::vector<std::string> names;
+    for (const auto line : base::split_lines(text)) {
+        std::size_t indent { 0 };
+        while (indent < line.size() && line[indent] == ' ') ++indent;
+        if (indent == 0 || indent > 8 || indent >= line.size() || line[indent] != '-') continue;
+        // `-p PLAT, --plat=PLAT   Compile for ...`: the spellings come before the first run of two spaces.
+        std::string_view spellings { line.substr(indent) };
+        if (const std::size_t gap { spellings.find("  ") }; gap != std::string_view::npos) spellings = spellings.substr(0, gap);
+        for (const auto part : base::split(spellings, ',')) {
+            std::string_view spelling { base::trim(part) };
+            if (!spelling.starts_with("--")) continue;
+            spelling.remove_prefix(2);
+            std::size_t end { 0 };
+            while (end < spelling.size() && (base::is_identifier_char(spelling[end]) || spelling[end] == '-')) ++end;
+            if (end > 0) names.emplace_back(spelling.substr(0, end));
+        }
+    }
+    std::ranges::sort(names);
+    names.erase(std::ranges::unique(names).begin(), names.end());
+    return names;
+}
+
+std::vector<std::string> xmake_not_accepted(std::span<const XmakeOption> user, std::span<const std::string> accepted) {
+    std::vector<std::string> names;
+    if (accepted.empty()) return names;
+    for (const auto& option : user) {
+        if (xmake_option_is_internal(option.name) || xmake_option_is_standard(option.name)) continue;
+        if (!std::ranges::contains(accepted, option.name)) names.push_back(option.name);
+    }
+    return names;
+}
+
+std::vector<std::string> xmake_error_lines(std::string_view output, std::size_t limit) {
+    std::vector<std::string> lines;
+    for (const auto line : base::split_lines(output)) {
+        const std::string_view trimmed { base::trim(line) };
+        if (base::to_lower_ascii(trimmed).starts_with("error:")) lines.emplace_back(trimmed);
+    }
+    if (lines.size() > limit) lines.erase(lines.begin(), lines.end() - static_cast<std::ptrdiff_t>(limit));
+    return lines;
+}
+
+std::vector<std::string> xmake_failed_installs(std::string_view output) {
+    std::vector<std::string> names;
+    for (const auto line : base::split_lines(output)) {
+        const std::string lower { base::to_lower_ascii(base::trim(line)) };
+        if (!lower.starts_with("error: install ") || !lower.contains(" failed")) continue;
+        const std::string_view rest { std::string_view { lower }.substr(std::string_view { "error: install " }.size()) };
+        if (const std::string name { rest.substr(0, rest.find(' ')) }; !name.empty() && !std::ranges::contains(names, name)) names.push_back(name);
+    }
+    return names;
+}
+
+std::string xmake_install_log(std::string_view output) {
+    for (const auto line : base::split_lines(output)) {
+        for (const auto word : base::split(line, ' ')) {
+            if (!word.contains("installdir.failed")) continue;
+            std::string_view path { base::trim(word) };
+            while (!path.empty() && (path.back() == '.' || path.back() == ',' || path.back() == ')' || path.back() == '\'' || path.back() == '"')) path.remove_suffix(1);
+            while (!path.empty() && (path.front() == '(' || path.front() == '\'' || path.front() == '"')) path.remove_prefix(1);
+            if (!path.empty()) return std::string { path };
+        }
+    }
+    return {};
+}
+
+std::string xmake_needs_download_reason(std::span<const std::string> missing) {
+    return std::format("xmake needs {} downloaded: they are what xmake would fetch or build for this project's requirements (build tools "
+                       "included), and this run stayed offline (network.mode:private); installing them with your system package manager "
+                       "also works, because xmake uses the system's when it finds them",
+                       base::join(missing, ", "));
+}
+
+std::string xmake_install_failed_reason(std::span<const std::string> missing, std::string_view output) {
+    std::string reason { std::format("xmake could not install {} (the network was allowed)",
+                                     missing.empty() ? std::string { "the packages this project requires" } : base::join(missing, ", ")) };
+    for (const auto& line : xmake_error_lines(output)) reason += std::format("; {}", line);
+    if (const std::string log { xmake_install_log(output) }; !log.empty()) reason += std::format("; its log is {}", log);
+    reason += "; installing them with your system package manager also works, because xmake uses the system's when it finds them";
+    return reason;
+}
+
 bool xmake_unknown_option(std::string_view output) {
     const std::string lower { base::to_lower_ascii(output) };
     return lower.contains("invalid option") || lower.contains("unknown option");
@@ -328,13 +479,14 @@ std::string xmake_configuration_key(bool offline, std::optional<std::pair<std::u
 }
 
 std::vector<std::string> xmake_configure_arguments(std::string_view buildDirectory, bool offline,
-                                                   std::span<const XmakeOption> user, bool reduced) {
+                                                   std::span<const XmakeOption> user, bool reduced, std::span<const std::string> accepted) {
     std::vector<std::string> arguments { "f", "-c" };
     // X-2: what the user chose with their own `xmake f`. An option that is internal, unnamed in a form `xmake f` takes, or
     // empty is not passed on; a retry (`reduced`) passes the standard ones only.
     const auto wanted = [&](const XmakeOption& option) {
         return !option.name.empty() && !xmake_option_is_internal(option.name) && !(reduced && !xmake_option_is_standard(option.name))
-            && !option.value.empty() && std::ranges::all_of(option.name, [](char c) { return base::is_identifier_char(c) || c == '-'; });
+            && !option.value.empty() && std::ranges::all_of(option.name, [](char c) { return base::is_identifier_char(c) || c == '-'; })
+            && (accepted.empty() || xmake_option_is_standard(option.name) || std::ranges::contains(accepted, option.name));
     };
     const auto value_of = [](const XmakeOption& option) { return option.flag ? std::string { option.value == "true" ? "y" : "n" } : option.value; };
     // plat, arch and mode have short options, given in that order however the file lists them.
@@ -437,7 +589,7 @@ Answer XmakeProvider::describe(const Claim& claim, const ProviderContext& contex
     Answer fallback { read_project_database(claim, context) };
     if (!fallback.database) return answer;
     context.producerUsed.clear();   // the model is the file's, not xmake's
-    if (answer.outcome == Outcome::needs_download) fallback.database->issues.emplace_back(std::string { spec::NEEDS_DOWNLOAD }, answer.reason);
+    if (answer.outcome == Outcome::needs_download || answer.code == spec::INSTALL_FAILED) fallback.database->issues.emplace_back(answer.code, answer.reason);
     return fallback;
 }
 

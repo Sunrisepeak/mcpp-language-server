@@ -45,6 +45,8 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 ## 常见症状
 
+**“xmake needs libtool, libpthread-stubs downloaded”。** 这些名字不是你的代码缺的库：它们是 xmake 为你的 `xmake.lua` 所要求的包而要下载或构建的东西，包括构建工具（设成从源码构建的包会带进自己的构建工具，比如 `libtool`、`meson`），而 mcppls 保持离线，不会自己去下载。有三条路：在通知里选 **Download and Continue**；在终端里运行 `xmake`（做完后会重新读取描述）；或者用系统包管理器安装（`apt install libtool libpthread-stubs0-dev`、`pacman -S libtool`、`brew install libtool`）——xmake 的包定义里写了对应的系统包，找到系统里的就直接用。如果状态里写的是 `producer-install-failed`，说明已允许联网、安装本身失败了；消息里有 xmake 的 `error:` 行和 `install.txt` 日志的路径，常见原因是源码构建需要的工具（autotools、编译器）没有安装。
+
 **所有功能失效，任何位置都无法跳转到定义。** 看报告里的 `project.source`。如果一个用了构建系统的项目里它是 `inferred`，说明构建工具没有给出答复；原因在 `project.issues` 和 `toolRuns` 的最后一条里。常见原因是构建工具需要下载东西：这时状态栏会提议在你的终端里运行它。
 
 **跳转到定义能用，补全不能用，或者标准库缺失。** 看 `profile`。语义工具包意味着没找到可用的编译器；`import std` 仍然能解析，但诊断来自 libc++，不是来自你的工具链。
@@ -63,6 +65,10 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **“Import directive must end with a ';'” 标在了别的行上，或刚输入的 import 报 “module X not found”。** clangd 把缺少 `;` 的指令报在它后面的代码上；mcppls 会把这条诊断移回指令所在行（规避措施 `WA-CLANGD-006`）。刚输入、还没保存的 import，clangd 要等文件保存后才会构建（它从磁盘读取 import）；只要这个模块在项目里，这时给出的是信息级提示 “module 'X' is in the project; clangd loads it once the file is saved”，而不是错误（`WA-CLANGD-007`）。
 
+**某个 view 被提示 “can be declared 'const'”，加了 const 却编译不过（clang-tidy）。** clang-tidy 23.1 的 `misc-const-correctness` 会对保存 `std::views::filter`、`drop_while`、`chunk_by`、`split` 视图（或建立在它们之上的视图）的变量给出这条提示，但这类视图没有 const 的 `begin()`（issue #37）。只有 clangd 配置里设了 `Diagnostics.ClangTidy.FastCheckFilter: None` 时这项检查才会运行。从 0.0.9 起 mcppls 会去掉这条诊断，这项检查的其他诊断照常保留（规避措施 `WA-CLANGD-010`）。在此之前，或者想让这项检查完全安静，可以在项目的 `.clangd` 里 `Diagnostics.ClangTidy.CheckOptions` 下设置 `misc-const-correctness.AnalyzeValues: false`。
+
+**不用模块的项目里，补全比直接用 clangd 慢（0.0.8 及更早版本）。** 开启模块支持时，clangd 每次补全都要重新扫描一遍文件的模块依赖，像 `vulkan.hpp` 这样很重的头文件每次要多花约 170 ms（issue #37）。从 0.0.9 起，没有模块单元、没有模块 import、也没有 `import std` 的项目，clangd 启动时不开模块支持；加入第一个 import 时会重启一次 clangd 并开启它（规避措施 `WA-CLANGD-009`，报告的 `events` 里有对应的 `engine-restart`）。
+
 **“clangd would not finish main.cpp”。** 某个文件的构建超出了预算——该文件上次构建耗时的五倍，最少 20 秒——而编辑器还在等它：不管 clangd 忙不忙，它都不会完成这个文件了。这个文件改由 mcppls 自己的引擎应答（提供模块层面的功能），直到它的文本发生变化（让 clangd 卡住的那份文本永远不会再交给它），同时立即重启一个不带这个文件的 clangd。`events` 日志里有一条带具体数字的 `engine-spin`。
 
 **某个规避措施还需要吗？** `--disable-workaround WA-CLANGD-<n>`（可重复）可以关掉一个；日志开头几行会列出正在使用的规避措施。每个规避措施在一致性测试里都有一个对应的检测项（`workaround-canaries`），clangd 更新修好了对应缺陷后，这个检测项就会失败。
@@ -71,7 +77,7 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **每次启动都很慢。** 第二次会话应该很快：模型连同构建工具所读一切内容的指纹一起被缓存，与之匹配的会话会立即套用计划，并在后台确认；已经构建好的模块会复用，不会重建（0.0.6 及更早版本在热启动时会把每个模块都重建一遍，issue #30）。`project.firstOrigin` 会说明发生了哪种情况。如果它一直是 `producer`，说明指纹没有匹配上——该看报告里的 `project.producerRun` 和构建文件的时间戳。
 
-**补全只有文件里的词，或悬停提示说正在准备模块。** 每种请求给 clangd 的都有预算——补全和签名帮助 1 秒，悬停 2 秒，跳转到定义 10 秒——超过之后 mcppls 用手上有的东西作答。补全这时给出的是文件里离光标最近的那些词，是一份不完整的列表，所以你继续输入时编辑器会再问一次；悬停在模块准备期间给出的是一行说明。这是 clangd 正忙着处理模块，不是故障。从 0.0.8 起，clangd 迟到的补全不再丢弃：它最多再算 10 秒，你在同一个词里继续输入时发出的请求都等它，一到就交给它们，所以在 clangd 重建得慢的文件里，列表仍会在你打完这个词之前出现。报告里的 `requests.<method>.answeredBy` 按方法统计了各由哪个引擎作答；`completion.late` 统计 clangd 迟到的答案和用上它们的请求；`slowestFiles` 列出最慢的十个文件，以及每个文件有多少次补全只拿到了词；`engines[].details.buildTimes` 说明 clangd 构建每个文件花在哪里（preamble、导入的模块、AST 构建次数）。
+**补全只有文件里的词，或悬停提示说正在准备模块。** 每种请求给 clangd 的都有预算——补全和签名帮助 1 秒，悬停 2 秒，跳转到定义 10 秒——超过之后 mcppls 用手上有的东西作答。补全这时给出的是文件里离光标最近的那些词，是一份不完整的列表，所以你继续输入时编辑器会再问一次；悬停在模块准备期间给出的是一行说明。这是 clangd 正忙着处理模块，不是故障。从 0.0.8 起，clangd 迟到的补全不再丢弃：它最多再算 10 秒，你在同一个词里继续输入时发出的请求都等它，一到就交给它们，所以在 clangd 重建得慢的文件里，列表仍会在你打完这个词之前出现。报告里的 `requests.<method>.answeredBy` 按方法统计了各由哪个引擎作答；`engineP50Ms`、`engineP95Ms` 是引擎作答的那些请求在引擎里花的时间，`overheadP50Ms`、`overheadP95Ms` 是 mcppls 在其外加的时间，由此看出一次慢的补全慢在谁；`completion.late` 统计 clangd 迟到的答案和用上它们的请求；`slowestFiles` 列出最慢的十个文件，以及每个文件有多少次补全只拿到了词；`engines[].details.buildTimes` 说明 clangd 构建每个文件花在哪里（preamble、导入的模块、AST 构建次数）。
 
 **模块单元里出现"未使用的头文件"警告。** 这是 clangd 的 include cleaner，默认开启，mcppls 不关它：在模块接口的全局模块片段、实现单元和导入方里，它和在普通文件里一样，只报没有任何东西用到的头文件（有一个 conformance fixture 在 clangd 升级时守着这一点）。要关掉，在项目的 `.clangd` 或你的 clangd `config.yaml` 里写 `Diagnostics: { UnusedIncludes: None }`；mcppls 启动的 clangd 两处都会读。
 

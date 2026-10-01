@@ -1342,6 +1342,11 @@ int main() {
         std::this_thread::sleep_for(3200ms);
         engine->handle_timers();
         host.pump(*engine);
+        // P-3 (plan 0.0.9): the old clangd is stopped off the event loop; the new one starts when it is gone.
+        for (int round { 0 }; round < 40 && starts() < 2; ++round) {
+            std::this_thread::sleep_for(50ms);
+            host.pump(*engine);
+        }
         expect(starts() == 2) << "restarted once typing paused";
         engine->shut_down();
         fs::remove_all(root);

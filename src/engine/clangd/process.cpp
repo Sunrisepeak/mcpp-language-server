@@ -13,8 +13,9 @@ import mcppls.lsp.connection;
 namespace mcppls::engine::clangd {
 
 std::vector<std::string> clangd_arguments(const ProcessConfig& config) {
-    std::vector<std::string> arguments {
-        "--experimental-modules-support",
+    std::vector<std::string> arguments;
+    if (config.modulesSupport) arguments.emplace_back("--experimental-modules-support");
+    arguments.insert(arguments.end(), {
         "--use-dirty-headers",
         "--compile-commands-dir=" + config.databaseDirectory,
         "--background-index",
@@ -23,7 +24,7 @@ std::vector<std::string> clangd_arguments(const ProcessConfig& config) {
         // Fix plan F17.1 (D3): info, not error, so an incident carries what clangd was doing. Its info
         // lines go to the ring buffer and the debug log only, never to the default log.
         config.verboseLog ? "--log=verbose" : "--log=info",
-    };
+    });
     const bool workersGiven { std::ranges::any_of(config.extraArguments, [](const std::string& argument) { return argument.starts_with("-j"); }) };
     if (config.workers > 0 && !workersGiven) arguments.push_back(std::format("-j={}", config.workers));
     arguments.insert(arguments.end(), config.extraArguments.begin(), config.extraArguments.end());

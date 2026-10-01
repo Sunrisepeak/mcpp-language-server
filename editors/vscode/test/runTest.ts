@@ -104,16 +104,30 @@ function prepareWorkspace(): string {
 // "before activation" only has an unambiguous meaning if it is captured
 // before VS Code is even launched.
 
+// Windows can still hold a file or directory for a moment after VS Code exits (EPERM, EBUSY: the 0.0.8 release run
+// failed on `scandir ...\.vscode` with every test passed); a few retries see it released.
+function retried<T>(read: () => T): T {
+    for (let attempt = 0; ; ++attempt) {
+        try {
+            return read();
+        } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            if (attempt >= 10 || (code !== 'EPERM' && code !== 'EBUSY')) throw error;
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+        }
+    }
+}
+
 function hashWorkspace(workspace: string): Map<string, string> {
     const result = new Map<string, string>();
     const walk = (dir: string): void => {
-        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        for (const entry of retried(() => fs.readdirSync(dir, { withFileTypes: true }))) {
             const full = path.join(dir, entry.name);
             if (entry.isDirectory()) {
                 walk(full);
             } else if (entry.isFile()) {
                 const relative = path.relative(workspace, full).split(path.sep).join('/');
-                result.set(relative, crypto.createHash('sha256').update(fs.readFileSync(full)).digest('hex'));
+                result.set(relative, crypto.createHash('sha256').update(retried(() => fs.readFileSync(full))).digest('hex'));
             }
         }
     };

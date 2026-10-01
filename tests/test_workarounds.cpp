@@ -3,6 +3,8 @@ import mcppls.testing;
 import mcppls.engine;
 import mcppls.engine.clangd;
 import mcppls.engine.clangd.workarounds;
+import mcppls.normalize.plan;
+import mcppls.engine.clangd.process;
 
 namespace cld = mcppls::engine::clangd;
 
@@ -130,5 +132,87 @@ int main() {
         expect(!cld::module_not_found_name("Module 'x' not found here").has_value());
         expect(!cld::module_not_found_name("Header 'x' not found").has_value());
         expect(!cld::module_not_found_name("Module '' not found").has_value());
+    };
+
+    "a view without a const begin() is not told to be const (WA-CLANGD-010)"_test = [] {
+        // What clangd 23.1.0 said on issue #37's code (vulkan-rt) and its reductions, libstdc++ 16 and the kit's libc++.
+        for (const std::string_view message : {
+                 // libstdc++: `auto v = in | std::views::filter(keep);` then `v | std::views::transform(...)`
+                 "Variable 'device_local_heaps' of type 'typename __invoke_result<const std::ranges::views::_Filter &, const "
+                 "vk::ArrayWrapper1D<vk::MemoryHeap, 16> &, const (lambda at /p/device.cpp:399:58) &>::type' (aka "
+                 "'std::ranges::filter_view<std::ranges::ref_view<const vk::ArrayWrapper1D<vk::MemoryHeap, 16>>, (lambda at "
+                 "/p/device.cpp:399:58)>') can be declared 'const' (fix available)",
+                 // libc++ prints the bare name after `aka`
+                 "Variable 'v' of type 'invoke_result_t<std::ranges::__pipeable<std::__bind_back_t<std::ranges::views::__filter::__fn, "
+                 "std::tuple<bool (*)(const H &)>>>, const std::array<H, 4> &>' (aka 'filter_view<ref_view<const std::array<H, 4>>, bool "
+                 "(*)(const H &)>') can be declared 'const' (fix available)",
+                 // filter_view spelled as the type, with no `aka`
+                 "Variable 'v' of type 'std::ranges::filter_view<std::ranges::ref_view<const std::vector<int>>, (lambda at /p/c.cpp:29:35)>' "
+                 "can be declared 'const'",
+                 // a transform over a filter: its const begin() needs a const-iterable filter
+                 "Variable 'v' of type 'typename __invoke_result<const std::ranges::views::_Transform &, std::ranges::filter_view<std::ranges::"
+                 "ref_view<const std::array<H, 4>>, bool (*)(const H &)>, unsigned long H::*const &>::type' (aka 'std::ranges::transform_view<"
+                 "std::ranges::filter_view<std::ranges::ref_view<const std::array<H, 4>>, bool (*)(const H &)>, unsigned long H::*>') can be "
+                 "declared 'const' (fix available)",
+                 "Variable 'v' of type 'X' (aka 'std::ranges::drop_while_view<std::ranges::ref_view<const std::vector<int>>, (lambda at "
+                 "/p/c.cpp:25:35)>') can be declared 'const' (fix available)",
+                 "Variable 'v' of type 'X' (aka 'std::ranges::chunk_by_view<std::ranges::ref_view<const std::vector<int>>, std::ranges::less>') "
+                 "can be declared 'const' (fix available)",
+                 "variable 'v' of type 'std::ranges::split_view<std::ranges::ref_view<std::string>, std::ranges::single_view<char>>' can be "
+                 "declared 'const'",
+             }) {
+            expect(cld::const_correctness_on_non_const_view(message)) << message;
+        }
+        for (const std::string_view message : {
+                 // a plain variable, and a transform_view over an array: const would compile, so the advice stands
+                 "Variable 'n' of type 'int' can be declared 'const' (fix available)",
+                 "Variable 'v' of type 'typename __invoke_result<const std::ranges::views::_Transform &, const std::array<H, 4> &, unsigned "
+                 "long H::*const &>::type' (aka 'std::ranges::transform_view<std::ranges::ref_view<const std::array<H, 4>>, unsigned long "
+                 "H::*>') can be declared 'const' (fix available)",
+                 // a view over a ref_view of a filter: ref_view's const begin() reaches the filter as it is
+                 "Variable 'v' of type 'X' (aka 'std::ranges::transform_view<std::ranges::ref_view<std::ranges::filter_view<std::ranges::"
+                 "ref_view<const std::array<H, 4>>, bool (*)(const H &)>>, unsigned long H::*>') can be declared 'const' (fix available)",
+                 // lazy_split_view is const-iterable over a forward range; a filter only inside an argument is no base
+                 "Variable 'v' of type 'std::ranges::lazy_split_view<std::ranges::ref_view<const std::string>, std::ranges::single_view<char>>' "
+                 "can be declared 'const'",
+                 "Variable 'v' of type 'std::vector<std::ranges::filter_view<std::ranges::ref_view<const std::vector<int>>, P>>' can be "
+                 "declared 'const'",
+                 "Variable 'v' of type 'mine::filter_view<int>' can be declared 'const'",
+                 // not this check's message at all
+                 "Pointee of variable 'p' of type 'int *' can be declared 'const'",
+                 "",
+             }) {
+            expect(!cld::const_correctness_on_non_const_view(message)) << message;
+        }
+        expect(cld::traits_for_version("23.1.0").flagsNonConstViewsConst);
+        const std::vector<std::string> off { std::string { cld::CONST_CORRECTNESS_VIEWS } };
+        expect(!cld::traits_for_version("23.1.0", off).flagsNonConstViewsConst) << "it can be turned off";
+    };
+
+    "a project without modules gets clangd without its modules support (WA-CLANGD-009)"_test = [] {
+        namespace nz = mcppls::normalize;
+        nz::EnginePlan plan;
+        plan.entries.push_back(nz::EngineEntry {});
+        plan.entries.back().file = "/p/device.cpp";
+        expect(!cld::plan_uses_modules(plan)) << "headers and sources only";
+        const auto with = [&](auto change) {
+            nz::EnginePlan copy { plan };
+            change(copy);
+            return cld::plan_uses_modules(copy);
+        };
+        expect(with([](nz::EnginePlan& p) { p.entries.back().imports = { "std" }; })) << "import std;";
+        expect(with([](nz::EnginePlan& p) { p.entries.back().provides = "hello"; }));
+        expect(with([](nz::EnginePlan& p) { p.entries.back().module = "hello"; })) << "an implementation unit";
+        expect(with([](nz::EnginePlan& p) { p.stdUnits = 2; }));
+        expect(with([](nz::EnginePlan& p) { p.stubModules = { "missing" }; })) << "an import nothing provides";
+        expect(with([](nz::EnginePlan& p) { p.issues.push_back(nz::PlanIssue { .code = "unresolved-module", .module = "missing" }); }));
+        expect(cld::traits_for_version("23.1.0").scansModulesOnEveryRequest);
+        cld::ProcessConfig config;
+        auto arguments = cld::clangd_arguments(config);
+        expect(std::ranges::find(arguments, std::string { "--experimental-modules-support" }) != arguments.end()) << "on by default";
+        config.modulesSupport = false;
+        arguments = cld::clangd_arguments(config);
+        expect(std::ranges::find(arguments, std::string { "--experimental-modules-support" }) == arguments.end());
+        expect(std::ranges::find(arguments, std::string { "--background-index" }) != arguments.end()) << "the rest stays";
     };
 }

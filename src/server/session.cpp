@@ -13,6 +13,7 @@ import mcppls.platform.dirs;
 import mcppls.platform.toolenv;
 import mcppls.platform.toolrun;
 import mcppls.platform.fs;
+import mcppls.platform.process;
 import mcppls.platform.stdio;
 import mcppls.platform.task;
 import mcppls.config.settings;
@@ -111,6 +112,26 @@ private:
                     events->push(Event { EventKind::client_message, std::move(**message) });
                 }
             }
+            events->push(Event { EventKind::client_closed });
+        } }.detach();
+    }
+
+    // P-1 (plan 0.0.9): a server whose client is gone leaves as if its input had closed. The LSP gives the
+    // client's process id in initialize for this; an editor that ends its extension host without closing the
+    // server's input (issue #37's bundle: earlier servers still held the workspace, so the next one started cold
+    // in a private directory) is noticed within CLIENT_WATCH. Only a process this one could see at the start is
+    // watched: in a container or under PRoot the id may name nothing here, and that is not a client gone.
+    void start_client_watch_(const Json& processId) {
+        static constexpr std::chrono::seconds CLIENT_WATCH { 5 };
+        if (!processId.is_number_integer()) return;
+        const std::int64_t pid { processId.get<std::int64_t>() };
+        if (platform::process_alive(pid) != std::optional<bool> { true }) return;
+        std::thread { [events = events_, pid] {
+            while (true) {
+                std::this_thread::sleep_for(CLIENT_WATCH);
+                if (platform::process_alive(pid) == std::optional<bool> { false }) break;
+            }
+            log::info("the client's process {} is gone", pid);
             events->push(Event { EventKind::client_closed });
         } }.detach();
     }
@@ -308,6 +329,7 @@ private:
         clientInitializeId_ = id;
         clientParams_ = params;
         clientCapabilities_ = params.value("capabilities", Json::object());
+        start_client_watch_(params.value("processId", Json {}));
         // config settings §9 T1: initializationOptions layered over the command line, on the very
         // same registry-backed object that layer already applied to (a value the command line set
         // is immune to this one, and to every later workspace/didChangeConfiguration). Every field
@@ -355,7 +377,7 @@ private:
     // each layer (`apply_initialization_options` above, `apply_configuration_change` below).
     void sync_settings_() {
         const auto& settings = options_.settings;
-        options_.engine = settings.string_value("engine");
+        options_.engine = settings.string_value("engine.name");
         options_.buildTool = settings.string_value("buildTool");
         options_.toolEnvironment = settings.string_value("toolEnvironment");
         options_.discoverCompilers = settings.bool_value("discoverCompilers");
@@ -367,7 +389,7 @@ private:
         options_.disabledWorkarounds = settings.list_value("disableWorkaround");
         options_.semanticTokensModules = settings.bool_value("semanticTokens.modules");
         options_.semanticTokensModuleType = settings.bool_value("semanticTokens.moduleType");
-        options_.buildDiscovery = settings.string_value("buildDiscovery");
+        options_.buildDiscovery = settings.string_value("buildDiscovery.mode");
         options_.buildDiscoveryProviders = settings.list_value("buildDiscovery.providers");
         options_.buildDiscoveryAskBeforeDownload = settings.bool_value("buildDiscovery.askBeforeDownload");
         options_.primeImplementationUnits = settings.string_value("index.primeImplementationUnits");

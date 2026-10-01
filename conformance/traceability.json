@@ -1136,6 +1136,26 @@
    "contains": "once per code per session, and again when a bundle arrives later"
   }
  ],
+ "S3-4-26": [
+  {
+   "check": "mcpp-emit-needs-download/D8-and-the-status-says-the-fetch-succeeded"
+  },
+  {
+   "check": "xmake-needs-download/B3b-the-status-says-the-fetch-failed"
+  }
+ ],
+ "S3-4-27": [
+  {
+   "script": "editors/vscode/test/unit/downloadAsk.test.ts",
+   "contains": "each fetch is told once, and only a known outcome"
+  }
+ ],
+ "S3-4-28": [
+  {
+   "script": "editors/vscode/test/unit/downloadAsk.test.ts",
+   "contains": "fetched without asking once allowed"
+  }
+ ],
  "S3-5.5-1": [
   {
    "check": "module-faults/F0-stand-in"

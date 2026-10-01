@@ -31,3 +31,6 @@ mcpp.lock
 # build.mcpp would generate it at, so each is self-contained; `target/` above would otherwise hide
 # it. Only those fixtures: any other fixture's target/ is build output like everywhere else.
 !conformance/fixtures/generated-module*/target/
+
+# Local review reports (issue analyses, not shipped).
+.agents/docs/reviews/

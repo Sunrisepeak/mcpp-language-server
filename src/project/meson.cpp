@@ -121,8 +121,10 @@ Answer MesonProvider::describe(const Claim& claim, const ProviderContext& contex
             if (auto missing = meson_missing_subprojects(combined); !missing.empty() || combined.contains("nodownload")) {
                 return Answer { .outcome = Outcome::needs_download, .code = std::string { spec::NEEDS_DOWNLOAD },
                                 .reason = missing.empty()
-                                              ? std::string { "meson needs a wrap-based subproject downloaded, and this run stayed offline (--wrap-mode=nodownload)" }
-                                              : std::format("meson needs {} downloaded, and this run stayed offline (--wrap-mode=nodownload)",
+                                              ? std::string { "meson needs a wrap-based subproject downloaded: meson would fetch it for this project, and this run stayed offline "
+                                                            "(--wrap-mode=nodownload)" }
+                                              : std::format("meson needs {} downloaded: they are the wrap-based subprojects meson would fetch for this project, and this run "
+                                                            "stayed offline (--wrap-mode=nodownload)",
                                                             base::join(missing, ", ")),
                                 .missing = missing };
             }

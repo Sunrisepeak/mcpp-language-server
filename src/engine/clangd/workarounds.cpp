@@ -7,7 +7,7 @@ namespace mcppls::engine::clangd {
 
 namespace {
 
-constexpr std::array<Workaround, 8> REGISTRY { {
+constexpr std::array<Workaround, 10> REGISTRY { {
     {
         .id = TRAILING_DOT_MODULE_NAME,
         .title = "a module name ending in '.' at the end of its line spins clangd forever; clangd is given the line with ';' after the dot",
@@ -95,6 +95,28 @@ constexpr std::array<Workaround, 8> REGISTRY { {
         .removeWhen = "clangd's background index builds the modules a unit imports before indexing it",
         .canary = "",
         .premise = "a unit clangd has built in the foreground keeps its symbols in clangd's index after it is closed",
+    },
+    {
+        .id = MODULE_SCAN_PER_REQUEST,
+        .title = "with --experimental-modules-support clangd scans a file's module dependencies again for every completion, about 170 ms more on a heavy header; a project that uses no modules gets clangd without it",
+        .fixedIn = "",
+        .upstream = "unfiled (UP-23 in issue #24)",
+        .evidence = ".agents/docs/reviews/2026-10-01-issue-37-review.md §B (vulkan-rt, issue #37): completion median 82 ms without the flag, 254 ms with it (max 869 ms), in a .cpp and a header alike",
+        .added = "0.0.9",
+        .removeWhen = "clangd reuses a file's module dependency scan between requests, so completion costs the same with and without --experimental-modules-support",
+        .canary = "",
+        .premise = "a project whose plan has no module unit, no module import and no standard library module needs nothing of clangd's modules support; a plan that gains one restarts clangd with it",
+    },
+    {
+        .id = CONST_CORRECTNESS_VIEWS,
+        .title = "clang-tidy 23.1's misc-const-correctness says a variable holding a filter, drop_while, chunk_by or split view, or a view over one, can be const although such a view cannot be iterated as const; the diagnostic is dropped",
+        .fixedIn = "",
+        .upstream = "unfiled (UP-22 in issue #24); clang-tidy 22.1.8 does not warn for a view an adaptor returned",
+        .evidence = "issue #37 (vulkan-rt rank_device_by_memory); .agents/docs/reviews/2026-10-01-issue-37-review.md §A; tests/test_workarounds.cpp",
+        .added = "0.0.9",
+        .removeWhen = "misc-const-correctness leaves a variable alone whose view has no const begin() and is used through it",
+        .canary = "",
+        .premise = "the diagnostic names the variable's type, the canonical one after `aka` where it differs, and that type is a std::ranges view whose base is its first template argument",
     },
 } };
 
@@ -272,6 +294,77 @@ std::optional<LineRange> directive_missing_semicolon(std::string_view text, int 
         return LineRange { at, std::max(0, endCharacter - 1), endCharacter };
     }
     return std::nullopt;
+}
+
+namespace {
+
+// The standard views without a const begin(): each caches the begin() it found, so iterating one changes it.
+constexpr std::array<std::string_view, 4> NON_CONST_ITERABLE_VIEWS { "filter_view", "drop_while_view", "chunk_by_view", "split_view" };
+
+struct ViewType {
+    std::string_view name;   // "filter_view"
+    std::string_view base;   // its first template argument: the range it is built on
+};
+
+// "std::ranges::filter_view<V, P>" (or "ranges::", libc++'s "std::__1::ranges::", the bare name an `aka` may print)
+// -> {"filter_view", "V"}; anything that is not a standard range view -> nullopt.
+std::optional<ViewType> view_type(std::string_view type) {
+    type = base::trim(type);
+    const std::size_t open { type.find('<') };
+    if (open == std::string_view::npos) return std::nullopt;
+    const std::string_view head { type.substr(0, open) };
+    std::string_view name { head };
+    if (const std::size_t colons { head.rfind("::") }; colons != std::string_view::npos) {
+        const std::string_view scope { head.substr(0, colons + 2) };
+        if (scope != "std::ranges::" && scope != "ranges::" && scope != "std::__1::ranges::") return std::nullopt;
+        name = head.substr(colons + 2);
+    }
+    if (!name.ends_with("_view")) return std::nullopt;
+    // The first argument ends at a ',' or the closing '>' outside nested <>, () and [] -- a lambda prints as
+    // "(lambda at f.cpp:3:5)", a function pointer as "bool (*)(const H &)".
+    int depth { 0 };
+    std::size_t at { open + 1 };
+    for (; at < type.size(); ++at) {
+        const char c { type[at] };
+        if (c == '<' || c == '(' || c == '[') {
+            ++depth;
+        } else if (c == '>' || c == ')' || c == ']') {
+            if (depth == 0) break;
+            --depth;
+        } else if (c == ',' && depth == 0) {
+            break;
+        }
+    }
+    if (at >= type.size()) return std::nullopt;
+    return ViewType { name, base::trim(type.substr(open + 1, at - open - 1)) };
+}
+
+} // namespace
+
+bool const_correctness_on_non_const_view(std::string_view message) {
+    // clang-tidy: "variable 'v' of type 'T' can be declared 'const'", where T is followed by " (aka 'U')" when its
+    // canonical type U is spelled otherwise; clangd capitalises the first letter.
+    static constexpr std::string_view TAIL { " can be declared 'const'" };
+    const std::size_t tail { message.find(TAIL) };
+    if (tail == std::string_view::npos || message.size() < 10 || (message[0] != 'V' && message[0] != 'v') || !message.substr(1).starts_with("ariable '")) return false;
+    const std::string_view head { message.substr(0, tail) };
+    std::string_view type;
+    if (const std::size_t aka { head.rfind(" (aka '") }; aka != std::string_view::npos && head.ends_with("')")) {
+        type = head.substr(aka + 7, head.size() - aka - 9);
+    } else if (const std::size_t of { head.find(" of type '") }; of != std::string_view::npos && head.ends_with('\'')) {
+        type = head.substr(of + 10, head.size() - of - 11);
+    } else {
+        return false;
+    }
+    // Down the views each is built on: a view over one without a const begin() has none either (its const begin()
+    // asks for a range<const V>), except ref_view, whose const begin() reaches the range it refers to as it is.
+    for (int depth { 0 }; depth < 16; ++depth) {
+        const auto view = view_type(type);
+        if (!view || view->name == "ref_view") return false;
+        if (std::ranges::find(NON_CONST_ITERABLE_VIEWS, view->name) != NON_CONST_ITERABLE_VIEWS.end()) return true;
+        type = view->base;
+    }
+    return false;
 }
 
 std::optional<std::string> module_not_found_name(std::string_view message) {

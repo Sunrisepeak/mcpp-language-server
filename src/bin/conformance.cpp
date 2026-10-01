@@ -80,6 +80,9 @@ struct Options {
     // under the real $HOME/%USERPROFILE%. Empty until `run()` reads the scenario; once set, every
     // process the runner starts for the server under test uses it as HOME (and USERPROFILE).
     std::string isolatedHome;
+    // A directory the scenario's `server-path-prepend` puts first on the server's PATH (a POSIX list), for the fixtures whose
+    // build tool is a script of their own (xmake-needs-download's xmake). Empty for every fixture that predates it.
+    std::string pathPrepend;
     // issue #23 fix plan F18: where `bundle` checks leave a copy of the bundle they checked, for CI to keep; empty: nowhere.
     std::string keepBundles;
     // 0.0.7 plan 6.4: a check with a "stage" runs only when `--stage` names it (a fixture's cold start, warm start, edits and
@@ -94,12 +97,26 @@ struct Options {
 // is every fixture that predates it.
 void apply_isolated_home(std::vector<std::string>& environment, const Options& options) {
     if (options.isolatedHome.empty()) return;
+    // XDG_CONFIG_HOME too: with it set, clangd and the server read their user configuration from there, not from <home>/.config.
     const auto isHomeVariable = [](const std::string& entry) {
-        return entry.starts_with("HOME=") || entry.starts_with("USERPROFILE=") || entry.starts_with("HOMEDRIVE=") || entry.starts_with("HOMEPATH=");
+        return entry.starts_with("HOME=") || entry.starts_with("USERPROFILE=") || entry.starts_with("HOMEDRIVE=") || entry.starts_with("HOMEPATH=")
+               || entry.starts_with("XDG_CONFIG_HOME=");
     };
     std::erase_if(environment, isHomeVariable);
     environment.push_back("HOME=" + options.isolatedHome);
     environment.push_back("USERPROFILE=" + options.isolatedHome);
+}
+
+// Puts `options.pathPrepend` first on the PATH of a spawn's environment.
+void apply_path_prepend(std::vector<std::string>& environment, const Options& options) {
+    if (options.pathPrepend.empty()) return;
+    for (auto& entry : environment) {
+        if (entry.starts_with("PATH=")) {
+            entry = "PATH=" + options.pathPrepend + ":" + entry.substr(5);
+            return;
+        }
+    }
+    environment.push_back("PATH=" + options.pathPrepend);
 }
 
 // Whether this profile looks like a client with no `experimental.cxxModules` at all: no
@@ -370,6 +387,7 @@ public:
         auto environment = mcppls::platform::env::variables();
         environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory);
         apply_isolated_home(environment, options);
+        apply_path_prepend(environment, options);
         spawn.environment = std::move(environment);
         const bool verbose { verbose_ };
         auto inbox = inbox_;
@@ -638,6 +656,7 @@ public:
         auto environment = mcppls::platform::env::variables();
         environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory);
         apply_isolated_home(environment, options);
+        apply_path_prepend(environment, options);
         spawn.environment = std::move(environment);
         const bool verbose { options.verbose };
         auto inbox = inbox_;
@@ -814,6 +833,128 @@ bool ends_with_path(std::string_view uri, std::string_view suffix) {
 }
 
 Json position(const Json& at) { return Json { { "line", at.at(0) }, { "character", at.at(1) } }; }
+
+// M-3 (plan 0.0.9): clangd itself, started by the runner with the arguments a check names and no server between it and the
+// check. A workaround's canary asks it what the defect is, and a latency budget is held against what it alone does. It
+// speaks only what those need: documents, diagnostics and requests.
+class DirectClangd {
+private:
+    std::unique_ptr<lsp::Connection> connection_;
+    std::shared_ptr<mcppls::platform::Channel<Json>> inbox_ { std::make_shared<mcppls::platform::Channel<Json>>() };
+    std::int64_t nextId_ { 1 };
+    std::map<std::string, int> versions_;
+
+    void dispatch(const Json& message) {
+        switch (lsp::kind_of(message)) {
+        case lsp::Kind::request: (void)connection_->send(lsp::make_result(message["id"], Json(nullptr))); break;
+        case lsp::Kind::notification:
+            if (message.value("method", std::string {}) == "textDocument/publishDiagnostics") {
+                const std::string documentUri { message["params"].value("uri", std::string {}) };
+                diagnostics[documentUri] = message["params"].value("diagnostics", Json::array());
+                ++published[documentUri];
+                lastPublished = Clock::now();
+            }
+            break;
+        default: break;
+        }
+    }
+
+public:
+    std::map<std::string, Json> diagnostics;   // uri -> latest diagnostics
+    std::map<std::string, int> published;      // uri -> publishes received
+    Clock::time_point lastPublished {};
+
+    ~DirectClangd() { stop(); }
+
+    base::Result<void> start(const std::string& program, std::vector<std::string> arguments, const std::string& directory,
+                             std::vector<std::string> environment, std::chrono::seconds timeout) {
+        mcppls::platform::SpawnOptions spawn;
+        spawn.program = program;
+        spawn.arguments = std::move(arguments);
+        spawn.workDirectory = directory;
+        spawn.environment = std::move(environment);
+        auto inbox = inbox_;
+        auto connection = lsp::Connection::start(std::move(spawn), [inbox](Json message) { inbox->push(std::move(message)); }, [inbox] { inbox->close(); });
+        if (!connection) return std::unexpected { connection.error() };
+        connection_ = std::move(*connection);
+        const auto initialized = request("initialize", Json { { "processId", nullptr }, { "rootUri", base::path_to_uri(directory) },
+                                                              { "capabilities", Json { { "textDocument", Json { { "publishDiagnostics", Json::object() } } } } } }, timeout);
+        if (!initialized) return base::fail("clangd-silent", "clangd did not answer initialize");
+        (void)connection_->send(lsp::make_notification("initialized", Json::object()));
+        return {};
+    }
+
+    void stop() {
+        if (!connection_) return;
+        connection_->stop(std::chrono::milliseconds { 2000 });
+        connection_.reset();
+    }
+
+    void open(const std::string& path, const std::string& text) {
+        versions_[path] = 1;
+        (void)connection_->send(lsp::make_notification("textDocument/didOpen",
+            Json { { "textDocument", Json { { "uri", base::path_to_uri(path) }, { "languageId", "cpp" }, { "version", 1 }, { "text", text } } } }));
+    }
+
+    void change(const std::string& path, const std::string& text) {
+        (void)connection_->send(lsp::make_notification("textDocument/didChange",
+            Json { { "textDocument", Json { { "uri", base::path_to_uri(path) }, { "version", ++versions_[path] } } },
+                   { "contentChanges", Json::array({ Json { { "text", text } } }) } }));
+    }
+
+    // Reads what clangd sends until `deadline`.
+    void pump_until(Clock::time_point deadline) {
+        while (Clock::now() < deadline) {
+            if (auto message = inbox_->pop_until(deadline)) dispatch(*message);
+            else if (inbox_->closed() && inbox_->size() == 0) return;
+        }
+    }
+
+    bool alive() const { return connection_ != nullptr && !inbox_->closed(); }
+
+    // The request's result; nullptr for an error answer, nothing when none came in time.
+    std::optional<Json> request(std::string_view method, Json params, std::chrono::seconds timeout) {
+        const std::int64_t id { nextId_++ };
+        (void)connection_->send(lsp::make_request(id, method, std::move(params)));
+        const auto deadline = Clock::now() + timeout;
+        while (Clock::now() < deadline) {
+            auto message = inbox_->pop_until(deadline);
+            if (!message) {
+                if (inbox_->closed() && inbox_->size() == 0) break;
+                continue;
+            }
+            if (lsp::kind_of(*message) == lsp::Kind::response && (*message)["id"] == Json(id)) {
+                if (message->contains("error")) return Json(nullptr);
+                return message->value("result", Json {});
+            }
+            dispatch(*message);
+        }
+        return std::nullopt;
+    }
+
+    // The file's diagnostics once clangd has gone quiet: the first publication, then no other for `quiet`. A file's
+    // clang-tidy diagnostics may arrive in a publication of their own, after the compiler's.
+    bool settle(const std::string& path, std::chrono::seconds timeout, std::chrono::milliseconds quiet) {
+        const std::string documentUri { base::path_to_uri(path) };
+        const auto deadline = Clock::now() + timeout;
+        while (published[documentUri] == 0 && Clock::now() < deadline && alive()) pump_until(std::min(deadline, Clock::now() + std::chrono::milliseconds { 200 }));
+        if (published[documentUri] == 0) return false;
+        while (Clock::now() < deadline && Clock::now() - lastPublished < quiet) pump_until(std::min(deadline, lastPublished + quiet));
+        return true;
+    }
+
+    // The lines (0-based) of the file's diagnostics with `code`, sorted.
+    std::vector<int> lines_with(const std::string& path, std::string_view code) {
+        std::vector<int> lines;
+        for (const auto& diagnostic : diagnostics[base::path_to_uri(path)]) {
+            if (diagnostic.value("code", Json {}) != Json(std::string { code })) continue;
+            const Json* start { lsp::find_path(diagnostic, { "range", "start" }) };
+            lines.push_back(start == nullptr ? -1 : start->value("line", -1));
+        }
+        std::ranges::sort(lines);
+        return lines;
+    }
+};
 
 // ---- stress: seeded random use, per method answered/empty/timeout/error and latency ----------
 
@@ -1929,6 +2070,197 @@ public:
         return finish_measure(std::move(failures), std::move(summary), std::format("{}, {} round(s): {}", phase, rounds, base::join(brief, "; ")));
     }
 
+    // ---- clangd on its own (M-3, M-2 of plan 0.0.9) ----
+
+    // The clangd of the run: --clangd, else the payload's.
+    std::string clangd_program() const {
+        return !options_.clangd.empty() ? options_.clangd : base::join_path(options_.payload, "clangd/bin/clangd") + std::string { mcppls::os::EXECUTABLE_SUFFIX };
+    }
+
+    // A check's clangd arguments, `{workspace}` and `{engine-database}` (the directory of the compile_commands.json the server
+    // wrote for its own clangd, so a baseline runs the very commands the server's does) replaced.
+    std::vector<std::string> direct_arguments(const Json& list) {
+        std::string database;
+        std::vector<std::string> arguments;
+        for (const auto& item : list) {
+            std::string argument { base::replace_all(item.get<std::string>(), "{workspace}", workspace_) };
+            if (argument.contains("{engine-database}")) {
+                if (database.empty()) {
+                    const Json root = root_report();
+                    if (root.is_object()) database = base::join_path(root.value("cacheDirectory", std::string {}), "contexts/default/cdb");
+                }
+                argument = base::replace_all(argument, "{engine-database}", database);
+            }
+            arguments.push_back(std::move(argument));
+        }
+        return arguments;
+    }
+
+    std::vector<std::string> direct_environment() const {
+        auto environment = mcppls::platform::env::variables();
+        apply_isolated_home(environment, options_);
+        return environment;
+    }
+
+    // One session of clangd alone on `file`, started with `arguments`: its completions at `at` timed in milliseconds, after
+    // `warmup` that are not. With "edit", each is asked right after the buffer changed (a comment appended), as typing does.
+    // Nothing when clangd could not be started or never published the file's diagnostics, with the reason in `why`.
+    std::optional<std::vector<double>> direct_completions(const Json& check, const std::string& file, const Json& arguments, int rounds, int warmup,
+                                                          std::string& why) {
+        const std::string path { base::join_path(workspace_, file) };
+        const std::string original { text_of(file) };
+        DirectClangd clangd;
+        if (auto started = clangd.start(clangd_program(), direct_arguments(arguments), workspace_, direct_environment(), std::chrono::seconds { 30 }); !started) {
+            why = started.error().message;
+            return std::nullopt;
+        }
+        clangd.open(path, original);
+        if (!clangd.settle(path, timeout_, std::chrono::milliseconds { 0 })) {
+            why = "clangd never published the diagnostics of " + file;
+            return std::nullopt;
+        }
+        const bool edit { check.value("edit", false) };
+        const std::chrono::milliseconds interval { check.value("interval-ms", 0) };
+        const Json params { { "textDocument", Json { { "uri", base::path_to_uri(path) } } }, { "position", position(check.at("at")) } };
+        std::vector<double> milliseconds;
+        for (int round { 0 }; round < rounds + warmup; ++round) {
+            if (edit) clangd.change(path, original + std::format("// edit {}\n", round));
+            const auto started { Clock::now() };
+            const auto answer = clangd.request("textDocument/completion", params, std::chrono::seconds { 60 });
+            if (!answer) {
+                why = "clangd did not answer a completion in 60 s";
+                return std::nullopt;
+            }
+            if (round >= warmup) milliseconds.push_back(std::chrono::duration<double, std::milli>(Clock::now() - started).count());
+            if (interval.count() > 0) clangd.pump_until(Clock::now() + interval);
+            client_.drain(std::chrono::milliseconds { 0 });
+        }
+        return milliseconds;
+    }
+
+    static double median_of(std::vector<double> samples) {
+        std::ranges::sort(samples);
+        return percentile(std::move(samples), 0.5);
+    }
+
+    // "clangd-lsp": the runner's clangd driven over LSP with the arguments the check names, the server not involved.
+    //   "diagnostics": `file` is opened and, once clangd's diagnostics settle, `code` is on exactly the 0-based `lines`
+    //     (none for an empty list), or, with "includes", on at least those.
+    //   "completion-ratio": the median completion at `at` with "arguments" over the median with "baseline-arguments", over
+    //     "passes" (default 2) alternating sessions of "rounds" (default 10) each; the check holds when the ratio is over
+    //     "min-ratio".
+    // A canary holds while the defect its workaround exists for is there; `says` is what a failure means, as in clangd-check.
+    std::pair<bool, std::string> run_clangd_lsp(const Json& check, const std::string& file) {
+        if (!fs::is_regular_file(clangd_program())) return { false, "no clangd: pass --clangd or --payload" };
+        const std::string says { check.value("says", std::string {}) };
+        const std::string action { check.value("action", std::string {}) };
+        const auto failed = [&](const std::string& detail) {
+            return std::pair<bool, std::string> { false, says.empty() ? detail : std::format("{} ({})", says, detail) };
+        };
+        const Json arguments = check.value("arguments", Json::array());
+        if (action == "diagnostics") {
+            const std::string path { base::join_path(workspace_, file) };
+            DirectClangd clangd;
+            if (auto started = clangd.start(clangd_program(), direct_arguments(arguments), workspace_, direct_environment(), std::chrono::seconds { 30 }); !started) {
+                return { false, started.error().message };
+            }
+            clangd.open(path, text_of(file));
+            const std::chrono::seconds within { check.value("seconds", 60) };
+            if (!clangd.settle(path, within, std::chrono::milliseconds { check.value("quiet-ms", 3000) })) {
+                return { false, std::format("clangd published no diagnostics of {} in {} s", file, within.count()) };
+            }
+            const std::string code { check.value("code", std::string {}) };
+            const std::vector<int> lines { clangd.lines_with(path, code) };
+            std::vector<int> wanted { check.value("lines", std::vector<int> {}) };
+            std::ranges::sort(wanted);
+            const bool held { check.value("includes", false) ? std::ranges::includes(lines, wanted) : lines == wanted };
+            const std::string detail { std::format("{} on lines {}", code, lsp::dump(lines)) };
+            return held ? std::pair<bool, std::string> { true, detail + ", as expected" } : failed(detail);
+        }
+        if (action == "completion-ratio") {
+            const int rounds { check.value("rounds", 10) };
+            const int passes { std::max(1, check.value("passes", 2)) };
+            const double minimum { check.value("min-ratio", 1.8) };
+            std::vector<double> with, without;
+            std::string why;
+            for (int pass { 0 }; pass < passes; ++pass) {
+                for (const bool baseline : { false, true }) {
+                    auto samples = direct_completions(check, file, check.value(baseline ? "baseline-arguments" : "arguments", Json::array()), rounds, 2, why);
+                    if (!samples) return { false, why };
+                    auto& into = baseline ? without : with;
+                    into.insert(into.end(), samples->begin(), samples->end());
+                }
+            }
+            const double ratio { median_of(without) > 0 ? median_of(with) / median_of(without) : 0.0 };
+            measure_ = Json { { "with", latency_stats(with) }, { "without", latency_stats(without) }, { "ratio", ratio } };
+            const std::string detail { std::format("completion median {:.0f} ms with the arguments, {:.0f} ms without: {:.2f}x", median_of(with), median_of(without), ratio) };
+            return ratio > minimum ? std::pair<bool, std::string> { true, detail + std::format(", over {:.2f} as expected", minimum) } : failed(detail);
+        }
+        return { false, std::format("unknown clangd-lsp action '{}'", action) };
+    }
+
+    // "completion-baseline" (0.0.9 plan M-2): completion through the server held to what clangd alone does on the same file.
+    // The server is let to settle first; then clangd alone (with "baseline-arguments", of which `{engine-database}` is the
+    // server's own compile_commands.json) is timed over "rounds" completions at `at`, each right after an edit, and then
+    // the server over the same. Budget: "ratio" and "slack-ms": the server's p95 is at most ratio x clangd's p95 + slack;
+    // "engineShare" is the share of the server's answers that clangd gave, since an answer without it is fast and no use.
+    std::pair<bool, std::string> run_completion_baseline(const Json& check, const std::string& file) {
+        if (!fs::is_regular_file(clangd_program())) return { false, "no clangd: pass --clangd or --payload" };
+        const int rounds { check.value("rounds", 40) };
+        const std::chrono::seconds startWithin { check.value("start-within", 240) };
+        open(file);
+        if (!settle(startWithin)) return { false, "the project did not settle: clangd never went quiet" };
+        // The server's first completion of a file waits for the file's preamble: not what is measured.
+        const Json params { { "textDocument", Json { { "uri", uri(file) } } }, { "position", position(check.at("at")) } };
+        const std::string original { text_of(file) };
+        const std::chrono::milliseconds interval { check.value("interval-ms", 0) };
+        const int warmup { 3 };
+        std::string why;
+        auto baseline = direct_completions(check, file, check.value("baseline-arguments", Json::array()), rounds, warmup, why);
+        if (!baseline) return { false, why };
+        const Json before = root_report();
+        std::vector<double> served;
+        int empty { 0 };
+        for (int round { 0 }; round < rounds + warmup; ++round) {
+            change(file, original + std::format("// edit {}\n", round));
+            const auto started { Clock::now() };
+            const auto outcome { client_.request_full("textDocument/completion", params, std::chrono::seconds { 60 }) };
+            if (outcome.timedOut) return { false, "the server did not answer a completion in 60 s" };
+            if (round < warmup) continue;
+            served.push_back(std::chrono::duration<double, std::milli>(Clock::now() - started).count());
+            if (completion_labels(outcome.result).empty()) ++empty;
+            client_.pump_until(Clock::now() + interval);
+        }
+        change(file, original);
+        const Json after = root_report();
+        const double ratio { budget_number(check, "ratio").value_or(1.3) };
+        const double slack { budget_number(check, "slackMs").value_or(30.0) };
+        std::ranges::sort(*baseline);
+        std::ranges::sort(served);
+        const double clangdP95 { percentile(*baseline, 0.95) };
+        const double serverP95 { percentile(served, 0.95) };
+        const double limit { ratio * clangdP95 + slack };
+        std::vector<std::string> failures;
+        if (serverP95 > limit) failures.push_back(std::format("completion p95 {:.0f} ms through the server is over {:.0f} ms (clangd alone {:.0f} ms x {:.2f} + {:.0f})", serverP95, limit, clangdP95, ratio, slack));
+        if (empty > 0 && budget_number(check, "maxEmpty") && empty > *budget_number(check, "maxEmpty")) failures.push_back(std::format("{} of {} completions answered empty", empty, served.size()));
+        Json detail;
+        const auto share = engine_share(before, after, "textDocument/completion", &detail);
+        enforce_min(check, "engineShare", share, "engine share of completion", failures);
+        const Json requests { { "clangd", Json { { "p50Ms", percentile(*baseline, 0.5) }, { "p95Ms", clangdP95 }, { "maxMs", baseline->back() } } },
+                              { "server", Json { { "p50Ms", percentile(served, 0.5) }, { "p95Ms", serverP95 }, { "maxMs", served.back() } } },
+                              { "limitMs", limit }, { "engineShare", share ? Json(*share) : Json(nullptr) }, { "answeredBy", detail } };
+        // What the report says of where the server's time went (M-1): the engine's share and the server's own.
+        if (after.is_object()) {
+            if (const Json* stats { lsp::find_path(after, { "requests", "textDocument/completion" }) }; stats != nullptr) measure_ = Json { { "comparison", requests }, { "report", *stats } };
+        }
+        if (!measure_.is_object()) measure_ = Json { { "comparison", requests } };
+        measure_["load"] = load_average();
+        const std::string brief { std::format("completion p50/p95 {:.0f}/{:.0f} ms through the server, {:.0f}/{:.0f} ms clangd alone, limit {:.0f} ms{}", percentile(served, 0.5), serverP95,
+                                              percentile(*baseline, 0.5), clangdP95, limit, share ? std::format(", {:.0f}% by clangd", *share * 100.0) : std::string {}) };
+        if (failures.empty()) return { true, brief };
+        return { false, std::format("{}; {}", base::join(failures, "; "), brief) };
+    }
+
     // ---- typing ----
 
     // Whether a diagnostic of the file's latest publication names `needle`.
@@ -3042,6 +3374,13 @@ public:
                         return notice.value("code", std::string {}) == noticeCode->get<std::string>();
                     });
                 }
+                // D-5 (plan 0.0.9): how the last fetch asked for ended (S3 onlineRun), and a part of its message.
+                if (auto outcome = check.find("online-run"); outcome != check.end()) {
+                    const Json run = snapshot.value("onlineRun", Json::object());
+                    matched = matched && run.is_object() && run.value("outcome", std::string {}) == outcome->get<std::string>()
+                              && run.value("message", std::string {}).contains(check.value("online-run-message", std::string {}))
+                              && !run.value("at", std::string {}).empty();
+                }
                 return matched;
             };
             (void)client_.wait_for([&] { return settled(current()); }, timeout_);
@@ -3122,6 +3461,7 @@ public:
             auto environment = mcppls::platform::env::variables();
             environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory_);
             apply_isolated_home(environment, options_);
+            apply_path_prepend(environment, options_);
             spawn.environment = std::move(environment);
             auto running = std::async(std::launch::async, [spawn, timeout = timeout_]() mutable { return mcppls::platform::run(std::move(spawn), timeout); });
             while (running.wait_for(std::chrono::milliseconds { 200 }) != std::future_status::ready) client_.drain(std::chrono::milliseconds { 0 });
@@ -3189,8 +3529,7 @@ public:
             // import-hang plan §9, a workaround's canary: the runner's own clangd (--clangd, else the payload's) is run with
             // --check on `file`; `expect` is "hangs" (it has not finished after `seconds`, default 10) or "finishes". A canary
             // expects the defect its workaround exists for; once an update of clangd fixes it, the check fails with `says`.
-            const std::string clangd { !options_.clangd.empty() ? options_.clangd
-                                                                : base::join_path(options_.payload, "clangd/bin/clangd") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+            const std::string clangd { clangd_program() };
             if (!fs::is_regular_file(clangd)) return { false, "no clangd: pass --clangd or --payload" };
             mcppls::platform::SpawnOptions spawn;
             spawn.program = clangd;
@@ -3419,7 +3758,9 @@ public:
             // registered (--no-dynamic-watch) the server's own polling has to notice it.
             const int type { existed ? 2 : 1 };
             const std::string canonical { fs::canonical_path(path) };
-            if (client_.watches(path, type) || client_.watches(canonical, type)) {
+            // "notify": true is an editor's own watcher of build files (the VS Code client's), which reports the write whether or not
+            // the server registered anything: an inferred model, kept while a build tool cannot answer, registers nothing.
+            if (check.value("notify", false) || client_.watches(path, type) || client_.watches(canonical, type)) {
                 client_.notify("workspace/didChangeWatchedFiles", Json { { "changes", Json::array({ Json { { "uri", base::path_to_uri(path) }, { "type", type } } }) } });
             }
             // G-5 (plan 2026-09-30): "expect-reload": false is a change that must NOT load the model again (an edit that
@@ -3805,6 +4146,8 @@ public:
             });
             return { ok, result.is_object() ? lsp::dump(result).substr(0, 160) : std::string { "no response" } };
         }
+        if (kind == "clangd-lsp") return run_clangd_lsp(check, file);
+        if (kind == "completion-baseline") return run_completion_baseline(check, file);
         if (kind == "latency") return run_latency(check);
         if (kind == "typing") return run_typing(check, file);
         if (kind == "edit-save") return run_edit_save(check);
@@ -4000,6 +4343,9 @@ int run(Options options) {
         options.isolatedHome = isolatedHome;
     }
     Expansion expansion { workspace, base::parent_path(self), options.payload, self, isolatedHome };
+    if (const auto prepend = scenario.find("server-path-prepend"); prepend != scenario.end() && prepend->is_string()) {
+        options.pathPrepend = expand(prepend->get<std::string>(), expansion);
+    }
     std::optional<std::vector<std::string>> prepareEnvironment;
     if (scenario.value("prepare-environment", std::string {}) == "msvc") {
         if (options.msvcEnvironment.empty()) {
@@ -4817,7 +5163,40 @@ int prepare_delayed_producer(const std::string& seconds) {
     return 0;
 }
 
+// M-2, M-3 (plan 0.0.9): a header that costs as much to preprocess as a big library's, in src/heavy/ (`#include "heavy/all.hpp"`
+// from any file in src/): <argument> (default 150) headers of 60 class templates, variable templates, functions and macros
+// each, which all.hpp includes after some of the standard library's own. Nothing in them needs a network or a licence, and a
+// file that includes them is parsed, and its modules scanned (WA-CLANGD-009), as the file of a project that uses such a library.
+int prepare_heavy_headers(const std::string& argument) {
+    const int count { argument.empty() ? 150 : std::max(1, std::atoi(argument.c_str())) };
+    const std::string directory { base::join_path(fs::current_directory(), "src/heavy") };
+    (void)fs::create_directories(directory);
+    std::string all { "#pragma once\n#include <algorithm>\n#include <map>\n#include <ranges>\n#include <regex>\n#include <string>\n#include <vector>\n" };
+    for (int unit { 0 }; unit < count; ++unit) {
+        const std::string name { std::format("h{:03}", unit) };
+        std::string text { std::format("#pragma once\n#include <cstddef>\n#include <type_traits>\nnamespace heavy::n{:03} {{\n", unit) };
+        for (int member { 0 }; member < 60; ++member) {
+            text += std::format("template <typename T, std::size_t N = {1}> struct Box{0} {{ T items[N]; constexpr std::size_t size() const {{ return N; }} }};\n", member, member + 1);
+            text += std::format("template <typename T> constexpr bool is_box{0}_v = std::is_class_v<Box{0}<T>>;\n", member);
+            text += std::format("inline int fn{0}(int x) {{ return x * {0} + {1}; }}\n", member, unit);
+            text += std::format("#define HEAVY_{1:03}_{0}(a, b) ((a) + (b) * {0})\n", member, unit);
+        }
+        text += "}\n";
+        if (auto written = fs::write_file(base::join_path(directory, name + ".hpp"), text); !written) {
+            say("prepare: {}", written.error().message);
+            return 1;
+        }
+        all += std::format("#include \"heavy/{}.hpp\"\n", name);
+    }
+    if (auto written = fs::write_file(base::join_path(directory, "all.hpp"), all); !written) {
+        say("prepare: {}", written.error().message);
+        return 1;
+    }
+    return 0;
+}
+
 int prepare(const std::string& kind, const std::string& argument) {
+    if (kind == "heavy-headers") return prepare_heavy_headers(argument);
     if (kind == "s1-two-sets") return prepare_s1_two_sets(argument);
     if (kind == "payload-corrupt") return prepare_payload_corrupt(argument);
     if (kind == "producer-candidate") return prepare_producer_candidate(argument);
@@ -4833,7 +5212,7 @@ int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "xmake-stale-compdb") return prepare_marked_compdb(kind, argument.empty() ? std::string { "g++" } : argument, "-DSTALE_COMPDB", "-std=c++17");
     if (kind == "compdb-midwrite") return prepare_marked_compdb(kind, argument.empty() ? std::string { "clang++" } : argument, "-DVERSION_ONE", "-std=c++23");
     if (kind == "compdb-lto-msvc") return prepare_compdb_lto_msvc(argument);
-    say("prepare: unknown fixture kind {} (s1-two-sets, payload-corrupt, producer-candidate, delayed-producer, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, compdb-rejected-command, compdb-mixed-standards, xmake-stale-compdb, compdb-midwrite)", kind);
+    say("prepare: unknown fixture kind {} (heavy-headers, s1-two-sets, payload-corrupt, producer-candidate, delayed-producer, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, compdb-rejected-command, compdb-mixed-standards, xmake-stale-compdb, compdb-midwrite)", kind);
     return 2;
 }
 

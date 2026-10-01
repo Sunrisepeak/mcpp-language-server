@@ -101,9 +101,20 @@ The model follows what you do, with nothing to run by hand: a change to any `xma
 project again, and so does your own `xmake f` — mcppls reads what it left in
 `.xmake/<plat>/<arch>/xmake.conf` (read only, the newest one when there are several) and configures its
 private run the same way: platform, architecture, mode (`-m debug` gives `-O0 -g`, not the release
-flags), toolchain, SDK, runtimes, kind and the options your own `xmake.lua` declares. If xmake refuses
-one of those options (one that `xmake.lua` no longer declares), mcppls configures again with the
-standard ones only and the status says which were left out.
+flags), toolchain, SDK, runtimes, kind and the options your own `xmake.lua` declares. Which keys of that
+file are options is asked of xmake: mcppls runs `xmake f --help` once in the project (kept in its cache
+until `xmake` or `xmake.lua` changes) and passes on only the keys that list names. The rest are what xmake
+wrote for itself (`proxy`, `dotnet`, `dotnet_sdkver`, toolchain probes): `xmake f` refuses them, so they are
+skipped, and nothing is said about it. Only when xmake gives no usable help and then refuses an option does
+mcppls configure again with the standard ones only, and the status says which were left out.
+
+When xmake needs packages it does not have (`add_requires`, and what they need to build, build tools such as
+`libtool` or `meson` included), the run stops, as it stays offline: the status says which packages, and
+offers to download them, to run xmake in your terminal, or to install them with your system package manager,
+which also works because xmake uses the system's package when it finds one. If the network is allowed
+(`mcppls.buildTool = online`, or you chose to download) and the install fails, the status says
+`producer-install-failed` instead, naming the packages with xmake's own error lines and the path of its
+install log, and does not offer the same download again.
 
 A `compile_commands.json` of yours, at the root or in `.vscode/` (where xmake's VS Code plugin writes
 one), is **not** read while mcppls can run xmake: it only follows your last `xmake project`, not your
@@ -122,7 +133,7 @@ downloaded stops it with the same offer. L3, like xmake.
 
 ## Turning discovery off
 
-`mcppls.buildDiscovery = off` makes mcppls detect no build system at all: nothing is read or run
+`mcppls.buildDiscovery.mode = off` makes mcppls detect no build system at all: nothing is read or run
 implicitly, and only a database you name with `mcppls.database` is used, else the sources are scanned
 (L4). `mcppls.buildDiscovery.providers` leaves out single build systems instead — for example, only
 ever read an existing CMake build directory and never run xmake. `mcppls.buildTool = off` is the

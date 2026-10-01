@@ -60,6 +60,17 @@ is not offered in the editor.
 and the last `toolRuns` entry say why. A common cause is the build tool needing a download: the
 status bar offers to run it in your terminal.
 
+**"xmake needs libtool, libpthread-stubs downloaded".** Those names are not libraries your code is missing:
+they are what xmake would fetch or build for the packages your `xmake.lua` requires, build tools included
+(a package set to build from source brings its own, such as `libtool` or `meson`), and mcppls stayed offline
+so that it would not download them on its own. Three ways on: choose **Download and Continue** in the
+notification, run `xmake` in your terminal (the description is read again when it is done), or install them
+with your system package manager (`apt install libtool libpthread-stubs0-dev`, `pacman -S libtool`, `brew
+install libtool`): xmake's package recipes name the system packages, and xmake uses the system's when it
+finds it. If the status says `producer-install-failed` instead, the network was allowed and the install
+failed; the message has xmake's error lines and the path of its `install.txt` log, and the usual cause is
+a tool the source build needs (autotools, a compiler) that is not installed.
+
 **Go-to-definition works, completion does not, or the standard library is missing.** Look at
 `profile`. A semantic kit means no usable compiler was found; `import std` still resolves, but
 diagnostics come from libc++ rather than from your toolchain.
@@ -123,6 +134,21 @@ not built by clangd until the file is saved (it reads imports from disk); while 
 project, that is an information-level "module 'X' is in the project; clangd loads it once the file is
 saved", not an error (`WA-CLANGD-007`).
 
+**A view "can be declared 'const'", and declared so it does not compile (clang-tidy).** clang-tidy 23.1's
+`misc-const-correctness` says so of a variable holding a `std::views::filter`, `drop_while`, `chunk_by`
+or `split` view, or a view built on one, although such a view has no const `begin()` (issue #37). It runs
+only when your clangd config sets `Diagnostics.ClangTidy.FastCheckFilter: None`. From 0.0.9 mcppls drops
+that diagnostic and keeps the check's other ones (workaround `WA-CLANGD-010`). Before then, or to keep
+the check quiet altogether, set `misc-const-correctness.AnalyzeValues: false` under
+`Diagnostics.ClangTidy.CheckOptions` in the project's `.clangd`.
+
+**Completion is slower than plain clangd on a project without modules (0.0.8 and earlier).** clangd's
+modules support scans a file's module dependencies again for every completion, which costs a heavy
+header such as `vulkan.hpp` about 170 ms each time (issue #37). From 0.0.9, a project that has no module
+units, no module imports and no `import std` gets clangd without its modules support; the first import
+you add restarts clangd with it (workaround `WA-CLANGD-009`, `engine-restart` in the report's
+`events`).
+
 **"clangd would not finish main.cpp".** A file's build ran past its budget — five times its own
 last build, never under 20 s — while the editor waited on it: clangd will not finish it, busy or
 not. The file is answered by mcppls's own engine, with module-level features, until its text
@@ -152,7 +178,9 @@ prepared, is a line saying so. It is clangd being busy with modules, not a failu
 clangd's late completion is not thrown away: it keeps working for up to 10 s, the requests you make
 while typing the same word wait for it, and it goes to them as soon as it comes, so in a file clangd
 rebuilds slowly the list still arrives before you finish the word. `requests.<method>.answeredBy`
-in the report counts, per method, which engine answered; `completion.late` counts clangd's late
+in the report counts, per method, which engine answered; `engineP50Ms` and `engineP95Ms` are the time
+clangd (or another engine) took for the requests it answered and `overheadP50Ms` and `overheadP95Ms` the
+time mcppls added around it, so a slow completion shows whose time it was; `completion.late` counts clangd's late
 answers and the requests they went to; `slowestFiles` names the ten slowest files and, per file,
 how many completions got only words; `engines[].details.buildTimes` says what building each file
 cost clangd (preamble, imported modules, AST builds).

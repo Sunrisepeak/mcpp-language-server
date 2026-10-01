@@ -1,0 +1,38 @@
+{
+  "name": "ux-heavy-headers",
+  "description": "0.0.9 plan M-2 (user-experience scenario, issue #37): a project without modules whose files include a heavy header, the case WA-CLANGD-009 is for. Ten sources include src/heavy/all.hpp, which the prepare step generates (400 headers of 60 class templates, variable templates, functions and macros each, and some of the standard library's own: some 8 MB to preprocess for every file, no network and no licence). U20 types into one of them, a comment line appended before each completion, and asks for the completion after `values.`: first of clangd alone, started on the very compile_commands.json the server wrote for its own (the baseline: what the project costs clangd, whatever mcppls does), then of the server, the same number of times. The server's p95 may be 1.3 times clangd's plus 30 ms. With 0.0.8's --experimental-modules-support clangd scans the file's module dependencies again for every completion, and the same file took 3 to 5 times as long (the workaround-canaries fixture measures it directly); a change that costs a project without modules anything of the kind is caught here whatever its cause. Local runs on a shared machine are noisy: judge a budget on CI's release-payload run.",
+  "prepare": [
+    ["{conformance}", "prepare", "heavy-headers", "400"]
+  ],
+  "server-arguments": [
+    "--no-discover"
+  ],
+  "checks": [
+    {
+      "id": "U20-completion-against-clangd",
+      "kind": "completion-baseline",
+      "stage": "edits",
+      "file": "src/unit_00.cpp",
+      "at": [3, 11],
+      "rounds": 40,
+      "interval-ms": 150,
+      "edit": true,
+      "baseline-arguments": ["--use-dirty-headers", "--compile-commands-dir={engine-database}", "--header-insertion=never", "--pretty=false", "--background-index=false", "--log=error"],
+      "budget": {
+        "ratio": 1.3,
+        "slackMs": 30,
+        "engineShare": 0.95
+      },
+      "budget-why": "The plan's rule (0.0.9 M-2, memory 'budgets = 1.3 x p95'): the server may cost a completion what clangd alone costs it, plus the 30 ms of scheduling and the JSON in both directions that a person does not feel; measured through the server, 10 to 15 ms over clangd on a vulkan-hpp file. The engine share is the share of the answers clangd gave: an answer from the file's words is fast and no completion, so a server that gave up on clangd for this project would pass the time and fail here."
+    },
+    {
+      "id": "U21-no-modules-support",
+      "kind": "report",
+      "stage": "edits",
+      "expect": [
+        { "path": "/roots/0/engines/*/details/arguments/*", "equals": "--experimental-modules-support", "max-matches": 0 },
+        { "path": "/roots/0/requests/*/engineP95Ms", "exists": true }
+      ]
+    }
+  ]
+}

@@ -236,6 +236,9 @@ struct Workspace::Impl final : engine::Host {
         std::size_t cancelled { 0 };
         double maxMs { 0 };
         std::deque<double> recentMs;   // the latest durations, for percentiles
+        // M-1 (plan 0.0.9): the same requests' time in the engine that answered, and the time outside it, for the ones an
+        // engine answered. Pairs, so a request's two parts stay together when the oldest leave.
+        std::deque<std::pair<double, double>> recentEngineMs;   // {engine, overhead}
         std::map<std::string, std::size_t, std::less<>> answeredBy;
         std::string lastAt;            // UTC, when the latest one was answered (0.0.8 plan E-3)
     };
@@ -295,6 +298,10 @@ struct Workspace::Impl final : engine::Host {
         bool coreAnswered { false };
         // C-2 (plan 0.0.8 part 2): the job asked nothing of its own and waits for a late completion of the same word.
         bool waitsForLate { false };
+        // M-1 (plan 0.0.9): when the request went to the engine whose answer went out, and when that engine replied.
+        // The difference is the engine's share of the request's time; the rest is mcppls's own.
+        std::optional<Clock::time_point> engineSentAt;
+        std::optional<Clock::time_point> engineRepliedAt;
     };
     std::map<std::uint64_t, Job> jobs;
     std::uint64_t nextJob { 1 };
@@ -369,6 +376,14 @@ struct Workspace::Impl final : engine::Host {
     std::string producerPath;                            // for the fingerprint of the next save
     std::string producerVersion;
     std::string needsDownload;                           // the producer, run offline, cannot go on without a download
+    // D-2 (plan 0.0.9): that load was offline (an online one that fails says producer-install-failed instead), so a client may
+    // offer to fetch what is missing; and what the load that failed with the network allowed said, named in the status.
+    bool needsDownloadFromOfflineRun { false };
+    std::string installFailed;
+    // D-5 (plan 0.0.9): how the last description the person asked for with the network (mcppls.describeOnline) ended,
+    // S3 `onlineRun`: {outcome, message, at}; null before the first. It stays until the next such run ends.
+    Json onlineRun;
+    bool loadRunsOffline { true };                       // the load running now: the producer is started offline
     // Plan 2026-09-27 B-2, §9.2: fetching what the build description needs is the person's decision, made once per
     // workspace in their editor; `onlineOnce` makes the next load one that may reach the network, and only that one.
     bool onlineOnce { false };
@@ -386,6 +401,11 @@ struct Workspace::Impl final : engine::Host {
     // never counted against clangd's restart budget. CORE_WAIT_LIMIT is what clangd waits beyond that: nothing.
     static constexpr std::chrono::milliseconds FIRST_MODEL_WAIT { 2500 };
     static constexpr std::chrono::milliseconds CORE_WAIT_LIMIT { 0 };
+    // P-2 (plan 0.0.9): what clangd waits beyond FIRST_MODEL_WAIT when this project's build tool is known to answer soon
+    // after it -- 1.2 times its last measured time, up to CORE_WAIT_CAP. Starting clangd on the scanned model costs a
+    // preamble built with the wrong commands and a restart when the build tool answers (issue #37: two 3 s preambles on
+    // vulkan-hpp); mcppls's own engine answers either way. With no measurement it is CORE_WAIT_LIMIT, as before.
+    static constexpr std::chrono::milliseconds CORE_WAIT_CAP { 5500 };
     std::optional<Clock::time_point> coreWaitUntil;
     bool coreWaitOver { false };
     std::optional<std::chrono::milliseconds> producerElapsed;   // set while the producer is past its soft bound
@@ -715,6 +735,7 @@ struct Workspace::Impl final : engine::Host {
         if (!selection.mergers.empty()) {
             job.merging = true;
             job.awaiting = selection.mergers.size();
+            job.engineSentAt = Clock::now();
             // Semantic tokens: the core engine's own answer arrives in its own legend's indices;
             // remapped into this server's legend right here, once, so routing::merge_results (and
             // everything downstream) only ever sees the server's own index space (routing itself
@@ -882,6 +903,7 @@ struct Workspace::Impl final : engine::Host {
             return;
         }
         engine::Engine* answerer { job.answerers[job.next++] };
+        job.engineSentAt = Clock::now();
         answerer->request(job.view, job.message, [this, jobId, engineId = std::string { answerer->id() }](engine::Answer answer) {
             auto current = jobs.find(jobId);
             if (current == jobs.end()) {
@@ -892,6 +914,7 @@ struct Workspace::Impl final : engine::Host {
             case engine::Answer::Kind::result:
                 if (coreEngine != nullptr && engineId == coreEngine->id()) current->second.coreAnswered = true;
                 if (!answer.value.is_null()) {
+                    current->second.engineRepliedAt = Clock::now();
                     current->second.answeredBy = engineId;
                     finish_job(jobId, std::move(answer.value));
                     return;
@@ -924,6 +947,7 @@ struct Workspace::Impl final : engine::Host {
         }
         if (--job.awaiting > 0) return;
         job.answeredBy = "merged";
+        job.engineRepliedAt = Clock::now();
         if (job.cancelled) {
             finish_job_cancelled(jobId);
         } else if (job.error) {
@@ -945,6 +969,11 @@ struct Workspace::Impl final : engine::Host {
         if (stats.recentMs.size() > 256) stats.recentMs.pop_front();
         stats.maxMs = std::max(stats.maxMs, ms);
         if (!job.answeredBy.empty()) ++stats.answeredBy[job.answeredBy];
+        if (job.engineSentAt && job.engineRepliedAt && outcome == "result") {
+            const double engineMs { std::chrono::duration<double, std::milli>(*job.engineRepliedAt - *job.engineSentAt).count() };
+            stats.recentEngineMs.emplace_back(engineMs, std::max(0.0, ms - engineMs));
+            if (stats.recentEngineMs.size() > 256) stats.recentEngineMs.pop_front();
+        }
         stats.lastAt = std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now()));
         if (!job.path.empty() && (fileRequestStats.size() < FILE_STATS_LIMIT || fileRequestStats.contains(job.path))) {
             auto& file = fileRequestStats[job.path];
@@ -1086,8 +1115,16 @@ struct Workspace::Impl final : engine::Host {
         if (!options.trusted) return;
 
         auto cached = project::load_model(cacheDirectory, detection.kind);
+        // P-1 (plan 0.0.9): a second instance starts with no cache of its own; the owner's model is read, never written,
+        // so it plans at once instead of from scanned sources (issue #37: 3-4.4 s of slow first requests and a clangd
+        // restart when the build tool's model came). The owner writes it atomically.
+        if (!cached && lease && lease->shared()) {
+            cached = project::load_model(lease->workspace_directory(), detection.kind);
+            if (cached) log::info("this instance plans with the model the instance owning {} cached", lease->workspace_directory());
+        }
         if (!cached) {
             loadGiveUpAt = Clock::now() + FIRST_MODEL_WAIT;
+            lastProducerMs = read_producer_timing(detection.kind);   // P-2
             return;
         }
         producerPath = cached->producer;
@@ -1168,6 +1205,68 @@ struct Workspace::Impl final : engine::Host {
     // One file per source, so a model built from scanned sources can never replace what the build
     // tool said (design P5), and a fingerprint of the inputs, so the next session can tell whether
     // what it has is still current (design 4.1).
+    // D-5 (plan 0.0.9): the outcome of a description run with the network because the person asked (S3-4-26). It fetched
+    // what was needed when the build tool described the project and nothing is missing any more; otherwise what failed
+    // is said, in the build tool's words where it gave some.
+    void note_online_run(const project::ProjectModel& loaded) {
+        const std::string tool { project::to_string(detectedSource) };
+        const bool fetched { needsDownload.empty() && installFailed.empty() && loaded.source != project::SourceKind::inferred };
+        std::string message;
+        if (fetched) {
+            message = std::format("{} fetched what the build description needed; the project is described by {} now", tool, tool);
+        } else if (!installFailed.empty()) {
+            message = installFailed;
+        } else if (!needsDownload.empty()) {
+            message = std::format("{} still needs a download after the run with the network: {}", tool, needsDownload);
+        } else {
+            message = std::format("{} did not describe the project with the network either; the log says why", tool);
+            for (const auto& issue : loaded.issues) {
+                if (!issue.message.empty()) {
+                    message = issue.message;
+                    break;
+                }
+            }
+        }
+        onlineRun = Json { { "outcome", fetched ? "fetched" : "failed" }, { "message", message },
+                           { "at", std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now())) } };
+        log::info("the description of {} with the network {}: {}", root, fetched ? "fetched what it needed" : "failed", message);
+        journal.add("online-run", onlineRun);
+    }
+
+    // P-2 (plan 0.0.9): what clangd waits for the producer beyond FIRST_MODEL_WAIT (CORE_WAIT_CAP).
+    std::chrono::milliseconds core_wait_limit() const {
+        if (lastProducerMs <= 0) return CORE_WAIT_LIMIT;
+        const std::chrono::milliseconds expected { lastProducerMs * 6 / 5 };
+        return std::clamp<std::chrono::milliseconds>(expected - FIRST_MODEL_WAIT, CORE_WAIT_LIMIT, CORE_WAIT_CAP);
+    }
+
+    // P-2: how long each build tool last took to describe this project, kept apart from the model cache: it outlives a
+    // cache that is gone or of another version, and a second instance reads the owner's (P-1).
+    std::string producer_timing_path(std::string_view directory) const { return base::join_path(std::string { directory }, "producer-timing.json"); }
+
+    std::int64_t read_producer_timing(project::SourceKind kind) const {
+        std::vector<std::string> directories { cacheDirectory };
+        if (lease && lease->shared()) directories.push_back(lease->workspace_directory());
+        for (const auto& directory : directories) {
+            const auto text = platform::fs::read_file(producer_timing_path(directory));
+            if (!text) continue;
+            const Json timing = Json::parse(*text, nullptr, false);
+            if (timing.is_object() && timing.value(std::string { project::to_string(kind) }, std::int64_t { 0 }) > 0) {
+                return timing.value(std::string { project::to_string(kind) }, std::int64_t { 0 });
+            }
+        }
+        return 0;
+    }
+
+    void write_producer_timing(project::SourceKind kind, std::int64_t milliseconds) const {
+        const std::string path { producer_timing_path(cacheDirectory) };
+        const auto text = platform::fs::read_file(path);
+        Json timing = text ? Json::parse(*text, nullptr, false) : Json::object();
+        if (!timing.is_object()) timing = Json::object();
+        timing[std::string { project::to_string(kind) }] = milliseconds;
+        (void)platform::fs::write_file_atomic(path, timing.dump());
+    }
+
     void save_model_cache() const {
         if (!model) return;
         project::CachedModel cached;
@@ -1254,6 +1353,7 @@ struct Workspace::Impl final : engine::Host {
         if (describingOnline) journal.add("describe-online");
         onlineOnce = false;
         load.offline = !online;
+        loadRunsOffline = !online;
         load.runBuildTool = options.buildTool != "off";
         load.producerHard = options.producerTimeout.count() > 0 ? std::chrono::milliseconds { options.producerTimeout }
                             : online                             ? std::chrono::milliseconds { std::chrono::minutes { 10 } }
@@ -1346,6 +1446,7 @@ struct Workspace::Impl final : engine::Host {
         // G-4: what this project's producer takes is what its next deadline is made of.
         if (loadStartedAt && loadedModel->source != project::SourceKind::inferred) {
             lastProducerMs = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - *loadStartedAt).count();
+            write_producer_timing(loadedModel->source, lastProducerMs);   // P-2
         }
         loadStartedAt.reset();
         // Fix plan F4: the build tool answered, whatever it said; clangd waits no longer. A model kept below
@@ -1356,10 +1457,15 @@ struct Workspace::Impl final : engine::Host {
         }
         ++snapshotGeneration;
         needsDownload.clear();
+        installFailed.clear();
+        const bool askedOnline { describingOnline };
         describingOnline = false;
         for (const auto& issue : loadedModel->issues) {
             if (issue.code == spec::NEEDS_DOWNLOAD) needsDownload = issue.message;
+            if (issue.code == spec::INSTALL_FAILED) installFailed = issue.message;
         }
+        if (askedOnline) note_online_run(*loadedModel);
+        needsDownloadFromOfflineRun = !needsDownload.empty() && loadRunsOffline;
         if (needsDownload.empty()) {
             downloadRetries = 0;
             downloadRetryAt.reset();
@@ -1576,9 +1682,9 @@ struct Workspace::Impl final : engine::Host {
         }
         const bool coreWaits { core_waits_for_producer() };
         if (coreWaits && !coreWaitUntil) {
-            coreWaitUntil = Clock::now() + CORE_WAIT_LIMIT;
+            coreWaitUntil = Clock::now() + core_wait_limit();
             log::info("clangd waits for {} to describe {} (at most {} ms more); mcppls's own engine answers meanwhile", project::to_string(detectedSource), root,
-                      CORE_WAIT_LIMIT.count());
+                      core_wait_limit().count());
             journal.add("engine-waits-for-producer", Json { { "detected", std::string { project::to_string(detectedSource) } } });
         }
         for (const auto& engine : engines) {
@@ -1930,8 +2036,17 @@ struct Workspace::Impl final : engine::Host {
             // Plan 2026-09-27 B-2 (S3): a client that knows `askOnline` may offer, once and without blocking anything
             // (§9.2), to fetch it through mcppls.describeOnline; one that does not keeps the terminal action above.
             if (!issues.empty() && issues.back().value("code", std::string {}) == "producer-needs-download") {
-                issues.back()["askOnline"] = ask_before_download() && !describingOnline;
+                // D-2: only a load that was offline has anything to repeat online.
+                issues.back()["askOnline"] = ask_before_download() && !describingOnline && needsDownloadFromOfflineRun;
             }
+        }
+        if (!installFailed.empty()) {
+            // D-2: the network was allowed and the install failed; the reason is the build tool's own, there is nothing to ask for.
+            add(std::string { spec::INSTALL_FAILED},
+                std::format("the build description could not be made: {}. The project is served from its sources meanwhile; "
+                            "run the build tool in your terminal to see it in full (the description is read again when that is done)",
+                            installFailed),
+                "mcppls.runBuildToolInTerminal", "Run in Terminal", "environment");
         }
         if (describingOnline && loading) {
             add("producer-online", std::format("fetching what the build description of {} needs; the project is served from its sources meanwhile",
@@ -1947,7 +2062,7 @@ struct Workspace::Impl final : engine::Host {
             for (const auto& issue : model->issues) {
                 // Needing a download is reported above, with what to do about it; the load's own
                 // issue says the same thing with nothing to do, and saying it twice helps nobody.
-                if (issue.code == spec::NEEDS_DOWNLOAD) continue;
+                if (issue.code == spec::NEEDS_DOWNLOAD || issue.code == spec::INSTALL_FAILED) continue;
                 // Plan 2026-09-27 Q1-3: what only a build makes is made by building; the model is loaded again when it is.
                 if (issue.code == "generated-files-missing") {
                     add(issue.code, issue.message, "mcppls.runBuildToolInTerminal", "Build in Terminal", "environment");
@@ -1999,6 +2114,7 @@ struct Workspace::Impl final : engine::Host {
             { "issues", issues },
         };
         if (!notices.empty()) params["notices"] = std::move(notices);
+        if (!onlineRun.is_null()) params["onlineRun"] = onlineRun;   // D-5, S3-4-26
         if (core && core->toPrepare > 0) params["progress"] = Json { { "done", core->prepared }, { "total", core->toPrepare } };
         attach_auto_bundles(params["issues"]);
         std::string serialized { lsp::dump(params) };
@@ -2069,7 +2185,7 @@ struct Workspace::Impl final : engine::Host {
             if (modelOrigin == "inferred" && model) {
                 log::info("{} has not described {} yet; clangd starts with the model scanned from its sources, and the build tool's replaces it when it comes",
                           project::to_string(detectedSource), root);
-                journal.add("engine-wait-over", Json { { "milliseconds", (FIRST_MODEL_WAIT + CORE_WAIT_LIMIT).count() } });
+                journal.add("engine-wait-over", Json { { "milliseconds", (FIRST_MODEL_WAIT + core_wait_limit()).count() } });
                 replan();
             }
         }
@@ -2447,9 +2563,28 @@ Json Workspace::report() const {
         };
         Json answeredBy = Json::object();
         for (const auto& [engineId, count] : stats.answeredBy) answeredBy[engineId] = count;
-        requests[method] = Json { { "count", stats.count }, { "empty", stats.empty }, { "errors", stats.errors }, { "cancelled", stats.cancelled },
-                                  { "p50Ms", percentile(0.5) }, { "p95Ms", percentile(0.95) }, { "maxMs", static_cast<std::int64_t>(stats.maxMs) },
-                                  { "answeredBy", std::move(answeredBy) }, { "lastAt", stats.lastAt } };
+        Json entry { { "count", stats.count }, { "empty", stats.empty }, { "errors", stats.errors }, { "cancelled", stats.cancelled },
+                     { "p50Ms", percentile(0.5) }, { "p95Ms", percentile(0.95) }, { "maxMs", static_cast<std::int64_t>(stats.maxMs) },
+                     { "answeredBy", std::move(answeredBy) }, { "lastAt", stats.lastAt } };
+        // M-1 (plan 0.0.9): where the time of the requests an engine answered went, in the engine and outside it.
+        if (!stats.recentEngineMs.empty()) {
+            std::vector<double> engineMs, overheadMs;
+            for (const auto& [engine, overhead] : stats.recentEngineMs) {
+                engineMs.push_back(engine);
+                overheadMs.push_back(overhead);
+            }
+            std::ranges::sort(engineMs);
+            std::ranges::sort(overheadMs);
+            const auto at = [](const std::vector<double>& sorted, double fraction) {
+                return static_cast<std::int64_t>(sorted[std::min(sorted.size() - 1, static_cast<std::size_t>(fraction * static_cast<double>(sorted.size())))]);
+            };
+            entry["engineAnswered"] = engineMs.size();
+            entry["engineP50Ms"] = at(engineMs, 0.5);
+            entry["engineP95Ms"] = at(engineMs, 0.95);
+            entry["overheadP50Ms"] = at(overheadMs, 0.5);
+            entry["overheadP95Ms"] = at(overheadMs, 0.95);
+        }
+        requests[method] = std::move(entry);
     }
     // C-4 (plan 0.0.8 part 2): the ten files whose slowest method is slowest at the 95th percentile.
     std::vector<std::pair<std::int64_t, Json>> files;

@@ -31,3 +31,32 @@ suite('the build description download offer', () => {
         assert.strictEqual(needsDownload({}), undefined);
     });
 });
+
+// D-4, D-5 (plan 0.0.9): downloads allowed for a workspace, and the outcome of a fetch told once.
+import { downloadAction, onlineRunToTell } from '../../src/downloadAsk';
+
+suite('downloads allowed in a workspace, and what a fetch came to', () => {
+    const issue = { code: 'producer-needs-download', message: 'xmake needs libtool downloaded', askOnline: true };
+
+    test('fetched without asking once allowed, asked otherwise, nothing after "Don\'t Ask Again"', () => {
+        assert.strictEqual(downloadAction(issue, false, true, [], false), 'fetch');
+        assert.strictEqual(downloadAction(issue, false, false, [], false), 'ask');
+        assert.strictEqual(downloadAction(issue, true, false, [], false), 'none');
+        assert.strictEqual(downloadAction(issue, true, true, [], false), 'fetch', 'allowing is the newer answer');
+    });
+
+    test('never for a run the server does not offer, a set of missing things already handled, or an open question', () => {
+        assert.strictEqual(downloadAction({ ...issue, askOnline: false }, false, true, [], false), 'none');
+        assert.strictEqual(downloadAction(issue, false, true, [issue.message], false), 'none');
+        assert.strictEqual(downloadAction(issue, false, true, [], true), 'none');
+        assert.strictEqual(downloadAction(undefined, false, true, [], false), 'none');
+    });
+
+    test('each fetch is told once, and only a known outcome', () => {
+        const run = { outcome: 'failed' as const, message: 'xmake could not install libtool', at: '2026-10-01T10:00:00Z' };
+        assert.deepStrictEqual(onlineRunToTell({ onlineRun: run }, []), run);
+        assert.strictEqual(onlineRunToTell({ onlineRun: run }, [run.at]), undefined);
+        assert.strictEqual(onlineRunToTell({}, []), undefined);
+        assert.strictEqual(onlineRunToTell({ onlineRun: { ...run, outcome: 'other' as never } }, []), undefined);
+    });
+});

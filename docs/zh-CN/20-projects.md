@@ -41,7 +41,9 @@ mcpp 给出的文档里列出了每个翻译单元、它的模块角色、它的
 
 有 `xmake.lua` 就是 xmake 工程。mcppls 用 xmake 自己的命令 `xmake project -k compile_commands` 向 xmake 要一份，这个命令不编译任何东西——但它会配置并扫描模块，所以 mcppls 把 xmake 的配置目录和构建目录指向自己的缓存（`XMAKE_CONFIGDIR`、`--builddir`），你的工程保持不变：不生成、不修改、不删除里面的任何文件，包括你自己的 `compile_commands.json`。它离线运行（`--policies=package.fetch_only,network.mode:private`）：没有安装的包会让它停下，并给出和上面一样的询问。第一次描述要几秒钟（实测约 6–8 秒，大部分是 xmake 在探测工具链）；这期间工程按源码提供服务。模块角色靠扫描得到，所以 xmake 工程是 L3。
 
-模型会跟着你的操作走，不需要手动做任何事：任何一个 `xmake.lua` 变了，就重新描述工程；你自己运行 `xmake f` 也一样——mcppls 读取它留在 `.xmake/<plat>/<arch>/xmake.conf` 里的内容（只读；有多个时取最新的那个），并让自己的私有运行用同样的方式配置：平台、架构、模式（`-m debug` 得到 `-O0 -g`，而不是 release 的参数）、工具链、SDK、运行库、kind，以及你的 `xmake.lua` 声明的选项。如果 xmake 拒绝其中某个选项（`xmake.lua` 里已经没有声明的那种），mcppls 会只带标准选项再配置一次，状态栏会说明哪些没有带上。
+模型会跟着你的操作走，不需要手动做任何事：任何一个 `xmake.lua` 变了，就重新描述工程；你自己运行 `xmake f` 也一样——mcppls 读取它留在 `.xmake/<plat>/<arch>/xmake.conf` 里的内容（只读；有多个时取最新的那个），并让自己的私有运行用同样的方式配置：平台、架构、模式（`-m debug` 得到 `-O0 -g`，而不是 release 的参数）、工具链、SDK、运行库、kind，以及你的 `xmake.lua` 声明的选项。文件里哪些键算选项，由 xmake 自己回答：mcppls 在工程里运行一次 `xmake f --help`（结果缓存在自己的缓存里，直到 `xmake` 或 `xmake.lua` 变化），只传这份列表里有的键。其余的是 xmake 写给自己的（`proxy`、`dotnet`、`dotnet_sdkver`、工具链探测结果）：`xmake f` 一律拒绝它们，所以直接跳过，也不会提示。只有 xmake 给不出可用的帮助、又拒绝了某个选项时，mcppls 才会只带标准选项再配置一次，状态栏会说明哪些没有带上。
+
+xmake 需要它没有的包时（`add_requires`，以及构建这些包所需要的东西，包括 `libtool`、`meson` 这样的构建工具），运行会停下，因为它保持离线：状态栏会说明是哪些包，并提议下载、在终端里运行 xmake，或者用系统包管理器安装——后者同样有效，因为 xmake 找到系统里的包就会直接用。如果允许联网（`mcppls.buildTool = online`，或者你选择了下载）而安装失败，状态里会改为 `producer-install-failed`，写出包名、xmake 自己的 `error:` 行和它的安装日志路径，不再提供同一个下载。
 
 你自己的 `compile_commands.json`（在根目录或 `.vscode/` 里，xmake 的 VS Code 插件写在那里）在 mcppls 能运行 xmake 时**不会被读取**：它只反映你上一次运行 `xmake project` 时的样子，跟不上 `xmake.lua`，两个来源轮流生效会互相打架。mcppls 运行不了 xmake 时——工作区不受信任、`PATH` 上没有 xmake，或 `mcppls.buildTool` 是 `off`——才会原样读取它，并监视它；如果它比某个 `xmake.lua`（或你的 `xmake.conf`）旧，会有一条通知说一次：运行 `xmake project -k compile_commands` 更新它。想让 mcppls 有意去读你自己的文件，把 `mcppls.buildTool` 设为 `off`。
 
@@ -51,7 +53,7 @@ mcpp 给出的文档里列出了每个翻译单元、它的模块角色、它的
 
 ## 关闭探测
 
-`mcppls.buildDiscovery = off` 让 mcppls 完全不探测构建系统：不隐式读取或运行任何东西，只使用你用 `mcppls.database` 指定的数据库，否则扫描源码（L4）。`mcppls.buildDiscovery.providers` 则只去掉个别构建系统——比如只读现有的 CMake 构建目录、永远不运行 xmake。`mcppls.buildTool = off` 是更窄的开关：仍然探测构建系统、读取它们已有的输出，只是从不运行。见 [30-settings.md](30-settings.md)。
+`mcppls.buildDiscovery.mode = off` 让 mcppls 完全不探测构建系统：不隐式读取或运行任何东西，只使用你用 `mcppls.database` 指定的数据库，否则扫描源码（L4）。`mcppls.buildDiscovery.providers` 则只去掉个别构建系统——比如只读现有的 CMake 构建目录、永远不运行 xmake。`mcppls.buildTool = off` 是更窄的开关：仍然探测构建系统、读取它们已有的输出，只是从不运行。见 [30-settings.md](30-settings.md)。
 
 ## compile_commands.json
 

@@ -9,6 +9,7 @@ import { restoreOtherCppFeatures, turnOffOtherCppFeatures } from './conflicts';
 import { advertisesCacheReset, freedText, parseCacheResetResult, RESET_CACHE_COMMAND, SERVER_RESET_CACHE_COMMAND, sizeText } from './cacheReset';
 import { turnOffInWorkspace, turnOnInWorkspace } from './enable';
 import { sourceOf } from './quickSuggestions';
+import { RENAMED_SETTINGS, resolveRenamed, workersSetting } from './settingsRead';
 import { redactJson, Who } from './redact';
 import { describeProfile, SemanticProfile } from './status';
 
@@ -233,7 +234,9 @@ function mcpplsSettings(): Record<string, unknown> {
     return {
         compiler: settings.get('compiler'),
         semanticKit: settings.get('semanticKit'),
-        engine: settings.get('engine'),
+        'engine.name': resolveRenamed(settings, RENAMED_SETTINGS[0], 'clangd'),
+        'engine.workers': workersSetting(settings.get<string>('engine.workers')),
+        'buildDiscovery.mode': resolveRenamed(settings, RENAMED_SETTINGS[1], 'auto'),
         buildTool: settings.get('buildTool'),
         toolEnvironment: settings.get('toolEnvironment'),
         semanticTokensModules: settings.get('semanticTokens.modules'),

@@ -2,6 +2,7 @@
 // status item for C++ files, driven by the server's cxxModules/status notification.
 
 import * as vscode from 'vscode';
+import type { OnlineRun } from './downloadAsk';
 import { offersCacheReset, RESET_CACHE_COMMAND } from './cacheReset';
 import { TURN_ON_COMMAND } from './enable';
 import { stateTexts } from './statusText';
@@ -56,6 +57,8 @@ export interface CxxModulesStatus {
     issues?: ModuleIssue[];
     // Facts worth showing that reduce no feature, e.g. a Visual Studio without the std module (S3 4).
     notices?: ModuleIssue[];
+    // D-5 (plan 0.0.9): how the last fetch the person asked for ended (downloadPrompt.ts tells it once).
+    onlineRun?: OnlineRun;
 }
 
 // What the status bar shows for each state.

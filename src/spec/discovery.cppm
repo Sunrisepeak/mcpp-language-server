@@ -61,6 +61,9 @@ struct DatabaseDocument {
 inline constexpr std::string_view OFFLINE_DOWNLOAD_REQUIRED { "MCPP_OFFLINE_DOWNLOAD_REQUIRED" };
 // The error code this server fails with when that happened: the model stays, the user gets an action.
 inline constexpr std::string_view NEEDS_DOWNLOAD { "producer-needs-download" };
+// D-2 (plan 0.0.9): the same packages with the network allowed: the install was tried and failed, so a download is not what is
+// missing and offering one again would repeat the failure. The reason names the packages and what the build tool said.
+inline constexpr std::string_view INSTALL_FAILED { "producer-install-failed" };
 
 struct ProducerProtocol {
     std::map<std::string, int, std::less<>> kinds;                                  // kind -> version

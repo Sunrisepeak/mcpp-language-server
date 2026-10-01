@@ -40,14 +40,8 @@ import { promptTestHarness, PromptKind, ShownPrompt } from './prompt';
 import { CxxModulesStatus, ModuleIssue, ModuleState, StatusController } from './status';
 import { describeActiveWorkarounds } from './workarounds';
 import { overriddenByLanguageDefault } from './quickSuggestions';
-
-// build description design 4.4: a value this extension does not know must not turn the network on.
-function buildToolSetting(value: string | undefined): string {
-    return value === 'online' || value === 'off' ? value : 'offline';
-}
-
-// mcppls.buildDiscovery.providers' own default (config registry, settings §9 T1): every provider.
-const BUILD_DISCOVERY_PROVIDERS = ['mcpp', 'cmake', 'xmake', 'meson', 'compile-commands'];
+import { buildInitializationOptions } from './settingsRead';
+import { offerSettingsMigration } from './settingsMigration';
 
 const CLIENT_ID = 'mcppls';
 const CLIENT_NAME = 'C++ Modules';
@@ -313,44 +307,7 @@ class ServerHost implements vscode.Disposable {
                     });
                 },
             },
-            initializationOptions: {
-                compiler: compiler.length > 0 ? compiler : null,
-                semanticKit: configuration.get<string>('semanticKit') === 'off' ? 'off' : 'auto',
-                // overall design 5.6: the core semantic engine; mcppls's own module engine always runs.
-                engine: configuration.get<string>('engine') === 'none' ? 'none' : 'clangd',
-                // build description design 4.4: how the user's build tool may be run.
-                buildTool: buildToolSetting(configuration.get<string>('buildTool')),
-                // build description design 4.3: which environment it is run in.
-                toolEnvironment: configuration.get<string>('toolEnvironment') === 'editor' ? 'editor' : 'auto',
-                // This extension finds other C/C++ language servers itself (mcppls.detectConflicts)
-                // and offers, once, to turn their language features off. Saying so keeps the server
-                // from also explaining it: a server cannot see its siblings through LSP, so it tells
-                // clients that arbitrate nothing — which is every editor but this one.
-                conflictArbitration: 'client',
-                // Design 2026-09-25 §7/§12: `modules` is this setting; `moduleType` is fixed true
-                // because this extension always declares the custom `module` semantic token type
-                // (package.json contributes.semanticTokenTypes) with a `namespace` fallback for
-                // themes that do not colour it.
-                semanticTokens: {
-                    modules: configuration.get<boolean>('semanticTokens.modules', true),
-                    moduleType: true,
-                },
-                // Fix plan 2026-09-26 F9: a space after `import` opens the module list. The server
-                // advertises the space as a trigger character to this client unless this is off.
-                completion: {
-                    triggerOnSpace: configuration.get<boolean>('completion.triggerOnSpace', true),
-                },
-                // 0.0.6 plan §3.7 B-7: whether the project's build system is detected at all, which
-                // providers may be used, and whether a needed download is ever offered. Dotted keys,
-                // not a nested `buildDiscovery` object: the setting `buildDiscovery` is itself a leaf
-                // (`auto`/`off`), so it cannot also be the object `buildDiscovery.providers` nests
-                // under -- the config registry's own dotted-key form (settings §9 T1) sidesteps that.
-                'buildDiscovery': configuration.get<string>('buildDiscovery') === 'off' ? 'off' : 'auto',
-                'buildDiscovery.providers': configuration.get<string[]>('buildDiscovery.providers', BUILD_DISCOVERY_PROVIDERS),
-                'buildDiscovery.askBeforeDownload': configuration.get<boolean>('buildDiscovery.askBeforeDownload', true),
-                // 0.0.6 plan §2.6, §9 T5: implementation units opened in the background.
-                'index.primeImplementationUnits': configuration.get<string>('index.primeImplementationUnits') === 'off' ? 'off' : 'auto',
-            },
+            initializationOptions: buildInitializationOptions(configuration, compiler),
             middleware: {
                 // Fix plan 2026-09-26 F9 (D4 layer 1): of the completions a typed space asks for, only
                 // the one after `import` or `export import` is sent; every other is answered here, with
@@ -592,6 +549,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     const commandLineTools = new CommandLineToolsController(context, (line) => host.log(line));
     const downloadPrompt = new DownloadPromptController(context, (line) => host.log(line));
     status.onUpdate((current) => downloadPrompt.onStatus(current));
+    context.subscriptions.push(vscode.commands.registerCommand('mcppls.askBeforeDownloading', () => downloadPrompt.askBeforeDownloading()));
 
     let latestConflictCheck: Promise<ConflictCheck> = Promise.resolve('none-found');
     // Conflicts can appear or disappear after activation (another extension
@@ -633,6 +591,9 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     const quickSuggestionsOverridden = overriddenByLanguageDefault(
         vscode.workspace.getConfiguration('editor', { languageId: 'cpp' }).inspect('quickSuggestions'));
     if (quickSuggestionsOverridden) host.log(quickSuggestionsOverridden);
+    // S-1 (plan 0.0.9): a setting of theirs under a renamed name keeps working; they are told once, and
+    // nothing is written unless they click.
+    void offerSettingsMigration(context, (line) => host.log(line));
     // Coexistence design (§10): a conflict that becomes active after activation -- another C++
     // extension installed, enabled, or its setting turned back on -- gets a notice, once per
     // conflict per session, distinct from the one-time question above.
@@ -665,11 +626,15 @@ export function activate(context: vscode.ExtensionContext): TestApi {
                 }
             }
             if (event.affectsConfiguration('mcppls.compiler') || event.affectsConfiguration('mcppls.semanticKit')
-                || event.affectsConfiguration('mcppls.engine') || event.affectsConfiguration('mcppls.buildTool')
+                // S-1, S-2 (plan 0.0.9): `mcppls.engine` and `mcppls.buildDiscovery` still match, as the old
+                // names a hand edit may touch; the new ones are named so the list says what it restarts for.
+                || event.affectsConfiguration('mcppls.engine') || event.affectsConfiguration('mcppls.engine.name')
+                || event.affectsConfiguration('mcppls.engine.workers') || event.affectsConfiguration('mcppls.buildTool')
                 || event.affectsConfiguration('mcppls.toolEnvironment') || event.affectsConfiguration('mcppls.semanticTokens.modules')
                 || event.affectsConfiguration('mcppls.completion.triggerOnSpace')
                 // 0.0.6 plan §3.7 B-7, §2.6/§9 T5: new settings, same treatment as the ones above.
-                || event.affectsConfiguration('mcppls.buildDiscovery') || event.affectsConfiguration('mcppls.buildDiscovery.providers')
+                || event.affectsConfiguration('mcppls.buildDiscovery') || event.affectsConfiguration('mcppls.buildDiscovery.mode')
+                || event.affectsConfiguration('mcppls.buildDiscovery.providers')
                 || event.affectsConfiguration('mcppls.buildDiscovery.askBeforeDownload')
                 || event.affectsConfiguration('mcppls.index.primeImplementationUnits')) {
                 void host.restart();
