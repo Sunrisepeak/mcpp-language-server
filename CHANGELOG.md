@@ -49,8 +49,32 @@ left behind by a reload, no longer makes the next one start cold. The analysis a
   the new one starts once it is gone; a clangd building a preamble takes 2.4 to 3.9 s to exit, and every
   request waited for it (446 ms and 1803 ms in the reporter's logs, up to 2.5 s).
 
+### Settings
+
+- **The settings screen no longer shows `undefined`, and `engine.workers` takes effect.**
+  `mcppls.engine` and `mcppls.buildDiscovery` were plain values that were also the parents of other
+  settings, and VS Code drops a child's default when its parent is a plain value:
+  `mcppls.engine.workers` showed `undefined` and "Value must match regex", and the build discovery
+  checkbox showed unchecked. They are now `mcppls.engine.name` and `mcppls.buildDiscovery.mode`. The
+  old names still apply in every editor, Neovim and Zed `init_options` included; VS Code offers once to
+  move your values to the new names and changes nothing until you click. `mcppls.engine.workers` now
+  reaches the server, accepts `auto` or 1 to 99 (empty means `auto`), and a change restarts it. A `null`
+  in `initializationOptions` means not set, and in `didChangeConfiguration` returns the setting to its
+  default; the bundle no longer reports "compiler as the wrong kind of value" for an unset compiler.
+
 ### Build tools
 
+- **xmake no longer starts with a configuration that must fail.** mcppls asks `xmake f --help` which
+  options it takes and passes on only the `xmake.conf` keys on that list. The keys xmake wrote there
+  itself (`proxy`, `dotnet`, `dotnet_sdkver`) were passed back, `xmake f` refused them, and every start
+  ran it twice and showed a wrong "run `xmake f -c`" notice.
+- **A needed download says what it is and what else works.** The message says these are packages xmake
+  would fetch or build for the project's requirements (build tools included, such as `libtool` or
+  `libpthread-stubs` for a library built from source), that the run stayed offline, and that installing
+  them with the system package manager works too. A run with the network allowed whose install fails
+  reports `producer-install-failed` with xmake's error lines and its install log, instead of "stayed
+  offline" and an offer to download the same thing again. Missing packages found by `xmake project` are
+  reported the same way.
 - **A download you asked for says how it ended, and can be allowed for a workspace.** After "Download
   and Continue", the status carries the outcome (S3 `onlineRun`), and VS Code tells it once: fetched, or
   failed with what failed and buttons for the log and the terminal. "Always Download in This Workspace"

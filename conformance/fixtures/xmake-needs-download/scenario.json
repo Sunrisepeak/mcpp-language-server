@@ -59,6 +59,12 @@
       "issue-message": "installdir.failed/logs/install.txt"
     },
     {
+      "id": "B3b-the-status-says-the-fetch-failed",
+      "kind": "status",
+      "online-run": "failed",
+      "online-run-message": "installdir.failed/logs/install.txt"
+    },
+    {
       "id": "B4-nothing-is-offered-that-would-fail-the-same-way",
       "kind": "report",
       "timeout": 20,

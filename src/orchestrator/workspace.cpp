@@ -380,6 +380,9 @@ struct Workspace::Impl final : engine::Host {
     // offer to fetch what is missing; and what the load that failed with the network allowed said, named in the status.
     bool needsDownloadFromOfflineRun { false };
     std::string installFailed;
+    // D-5 (plan 0.0.9): how the last description the person asked for with the network (mcppls.describeOnline) ended,
+    // S3 `onlineRun`: {outcome, message, at}; null before the first. It stays until the next such run ends.
+    Json onlineRun;
     bool loadRunsOffline { true };                       // the load running now: the producer is started offline
     // Plan 2026-09-27 B-2, §9.2: fetching what the build description needs is the person's decision, made once per
     // workspace in their editor; `onlineOnce` makes the next load one that may reach the network, and only that one.
@@ -1202,6 +1205,34 @@ struct Workspace::Impl final : engine::Host {
     // One file per source, so a model built from scanned sources can never replace what the build
     // tool said (design P5), and a fingerprint of the inputs, so the next session can tell whether
     // what it has is still current (design 4.1).
+    // D-5 (plan 0.0.9): the outcome of a description run with the network because the person asked (S3-4-26). It fetched
+    // what was needed when the build tool described the project and nothing is missing any more; otherwise what failed
+    // is said, in the build tool's words where it gave some.
+    void note_online_run(const project::ProjectModel& loaded) {
+        const std::string tool { project::to_string(detectedSource) };
+        const bool fetched { needsDownload.empty() && installFailed.empty() && loaded.source != project::SourceKind::inferred };
+        std::string message;
+        if (fetched) {
+            message = std::format("{} fetched what the build description needed; the project is described by {} now", tool, tool);
+        } else if (!installFailed.empty()) {
+            message = installFailed;
+        } else if (!needsDownload.empty()) {
+            message = std::format("{} still needs a download after the run with the network: {}", tool, needsDownload);
+        } else {
+            message = std::format("{} did not describe the project with the network either; the log says why", tool);
+            for (const auto& issue : loaded.issues) {
+                if (!issue.message.empty()) {
+                    message = issue.message;
+                    break;
+                }
+            }
+        }
+        onlineRun = Json { { "outcome", fetched ? "fetched" : "failed" }, { "message", message },
+                           { "at", std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now())) } };
+        log::info("the description of {} with the network {}: {}", root, fetched ? "fetched what it needed" : "failed", message);
+        journal.add("online-run", onlineRun);
+    }
+
     // P-2 (plan 0.0.9): what clangd waits for the producer beyond FIRST_MODEL_WAIT (CORE_WAIT_CAP).
     std::chrono::milliseconds core_wait_limit() const {
         if (lastProducerMs <= 0) return CORE_WAIT_LIMIT;
@@ -1427,11 +1458,13 @@ struct Workspace::Impl final : engine::Host {
         ++snapshotGeneration;
         needsDownload.clear();
         installFailed.clear();
+        const bool askedOnline { describingOnline };
         describingOnline = false;
         for (const auto& issue : loadedModel->issues) {
             if (issue.code == spec::NEEDS_DOWNLOAD) needsDownload = issue.message;
             if (issue.code == spec::INSTALL_FAILED) installFailed = issue.message;
         }
+        if (askedOnline) note_online_run(*loadedModel);
         needsDownloadFromOfflineRun = !needsDownload.empty() && loadRunsOffline;
         if (needsDownload.empty()) {
             downloadRetries = 0;
@@ -2081,6 +2114,7 @@ struct Workspace::Impl final : engine::Host {
             { "issues", issues },
         };
         if (!notices.empty()) params["notices"] = std::move(notices);
+        if (!onlineRun.is_null()) params["onlineRun"] = onlineRun;   // D-5, S3-4-26
         if (core && core->toPrepare > 0) params["progress"] = Json { { "done", core->prepared }, { "total", core->toPrepare } };
         attach_auto_bundles(params["issues"]);
         std::string serialized { lsp::dump(params) };

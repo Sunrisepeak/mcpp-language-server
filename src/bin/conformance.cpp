@@ -3374,6 +3374,13 @@ public:
                         return notice.value("code", std::string {}) == noticeCode->get<std::string>();
                     });
                 }
+                // D-5 (plan 0.0.9): how the last fetch asked for ended (S3 onlineRun), and a part of its message.
+                if (auto outcome = check.find("online-run"); outcome != check.end()) {
+                    const Json run = snapshot.value("onlineRun", Json::object());
+                    matched = matched && run.is_object() && run.value("outcome", std::string {}) == outcome->get<std::string>()
+                              && run.value("message", std::string {}).contains(check.value("online-run-message", std::string {}))
+                              && !run.value("at", std::string {}).empty();
+                }
                 return matched;
             };
             (void)client_.wait_for([&] { return settled(current()); }, timeout_);
