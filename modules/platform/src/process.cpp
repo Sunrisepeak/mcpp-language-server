@@ -541,6 +541,33 @@ std::optional<double> parse_cpu_time(std::string_view text) {
     return total + days * 86400;
 }
 
+std::optional<bool> process_alive(std::int64_t pid) {
+    if (pid <= 0) return std::nullopt;
+    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
+        // A pid with no /proc entry is gone; one whose state (the first field after the command) is Z or X has exited.
+        if (!fs::exists(std::format("/proc/{}", pid))) return false;
+        const auto stat = fs::read_file(std::format("/proc/{}/stat", pid));
+        if (!stat) return std::nullopt;
+        const auto close = stat->rfind(')');
+        if (close == std::string::npos || close + 2 >= stat->size()) return std::nullopt;
+        const char state { (*stat)[close + 2] };
+        return state != 'Z' && state != 'X';
+    } else if constexpr (mcppls::os::FAMILY == mcppls::os::Family::macos) {
+        SpawnOptions options;
+        options.program = "/bin/ps";
+        options.arguments = { "-o", "state=", "-p", std::to_string(pid) };
+        options.pipeInput = false;
+        auto ran = run(std::move(options), std::chrono::seconds { 2 });
+        if (!ran || ran->timedOut) return std::nullopt;
+        // ps exits 1 when no process has the pid.
+        if (ran->exitCode != 0) return ran->exitCode == 1 ? std::optional<bool> { false } : std::nullopt;
+        const std::string_view state { base::trim(ran->output) };
+        return !state.empty() && state.front() != 'Z';
+    } else {
+        return std::nullopt;
+    }
+}
+
 std::optional<double> cpu_seconds(std::int64_t pid) {
     if (pid <= 0) return std::nullopt;
     if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {

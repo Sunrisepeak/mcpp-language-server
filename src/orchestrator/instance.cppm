@@ -19,6 +19,9 @@ public:
     static WorkspaceLease acquire(std::string_view workspaceDirectory, std::chrono::system_clock::time_point now);
 
     const std::string& directory() const { return directory_; }   // the cache directory this instance uses
+    // The owner's cache directory, <cache>/workspaces/<key>: a guest may read what the owner wrote there (its
+    // cached project model, P-1 plan 0.0.9), never write to it.
+    const std::string& workspace_directory() const { return workspaceDirectory_; }
     bool shared() const { return shared_; }                        // another live instance owns the workspace directory
     void renew(std::chrono::system_clock::time_point now);         // the owner's heartbeat; nothing for a guest
     void release();                                                // the owner drops its lease; a guest removes its directory

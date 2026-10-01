@@ -386,6 +386,11 @@ struct Workspace::Impl final : engine::Host {
     // never counted against clangd's restart budget. CORE_WAIT_LIMIT is what clangd waits beyond that: nothing.
     static constexpr std::chrono::milliseconds FIRST_MODEL_WAIT { 2500 };
     static constexpr std::chrono::milliseconds CORE_WAIT_LIMIT { 0 };
+    // P-2 (plan 0.0.9): what clangd waits beyond FIRST_MODEL_WAIT when this project's build tool is known to answer soon
+    // after it -- 1.2 times its last measured time, up to CORE_WAIT_CAP. Starting clangd on the scanned model costs a
+    // preamble built with the wrong commands and a restart when the build tool answers (issue #37: two 3 s preambles on
+    // vulkan-hpp); mcppls's own engine answers either way. With no measurement it is CORE_WAIT_LIMIT, as before.
+    static constexpr std::chrono::milliseconds CORE_WAIT_CAP { 5500 };
     std::optional<Clock::time_point> coreWaitUntil;
     bool coreWaitOver { false };
     std::optional<std::chrono::milliseconds> producerElapsed;   // set while the producer is past its soft bound
@@ -1086,8 +1091,16 @@ struct Workspace::Impl final : engine::Host {
         if (!options.trusted) return;
 
         auto cached = project::load_model(cacheDirectory, detection.kind);
+        // P-1 (plan 0.0.9): a second instance starts with no cache of its own; the owner's model is read, never written,
+        // so it plans at once instead of from scanned sources (issue #37: 3-4.4 s of slow first requests and a clangd
+        // restart when the build tool's model came). The owner writes it atomically.
+        if (!cached && lease && lease->shared()) {
+            cached = project::load_model(lease->workspace_directory(), detection.kind);
+            if (cached) log::info("this instance plans with the model the instance owning {} cached", lease->workspace_directory());
+        }
         if (!cached) {
             loadGiveUpAt = Clock::now() + FIRST_MODEL_WAIT;
+            lastProducerMs = read_producer_timing(detection.kind);   // P-2
             return;
         }
         producerPath = cached->producer;
@@ -1168,6 +1181,40 @@ struct Workspace::Impl final : engine::Host {
     // One file per source, so a model built from scanned sources can never replace what the build
     // tool said (design P5), and a fingerprint of the inputs, so the next session can tell whether
     // what it has is still current (design 4.1).
+    // P-2 (plan 0.0.9): what clangd waits for the producer beyond FIRST_MODEL_WAIT (CORE_WAIT_CAP).
+    std::chrono::milliseconds core_wait_limit() const {
+        if (lastProducerMs <= 0) return CORE_WAIT_LIMIT;
+        const std::chrono::milliseconds expected { lastProducerMs * 6 / 5 };
+        return std::clamp<std::chrono::milliseconds>(expected - FIRST_MODEL_WAIT, CORE_WAIT_LIMIT, CORE_WAIT_CAP);
+    }
+
+    // P-2: how long each build tool last took to describe this project, kept apart from the model cache: it outlives a
+    // cache that is gone or of another version, and a second instance reads the owner's (P-1).
+    std::string producer_timing_path(std::string_view directory) const { return base::join_path(std::string { directory }, "producer-timing.json"); }
+
+    std::int64_t read_producer_timing(project::SourceKind kind) const {
+        std::vector<std::string> directories { cacheDirectory };
+        if (lease && lease->shared()) directories.push_back(lease->workspace_directory());
+        for (const auto& directory : directories) {
+            const auto text = platform::fs::read_file(producer_timing_path(directory));
+            if (!text) continue;
+            const Json timing = Json::parse(*text, nullptr, false);
+            if (timing.is_object() && timing.value(std::string { project::to_string(kind) }, std::int64_t { 0 }) > 0) {
+                return timing.value(std::string { project::to_string(kind) }, std::int64_t { 0 });
+            }
+        }
+        return 0;
+    }
+
+    void write_producer_timing(project::SourceKind kind, std::int64_t milliseconds) const {
+        const std::string path { producer_timing_path(cacheDirectory) };
+        const auto text = platform::fs::read_file(path);
+        Json timing = text ? Json::parse(*text, nullptr, false) : Json::object();
+        if (!timing.is_object()) timing = Json::object();
+        timing[std::string { project::to_string(kind) }] = milliseconds;
+        (void)platform::fs::write_file_atomic(path, timing.dump());
+    }
+
     void save_model_cache() const {
         if (!model) return;
         project::CachedModel cached;
@@ -1346,6 +1393,7 @@ struct Workspace::Impl final : engine::Host {
         // G-4: what this project's producer takes is what its next deadline is made of.
         if (loadStartedAt && loadedModel->source != project::SourceKind::inferred) {
             lastProducerMs = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - *loadStartedAt).count();
+            write_producer_timing(loadedModel->source, lastProducerMs);   // P-2
         }
         loadStartedAt.reset();
         // Fix plan F4: the build tool answered, whatever it said; clangd waits no longer. A model kept below
@@ -1576,9 +1624,9 @@ struct Workspace::Impl final : engine::Host {
         }
         const bool coreWaits { core_waits_for_producer() };
         if (coreWaits && !coreWaitUntil) {
-            coreWaitUntil = Clock::now() + CORE_WAIT_LIMIT;
+            coreWaitUntil = Clock::now() + core_wait_limit();
             log::info("clangd waits for {} to describe {} (at most {} ms more); mcppls's own engine answers meanwhile", project::to_string(detectedSource), root,
-                      CORE_WAIT_LIMIT.count());
+                      core_wait_limit().count());
             journal.add("engine-waits-for-producer", Json { { "detected", std::string { project::to_string(detectedSource) } } });
         }
         for (const auto& engine : engines) {
@@ -2069,7 +2117,7 @@ struct Workspace::Impl final : engine::Host {
             if (modelOrigin == "inferred" && model) {
                 log::info("{} has not described {} yet; clangd starts with the model scanned from its sources, and the build tool's replaces it when it comes",
                           project::to_string(detectedSource), root);
-                journal.add("engine-wait-over", Json { { "milliseconds", (FIRST_MODEL_WAIT + CORE_WAIT_LIMIT).count() } });
+                journal.add("engine-wait-over", Json { { "milliseconds", (FIRST_MODEL_WAIT + core_wait_limit()).count() } });
                 replan();
             }
         }

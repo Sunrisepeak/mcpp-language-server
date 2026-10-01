@@ -113,6 +113,10 @@ std::string last_lines(std::string_view text, std::size_t lines);
 // platform can say: /proc on Linux, ps(1) on macOS. nullopt on Windows (openkal exposes no process
 // times and a handle is not a pid there) and whenever the process cannot be read.
 std::optional<double> cpu_seconds(std::int64_t pid);
+// Whether a process is running, where the platform can say: /proc on Linux, ps(1) on macOS; a process that
+// has exited and not been reaped yet (a zombie) is not running. nullopt on Windows (a handle is not a pid
+// there) and whenever the answer cannot be read -- which is not the same as "gone".
+std::optional<bool> process_alive(std::int64_t pid);
 // ps(1)'s cumulative "time" column, "[[dd-]hh:]mm:ss[.ss]", in seconds.
 std::optional<double> parse_cpu_time(std::string_view text);
 
