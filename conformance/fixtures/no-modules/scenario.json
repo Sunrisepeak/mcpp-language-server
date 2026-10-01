@@ -1,0 +1,34 @@
+{
+  "name": "no-modules",
+  "description": "0.0.9 plan M-3 (and M-1, the report's split of a request's time into clangd's and the server's), WA-CLANGD-009: a project of plain sources and headers, no module in it and no build system, so the plan has none either. clangd runs without --experimental-modules-support (with it clangd scans a file's module dependencies again for every completion), hover and go to definition work as before, and nothing has restarted it since the project was read. Then a module interface is written into the workspace: the plan gains a module, clangd is restarted with the flag and the reason says why, and the file that had no module in it is answered still. The first clangd of a cold cache starts with the flag, before the first plan, and is restarted without it before a document is open, so the check is on the arguments clangd runs with, not on the history.",
+  "server-arguments": ["--no-discover"],
+  "checks": [
+    { "id": "S1", "kind": "status", "source": "inferred", "state": "ready", "engine-name": "clangd" },
+    { "id": "N1-plan-has-no-modules", "kind": "report", "expect": [
+      { "path": "/roots/0/plan/stdUnits", "equals": 0 },
+      { "path": "/roots/0/plan/standIns", "max-items": 0 }
+    ] },
+    { "id": "N2-hover", "kind": "hover-contains", "file": "src/main.cpp", "at": [6, 10], "expect": "Rect" },
+    { "id": "N3-definition", "kind": "definition", "file": "src/main.cpp", "at": [6, 10], "expect": "src/shapes.hpp" },
+    { "id": "N4-definition-function", "kind": "definition-any", "file": "src/main.cpp", "at": [7, 18] },
+    { "id": "N4b-time-split", "kind": "report", "expect": [
+      { "path": "/roots/0/requests/*/engineP50Ms", "exists": true },
+      { "path": "/roots/0/requests/*/engineP95Ms", "exists": true },
+      { "path": "/roots/0/requests/*/overheadP50Ms", "exists": true },
+      { "path": "/roots/0/requests/*/overheadP95Ms", "exists": true }
+    ] },
+    { "id": "N5-no-modules-support", "kind": "report", "expect": [
+      { "path": "/roots/0/engines/*/details/arguments/*", "equals": "--use-dirty-headers", "min-matches": 1 },
+      { "path": "/roots/0/engines/*/details/arguments/*", "equals": "--experimental-modules-support", "max-matches": 0 },
+      { "path": "/roots/0/events/*/detail/reason", "contains": "gets its modules support", "max-matches": 0 }
+    ] },
+    { "id": "M1-write-module", "kind": "write-file", "file": "src/geom.cppm", "content": "export module geom;\n\nexport int scale(int value) { return value * 2; }\n" },
+    { "id": "M2-restarted-with-modules-support", "kind": "report", "expect": [
+      { "path": "/roots/0/engines/*/details/arguments/*", "equals": "--experimental-modules-support", "min-matches": 1 },
+      { "path": "/roots/0/events/*/detail/reason", "contains": "WA-CLANGD-009" },
+      { "path": "/roots/0/events/*/detail/reason", "contains": "gets its modules support" }
+    ] },
+    { "id": "M3-hover", "kind": "hover-contains", "file": "src/main.cpp", "at": [6, 10], "expect": "Rect" },
+    { "id": "M4-module-in-graph", "kind": "module-graph-contains", "expect": "geom" }
+  ]
+}
