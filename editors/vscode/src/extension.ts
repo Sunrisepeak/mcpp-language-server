@@ -549,6 +549,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     const commandLineTools = new CommandLineToolsController(context, (line) => host.log(line));
     const downloadPrompt = new DownloadPromptController(context, (line) => host.log(line));
     status.onUpdate((current) => downloadPrompt.onStatus(current));
+    context.subscriptions.push(vscode.commands.registerCommand('mcppls.askBeforeDownloading', () => downloadPrompt.askBeforeDownloading()));
 
     let latestConflictCheck: Promise<ConflictCheck> = Promise.resolve('none-found');
     // Conflicts can appear or disappear after activation (another extension

@@ -202,6 +202,11 @@
         "category": "C++ Modules"
       },
       {
+        "command": "mcppls.askBeforeDownloading",
+        "title": "Ask Before Downloading in This Workspace",
+        "category": "C++ Modules"
+      },
+      {
         "command": "mcppls.turnOffOtherCppFeatures",
         "title": "Turn Off Other C++ Language Features",
         "category": "C++ Modules"
