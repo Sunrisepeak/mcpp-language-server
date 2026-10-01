@@ -452,7 +452,8 @@ Answer CmakeProvider::describe(const Claim& claim, const ProviderContext& contex
         if (context.offline) {
             if (auto missing = fetchcontent_missing_dependencies(result->output + "\n" + result->error); !missing.empty()) {
                 return Answer { .outcome = Outcome::needs_download, .code = std::string { spec::NEEDS_DOWNLOAD },
-                                .reason = std::format("cmake needs {} downloaded, and this run stayed offline (FETCHCONTENT_FULLY_DISCONNECTED)",
+                                .reason = std::format("cmake needs {} downloaded: they are what FetchContent would fetch for this project, and this run stayed offline "
+                                                      "(FETCHCONTENT_FULLY_DISCONNECTED)",
                                                       base::join(missing, ", ")),
                                 .missing = missing };
             }

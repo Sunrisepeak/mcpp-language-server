@@ -2,7 +2,13 @@
 
 Changes to the specifications in this directory. Each specification is versioned independently.
 
-## 2026-10-01 — S3: how a download the client asked for ended
+## 2026-10-01 — S3: an install that failed, and how a download the client asked for ended
+
+The issue code `producer-install-failed` is named: the build tool, run with the network allowed, could not
+install what the project's description needs. Its message names the packages and carries the build tool's own
+error lines; it has no `askOnline`, since fetching again would fail the same way, and its command is the terminal
+action `producer-needs-download` has. `producer-needs-download` itself is now reported with `askOnline` only
+when the description that needed the download was run offline. All additive: protocol version stays 1.
 
 `CxxModulesStatusParams` gains `onlineRun` (optional): the outcome (`fetched` or `failed`), a sentence
 for the person, and when it ended, for the last description of the root that `mcppls.describeOnline`

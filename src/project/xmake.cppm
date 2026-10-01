@@ -50,14 +50,39 @@ bool xmake_option_is_standard(std::string_view name);
 // What a reduced configuration leaves out of `user`: the names that are not internal and not standard.
 std::vector<std::string> xmake_left_out(std::span<const XmakeOption> user);
 
+// D-1 (plan 0.0.9): the long option names `xmake f --help` lists (`--plat=PLAT`, `--ccache=[y|n]`, and the project's own
+// `option()`s under "Command options (Project Configuration)"), sorted, without the leading dashes. An option line is indented
+// by at most eight spaces; the deeper lines are descriptions and examples (`- xmake f --import=...`) and are not read.
+std::vector<std::string> xmake_help_options(std::string_view text);
+
+// The keys of `user` that are not internal, are not standard and are not in `accepted`: what xmake wrote into xmake.conf for
+// itself (`proxy`, `dotnet`, `dotnet_sdkver`, ...) and `xmake f` refuses. Empty `accepted` (no help text) skips nothing.
+std::vector<std::string> xmake_not_accepted(std::span<const XmakeOption> user, std::span<const std::string> accepted);
+
+// The last `limit` lines of `output` that say `error:`, in order, trimmed (what a failed install says in xmake's own words).
+std::vector<std::string> xmake_error_lines(std::string_view output, std::size_t limit = 3);
+
+// The packages xmake says it failed to install: `error: install libtool failed!` names `libtool`.
+std::vector<std::string> xmake_failed_installs(std::string_view output);
+
+// The `.../installdir.failed/logs/install.txt` path xmake names when a package fails to install, or empty.
+std::string xmake_install_log(std::string_view output);
+
+// The reason of the needs-download outcome (D-3) and of an install that failed with the network allowed (D-2).
+std::string xmake_needs_download_reason(std::span<const std::string> missing);
+// `missing` may be empty (xmake named no package): the reason then speaks of the packages the project requires.
+std::string xmake_install_failed_reason(std::span<const std::string> missing, std::string_view output);
+
 // `xmake f -c [-p plat -a arch -m mode] [--name=value ...] --confirm=no --policies=package.fetch_only,network.mode:private
 // --builddir=<private>/build` offline (measured: `network.mode:private` is what stops xmake's package repositories being
 // pulled on a machine that has never fetched them, not `package.fetch_only` alone -- plan §3.5); online, `-y` replaces the
 // two policy arguments (no fetch-only policy, so a package that is missing installs instead of only being looked for).
 // `user` is the user's own configuration (X-2): `xmake f` resets every option it is not given, so the private run is given them
 // all (E5: a debug project described as release otherwise); `reduced` keeps only the standard ones, for the retry.
+// D-1: when `accepted` (xmake_help_options) is not empty, a key outside it and outside the standard ones is not passed on.
 std::vector<std::string> xmake_configure_arguments(std::string_view buildDirectory, bool offline,
-                                                   std::span<const XmakeOption> user = {}, bool reduced = false);
+                                                   std::span<const XmakeOption> user = {}, bool reduced = false,
+                                                   std::span<const std::string> accepted = {});
 
 // xmake refused an option it does not know ("Invalid option: --x=1", exit 255 with v3.1.1).
 bool xmake_unknown_option(std::string_view output);

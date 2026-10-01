@@ -376,6 +376,11 @@ struct Workspace::Impl final : engine::Host {
     std::string producerPath;                            // for the fingerprint of the next save
     std::string producerVersion;
     std::string needsDownload;                           // the producer, run offline, cannot go on without a download
+    // D-2 (plan 0.0.9): that load was offline (an online one that fails says producer-install-failed instead), so a client may
+    // offer to fetch what is missing; and what the load that failed with the network allowed said, named in the status.
+    bool needsDownloadFromOfflineRun { false };
+    std::string installFailed;
+    bool loadRunsOffline { true };                       // the load running now: the producer is started offline
     // Plan 2026-09-27 B-2, §9.2: fetching what the build description needs is the person's decision, made once per
     // workspace in their editor; `onlineOnce` makes the next load one that may reach the network, and only that one.
     bool onlineOnce { false };
@@ -1317,6 +1322,7 @@ struct Workspace::Impl final : engine::Host {
         if (describingOnline) journal.add("describe-online");
         onlineOnce = false;
         load.offline = !online;
+        loadRunsOffline = !online;
         load.runBuildTool = options.buildTool != "off";
         load.producerHard = options.producerTimeout.count() > 0 ? std::chrono::milliseconds { options.producerTimeout }
                             : online                             ? std::chrono::milliseconds { std::chrono::minutes { 10 } }
@@ -1420,10 +1426,13 @@ struct Workspace::Impl final : engine::Host {
         }
         ++snapshotGeneration;
         needsDownload.clear();
+        installFailed.clear();
         describingOnline = false;
         for (const auto& issue : loadedModel->issues) {
             if (issue.code == spec::NEEDS_DOWNLOAD) needsDownload = issue.message;
+            if (issue.code == spec::INSTALL_FAILED) installFailed = issue.message;
         }
+        needsDownloadFromOfflineRun = !needsDownload.empty() && loadRunsOffline;
         if (needsDownload.empty()) {
             downloadRetries = 0;
             downloadRetryAt.reset();
@@ -1994,8 +2003,17 @@ struct Workspace::Impl final : engine::Host {
             // Plan 2026-09-27 B-2 (S3): a client that knows `askOnline` may offer, once and without blocking anything
             // (§9.2), to fetch it through mcppls.describeOnline; one that does not keeps the terminal action above.
             if (!issues.empty() && issues.back().value("code", std::string {}) == "producer-needs-download") {
-                issues.back()["askOnline"] = ask_before_download() && !describingOnline;
+                // D-2: only a load that was offline has anything to repeat online.
+                issues.back()["askOnline"] = ask_before_download() && !describingOnline && needsDownloadFromOfflineRun;
             }
+        }
+        if (!installFailed.empty()) {
+            // D-2: the network was allowed and the install failed; the reason is the build tool's own, there is nothing to ask for.
+            add(std::string { spec::INSTALL_FAILED},
+                std::format("the build description could not be made: {}. The project is served from its sources meanwhile; "
+                            "run the build tool in your terminal to see it in full (the description is read again when that is done)",
+                            installFailed),
+                "mcppls.runBuildToolInTerminal", "Run in Terminal", "environment");
         }
         if (describingOnline && loading) {
             add("producer-online", std::format("fetching what the build description of {} needs; the project is served from its sources meanwhile",
@@ -2011,7 +2029,7 @@ struct Workspace::Impl final : engine::Host {
             for (const auto& issue : model->issues) {
                 // Needing a download is reported above, with what to do about it; the load's own
                 // issue says the same thing with nothing to do, and saying it twice helps nobody.
-                if (issue.code == spec::NEEDS_DOWNLOAD) continue;
+                if (issue.code == spec::NEEDS_DOWNLOAD || issue.code == spec::INSTALL_FAILED) continue;
                 // Plan 2026-09-27 Q1-3: what only a build makes is made by building; the model is loaded again when it is.
                 if (issue.code == "generated-files-missing") {
                     add(issue.code, issue.message, "mcppls.runBuildToolInTerminal", "Build in Terminal", "environment");

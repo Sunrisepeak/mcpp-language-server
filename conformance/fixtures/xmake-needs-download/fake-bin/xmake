@@ -1,0 +1,69 @@
+#!/bin/sh
+# A stand-in for xmake (plan 0.0.9 D-1, D-2, D-6): it knows the three commands mcppls runs and says what xmake 3.1.1 says.
+#   xmake f --help   the options `xmake f` takes: the standard ones and the project's `fancy`; `proxy` and `dotnet` are not there.
+#   xmake f ...      an option it does not list is refused (exit 255); with "CONFIGURE_MISSING" in xmake.lua it fails on missing
+#                    packages (offline) or on an install that failed (the network allowed: `-y`, no offline policy).
+#   xmake project    writes compile_commands.json; with "PROJECT_MISSING" in xmake.lua it fails on missing packages the same way.
+missing() {
+    if [ "$1" = online ]; then
+        echo "  -> libtool 2.4.7: xmake.lua:4" >&2
+        echo "error: autoreconf: command not found" >&2
+        echo "error: install libtool failed!" >&2
+        echo "note: see /home/user/.xmake/cache/packages/2510/l/libtool/2.4.7/installdir.failed/logs/install.txt" >&2
+    else
+        echo "error: The packages($2) not found, please install them first!" >&2
+    fi
+    exit 1
+}
+mode=offline
+for argument in "$@"; do
+    case "$argument" in -y) mode=online ;; esac
+done
+case "$1" in
+f)
+    if [ "$2" = "--help" ]; then
+        cat <<'HELP'
+Usage: $xmake config|f [options]
+
+Configure the project.
+
+Common options:
+    -q, --quiet                            Quiet operation.
+    -y, --yes                              Input yes by default if need user confirm.
+        --confirm=CONFIRM                  Input the given result if need user confirm.
+                                               - yes
+                                               - no
+    -p PLAT, --plat=PLAT                   Compile for the given platform. (default: auto)
+    -a ARCH, --arch=ARCH                   Compile for the given architecture. (default: auto)
+    -m MODE, --mode=MODE                   Set the given compilation mode. (default: release)
+        --toolchain=TOOLCHAIN              Set toolchains.
+    -o BUILDDIR, --builddir=BUILDDIR       Set build directory. (default: build)
+        --policies=POLICIES                Set the build policies.
+
+Command options (Project Configuration):
+
+        --fancy=[y|n]                      A project option
+HELP
+        exit 0
+    fi
+    for argument in "$@"; do
+        case "$argument" in
+        --proxy=* | --dotnet=* | --dotnet_sdkver=*)
+            echo "error: Invalid option: $argument" >&2
+            exit 255
+            ;;
+        esac
+    done
+    if grep -q CONFIGURE_MISSING xmake.lua; then missing "$mode" "libtool, libpthread-stubs"; fi
+    exit 0
+    ;;
+project)
+    if grep -q PROJECT_MISSING xmake.lua; then missing "$mode" "libsdl3"; fi
+    cat > "$4/compile_commands.json" <<JSON
+[ { "directory": "$PWD", "file": "src/main.cpp", "arguments": [ "c++", "-std=c++20", "-c", "src/main.cpp", "-o", "main.o" ] } ]
+JSON
+    exit 0
+    ;;
+esac
+echo "fake xmake: unexpected command $*" >&2
+exit 2
