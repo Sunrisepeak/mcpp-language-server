@@ -358,6 +358,7 @@ private:
     // once it is gone ("reaped").
     bool reaping_ { false };
     bool startWhenReaped_ { false };
+    std::jthread reaper_;   // joined where nothing may outlive the old clangd: a cache cleared, the engine shut down
     bool cpuReadInFlight_ { false };   // a reading of clangd's CPU is on its way back (read_cpu_)
     std::jthread cpuReading_;          // the thread taking it; joined when the engine goes, at most the ps(1) bound later   // a stuck clangd was found at the restart cap, and that was said
     // robustness design O1, O3: for a report of a problem.
@@ -660,6 +661,7 @@ public:
     void shut_down() override {
         if (process_ && process_->running() && handshakeDone_) (void)send_(lsp::make_notification("exit", nullptr));
         if (process_) process_->stop(std::chrono::seconds { 2 });
+        if (reaper_.joinable()) reaper_.join();   // P-3: a clangd being let go of is gone before the server is
     }
 
     void configure_plan(normalize::PlanInput& input) const override {
@@ -1774,12 +1776,17 @@ private:
         // on vulkan-hpp), and stopping it here held every request and watchdog meanwhile: 446 ms, 1803 ms in issue
         // #37's bundles, up to 2.5 s by the bounds. The new one waits for the old because start_process_ clears the
         // module locks an earlier clangd left (C-4), which holds only once no clangd uses the cache.
+        // Nothing reaches clangd meanwhile: requests wait for the new one as they did for a synchronous restart.
+        handshakeDone_ = false;
+        accepting_ = false;
         if (process_) {
             reaping_ = true;
-            std::thread { [old = std::shared_ptr<Process> { std::move(process_) }, sink = sink_] {
+            // The previous reaper is done by now ("reaped" cleared reaping_ before process_ could be set again); assigning
+            // joins it at once.
+            reaper_ = std::jthread { [old = std::shared_ptr<Process> { std::move(process_) }, sink = sink_] {
                 old->stop(std::chrono::milliseconds { 500 });
                 sink(Json { { "kind", "reaped" } });
-            } }.detach();
+            } };
         }
         if (reaping_) {
             startWhenReaped_ = true;
@@ -3611,6 +3618,8 @@ private:
         forget_primes_();
         ++generation_;
         if (process_) process_->stop(std::chrono::milliseconds { 500 });
+        if (reaper_.joinable()) reaper_.join();   // P-3: one being let go of after a restart may still use the cache
+        modulesVerdict_.clear();                  // WA-CLANGD-009: the file goes with the cache; the next plan writes it again
         handshakeDone_ = false;
         accepting_ = false;
         restartAt_.reset();

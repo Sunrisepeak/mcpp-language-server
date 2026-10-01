@@ -61,8 +61,13 @@ export function resolveRenamed(reader: SettingsReader, renamed: RenamedSetting, 
 }
 
 /** The old names that still have a value of a person's own, for the one-time notice. */
+/**
+ * The old names that still have a value of a person's own, for the one-time notice. Only a string is an old value:
+ * the old name is now the parent of the new one and its siblings, so a person who set `engine.workers` alone reads
+ * back an object (`{ workers: "4" }`) under `engine`, which is no old setting and must not be moved.
+ */
 export function legacyNamesInUse(reader: SettingsReader): RenamedSetting[] {
-    return RENAMED_SETTINGS.filter((renamed) => explicitValue(reader.inspect(renamed.legacy)) !== undefined);
+    return RENAMED_SETTINGS.filter((renamed) => USER_LAYERS.some((layer) => typeof reader.inspect(renamed.legacy)?.[layer] === 'string'));
 }
 
 // build description design 4.4: a value this extension does not know must not turn the network on.

@@ -113,9 +113,14 @@ Answer read_project_database(const Claim& claim, const ProviderContext& context)
 std::vector<std::string> accepted_options(const Claim& claim, const ProviderContext& context, const std::string& xmake,
                                           const std::vector<std::string>& environment) {
     const auto toolStamp { fs::stamp(xmake) };
-    const auto manifestStamp { fs::stamp(claim.manifest) };
+    // An option() may be declared in any xmake.lua the root includes: the newest of them, and how many there are, is in the key.
+    std::int64_t manifestsModified { 0 };
+    const auto manifests { xmake_manifests(claim) };
+    for (const auto& manifest : manifests) {
+        if (const auto stamp = fs::stamp(manifest)) manifestsModified = std::max(manifestsModified, stamp->modified);
+    }
     const std::string key { std::format("{} {} {} {} {}", xmake, toolStamp ? toolStamp->modified : 0, toolStamp ? toolStamp->size : 0,
-                                        manifestStamp ? manifestStamp->modified : 0, manifestStamp ? manifestStamp->size : 0) };
+                                        manifestsModified, manifests.size()) };
     const std::string cachePath { base::join_path(context.privateDirectory, "xmake-help") };
     if (const auto cached = fs::read_file(cachePath)) {
         const auto lines { base::split_lines(*cached) };

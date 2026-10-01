@@ -40,6 +40,12 @@ suite('S-1: the renamed settings', () => {
         assert.deepStrictEqual(legacyNamesInUse(reader()), []);
         assert.deepStrictEqual(legacyNamesInUse(reader({ engine: 'none' }, { buildDiscovery: 'off' })), [ENGINE, DISCOVERY]);
     });
+
+    test('a person who set only a new sub-setting is not told about a rename', () => {
+        // VS Code reads `engine` back as the parent object of `engine.workers` and `engine.name`.
+        assert.deepStrictEqual(legacyNamesInUse(reader({ engine: { workers: '4' } }, { buildDiscovery: { providers: ['cmake'] } })), []);
+        assert.strictEqual(resolveRenamed(reader({ engine: { workers: '4' } }), ENGINE, 'clangd'), 'clangd');
+    });
 });
 
 suite('S-2: what the server is sent', () => {

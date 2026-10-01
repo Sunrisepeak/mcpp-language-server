@@ -22,7 +22,7 @@ async function moveToNewName(renamed: RenamedSetting): Promise<void> {
     const inspected = configuration.inspect(renamed.legacy);
     for (const layer of USER_LAYERS) {
         const value = inspected?.[layer];
-        if (value === undefined) continue;
+        if (typeof value !== 'string') continue;   // an object here is the new settings' parent, not an old value
         // A value already under the new name in this scope is theirs and stays; only the old one goes.
         if (configuration.inspect(renamed.current)?.[layer] === undefined) {
             await configuration.update(renamed.current, value, TARGETS[layer]);
