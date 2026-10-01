@@ -204,7 +204,6 @@ has_log()       { ls "$root"/cache/logs/server-*.log >/dev/null 2>&1; }
 has_debug_log() { grep -qs '\[debug\]' "$root"/cache/logs/server-*.log; }
 wait_for "mcppls wrote its log under MCPPLS_CACHE_DIR" has_log
 wait_for "the log is at debug level (--log-level debug reached the server)" has_debug_log
-say "ok   mcppls's own log, at debug: $log"
 
 mcppls_pid=$(server_pids | head -1)
 test -n "$mcppls_pid" || fail "no mcppls process while Zed is showing its answers"

@@ -324,9 +324,12 @@ private:
     std::optional<Clock::time_point> spinSampleAt_;
     std::optional<Clock::time_point> lastSpinSample_;
     int spinRestartGeneration_ { -1 };
-    // K-8: when clangd last said it was building each file (by file name): a worker busy on a file clangd keeps saying it
-    // builds is that build (the file being typed, rebuilt at every key), never an orphan.
+    // K-8: by file name, when clangd last said it was building the file, and whether what it said last is that it is
+    // building. A worker is the build clangd says is going on (a preamble of a long module closure says so once, at its
+    // start: CI run 36792920474 took "eWorker:cli.cpp" for an orphan after 31 s of it), or the file being typed (between
+    // two rebuilds it is idle for a moment), never an orphan. A file mcppls closes in clangd says nothing any more.
     std::map<std::string, Clock::time_point, std::less<>> workingAt_;
+    std::map<std::string, bool, std::less<>> buildingNow_;
     StuckWatch stuck_;
     SpinWatch spin_;   // import-hang plan §4: a file clangd will not finish, busy or not
     // WA-CLANGD-001: the `;` insertions in the text clangd has of each open document (client URI), for
@@ -1501,6 +1504,13 @@ private:
 
     bool send_(const Json& message) {
         if (!process_ || !process_->running()) return false;
+        // K-8: a file closed in clangd says nothing more of its build; one that keeps a worker busy now is not building.
+        if (message.value("method", std::string {}) == "textDocument/didClose") {
+            if (const Json* uri { lsp::find_path(message, { "params", "textDocument", "uri" }) }; uri != nullptr && uri->is_string()) {
+                const std::string closedPath { host_->path_of_uri(uri->get<std::string>()) };
+                buildingNow_.erase(std::string { base::file_name(closedPath.empty() ? uri->get<std::string>() : closedPath) });
+            }
+        }
         if (auto sent = process_->send(engine_view_(message)); !sent) {
             log::warning("cannot write to clangd ({}): {}", host_->root_directory(), sent.error().message);
             return false;
@@ -2057,10 +2067,11 @@ private:
         }
     }
 
-    // K-8: whether clangd said it was building a file whose name ends with `tail` (a worker thread's file) at any time
-    // since `since` -- not only at this moment, which can fall between two rebuilds of a file being typed.
+    // K-8: whether a file whose name ends with `tail` (a worker thread's file) is building as far as clangd last said, or
+    // was said to be at any time since `since` -- this moment can fall between two rebuilds of a file being typed.
     bool reported_building_since_(std::string_view tail, Clock::time_point since) const {
-        return std::ranges::any_of(workingAt_, [&](const auto& item) { return item.second >= since && std::string_view { item.first }.ends_with(tail); });
+        const bool now { std::ranges::any_of(buildingNow_, [&](const auto& item) { return item.second && std::string_view { item.first }.ends_with(tail); }) };
+        return now || std::ranges::any_of(workingAt_, [&](const auto& item) { return item.second >= since && std::string_view { item.first }.ends_with(tail); });
     }
 
     // K-7: how long clangd has finished nothing -- no diagnostics for any file, no answer, no module, no background unit
@@ -2079,6 +2090,7 @@ private:
         acceptingSince_ = Clock::now();
         workerThreads_.clear();
         workingAt_.clear();
+        buildingNow_.clear();
         lastSpinSample_.reset();
         spinSampleAt_ = *acceptingSince_ + SPIN_SAMPLE;
         for (const auto& document : host_->documents()) {
@@ -2170,9 +2182,12 @@ private:
             if (params != nullptr && params->is_object()) {
                 const std::string uri { host_->client_uri(params->value("uri", std::string {})) };
                 // K-8: every file's, a prime unit's and a background unit's too -- their builds of long module closures are real.
-                if (engine_working(params->value("state", std::string {}))) {
+                {
                     const std::string statusPath { host_->path_of_uri(uri) };
-                    workingAt_[std::string { base::file_name(statusPath.empty() ? uri : statusPath) }] = Clock::now();
+                    const std::string name { base::file_name(statusPath.empty() ? uri : statusPath) };
+                    const bool working { engine_working(params->value("state", std::string {})) };
+                    buildingNow_[name] = working;
+                    if (working) workingAt_[name] = Clock::now();
                 }
                 if (host_->has_document(uri)) {
                     fileStatus_[uri] = params->value("state", std::string {});
