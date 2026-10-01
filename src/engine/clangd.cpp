@@ -3618,7 +3618,10 @@ private:
         forget_primes_();
         ++generation_;
         if (process_) process_->stop(std::chrono::milliseconds { 500 });
-        if (reaper_.joinable()) reaper_.join();   // P-3: one being let go of after a restart may still use the cache
+        // P-3: stopped is gone. A restart after this starts clangd itself, or, while a "reaped" is still on its way,
+        // once that arrives -- never a second reaper for a process already stopped.
+        process_.reset();
+        if (reaper_.joinable()) reaper_.join();   // one being let go of after a restart may still use the cache
         modulesVerdict_.clear();                  // WA-CLANGD-009: the file goes with the cache; the next plan writes it again
         handshakeDone_ = false;
         accepting_ = false;

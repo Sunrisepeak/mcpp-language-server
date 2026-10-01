@@ -7,7 +7,7 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
-## [0.0.9] — 2026-10-01
+## [0.0.9] — 2026-10-02
 
 Completion on a project without modules as fast as plain clangd's, and the rest of issue #37. clangd's
 modules support made every completion in a header-heavy project about three times slower (vulkan-hpp:

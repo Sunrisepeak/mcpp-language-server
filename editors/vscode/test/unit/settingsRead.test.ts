@@ -45,6 +45,8 @@ suite('S-1: the renamed settings', () => {
         // VS Code reads `engine` back as the parent object of `engine.workers` and `engine.name`.
         assert.deepStrictEqual(legacyNamesInUse(reader({ engine: { workers: '4' } }, { buildDiscovery: { providers: ['cmake'] } })), []);
         assert.strictEqual(resolveRenamed(reader({ engine: { workers: '4' } }), ENGINE, 'clangd'), 'clangd');
+        // The old string in the user's settings still applies under a workspace that set only `engine.workers`.
+        assert.strictEqual(resolveRenamed(reader({ engine: 'none' }, { engine: { workers: '4' } }), ENGINE, 'clangd'), 'none');
     });
 });
 

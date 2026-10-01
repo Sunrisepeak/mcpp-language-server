@@ -55,8 +55,13 @@ export function explicitValue(inspected: InspectedValue | undefined): unknown {
 export function resolveRenamed(reader: SettingsReader, renamed: RenamedSetting, fallback: string): string {
     const current = explicitValue(reader.inspect(renamed.current));
     if (typeof current === 'string') return current;
-    const legacy = explicitValue(reader.inspect(renamed.legacy));
-    if (typeof legacy === 'string') return legacy;
+    // The narrowest scope that holds a string under the old name: a narrower one may hold the new settings' parent object
+    // (`engine.workers` set in the workspace, the old `engine` string in the user's settings).
+    const inspected = reader.inspect(renamed.legacy);
+    for (const layer of USER_LAYERS) {
+        const legacy = inspected?.[layer];
+        if (typeof legacy === 'string') return legacy;
+    }
     return fallback;
 }
 
