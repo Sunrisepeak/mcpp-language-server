@@ -19,8 +19,15 @@ restarted (the VS Code extension already does this for the settings below that n
 neither -- the next time it is read is the next time it matters.
 
 **A renamed setting keeps working.** A setting the registry gives an alias for is still accepted
-under its earlier name (dotted key or `initializationOptions`/`didChangeConfiguration` form alike);
-none of the settings below have been renamed yet, so none carry one today.
+under its earlier name (dotted key or `initializationOptions`/`didChangeConfiguration` form alike).
+Two have been renamed, in 0.0.9, because a setting that is a plain value cannot also be the parent of
+other settings (VS Code then shows the children as `undefined`): `mcppls.engine` is now
+`mcppls.engine.name`, and `mcppls.buildDiscovery` is now `mcppls.buildDiscovery.mode`. The old names
+keep working in every editor; the VS Code extension offers once to move your own settings to the new
+names, and changes nothing until you click.
+
+**`null` means not set.** A `null` in `initializationOptions` is skipped; in `didChangeConfiguration`
+it returns that setting to its default.
 
 `initializationOptions` and `didChangeConfiguration` both accept a nested object
 (`{"semanticTokens": {"modules": false}}`) or a dotted key (`{"semanticTokens.modules": false}`),
@@ -31,20 +38,20 @@ either wrapped in a top-level `mcppls` object or not.
 
 | Setting | Values | Default | Command line | Applies | What it does |
 |---|---|---|---|---|---|
-| `mcppls.buildTool` | `offline`, `online`, `off` | `offline` | `--build-tool` | reload | How the project's build tool may be run. `offline`: run it without the network -- if it then cannot describe the build without downloading something, the status says what is missing and offers to run it in your terminal. `online`: let it reach the network, with ten minutes instead of one. `off`: never run it; the build system is still detected and its own generated files are still read (see `buildDiscovery` for turning that off too). |
+| `mcppls.buildTool` | `offline`, `online`, `off` | `offline` | `--build-tool` | reload | How the project's build tool may be run. `offline`: run it without the network -- if it then cannot describe the build without downloading something, the status says what is missing and offers to run it in your terminal. `online`: let it reach the network, with ten minutes instead of one. `off`: never run it; the build system is still detected and its own generated files are still read (see `buildDiscovery.mode` for turning that off too). |
 | `mcppls.toolEnvironment` | `auto`, `editor` | `auto` | `--tool-environment` | restart | Which environment build tools are started in. `auto` reads your login shell's environment once, in the background, on POSIX -- an editor started from a desktop entry or a Dock icon carries none of your shell configuration, so without this the build tool it finds may not be the one your terminal finds. On Windows the editor's environment already matches the terminal's. `editor` always uses the editor process's environment. |
 | `mcppls.producerTimeout` | a non-negative number of seconds | `0` | `--producer-timeout` | reload | How long a build tool may take to describe the project. `0`, the default, uses the design's own bound: offline, 5 minutes the first time and then three times what the last run took, between 1 and 10 minutes; ten minutes once `buildTool` is `online`. Set it to watch that bound work, or to fix one for a build whose time varies. |
-| `mcppls.untrusted` | `true`, `false` | `false` | `--untrusted` | restart | Run no build tool and no compiler; an untrusted workspace is also read as though `buildDiscovery` were `off`. |
+| `mcppls.untrusted` | `true`, `false` | `false` | `--untrusted` | restart | Run no build tool and no compiler; an untrusted workspace is also read as though `buildDiscovery.mode` were `off`. |
 | `mcppls.discoverCompilers` | `true`, `false` | `true` | `--no-discover` | reload | Look for a compiler on the machine for a source the build description does not cover. Off: such a source uses the semantic kit instead. |
-| `mcppls.buildDiscovery` | `auto`, `off` | `auto` | `--build-discovery` | reload | Whether the project's build system is detected at all. `off`: nothing is read or run implicitly -- only an explicitly configured `database`, else sources are scanned. `buildTool` still governs whether a detected build tool may be *run*; this governs whether it is looked for in the first place. |
-| `mcppls.buildDiscovery.providers` | `mcpp`, `cmake`, `xmake`, `meson`, `compile-commands` (comma-separated) | `mcpp`, `cmake`, `xmake`, `meson`, `compile-commands` | `--build-discovery-providers` | reload | Which build system providers `buildDiscovery` may use; leave one out to stop mcppls from detecting it (for example, to use only a CMake build directory that already exists and never let xmake run). |
+| `mcppls.buildDiscovery.mode` | `auto`, `off` | `auto` | `--build-discovery` | reload | Whether the project's build system is detected at all. `off`: nothing is read or run implicitly -- only an explicitly configured `database`, else sources are scanned. `buildTool` still governs whether a detected build tool may be *run*; this governs whether it is looked for in the first place. |
+| `mcppls.buildDiscovery.providers` | `mcpp`, `cmake`, `xmake`, `meson`, `compile-commands` (comma-separated) | `mcpp`, `cmake`, `xmake`, `meson`, `compile-commands` | `--build-discovery-providers` | reload | Which build system providers `buildDiscovery.mode` may use; leave one out to stop mcppls from detecting it (for example, to use only a CMake build directory that already exists and never let xmake run). |
 | `mcppls.buildDiscovery.askBeforeDownload` | `true`, `false` | `true` | — | immediately | When the build tool needs a download to finish describing the project, a client may offer to fetch it. Off: the status says a download is needed, and nothing asks. |
 
 ### Engines
 
 | Setting | Values | Default | Command line | Applies | What it does |
 |---|---|---|---|---|---|
-| `mcppls.engine` | `clangd`, `none` | `clangd` | `--engine` | restart | The core semantic engine. mcppls's own module engine always runs beside it; `none` means module-level features only. |
+| `mcppls.engine.name` | `clangd`, `none` | `clangd` | `--engine` | restart | The core semantic engine. mcppls's own module engine always runs beside it; `none` means module-level features only. |
 | `mcppls.engine.workers` | a string | `auto` | `--engine-workers` | restart | How many files clangd builds at once (its `-j`), shared by module preparation, indexing and the files you edit; one is always kept for what you are waiting on. `auto`: one fewer than the hardware threads, between two and eight, and no more than half the memory in gigabytes. A number sets it. |
 | `mcppls.compiler` | a string | *(empty)* | `--compiler` | reload | Use this compiler for module semantics instead of what was detected: an absolute path, a name on `PATH`, or `kit` to force the bundled semantic kit. Empty means discovered automatically. |
 | `mcppls.semanticKit` | `auto`, `off` | `auto` | `--semantic-kit` | reload | Whether the bundled standard library kit may be used at all: `auto`, when no compiler is found; `off`, never (without a compiler, only module-level features remain). |

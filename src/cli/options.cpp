@@ -66,14 +66,14 @@ orchestrator::SessionOptions session_options(const cmdline::ParsedArgs& args) {
     options.trusted = !settings.bool_value("untrusted");
     options.discoverCompilers = settings.bool_value("discoverCompilers");
     options.verboseEngineLog = settings.string_value("logLevel") == "debug";
-    options.engine = settings.string_value("engine");
+    options.engine = settings.string_value("engine.name");
     options.engineFactories = engine_factories;
     options.disabledWorkarounds = settings.list_value("disableWorkaround");
     options.buildTool = settings.string_value("buildTool");
     options.toolEnvironment = settings.string_value("toolEnvironment");
     options.semanticTokensModules = settings.bool_value("semanticTokens.modules");
     options.semanticTokensModuleType = settings.bool_value("semanticTokens.moduleType");
-    options.buildDiscovery = settings.string_value("buildDiscovery");
+    options.buildDiscovery = settings.string_value("buildDiscovery.mode");
     options.buildDiscoveryProviders = settings.list_value("buildDiscovery.providers");
     options.buildDiscoveryAskBeforeDownload = settings.bool_value("buildDiscovery.askBeforeDownload");
     options.primeImplementationUnits = settings.string_value("index.primeImplementationUnits");

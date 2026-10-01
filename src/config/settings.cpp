@@ -46,10 +46,10 @@ const std::vector<Setting>& shipped_registry() {
             .summary = "How the project's build tool may be run. `offline`: run it without the network -- if it then cannot describe "
                        "the build without downloading something, the status says what is missing and offers to run it in your terminal. "
                        "`online`: let it reach the network, with ten minutes instead of one. `off`: never run it; the build system is "
-                       "still detected and its own generated files are still read (see `buildDiscovery` for turning that off too).",
+                       "still detected and its own generated files are still read (see `buildDiscovery.mode` for turning that off too).",
             .summaryZh = "项目构建工具的运行方式。`offline`：不联网运行——如果构建工具因此无法在不下载东西的情况下描述构建，状态栏会说明缺什么，"
                          "并提议在终端里运行它。`online`：允许联网，超时时间从一分钟延长到十分钟。`off`：从不运行构建工具；仍会探测构建系统、"
-                         "仍读取它已有的产物（要连探测也关掉，见 `buildDiscovery`）。",
+                         "仍读取它已有的产物（要连探测也关掉，见 `buildDiscovery.mode`）。",
             .clientConfigurable = true,
         },
         Setting {
@@ -76,8 +76,8 @@ const std::vector<Setting>& shipped_registry() {
         Setting {
             .key = "untrusted", .kind = Kind::boolean, .defaultValue = "false", .commandLine = "--untrusted", .surface = Surface::server,
             .applies = Applies::restart, .category = "build", .since = "0.0.1",
-            .summary = "Run no build tool and no compiler; an untrusted workspace is also read as though `buildDiscovery` were `off`.",
-            .summaryZh = "不运行任何构建工具，也不运行编译器；一个不受信任的工作区也等同于 `buildDiscovery` 为 `off`。",
+            .summary = "Run no build tool and no compiler; an untrusted workspace is also read as though `buildDiscovery.mode` were `off`.",
+            .summaryZh = "不运行任何构建工具，也不运行编译器；一个不受信任的工作区也等同于 `buildDiscovery.mode` 为 `off`。",
         },
         Setting {
             .key = "discoverCompilers", .kind = Kind::boolean, .defaultValue = "true", .commandLine = "--no-discover",
@@ -87,7 +87,7 @@ const std::vector<Setting>& shipped_registry() {
             .summaryZh = "为构建描述没有覆盖到的源码在本机查找编译器。关闭后，这类源码改用语义工具包。",
         },
         Setting {
-            .key = "buildDiscovery", .kind = Kind::enumeration, .values = { "auto", "off" }, .defaultValue = "auto",
+            .key = "buildDiscovery.mode", .kind = Kind::enumeration, .values = { "auto", "off" }, .defaultValue = "auto",
             .commandLine = "--build-discovery", .surface = Surface::server, .applies = Applies::reload, .category = "build",
             .since = "0.0.6",
             .summary = "Whether the project's build system is detected at all. `off`: nothing is read or run "
@@ -95,6 +95,7 @@ const std::vector<Setting>& shipped_registry() {
                        "whether a detected build tool may be *run*; this governs whether it is looked for in the first place.",
             .summaryZh = "是否探测项目的构建系统。`off`：不隐式读取或执行任何东西——只用明确配置的 `database`，否则"
                          "扫描源码。`buildTool` 管的是探测到的构建工具能不能*执行*；这个开关管的是要不要去探测它。",
+            .aliases = { "buildDiscovery" },
             .clientConfigurable = true,
         },
         Setting {
@@ -102,9 +103,9 @@ const std::vector<Setting>& shipped_registry() {
             .values = { "mcpp", "cmake", "xmake", "meson", "compile-commands" },
             .defaultValue = "mcpp,cmake,xmake,meson,compile-commands", .commandLine = "--build-discovery-providers",
             .surface = Surface::server, .applies = Applies::reload, .category = "build", .since = "0.0.6",
-            .summary = "Which build system providers `buildDiscovery` may use; leave one out to stop mcppls from detecting it (for "
+            .summary = "Which build system providers `buildDiscovery.mode` may use; leave one out to stop mcppls from detecting it (for "
                        "example, to use only a CMake build directory that already exists and never let xmake run).",
-            .summaryZh = "`buildDiscovery` 可以使用哪些构建系统提供者；从中去掉某个提供者即停用它的探测（例如只想用已有的 CMake 构建目录，"
+            .summaryZh = "`buildDiscovery.mode` 可以使用哪些构建系统提供者；从中去掉某个提供者即停用它的探测（例如只想用已有的 CMake 构建目录，"
                          "不要 xmake）。",
             .clientConfigurable = true,
         },
@@ -118,11 +119,12 @@ const std::vector<Setting>& shipped_registry() {
         },
         // ---- Engines ------------------------------------------------------------------------
         Setting {
-            .key = "engine", .kind = Kind::enumeration, .values = { "clangd", "none" }, .defaultValue = "clangd",
+            .key = "engine.name", .kind = Kind::enumeration, .values = { "clangd", "none" }, .defaultValue = "clangd",
             .commandLine = "--engine", .surface = Surface::server, .applies = Applies::restart, .category = "engines", .since = "0.0.1",
             .summary = "The core semantic engine. mcppls's own module engine always runs beside it; `none` means module-level "
                        "features only.",
             .summaryZh = "核心引擎。无论如何，mcppls 自己的模块引擎都会运行；`none` 表示只提供模块相关功能。",
+            .aliases = { "engine" },
             .clientConfigurable = true,
         },
         Setting {
@@ -423,8 +425,10 @@ const Json& unwrap_mcppls(const Json& object) {
 
 const Json* find_setting_json(const Json& scope, const Setting& row) {
     if (const Json* found = find_dotted_or_nested(scope, row.key)) return found;
+    // An alias that names a parent of other rows (`engine`, `buildDiscovery`) is a JSON object in the
+    // nested form, `{"engine": {"workers": "4"}}`; that is those rows' value, never this one's (S-1, plan 0.0.9).
     for (const auto& alias : row.aliases) {
-        if (const Json* found = find_dotted_or_nested(scope, alias)) return found;
+        if (const Json* found = find_dotted_or_nested(scope, alias); found != nullptr && !found->is_object()) return found;
     }
     return nullptr;
 }
@@ -592,6 +596,8 @@ void Settings::apply_initialization_options(const Json& initializationOptionsOrP
         if (values_[row.key].origin == Origin::commandLine) continue;
         const Json* found { find_setting_json(scope, row) };
         if (found == nullptr) continue;
+        // S-3 (plan 0.0.9): null is "not set", the way a client says it has no value for a key.
+        if (found->is_null()) continue;
         auto text { json_to_text(row, *found) };
         if (!text) {
             problems_.push_back({ row.key, std::format("initializationOptions carries {} as the wrong kind of value; keeping {}",
@@ -616,7 +622,9 @@ ChangeResult Settings::apply_configuration_change(const Json& params) {
         if (it == values_.end() || it->second.origin == Origin::commandLine) continue;
         const Json* found { find_setting_json(scope, row) };
         if (found == nullptr) continue;
-        auto text { json_to_text(row, *found) };
+        // S-3 (plan 0.0.9): a client that clears a setting sends null; the key goes back to its default.
+        const bool cleared { found->is_null() };
+        auto text { cleared ? std::optional<std::string> { row.defaultValue } : json_to_text(row, *found) };
         if (!text) {
             problems_.push_back(
                 { row.key, std::format("didChangeConfiguration carries {} as the wrong kind of value; keeping {}", row.key, it->second.text) });
@@ -625,7 +633,7 @@ ChangeResult Settings::apply_configuration_change(const Json& params) {
         auto validated { validate(row, *text, problems_) };
         const std::string newValue { validated.value_or(row.defaultValue) };
         const bool changed { newValue != it->second.text };
-        it->second = { newValue, Origin::clientUpdated };
+        it->second = { newValue, cleared ? Origin::defaulted : Origin::clientUpdated };
         if (!changed) continue;
         result.changedKeys.push_back(row.key);
         if (row.applies == Applies::restart) result.restartKeys.push_back(row.key);

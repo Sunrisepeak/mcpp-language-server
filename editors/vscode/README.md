@@ -79,7 +79,9 @@ All settings are optional.
 |---|---|---|
 | `mcppls.compiler` | automatic | Follow this compiler instead of the discovered one |
 | `mcppls.semanticKit` | `auto` | `off` never uses the built-in standard library kit |
-| `mcppls.engine` | `clangd` | `none` runs without clangd: module-level features only |
+| `mcppls.engine.name` | `clangd` | `none` runs without clangd: module-level features only. Called `mcppls.engine` before 0.0.9; a value under the old name still applies, and the extension offers once to move it |
+| `mcppls.engine.workers` | `auto` | How many files clangd builds at once; `auto`, or a whole number from 1 to 99. Takes effect when the server restarts, which a change does by itself |
+| `mcppls.buildDiscovery.mode` | `auto` | `off` detects no build system and runs nothing implicitly. Called `mcppls.buildDiscovery` before 0.0.9, handled the same way |
 | `mcppls.enable` | `true` | `false` in a workspace's (or folder's) settings starts nothing there: the extension stays installed, activation stays cheap, and the status bar item says the server is off and turns it back on. Changing it takes effect at once |
 | `mcppls.ai.enabled` | `false` | Show the review commands |
 | `mcppls.detectConflicts` | `true` | Offer once to turn off other C++ extensions' language features in the workspace, and notice again if one becomes active later |
