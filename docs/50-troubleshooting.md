@@ -60,6 +60,17 @@ is not offered in the editor.
 and the last `toolRuns` entry say why. A common cause is the build tool needing a download: the
 status bar offers to run it in your terminal.
 
+**"xmake needs libtool, libpthread-stubs downloaded".** Those names are not libraries your code is missing:
+they are what xmake would fetch or build for the packages your `xmake.lua` requires, build tools included
+(a package set to build from source brings its own, such as `libtool` or `meson`), and mcppls stayed offline
+so that it would not download them on its own. Three ways on: choose **Download and Continue** in the
+notification, run `xmake` in your terminal (the description is read again when it is done), or install them
+with your system package manager (`apt install libtool libpthread-stubs0-dev`, `pacman -S libtool`, `brew
+install libtool`): xmake's package recipes name the system packages, and xmake uses the system's when it
+finds it. If the status says `producer-install-failed` instead, the network was allowed and the install
+failed; the message has xmake's error lines and the path of its `install.txt` log, and the usual cause is
+a tool the source build needs (autotools, a compiler) that is not installed.
+
 **Go-to-definition works, completion does not, or the standard library is missing.** Look at
 `profile`. A semantic kit means no usable compiler was found; `import std` still resolves, but
 diagnostics come from libc++ rather than from your toolchain.

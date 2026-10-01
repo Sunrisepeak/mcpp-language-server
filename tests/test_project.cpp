@@ -8,6 +8,7 @@ import mcppls.base.text;
 import mcppls.platform.fs;
 import mcppls.platform.dirs;
 import mcppls.spec.database;
+import mcppls.spec.discovery;
 import mcppls.spec.kit;
 import mcppls.spec.metadata;
 import mcppls.toolchain.probe;
@@ -471,6 +472,88 @@ int main() {
         expect(p::xmake_unknown_option("[38;2;0;255;0m        --tag=TAG   The tag option\nerror: Invalid option: --nosuch=1\n"));
         expect(p::xmake_unknown_option("error: unknown option: --x"));
         expect(!p::xmake_unknown_option("The packages(fmt) not found"));
+    };
+
+    "D-1: the options `xmake f --help` lists are the ones xmake.conf keys may be passed as"_test = [] {
+        // Cut from `XMAKE_THEME=plain xmake f --help` (xmake v3.1.1, 2026-10-01) in a project that declares `fancy` and `level`.
+        const std::string help {
+            "Usage: $xmake config|f [options]\n\nConfigure the project.\n\nCommon options:\n"
+            "    -q, --quiet                            Quiet operation.\n"
+            "    -y, --yes                              Input yes by default if need user confirm.\n"
+            "        --confirm=CONFIRM                  Input the given result if need user confirm.\n"
+            "                                               - yes\n"
+            "                                               - no\n"
+            "    -D, --diagnosis                        Print lots of diagnosis information.\n"
+            "                                           And we can append -v to get more whole information.\n"
+            "                                               e.g. $ xmake -vD\n"
+            "        --import=IMPORT                    Import configs from the given file.\n"
+            "                                               e.g.\n"
+            "                                               - xmake f --import=build/config.txt\n"
+            "    -p PLAT, --plat=PLAT                   Compile for the given platform. (default: auto)\n"
+            "                                               - linux\n"
+            "    -a ARCH, --arch=ARCH                   Compile for the given architecture. (default: auto)\n"
+            "    -m MODE, --mode=MODE                   Set the given compilation mode. (default: release)\n"
+            "        --toolchain=TOOLCHAIN              Set toolchains.\n"
+            "\nCommand options (Other Configuration):\n"
+            "        --ccache=[y|n]                     Enable or disable the c/c++ compiler cache. (default: y)\n"
+            "        --tryconfigs=TRYCONFIGS            Set the extra configurations of the third-party buildsystem for the try-build mode.\n"
+            "                                           e.g.\n"
+            "                                               - xmake f --trybuild=autoconf --tryconfigs='--enable-shared=no'\n"
+            "    -o BUILDDIR, --builddir=BUILDDIR       Set build directory. (default: build)\n"
+            "\n\nCommand options (Project Configuration):\n\n"
+            "        --fancy=[y|n]                      Fancy\n"
+            "        --level=LEVEL                      Level of something which has a very long description that wraps around the line (default: 3)\n" };
+        const auto names = p::xmake_help_options(help);
+        expect(names == (std::vector<std::string> { "arch", "builddir", "ccache", "confirm", "diagnosis", "fancy", "import", "level", "mode",
+                                                    "plat", "quiet", "toolchain", "tryconfigs", "yes" }))
+            << b::join(names, " ");
+        // Nothing of a help text that is not one, nor of the example lines inside one.
+        expect(p::xmake_help_options("").empty());
+        expect(p::xmake_help_options("error: Invalid option: --proxy=x\n").empty());
+        expect(!std::ranges::contains(names, std::string { "trybuild" })) << "an example line is not an option line";
+
+        // What xmake wrote into xmake.conf for itself is skipped; a project option and the standard ones pass.
+        const std::vector<p::XmakeOption> user {
+            { "plat", "linux", false }, { "mode", "debug", false }, { "proxy", "127.0.0.1:7890", false }, { "dotnet", "8", false },
+            { "dotnet_sdkver", "8.0", false }, { "fancy", "true", true }, { "level", "5", false }, { "kind", "static", false } };
+        const auto arguments = p::xmake_configure_arguments("/c/build", true, user, false, names);
+        expect(arguments == (std::vector<std::string> { "f", "-c", "-p", "linux", "-m", "debug", "--fancy=y", "--level=5", "--kind=static",
+                                                         "--confirm=no", "--policies=package.fetch_only,network.mode:private", "--builddir=/c/build" }))
+            << b::join(arguments, " ");
+        expect(p::xmake_not_accepted(user, names) == (std::vector<std::string> { "proxy", "dotnet", "dotnet_sdkver" }));
+        // No help text: the options are passed as before, and the reduced retry stays the fallback.
+        expect(p::xmake_not_accepted(user, {}).empty());
+        expect(p::xmake_configure_arguments("/c/build", true, user, false, {}) == p::xmake_configure_arguments("/c/build", true, user));
+    };
+
+    "D-2, D-3: the missing packages, said for an offline run and for an install that failed"_test = [] {
+        const std::vector<std::string> missing { "libtool", "libpthread-stubs" };
+        const auto offline = p::xmake_needs_download_reason(missing);
+        expect(offline.contains("libtool, libpthread-stubs")) << offline;
+        expect(offline.contains("build tools")) << offline;
+        expect(offline.contains("stayed offline")) << offline;
+        expect(offline.contains("system package manager")) << offline;
+        expect(!offline.contains('\n')) << "one paragraph";
+
+        const std::string output {
+            "  -> libtool 2.4.7: xmake.lua:3\n"
+            "error: autoreconf: command not found\n"
+            "error: install libtool failed!\n"
+            "note: see /home/u/.xmake/cache/packages/2510/l/libtool/2.4.7/installdir.failed/logs/install.txt.\n" };
+        expect(p::xmake_error_lines(output) == (std::vector<std::string> { "error: autoreconf: command not found", "error: install libtool failed!" }));
+        expect(p::xmake_error_lines(output, 1) == (std::vector<std::string> { "error: install libtool failed!" }));
+        expect(p::xmake_install_log(output) == "/home/u/.xmake/cache/packages/2510/l/libtool/2.4.7/installdir.failed/logs/install.txt")
+            << p::xmake_install_log(output);
+        expect(p::xmake_install_log("error: x\n").empty());
+        expect(p::xmake_failed_installs(output) == (std::vector<std::string> { "libtool" }));
+        expect(p::xmake_failed_installs("error: install libtool failed!\nerror: install libtool failed!\nerror: install zlib failed\n")
+               == (std::vector<std::string> { "libtool", "zlib" }));
+        expect(p::xmake_failed_installs("error: autoreconf: command not found\n").empty());
+        expect(p::xmake_install_failed_reason({}, output).contains("the packages this project requires"));
+        const auto failed = p::xmake_install_failed_reason(missing, output);
+        expect(failed.contains("libtool, libpthread-stubs") && failed.contains("install libtool failed!") && failed.contains("installdir.failed/logs/install.txt")) << failed;
+        expect(!failed.contains("stayed offline")) << failed;
+        expect(s::INSTALL_FAILED == std::string_view { "producer-install-failed" });
     };
 
     "X-2: the newest .xmake/<plat>/<arch>/xmake.conf is the user's configuration, read only"_test = [] {

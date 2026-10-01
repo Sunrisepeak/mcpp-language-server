@@ -80,6 +80,9 @@ struct Options {
     // under the real $HOME/%USERPROFILE%. Empty until `run()` reads the scenario; once set, every
     // process the runner starts for the server under test uses it as HOME (and USERPROFILE).
     std::string isolatedHome;
+    // A directory the scenario's `server-path-prepend` puts first on the server's PATH (a POSIX list), for the fixtures whose
+    // build tool is a script of their own (xmake-needs-download's xmake). Empty for every fixture that predates it.
+    std::string pathPrepend;
     // issue #23 fix plan F18: where `bundle` checks leave a copy of the bundle they checked, for CI to keep; empty: nowhere.
     std::string keepBundles;
     // 0.0.7 plan 6.4: a check with a "stage" runs only when `--stage` names it (a fixture's cold start, warm start, edits and
@@ -100,6 +103,18 @@ void apply_isolated_home(std::vector<std::string>& environment, const Options& o
     std::erase_if(environment, isHomeVariable);
     environment.push_back("HOME=" + options.isolatedHome);
     environment.push_back("USERPROFILE=" + options.isolatedHome);
+}
+
+// Puts `options.pathPrepend` first on the PATH of a spawn's environment.
+void apply_path_prepend(std::vector<std::string>& environment, const Options& options) {
+    if (options.pathPrepend.empty()) return;
+    for (auto& entry : environment) {
+        if (entry.starts_with("PATH=")) {
+            entry = "PATH=" + options.pathPrepend + ":" + entry.substr(5);
+            return;
+        }
+    }
+    environment.push_back("PATH=" + options.pathPrepend);
 }
 
 // Whether this profile looks like a client with no `experimental.cxxModules` at all: no
@@ -370,6 +385,7 @@ public:
         auto environment = mcppls::platform::env::variables();
         environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory);
         apply_isolated_home(environment, options);
+        apply_path_prepend(environment, options);
         spawn.environment = std::move(environment);
         const bool verbose { verbose_ };
         auto inbox = inbox_;
@@ -638,6 +654,7 @@ public:
         auto environment = mcppls::platform::env::variables();
         environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory);
         apply_isolated_home(environment, options);
+        apply_path_prepend(environment, options);
         spawn.environment = std::move(environment);
         const bool verbose { options.verbose };
         auto inbox = inbox_;
@@ -3122,6 +3139,7 @@ public:
             auto environment = mcppls::platform::env::variables();
             environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory_);
             apply_isolated_home(environment, options_);
+            apply_path_prepend(environment, options_);
             spawn.environment = std::move(environment);
             auto running = std::async(std::launch::async, [spawn, timeout = timeout_]() mutable { return mcppls::platform::run(std::move(spawn), timeout); });
             while (running.wait_for(std::chrono::milliseconds { 200 }) != std::future_status::ready) client_.drain(std::chrono::milliseconds { 0 });
@@ -3419,7 +3437,9 @@ public:
             // registered (--no-dynamic-watch) the server's own polling has to notice it.
             const int type { existed ? 2 : 1 };
             const std::string canonical { fs::canonical_path(path) };
-            if (client_.watches(path, type) || client_.watches(canonical, type)) {
+            // "notify": true is an editor's own watcher of build files (the VS Code client's), which reports the write whether or not
+            // the server registered anything: an inferred model, kept while a build tool cannot answer, registers nothing.
+            if (check.value("notify", false) || client_.watches(path, type) || client_.watches(canonical, type)) {
                 client_.notify("workspace/didChangeWatchedFiles", Json { { "changes", Json::array({ Json { { "uri", base::path_to_uri(path) }, { "type", type } } }) } });
             }
             // G-5 (plan 2026-09-30): "expect-reload": false is a change that must NOT load the model again (an edit that
@@ -4000,6 +4020,9 @@ int run(Options options) {
         options.isolatedHome = isolatedHome;
     }
     Expansion expansion { workspace, base::parent_path(self), options.payload, self, isolatedHome };
+    if (const auto prepend = scenario.find("server-path-prepend"); prepend != scenario.end() && prepend->is_string()) {
+        options.pathPrepend = expand(prepend->get<std::string>(), expansion);
+    }
     std::optional<std::vector<std::string>> prepareEnvironment;
     if (scenario.value("prepare-environment", std::string {}) == "msvc") {
         if (options.msvcEnvironment.empty()) {

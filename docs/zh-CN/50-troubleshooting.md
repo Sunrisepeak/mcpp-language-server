@@ -45,6 +45,8 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 ## 常见症状
 
+**“xmake needs libtool, libpthread-stubs downloaded”。** 这些名字不是你的代码缺的库：它们是 xmake 为你的 `xmake.lua` 所要求的包而要下载或构建的东西，包括构建工具（设成从源码构建的包会带进自己的构建工具，比如 `libtool`、`meson`），而 mcppls 保持离线，不会自己去下载。有三条路：在通知里选 **Download and Continue**；在终端里运行 `xmake`（做完后会重新读取描述）；或者用系统包管理器安装（`apt install libtool libpthread-stubs0-dev`、`pacman -S libtool`、`brew install libtool`）——xmake 的包定义里写了对应的系统包，找到系统里的就直接用。如果状态里写的是 `producer-install-failed`，说明已允许联网、安装本身失败了；消息里有 xmake 的 `error:` 行和 `install.txt` 日志的路径，常见原因是源码构建需要的工具（autotools、编译器）没有安装。
+
 **所有功能失效，任何位置都无法跳转到定义。** 看报告里的 `project.source`。如果一个用了构建系统的项目里它是 `inferred`，说明构建工具没有给出答复；原因在 `project.issues` 和 `toolRuns` 的最后一条里。常见原因是构建工具需要下载东西：这时状态栏会提议在你的终端里运行它。
 
 **跳转到定义能用，补全不能用，或者标准库缺失。** 看 `profile`。语义工具包意味着没找到可用的编译器；`import std` 仍然能解析，但诊断来自 libc++，不是来自你的工具链。
