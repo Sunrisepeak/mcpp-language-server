@@ -354,6 +354,10 @@ private:
     // cannot read clangd's CPU does not wake the loop again and again for the same request.
     std::optional<Clock::time_point> stuckTriedFor_;
     bool stuckAtCap_ { false };
+    // P-3 (plan 0.0.9): a clangd restart_ let go of is being stopped off the event loop, and the next one starts
+    // once it is gone ("reaped").
+    bool reaping_ { false };
+    bool startWhenReaped_ { false };
     bool cpuReadInFlight_ { false };   // a reading of clangd's CPU is on its way back (read_cpu_)
     std::jthread cpuReading_;          // the thread taking it; joined when the engine goes, at most the ps(1) bound later   // a stuck clangd was found at the restart cap, and that was said
     // robustness design O1, O3: for a report of a problem.
@@ -1206,6 +1210,15 @@ public:
         const std::string kind { event.value("kind", std::string {}) };
         // Whichever process it was read from, the reading is back and another may start.
         if (kind == "cpu") cpuReadInFlight_ = false;
+        // P-3: the clangd restart_ let go of is gone; whichever generation asked, the one due now starts.
+        if (kind == "reaped") {
+            reaping_ = false;
+            if (startWhenReaped_) {
+                startWhenReaped_ = false;
+                start_process_();
+            }
+            return;
+        }
         if (event.value("generation", -1) != generation_) return;
         if (kind == "message") {
             handle_message_(event["message"]);
@@ -1754,9 +1767,24 @@ private:
         answer_searches_();
         forget_primes_();
         ++generation_;   // late events of the old process are ignored
-        if (process_) process_->stop(std::chrono::milliseconds { 500 });
         diagnosed_.clear();
         host_->forget_engine_diagnostics(ENGINE_ID);
+        // P-3 (plan 0.0.9): the old clangd is stopped off the event loop, and the new one starts when it is gone. A
+        // clangd building a preamble takes 2.4-3.9 s to leave whether its input closes or it is sent SIGTERM (measured
+        // on vulkan-hpp), and stopping it here held every request and watchdog meanwhile: 446 ms, 1803 ms in issue
+        // #37's bundles, up to 2.5 s by the bounds. The new one waits for the old because start_process_ clears the
+        // module locks an earlier clangd left (C-4), which holds only once no clangd uses the cache.
+        if (process_) {
+            reaping_ = true;
+            std::thread { [old = std::shared_ptr<Process> { std::move(process_) }, sink = sink_] {
+                old->stop(std::chrono::milliseconds { 500 });
+                sink(Json { { "kind", "reaped" } });
+            } }.detach();
+        }
+        if (reaping_) {
+            startWhenReaped_ = true;
+            return;
+        }
         start_process_();
     }
 
