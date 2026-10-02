@@ -25,8 +25,6 @@ import mcppls.platform.sandbox;
 #include <windows.h>
 #undef min
 #undef max
-#elif defined(__APPLE__)
-#include <sys/sysctl.h>
 #else
 #include <unistd.h>
 #endif
@@ -593,17 +591,6 @@ std::optional<ProcessIdentity> identity_from_proc(std::int64_t pid) {
     return std::nullopt;
 }
 
-#if defined(__APPLE__)
-std::optional<ProcessIdentity> identity_from_kernel(std::int64_t pid) {
-    int query[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, static_cast<int>(pid) };
-    struct kinfo_proc info {};
-    std::size_t size { sizeof(info) };
-    if (sysctl(query, 4, &info, &size, nullptr, 0) != 0 || size == 0) return std::nullopt;
-    const auto& birth { info.kp_proc.p_starttime };
-    return ProcessIdentity { pid, std::format("boot:{}.{}", birth.tv_sec, birth.tv_usec) };
-}
-#endif
-
 std::optional<bool> process_alive(std::int64_t pid) {
     if (pid <= 0) return std::nullopt;
     if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
@@ -696,11 +683,19 @@ std::optional<ProcessIdentity> process_identity(std::int64_t pid) {
     if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
         return identity_from_proc(pid);
     } else if constexpr (mcppls::os::FAMILY == mcppls::os::Family::macos) {
-#if defined(__APPLE__)
-        return identity_from_kernel(pid);
-#else
-        return std::nullopt;
-#endif
+        // ps(1) is the one tool every macOS host has that names a process by pid; `lstart` is the
+        // birth time as the kernel keeps it, the same for every read of one incarnation and
+        // different for the next owner of the same pid. The Apple SDK's headers are not on this
+        // build's search path, so sysctl is not an option here.
+        SpawnOptions options;
+        options.program = "/bin/ps";
+        options.arguments = { "-o", "lstart=", "-p", std::to_string(pid) };
+        options.pipeInput = false;
+        auto ran = run(std::move(options), std::chrono::seconds { 2 });
+        if (!ran || ran->timedOut || ran->exitCode != 0) return std::nullopt;
+        const auto started { base::trim(ran->output) };
+        if (started.empty()) return std::nullopt;
+        return ProcessIdentity { pid, std::string { started } };
     } else {
 #if defined(_WIN32)
         const HANDLE process { open_queriable(pid) };
