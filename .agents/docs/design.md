@@ -252,6 +252,9 @@ before anything is published (`docs/92-release.md`).
 | RD11 | `std` is built with the standard library's own configuration macros only; the project's `-D`s never reach it (plan 2026-09-30 G-1) |
 | RD12 | Module locks in the cache are the lease holder's: all are cleared before clangd starts, and one another process holds is removed when clangd waits on it (C-4) |
 | RD13 | Each unit keeps the BMIs of its two newest commands; the rest are pruned when clangd starts (`mcppls cache --prune` for the others) (C-2) |
+| RD18 | Every instance describes itself in the directory it works in (`instance.json`, heartbeat with the lease); a directory whose heartbeat is stale is renamed aside and removed, and one that says nothing waits for a 24-hour grace (C-9) |
+| RD19 | The cache under `<cdb>/.cache/clangd` is the lease holder's: the copies of dead generations are swept before the next clangd starts, a per-workspace and a global budget are enforced by removing copies only, and a cache that cannot fit without the published BMIs is reported instead (C-7, C-8) |
+| RD20 | The cache shows itself in the editor: one status item with a hover card and a menu, and the sweep behind them answers read-only, sweeps without stopping an engine, and never uploads anything (C-13) |
 | RD14 | What nothing recovers from by itself writes a redacted bundle at once and names it in the status; the person reports it, restarts, or turns mcppls off for the workspace (`mcppls.enable`), and nothing is uploaded (K-7) |
 | PD1 | Android under Termux (PRoot) is a supported platform: openkal-linux falls back from `execveat` to `execve` and the server detects the sandbox (plan 2026-09-30 D1, X-1..X-5) |
 | UD5 | In VS Code, C and C++ open the completion list while you type, alongside inline completions: the extension contributes `editor.quickSuggestions` `{other: "on"}` as their language default (WA-VSCODE-002), since VS Code 1.125's own default waits for inline completions; a person's `[cpp]` / `[c]` value wins, and one set for every language is overridden and told in the log (plan 0.0.8 E-1, E-2) |
@@ -270,6 +273,7 @@ before anything is published (`docs/92-release.md`).
   22.04+, Debian 12+, openEuler 24.03+); elsewhere the status says `engine-incompatible` and only
   module-level features remain. A clangd built for a lower floor is the way out, if those systems
   turn out to matter (0.0.3 plan §5.2).
+- A cache's peak is one engine generation's lifetime × the modules' size: mcppls sweeps what dead generations left when the next one starts and holds the rest under a budget, so a single 24-hour session that never restarts still grows inside its budget (plan 2026-10-03 C-8).
 - clangd 23.1 rejects MSVC STL's aligned allocation; the plan turns aligned allocation off for
   units using MSVC STL (`msvcStlNeedsNoAlignedAllocation`) until upstream fixes it.
 - Every compensation for a clangd defect is a registered workaround (`WA-CLANGD-<n>`,

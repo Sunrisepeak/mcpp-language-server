@@ -69,6 +69,24 @@ export function issueTitle(code: string, message: string): string {
     return `[${code}] ${shortMessage(message)}`;
 }
 
+// 0.0.10 plan C-13.3 (D19): the same fields, opened by a person who is reporting on their own
+// initiative rather than from a crash -- no `[code]` prefix in the title. Everything else
+// (template, length bound, encoding) is `buildIssueUrl`'s own machinery.
+export function feedbackIssueUrl(context: IssueContext): string {
+    const fields = issueFields(context);
+    const parameters: [string, string][] = [
+        ['template', BUG_REPORT_TEMPLATE],
+        ['title', shortMessage(context.message)],
+        ...PREFILLED_FIELD_IDS.map((id) => [id, fields[id]] as [string, string]),
+    ];
+    const render = (list: [string, string][]): string =>
+        `${REPOSITORY}/issues/new?${list.map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join('&')}`;
+    let url = render(parameters);
+    if (url.length > MAX_URL_LENGTH) url = render(parameters.filter(([key]) => key !== 'what-happened'));
+    if (url.length > MAX_URL_LENGTH) url = render(parameters.filter(([key]) => key !== 'what-happened' && key !== 'title'));
+    return url;
+}
+
 export function buildIssueUrl(context: IssueContext): string {
     const parameters: [string, string][] = [
         ['template', BUG_REPORT_TEMPLATE],

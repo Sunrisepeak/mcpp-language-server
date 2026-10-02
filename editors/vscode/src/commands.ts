@@ -7,6 +7,10 @@ import type { LanguageClient } from 'vscode-languageclient/node';
 import { SETTABLE_CANDIDATES, UNSETTABLE_CANDIDATES } from './conflictCandidates';
 import { restoreOtherCppFeatures, turnOffOtherCppFeatures } from './conflicts';
 import { advertisesCacheReset, freedText, parseCacheResetResult, RESET_CACHE_COMMAND, SERVER_RESET_CACHE_COMMAND, sizeText } from './cacheReset';
+import { OPEN_CACHE_HUB_COMMAND, REVEAL_CACHE_DIRECTORY_COMMAND, rememberCacheDetail, SERVER_SWEEP_CACHE_COMMAND, SWEEP_WORKSPACE_CACHE_COMMAND, parseSweepResult, sweepResultText } from './cacheSweep';
+import { CacheDetail } from './cacheSegment';
+import { openCacheHub } from './cacheHubView';
+import { REPOSITORY, feedbackIssueUrl, IssueContext } from './issueUrl';
 import { turnOffInWorkspace, turnOnInWorkspace } from './enable';
 import { sourceOf } from './quickSuggestions';
 import { RENAMED_SETTINGS, resolveRenamed, workersSetting } from './settingsRead';
@@ -513,6 +517,100 @@ export async function reloadBuildDescription(access: ServerAccess): Promise<void
     }
 }
 
+// ---- the cache (0.0.10 plan C-13) ------------------------------------------------------------
+
+async function fetchCacheDetail(access: ServerAccess): Promise<CacheDetail | undefined> {
+    const client = access.runningClient();
+    if (!client) return undefined;
+    try {
+        const answer = (await client.sendRequest('cxxModules/cache', {})) as { roots?: CacheDetail[] } | undefined;
+        const detail = answer?.roots?.[0];
+        if (detail) rememberCacheDetail(detail);
+        return detail;
+    } catch {
+        return undefined;   // an older server answers MethodNotFound; the coarse numbers still work
+    }
+}
+
+export async function openCachePanel(access: ServerAccess): Promise<void> {
+    // The hub fetches its own detail; the status bar carries the coarse numbers on its side.
+    await openCacheHub({ client: access.runningClient(), coarse: undefined });
+}
+
+export async function sweepWorkspaceCache(access: ServerAccess): Promise<unknown> {
+    const client = access.runningClient();
+    if (!client) {
+        void vscode.window.showWarningMessage('The C++ Modules server is not running; there is nothing to sweep.');
+        return undefined;
+    }
+    const answer = await client.sendRequest('workspace/executeCommand', { command: SERVER_SWEEP_CACHE_COMMAND, arguments: [{ dryRun: false }] });
+    const result = parseSweepResult(answer);
+    void vscode.window.showInformationMessage(sweepResultText(result));
+    return answer;
+}
+
+export async function copyAgentPrompt(access: ServerAccess): Promise<string | undefined> {
+    const detail = await fetchCacheDetail(access);
+    const prompt = detail?.prompts?.agent;
+    if (!prompt) {
+        void vscode.window.showWarningMessage('No agent prompt is available: the server does not carry one (older server?).');
+        return undefined;
+    }
+    await vscode.env.clipboard.writeText(prompt);
+    void vscode.window.showInformationMessage('已复制 ✓ 粘给本地 agent——日志不会离开本机');
+    return prompt;
+}
+
+export async function copyIssuePrompt(access: ServerAccess): Promise<string | undefined> {
+    const detail = await fetchCacheDetail(access);
+    const prompt = detail?.prompts?.issue;
+    if (!prompt) {
+        void vscode.window.showWarningMessage('No issue prompt is available: the server does not carry one (older server?).');
+        return undefined;
+    }
+    await vscode.env.clipboard.writeText(prompt);
+    void vscode.window.showInformationMessage('已复制 issue 提示词 ✓ 先给人看，同意后再发');
+    return prompt;
+}
+
+export async function revealCacheDirectory(access: ServerAccess, which = 'cache'): Promise<void> {
+    const detail = await fetchCacheDetail(access);
+    const path = which === 'logs' ? detail?.paths.logDirectory : detail?.paths.cacheRoot;
+    if (!path) {
+        access.showLogs();
+        return;
+    }
+    await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(path));
+}
+
+function issueContext(): IssueContext {
+    const extension = vscode.extensions.getExtension('sunrisepeak.mcpp-language-server');
+    return {
+        code: 'cache',
+        message: 'the module cache grew beyond its budget',
+        extensionVersion: extension?.packageJSON?.version as string | undefined,
+        appName: 'VS Code',
+        editorVersion: vscode.version,
+        platform: process.platform,
+        arch: process.arch,
+    };
+}
+
+export async function newCacheIssue(access: ServerAccess): Promise<void> {
+    // Fetched for its side effect (the detail is remembered for the next card) and to fail loudly
+    // when there is no server to ask.
+    await fetchCacheDetail(access);
+    await vscode.env.openExternal(vscode.Uri.parse(feedbackIssueUrl(issueContext())));
+}
+
+export async function openRepository(): Promise<void> {
+    await vscode.env.openExternal(vscode.Uri.parse(REPOSITORY));
+}
+
+export async function openCacheSettings(): Promise<void> {
+    await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:sunrisepeak.mcpp-language-server cache');
+}
+
 export function registerCommands(context: vscode.ExtensionContext, access: ServerAccess): void {
     context.subscriptions.push(
         vscode.commands.registerCommand('mcppls.selectContext', () => selectContext(access)),
@@ -523,6 +621,14 @@ export function registerCommands(context: vscode.ExtensionContext, access: Serve
         vscode.commands.registerCommand('mcppls.exportDiagnosticBundle', () => exportDiagnosticBundle(access)),
         vscode.commands.registerCommand('mcppls.restartClangd', () => restartClangd(access)),
         vscode.commands.registerCommand(RESET_CACHE_COMMAND, () => resetWorkspaceCache(access)),
+        vscode.commands.registerCommand(OPEN_CACHE_HUB_COMMAND, () => openCachePanel(access)),
+        vscode.commands.registerCommand(SWEEP_WORKSPACE_CACHE_COMMAND, () => sweepWorkspaceCache(access)),
+        vscode.commands.registerCommand('mcppls.copyAgentPrompt', () => copyAgentPrompt(access)),
+        vscode.commands.registerCommand('mcppls.copyIssuePrompt', () => copyIssuePrompt(access)),
+        vscode.commands.registerCommand(REVEAL_CACHE_DIRECTORY_COMMAND, (which?: string) => revealCacheDirectory(access, which)),
+        vscode.commands.registerCommand('mcppls.newCacheIssue', () => newCacheIssue(access)),
+        vscode.commands.registerCommand('mcppls.openRepository', () => openRepository()),
+        vscode.commands.registerCommand('mcppls.openCacheSettings', () => openCacheSettings()),
         vscode.commands.registerCommand('mcppls.turnOffInWorkspace', () => turnOffInWorkspace(access.log)),
         vscode.commands.registerCommand('mcppls.turnOnInWorkspace', () => turnOnInWorkspace(access.log)),
         vscode.commands.registerCommand('mcppls.runBuildToolInTerminal', () => runBuildToolInTerminal(access)),

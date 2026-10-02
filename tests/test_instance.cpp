@@ -42,7 +42,9 @@ int main() {
         auto owner = orch::WorkspaceLease::acquire(workspace, now);
         expect(!owner.shared() && owner.directory() == workspace);
         auto guest = orch::WorkspaceLease::acquire(workspace, now + std::chrono::seconds { 5 });
-        expect(guest.shared() && guest.directory() != workspace && fs::is_directory(guest.directory())) << guest.directory();
+        expect(guest.shared()) << "the fresh lease of a live owner is shared";
+        expect(guest.directory() != workspace) << guest.directory();
+        expect(fs::is_directory(guest.directory())) << guest.directory();
         const std::string guestDirectory { guest.directory() };
         guest.release();
         expect(!fs::exists(guestDirectory)) << "a guest removes its private directory";

@@ -63,6 +63,15 @@ one's page below, and its README, says how to do it there.
 Workspace** and **Show Logs**, after writing a diagnostic bundle; see
 [50-troubleshooting.md](50-troubleshooting.md#when-mcppls-cannot-recover-by-itself).
 
+**The cache, on the status bar.** The one status item also carries the cache: hover for a read-only
+card (the size against the budget, the published BMIs beside clangd's leftovers, the last sweep),
+click for the cache hub — a menu in five groups (cache, sweep, maintenance, logs, open source).
+**Sweep the Module Cache** removes what no engine holds without a restart or a rebuild; the eye
+button on it is a dry run first. The open-source group copies a read-only troubleshooting prompt
+for a local agent (`mcppls cache --prompt agent` prints the same text anywhere else) and opens the
+repository or a prefilled issue. Other editors sweep with `workspace/executeCommand`
+`mcppls.sweepCache` or the CLI; the card and the hub are VS Code's.
+
 ## Claude Code
 
 A plugin registers `mcppls serve` as the language server for C, C++ and the module extensions

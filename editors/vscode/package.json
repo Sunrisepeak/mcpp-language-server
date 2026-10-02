@@ -2,7 +2,7 @@
   "name": "mcpp-language-server",
   "displayName": "C++ Modules Language Server",
   "description": "mcppls - C++20/23 named modules that just work: go to definition, completion, hover and references across modules for any compiler, with clangd and a standard library kit built in.",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "publisher": "sunrisepeak",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -187,6 +187,46 @@
         "category": "C++ Modules"
       },
       {
+        "command": "mcppls.openCacheHub",
+        "title": "Open the Cache Hub",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.sweepWorkspaceCache",
+        "title": "Sweep the Module Cache (No Restart, No Rebuild)",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.copyAgentPrompt",
+        "title": "Copy the Agent Prompt for Cache Troubleshooting",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.copyIssuePrompt",
+        "title": "Copy the Issue Prompt for Cache Troubleshooting",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.revealCacheDirectory",
+        "title": "Reveal the Cache Directory",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.newCacheIssue",
+        "title": "Report a Cache Problem on GitHub",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.openRepository",
+        "title": "Open the Project Repository",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.openCacheSettings",
+        "title": "Open the Cache Settings",
+        "category": "C++ Modules"
+      },
+      {
         "command": "mcppls.turnOffInWorkspace",
         "title": "Turn Off in This Workspace",
         "category": "C++ Modules"
@@ -263,6 +303,24 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "Show the AI-era features: **Review Changes** reviews the workspace's changes against `HEAD` with mcppls's rules and shows the findings, with their evidence, as problems. Nothing is sent to a model."
+        },
+        "mcppls.cache.showInStatusBar": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "always",
+            "never"
+          ],
+          "default": "auto",
+          "scope": "resource",
+          "description": "Whether the status bar shows the cache size. `auto` shows it only when the cache is near or over its budget; `always` and `never` do what they say. The hover card and the cache hub answer for the rest either way."
+        },
+        "mcppls.statusBar.maxLength": {
+          "type": "string",
+          "default": "36",
+          "pattern": "^(2[4-9]|[3-5][0-9]|60)$",
+          "patternErrorMessage": "The length budget is a whole number between 24 and 60.",
+          "description": "How many characters the C++ Modules status bar item may take (24-60; an icon counts as 2). What does not fit goes to the hover card, and the module state is never dropped for the cache's sake."
         },
         "mcppls.enable": {
           "type": "boolean",

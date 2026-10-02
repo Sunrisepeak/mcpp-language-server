@@ -87,6 +87,11 @@ VS Code 扩展已经会这样做）；`重新加载模型` 只重新加载项目
 | `mcppls.mcpp` | 路径 | （空） | `--mcpp` | 重新加载模型 | mcpp 项目所用的 `mcpp` 可执行文件；空表示在 `PATH` 上查找。 |
 | `mcppls.payload` | 路径 | （空） | `--payload` | 重启 | 包含 clangd 和语义工具包的 payload 目录；下面的 `clangd` 和 `kit` 可以分别覆盖其中一项。 |
 | `mcppls.clangd` | 路径 | （空） | `--clangd` | 重启 | clangd 可执行文件，覆盖 payload 自带的那一份。 |
+| `mcppls.cache.maxBytes` | ? | ? | `--cache-max-bytes` | 重启 | 单个工作区的模块缓存上限。超出时先清理副本与死实例目录回到预算内；已发布的模块本体（BMI）永远不会被删——删净副本仍超限时只报告（状态栏与缓存菜单可见）。`unlimited` 关闭预算。 |
+| `mcppls.cache.totalBytes` | ? | ? | `--cache-total-bytes` | 重启 | 所有工作区模块缓存的总上限。只有没有实例打开的工作区按最久未用的先后让出副本；已发布的模块本体不会被删。 |
+| `mcppls.cache.instanceGrace` | 非负整数（秒） | `86400` | `--cache-instance-grace` | 重启 | 一个不自述的实例目录（0.0.9 及更早版本的遗留）在删除前保留多久：默认 86400 秒，即 24 小时。会自述的目录按它自己的心跳判断。 |
+| `mcppls.cache.showInStatusBar` | `auto`, `always`, `never` | `auto` | — | 立即生效 | 状态栏是否显示缓存大小。`auto` 只在缓存接近或超过预算时显示；`always` 与 `never` 如字面。无论如何，其余数字看悬停卡片与菜单。 |
+| `mcppls.statusBar.maxLength` | ? | ? | — | 立即生效 | 状态栏项最多占多少字符（24-60；`$(图标)` 记 2）：装不下的进悬停卡片；模块状态永远优先于缓存显示。 |
 | `mcppls.kit` | 路径 | （空） | `--kit` | 重启 | 语义工具包目录，覆盖 payload 自带的那一份。 |
 | `MCPPLS_CACHE_DIR` | 路径 | （空） | — | 重启 | 覆盖 mcppls 原本在用户缓存目录下选定的整个缓存目录（工作区模型、工具链探测结果、日志、诊断包）。 |
 <!-- settings:end -->
