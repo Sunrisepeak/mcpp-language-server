@@ -81,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           for exe in mcppls mcppls-conformance mcppls-lspgen mcppls-devtools; do
-            path=$(find target tools/devtools/target -type f \( -name "$exe" -o -name "$exe.exe" \) -path '*/bin/*' | head -1)
+            path=$(find target -type f \( -name "$exe" -o -name "$exe.exe" \) -path '*/bin/*' | head -1)
             echo "$exe -> $path"
             if [ "$exe" = mcppls-devtools ]; then "$path" --help > /dev/null; else "$path" version; fi
           done
@@ -105,7 +105,7 @@ jobs:
         if: runner.os == 'Linux' && matrix.profile == 'dev'
         run: |
           set -euo pipefail
-          devtools=$(find tools/devtools/target -type f -name mcppls-devtools -path '*/bin/*' | head -1)
+          devtools=$(find target -type f -name mcppls-devtools -path '*/bin/*' | head -1)
           server=$(find target -type f -name mcppls -path '*/bin/*' | head -1)
           "$devtools" check all
           "$devtools" check binary --server "$server"
@@ -143,7 +143,7 @@ jobs:
           set -euo pipefail
           mkdir -p cross
           for exe in mcppls mcppls-conformance mcppls-lspgen mcppls-mock-mcpp mcppls-mock-model mcppls-devtools; do
-            path=$(find target tools/devtools/target -type f -name "$exe${{ matrix.exe }}" -path '*/bin/*' -newer mcpp.toml | head -1)
+            path=$(find target -type f -name "$exe${{ matrix.exe }}" -path '*/bin/*' -newer mcpp.toml | head -1)
             file "$path"
             case "${{ matrix.target }}" in
               *windows*) file "$path" | grep -q 'PE32+ executable' ;;
@@ -209,7 +209,7 @@ jobs:
           mcpp build -p devtools --profile release
           mkdir -p cross
           for exe in mcppls mcppls-conformance mcppls-mock-mcpp mcppls-mock-model mcppls-devtools; do
-            cp "$(find target tools/devtools/target -type f -name "$exe" -path '*/bin/*' -newer mcpp.toml | head -1)" cross/
+            cp "$(find target -type f -name "$exe" -path '*/bin/*' -newer mcpp.toml | head -1)" cross/
           done
       - name: The cross-built server
         if: matrix.cross != ''
@@ -225,7 +225,7 @@ jobs:
           set -euo pipefail
           if [ "$RUNNER_OS" = Linux ] && [ -n '${{ matrix.cross }}' ] && [ -z '${{ matrix.cross-tools }}' ]; then
             mcpp build -p devtools --profile release
-            cp "$(find tools/devtools/target -type f -name mcppls-devtools -path '*/bin/*' -newer mcpp.toml | head -1)" host-devtools
+            cp "$(find target -type f -name mcppls-devtools -path '*/bin/*' -newer mcpp.toml | head -1)" host-devtools
           else
             cp cross/mcppls-devtools host-devtools
           fi

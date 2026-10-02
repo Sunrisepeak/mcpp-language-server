@@ -46,7 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           mcpp build --release -p devtools
-          devtools=$(find tools/devtools/target -type f -name mcppls-devtools -path '*/bin/*' | head -1)
+          devtools=$(find target -type f -name mcppls-devtools -path '*/bin/*' | head -1)
           "$devtools" version --check
           echo "version=$("$devtools" version --print)" >> "$GITHUB_OUTPUT"
       # No rust or java action here on purpose. `[xlings.workspace]` declares what packaging needs
