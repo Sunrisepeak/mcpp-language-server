@@ -188,6 +188,7 @@ private:
 
     // Process.
     int generation_ { 0 };
+    std::int64_t generationStartedAt_ { 0 };   // C-7: the live generation's start, on the file clock
     bool handshakeDone_ { false };
     bool accepting_ { false };
     bool unavailable_ { false };
@@ -1624,6 +1625,12 @@ private:
             host_->record_event("module-locks-cleared", Json { { "count", cleared } });
         }
         prune_module_builds_();
+        // C-7 (plan 2026-10-03): the copies copy-on-read left behind die with the generation that
+        // was interrupted and never removed them -- the 97% of a cache that grew to 64 GiB. The
+        // premise is the lock clearing's own (no clangd uses this tree now), and the bound makes the
+        // background sweep safe even against this very start: only what was written before now.
+        generationStartedAt_ = platform::fs::modified_now();
+        host_->cache_sweep_due(generationStartedAt_);
         const int generation { ++generation_ };
         ProcessConfig config;
         config.executable = options_.executable;
@@ -3606,6 +3613,8 @@ private:
 
     // Fix plan F14: the person asked (mcppls.restartClangd). At once, past every budget and never counted; what
     // was set aside goes back, except a file whose text on disk clangd would spin on (fix plan F16).
+    // C-7: when the live generation started, the interactive sweep's bound (nothing mapped may go).
+    std::int64_t generation_started_at() const override { return generationStartedAt_; }
     std::uint64_t clear_cache_on_request() override {
         // Stopped first: nothing may be using the files that go. What clangd owed is answered by the other engines.
         settle_exit_();

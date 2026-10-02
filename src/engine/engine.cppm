@@ -152,6 +152,12 @@ public:
         (void)kind;
         (void)detail;
     }
+    // C-7 (plan 2026-10-03): the engine is on its start path -- the previous generation, if any, has
+    // been reaped and nothing of this host's engines uses the cache tree yet. `before` is the
+    // file-clock bound a sweep must keep: only what was written before it may be removed, so that a
+    // generation starting concurrently never loses a copy it is about to write. The sweep itself
+    // runs in the background; the default does nothing.
+    virtual void cache_sweep_due(std::int64_t before) { (void)before; }
     // Something went wrong that someone will want to look at afterwards (fix plan F17.2): a crash, a
     // file set aside, a restart held back. The workspace writes it to its incidents directory with the
     // files given (the engine's own log, say), what led up to it, and, when `pid` names the engine's
@@ -221,6 +227,10 @@ public:
     // stops, removes what it keeps on disk and forgets what it wrote there and what it concluded from it. It is
     // started again by restart_on_request once the workspace has planned into the empty directories. The bytes freed.
     virtual std::uint64_t clear_cache_on_request() { return 0; }
+    // C-7 (plan 2026-10-03): the file-clock reading of when the live generation started, 0 when none
+    // is live. A cache sweep that runs while an engine works may remove only what was written before
+    // that moment -- nothing a live generation could still hold mapped.
+    virtual std::int64_t generation_started_at() const { return 0; }
 };
 
 } // namespace mcppls::engine
