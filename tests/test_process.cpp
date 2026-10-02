@@ -234,6 +234,36 @@ int main() {
         (void)busy->wait();
     };
 
+    // X-6 (plan 2026-10-03): the platform can name this process and tell incarnations apart.
+    "process_self is the process asking, and process_identity answers for a live pid"_test = [&] {
+        const auto self = platform::process_self();
+        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+            expect(self.has_value()) << "Windows names its own pid and start";
+        } else {
+            expect(fatal(self.has_value()));
+        }
+        if (self.has_value()) {
+            expect(self->pid > 0);
+            expect(!self->started.empty());
+            // Asking again answers the same incarnation.
+            const auto again = platform::process_identity(self->pid);
+            expect(again.has_value() && again->started == self->started) << "stable while the process lives";
+        }
+        // A pid nothing answers for is gone (or cannot be judged), and never "the same process".
+        const auto ghost = platform::process_identity(999999999);
+        expect(!ghost.has_value() || ghost->pid != (self ? self->pid : 0));
+        expect(platform::process_identity(0) == std::nullopt) << "pid 0 is not a question";
+    };
+
+    "process_alive answers on Windows too, and never says a live pid is gone"_test = [&] {
+        if (const auto self = platform::process_self(); self && self->pid > 0) {
+            const auto alive = platform::process_alive(self->pid);
+            expect(alive.value_or(true)) << "this process is running, wherever the platform can say it or not";
+        }
+        const auto gone = platform::process_alive(999999999);
+        expect(!gone.has_value() || !*gone) << "an unanswerable pid is gone or unknown, never alive";
+    };
+
     "exit status is propagated"_test = [&] {
         auto result = platform::run({ .program = self, .arguments = { "--exit", "7" } }, std::chrono::seconds { 60 });
         expect(fatal(result.has_value()));

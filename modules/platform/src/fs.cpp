@@ -5,6 +5,7 @@ import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
 import openkal.fs;
+import mcppls.platform.dirs;
 import mcppls.platform.preopen;
 import mcppls.os;
 
@@ -100,6 +101,45 @@ base::Result<void> create_directories(std::string_view path) {
 void remove_all(std::string_view path) {
     std::error_code error;
     std::filesystem::remove_all(native(path), error);
+}
+
+base::Result<void> remove(std::string_view path) {
+    std::error_code error;
+    std::filesystem::remove(native(path), error);
+    if (error) return base::fail("remove", std::format("cannot remove {}: {}", path, error.message()));
+    return {};
+}
+
+Removal tree_remove(std::string_view path) {
+    Removal removed;
+    if (!is_directory(path)) {
+        if (const auto stamp = fs::stamp(path)) removed.bytes = stamp->size;
+        if (auto taken = remove(path); !taken) ++removed.failed;
+        return removed;
+    }
+    for (const auto& entry : list_directory(path)) {
+        const Removal nested { tree_remove(entry) };
+        removed.bytes += nested.bytes;
+        removed.failed += nested.failed;
+    }
+    if (auto taken = remove(path); !taken) ++removed.failed;   // the now-empty directory itself
+    return removed;
+}
+
+std::int64_t modified_now() {
+    // No clock_cast on this standard library, and none needed: a file just written carries the
+    // file clock's own reading of now. The scratch file lives in the temporary directory, one
+    // name reused; its stamp is what "now" means to `stamp`.
+    static const std::string scratch { base::join_path(
+        [] {
+            const std::string temporary { platform::dirs::temp_directory() };
+            (void)create_directories(temporary);
+            return temporary;
+        }(),
+        ".mcppls-clock") };
+    (void)write_file(scratch, "now");
+    const auto stamp = fs::stamp(scratch);
+    return stamp ? stamp->modified : std::int64_t { 0 };
 }
 
 base::Result<void> rename(std::string_view from, std::string_view to) {

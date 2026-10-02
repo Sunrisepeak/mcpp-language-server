@@ -15,6 +15,22 @@ import mcppls.platform.fs;
 import mcppls.platform.preopen;
 import mcppls.platform.sandbox;
 
+// X-6 (plan 2026-10-03): the one place in mcppls that touches the process tables directly. openkal
+// starts and ends children but cannot ask about a process this one did not start, and nothing
+// portable names this process's own pid. The system headers are confined to this one file, and the
+// macros windows.h would leak (min, max, near, far) are undef'd again right below.
+#if defined(_WIN32)
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#undef min
+#undef max
+#elif defined(__APPLE__)
+#include <sys/sysctl.h>
+#else
+#include <unistd.h>
+#endif
+
 // The Linux openkal's own flag (vendor/openkal-linux/src/process.cpp): whether a program is started
 // with `execveat` and a directory descriptor, or with `execve` and an absolute name. It sets the flag
 // itself when `execveat` answers ENOSYS; this file sets it before the first start where that is known.
@@ -541,6 +557,53 @@ std::optional<double> parse_cpu_time(std::string_view text) {
     return total + days * 86400;
 }
 
+// X-6: a process's incarnation as its platform keeps it. Linux keeps a start time in stat's field
+// 22 (clock ticks since boot); macOS keeps a birth time in the kernel's process table; Windows
+// reports a creation FILETIME that does not repeat while the boot lasts, so a reused pid is always
+// a different incarnation. Same-boot comparisons only: after a reboot every `started` is stale, and
+// a caller that kept one across boots must fall back to the heartbeat.
+#if defined(_WIN32)
+std::optional<ProcessIdentity> identity_of_handle(HANDLE process, std::int64_t pid) {
+    FILETIME created {}, exited {}, kernel {}, user {};
+    if (!GetProcessTimes(process, &created, &exited, &kernel, &user)) return std::nullopt;
+    const long long stamp { (static_cast<long long>(created.dwHighDateTime) << 32) | created.dwLowDateTime };
+    return ProcessIdentity { pid, std::format("{}", stamp) };
+}
+
+HANDLE open_queriable(std::int64_t pid) {
+    return OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid));
+}
+#endif
+
+std::optional<ProcessIdentity> identity_from_proc(std::int64_t pid) {
+    // After ") ": state is field 3, starttime field 22, so the 20th of what follows.
+    const auto stat = fs::read_file(std::format("/proc/{}/stat", pid));
+    if (!stat) return std::nullopt;
+    const auto close = stat->rfind(')');
+    if (close == std::string::npos) return std::nullopt;
+    std::size_t field { 0 };
+    std::size_t at { close + 2 };
+    while (at < stat->size()) {
+        const auto end = stat->find(' ', at);
+        const std::string_view value { std::string_view { *stat }.substr(at, end == std::string::npos ? std::string::npos : end - at) };
+        if (++field == 20) return ProcessIdentity { pid, std::string { value } };
+        if (end == std::string::npos) break;
+        at = end + 1;
+    }
+    return std::nullopt;
+}
+
+#if defined(__APPLE__)
+std::optional<ProcessIdentity> identity_from_kernel(std::int64_t pid) {
+    int query[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, static_cast<int>(pid) };
+    struct kinfo_proc info {};
+    std::size_t size { sizeof(info) };
+    if (sysctl(query, 4, &info, &size, nullptr, 0) != 0 || size == 0) return std::nullopt;
+    const auto& birth { info.kp_proc.p_starttime };
+    return ProcessIdentity { pid, std::format("boot:{}.{}", birth.tv_sec, birth.tv_usec) };
+}
+#endif
+
 std::optional<bool> process_alive(std::int64_t pid) {
     if (pid <= 0) return std::nullopt;
     if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
@@ -564,7 +627,21 @@ std::optional<bool> process_alive(std::int64_t pid) {
         const std::string_view state { base::trim(ran->output) };
         return !state.empty() && state.front() != 'Z';
     } else {
+#if defined(_WIN32)
+        // X-6: the handle openkal keeps is not a pid, so the process is asked for directly: one that
+        // nothing answers for is gone, one that may not be asked (another user's) cannot be judged,
+        // and one whose exit code is still STILL_ACTIVE is running -- which a reused pid also says,
+        // so callers that must not confuse incarnations compare `started` (process_identity) too.
+        const HANDLE process { open_queriable(pid) };
+        if (!process) return GetLastError() == ERROR_INVALID_PARAMETER ? std::optional<bool> { false } : std::nullopt;
+        DWORD code { 0 };
+        const bool asked { GetExitCodeProcess(process, &code) != 0 };
+        CloseHandle(process);
+        if (!asked) return std::nullopt;
+        return code != STILL_ACTIVE;
+#else
         return std::nullopt;
+#endif
     }
 }
 
@@ -596,8 +673,55 @@ std::optional<double> cpu_seconds(std::int64_t pid) {
         if (!ran || ran->timedOut || ran->exitCode != 0) return std::nullopt;
         return parse_cpu_time(ran->output);
     } else {
+#if defined(_WIN32)
+        const HANDLE process { open_queriable(pid) };
+        if (!process) return std::nullopt;
+        FILETIME created {}, exited {}, kernel {}, user {};
+        const bool asked { GetProcessTimes(process, &created, &exited, &kernel, &user) != 0 };
+        CloseHandle(process);
+        if (!asked) return std::nullopt;
+        const auto seconds = [](const FILETIME& time) {
+            const long long count { (static_cast<long long>(time.dwHighDateTime) << 32) | time.dwLowDateTime };
+            return static_cast<double>(count) / 10'000'000.0;   // FILETIME: 100 ns units
+        };
+        return seconds(kernel) + seconds(user);
+#else
         return std::nullopt;
+#endif
     }
+}
+
+std::optional<ProcessIdentity> process_identity(std::int64_t pid) {
+    if (pid <= 0) return std::nullopt;
+    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
+        return identity_from_proc(pid);
+    } else if constexpr (mcppls::os::FAMILY == mcppls::os::Family::macos) {
+#if defined(__APPLE__)
+        return identity_from_kernel(pid);
+#else
+        return std::nullopt;
+#endif
+    } else {
+#if defined(_WIN32)
+        const HANDLE process { open_queriable(pid) };
+        if (!process) return std::nullopt;
+        const auto identity = identity_of_handle(process, pid);
+        CloseHandle(process);
+        return identity;
+#else
+        return std::nullopt;
+#endif
+    }
+}
+
+std::optional<ProcessIdentity> process_self() {
+#if defined(_WIN32)
+    return identity_of_handle(GetCurrentProcess(), static_cast<std::int64_t>(GetCurrentProcessId()));
+#else
+    // The one pid POSIX hands out for free; the identity itself comes from the same source every
+    // other process's does.
+    return process_identity(static_cast<std::int64_t>(getpid()));
+#endif
 }
 
 std::vector<ThreadCpu> thread_cpu(std::int64_t pid) {

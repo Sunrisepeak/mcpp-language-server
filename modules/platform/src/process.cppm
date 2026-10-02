@@ -113,12 +113,27 @@ std::string last_lines(std::string_view text, std::size_t lines);
 // platform can say: /proc on Linux, ps(1) on macOS. nullopt on Windows (openkal exposes no process
 // times and a handle is not a pid there) and whenever the process cannot be read.
 std::optional<double> cpu_seconds(std::int64_t pid);
-// Whether a process is running, where the platform can say: /proc on Linux, ps(1) on macOS; a process that
-// has exited and not been reaped yet (a zombie) is not running. nullopt on Windows (a handle is not a pid
-// there) and whenever the answer cannot be read -- which is not the same as "gone".
+// Whether a process is running, where the platform can say: /proc on Linux, ps(1) on macOS, the
+// process handle on Windows; a process that has exited and not been reaped yet (a zombie) is not
+// running. nullopt whenever the answer cannot be read -- which is not the same as "gone".
 std::optional<bool> process_alive(std::int64_t pid);
 // ps(1)'s cumulative "time" column, "[[dd-]hh:]mm:ss[.ss]", in seconds.
 std::optional<double> parse_cpu_time(std::string_view text);
+
+// X-6 (plan 2026-10-03): who a process is, as far as this boot can say -- its pid and a string that
+// is stable for one incarnation of it (Linux: stat's starttime; macOS: the kernel's birth time;
+// Windows: what GetProcessTimes reports). A pid another process has since taken answers with a
+// different `started`, so a lease that names pid and `started` is taken over only when both say
+// "the same live process"; on Windows that check finally exists, where before it never could.
+// nullopt when the platform cannot say -- a caller falls back to the heartbeat alone, as before.
+struct ProcessIdentity {
+    std::int64_t pid { 0 };
+    std::string started;
+};
+std::optional<ProcessIdentity> process_identity(std::int64_t pid);
+// This process's own identity, named in the lease and in an instance's own `instance.json` so that
+// the next server can tell a crashed owner from a reused pid.
+std::optional<ProcessIdentity> process_self();
 
 // One thread of a process and the CPU time it has used so far (an incident's "which thread spins").
 struct ThreadCpu {
