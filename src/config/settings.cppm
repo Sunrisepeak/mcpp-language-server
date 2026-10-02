@@ -22,7 +22,7 @@ using Json = nlohmann::json;
 // `enumeration` are validated against a closed vocabulary, `seconds` against a non-negative
 // integer, and `list` against zero or more comma-separated (or, on the command line, repeated)
 // members.
-enum class Kind { boolean, enumeration, string, path, seconds, list };
+enum class Kind { boolean, enumeration, string, path, seconds, list, bytes, count };
 
 // Where a row is read: `server` is mcppls's own behaviour; `client` is read only by an editor
 // plugin (kept here so the docs and `package.json` stay one table); `environment` is a variable of

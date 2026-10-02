@@ -2,10 +2,16 @@
 
 Changes to the specifications in this directory. Each specification is versioned independently.
 
+## 2026-10-03 — S3: the cache is on the wire
+
+The cache mcppls owns and clangd uses answers for itself. `cxxModules/status` may carry an optional `cache` field with the coarse numbers (a 100 MB grain, a fill level, the copies and instance counts) — S3-4-29, S3-4-30. A new `cxxModules/cache` request (5.7) answers the classified report, read-only, from a cache the server keeps at most 30 seconds and recomputes after a sweep; its `prompts` are rendered for a local agent and leave the machine through the clipboard only. A new `mcppls.sweepCache` command (5.8) removes what no engine holds — the copies of dead generations, the directories of dead instances, the trash — without stopping an engine, without touching a published BMI, one sweep at a time, with a dry run that computes over exactly the set it would have removed.
+
+All additive: protocol version stays 1.
 ## 2026-10-01 — S3: an install that failed, and how a download the client asked for ended
 
 The issue code `producer-install-failed` is named: the build tool, run with the network allowed, could not
 install what the project's description needs. Its message names the packages and carries the build tool's own
+
 error lines; it has no `askOnline`, since fetching again would fail the same way, and its command is the terminal
 action `producer-needs-download` has. `producer-needs-download` itself is now reported with `askOnline` only
 when the description that needed the download was run offline. All additive: protocol version stays 1.

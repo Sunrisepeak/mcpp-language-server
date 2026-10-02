@@ -213,6 +213,9 @@ private:
             if (event.message.value("auto", false)) finish_auto_bundle_(event.rootKey, event.message);
             else finish_bundle_(event.message);
             break;
+        case EventKind::cache_swept:
+            if (auto* root = root_by_key_(event.rootKey)) root->handle_cache_swept(event.message);
+            break;
         }
     }
 
@@ -303,6 +306,32 @@ private:
                 return;
             }
             reply_(id, Json { { "ok", true }, { "freedBytes", freed }, { "roots", reset } });
+            return;
+        }
+        // C-13.1 (plan 2026-10-03): the sweep command -- what no engine holds is removed, nothing is
+        // stopped and no canonical BMI is touched (S3 5.8). `arguments: [{ root, categories,
+        // dryRun, maxBytes }]`; no arguments names every root.
+        if (method == lsp::method::WORKSPACE_EXECUTE_COMMAND && params.value("command", std::string {}) == "mcppls.sweepCache") {
+            const Json arguments = params.value("arguments", Json::array());
+            Json options;
+            if (arguments.is_array() && !arguments.empty() && arguments[0].is_object()) options = arguments[0];
+            std::optional<std::string> wantedPath;
+            if (const std::string wanted { options.value("root", std::string {}) }; !wanted.empty()) {
+                if (auto path = base::uri_to_path(wanted)) wantedPath = platform::fs::canonical_path(*path);
+                else wantedPath = platform::fs::canonical_path(wanted);
+            }
+            std::size_t swept { 0 };
+            Json answer;
+            for (auto& root : roots_) {
+                if (wantedPath && !base::same_path(*wantedPath, root->root())) continue;
+                answer = root->sweep_cache(options);
+                ++swept;
+            }
+            if (swept == 0) {
+                reply_error_(id, lsp::INVALID_PARAMS, "no root serves the cache a sweep was asked for");
+                return;
+            }
+            reply_(id, std::move(answer));
             return;
         }
         // overall design 7.7: the review of the workspace's changes, run in the background, its findings published as diagnostics.
@@ -710,6 +739,14 @@ private:
             }
             root->set_context(id, params.value("context", std::string { "default" }));
         } else {
+            // C-13.1 (plan 2026-10-03): the classified cache report, read-only; `{ roots: [...] }`
+            // -- one entry per root this session serves, in the order the roots were added.
+            if (method == "cxxModules/cache") {
+                Json roots = Json::array();
+                for (auto& root : roots_) roots.push_back(root->cache_report());
+                reply_(id, Json { { "roots", std::move(roots) } });
+                return;
+            }
             reply_error_(id, lsp::METHOD_NOT_FOUND, std::format("unknown request {}", method));
         }
     }

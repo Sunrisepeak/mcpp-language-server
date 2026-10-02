@@ -1,0 +1,114 @@
+{
+ "name": "cache-budget",
+ "description": "Plan 2026-10-03 C-13.1: the cache the server owns is on the wire. The status carries its coarse numbers (an optional `cache` field), `cxxModules/cache` answers the classified report, and `mcppls.sweepCache` removes what no engine holds without stopping or restarting anything: the state before and after the sweep is the same `ready`, the published BMIs stay, and a healthy run's copies count is 0.",
+ "server-arguments": [
+  "--no-discover"
+ ],
+ "checks": [
+  {
+   "id": "C1-ready",
+   "kind": "status",
+   "source": "inferred",
+   "state": "ready",
+   "engine-name": "clangd"
+  },
+  {
+   "id": "cache-status",
+   "kind": "status",
+   "state": "ready",
+   "cache-state": "ok"
+  },
+  {
+   "id": "cache-report",
+   "kind": "cli",
+   "args": [
+    "cache",
+    "--format",
+    "json"
+   ],
+   "expect": [
+    {
+     "path": "/workspaces/0/canonical/files",
+     "at-least": 1
+    },
+    {
+     "path": "/workspaces/0/copies/files",
+     "equals": 0
+    },
+    {
+     "path": "/workspaces/0/limits/perWorkspace",
+     "at-least": 1
+    }
+   ]
+  },
+  {
+   "id": "sweep-dry-run",
+   "kind": "execute-command",
+   "command": "mcppls.sweepCache",
+   "arguments": [
+    {
+     "root": "{workspace-uri}",
+     "dryRun": true
+    }
+   ],
+   "expect": {
+    "ok": true,
+    "dryRun": true,
+    "roots": 1
+   }
+  },
+  {
+   "id": "sweep-command",
+   "kind": "execute-command",
+   "command": "mcppls.sweepCache",
+   "arguments": [
+    {
+     "root": "{workspace-uri}",
+     "dryRun": false
+    }
+   ],
+   "expect": {
+    "ok": true,
+    "dryRun": false,
+    "roots": 1
+   }
+  },
+  {
+   "id": "swept-still-healthy",
+   "kind": "cli",
+   "args": [
+    "cache",
+    "--format",
+    "json"
+   ],
+   "expect": [
+    {
+     "path": "/workspaces/0/copies/files",
+     "equals": 0
+    },
+    {
+     "path": "/workspaces/0/canonical/files",
+     "at-least": 1
+    }
+   ]
+  },
+  {
+   "id": "C1-definition-after",
+   "kind": "definition",
+   "file": "src/main.cpp",
+   "at": [
+    4,
+    31
+   ],
+   "expect": "src/greet/greet.cppm"
+  },
+  {
+   "id": "C1-ready-after",
+   "kind": "status",
+   "source": "inferred",
+   "state": "ready",
+   "engine-name": "clangd",
+   "timeout": 60
+  }
+ ]
+}
