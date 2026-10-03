@@ -107,9 +107,15 @@ int prune(const std::string& workspaces, const PruneOptions& options, cache::Bud
                 freed += copies.bytes;
                 failed += copies.failed;
                 for (const auto& build : engine::clangd::stale_module_builds(base::join_path(context, "cdb"), 2)) {
-                    const std::uint64_t bytes { cache::tree_bytes(build) };
-                    if (!options.dryRun) fs::remove_all(build);
-                    freed += bytes;
+                    // Counted is what left the disk, no more (review 2026-10-03): a removal that
+                    // fails says so in `failed` instead of freeing numbers that did not happen.
+                    if (options.dryRun) {
+                        freed += cache::tree_bytes(build);
+                        continue;
+                    }
+                    const fs::Removal removed { fs::tree_remove(build) };
+                    freed += removed.bytes;
+                    failed += removed.failed;
                 }
                 const auto trash { cache::sweep_trash(context, options.dryRun) };
                 freed += trash.bytes;

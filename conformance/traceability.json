@@ -2083,7 +2083,7 @@
   ],
   "S3-5.8-2": [
     {
-      "manual": "the sweep answers from the session loop after the removal, the way mcppls.resetCache already did; it cancels nothing and fails no request an engine owed (review of src/server/session.cpp and src/orchestrator/workspace.cpp)"
+      "manual": "the sweep's removals run on a thread of their own and the reply returns to the session loop as an event (review of src/server/session.cpp, mcppls.sweepCache branch); it cancels nothing and fails no request an engine owed"
     }
   ],
   "S3-5.8-3": [
@@ -2110,7 +2110,11 @@
   "S3-5.8-7": [
     {
       "script": "src/orchestrator/workspace.cpp",
-      "contains": "impl.sweepRunning_.exchange(true)"
+      "contains": "sweepPending_"
+    },
+    {
+      "script": "src/orchestrator/workspace.cpp",
+      "contains": "impl.sweepRunning_.store(true)"
     }
   ],
   "S3-5.8-8": [
@@ -2119,6 +2123,44 @@
     },
     {
       "check": "cache-budget/sweep-dry-run"
+    }
+  ],
+  "S3-5.7-8": [
+    {
+      "script": "src/orchestrator/workspace.cpp",
+      "contains": "start_cache_task_(\"report\""
+    }
+  ],
+  "S3-5.8-9": [
+    {
+      "script": "src/orchestrator/workspace.cpp",
+      "contains": "failed += removed.failed"
+    },
+    {
+      "script": "src/cli/cache.cpp",
+      "contains": "failed += removed.failed"
+    }
+  ],
+  "S3-5.8-10": [
+    {
+      "script": "src/server/session.cpp",
+      "contains": "run_prepared_sweep"
+    },
+    {
+      "script": "src/orchestrator/workspace.cppm",
+      "contains": "deferred_answer"
+    }
+  ],
+  "S3-5.8-11": [
+    {
+      "script": "src/server/session.cpp",
+      "contains": "freed += outcome.value(\"bytes\""
+    }
+  ],
+  "S3-5.8-12": [
+    {
+      "script": "src/orchestrator/workspace.cpp",
+      "contains": "no numbers are remembered"
     }
   ]
 }

@@ -304,8 +304,8 @@ const std::vector<Setting>& shipped_registry() {
         Setting {
             .key = "cache.maxBytes", .kind = Kind::bytes, .defaultValue = "4G", .commandLine = "--cache-max-bytes",
             .surface = Surface::server, .applies = Applies::restart, .category = "paths", .since = "0.0.10",
-            .summary = "How large one workspace's module cache may get. Copies and dead instance directories are removed to stay under it; the published BMIs never are, so a cache that cannot get under the limit without them is reported instead (the status bar and the cache menu say so). `unlimited` turns the budget off.",
-            .summaryZh = "单个工作区的模块缓存上限。超出时先清理副本与死实例目录回到预算内；已发布的模块本体（BMI）永远不会被删——删净副本仍超限时只报告（状态栏与缓存菜单可见）。`unlimited` 关闭预算。",
+            .summary = "How large one workspace's module cache may get. Reaching it is reported -- the status bar and the cache menu say near or over; keeping under it is the sweeps' own work (copies and dead instance directories go, published BMIs never), and all workspaces together answer to cache.totalBytes. A cache that cannot get under the limit without a published BMI is only reported. `unlimited` turns the budget off, `0` keeps none of what a sweep may remove.",
+            .summaryZh = "单个工作区的模块缓存上限。接近或超出时会报告——状态栏与缓存菜单显示 near/over；回到预算内是自动清扫的事（删副本与死实例目录，已发布的 BMI 永不删除），所有工作区加在一起的上限由 cache.totalBytes 负责。删净可删仍超限时只报告不硬删。`unlimited` 关闭预算，`0` 表示可清理的一律不留。",
         },
         Setting {
             .key = "cache.totalBytes", .kind = Kind::bytes, .defaultValue = "16G", .commandLine = "--cache-total-bytes",

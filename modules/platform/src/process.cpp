@@ -641,6 +641,9 @@ std::optional<bool> process_alive(std::int64_t pid) {
         options.program = "/bin/ps";
         options.arguments = { "-o", "state=", "-p", std::to_string(pid) };
         options.pipeInput = false;
+        // A fixed locale: `ps` spells its columns by the process locale, and a lease's reader must
+        // see what its writer saw even when the two run under different settings (review 2026-10-03).
+        options.environment = std::vector<std::string> { "LC_ALL=C" };
         auto ran = run(std::move(options), std::chrono::seconds { 2 });
         if (!ran || ran->timedOut) return std::nullopt;
         // ps exits 1 when no process has the pid.
@@ -692,6 +695,7 @@ std::optional<double> cpu_seconds(std::int64_t pid) {
         options.program = "/bin/ps";
         options.arguments = { "-o", "time=", "-p", std::to_string(pid) };
         options.pipeInput = false;
+        options.environment = std::vector<std::string> { "LC_ALL=C" };   // one spelling of the columns, every reader
         auto ran = run(std::move(options), std::chrono::seconds { 2 });
         if (!ran || ran->timedOut || ran->exitCode != 0) return std::nullopt;
         return parse_cpu_time(ran->output);
@@ -729,6 +733,9 @@ std::optional<ProcessIdentity> process_identity(std::int64_t pid) {
         options.program = "/bin/ps";
         options.arguments = { "-o", "lstart=", "-p", std::to_string(pid) };
         options.pipeInput = false;
+        // `lstart` is a formatted date, so its spelling follows the process locale: pin it, or a
+        // lease read under one locale would judge one written under another as a reused pid.
+        options.environment = std::vector<std::string> { "LC_ALL=C" };
         auto ran = run(std::move(options), std::chrono::seconds { 2 });
         if (!ran || ran->timedOut || ran->exitCode != 0) return std::nullopt;
         const auto started { base::trim(ran->output) };

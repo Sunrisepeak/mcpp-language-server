@@ -50,11 +50,7 @@ struct Lease {
 // Whether the process a lease names is gone: false when it cannot be told (no pid recorded, or the
 // platform cannot answer -- the heartbeat alone decides there, as before). X-6 makes the check real
 // on Windows, where before it could never say anything.
-bool owner_gone(const Lease& lease) {
-    if (lease.pid <= 0 || lease.started.empty()) return false;
-    const auto owner = platform::process_identity(lease.pid);
-    return !owner || owner->started != lease.started;
-}
+bool owner_gone(const Lease& lease) { return lease_owner_gone(lease.pid, lease.started); }
 
 std::optional<Lease> read_lease(std::string_view workspaceDirectory) {
     auto text = platform::fs::read_file(lease_path(workspaceDirectory));
@@ -89,6 +85,17 @@ void write_instance(bool shared, std::string_view workspaceDirectory, std::strin
 }
 
 } // namespace
+
+bool lease_owner_gone(std::int64_t pid, std::string_view started) {
+    if (pid <= 0 || started.empty()) return false;
+    const auto owner = platform::process_identity(pid);
+    if (owner) return owner->started != started;
+    // Who it is cannot be read; whether it is ANY process still can. Only a definite "no such
+    // process" is a gone owner -- anything else (another user's process on Windows, a ps(1) that
+    // hiccuped) leaves the heartbeat to decide, exactly as before X-6.
+    const auto alive = platform::process_alive(pid);
+    return alive.has_value() && !*alive;
+}
 
 WorkspaceLease WorkspaceLease::acquire(std::string_view workspaceDirectory, std::chrono::system_clock::time_point now,
                                        std::string_view root) {

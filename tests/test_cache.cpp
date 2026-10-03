@@ -6,6 +6,7 @@ import mcppls.os;
 import mcppls.base.path;
 import mcppls.platform.dirs;
 import mcppls.platform.fs;
+import mcppls.platform.process;
 import mcppls.engine.clangd.bmi;
 import mcppls.orchestrator.cache;
 import mcppls.orchestrator.instance;
@@ -149,6 +150,7 @@ int main() {
         const auto now { std::chrono::system_clock::now() };
         const std::int64_t nowMs { std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() };
         const std::string instances { mcppls::base::join_path(workspace, "instances") };
+        const std::chrono::hours grace { 24 };
 
         write_instance(mcppls::base::join_path(instances, "aaaaaaaaaaaaaaaa"), nowMs, "aaaaaaaaaaaaaaaa");
         write_instance(mcppls::base::join_path(instances, "bbbbbbbbbbbbbbbb"), nowMs - 120'000, "bbbbbbbbbbbbbbbb");   // 2 min stale
@@ -157,21 +159,51 @@ int main() {
         // `cccc` says nothing (a 0.0.9 leftover); its tree is fresh, so the grace keeps it.
         (void)fs::write_file(mcppls::base::join_path(instances, "cccccccccccccccc/model.a.json"), "{}");
 
-        const cache::Sweep sweep { cache::sweep_instances(workspace, now, std::chrono::hours { 24 }) };
+        const cache::Sweep sweep { cache::sweep_instances(workspace, now, grace) };
         expect(sweep.instances == 1) << sweep.instances;
         expect(fs::is_directory(mcppls::base::join_path(instances, "aaaaaaaaaaaaaaaa"))) << "the live one stays";
         expect(!fs::exists(mcppls::base::join_path(instances, "bbbbbbbbbbbbbbbb")));
         expect(fs::is_directory(mcppls::base::join_path(instances, "cccccccccccccccc"))) << "fresh without a self-description: the grace holds";
 
-        // The tick's cheap half: rename only, never remove.
-        const std::size_t renamed { cache::rename_dead_instances(workspace, std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()), "dddddddddddddddd") };
-        expect(renamed == 1) << "the stale one is renamed aside";
-        expect(fs::is_directory(mcppls::base::join_path(instances, "cccccccccccccccc.trash-dddddddddddddddd")));
+        // The tick's cheap half: rename only, never remove -- and the SAME grace the sweep gives a
+        // directory that says nothing (review 2026-10-03): a 0.0.9 guest working right now must not
+        // be renamed out from under a 0.0.10 owner's tick, whatever its mtime says elsewhere.
+        const std::size_t renamedFresh { cache::rename_dead_instances(workspace, std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()), "dddddddddddddddd", grace) };
+        expect(renamedFresh == 0) << std::format("the fresh undescribed directory is not renamed: {}", renamedFresh);
+        expect(fs::is_directory(mcppls::base::join_path(instances, "cccccccccccccccc"))) << "still under its own name";
+
+        // A described one whose heartbeat is stale, and an undescribed one past its grace: both go.
+        write_instance(mcppls::base::join_path(instances, "ffffffffffffffff"), nowMs - 120'000, "ffffffffffffffff");
+        const std::string oldLeftover { mcppls::base::join_path(instances, "gggggggggggggggg") };
+        const std::string oldModel { mcppls::base::join_path(oldLeftover, "model.old.json") };
+        (void)fs::create_directories(oldLeftover);
+        (void)fs::write_file(oldModel, "{}");
+        std::filesystem::last_write_time(oldModel, std::chrono::file_clock::now() - std::chrono::hours { 48 });
+        const std::size_t renamed { cache::rename_dead_instances(workspace, std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()), "dddddddddddddddd", grace) };
+        expect(renamed == 2) << std::format("the stale heartbeat and the past-grace leftover: {}", renamed);
+        expect(fs::is_directory(mcppls::base::join_path(instances, "ffffffffffffffff.trash-dddddddddddddddd")));
+        expect(fs::is_directory(oldLeftover + ".trash-dddddddddddddddd"));
         // And a sweep removes what the tick renamed aside.
-        const cache::Sweep taken { cache::sweep_instances(workspace, now, std::chrono::hours { 24 }) };
-        expect(taken.instances == 1) << "the renamed-aside directory is taken";
+        const cache::Sweep taken { cache::sweep_instances(workspace, now, grace) };
+        expect(taken.instances == 2) << "the renamed-aside directories are taken";
         expect(fs::is_directory(mcppls::base::join_path(instances, "aaaaaaaaaaaaaaaa"))) << "the live one survived the second sweep";
-        expect(!fs::exists(mcppls::base::join_path(instances, "cccccccccccccccc.trash-dddddddddddddddd")));
+        expect(fs::is_directory(mcppls::base::join_path(instances, "cccccccccccccccc"))) << "the fresh leftover survived it too";
+        fs::remove_all(workspace);
+    };
+
+    "a heartbeat slightly ahead of this clock is alive; one far ahead is not trusted"_test = [] {
+        // A clock stepped back (NTP, waking from sleep) puts fresh heartbeats in the future: reaping
+        // every live instance for that would be worse than believing them (review 2026-10-03).
+        const std::string workspace { scratch("clock") };
+        const auto now { std::chrono::system_clock::now() };
+        const std::int64_t nowMs { std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() };
+        const std::string instances { mcppls::base::join_path(workspace, "instances") };
+        write_instance(mcppls::base::join_path(instances, "stepedback"), nowMs + 10'000, "stepedback");
+        write_instance(mcppls::base::join_path(instances, "farfuture"), nowMs + 7 * 24 * 3600'000, "farfuture");
+        const cache::Sweep sweep { cache::sweep_instances(workspace, now, std::chrono::hours { 24 }) };
+        expect(sweep.instances == 1) << "only the far-future one is judged dead";
+        expect(fs::is_directory(mcppls::base::join_path(instances, "stepedback")));
+        expect(!fs::exists(mcppls::base::join_path(instances, "farfuture")));
         fs::remove_all(workspace);
     };
 
@@ -209,11 +241,34 @@ int main() {
         expect(cache::parse_bytes("512M") == std::uint64_t { 512 } << 20);
         expect(cache::parse_bytes("100K") == std::uint64_t { 100 } << 10);
         expect(cache::parse_bytes("4096") == std::uint64_t { 4'096 });
+        expect(cache::parse_bytes("0") == std::uint64_t { 0 }) << "an explicit zero asks for none of what can be removed";
         expect(cache::parse_bytes("unlimited") == std::numeric_limits<std::uint64_t>::max());
         expect(!cache::parse_bytes("four").has_value());
+        // Consumed whole, or not at all (review 2026-10-03): "12abcG" used to mean 12G and "1.5G" used to mean 1G.
+        expect(!cache::parse_bytes("12abcG").has_value());
+        expect(!cache::parse_bytes("1.5G").has_value());
+        expect(!cache::parse_bytes("4 G").has_value());
+        expect(!cache::parse_bytes("G").has_value());
         expect(cache::level_of(1'000, 4'000) == "ok");
         expect(cache::level_of(3'000, 4'000) == "near");
         expect(cache::level_of(4'001, 4'000) == "over");
+    };
+
+    "a lease is taken over early only on a process the platform can name as gone"_test = [] {
+        using mcppls::orchestrator::lease_owner_gone;
+        // No pid or no stamp recorded: the heartbeat alone decides, the process tables are not asked.
+        expect(!lease_owner_gone(0, "stamp"));
+        expect(!lease_owner_gone(42, ""));
+        // This process, by its own identity: alive, and a different stamp means a reused pid.
+        const auto self { mcppls::platform::process_self() };
+        if (self) {
+            expect(!lease_owner_gone(self->pid, self->started)) << "the process writing this lease is not gone";
+            expect(lease_owner_gone(self->pid, self->started + "!")) << "the same pid with another incarnation is";
+        }
+        // A pid nothing answers for is gone on every platform; an unreadable identity is NOT death
+        // (another user's process on Windows), but that case needs one to exist -- the definite
+        // branches are what a test can promise everywhere.
+        expect(lease_owner_gone(2'000'000'000, "stamp")) << "a pid no process has";
     };
 
     "the agent prompt is the task book the plan wrote down (D19; UI-12/UI-13 of 2026-10-03)"_test = [] {

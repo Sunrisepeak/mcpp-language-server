@@ -65,6 +65,19 @@ lives under a budget, and what it is doing is visible (plan 2026-10-02, `C-7…C
   `package.nls*`, the runtime words through `l10n/` bundles, with key-parity tests holding the two
   together; the server's logs, CLI and prompts stay English. A `bundlesDirectory` field joins
   `cxxModules/cache`'s `paths`, so a client never guesses where a diagnostic bundle lands.
+- **Hardened by the pre-release review.** A 0.0.9 instance working beside a 0.0.10 one keeps its
+  cache: the lease tick now gives an undescribed instance directory the same 24-hour grace the
+  sweep does, and a reset no longer deletes the resetting instance's own `instance.json` (the
+  heartbeat that says it is alive). The sweep command and a stale `cxxModules/cache` walk the
+  tree off the event loop — the reply arrives when the work is done, and no request or lease
+  renewal waits behind minutes of filesystem work; every sweep, background or interactive, is one
+  at a time with later ones coalesced. An unreadable process identity (another user's process on
+  Windows, a failed `ps` on macOS) no longer reads as a dead lease owner — only a definite answer
+  releases a lease early. A crashed clangd no longer pins its generation's start forever, so
+  `staleCommands` sweeps are possible again after a crash. Clock steps back no longer reap every
+  live instance. Budget settings that do not parse are rejected whole (`1.5G` is not `1G`) and
+  logged; deletions count what they could not take instead of what they attempted; a dry run
+  changes nothing the server remembers; a multi-root sweep answers with the sum over its roots.
 
 ## [0.0.9] — 2026-10-02
 

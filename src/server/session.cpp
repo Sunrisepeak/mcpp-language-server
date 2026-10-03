@@ -216,6 +216,11 @@ private:
         case EventKind::cache_swept:
             if (auto* root = root_by_key_(event.rootKey)) root->handle_cache_swept(event.message);
             break;
+        case EventKind::deferred_answer:
+            // A request whose heavy half ran off the loop (the sweep command): the loop answers,
+            // exactly as if the work had finished here -- see the comment at EventKind.
+            if (event.message.is_object()) reply_(event.message.value("id", Json {}), event.message.value("result", Json(nullptr)));
+            break;
         }
     }
 
@@ -310,7 +315,10 @@ private:
         }
         // C-13.1 (plan 2026-10-03): the sweep command -- what no engine holds is removed, nothing is
         // stopped and no canonical BMI is touched (S3 5.8). `arguments: [{ root, categories,
-        // dryRun, maxBytes }]`; no arguments names every root.
+        // dryRun, maxBytes }]`; no arguments names every root. The removals run off the loop
+        // (review 2026-10-03: a full walk of a grown cache held every request behind it, and the
+        // lease's own renewal with them): this decides per root, a thread does the walking, and
+        // the answer arrives as a deferred_answer event -- every root's numbers added together.
         if (method == lsp::method::WORKSPACE_EXECUTE_COMMAND && params.value("command", std::string {}) == "mcppls.sweepCache") {
             const Json arguments = params.value("arguments", Json::array());
             Json options;
@@ -320,18 +328,51 @@ private:
                 if (auto path = base::uri_to_path(wanted)) wantedPath = platform::fs::canonical_path(*path);
                 else wantedPath = platform::fs::canonical_path(wanted);
             }
-            std::size_t swept { 0 };
-            Json answer;
+            struct Target {
+                std::string key;
+                orchestrator::SweepStart start;
+            };
+            std::vector<Target> targets;
             for (auto& root : roots_) {
                 if (wantedPath && !base::same_path(*wantedPath, root->root())) continue;
-                answer = root->sweep_cache(options);
-                ++swept;
+                targets.push_back({ root->key(), root->prepare_sweep(options) });
             }
-            if (swept == 0) {
+            if (targets.empty()) {
                 reply_error_(id, lsp::INVALID_PARAMS, "no root serves the cache a sweep was asked for");
                 return;
             }
-            reply_(id, std::move(answer));
+            std::thread { [events = events_, targets = std::move(targets), id]() mutable {
+                std::uint64_t freed { 0 };
+                std::size_t files { 0 }, instances { 0 }, failed { 0 }, running { 0 };
+                bool dryRun { false };
+                bool allBusy { true };
+                for (auto& target : targets) {
+                    if (!target.start.started) continue;   // that root had a sweep in flight; it freed nothing here
+                    allBusy = false;
+                    dryRun = target.start.dryRun;
+                    ++running;
+                    Json outcome;
+                    try {
+                        outcome = orchestrator::run_prepared_sweep(target.start);
+                    } catch (...) {
+                        // The walk itself failed: the event still releases the single-flight token.
+                        outcome = Json { { "origin", "command" }, { "dryRun", target.start.dryRun }, { "bytes", std::uint64_t { 0 } },
+                                         { "files", std::size_t { 0 } }, { "instances", std::size_t { 0 } }, { "failed", std::size_t { 1 } } };
+                    }
+                    events->push(Event { EventKind::cache_swept, outcome, 0, {}, target.key, {} });
+                    freed += outcome.value("bytes", std::uint64_t { 0 });
+                    files += outcome.value("files", std::size_t { 0 });
+                    instances += outcome.value("instances", std::size_t { 0 });
+                    failed += outcome.value("failed", std::size_t { 0 });
+                }
+                events->push(Event { EventKind::deferred_answer,
+                                     Json { { "id", id },
+                                            { "result", Json { { "ok", true }, { "freedBytes", freed }, { "files", files },
+                                                                      { "instances", instances }, { "failed", failed },
+                                                                      { "roots", targets.size() }, { "dryRun", dryRun },
+                                                                      { "alreadyRunning", allBusy } } } },
+                                     0, {}, {}, {} });
+            } }.detach();
             return;
         }
         // overall design 7.7: the review of the workspace's changes, run in the background, its findings published as diagnostics.
@@ -572,11 +613,16 @@ private:
             // Indexed by EventKind's own value: every enum member has its row, in the enum's
             // order. A new EventKind without its row here is an out-of-bounds read of a
             // string_view -- the 0.0.10 cache_swept crash was exactly that, found by the E2E.
-            static constexpr std::array<std::string_view, 9> KINDS { "a client message", "the client closing", "an engine event", "a loaded model",
-                                                                     "an external event", "a finished review", "a tool run", "a written bundle",
-                                                                     "a swept cache" };
+            // The assert makes the compiler say it first (review 2026-10-03), the guard below
+            // makes a future miss degrade to a name instead of undefined behaviour.
+            static constexpr std::array<std::string_view, 10> KINDS { "a client message", "the client closing", "an engine event", "a loaded model",
+                                                                      "an external event", "a finished review", "a tool run", "a written bundle",
+                                                                      "a swept cache", "a deferred answer" };
+            static_assert(KINDS.size() == static_cast<std::size_t>(EventKind::deferred_answer) + 1,
+                          "every EventKind has its row in KINDS (the last member is the count)");
+            const auto index { static_cast<std::size_t>(event->kind) };
             what = event->kind == EventKind::client_message ? event->message.value("method", std::string { "a response" })
-                                                            : std::string { KINDS[static_cast<std::size_t>(event->kind)] };
+                                                            : index < KINDS.size() ? std::string { KINDS[index] } : std::format("event {}", index);
             if (event->kind == EventKind::engine_event && event->message.is_object()) {
                 std::string detail { event->message.value("kind", std::string {}) };
                 if (const Json* inner = lsp::find(event->message, "message"); inner != nullptr && inner->is_object()) {

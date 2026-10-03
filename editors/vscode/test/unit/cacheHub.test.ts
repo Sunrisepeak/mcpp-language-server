@@ -87,6 +87,8 @@ suite('cache hub v2', () => {
 
     test('sweep results say what happened, including that nothing restarts', () => {
         assert.ok(sweepResultText(parseSweepResult({ ok: true, freedBytes: 1_288_490_188_288, files: 6837, roots: 1, dryRun: false })).includes('No restart'));
+        assert.ok(sweepResultText(parseSweepResult({ ok: true, freedBytes: 1_288_490_188_288, files: 6837, roots: 1, dryRun: false })).includes('1.29 TB'),
+            'the receipt reads like a person reads sizes, not raw bytes');
         assert.ok(sweepResultText(parseSweepResult({ ok: true, freedBytes: 0, files: 0, roots: 1, dryRun: false })).includes('already'));
         assert.ok(sweepResultText(parseSweepResult({ ok: true, freedBytes: 100, files: 1, roots: 1, dryRun: true })).includes('would'));
         assert.ok(sweepResultText(parseSweepResult({ ok: true, alreadyRunning: true })).includes('already running'));

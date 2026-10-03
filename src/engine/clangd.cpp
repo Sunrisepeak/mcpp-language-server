@@ -2363,6 +2363,11 @@ private:
         const bool early { !handshakeDone_ };
         upSince_.reset();
         closedGeneration_ = generation_;
+        // C-7: the generation that protected its own writes from sweeps is over -- nothing of it
+        // may be running to hold a file mapped, so the bound falls back to "no live generation"
+        // (an interactive sweep may take the stale command directories of S3 5.8, and no bound
+        // protects a generation that no longer exists). The next start stamps a new one.
+        generationStartedAt_ = 0;
         handshakeDone_ = false;
         accepting_ = false;
         forget_primes_();

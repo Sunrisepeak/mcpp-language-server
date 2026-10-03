@@ -15,6 +15,7 @@ import mcppls.engine;
 import mcppls.engine.payload;
 import mcppls.engine.native.index;
 import mcppls.orchestrator.client;
+import mcppls.orchestrator.cache;
 import mcppls.config.settings;
 
 export namespace mcppls::orchestrator {
@@ -92,7 +93,10 @@ struct SessionOptions {
 // `tool_run` carries what the external-program runner wrote down about one run, so the
 // workspace it belongs to can journal it (design 4.6).
 // `bundle_written` carries the outcome of a diagnostic bundle an editor asked for (issue #23 fix plan F18).
-enum class EventKind { client_message, client_closed, engine_event, model_loaded, external, review_finished, tool_run, bundle_written, cache_swept };
+// `deferred_answer` carries the reply of a request whose heavy half ran off the loop (the sweep
+// command, 0.0.10 review): a thread posts it, the loop answers the client, so the loop itself is
+// never held by the work -- the same shape as `bundle_written`, for a request reply.
+enum class EventKind { client_message, client_closed, engine_event, model_loaded, external, review_finished, tool_run, bundle_written, cache_swept, deferred_answer };
 
 struct Event {
     EventKind kind { EventKind::client_message };
@@ -115,6 +119,34 @@ std::string_view to_string(State state);
 bool is_build_file(std::string_view name);
 // The files a watch (dynamic or the W9.3 polling fallback) cares about under `root`.
 std::map<std::string, platform::fs::FileStamp> watched_files_snapshot(std::string_view root);
+
+// A sweep the session asked for, prepared on its loop (0.0.10 review): the loop-side half
+// (`Workspace::prepare_sweep`) decides the categories and bounds and takes the single-flight
+// token, and this -- plain data only -- is what the heavy half runs with, on any thread. When
+// `started` is false nothing runs and `immediate` is that root's whole answer (a sweep was in
+// flight already).
+struct SweepStart {
+    bool started { false };
+    bool dryRun { false };
+    Json immediate { Json::object() };
+    // Valid when started; every path and limit the walks need, with no Workspace state in it.
+    bool copies { true }, instances { true }, trash { true }, staleCommands { false }, budget { true };
+    bool engineLive { false };             // S3 5.8: staleCommands only with no live engine
+    std::int64_t bound { 0 };              // the file-clock bound a live generation's writes stay above
+    std::string cacheDirectory;            // this instance's own (its contexts)
+    std::string workspaceDirectory;        // the shared one (its `instances/`)
+    std::string workspacesRoot;            // <cache>/workspaces, the budget's view
+    std::string ownToken;                  // the report's "own" marker
+    cache::Budget limits {};
+    std::chrono::seconds grace { 0 };
+    std::chrono::system_clock::time_point now {};
+};
+
+// The heavy half of a prepared sweep (0.0.10 review): the walks and removals, the filesystem and
+// pure helpers only -- no Workspace state, so any thread may run it. Returns the `cache_swept`
+// event's payload (`origin`, `dryRun`, the numbers, and a fresh `report` for a real sweep); the
+// caller delivers it as an event and answers the request from the same numbers.
+Json run_prepared_sweep(const SweepStart& start);
 
 class Workspace {
 public:
@@ -175,15 +207,19 @@ public:
     // ---- the cache mcppls owns (0.0.10 plan C-7, C-8, C-9, C-13.1) ---------------------
     // The classified cache report this root serves (`cxxModules/cache`): numbers cached for at most
     // 30 s and recomputed at once after a sweep, plus the state, engines and paths a hub needs.
-    // Read-only: it never cleans.
+    // Read-only: it never cleans. A stale snapshot is answered at once and refreshed off the loop
+    // (0.0.10 review): walking a full cache tree is not what the event loop is for.
     Json cache_report() const;
-    // `mcppls.sweepCache` (S3 5.8): removes what `categories` name under the sweep's safety rules --
-    // no engine stopped, no canonical BMI touched, nothing a live generation holds mapped. Answers
-    // `{ok, freedBytes, files, instances, roots, dryRun}` (+ `alreadyRunning` when a sweep is in
-    // flight and nothing was done).
-    Json sweep_cache(const Json& params);
-    // A background sweep (start path, tick or budget) finished; its numbers go to the journal, the
-    // status' `cache` fragment and the report cache.
+    // `mcppls.sweepCache` (S3 5.8), split in two (0.0.10 review) so the session's event loop is
+    // never held by the removals: this, the loop-side half, decides the categories under the
+    // sweep's safety rules -- no engine stopped, no canonical BMI touched, nothing a live
+    // generation holds mapped -- takes the single-flight token, and packs everything the heavy
+    // half needs into plain data. `run_prepared_sweep` does the walking, anywhere.
+    SweepStart prepare_sweep(const Json& params);
+    // A background sweep (start path, tick, budget or report refresh) finished; its numbers go to
+    // the journal, the status' `cache` fragment and the report cache -- and the single-flight
+    // token is released here, on the loop, for every origin (a pass asked for while one ran is
+    // coalesced and retriggered from here, never queued behind it).
     void handle_cache_swept(const Json& outcome);
 
     // ---- the review an editor asks for (overall design 7.7) ----------------------------

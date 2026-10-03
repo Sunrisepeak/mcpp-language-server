@@ -193,7 +193,12 @@ struct Workspace::Impl final : engine::Host {
     std::uint64_t lastSweepFreed_ { 0 };
     std::size_t lastSweepFiles_ { 0 };
     std::size_t lastSweepFailed_ { 0 };
-    std::atomic<bool> sweepRunning_ { false };    // one sweep at a time, in this process
+    // One cache pass at a time in this process, background or interactive alike (0.0.10 review:
+    // startup, an engine start and a command used to race on the same tree). A pass asked for
+    // while one runs is merged into `sweepPending_` and retriggered when the running one reports.
+    std::atomic<bool> sweepRunning_ { false };
+    bool sweepPending_ { false };                  // under cacheMutex_
+    bool sweepPendingReportOnly_ { true };         // the coalesced pass's mode: report-only unless a removal asked too
     std::optional<Clock::time_point> leaseRenewAt;
     engine::PayloadPaths payload;
     bool payloadCorrupt { false };
@@ -564,8 +569,16 @@ struct Workspace::Impl final : engine::Host {
 
     cache::Budget cache_budget() const {
         cache::Budget budget;
-        if (const auto bytes = cache::parse_bytes(options.settings.string_value("cache.maxBytes"))) budget.perWorkspace = *bytes;
-        if (const auto bytes = cache::parse_bytes(options.settings.string_value("cache.totalBytes"))) budget.total = *bytes;
+        // A setting that does not parse says so (review 2026-10-03): the default quietly holding is
+        // how a typo'd budget used to look exactly like no budget at all.
+        if (const std::string given { options.settings.string_value("cache.maxBytes") }; !given.empty()) {
+            if (const auto bytes = cache::parse_bytes(given)) budget.perWorkspace = *bytes;
+            else log::warning("setting cache.maxBytes \"{}\" does not parse (4G, 512M, 100K, bytes or unlimited); keeping the default", given);
+        }
+        if (const std::string given { options.settings.string_value("cache.totalBytes") }; !given.empty()) {
+            if (const auto bytes = cache::parse_bytes(given)) budget.total = *bytes;
+            else log::warning("setting cache.totalBytes \"{}\" does not parse (4G, 512M, 100K, bytes or unlimited); keeping the default", given);
+        }
         return budget;
     }
 
@@ -574,8 +587,21 @@ struct Workspace::Impl final : engine::Host {
     // One background pass: dead instances first (they can free the most), then the copies, then the
     // budget across the workspaces nothing has open. `before` is the sweep's bound on the file
     // clock; the result arrives as a `cache_swept` event, so the journal, the status and the report
-    // cache are all touched on the session loop, as everything else is.
-    void start_cache_task_(std::string_view origin, std::int64_t before = platform::fs::modified_now()) {
+    // cache are all touched on the session loop, as everything else is. `reportOnly` skips every
+    // removal and only refreshes the numbers (a stale `cxxModules/cache` answer). Single-flight:
+    // while one pass runs, another asked-for pass is coalesced and retriggered by
+    // `handle_cache_swept`, never queued behind it (review 2026-10-03: a crash-looping engine
+    // starting one full pass per restart is many threads on one tree otherwise).
+    void start_cache_task_(std::string_view origin, std::int64_t before = platform::fs::modified_now(), bool reportOnly = false) {
+        {
+            std::lock_guard lock(cacheMutex_);
+            if (sweepRunning_.load()) {
+                sweepPending_ = true;
+                sweepPendingReportOnly_ = sweepPendingReportOnly_ && reportOnly;   // a removal pass asked for later wins
+                return;
+            }
+            sweepRunning_.store(true);
+        }
         const cache::Budget budget { cache_budget() };
         const auto grace { cache_grace() };
         const std::string workspaceDirectory { workspaceDirectory_ };
@@ -584,25 +610,27 @@ struct Workspace::Impl final : engine::Host {
         const std::string ownToken { ownToken_ };
         auto queue = events;
         const std::string rootKey { key };
-        std::thread { [budget, grace, workspaceDirectory, ownCacheDirectory, ownKey, ownToken, origin = std::string { origin }, before, queue, rootKey]() mutable {
+        std::thread { [budget, grace, workspaceDirectory, ownCacheDirectory, ownKey, ownToken, origin = std::string { origin }, before, queue, rootKey, reportOnly]() mutable {
             const auto now { std::chrono::system_clock::now() };
             std::uint64_t bytes { 0 };
             std::size_t files { 0 }, instances { 0 }, failed { 0 };
-            const cache::Sweep dead { cache::sweep_instances(workspaceDirectory, now, grace) };
-            bytes += dead.bytes;
-            files += dead.files;
-            instances += dead.instances;
-            failed += dead.failed;
-            for (const auto& context : cache::contexts_of(ownCacheDirectory)) {
-                const cache::Sweep one { cache::sweep_copies(cache::modules_root(context), before) };
-                bytes += one.bytes;
-                files += one.files;
-                failed += one.failed;
+            if (!reportOnly) {
+                const cache::Sweep dead { cache::sweep_instances(workspaceDirectory, now, grace) };
+                bytes += dead.bytes;
+                files += dead.files;
+                instances += dead.instances;
+                failed += dead.failed;
+                for (const auto& context : cache::contexts_of(ownCacheDirectory)) {
+                    const cache::Sweep one { cache::sweep_copies(cache::modules_root(context), before) };
+                    bytes += one.bytes;
+                    files += one.files;
+                    failed += one.failed;
+                }
+                const cache::Sweep over { cache::enforce_budget(base::join_path(platform::dirs::cache_directory(), "workspaces"), budget, ownKey, now) };
+                bytes += over.bytes;
+                files += over.files;
+                failed += over.failed;
             }
-            const cache::Sweep over { cache::enforce_budget(base::join_path(platform::dirs::cache_directory(), "workspaces"), budget, ownKey, now) };
-            bytes += over.bytes;
-            files += over.files;
-            failed += over.failed;
             Json report;
             try {
                 report = cache::report(ownCacheDirectory, budget, std::chrono::system_clock::now(), ownToken);
@@ -610,8 +638,8 @@ struct Workspace::Impl final : engine::Host {
                 report = Json::object();   // a report is never worth a crashed sweeper thread
             }
             queue->push(Event { EventKind::cache_swept,
-                                Json { { "origin", origin }, { "bytes", bytes }, { "files", files }, { "instances", instances },
-                                       { "failed", failed }, { "report", std::move(report) } },
+                                Json { { "origin", origin }, { "reportOnly", reportOnly }, { "bytes", bytes }, { "files", files },
+                                       { "instances", instances }, { "failed", failed }, { "report", std::move(report) } },
                                 0, {}, rootKey, {} });
         } }.detach();
     }
@@ -2300,9 +2328,10 @@ struct Workspace::Impl final : engine::Host {
             lease->renew(std::chrono::system_clock::now());
             // C-9: the tick's cheap part -- stat the few `instance.json` files and rename the dead
             // directories aside; their removal (however large) runs in the background, so the tick
-            // stays at milliseconds. A live guest's own heartbeat protects it here, owner or not.
+            // stays at milliseconds. A live guest's own heartbeat protects it here, owner or not,
+            // and a directory that says nothing at all gets the same grace the sweep gives it.
             const auto heartbeat { std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()) };
-            if (cache::rename_dead_instances(workspaceDirectory_, heartbeat, ownToken_) > 0) start_cache_task_("tick", platform::fs::modified_now());
+            if (cache::rename_dead_instances(workspaceDirectory_, heartbeat, ownToken_, cache_grace()) > 0) start_cache_task_("tick", platform::fs::modified_now());
             leaseRenewAt = now + LEASE_RENEWAL;
         }
         if (reloadAt && *reloadAt <= now) {
@@ -2760,9 +2789,11 @@ std::uint64_t Workspace::reset_cache() {
     for (const auto& engine : impl.engines) freed += engine->clear_cache_on_request();
     for (const auto& entry : platform::fs::list_directory(impl.cacheDirectory)) {
         const std::string_view name { base::file_name(entry) };
-        // C-9: the instance's self-description is reset with everything else -- the next heartbeat
-        // tick writes it anew; leaving it would make this instance look gone to a reaper.
-        if (name != "instance.json" && (!name.starts_with("model.") || !name.ends_with(".json"))) continue;
+        // The cached models go; the instance's own `instance.json` stays (review 2026-10-03). It is
+        // not cache -- it is the heartbeat that says this directory is alive. Removing it here made
+        // a guest look dead to the reapers for up to a renewal interval while it was rebuilding
+        // (the old comment claimed the opposite); like `owner.lease`, it survives a reset.
+        if (!name.starts_with("model.") || !name.ends_with(".json")) continue;
         if (const auto stamp = platform::fs::stamp(entry)) freed += stamp->size;
         platform::fs::remove_all(entry);
     }
@@ -2789,36 +2820,63 @@ void Workspace::handle_cache_swept(const Json& outcome) {
     const std::size_t files { outcome.value("files", std::size_t { 0 }) };
     const std::size_t instances { outcome.value("instances", std::size_t { 0 }) };
     const std::size_t failed { outcome.value("failed", std::size_t { 0 }) };
+    const bool dryRun { outcome.value("dryRun", false) };
+    bool retrigger { false };
+    bool pendingReportOnly { false };
     {
         std::lock_guard lock(impl.cacheMutex_);
-        impl.cacheSnapshot_ = outcome.value("report", Json::object());
-        impl.cacheReport_ = impl.cacheSnapshot_;
-        impl.cacheReportAt_ = Clock::now();
-        if (bytes > 0 || files > 0 || instances > 0 || failed > 0) {
-            impl.lastSweepAt_ = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-            impl.lastSweepFreed_ = bytes;
-            impl.lastSweepFiles_ = files;
-            impl.lastSweepFailed_ = failed;
+        // The single-flight token is released here for every origin (a dry-run command posts its
+        // event too, with nothing to remember); a pass coalesced while this one ran starts now.
+        impl.sweepRunning_.store(false);
+        if (impl.sweepPending_) {
+            impl.sweepPending_ = false;
+            retrigger = true;
+            pendingReportOnly = impl.sweepPendingReportOnly_;
+            impl.sweepPendingReportOnly_ = true;   // the next batch starts from the neutral mode again
+        }
+        // A preview changed nothing: no numbers are remembered and nothing is journalled as swept.
+        if (!dryRun) {
+            impl.cacheSnapshot_ = outcome.value("report", Json::object());
+            impl.cacheReport_ = impl.cacheSnapshot_;
+            impl.cacheReportAt_ = Clock::now();
+            if (bytes > 0 || files > 0 || instances > 0 || failed > 0) {
+                impl.lastSweepAt_ = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+                impl.lastSweepFreed_ = bytes;
+                impl.lastSweepFiles_ = files;
+                impl.lastSweepFailed_ = failed;
+            }
         }
     }
-    impl.journal.add("cache-swept", Json { { "bytes", bytes }, { "files", files }, { "instances", instances },
-                                           { "failed", failed }, { "origin", outcome.value("origin", std::string {}) } });
-    impl.update_status();
+    if (!dryRun) {
+        impl.journal.add("cache-swept", Json { { "bytes", bytes }, { "files", files }, { "instances", instances },
+                                               { "failed", failed }, { "origin", outcome.value("origin", std::string {}) } });
+        impl.update_status();
+    }
+    if (retrigger) impl.start_cache_task_("coalesced", platform::fs::modified_now(), pendingReportOnly);
 }
 
 Json Workspace::cache_report() const {
     auto& impl = *impl_;
     Json numbers;
+    bool refresh { false };
     {
         std::lock_guard lock(impl.cacheMutex_);
-        // At most 30 s old: a hub opening twice in a minute does not walk the same tree twice
-        // (C-13.1: the server is the only source, and it answers from its cache).
+        // At most 30 s old (C-13.1: the server is the only source, and it answers from its cache).
+        // A stale snapshot is answered at once and refreshed off the loop (review 2026-10-03):
+        // walking a full cache tree on the event loop held every request behind it. The one
+        // synchronous walk left is a server's very first answer, before any background pass has
+        // reported -- small by definition, and never repeated.
         if (!impl.cacheReportAt_ || Clock::now() - *impl.cacheReportAt_ > std::chrono::seconds { 30 }) {
-            impl.cacheReport_ = cache::report(impl.cacheDirectory, impl.cache_budget(), std::chrono::system_clock::now(), impl.ownToken_);
-            impl.cacheReportAt_ = Clock::now();
+            if (impl.cacheReport_.is_null()) {
+                impl.cacheReport_ = cache::report(impl.cacheDirectory, impl.cache_budget(), std::chrono::system_clock::now(), impl.ownToken_);
+                impl.cacheReportAt_ = Clock::now();
+            } else {
+                refresh = true;
+            }
         }
         numbers = impl.cacheReport_;
     }
+    if (refresh) impl.start_cache_task_("report", platform::fs::modified_now(), true);
     Json project { { "name", std::string { base::file_name(root_) } },
                    { "source", impl.model ? std::string { project::to_string(impl.model->source) } : std::string { "inferred" } } };
     if (impl.model) {
@@ -2832,6 +2890,10 @@ Json Workspace::cache_report() const {
     }
     const std::optional<engine::EngineStatus> core { impl.coreEngine != nullptr ? std::optional { impl.coreEngine->status() } : std::nullopt };
     const normalize::EnginePlan& plan { impl.plan };
+    // The two prompts share one facts object: it was rendered twice per report (review 2026-10-03).
+    // Copy-initialisation on purpose: `Json facts { json }` is nlohmann's initializer-list trap and
+    // wraps the object in a one-element array, which the prompt renderers then reject.
+    const Json promptFacts = impl.cache_prompt_facts_();
     Json envelope { { "state", std::string { to_string(impl.compute_state()) } },
                     { "project", std::move(project) },
                     { "plan", Json { { "units", plan.entries.size() }, { "modules", plan.modules.size() } } },
@@ -2848,8 +2910,8 @@ Json Workspace::cache_report() const {
                     { "paths", Json { { "cacheRoot", impl.workspaceDirectory_ }, { "logDirectory", base::parent_path(log::file_path()) },
                                       { "bundlesDirectory", bundle::default_directory() } } },
                     { "cli", Json { { "cacheQuery", "mcppls cache --format json" }, { "sweep", "mcppls cache --prune --dry-run" } } },
-                    { "prompts", Json { { "agent", cache::agent_prompt(impl.cache_prompt_facts_()) },
-                                        { "issue", cache::issue_prompt(impl.cache_prompt_facts_()) } } } };
+                    { "prompts", Json { { "agent", cache::agent_prompt(promptFacts) },
+                                        { "issue", cache::issue_prompt(promptFacts) } } } };
     if (core && core->toPrepare > 0) envelope["progress"] = Json { { "done", core->prepared }, { "total", core->toPrepare } };
     std::lock_guard lock(impl.cacheMutex_);
     if (impl.lastSweepAt_) {
@@ -2859,86 +2921,103 @@ Json Workspace::cache_report() const {
     return envelope;
 }
 
-Json Workspace::sweep_cache(const Json& params) {
+SweepStart Workspace::prepare_sweep(const Json& params) {
     auto& impl = *impl_;
+    SweepStart start;
     const Json given { params.value("categories", Json::array()) };
     const auto wants = [&](std::string_view category, bool byDefault) {
         if (!given.is_array() || given.empty()) return byDefault;
         return std::ranges::find(given, Json(std::string { category })) != given.end();
     };
-    const bool dryRun { params.value("dryRun", false) };
-    if (impl.sweepRunning_.exchange(true)) {
+    start.dryRun = params.value("dryRun", false);
+    if (impl.sweepRunning_.load()) {
         // C-13.1: one sweep at a time; a caller while one runs learns it and does the math itself.
-        return Json { { "ok", true }, { "alreadyRunning", true }, { "dryRun", dryRun }, { "freedBytes", std::uint64_t { 0 } },
-                      { "files", std::size_t { 0 } }, { "instances", std::size_t { 0 } }, { "roots", 1 } };
+        start.immediate = Json { { "ok", true }, { "alreadyRunning", true }, { "dryRun", start.dryRun },
+                                 { "freedBytes", std::uint64_t { 0 } }, { "files", std::size_t { 0 } },
+                                 { "instances", std::size_t { 0 } }, { "roots", 1 } };
+        return start;
     }
-    struct Running {
-        std::atomic<bool>& flag;
-        ~Running() { flag = false; }
-    } running { impl.sweepRunning_ };
-
+    impl.sweepRunning_.store(true);
+    start.started = true;
+    start.copies = wants("copies", true);
+    start.instances = wants("instances", true);
+    start.trash = wants("trash", true);
+    start.staleCommands = wants("staleCommands", false);
+    start.budget = wants("budget", true);
     // The safety rules of S3 5.8: nothing an engine holds, no canonical BMI, no engine stopped.
     std::int64_t bound { platform::fs::modified_now() };
-    bool engineLive { false };
     for (const auto& engine : impl.engines) {
-        if (const std::int64_t started { engine->generation_started_at() }; started > 0) {
-            engineLive = true;
-            bound = std::min(bound, started);
+        if (const std::int64_t began { engine->generation_started_at() }; began > 0) {
+            start.engineLive = true;
+            bound = std::min(bound, began);
         }
     }
-    const auto now { std::chrono::system_clock::now() };
+    start.bound = bound;
+    start.cacheDirectory = impl.cacheDirectory;
+    start.workspaceDirectory = impl.workspaceDirectory_;
+    start.workspacesRoot = base::join_path(platform::dirs::cache_directory(), "workspaces");
+    start.ownToken = impl.ownToken_;
+    start.limits = impl.cache_budget();
+    start.grace = impl.cache_grace();
+    start.now = std::chrono::system_clock::now();
+    return start;
+}
+
+Json run_prepared_sweep(const SweepStart& start) {
     std::uint64_t freed { 0 };
-    std::size_t files { 0 }, removed { 0 }, failed { 0 };
-    if (wants("copies", true)) {
-        for (const auto& context : cache::contexts_of(impl.cacheDirectory)) {
-            const cache::Sweep one { cache::sweep_copies(cache::modules_root(context), bound, dryRun) };
+    std::size_t files { 0 }, instances { 0 }, failed { 0 };
+    if (start.copies) {
+        for (const auto& context : cache::contexts_of(start.cacheDirectory)) {
+            const cache::Sweep one { cache::sweep_copies(cache::modules_root(context), start.bound, start.dryRun) };
             freed += one.bytes;
             files += one.files;
             failed += one.failed;
         }
     }
-    if (wants("instances", true)) {
-        const cache::Sweep one { cache::sweep_instances(impl.workspaceDirectory_, now, impl.cache_grace(), dryRun) };
+    if (start.instances) {
+        const cache::Sweep one { cache::sweep_instances(start.workspaceDirectory, start.now, start.grace, start.dryRun) };
         freed += one.bytes;
-        removed += one.instances;
+        instances += one.instances;
         failed += one.failed;
     }
-    if (wants("trash", true)) {
-        const cache::Sweep one { cache::sweep_trash(impl.cacheDirectory, dryRun) };
+    if (start.trash) {
+        const cache::Sweep one { cache::sweep_trash(start.cacheDirectory, start.dryRun) };
         freed += one.bytes;
         failed += one.failed;
     }
     // C-2's job on the engine path, and only ever by explicit request, and only where no engine
-    // lives: a command that stops for nothing must not take the command directories either.
-    if (wants("staleCommands", false) && !engineLive) {
-        for (const auto& context : cache::contexts_of(impl.cacheDirectory)) {
+    // lives: a command that stops for nothing must not take the command directories either. What
+    // it counts is what it removed (review 2026-10-03): a removal that fails says so, and nothing
+    // is counted freed that is still on disk.
+    if (start.staleCommands && !start.engineLive) {
+        for (const auto& context : cache::contexts_of(start.cacheDirectory)) {
             for (const auto& build : engine::clangd::stale_module_builds(base::join_path(context, "cdb"), 2)) {
-                const std::uint64_t bytes { cache::tree_bytes(build) };
-                if (!dryRun) platform::fs::remove_all(build);
-                freed += bytes;
-                ++files;
+                if (start.dryRun) {
+                    freed += cache::tree_bytes(build);
+                    continue;
+                }
+                const platform::fs::Removal removed { platform::fs::tree_remove(build) };
+                freed += removed.bytes;
+                failed += removed.failed;
             }
         }
     }
-    if (wants("budget", true) && !dryRun) {
-        const cache::Sweep one { cache::enforce_budget(base::join_path(platform::dirs::cache_directory(), "workspaces"), impl.cache_budget(),
-                                                       base::file_name(impl.workspaceDirectory_), now) };
+    if (start.budget && !start.dryRun) {
+        const cache::Sweep one { cache::enforce_budget(start.workspacesRoot, start.limits, base::file_name(start.workspaceDirectory), start.now) };
         freed += one.bytes;
         files += one.files;
         failed += one.failed;
     }
-    {
-        std::lock_guard lock(impl.cacheMutex_);
-        impl.lastSweepAt_ = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-        impl.lastSweepFreed_ = freed;
-        impl.lastSweepFiles_ = files;
-        impl.lastSweepFailed_ = failed;
-        impl.cacheReportAt_.reset();   // the next report is computed at once, from what is left
+    Json outcome { { "origin", "command" }, { "dryRun", start.dryRun }, { "bytes", freed }, { "files", files },
+                   { "instances", instances }, { "failed", failed } };
+    if (!start.dryRun) {
+        try {
+            outcome["report"] = cache::report(start.cacheDirectory, start.limits, std::chrono::system_clock::now(), start.ownToken);
+        } catch (...) {
+            outcome["report"] = Json::object();   // the reply stands even when a fresh report does not
+        }
     }
-    impl.journal.add("cache-swept", Json { { "bytes", freed }, { "files", files }, { "instances", removed },
-                                           { "failed", failed }, { "origin", "command" } });
-    impl.update_status();
-    return Json { { "ok", true }, { "freedBytes", freed }, { "files", files }, { "instances", removed }, { "roots", 1 }, { "dryRun", dryRun } };
+    return outcome;
 }
 
 bool Workspace::restart_core_engine() {
