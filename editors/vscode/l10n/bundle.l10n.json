@@ -85,5 +85,10 @@
   "No agent prompt is available: the server does not carry one (older server?).": "No agent prompt is available: the server does not carry one (older server?).",
   "for a local AI agent: read-only checks, a report back -- logs never leave this machine": "for a local AI agent: read-only checks, a report back -- logs never leave this machine",
   "Sweep": "Sweep",
-  "Agent prompt": "Agent prompt"
+  "Agent prompt": "Agent prompt",
+  "Class": "Class",
+  "Used": "Used",
+  "Share": "Share",
+  "Used / budget": "Used / budget",
+  "The last sweep freed {0}": "The last sweep freed {0}"
 }

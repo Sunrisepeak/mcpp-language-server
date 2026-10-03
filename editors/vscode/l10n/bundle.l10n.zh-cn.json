@@ -85,5 +85,10 @@
   "No agent prompt is available: the server does not carry one (older server?).": "没有可用的 Agent 提示词：服务端未携带（旧版服务端？）。",
   "for a local AI agent: read-only checks, a report back -- logs never leave this machine": "粘给本地 AI agent，只读检查并汇报——日志不出本机",
   "Sweep": "清理",
-  "Agent prompt": "Agent 提示词"
+  "Agent prompt": "Agent 提示词",
+  "Class": "构成",
+  "Used": "占用",
+  "Share": "占比",
+  "Used / budget": "已用 / 预算",
+  "The last sweep freed {0}": "上次清理释放了 {0}"
 }
