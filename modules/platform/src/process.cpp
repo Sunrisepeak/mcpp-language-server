@@ -40,6 +40,9 @@ __declspec(dllimport) KalDword __stdcall GetLastError();
 constexpr KalDword KAL_PROCESS_LIMITED_SYNCHRONIZE { 0x00100000 | 0x1000 };   // SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION
 constexpr KalDword KAL_WAIT_TIMEOUT { 258 };
 constexpr KalDword KAL_ERROR_INVALID_PARAMETER { 87 };
+#elif defined(__MCPP_TARGET_LINUX__)
+// Nothing: this target's self-identity reads /proc/self/stat, and getpid() would answer for the
+// sandbox rather than the process (see process_self).
 #else
 #include <unistd.h>
 #endif
@@ -588,24 +591,33 @@ KalHandle open_queriable(std::int64_t pid) {
 }
 #endif
 
-std::optional<ProcessIdentity> identity_from_proc(std::int64_t pid) {
-    // After ") ": state is field 3, starttime field 22, so the 20th of what follows.
-    const auto stat = fs::read_file(std::format("/proc/{}/stat", pid));
-    if (!stat) return std::nullopt;
-    const auto close = stat->rfind(')');
-    if (close == std::string::npos || close + 2 >= stat->size()) return std::nullopt;
+std::optional<ProcessIdentity> identity_from_stat(const std::string& stat, std::int64_t namedPid) {
+    const auto close = stat.rfind(')');
+    if (close == std::string::npos || close + 2 >= stat.size()) return std::nullopt;
     // A ZOMBIE HAS NO IDENTITY. Its /proc entry outlives the process and keeps its start time,
     // so a lease whose owner was killed reads as "the same live process" through the fields alone
     // -- and a server restarted within the lease expiry then took itself for a second instance
     // and started cold in a private directory (ux U10 measured 222 s instead of 25). The state
     // letter is what process_alive already reads; the identity refuses zombies for the same
     // reason: the question "is this the process I knew" has no answer for a dead one.
-    if ((*stat)[close + 2] == 'Z' || (*stat)[close + 2] == 'X') return std::nullopt;
+    if (stat[close + 2] == 'Z' || stat[close + 2] == 'X') return std::nullopt;
+    // The pid before the '(' when the caller did not name one (this is /proc/self's own entry,
+    // which says who "self" really is); the caller's name otherwise, so a stale entry cannot
+    // introduce a pid nobody asked about.
+    std::int64_t pid { namedPid };
+    if (namedPid <= 0) {
+        const auto open = stat.find('(');
+        const auto head = std::string_view { stat }.substr(0, open == std::string::npos ? 0 : open);
+        if (head.empty()) return std::nullopt;
+        std::from_chars(head.data(), head.data() + head.size(), pid);
+        if (pid <= 0) return std::nullopt;
+    }
+    // After ") ": state is field 3, starttime field 22, so the 20th of what follows.
     std::size_t field { 0 };
     std::size_t at { close + 2 };
-    while (at < stat->size()) {
-        const auto end = stat->find(' ', at);
-        const std::string_view value { std::string_view { *stat }.substr(at, end == std::string::npos ? std::string::npos : end - at) };
+    while (at < stat.size()) {
+        const auto end = stat.find(' ', at);
+        const std::string_view value { std::string_view { stat }.substr(at, end == std::string::npos ? std::string::npos : end - at) };
         if (++field == 20) return ProcessIdentity { pid, std::string { value } };
         if (end == std::string::npos) break;
         at = end + 1;
@@ -705,7 +717,9 @@ std::optional<double> cpu_seconds(std::int64_t pid) {
 std::optional<ProcessIdentity> process_identity(std::int64_t pid) {
     if (pid <= 0) return std::nullopt;
     if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
-        return identity_from_proc(pid);
+        const auto stat = fs::read_file(std::format("/proc/{}/stat", pid));
+        if (!stat) return std::nullopt;
+        return identity_from_stat(*stat, pid);
     } else if constexpr (mcppls::os::FAMILY == mcppls::os::Family::macos) {
         // ps(1) is the one tool every macOS host has that names a process by pid; `lstart` is the
         // birth time as the kernel keeps it, the same for every read of one incarnation and
@@ -736,6 +750,15 @@ std::optional<ProcessIdentity> process_identity(std::int64_t pid) {
 std::optional<ProcessIdentity> process_self() {
 #if defined(__MCPP_TARGET_WINDOWS__)
     return identity_of_handle(GetCurrentProcess(), static_cast<std::int64_t>(GetCurrentProcessId()));
+#elif defined(__MCPP_TARGET_LINUX__)
+    // /proc/self/stat, never /proc/<getpid()>/stat: under a sandbox getpid() answers for the
+    // sandbox (it says 1), and the identity of "process 1" is every process's -- measured as the
+    // ux kill-server stage, where a killed server and its restart read as the same live process
+    // and the restart started cold in a private cache (222 s where 25 was the budget). self's own
+    // entry names the real process inside the sandbox and out.
+    const auto stat = fs::read_file("/proc/self/stat");
+    if (!stat) return std::nullopt;
+    return identity_from_stat(*stat, 0);
 #else
     // The one pid POSIX hands out for free; the identity itself comes from the same source every
     // other process's does.
