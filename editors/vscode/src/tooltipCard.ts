@@ -23,7 +23,10 @@ export function escapeCell(text: string): string {
     return text.replace(/([\\`|[\]])/g, '\\$1').replace(/\r?\n/g, ' ');
 }
 
-const BAR_CELLS = 12;
+// 14 cells (review 2026-10-04): long enough that the bar column carries its share of the table's
+// width band -- the class rows and the total row then read as one even block, the right edge
+// falling where the footer's does, instead of a short strip tucked at the end of the table.
+const BAR_CELLS = 14;
 
 /** The dot-matrix bar, monochrome: `█` for the filled share, `░` for the scale behind it. */
 export function bar(share: number, cells = BAR_CELLS): string {
