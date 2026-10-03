@@ -592,9 +592,13 @@ function parentOf(path: string): string | undefined {
     return cut > 0 ? path.slice(0, cut) : undefined;
 }
 
-// The card's `Logs & reports` opens `root` -- logs/ and bundles/ side by side (plan UI-5); the hub's
+// The card's `Open logs & reports` opens `root` -- logs/ and bundles/ side by side (plan UI-5); the hub's
 // directory drill-down names each of the three precisely. An old server without `bundlesDirectory`
 // still answers: the bundle directory is the log directory's sibling.
+//
+// A DIRECTORY is opened with `openExternal`, not `revealFileInOS`: "reveal" selects the item in its
+// PARENT (xdg-open on the parent, Explorer /select, Finder -R), so revealing <cache>/logs actually
+// opened the cache root's parent -- the first live test read exactly that as "the wrong directory".
 export async function revealCacheDirectory(access: ServerAccess, which: 'cache' | 'logs' | 'bundles' | 'root' = 'cache'): Promise<void> {
     const detail = await fetchCacheDetail(access);
     const paths = detail?.paths;
@@ -608,7 +612,7 @@ export async function revealCacheDirectory(access: ServerAccess, which: 'cache' 
         access.showLogs();
         return;
     }
-    await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(path));
+    await vscode.env.openExternal(vscode.Uri.file(path));
 }
 
 // The card's `$(copy)` next to the repository link (UI-6): hover text cannot be selected, so the
