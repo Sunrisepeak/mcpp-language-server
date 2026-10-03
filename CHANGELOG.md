@@ -41,8 +41,8 @@ lives under a budget, and what it is doing is visible (plan 2026-10-02, `C-7…C
 - **One status item, two native surfaces.** The status bar's C++ Modules item carries the cache as
   a segment under a character budget (`mcppls.statusBar.maxLength`, default 36): hover for a
   read-only card in three zones — the project (state dot, module and unit counts, the real
-  preparation progress), the cache (a table with one bar a class), and the actions (sweep, logs &
-  reports, the local self-check) above the repository link — click for the hub, a QuickPick in four
+  preparation progress), the cache (a table with one bar a class), and the actions (sweep, open logs &
+  reports, copy the agent prompt) above the repository link — click for the hub, a QuickPick in four
   groups (overview, clean, diagnostics, feedback), every entry with its codicon, one primary action
   (**Sweep the Module Cache**, with an eye button for a dry run), a `Details` drill-down into the
   largest modules and an `Open a directory…` drill-down into the three places a report names. No
@@ -54,7 +54,7 @@ lives under a budget, and what it is doing is visible (plan 2026-10-02, `C-7…C
   `--max-size` and an instances-only report. The classified numbers
   (`canonical` / `copies` / `instances` / `trash`) replace the old "each module may be stored twice"
   guess, in the CLI, in the status, and behind the new `cxxModules/cache` request.
-- **A task book for a local agent.** The hub copies the self-check prompt — verified facts, the
+- **A task book for a local AI agent.** The hub copies the agent prompt — verified facts, the
   read-only checks each with what healthy looks like, the output contract (a verdict, the evidence,
   what could be done without deleting), and a bug branch that asks the developer first and only
   then drafts the issue itself, shows the draft for approval, and never uploads logs or bundles;

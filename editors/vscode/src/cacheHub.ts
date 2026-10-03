@@ -107,8 +107,8 @@ export function hubItems(detail: CacheDetail, caps: HubCapabilities, receipt?: s
     items.push({
         kind: 'entry',
         icon: '$(copy)',
-        label: t('Copy the local self-check prompt'),
-        description: t('for a local agent, read-only -- logs never leave this machine'),
+        label: t('Copy the Agent Troubleshooting Prompt'),
+        description: t('for a local AI agent: read-only checks, a report back -- logs never leave this machine'),
         behavior: 'command',
         action: { command: COPY_AGENT_PROMPT_COMMAND },
     });

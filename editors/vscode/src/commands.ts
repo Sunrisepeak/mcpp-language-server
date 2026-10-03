@@ -565,11 +565,11 @@ export async function copyAgentPrompt(access: ServerAccess): Promise<string | un
     const detail = await fetchCacheDetail(access);
     const prompt = detail?.prompts?.agent;
     if (!prompt) {
-        void vscode.window.showWarningMessage(t('No self-check prompt is available: the server does not carry one (older server?).'));
+        void vscode.window.showWarningMessage(t('No agent prompt is available: the server does not carry one (older server?).'));
         return undefined;
     }
     await vscode.env.clipboard.writeText(prompt);
-    void vscode.window.setStatusBarMessage(t('Copied the self-check prompt -- for a local agent; logs never leave this machine'), 5000);
+    void vscode.window.setStatusBarMessage(t('Copied the agent prompt -- paste it to a local agent; logs never leave this machine'), 5000);
     return prompt;
 }
 

@@ -16,7 +16,7 @@
   "command.mcppls.resetWorkspaceCache.title": "Reset This Workspace's Cache",
   "command.mcppls.openCacheHub.title": "Open the Cache Hub",
   "command.mcppls.sweepWorkspaceCache.title": "Sweep the Module Cache (No Restart, No Rebuild)",
-  "command.mcppls.copyAgentPrompt.title": "Copy the Local Self-Check Prompt",
+  "command.mcppls.copyAgentPrompt.title": "Copy the Agent Prompt for Cache Troubleshooting",
   "command.mcppls.copyIssuePrompt.title": "Copy the Issue Draft Prompt",
   "command.mcppls.revealCacheDirectory.title": "Reveal the Cache Directory",
   "command.mcppls.newCacheIssue.title": "Report a Cache Problem on GitHub",

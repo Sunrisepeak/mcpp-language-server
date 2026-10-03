@@ -6,7 +6,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import { CacheDetail, CxxCacheStatus } from '../../src/cacheSegment';
-import { bar, baseName, cardMarkdown, CardInput, escapeCell, stateDot } from '../../src/tooltipCard';
+import { baseName, budgetColor, cardMarkdown, CardInput, emojiBar, escapeCell, stateDot } from '../../src/tooltipCard';
 import { setLocalizer } from '../../src/strings';
 
 const detail: CacheDetail = {
@@ -50,13 +50,16 @@ suite('tooltip card v2', () => {
         assert.strictEqual(escapeCell('line1\nline2'), 'line1 line2', 'a newline cannot start a new card line');
     });
 
-    test('the bar is one fixed-width language: filled for the share, ticks for the scale (UI-4)', () => {
-        assert.strictEqual(bar(0.5).length, 12);
-        assert.strictEqual(bar(0.5), '██████░░░░░░');
-        assert.strictEqual(bar(0), '░░░░░░░░░░░░');
-        assert.strictEqual(bar(1), '████████████');
-        assert.strictEqual(bar(2), '████████████', 'out-of-range shares clamp, never overflow');
-        assert.strictEqual(bar(Number.NaN), '░░░░░░░░░░░░');
+    test('the bar is a fixed-width run of one colour: emoji squares the sanitizer cannot touch (v2.2)', () => {
+        assert.strictEqual(emojiBar('🟦', 0.5), '🟦🟦🟦🟦⬜⬜⬜⬜');
+        assert.strictEqual(emojiBar('🟦', 0), '⬜⬜⬜⬜⬜⬜⬜⬜');
+        assert.strictEqual(emojiBar('🟩', 1), '🟩🟩🟩🟩🟩🟩🟩🟩');
+        assert.strictEqual(emojiBar('🟥', 2), '🟥🟥🟥🟥🟥🟥🟥🟥', 'out-of-range shares clamp, never overflow');
+        assert.strictEqual(emojiBar('🟪', Number.NaN), '⬜⬜⬜⬜⬜⬜⬜⬜');
+        assert.strictEqual([...emojiBar('🟧', 0.3)].length, 8, 'eight cells, however many code units each emoji takes');
+        assert.strictEqual(budgetColor('ok'), '🟩');
+        assert.strictEqual(budgetColor('near'), '🟡');
+        assert.strictEqual(budgetColor('over'), '🟥');
     });
 
     test('names and dots: the last path segment, and a SHAPE per state (UI-3)', () => {
@@ -68,31 +71,26 @@ suite('tooltip card v2', () => {
         assert.strictEqual(stateDot('ready', 'over'), '○');
     });
 
-    test('three zones: project first, the cache table second, actions and repository last', () => {
+    test('three zones: project first, the one cache table second, actions and repository last', () => {
         const markdown = cardMarkdown(input());
         assert.ok(markdown.startsWith('● **GalTranslPP — Ready**'), markdown.split('\n')[0]);
         assert.ok(markdown.includes('48 modules · 176 units · mcpp'));
-        assert.ok(markdown.includes('**Cache 3.80 GB / 4.00 GB · 95%**'));
         assert.ok(markdown.includes('| Class | Used | Share |  |'));
-        assert.ok(markdown.includes('| Published | 1.90 GB | 50% |'));
-        assert.ok(markdown.includes('| Copies | 1.70 GB | 45% |'));
-        assert.ok(markdown.includes('| Instances | 100 MB | 3% |'));
+        assert.ok(markdown.includes('| Published | 1.90 GB | 50% | 🟦'));
+        assert.ok(markdown.includes('| Copies | 1.70 GB | 45% | 🟧'));
+        assert.ok(markdown.includes('| Instances | 100 MB | 3% |'), 'a class below an eighth of a cell keeps its row, at zero cells');
         assert.ok(markdown.includes('| Trash | 1.00 KB | 0% |'), 'a class that exists still gets its row');
+        assert.ok(markdown.includes('| **Total / budget** | **3.80 GB / 4.00 GB** | **95%** | 🟩'), 'the total row IS the headline, inside the grid');
         assert.ok(markdown.includes('failed to delete'), 'failures are visible, never silent');
     });
 
     test('every row is its own line: zones are blank-line separated, rows hard-broken (the v1 run-on fix)', () => {
         const zones = cardMarkdown(input()).split('\n\n');
-        assert.ok(zones.length >= 5, `${zones.length} zones: ${zones.map((z) => z.split('\n')[0]).join(' | ')}`);
+        assert.ok(zones.length >= 4, `${zones.length} zones: ${zones.map((z) => z.split('\n')[0]).join(' | ')}`);
         assert.ok(zones[0].includes('  \n'), 'the project zone\'s rows are hard-broken, not folded into one line');
         const table = zones.find((zone) => zone.startsWith('| Class |'));
         assert.ok(table !== undefined, 'the table is a block of its own');
-        assert.ok(table!.split('\n').length === 6, 'header, ruler, four classes');
-        for (const zone of zones) {
-            for (const line of zone.split('\n')) {
-                assert.ok(!line.includes('Cache 3.80 GB / 4.00 GB · 95%** Copies'), 'the headline does not run into the next row');
-            }
-        }
+        assert.ok(table!.split('\n').length === 7, 'header, ruler, four classes, the total row');
     });
 
     test('the preparation line appears only with real progress, and says only the truth (D18)', () => {
@@ -106,24 +104,23 @@ suite('tooltip card v2', () => {
     test('the actions are the three most common, and the repository line replaces the footnote (UI-5, UI-6)', () => {
         const markdown = cardMarkdown(input());
         assert.ok(markdown.includes('[$(clear-all) Sweep cache](command:mcppls.sweepWorkspaceCache)'));
-        assert.ok(markdown.includes('[$(folder-opened) Logs & reports](command:mcppls.revealCacheDirectory?%5B%22root%22%5D)'), 'the directory link opens the root where logs and bundles sit');
-        assert.ok(markdown.includes('[$(copy) Self-check](command:mcppls.copyAgentPrompt)'));
+        assert.ok(markdown.includes('[$(folder-opened) Open logs & reports](command:mcppls.revealCacheDirectory?%5B%22root%22%5D)'), 'the directory link opens the root where logs and bundles sit');
+        assert.ok(markdown.includes('[$(copy) Copy agent prompt](command:mcppls.copyAgentPrompt)'), 'the prompt link says what it does: copy, for an agent');
         assert.ok(markdown.includes('](https://github.com/Sunrisepeak/mcpp-language-server)'), 'the repository link is a real link');
         assert.ok(markdown.includes('[$(copy)](command:mcppls.copyRepositoryUrl)'), 'the copy next to it is a command link');
         assert.ok(!markdown.includes('never leaves this machine'), 'the old footnote is gone');
     });
 
-    test('the card stays within twelve rendered lines, and a long project name is cut (plan §6)', () => {
+    test('the card stays within thirteen rendered lines, and a long project name is cut (plan §6)', () => {
         const rendered = cardMarkdown(input()).split('\n').filter((line) => line.trim().length > 0);
-        assert.ok(rendered.length <= 12, `${rendered.length} lines: ${rendered.join(' / ')}`);
+        assert.ok(rendered.length <= 13, `${rendered.length} lines: ${rendered.join(' / ')}`);
         const long = cardMarkdown(input({ status: { state: 'ready', root: '/work/' + 'a-very-long-workspace-name-beyond-the-budget', source: 'mcpp' } }));
         assert.ok(long.includes('…'), 'a name that does not fit is cut, not wrapped');
     });
 
-    test('without a detail the card falls back to the coarse numbers, with the budget bar as its one chart', () => {
+    test('without a detail the card falls back to the coarse numbers, with the budget row as its one chart', () => {
         const markdown = cardMarkdown(input({ detail: undefined, coarse }));
-        assert.ok(markdown.includes('**Cache 3.80 GB / 4.00 GB · 95%**'));
-        assert.ok(/Budget `█+░*` 95%/.test(markdown), 'the budget bar renders from the coarse numbers alone');
+        assert.ok(markdown.includes('| **3.80 GB / 4.00 GB** | 95% | 🟩'), 'the total row renders from the coarse numbers alone');
         assert.ok(markdown.includes('Copies 300 B (3 files) · instances 100 B (1)'));
         assert.ok(!markdown.includes('| Class |'), 'no half-empty table');
     });
@@ -137,11 +134,11 @@ suite('tooltip card v2', () => {
         try {
             const markdown = cardMarkdown(input());
             assert.ok(markdown.startsWith('● **GalTranslPP — 就绪**'), markdown.split('\n')[0]);
-            assert.ok(markdown.includes('缓存 3.80 GB / 4.00 GB · 95%'));
-            assert.ok(markdown.includes('| 已发布 | 1.90 GB | 50% |'));
-            assert.ok(markdown.includes('| 副本拷贝 | 1.70 GB | 45% |'));
+            assert.ok(markdown.includes('| **合计 / 预算** | **3.80 GB / 4.00 GB** | **95%** |'));
+            assert.ok(markdown.includes('| 已发布 | 1.90 GB | 50% | 🟦'));
+            assert.ok(markdown.includes('| 副本拷贝 | 1.70 GB | 45% | 🟧'));
             assert.ok(markdown.includes('清理缓存'));
-            assert.ok(markdown.includes('本地自检'));
+            assert.ok(markdown.includes('复制 Agent 提示词'));
         } finally {
             setLocalizer((message, ...args) => args.length > 0 ? message.replace(/\{(\d+)\}/g, (_, index) => String(args[Number(index)])) : message);
         }

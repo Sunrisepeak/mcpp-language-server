@@ -1,14 +1,17 @@
-// The hover card (0.0.10 plan C-13.2; v2 2026-10-03 UI-2..UI-7): the read-only half of the cache UI,
-// one markdown string the status bar shows on hover. Three zones: the project (state dot, module
-// and unit counts, the real preparation progress), the cache (a table with one bar a class), and
+// The hover card (0.0.10 plan C-13.2; v2 2026-10-03 UI-2..UI-7; v2.2 same day, review): the
+// read-only half of the cache UI, one markdown string the status bar shows on hover. Zones: the
+// project (state dot, module and unit counts, the real preparation progress), the cache (ONE
+// table: a colored bar a class and a bold total row against the budget), the history line, and
 // the actions plus where the project lives (the repository link, in place of the old footnote).
 // Pure: it renders strings, and every string the server sent goes through `escape` first -- a path
 // is text, never markdown (S3 5.7: the server is trusted to be true, not to be safe markup).
 //
 // What a hover can and cannot do (UI-7, written down so nobody looks for it again): VS Code strips
-// style attributes from hover markdown, so there is no colour and no font tricks -- the table's
-// alignment and the bar characters in code spans ARE the visualization. Hover text is not
-// selectable either, so "copy" has to be a command link.
+// style attributes from hover markdown, so there is no CSS colour -- but EMOJI squares are coloured
+// glyphs of plain text, and those the sanitizer cannot touch. Bars are therefore fixed-width runs
+// of emoji squares, one colour a class; the row's own name is the legend, and the percent column
+// carries the number, so colour never has to be read on its own. Hover text is not selectable
+// either, so "copy" has to be a command link.
 import { CacheDetail, CxxCacheStatus, sizeText } from './cacheSegment';
 import { REPOSITORY } from './issueUrl';
 import { t } from './strings';
@@ -18,13 +21,25 @@ export function escapeCell(text: string): string {
     return text.replace(/([\\`|[\]])/g, '\\$1').replace(/\r?\n/g, ' ');
 }
 
-const BAR_WIDTH = 12;
+const BAR_CELLS = 8;
+const EMPTY_CELL = '⬜';
 
-/** One bar in the card's one visual language: `█` for the filled share, `░` for the scale behind it (UI-4). */
-export function bar(share: number, width = BAR_WIDTH): string {
+// One colour a class, everywhere the class appears: blue is what is published and usable, orange
+// the copy-on-read leftover, purple the per-instance directories, brown the trash; green is the
+// budget while it is fine, yellow near it, red over it.
+const CLASS_COLOR = { published: '🟦', copies: '🟧', instances: '🟪', trash: '🟫' } as const;
+
+export function budgetColor(level: CxxCacheStatus['state'] | 'preparing'): string {
+    if (level === 'over') return '🟥';
+    if (level === 'near') return '🟡';
+    return '🟩';
+}
+
+/** One bar: `filled` cells of the class's colour, then empty cells to the same total width. */
+export function emojiBar(color: string, share: number, width = BAR_CELLS): string {
     const clamped = Number.isFinite(share) ? Math.min(1, Math.max(0, share)) : 0;
     const filled = Math.round(clamped * width);
-    return '█'.repeat(filled) + '░'.repeat(width - filled);
+    return color.repeat(filled) + EMPTY_CELL.repeat(width - filled);
 }
 
 /** The last segment of a path, whichever separator it came with. */
@@ -79,11 +94,11 @@ function ageText(seconds: number): string {
     return seconds < 60 ? t('{0} s ago', seconds) : t('{0} min ago', Math.round(seconds / 60));
 }
 
-/** One row of the composition table: the class, its size right-aligned, its share, its own bar. */
-function compositionRow(label: string, bytes: number, total: number): string {
+/** One row of the composition table: the class, its size right-aligned, its share, its own color's bar. */
+function compositionRow(label: string, color: string, bytes: number, total: number): string {
     const share = total > 0 ? bytes / total : 0;
     const percent = total > 0 ? Math.round(share * 100) : 0;
-    return `| ${label} | ${sizeText(bytes)} | ${percent}% | \`${bar(share)}\` |`;
+    return `| ${label} | ${sizeText(bytes)} | ${percent}% | ${emojiBar(color, share)} |`;
 }
 
 // Markdown folds a single newline into a space; a row only gets its own line from a HARD break
@@ -93,7 +108,7 @@ function zone(rows: string[]): string {
     return rows.filter((row) => row.length > 0).join('  \n');
 }
 
-/** The card's zones: project, cache headline, the table, history. Each is one markdown block. */
+/** The card's zones: project, the one cache table, history. Each is one markdown block. */
 export function cacheCardZones(input: CardInput): string[] {
     const detail = input.detail;
     const coarse = input.coarse;
@@ -111,25 +126,34 @@ export function cacheCardZones(input: CardInput): string[] {
         const progress = input.status.progress ?? detail?.progress;
         if (progress && progress.total > 0) {
             const share = progress.done / progress.total;
-            project.push(`${t('Preparing index {0}/{1}', progress.done, progress.total)} \`${bar(share)}\` ${Math.round(share * 100)}%`);
+            project.push(`${t('Preparing index {0}/{1}', progress.done, progress.total)} ${emojiBar('🟩', share)} ${Math.round(share * 100)}%`);
         }
         zones.push(zone(project));
     }
 
     const bytes = detail?.bytes ?? coarse?.bytes ?? 0;
     const limit = detail?.limits.perWorkspace ?? coarse?.limitBytes ?? 0;
-    zones.push(limit > 0 ? `**${t('Cache {0} / {1} · {2}%', sizeText(bytes), sizeText(limit), Math.round((bytes / limit) * 100))}**`
-                         : `**${t('Cache {0}', sizeText(bytes))}**`);
+    const fill = limit > 0 ? Math.min(1, bytes / limit) : 0;
+    const percent = limit > 0 ? Math.round(fill * 100) : 0;
+    const level: CxxCacheStatus['state'] = coarse?.state ?? (detail?.limits.over ? 'over' : 'ok');
     if (detail) {
+        // One table for the whole cache zone: the classes, then the bold total row against the
+        // budget -- the grid keeps every column aligned, and there is no separate headline block
+        // to drift out of line with it.
         const total = Math.max(1, bytes);
         const table = [
             `| ${t('Class')} | ${t('Used')} | ${t('Share')} |  |`,
-            '|---|---:|---:|---|',
-            compositionRow(t('Published'), detail.canonical?.bytes ?? 0, total),
-            compositionRow(t('Copies'), detail.copies.bytes, total),
-            compositionRow(t('Instances'), detail.instances.bytes, total),
-            compositionRow(t('Trash'), detail.trash?.bytes ?? 0, total),
+            '|---|---:|---:|:--|',
+            compositionRow(t('Published'), CLASS_COLOR.published, detail.canonical?.bytes ?? 0, total),
+            compositionRow(t('Copies'), CLASS_COLOR.copies, detail.copies.bytes, total),
+            compositionRow(t('Instances'), CLASS_COLOR.instances, detail.instances.bytes, total),
+            compositionRow(t('Trash'), CLASS_COLOR.trash, detail.trash?.bytes ?? 0, total),
         ];
+        if (limit > 0) {
+            table.push(`| **${t('Total / budget')}** | **${sizeText(bytes)} / ${sizeText(limit)}** | **${percent}%** | ${emojiBar(budgetColor(level), fill)} |`);
+        } else {
+            table.push(`| **${t('Total / budget')}** | **${sizeText(bytes)}** |  | ${emojiBar(budgetColor(level), fill)} |`);
+        }
         zones.push(zone(table));
         if (detail.lastSweep && detail.lastSweep.at > 0) {
             const age = Math.max(1, Math.round((Date.now() - detail.lastSweep.at) / 1000));
@@ -137,11 +161,13 @@ export function cacheCardZones(input: CardInput): string[] {
             zones.push(t('Last sweep {0}: freed {1} ({2} files){3}', ageText(age), sizeText(detail.lastSweep.freedBytes), detail.lastSweep.files, failed));
         }
     } else if (coarse) {
-        // No detail yet (or an old server): the budget bar is the one chart the coarse numbers own.
-        if (coarse.limitBytes > 0) {
-            const share = Math.min(1, coarse.bytes / coarse.limitBytes);
-            zones.push(`${t('Budget')} \`${bar(share)}\` ${Math.round(share * 100)}%`);
-        }
+        // No detail yet (or an old server): the total row against the budget is the one chart the
+        // coarse numbers own, in the same table shape the full card will show.
+        zones.push(zone([
+            `| ${t('Used / budget')} | ${t('Share')} |  |`,
+            '|---:|---:|:--|',
+            `| **${sizeText(coarse.bytes)} / ${sizeText(coarse.limitBytes)}** | ${percent}% | ${emojiBar(budgetColor(level), fill)} |`,
+        ]));
         zones.push(t('Copies {0} ({1} files) · instances {2} ({3})', sizeText(coarse.copies.bytes), coarse.copies.files,
                      sizeText(coarse.instances.bytes), coarse.instances.count));
         if (coarse.lastSweep) {
@@ -161,8 +187,8 @@ export function cardMarkdown(input: CardInput): string {
     const zones = [...cacheCardZones(input)];
     if (input.withCommands) {
         zones.push(`[$(clear-all) ${t('Sweep cache')}]`
-            + `(command:${input.sweepCommand}) · [$(folder-opened) ${t('Logs & reports')}](command:${input.revealCommand}?%5B%22root%22%5D)`
-            + ` · [$(copy) ${t('Self-check')}](command:${input.copyPromptCommand})`);
+            + `(command:${input.sweepCommand}) · [$(folder-opened) ${t('Open logs & reports')}](command:${input.revealCommand}?%5B%22root%22%5D)`
+            + ` · [$(copy) ${t('Copy agent prompt')}](command:${input.copyPromptCommand})`);
         zones.push(`[$(github) ${escapeCell(repoLabel(REPOSITORY))}](${REPOSITORY}) · [$(copy)](command:${input.copyRepositoryCommand})`);
     } else {
         zones.push(t('Click the status bar for the menu.'));

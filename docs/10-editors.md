@@ -66,11 +66,12 @@ Workspace** and **Show Logs**, after writing a diagnostic bundle; see
 **The cache, on the status bar.** The one status item also carries the cache: hover for a read-only
 card in three zones — the project (state dot, module and unit counts, the real preparation
 progress), the cache (a table with one bar a class, the size against the budget, the last sweep),
-and the actions (sweep, logs & reports, the local self-check) above the repository link. Click for
+and the actions (sweep, open logs & reports, copy the agent prompt) above the repository
+link. Click for
 the cache hub — a menu in four groups (overview, clean, diagnostics, feedback); its `Details`
 entry drills into the largest modules, and `Open a directory…` into the three places a report
 names. **Sweep the Module Cache** removes what no engine holds without a restart or a rebuild; the
-eye button on it is a dry run first. The feedback group copies the self-check prompt — a task book
+eye button on it is a dry run first. The feedback group copies the agent prompt — a task book
 for a local agent: verified facts, read-only checks with what healthy looks like, an output
 contract, and a bug branch where, after you agree, the agent drafts the issue itself and shows it
 to you before anything is sent (`mcppls cache --prompt agent` prints the same text anywhere else).

@@ -16,7 +16,7 @@
   "command.mcppls.resetWorkspaceCache.title": "重置此工作区的缓存",
   "command.mcppls.openCacheHub.title": "打开缓存枢纽",
   "command.mcppls.sweepWorkspaceCache.title": "清理模块缓存（不重启、不重编）",
-  "command.mcppls.copyAgentPrompt.title": "复制本地自检提示词",
+  "command.mcppls.copyAgentPrompt.title": "复制缓存排障的 Agent 提示词",
   "command.mcppls.copyIssuePrompt.title": "复制 issue 草稿提示词",
   "command.mcppls.revealCacheDirectory.title": "打开缓存目录",
   "command.mcppls.newCacheIssue.title": "在 GitHub 上报告缓存问题",
