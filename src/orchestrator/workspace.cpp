@@ -198,7 +198,7 @@ struct Workspace::Impl final : engine::Host {
     // while one runs is merged into `sweepPending_` and retriggered when the running one reports.
     std::atomic<bool> sweepRunning_ { false };
     bool sweepPending_ { false };                  // under cacheMutex_
-    bool sweepPendingReportOnly_ { false };        // the coalesced pass's mode
+    bool sweepPendingReportOnly_ { true };         // the coalesced pass's mode: report-only unless a removal asked too
     std::optional<Clock::time_point> leaseRenewAt;
     engine::PayloadPaths payload;
     bool payloadCorrupt { false };
@@ -2832,6 +2832,7 @@ void Workspace::handle_cache_swept(const Json& outcome) {
             impl.sweepPending_ = false;
             retrigger = true;
             pendingReportOnly = impl.sweepPendingReportOnly_;
+            impl.sweepPendingReportOnly_ = true;   // the next batch starts from the neutral mode again
         }
         // A preview changed nothing: no numbers are remembered and nothing is journalled as swept.
         if (!dryRun) {
