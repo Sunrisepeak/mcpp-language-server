@@ -1,12 +1,13 @@
-// The hover card's markdown v2 (0.0.10 plan C-13.2; 2026-10-03 UI-2..UI-7): the three zones, the
-// per-class bars, the budget headline, the three common actions and the repository line. The
-// default localizer is the source language, so these assertions read English; one test switches to
-// the real zh bundle to prove the card renders translated.
+// The drawn card v3 (2026-10-03, live review): markdown hovers give no layout control, so the
+// card body is one self-drawn SVG -- centred header, one grid, right-aligned numbers, dot-matrix
+// bars on one edge, theme-aware ink -- with the real links kept as markdown under it. These tests
+// hold the composition to account: the x positions, the alignment anchors, the theme inks, the
+// escaping, and the alt summary that shows if the image ever fails.
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import { CacheDetail, CxxCacheStatus } from '../../src/cacheSegment';
-import { bar, baseName, cardMarkdown, CardInput, escapeCell, stateDot } from '../../src/tooltipCard';
+import { baseName, cardAlt, cardMarkdown, CardInput, escapeCell, escapeSvg, stateDot, svgCard } from '../../src/tooltipCard';
 import { setLocalizer } from '../../src/strings';
 
 const detail: CacheDetail = {
@@ -25,6 +26,7 @@ const detail: CacheDetail = {
 
 const input = (over: Partial<CardInput> = {}): CardInput => ({
     status: { state: 'ready', root: '/work/GalTranslPP', source: 'mcpp' },
+    theme: 'dark',
     detail,
     withCommands: true,
     sweepCommand: 'mcppls.sweepWorkspaceCache',
@@ -43,19 +45,12 @@ const coarse: CxxCacheStatus = {
     lastSweep: { at: Date.now(), freedBytes: 5_000_000 },
 };
 
-suite('tooltip card v2', () => {
-    test('server strings cannot break the markdown structure', () => {
+suite('tooltip card v3 (drawn)', () => {
+    test('server strings cannot break the markdown or the drawing', () => {
         const escaped = escapeCell('C:\\a|b [x] `y`');
-        assert.ok(!/[|`[\]]/.test(escaped.replace(/\\[|`[\]\\]/g, '')), 'every metacharacter is escaped');
+        assert.ok(!/[|`[\]]/.test(escaped.replace(/\\[|`[\]\\]/g, '')), 'every markdown metacharacter is escaped');
         assert.strictEqual(escapeCell('line1\nline2'), 'line1 line2', 'a newline cannot start a new card line');
-    });
-
-    test('the bar is one monochrome dot-matrix language, fixed width (v2.4)', () => {
-        assert.strictEqual(bar(0.5), '`██████░░░░░░`');
-        assert.strictEqual(bar(0), '`░░░░░░░░░░░░`');
-        assert.strictEqual(bar(1), '`████████████`');
-        assert.strictEqual(bar(2), '`████████████`', 'out-of-range shares clamp, never overflow');
-        assert.strictEqual(bar(Number.NaN), '`░░░░░░░░░░░░`');
+        assert.strictEqual(escapeSvg('a<b>&"c"\'d'), 'a&lt;b&gt;&amp;&quot;c&quot;&apos;d', 'no tag of the server\'s can survive into the SVG');
     });
 
     test('names and dots: the last path segment, and a SHAPE per state (UI-3)', () => {
@@ -67,81 +62,87 @@ suite('tooltip card v2', () => {
         assert.strictEqual(stateDot('ready', 'over'), '○');
     });
 
-    test('three zones: project first, the one cache table second, actions and repository last', () => {
-        const markdown = cardMarkdown(input());
-        assert.ok(markdown.startsWith('● **GalTranslPP — Ready** · 48 modules · 176 units · mcpp'), markdown.split('\n')[0]);
-        assert.ok(markdown.includes('| Class | Used | Share |  |'));
-        assert.ok(markdown.includes('| Published | 1.90 GB | 50% | `██████░░░░░░` |'));
-        assert.ok(markdown.includes('| Copies | 1.70 GB | 45% | `█████░░░░░░░` |'));
-        assert.ok(markdown.includes('| Instances | 100 MB | 3% |'), 'a class below an eighth of a cell keeps its row, at zero cells');
-        assert.ok(markdown.includes('| Trash | 1.00 KB | 0% |'), 'a class that exists still gets its row');
-        assert.ok(markdown.includes('| **Total / budget** | **3.80 GB / 4.00 GB** | **95%** | `███████████░` |'), 'the total row IS the headline, inside the grid, with its budget bar');
-        assert.ok(markdown.includes('failed to delete'), 'failures are visible, never silent');
+    test('the header is CENTRED and carries project, state, counts and source in one line', () => {
+        const svg = svgCard(input());
+        const header = /<text x='200' y='22' text-anchor='middle'[^>]*>([^<]*)<\/text>/.exec(svg);
+        assert.ok(header, 'a centred text element at the top');
+        assert.ok(header![1].startsWith('● GalTranslPP — Ready'), header![1]);
+        assert.ok(header![1].endsWith('48 modules · 176 units · mcpp'));
+        const long = svgCard(input({ status: { state: 'ready', root: '/work/a-very-long-workspace-name-beyond-the-budget', source: 'mcpp' } }));
+        const cut = /text-anchor='middle'[^>]*>(● [^<]*)/.exec(long)![1];
+        assert.ok(cut.includes('…'), `a name that does not fit is cut, not wrapped: ${cut}`);
     });
 
-    test('every row is its own line: zones are blank-line separated, rows hard-broken (the v1 run-on fix)', () => {
-        const zones = cardMarkdown(input()).split('\n\n');
-        assert.ok(zones.length >= 4, `${zones.length} zones: ${zones.map((z) => z.split('\n')[0]).join(' | ')}`);
-        assert.ok(!zones[0].includes('\n'), 'the project zone is ONE line: dot, name, state, counts, source');
-        const table = zones.find((zone) => zone.startsWith('| Class |'));
-        assert.ok(table !== undefined, 'the table is a block of its own');
-        assert.ok(table!.split('\n').length === 7, 'header, ruler, four classes, the total row');
+    test('the grid: one x for every column, numbers right-anchored, bars on one edge (the layout rules)', () => {
+        const svg = svgCard(input());
+        const names = [...svg.matchAll(/<text x='16' y='\d+' text-anchor='start'[^>]*font-size='11'[^>]*>([^<]*)<\/text>/g)].map((match) => match[1]);
+        for (const wanted of ['Published', 'Copies', 'Instances', 'Trash']) {
+            assert.ok(names.includes(wanted), `${wanted} row present`);
+        }
+        const usedAnchors = [...svg.matchAll(/text-anchor='end'[^>]*font-size='11'/g)];
+        assert.ok(usedAnchors.length >= 8, 'every class row right-aligns its size and its percent');
+        const barY = [...svg.matchAll(/<rect x='224' y='(\d+)' width='12' height='8' rx='2'/g)].map((match) => match[1]);
+        assert.strictEqual(new Set(barY).size, 5, 'four class bars and the budget bar, no two on one baseline');
+        assert.ok(/x='384' y='\d+' text-anchor='end'[^>]*font-size='11\.5'[^>]*font-weight='600'/.test(svg), 'the total against the budget, bold, ending on the right margin');
+        assert.ok(svg.includes('<line '), 'the divider before the total row');
+    });
+
+    test('the bars: twelve cells each, filled by share, monochrome ink', () => {
+        const svg = svgCard(input());
+        assert.strictEqual((svg.match(/rx='2'/g) ?? []).length, 5 * 12, 'five bars of twelve cells');
+        assert.ok(/fill-opacity='0\.9'\/>/.test(svg), 'filled cells');
+        assert.ok(/fill-opacity='0\.18'\/>/.test(svg), 'track cells');
+    });
+
+    test('the ink follows the theme, and the sweep line says its failures', () => {
+        const dark = svgCard(input());
+        const light = svgCard(input({ theme: 'light' }));
+        assert.ok(dark.includes('#e8e8e8') && light.includes('#1f1f1f'), 'strong ink per theme');
+        assert.ok(dark.includes('failed to delete'), 'failures are visible, never silent');
+        assert.ok(!svgCard(input({ detail: { ...detail, lastSweep: undefined } })).includes('Last sweep'), 'no sweep, no line');
     });
 
     test('the preparation line appears only with real progress, and says only the truth (D18)', () => {
-        const withProgress = cardMarkdown(input({ status: { state: 'preparing', root: '/w/demo', source: 'mcpp', progress: { done: 9, total: 20 } } }));
+        const withProgress = svgCard(input({ status: { state: 'preparing', root: '/w/demo', source: 'mcpp', progress: { done: 9, total: 20 } } }));
         assert.ok(withProgress.includes('Preparing index 9/20'));
         assert.ok(withProgress.includes('45%'));
-        const withoutProgress = cardMarkdown(input({ status: { state: 'preparing', root: '/w/demo', source: 'mcpp' }, detail: { ...detail, progress: undefined } }));
-        assert.ok(!withoutProgress.includes('Preparing index'), 'no invented numbers');
+        assert.ok(!svgCard(input({ status: { state: 'preparing', root: '/w/demo', source: 'mcpp' } })).includes('Preparing index'), 'no invented numbers');
     });
 
-    test('the actions are the three most common, and the repository line replaces the footnote (UI-5, UI-6)', () => {
+    test('without a detail the card keeps its shape: the total row, coarse counts, no half-empty grid', () => {
+        const svg = svgCard(input({ detail: undefined, coarse }));
+        assert.ok(svg.includes('Total / budget'));
+        assert.ok(svg.includes('3.80 GB / 4.00 GB'));
+        assert.ok(svg.includes('instances 100 B (1)'), 'the coarse counts ride along');
+        assert.ok(!svg.includes('>Published<'), 'no half-empty grid of classes');
+    });
+
+    test('the hover: the image carries the body, the real links stay markdown, the alt is the facts', () => {
         const markdown = cardMarkdown(input());
+        assert.ok(markdown.startsWith('![GalTranslPP: 3.80 GB / 4.00 GB](data:image/svg+xml;utf8,'), 'the alt summary is the facts in text');
         assert.ok(markdown.includes('[$(clear-all) Sweep](command:mcppls.sweepWorkspaceCache)'));
         assert.ok(markdown.includes('[$(folder-opened) Logs](command:mcppls.revealCacheDirectory?%5B%22root%22%5D)'), 'the directory link opens the root where logs and bundles sit');
-        assert.ok(markdown.includes('[$(copy) Agent prompt](command:mcppls.copyAgentPrompt)'), 'the prompt link says what it is, short: the card is a glance surface');
+        assert.ok(markdown.includes('[$(copy) Agent prompt](command:mcppls.copyAgentPrompt)'));
         assert.ok(markdown.includes('](https://github.com/Sunrisepeak/mcpp-language-server)'), 'the repository link is a real link');
         assert.ok(markdown.includes('[$(copy)](command:mcppls.copyRepositoryUrl)'), 'the copy next to it is a command link');
-        assert.ok(!markdown.includes('never leaves this machine'), 'the old footnote is gone');
-    });
-
-    test('the actions are ONE short line, narrower than the table in either language', () => {
-        const markdown = cardMarkdown(input());
         const actions = markdown.split('\n\n').find((block) => block.includes('$(clear-all)'))!;
-        assert.ok(!actions.includes('\n'), 'the actions share one line');
-        const shown = actions.replace(/\[|\]\(command:[^)]*\)/g, '');
-        assert.ok(shown.replace(/\$\([a-z-]+\)/g, '  ').length <= 40, `the rendered line stays short: ${shown}`);
+        assert.ok(!actions.includes('\n'), 'the actions share one short line');
+        void cardAlt;
     });
 
-    test('the card stays within thirteen rendered lines, and a long project name is cut (plan §6)', () => {
-        const rendered = cardMarkdown(input()).split('\n').filter((line) => line.trim().length > 0);
-        assert.ok(rendered.length <= 13, `${rendered.length} lines: ${rendered.join(' / ')}`);
-        const long = cardMarkdown(input({ status: { state: 'ready', root: '/work/' + 'a-very-long-workspace-name-beyond-the-budget', source: 'mcpp' } }));
-        assert.ok(long.includes('…'), 'a name that does not fit is cut, not wrapped');
-    });
-
-    test('without a detail the card falls back to the coarse numbers, with the budget row as its one chart', () => {
-        const markdown = cardMarkdown(input({ detail: undefined, coarse }));
-        assert.ok(markdown.includes('| **3.80 GB / 4.00 GB** | 95% | `███████████░` |'), 'the total row renders from the coarse numbers alone');
-        assert.ok(markdown.includes('Copies 300 B (3 files) · instances 100 B (1)'));
-        assert.ok(!markdown.includes('| Class |'), 'no half-empty table');
-    });
-
-    test('the zh bundle translates the card end to end', () => {
+    test('the zh bundle translates the drawn card end to end', () => {
         const zh = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', '..', '..', 'l10n', 'bundle.l10n.zh-cn.json'), 'utf8')) as Record<string, string>;
         setLocalizer((message, ...args) => {
             const translated = zh[message] ?? message;
             return args.length > 0 ? translated.replace(/\{(\d+)\}/g, (_, index) => String(args[Number(index)])) : translated;
         });
         try {
+            const svg = svgCard(input());
+            assert.ok(svg.includes('已发布') && svg.includes('副本拷贝') && svg.includes('实例目录') && svg.includes('垃圾箱'));
+            assert.ok(svg.includes('合计 / 预算'));
+            assert.ok(svg.includes('● GalTranslPP — 就绪 · 48 个模块 · 176 个单元 · mcpp'), svg.slice(0, 200));
             const markdown = cardMarkdown(input());
-            assert.ok(markdown.startsWith('● **GalTranslPP — 就绪** · 48 个模块 · 176 个单元 · mcpp'), markdown.split('\n')[0]);
-            assert.ok(markdown.includes('| **合计 / 预算** | **3.80 GB / 4.00 GB** | **95%** |'));
-            assert.ok(markdown.includes('| 已发布 | 1.90 GB | 50% | `██████░░░░░░` |'));
-            assert.ok(markdown.includes('| 副本拷贝 | 1.70 GB | 45% | `█████░░░░░░░` |'));
-            assert.ok(markdown.includes('清理'));
-            assert.ok(markdown.includes('Agent 提示词'));
+            assert.ok(markdown.includes('清理') && markdown.includes('Agent 提示词'));
         } finally {
             setLocalizer((message, ...args) => args.length > 0 ? message.replace(/\{(\d+)\}/g, (_, index) => String(args[Number(index)])) : message);
         }

@@ -153,6 +153,7 @@ export class StatusController implements vscode.Disposable {
     private cacheDetailFetch: (() => Promise<ReturnType<typeof cachedCacheDetail>>) | undefined;
     private nextCacheDetailAt = 0;
     private lastCardArgs: { detail: string | undefined; tooltipDetail: string | undefined } | undefined;
+    private readonly themeListener: vscode.Disposable;
 
     setCacheDetailFetcher(fetcher: () => Promise<ReturnType<typeof cachedCacheDetail>>): void {
         this.cacheDetailFetch = fetcher;
@@ -167,6 +168,10 @@ export class StatusController implements vscode.Disposable {
         // maintenance and the open-source actions. `showOff` keeps its one-click way back (below).
         this.bar.command = OPEN_CACHE_HUB_COMMAND;
         this.bar.show();
+        // The card is drawn, and its text colours follow the theme: redraw when it flips.
+        this.themeListener = vscode.window.onDidChangeActiveColorTheme(() => {
+            if (this.lastCardArgs) this.bar.tooltip = this.cardTooltip(this.lastCardArgs.detail, this.lastCardArgs.tooltipDetail);
+        });
         this.showStarting();
     }
 
@@ -269,8 +274,12 @@ export class StatusController implements vscode.Disposable {
         const status: CardStatus | undefined = current
             ? { state: current.state, root: current.project?.root ?? '', source: current.project?.source, progress: current.progress }
             : undefined;
+        // The drawn card picks its text colours by the theme it will be read on.
+        const kind = vscode.window.activeColorTheme.kind;
+        const theme: 'dark' | 'light' = kind === vscode.ColorThemeKind.Light || kind === vscode.ColorThemeKind.HighContrastLight ? 'light' : 'dark';
         const markdown = new vscode.MarkdownString(cardMarkdown({
             status,
+            theme,
             coarse,
             detail: cachedCacheDetail(),
             withCommands: true,
@@ -447,6 +456,7 @@ export class StatusController implements vscode.Disposable {
 
     dispose(): void {
         this.setPulsing(false);
+        this.themeListener.dispose();
         this.lastCardArgs = undefined;   // a fetch in flight must not repaint a disposed bar
         for (const waiter of [...this.waiters]) {
             this.settle(waiter);
