@@ -569,8 +569,12 @@ private:
         const auto ms = [](auto duration) { return static_cast<std::int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(duration).count()); };
         std::string what;
         if (event) {
-            static constexpr std::array<std::string_view, 8> KINDS { "a client message", "the client closing", "an engine event", "a loaded model",
-                                                                     "an external event", "a finished review", "a tool run", "a written bundle" };
+            // Indexed by EventKind's own value: every enum member has its row, in the enum's
+            // order. A new EventKind without its row here is an out-of-bounds read of a
+            // string_view -- the 0.0.10 cache_swept crash was exactly that, found by the E2E.
+            static constexpr std::array<std::string_view, 9> KINDS { "a client message", "the client closing", "an engine event", "a loaded model",
+                                                                     "an external event", "a finished review", "a tool run", "a written bundle",
+                                                                     "a swept cache" };
             what = event->kind == EventKind::client_message ? event->message.value("method", std::string { "a response" })
                                                             : std::string { KINDS[static_cast<std::size_t>(event->kind)] };
             if (event->kind == EventKind::engine_event && event->message.is_object()) {

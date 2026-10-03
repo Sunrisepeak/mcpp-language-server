@@ -27,10 +27,10 @@ suite('the cache hub and the status bar', function () {
 
     test('the status bar item stays one item with the cache as its segment, under its budget', () => {
         const text = api.statusBarText();
-        assert.ok(text.includes('C++ Modules'), text);
-        // One item: the cache may be appended, the module text is never replaced by it (D10/D12).
-        const occurrences = text.split('C++ Modules').length - 1;
-        assert.strictEqual(occurrences, 1);
+        // The settled item reads `$(check) mcppls` (barFor's own label); `C++ Modules` is the off
+        // state's wording. One item: the segment may be appended, never a second block of its own.
+        const occurrences = text.split('mcppls').length - 1;
+        assert.strictEqual(occurrences, 1, text);
         assert.ok(text.length <= 60, `the whole item stays short: ${text}`);
     });
 

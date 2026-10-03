@@ -543,9 +543,18 @@ export async function sweepWorkspaceCache(access: ServerAccess): Promise<unknown
         void vscode.window.showWarningMessage('The C++ Modules server is not running; there is nothing to sweep.');
         return undefined;
     }
-    const answer = await client.sendRequest('workspace/executeCommand', { command: SERVER_SWEEP_CACHE_COMMAND, arguments: [{ dryRun: false }] });
+    // Progress, never a notification: the numbers that prove the sweep are the status bar's own
+    // (they drop) and the hub's receipt line -- a modal answer to an unasked question is exactly
+    // the unsolicited UI the E2E holds to zero. The answer is returned for the hub and for tests.
+    const answer = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Window, title: 'C++ Modules: sweeping the cache' },
+        () => client.sendRequest('workspace/executeCommand', { command: SERVER_SWEEP_CACHE_COMMAND, arguments: [{ dryRun: false }] }),
+    );
     const result = parseSweepResult(answer);
-    void vscode.window.showInformationMessage(sweepResultText(result));
+    if (result.freedBytes === 0 && result.alreadyRunning !== true) {
+        // Nothing to free is worth one quiet word; a successful sweep needs none.
+        void vscode.window.setStatusBarMessage(sweepResultText(result), 4000);
+    }
     return answer;
 }
 
