@@ -6,7 +6,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import { CacheDetail, CxxCacheStatus } from '../../src/cacheSegment';
-import { baseName, budgetColor, cardMarkdown, CardInput, emojiBar, escapeCell, stateDot } from '../../src/tooltipCard';
+import { baseName, budgetColor, cardMarkdown, CardInput, cellBar, escapeCell, stateDot } from '../../src/tooltipCard';
 import { setLocalizer } from '../../src/strings';
 
 const detail: CacheDetail = {
@@ -50,16 +50,20 @@ suite('tooltip card v2', () => {
         assert.strictEqual(escapeCell('line1\nline2'), 'line1 line2', 'a newline cannot start a new card line');
     });
 
-    test('the bar is a fixed-width run of one colour: emoji squares the sanitizer cannot touch (v2.2)', () => {
-        assert.strictEqual(emojiBar('🟦', 0.5), '🟦🟦🟦🟦⬜⬜⬜⬜');
-        assert.strictEqual(emojiBar('🟦', 0), '⬜⬜⬜⬜⬜⬜⬜⬜');
-        assert.strictEqual(emojiBar('🟩', 1), '🟩🟩🟩🟩🟩🟩🟩🟩');
-        assert.strictEqual(emojiBar('🟥', 2), '🟥🟥🟥🟥🟥🟥🟥🟥', 'out-of-range shares clamp, never overflow');
-        assert.strictEqual(emojiBar('🟪', Number.NaN), '⬜⬜⬜⬜⬜⬜⬜⬜');
-        assert.strictEqual([...emojiBar('🟧', 0.3)].length, 8, 'eight cells, however many code units each emoji takes');
-        assert.strictEqual(budgetColor('ok'), '🟩');
-        assert.strictEqual(budgetColor('near'), '🟡');
-        assert.strictEqual(budgetColor('over'), '🟥');
+    test('the bar is a dot-matrix image: cells of real colour, alt the old character run (v2.3)', () => {
+        const half = cellBar('#59a4ff', 0.5);
+        assert.ok(half.startsWith('![██████░░░░░░](data:image/svg+xml;utf8,'), 'the alt text is the character bar, the URL is self-drawn');
+        assert.ok(half.includes('%2359a4ff'), 'the class colour is in the SVG (URI-encoded)');
+        const svg = decodeURIComponent(half.slice(half.indexOf('utf8,') + 5, half.length - 1));
+        assert.ok(svg.match(/fill-opacity='0\.95'/g)?.length === 6, 'six solid cells');
+        assert.ok(svg.match(/fill-opacity='0\.2'/g)?.length === 6, 'six track cells at 20% of the same hue');
+        assert.ok(!half.includes(' '), 'the URI is encoded: no raw space can break the markdown link');
+        assert.ok(cellBar('#3fb950', 0).includes('░░░░░░░░░░░░'), 'zero share is all track');
+        assert.ok(cellBar('#f85149', 1).includes('████████████'), 'full share is all colour');
+        assert.ok(cellBar('#f85149', 2).startsWith('![████████████'), 'out-of-range shares clamp, never overflow');
+        assert.strictEqual(budgetColor('ok'), '#3fb950');
+        assert.strictEqual(budgetColor('near'), '#d29922');
+        assert.strictEqual(budgetColor('over'), '#f85149');
     });
 
     test('names and dots: the last path segment, and a SHAPE per state (UI-3)', () => {
@@ -76,11 +80,11 @@ suite('tooltip card v2', () => {
         assert.ok(markdown.startsWith('● **GalTranslPP — Ready**'), markdown.split('\n')[0]);
         assert.ok(markdown.includes('48 modules · 176 units · mcpp'));
         assert.ok(markdown.includes('| Class | Used | Share |  |'));
-        assert.ok(markdown.includes('| Published | 1.90 GB | 50% | 🟦'));
-        assert.ok(markdown.includes('| Copies | 1.70 GB | 45% | 🟧'));
+        assert.ok(/\| Published \| 1\.90 GB \| 50% \| !\[██████░░░░░░\]\(data:image\/svg\+xml/.test(markdown), 'the published row carries its blue dot-matrix bar');
+        assert.ok(markdown.includes('%23e2a03f'), 'the copies row carries its orange (URI-encoded)');
         assert.ok(markdown.includes('| Instances | 100 MB | 3% |'), 'a class below an eighth of a cell keeps its row, at zero cells');
         assert.ok(markdown.includes('| Trash | 1.00 KB | 0% |'), 'a class that exists still gets its row');
-        assert.ok(markdown.includes('| **Total / budget** | **3.80 GB / 4.00 GB** | **95%** | 🟩'), 'the total row IS the headline, inside the grid');
+        assert.ok(/\| \*\*Total \/ budget\*\* \| \*\*3\.80 GB \/ 4\.00 GB\*\* \| \*\*95%\*\* \| !\[/.test(markdown), 'the total row IS the headline, inside the grid, with its budget bar');
         assert.ok(markdown.includes('failed to delete'), 'failures are visible, never silent');
     });
 
@@ -120,7 +124,7 @@ suite('tooltip card v2', () => {
 
     test('without a detail the card falls back to the coarse numbers, with the budget row as its one chart', () => {
         const markdown = cardMarkdown(input({ detail: undefined, coarse }));
-        assert.ok(markdown.includes('| **3.80 GB / 4.00 GB** | 95% | 🟩'), 'the total row renders from the coarse numbers alone');
+        assert.ok(/\| \*\*3\.80 GB \/ 4\.00 GB\*\* \| 95% \| !\[/.test(markdown), 'the total row renders from the coarse numbers alone');
         assert.ok(markdown.includes('Copies 300 B (3 files) · instances 100 B (1)'));
         assert.ok(!markdown.includes('| Class |'), 'no half-empty table');
     });
@@ -135,8 +139,8 @@ suite('tooltip card v2', () => {
             const markdown = cardMarkdown(input());
             assert.ok(markdown.startsWith('● **GalTranslPP — 就绪**'), markdown.split('\n')[0]);
             assert.ok(markdown.includes('| **合计 / 预算** | **3.80 GB / 4.00 GB** | **95%** |'));
-            assert.ok(markdown.includes('| 已发布 | 1.90 GB | 50% | 🟦'));
-            assert.ok(markdown.includes('| 副本拷贝 | 1.70 GB | 45% | 🟧'));
+            assert.ok(/\| 已发布 \| 1\.90 GB \| 50% \| !\[/.test(markdown));
+            assert.ok(/\| 副本拷贝 \| 1\.70 GB \| 45% \| !\[/.test(markdown));
             assert.ok(markdown.includes('清理缓存'));
             assert.ok(markdown.includes('复制 Agent 提示词'));
         } finally {

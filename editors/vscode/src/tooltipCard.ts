@@ -7,11 +7,13 @@
 // is text, never markdown (S3 5.7: the server is trusted to be true, not to be safe markup).
 //
 // What a hover can and cannot do (UI-7, written down so nobody looks for it again): VS Code strips
-// style attributes from hover markdown, so there is no CSS colour -- but EMOJI squares are coloured
-// glyphs of plain text, and those the sanitizer cannot touch. Bars are therefore fixed-width runs
-// of emoji squares, one colour a class; the row's own name is the legend, and the percent column
-// carries the number, so colour never has to be read on its own. Hover text is not selectable
-// either, so "copy" has to be a command link.
+// style attributes from hover markdown, so TEXT cannot be coloured -- no span, no font, no class.
+// What markdown does carry is images, so the bars are tiny self-drawn SVG dot-matrix strips (a
+// data URI, nothing fetched): the cell design the first review liked, each cell actually coloured,
+// the empty cells a 20% tint of the same hue as the track. Each row's own name is the legend and
+// the percent column carries the number, so colour never has to be read on its own. The image's
+// ALT text is the old `█░` run: if images ever fail to render, the bar degrades to the character
+// design instead of disappearing. Hover text is not selectable either, so "copy" is a command link.
 import { CacheDetail, CxxCacheStatus, sizeText } from './cacheSegment';
 import { REPOSITORY } from './issueUrl';
 import { t } from './strings';
@@ -21,25 +23,38 @@ export function escapeCell(text: string): string {
     return text.replace(/([\\`|[\]])/g, '\\$1').replace(/\r?\n/g, ' ');
 }
 
-const BAR_CELLS = 8;
-const EMPTY_CELL = '⬜';
+// The dot-matrix strip: `CELLS` cells, each a rounded rect; filled ones solid, empty ones a tint
+// of the same colour. 12 cells at 7x9 with 2 between reads at a glance without shouting.
+const CELLS = 12;
+const CELL_WIDTH = 7;
+const CELL_HEIGHT = 9;
+const CELL_GAP = 2;
 
 // One colour a class, everywhere the class appears: blue is what is published and usable, orange
 // the copy-on-read leftover, purple the per-instance directories, brown the trash; green is the
-// budget while it is fine, yellow near it, red over it.
-const CLASS_COLOR = { published: '🟦', copies: '🟧', instances: '🟪', trash: '🟫' } as const;
+// budget while it is fine, yellow near it, red over it. Muted, VS-Code-adjacent hues.
+const CLASS_COLOR = { published: '#59a4ff', copies: '#e2a03f', instances: '#b180d7', trash: '#a07850' } as const;
+const BUDGET_COLOR = { ok: '#3fb950', near: '#d29922', over: '#f85149' } as const;
 
 export function budgetColor(level: CxxCacheStatus['state'] | 'preparing'): string {
-    if (level === 'over') return '🟥';
-    if (level === 'near') return '🟡';
-    return '🟩';
+    if (level === 'over') return BUDGET_COLOR.over;
+    if (level === 'near') return BUDGET_COLOR.near;
+    return BUDGET_COLOR.ok;
 }
 
-/** One bar: `filled` cells of the class's colour, then empty cells to the same total width. */
-export function emojiBar(color: string, share: number, width = BAR_CELLS): string {
+/** The dot-matrix strip as an inline image: `filled` cells solid, the rest a 20% tint, alt `█░`. */
+export function cellBar(color: string, share: number, cells = CELLS): string {
     const clamped = Number.isFinite(share) ? Math.min(1, Math.max(0, share)) : 0;
-    const filled = Math.round(clamped * width);
-    return color.repeat(filled) + EMPTY_CELL.repeat(width - filled);
+    const filled = Math.round(clamped * cells);
+    const rects: string[] = [];
+    for (let index = 0; index < cells; index += 1) {
+        rects.push(`<rect x='${index * (CELL_WIDTH + CELL_GAP)}' y='0' width='${CELL_WIDTH}' height='${CELL_HEIGHT}' rx='1.5' `
+            + `fill='${color}' fill-opacity='${index < filled ? '0.95' : '0.2'}'/>`);
+    }
+    const width = cells * (CELL_WIDTH + CELL_GAP) - CELL_GAP;
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${width}' height='${CELL_HEIGHT}'>${rects.join('')}</svg>`;
+    const alt = '█'.repeat(filled) + '░'.repeat(cells - filled);
+    return `![${alt}](data:image/svg+xml;utf8,${encodeURIComponent(svg)})`;
 }
 
 /** The last segment of a path, whichever separator it came with. */
@@ -98,7 +113,7 @@ function ageText(seconds: number): string {
 function compositionRow(label: string, color: string, bytes: number, total: number): string {
     const share = total > 0 ? bytes / total : 0;
     const percent = total > 0 ? Math.round(share * 100) : 0;
-    return `| ${label} | ${sizeText(bytes)} | ${percent}% | ${emojiBar(color, share)} |`;
+    return `| ${label} | ${sizeText(bytes)} | ${percent}% | ${cellBar(color, share)} |`;
 }
 
 // Markdown folds a single newline into a space; a row only gets its own line from a HARD break
@@ -126,7 +141,7 @@ export function cacheCardZones(input: CardInput): string[] {
         const progress = input.status.progress ?? detail?.progress;
         if (progress && progress.total > 0) {
             const share = progress.done / progress.total;
-            project.push(`${t('Preparing index {0}/{1}', progress.done, progress.total)} ${emojiBar('🟩', share)} ${Math.round(share * 100)}%`);
+            project.push(`${t('Preparing index {0}/{1}', progress.done, progress.total)} ${cellBar(BUDGET_COLOR.ok, share)} ${Math.round(share * 100)}%`);
         }
         zones.push(zone(project));
     }
@@ -150,9 +165,9 @@ export function cacheCardZones(input: CardInput): string[] {
             compositionRow(t('Trash'), CLASS_COLOR.trash, detail.trash?.bytes ?? 0, total),
         ];
         if (limit > 0) {
-            table.push(`| **${t('Total / budget')}** | **${sizeText(bytes)} / ${sizeText(limit)}** | **${percent}%** | ${emojiBar(budgetColor(level), fill)} |`);
+            table.push(`| **${t('Total / budget')}** | **${sizeText(bytes)} / ${sizeText(limit)}** | **${percent}%** | ${cellBar(budgetColor(level), fill)} |`);
         } else {
-            table.push(`| **${t('Total / budget')}** | **${sizeText(bytes)}** |  | ${emojiBar(budgetColor(level), fill)} |`);
+            table.push(`| **${t('Total / budget')}** | **${sizeText(bytes)}** |  | ${cellBar(budgetColor(level), fill)} |`);
         }
         zones.push(zone(table));
         if (detail.lastSweep && detail.lastSweep.at > 0) {
@@ -166,7 +181,7 @@ export function cacheCardZones(input: CardInput): string[] {
         zones.push(zone([
             `| ${t('Used / budget')} | ${t('Share')} |  |`,
             '|---:|---:|:--|',
-            `| **${sizeText(coarse.bytes)} / ${sizeText(coarse.limitBytes)}** | ${percent}% | ${emojiBar(budgetColor(level), fill)} |`,
+            `| **${sizeText(coarse.bytes)} / ${sizeText(coarse.limitBytes)}** | ${percent}% | ${cellBar(budgetColor(level), fill)} |`,
         ]));
         zones.push(t('Copies {0} ({1} files) · instances {2} ({3})', sizeText(coarse.copies.bytes), coarse.copies.files,
                      sizeText(coarse.instances.bytes), coarse.instances.count));

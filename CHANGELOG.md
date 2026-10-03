@@ -41,8 +41,10 @@ lives under a budget, and what it is doing is visible (plan 2026-10-02, `C-7…C
 - **One status item, two native surfaces.** The status bar's C++ Modules item carries the cache as
   a segment under a character budget (`mcppls.statusBar.maxLength`, default 36): hover for a
   read-only card in three zones — the project (state dot, module and unit counts, the real
-  preparation progress), the cache (a table with one bar a class), and the actions (sweep, open logs &
-  reports, copy the agent prompt) above the repository link — click for the hub, a QuickPick in four
+  preparation progress), the cache (one table: a coloured dot-matrix bar a class and a bold
+  total row against the budget, the bars tiny self-drawn SVGs because hover text cannot carry
+  colour), and the actions (sweep, open logs & reports, copy the agent prompt) above the
+  repository link — click for the hub, a QuickPick in four
   groups (overview, clean, diagnostics, feedback), every entry with its codicon, one primary action
   (**Sweep the Module Cache**, with an eye button for a dry run), a `Details` drill-down into the
   largest modules and an `Open a directory…` drill-down into the three places a report names. No
