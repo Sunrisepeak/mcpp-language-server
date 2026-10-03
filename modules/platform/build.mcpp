@@ -38,14 +38,22 @@ std::string compiler_family() {
 }
 
 std::string dlltool() {
-    const std::string dir = env_or_empty("MCPP_TOOLCHAIN_DIR");
+    // MCPP_TOOLCHAIN_DIR first (the environment variable is the contract older tools set), then
+    // the tool the running mcpp names -- CI's windows host sets neither variable, and its PATH has
+    // no llvm-dlltool; the registry toolchain directory beside clang++ is where the tool is.
+    // (openkal-windows' build.mcpp documents why it could not use a helper; this package pins the
+    // mcpp that has one, in .github/versions.env.)
+    std::string dir = env_or_empty("MCPP_TOOLCHAIN_DIR");
+    if (dir.empty()) dir = mcpp::toolchain_dir();
     const std::vector<std::string> names = { "llvm-dlltool", "x86_64-w64-mingw32-dlltool", "dlltool" };
     if (!dir.empty()) {
         for (const auto& n : names)
-            for (auto candidate : { std::format("{}/{}", dir, n), std::format("{}/bin/{}", dir, n) }) {
-                std::error_code ec;
-                if (std::filesystem::exists(candidate, ec)) return candidate;
-            }
+            for (const std::string& suffix : { "", ".exe" })
+                for (const std::string& sub : { "", "/bin" }) {
+                    std::error_code ec;
+                    const std::string candidate { std::format("{}{}/{}{}", dir, sub, n, suffix) };
+                    if (std::filesystem::exists(candidate, ec)) return candidate;
+                }
     }
     return names.front();
 }

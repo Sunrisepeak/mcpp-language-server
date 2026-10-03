@@ -22,7 +22,10 @@ members = [
 
 # One version of each third-party package for every member.
 [workspace.dependencies]
-openkal-llvm-runtime = "=0.15.1"   # exact: 0.15.4 pulls openkal-musl 0.20.1, which needs openkal(-linux) 0.16.1 -- more than the vendored 0.15.1 carries
+openkal-llvm-runtime = "=0.15.1"   # exact, both of these: a plain caret version floats openkal-llvm-runtime
+openkal-musl         = "=0.19.1"   # to 0.15.4, which pulls openkal-musl 0.20.1, which asks for openkal(-linux) 0.16.1 --
+                                   # two releases above the vendored openkal-linux 0.15.1 (vendor/README.md says when
+                                   # that goes away, and these pins with it)
 cmdline              = "0.0.2"
 tinyhttps            = "0.3.1"
 
@@ -75,11 +78,7 @@ default = "llvm@22.1.8"
 # The platform: openkal beneath musl, libc++ above it. One source builds every target.
 [dependencies]
 openkal-llvm-runtime.workspace = true
-# Pinned exact, not floating (a plain "0.15.1" is caret and today floats openkal-llvm-runtime to
-# 0.15.4): openkal-musl 0.20.x asks for openkal(-linux) 0.16.1, and the vendored openkal-linux below
-# is 0.15.1 -- two releases that do not carry the termux/PRoot fixes yet. Unpin both when the
-# vendored fixes ship upstream and the path dependency goes away (see vendor/README.md).
-openkal-musl = "=0.19.1"
+openkal-musl.workspace = true
 cmdline.workspace              = true
 mcppls-base                    = { path = "modules/base" }
 mcppls-platform                = { path = "modules/platform" }
