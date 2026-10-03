@@ -2,10 +2,15 @@
 // status item for C++ files, driven by the server's cxxModules/status notification.
 
 import * as vscode from 'vscode';
+import { cacheSegment, clampMaxLength, combineTier, fits, Tier, CxxCacheStatus } from './cacheSegment';
 import type { OnlineRun } from './downloadAsk';
 import { offersCacheReset, RESET_CACHE_COMMAND } from './cacheReset';
+import { cachedCacheDetail, OPEN_CACHE_HUB_COMMAND, SWEEP_WORKSPACE_CACHE_COMMAND, COPY_AGENT_PROMPT_COMMAND, REVEAL_CACHE_DIRECTORY_COMMAND } from './cacheSweep';
+import { COPY_REPOSITORY_URL_COMMAND } from './commands';
 import { TURN_ON_COMMAND } from './enable';
 import { stateTexts } from './statusText';
+import { cardMarkdown, CardStatus } from './tooltipCard';
+import { t } from './strings';
 import type { ModuleIssueLike } from './unrecoverable';
 
 export type ModuleState = 'starting' | 'loading' | 'preparing' | 'ready' | 'degraded' | 'error';
@@ -59,6 +64,9 @@ export interface CxxModulesStatus {
     notices?: ModuleIssue[];
     // D-5 (plan 0.0.9): how the last fetch the person asked for ended (downloadPrompt.ts tells it once).
     onlineRun?: OnlineRun;
+    // 0.0.10 plan C-13.1 (S3-4-29): the cache's coarse numbers, present when the client declared
+    // `status: true`; the detail lives behind `cxxModules/cache`.
+    cache?: CxxCacheStatus;
 }
 
 // What the status bar shows for each state.
@@ -112,6 +120,13 @@ interface Waiter {
     timer: NodeJS.Timeout;
 }
 
+// The module state's own tier: what S1 colours the item with on its own (C-13.2's S1 column).
+function moduleTierOf(state: ModuleState | 'starting'): Tier {
+    if (state === 'error') return 2;
+    if (state === 'degraded') return 1;
+    return 0;
+}
+
 export function describeProfile(profile: SemanticProfile | undefined): string {
     if (!profile) {
         return '';
@@ -131,13 +146,26 @@ export class StatusController implements vscode.Disposable {
     private readonly waiters = new Set<Waiter>();
     private pulseTimer: NodeJS.Timeout | undefined;
     private pulseLit = false;
+    // The card's table and bars need the `cxxModules/cache` detail, which only a fetch carries.
+    // The hover should never depend on the hub having been opened first (2026-10-03 UI-2), so the
+    // controller fetches it itself -- throttled to the server's own 30 s report cache -- and
+    // re-applies the card when it lands.
+    private cacheDetailFetch: (() => Promise<ReturnType<typeof cachedCacheDetail>>) | undefined;
+    private nextCacheDetailAt = 0;
+    private lastCardArgs: { detail: string | undefined; tooltipDetail: string | undefined } | undefined;
+
+    setCacheDetailFetcher(fetcher: () => Promise<ReturnType<typeof cachedCacheDetail>>): void {
+        this.cacheDetailFetch = fetcher;
+    }
 
     constructor() {
         this.item = vscode.languages.createLanguageStatusItem('mcppls.status', { language: 'cpp' });
         this.item.name = 'C++ Modules';
         this.bar = vscode.window.createStatusBarItem('mcppls.statusBar', vscode.StatusBarAlignment.Left, 50);
         this.bar.name = 'C++ Modules Language Server';
-        this.bar.command = 'mcppls.showLogs';
+        // C-13.2 (plan 2026-10-03): the item opens the cache hub -- the one menu with the sweep, the
+        // maintenance and the open-source actions. `showOff` keeps its one-click way back (below).
+        this.bar.command = OPEN_CACHE_HUB_COMMAND;
         this.bar.show();
         this.showStarting();
     }
@@ -149,14 +177,14 @@ export class StatusController implements vscode.Disposable {
         this.current = undefined;
         this.setPulsing(false);
         this.item.text = 'C++ Modules';
-        this.item.detail = 'Off in this workspace';
+        this.item.detail = t('Off in this workspace');
         this.item.busy = false;
         this.item.severity = vscode.LanguageStatusSeverity.Information;
         this.item.command = TURN_ON;
-        this.bar.text = '$(circle-slash) C++ Modules: off in this workspace';
+        this.bar.text = `$(circle-slash) ${t('C++ Modules: off in this workspace')}`;
         this.bar.backgroundColor = undefined;
         this.bar.color = undefined;
-        this.bar.tooltip = 'mcppls is turned off in this workspace (mcppls.enable). Click to turn it on.';
+        this.bar.tooltip = t('mcppls is turned off in this workspace (mcppls.enable). Click to turn it on.');
         this.bar.command = TURN_ON_COMMAND;
         for (const waiter of [...this.waiters]) {
             this.settle(waiter);
@@ -164,8 +192,8 @@ export class StatusController implements vscode.Disposable {
         }
     }
 
-    showStarting(detail = 'Starting'): void {
-        this.bar.command = 'mcppls.showLogs';
+    showStarting(detail = t('Starting')): void {
+        this.bar.command = OPEN_CACHE_HUB_COMMAND;
         this.failure = undefined;
         this.current = undefined;
         this.item.text = 'C++ Modules';
@@ -180,16 +208,81 @@ export class StatusController implements vscode.Disposable {
     // `tooltipDetail` (the full text, when it differs -- only `degraded` shortens anything, see
     // statusText.ts) is what the tooltip shows, defaulting to `detail` when there is nothing fuller.
     private paint(state: ModuleState | 'starting', detail: string | undefined, tooltipDetail: string | undefined = detail): void {
-        const { text, background, foreground } = barFor(state, detail);
+        const { text, foreground } = barFor(state, detail);
         const busy = BUSY_STATES.includes(state as ModuleState);
-        this.bar.text = text;
-        this.bar.backgroundColor = background;
+        // C-13.2 (0.0.10 plan, D10/D12): the cache is a SEGMENT of this one item -- appended when the
+        // budget fits it and (`auto`) only when it has something to say. The module text is never
+        // shortened or dropped for the cache's sake; what does not fit lives in the hover card.
+        const configuration = vscode.workspace.getConfiguration('mcppls');
+        const maxLength = clampMaxLength(configuration.get('statusBar.maxLength'));
+        const mode = configuration.get<string>('cache.showInStatusBar', 'auto');
+        const segment = cacheSegment(this.current?.cache);
+        const visible = segment !== undefined && (mode === 'always' || (mode === 'auto' && segment.tier >= 1));
+        let whole = text;
+        let cacheTier: Tier | undefined;
+        if (segment && visible && fits(maxLength, whole, ` ${segment.icon} ${segment.text}`)) {
+            whole = `${text} ${segment.icon} ${segment.text}`;
+            cacheTier = segment.tier;
+        }
+        // The whole item wears the worst tier of its segments (the cache never hides the module's
+        // own colour, it can only add to it): D10's "max(S1, S2)".
+        const tier = combineTier(moduleTierOf(state), cacheTier);
+        this.bar.text = whole;
+        this.bar.backgroundColor = tier >= 2 ? new vscode.ThemeColor('statusBarItem.errorBackground')
+            : tier === 1 ? new vscode.ThemeColor('statusBarItem.warningBackground')
+                : undefined;
         // A busy repaint lands on every progress notification. Reading the pulse's current phase
         // here, rather than resetting the colour, keeps one steady rhythm across those repaints
         // instead of restarting the cycle a few times a second.
         this.bar.color = busy ? this.pulseColor() : foreground;
-        this.bar.tooltip = tooltipDetail ? `mcppls — ${tooltipDetail}` : 'mcppls';
+        this.bar.tooltip = this.cardTooltip(detail, tooltipDetail);
+        this.lastCardArgs = { detail, tooltipDetail };
+        this.maybeFetchCacheDetail();
         this.setPulsing(busy);
+    }
+
+    // One detail fetch per 30 s at most, only while a cache is on the status, and only until one
+    // is remembered. On arrival the card is re-applied in place -- a hover that beats the fetch
+    // shows the budget bar first, and the table the moment the answer lands.
+    private maybeFetchCacheDetail(): void {
+        if (!this.current?.cache || !this.cacheDetailFetch) return;
+        if (cachedCacheDetail() || Date.now() < this.nextCacheDetailAt) return;
+        this.nextCacheDetailAt = Date.now() + 30_000;
+        void this.cacheDetailFetch()
+            .then((fresh) => {
+                if (fresh && this.lastCardArgs) {
+                    this.bar.tooltip = this.cardTooltip(this.lastCardArgs.detail, this.lastCardArgs.tooltipDetail);
+                }
+            })
+            .catch(() => undefined);
+    }
+
+    // The hover card v2 (2026-10-03 UI-2): project zone, cache table, actions, repository line.
+    // Read-only markdown; the command links go through the trusted-command mechanism, and the copy
+    // link needs it too -- hover text cannot be selected.
+    private cardTooltip(detail: string | undefined, tooltipDetail: string | undefined): vscode.MarkdownString | string {
+        const current = this.current;
+        const coarse = current?.cache;
+        if (!coarse) {
+            return tooltipDetail || detail ? `mcppls — ${tooltipDetail ?? detail}` : 'mcppls';
+        }
+        const status: CardStatus | undefined = current
+            ? { state: current.state, root: current.project?.root ?? '', source: current.project?.source, progress: current.progress }
+            : undefined;
+        const markdown = new vscode.MarkdownString(cardMarkdown({
+            status,
+            coarse,
+            detail: cachedCacheDetail(),
+            withCommands: true,
+            sweepCommand: SWEEP_WORKSPACE_CACHE_COMMAND,
+            revealCommand: REVEAL_CACHE_DIRECTORY_COMMAND,
+            copyPromptCommand: COPY_AGENT_PROMPT_COMMAND,
+            copyRepositoryCommand: COPY_REPOSITORY_URL_COMMAND,
+        }), true);
+        markdown.isTrusted = {
+            enabledCommands: [SWEEP_WORKSPACE_CACHE_COMMAND, COPY_AGENT_PROMPT_COMMAND, REVEAL_CACHE_DIRECTORY_COMMAND, COPY_REPOSITORY_URL_COMMAND],
+        };
+        return markdown;
     }
 
     private pulseColor(): vscode.ThemeColor | undefined {
@@ -219,7 +312,7 @@ export class StatusController implements vscode.Disposable {
     // The server is up but has not described itself; it does not implement cxxModules/status.
     showRunning(): void {
         this.item.text = 'C++ Modules';
-        this.item.detail = 'Running';
+        this.item.detail = t('Running');
         this.item.busy = false;
         this.item.severity = vscode.LanguageStatusSeverity.Information;
         this.item.command = SHOW_LOGS;
@@ -234,6 +327,7 @@ export class StatusController implements vscode.Disposable {
         this.item.busy = false;
         this.item.severity = vscode.LanguageStatusSeverity.Error;
         this.item.command = offerRestart ? RESTART : SHOW_LOGS;
+        this.bar.command = OPEN_CACHE_HUB_COMMAND;   // the hub carries 重启服务端 and 打开日志
         this.paint('error', message);
         for (const waiter of [...this.waiters]) {
             this.settle(waiter);
@@ -299,7 +393,9 @@ export class StatusController implements vscode.Disposable {
         this.paint(status.state, shortDetail, texts.full ?? shortDetail);
         if (offersCacheReset(issues)) {
             // A tooltip link next to the item's own click action, so the reset is offered
-            // alongside whatever the issue itself offers (0.0.7 plan C-1).
+            // alongside whatever the issue itself offers (0.0.7 plan C-1). The card stands back
+            // for it: the async detail repaint below must not replace the reset link.
+            this.lastCardArgs = undefined;
             const tooltip = new vscode.MarkdownString(undefined, true);
             tooltip.isTrusted = { enabledCommands: [RESET_CACHE_COMMAND] };
             tooltip.appendText(`mcppls — ${texts.full ?? shortDetail ?? ''}\n\n`);
@@ -351,6 +447,7 @@ export class StatusController implements vscode.Disposable {
 
     dispose(): void {
         this.setPulsing(false);
+        this.lastCardArgs = undefined;   // a fetch in flight must not repaint a disposed bar
         for (const waiter of [...this.waiters]) {
             this.settle(waiter);
             waiter.reject(new Error('The extension was deactivated.'));

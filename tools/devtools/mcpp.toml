@@ -13,6 +13,13 @@ license     = "Apache-2.0"
 kind = "bin"
 main = "src/main.cpp"
 
+
+# Declared here as well (the root has it too): a build that selects this member alone (-p devtools)
+# asks for its features here, and `clion` is what the CLion plugin's packaging step needs
+# (release-checks.yml). mcpp 2026.9.30 reads the selected member's declaration, not the root's.
+[features]
+clion = {}
+
 [dependencies]
 openkal-llvm-runtime.workspace = true
 cmdline.workspace              = true

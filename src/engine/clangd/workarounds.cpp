@@ -7,7 +7,7 @@ namespace mcppls::engine::clangd {
 
 namespace {
 
-constexpr std::array<Workaround, 10> REGISTRY { {
+constexpr std::array<Workaround, 11> REGISTRY { {
     {
         .id = TRAILING_DOT_MODULE_NAME,
         .title = "a module name ending in '.' at the end of its line spins clangd forever; clangd is given the line with ';' after the dot",
@@ -117,6 +117,17 @@ constexpr std::array<Workaround, 10> REGISTRY { {
         .removeWhen = "misc-const-correctness leaves a variable alone whose view has no const begin() and is used through it",
         .canary = "",
         .premise = "the diagnostic names the variable's type, the canonical one after `aka` where it differs, and that type is a std::ranges view whose base is its first template argument",
+    },
+    {
+        .id = LEFT_BEHIND_MODULE_COPIES,
+        .title = "clangd leaves the copy-on-read BMI it hands a reader behind when it dies; mcppls removes the previous clangd's leftovers before starting the next one",
+        .fixedIn = "",
+        .upstream = "#24 UP-24 (unfiled); the GC from llvm/llvm-project#193973 (3-day atime threshold) is in 23.1.0, the leak is not",
+        .evidence = ".agents/reviews/mcppls-cache-20261002-cause-analysis.md; .agents/docs/2026-10-02-cache-growth-root-fix-plan.md C-7; conformance fixtures cache-budget, workaround-canaries",
+        .added = "0.0.10",
+        .removeWhen = "the bundled clangd leaves no copy-on-read file behind after a process dies, or removes an earlier clangd's leftovers of the same cache root within minutes",
+        .canary = "conformance/fixtures/cache-budget: copies a dead generation left are gone after the next start, while the published BMIs stay",
+        .premise = "the cache directory under <cdb>/.cache/clangd belongs to this server while it holds the workspace lease, so anything the previous clangd left there and no reader holds may be removed (the same premise as RD12, which clears the module locks there)",
     },
 } };
 

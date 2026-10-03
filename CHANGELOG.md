@@ -7,6 +7,65 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.10] — 2026-10-03
+
+A workspace's module cache grew without bound when clangd kept crashing: every crash left its
+copy-on-read copies behind, the only cleanup was clangd's own three-day garbage collection on
+atime, and a real machine reached **64.36 GiB in 26.5 hours** — 97.1% of it copies, and three
+orphaned instance directories holding 94.5%. mcppls now owns the whole cache the way it already
+owned the module locks: what a dead generation left is swept before the next one starts, the cache
+lives under a budget, and what it is doing is visible (plan 2026-10-02, `C-7…C-13`, `X-6`).
+
+### The cache is bounded
+
+- **A new clangd generation starts in a swept cache.** Before clangd starts — at server start and
+  at every in-session restart — a background sweep removes the versioned copy-on-read copies the
+  previous generation left, keeping every published BMI, and keeps what it removes older than the
+  new generation's start so a concurrent start can never lose a copy it is about to write.
+- **The cache lives under a budget.** `mcppls.cache.maxBytes` (4 GB a workspace) and
+  `mcppls.cache.totalBytes` (16 GB over all workspaces): copies and dead instance directories go
+  first, oldest-used first and only where no instance has the workspace open, and a cache that
+  cannot fit without its published BMIs is reported, never pruned of them.
+- **Instances describe themselves.** Every server writes `instance.json` with a heartbeat into the
+  directory it works in, and a directory whose heartbeat expired is renamed aside by the lease tick
+  and removed in the background. A live guest is protected by its own heartbeat even when the
+  owner's lease is gone — the hole the old `cache --prune` fell into. Leftovers of 0.0.9, which
+  wrote nothing, wait 24 hours (`mcppls.cache.instanceGrace`) before they are taken.
+- **Windows can finally tell a dead owner from a live one** (`process_identity`): a pid another
+  process has since taken no longer reads as the same server, so a crash-and-restart within the
+  lease expiry no longer spawns a second instance directory there. Deletions count what they could
+  not remove, and the count is visible — nothing fails silently.
+
+### The cache is visible
+
+- **One status item, two native surfaces.** The status bar's C++ Modules item carries the cache as
+  a segment under a character budget (`mcppls.statusBar.maxLength`, default 36): hover for a
+  read-only card in three zones — the project (state dot, module and unit counts, the real
+  preparation progress), the cache (one table: a coloured dot-matrix bar a class and a bold
+  total row against the budget, the bars tiny self-drawn SVGs because hover text cannot carry
+  colour), and the actions (sweep, open logs & reports, copy the agent prompt) above the
+  repository link — click for the hub, a QuickPick in four
+  groups (overview, clean, diagnostics, feedback), every entry with its codicon, one primary action
+  (**Sweep the Module Cache**, with an eye button for a dry run), a `Details` drill-down into the
+  largest modules and an `Open a directory…` drill-down into the three places a report names. No
+  webview, no side bar, no new UI surface.
+- **The sweep command.** `mcppls.sweepCache` (extension: `mcppls.sweepWorkspaceCache`) removes what
+  no engine holds — copies, trash, dead instance directories, and stale command directories only by
+  explicit request where no engine is live — without stopping an engine and without a rebuild;
+  `mcppls cache --prune` is the same rules on the CLI, with `--dry-run`, `--older-than`,
+  `--max-size` and an instances-only report. The classified numbers
+  (`canonical` / `copies` / `instances` / `trash`) replace the old "each module may be stored twice"
+  guess, in the CLI, in the status, and behind the new `cxxModules/cache` request.
+- **A task book for a local AI agent.** The hub copies the agent prompt — verified facts, the
+  read-only checks each with what healthy looks like, the output contract (a verdict, the evidence,
+  what could be done without deleting), and a bug branch that asks the developer first and only
+  then drafts the issue itself, shows the draft for approval, and never uploads logs or bundles;
+  `mcppls cache --prompt agent|issue` prints the same text anywhere else.
+- **The editor speaks the display language.** English and 简体中文: the manifest through
+  `package.nls*`, the runtime words through `l10n/` bundles, with key-parity tests holding the two
+  together; the server's logs, CLI and prompts stay English. A `bundlesDirectory` field joins
+  `cxxModules/cache`'s `paths`, so a client never guesses where a diagnostic bundle lands.
+
 ## [0.0.9] — 2026-10-02
 
 Completion on a project without modules as fast as plain clangd's, and the rest of issue #37. clangd's

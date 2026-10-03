@@ -309,7 +309,15 @@ one.
 
 Old modules are pruned by themselves: each unit keeps the built modules (BMIs) of its two newest
 commands, and older ones are removed in the background when clangd starts. `mcppls cache --prune`
-does it for every workspace no server has open.
+does the same for every workspace no instance has open.
+
+The rest of the cache keeps itself under a budget (`mcppls.cache.maxBytes`, 4 GB a workspace by
+default): the copy-on-read copies clangd leaves behind when it dies are swept before the next
+clangd starts, directories of dead instances are reaped by heartbeat, and what still does not fit
+is reported — never taken from the published BMIs. Watch it in **VS Code** on the status bar
+(hover for the breakdown, click for the menu with **Sweep the Module Cache**, which removes what no
+engine holds without a restart or a rebuild), or run `mcppls cache --format json` for the
+classified numbers and `mcppls cache --prune --dry-run` to see what a prune would take.
 
 ## When mcppls cannot recover by itself
 

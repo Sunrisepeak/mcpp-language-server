@@ -13,6 +13,7 @@
 export module mcppls.engine.clangd.bmi;
 
 import std;
+import mcppls.platform.fs;
 
 export namespace mcppls::engine::clangd {
 
@@ -20,5 +21,14 @@ export namespace mcppls::engine::clangd {
 // `xlings.core.utf8.pcm` both answer `xlings.core.utf8`. A name that does not carry a stamp is
 // returned unchanged, extension removed.
 std::string module_of_bmi(std::string_view fileName);
+
+// C-7 (plan 2026-10-03): whether the file `fileName` in `directory` is one of clangd's copy-on-read
+// copies. Two halves, both needed: the name ends in the `-YYYYMMDD-HHMMSS-<serial>` stamp that
+// `module_of_bmi` strips, AND the canonical BMI it was taken from sits beside it -- clangd always
+// copies beside its source. The second half is what keeps a module genuinely named like a stamp
+// (`foo-20260101-120000-1`, no `foo.pcm` beside it) from being swept as a copy: deleting it would
+// be deleting a published BMI, and a sweep never does that (D2). Report, sweep and budget all ask
+// this one predicate, so what the report counts is exactly what a sweep removes.
+bool is_versioned_copy(std::string_view fileName, std::string_view directory);
 
 } // namespace mcppls::engine::clangd

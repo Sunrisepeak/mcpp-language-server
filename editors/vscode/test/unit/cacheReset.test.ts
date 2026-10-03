@@ -3,6 +3,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import { advertisesCacheReset, freedText, offersCacheReset, parseCacheResetResult, RESET_CACHE_COMMAND, SERVER_RESET_CACHE_COMMAND, sizeText } from '../../src/cacheReset';
+import { SERVER_SWEEP_CACHE_COMMAND } from '../../src/cacheSweep';
 
 suite('cache reset', () => {
     test('is offered for the three issue codes and nothing else', () => {
@@ -43,7 +44,7 @@ suite('cache reset', () => {
 suite('command ids', () => {
     // What the server lists in executeCommandProvider.commands (src/engine and src/orchestrator).
     const SERVER_COMMANDS = ['mcppls.review.run', 'mcppls.review.clear', 'mcppls.reloadBuildDescription', 'mcppls.describeOnline',
-        'mcppls.restartEngine', 'mcppls.exportBundle', SERVER_RESET_CACHE_COMMAND];
+        'mcppls.restartEngine', 'mcppls.exportBundle', SERVER_RESET_CACHE_COMMAND, SERVER_SWEEP_CACHE_COMMAND];
     // out/test/unit -> the extension root
     const root = path.resolve(__dirname, '..', '..', '..');
 
@@ -54,6 +55,13 @@ suite('command ids', () => {
             const text = fs.readFileSync(path.join(sources, name), 'utf8');
             for (const match of text.matchAll(/registerCommand\(\s*'([^']+)'/g)) ids.add(match[1]);
             for (const match of text.matchAll(/INSTALL_COMMAND_ID\s*=\s*'([^']+)'/g)) ids.add(match[1]);
+            // 0.0.10: the cache commands are held as constants (cacheSweep.ts). They are what the
+            // extension registers; the SERVER_* constants elsewhere name what it *sends*.
+            for (const match of text.matchAll(
+                /\b(OPEN_CACHE_HUB_COMMAND|SWEEP_WORKSPACE_CACHE_COMMAND|COPY_AGENT_PROMPT_COMMAND|REVEAL_CACHE_DIRECTORY_COMMAND)\s*=\s*'([^']+)'/g,
+            )) {
+                ids.add(match[2]);
+            }
         }
         return [...ids];
     }

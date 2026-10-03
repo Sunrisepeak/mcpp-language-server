@@ -15,19 +15,23 @@ inline constexpr std::chrono::seconds LEASE_EXPIRY { 30 };
 class WorkspaceLease {
 public:
     // `workspaceDirectory` is <cache>/workspaces/<key>; `now` is wall-clock time (a lease is read by
-    // other processes, so steady clocks do not compare).
-    static WorkspaceLease acquire(std::string_view workspaceDirectory, std::chrono::system_clock::time_point now);
+    // other processes, so steady clocks do not compare). `root` is the workspace root the instance
+    // serves, recorded in its own `instance.json` (C-9) so a sweep's report can name what it sees.
+    static WorkspaceLease acquire(std::string_view workspaceDirectory, std::chrono::system_clock::time_point now,
+                                  std::string_view root = {});
 
     const std::string& directory() const { return directory_; }   // the cache directory this instance uses
+    const std::string& token() const { return token_; }           // this instance's own; it marks its report entry (C-9)
     // The owner's cache directory, <cache>/workspaces/<key>: a guest may read what the owner wrote there (its
     // cached project model, P-1 plan 0.0.9), never write to it.
     const std::string& workspace_directory() const { return workspaceDirectory_; }
     bool shared() const { return shared_; }                        // another live instance owns the workspace directory
-    void renew(std::chrono::system_clock::time_point now);         // the owner's heartbeat; nothing for a guest
+    void renew(std::chrono::system_clock::time_point now);         // the owner's lease heartbeat, and every instance's `instance.json` heartbeat
     void release();                                                // the owner drops its lease; a guest removes its directory
 
 private:
     std::string workspaceDirectory_;
+    std::string root_;
     std::string directory_;
     std::string token_;
     bool shared_ { false };

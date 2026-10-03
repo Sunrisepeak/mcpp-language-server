@@ -76,7 +76,9 @@ suite('S-2: what the server is sent', () => {
         const sent = (key: string): boolean => key in options
             || (key.includes('.') && key.split('.')[0] in options && typeof options[key.split('.')[0]] === 'object');
         // Not sent because they act in the extension itself, or are read where they happen.
-        const extensionOnly = new Set(['enable', 'trace.server', 'ai.enabled', 'detectConflicts']);
+        // Not sent because they act in the extension itself, or are read where they happen.
+        // 0.0.10: the cache display settings are the editor's own (the server renders no UI).
+        const extensionOnly = new Set(['enable', 'trace.server', 'ai.enabled', 'detectConflicts', 'cache.showInStatusBar', 'statusBar.maxLength']);
         const missing = Object.keys(manifest.contributes.configuration.properties)
             .filter((name) => name.startsWith('mcppls.'))
             .map((name) => name.slice('mcppls.'.length))

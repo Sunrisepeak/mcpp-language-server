@@ -33,6 +33,21 @@ base::Result<void> create_directories(std::string_view path);
 // (mcpplibs/openkal#31, answered in openkal 0.13 / openkal-musl 0.14).
 base::Result<void> make_executable(std::span<const std::string> paths);
 void remove_all(std::string_view path);
+// Removes one file or empty directory and says so when it could not (a lock, an antivirus scan
+// holding the file): the cache sweepers count what they had to leave instead of failing silently.
+base::Result<void> remove(std::string_view path);
+// What removing a whole tree did: the bytes it freed and the entries it had to leave. A tree the
+// cache no longer needs may partly survive an overcrowded Windows scan; the count is the report.
+struct Removal {
+    std::uint64_t bytes { 0 };
+    std::size_t failed { 0 };
+};
+Removal tree_remove(std::string_view path);
+// `stamp`'s `modified` is nanoseconds on the file clock; this is that clock's reading of this
+// moment, taken by touching a scratch file and reading it back -- no cross-clock mapping is
+// attempted, and none is needed: the file clock is linear, so a caller that wants a bound of
+// "this moment minus an age" subtracts the age from what this returns.
+std::int64_t modified_now();
 // Moves a file or directory to `to` on the same volume, which must not exist yet.
 base::Result<void> rename(std::string_view from, std::string_view to);
 

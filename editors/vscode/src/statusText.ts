@@ -2,6 +2,8 @@
 // status item show (design 2026-09-25 §6). Kept free of `vscode`, the same reason
 // src/serverLog.ts is, so the categorisation and wording rules are testable in plain Node.
 
+import { t } from './strings';
+
 export type IssueCategory = 'code' | 'engine' | 'environment' | 'project';
 
 export interface StatusIssue {
@@ -67,22 +69,22 @@ export interface StatusForText {
 export function stateTexts(status: StatusForText): StateTexts {
     switch (status.state) {
         case 'starting':
-            return same('Starting');
+            return same(t('Starting'));
         case 'loading':
-            return same('Loading the project');
+            return same(t('Loading the project'));
         case 'preparing':
             return same(status.progress && status.progress.total > 0
-                ? `Preparing modules ${status.progress.done}/${status.progress.total}`
-                : 'Preparing modules');
+                ? t('Preparing modules {0}/{1}', status.progress.done, status.progress.total)
+                : t('Preparing modules'));
         case 'ready':
             return same(undefined);
         case 'degraded': {
             const issue = firstNonCodeIssue(status.issues ?? []);
-            const full = issue ? issue.message : 'Limited';
+            const full = issue ? issue.message : t('Limited');
             return { short: issue ? shorten(issue.message) : full, full };
         }
         case 'error': {
-            const base = 'Only module-level features are available';
+            const base = t('Only module-level features are available');
             const issue = firstNonCodeIssue(status.issues ?? []);
             return same(issue ? `${base}: ${issue.message}` : base);
         }

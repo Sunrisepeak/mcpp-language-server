@@ -92,7 +92,7 @@ struct SessionOptions {
 // `tool_run` carries what the external-program runner wrote down about one run, so the
 // workspace it belongs to can journal it (design 4.6).
 // `bundle_written` carries the outcome of a diagnostic bundle an editor asked for (issue #23 fix plan F18).
-enum class EventKind { client_message, client_closed, engine_event, model_loaded, external, review_finished, tool_run, bundle_written };
+enum class EventKind { client_message, client_closed, engine_event, model_loaded, external, review_finished, tool_run, bundle_written, cache_swept };
 
 struct Event {
     EventKind kind { EventKind::client_message };
@@ -171,6 +171,20 @@ public:
     // C-1 (plan 2026-09-30, `mcppls.resetCache`): this workspace's cache removed -- the cached models, the engine
     // database, clangd's module cache and its locks -- then planned and started again. The bytes freed.
     std::uint64_t reset_cache();
+
+    // ---- the cache mcppls owns (0.0.10 plan C-7, C-8, C-9, C-13.1) ---------------------
+    // The classified cache report this root serves (`cxxModules/cache`): numbers cached for at most
+    // 30 s and recomputed at once after a sweep, plus the state, engines and paths a hub needs.
+    // Read-only: it never cleans.
+    Json cache_report() const;
+    // `mcppls.sweepCache` (S3 5.8): removes what `categories` name under the sweep's safety rules --
+    // no engine stopped, no canonical BMI touched, nothing a live generation holds mapped. Answers
+    // `{ok, freedBytes, files, instances, roots, dryRun}` (+ `alreadyRunning` when a sweep is in
+    // flight and nothing was done).
+    Json sweep_cache(const Json& params);
+    // A background sweep (start path, tick or budget) finished; its numbers go to the journal, the
+    // status' `cache` fragment and the report cache.
+    void handle_cache_swept(const Json& outcome);
 
     // ---- the review an editor asks for (overall design 7.7) ----------------------------
     // Runs `mcppls review` on this root in the background; its findings are published as

@@ -78,7 +78,7 @@ platforms`).
 
 | Task | Command |
 |---|---|
-| What the module caches hold, and clearing one | `mcppls cache [--modules] [--format json]`, `mcppls cache --clean <name>` |
+| What the module caches hold, classified, and clearing one | `mcppls cache [--modules] [--instances] [--format json]`, `mcppls cache --clean <name>`, `mcppls cache --prune [--dry-run] [--older-than 7d] [--max-size 4G]`, `mcppls cache --prompt agent\|issue` |
 | What the server makes of one file | `mcppls check FILE` |
 | Everything a bug report needs | `mcppls report` |
 | Startup timings over several runs, optionally against a budget | `mcpp run -p devtools -- measure summary DIR [--max-cold S] [--max-warm S]` |

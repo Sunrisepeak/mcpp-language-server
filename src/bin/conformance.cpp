@@ -3337,6 +3337,12 @@ public:
                 if (auto tier = check.find("tier"); tier != check.end()) {
                     matched = matched && snapshot.value("project", Json::object()).value("tier", 0) == tier->get<int>();
                 }
+                // 0.0.10 plan C-13.1: the cache's own fill level, `ok` | `near` | `over`, inside the
+                // optional `cache` field. Absent from the status means the check fails, which is the
+                // point: a server that stops carrying the field is caught here.
+                if (auto cacheState = check.find("cache-state"); cacheState != check.end()) {
+                    matched = matched && snapshot.value("cache", Json::object()).value("state", std::string {}) == cacheState->get<std::string>();
+                }
                 if (auto issueCode = check.find("issue-code"); issueCode != check.end()) {
                     const std::string wantedCommand { check.value("issue-command", std::string {}) };
                     const std::string wantedMessage { check.value("issue-message", std::string {}) };   // a part of the message

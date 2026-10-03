@@ -22,7 +22,10 @@ members = [
 
 # One version of each third-party package for every member.
 [workspace.dependencies]
-openkal-llvm-runtime = "0.15.1"
+openkal-llvm-runtime = "=0.15.1"   # exact, both of these: a plain caret version floats openkal-llvm-runtime
+openkal-musl         = "=0.19.1"   # to 0.15.4, which pulls openkal-musl 0.20.1, which asks for openkal(-linux) 0.16.1 --
+                                   # two releases above the vendored openkal-linux 0.15.1 (vendor/README.md says when
+                                   # that goes away, and these pins with it)
 cmdline              = "0.0.2"
 tinyhttps            = "0.3.1"
 
@@ -34,7 +37,7 @@ libarchive = "3.8.7"
 
 [package]
 name        = "mcpp-language-server"
-version     = "0.0.9"
+version     = "0.0.10"
 description = "Compiler-agnostic C++ modules language server"
 license     = "Apache-2.0"
 authors     = ["Sunrisepeak"]
@@ -75,6 +78,7 @@ default = "llvm@22.1.8"
 # The platform: openkal beneath musl, libc++ above it. One source builds every target.
 [dependencies]
 openkal-llvm-runtime.workspace = true
+openkal-musl.workspace = true
 cmdline.workspace              = true
 mcppls-base                    = { path = "modules/base" }
 mcppls-platform                = { path = "modules/platform" }

@@ -81,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           for exe in mcppls mcppls-conformance mcppls-lspgen mcppls-devtools; do
-            path=$(find target tools/devtools/target -type f \( -name "$exe" -o -name "$exe.exe" \) -path '*/bin/*' | head -1)
+            path=$(find target -type f \( -name "$exe" -o -name "$exe.exe" \) -path '*/bin/*' | head -1)
             echo "$exe -> $path"
             if [ "$exe" = mcppls-devtools ]; then "$path" --help > /dev/null; else "$path" version; fi
           done
@@ -105,7 +105,7 @@ jobs:
         if: runner.os == 'Linux' && matrix.profile == 'dev'
         run: |
           set -euo pipefail
-          devtools=$(find tools/devtools/target -type f -name mcppls-devtools -path '*/bin/*' | head -1)
+          devtools=$(find target -type f -name mcppls-devtools -path '*/bin/*' | head -1)
           server=$(find target -type f -name mcppls -path '*/bin/*' | head -1)
           "$devtools" check all
           "$devtools" check binary --server "$server"
@@ -143,7 +143,7 @@ jobs:
           set -euo pipefail
           mkdir -p cross
           for exe in mcppls mcppls-conformance mcppls-lspgen mcppls-mock-mcpp mcppls-mock-model mcppls-devtools; do
-            path=$(find target tools/devtools/target -type f -name "$exe${{ matrix.exe }}" -path '*/bin/*' -newer mcpp.toml | head -1)
+            path=$(find target -type f -name "$exe${{ matrix.exe }}" -path '*/bin/*' -newer mcpp.toml | head -1)
             file "$path"
             case "${{ matrix.target }}" in
               *windows*) file "$path" | grep -q 'PE32+ executable' ;;
@@ -209,7 +209,7 @@ jobs:
           mcpp build -p devtools --profile release
           mkdir -p cross
           for exe in mcppls mcppls-conformance mcppls-mock-mcpp mcppls-mock-model mcppls-devtools; do
-            cp "$(find target tools/devtools/target -type f -name "$exe" -path '*/bin/*' -newer mcpp.toml | head -1)" cross/
+            cp "$(find target -type f -name "$exe" -path '*/bin/*' -newer mcpp.toml | head -1)" cross/
           done
       - name: The cross-built server
         if: matrix.cross != ''
@@ -225,7 +225,7 @@ jobs:
           set -euo pipefail
           if [ "$RUNNER_OS" = Linux ] && [ -n '${{ matrix.cross }}' ] && [ -z '${{ matrix.cross-tools }}' ]; then
             mcpp build -p devtools --profile release
-            cp "$(find tools/devtools/target -type f -name mcppls-devtools -path '*/bin/*' -newer mcpp.toml | head -1)" host-devtools
+            cp "$(find target -type f -name mcppls-devtools -path '*/bin/*' -newer mcpp.toml | head -1)" host-devtools
           else
             cp cross/mcppls-devtools host-devtools
           fi
@@ -282,21 +282,21 @@ jobs:
             part: 2 of 2
             os: ubuntu-24.04
             extras: true
-            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-provisioned mcpp-emit-watch mcpp-emit-watch@polling mcpp-emit-edits cmake-clang cmake-clang-bdb cmake-fetchcontent-offline watch-polling payload-corrupt clangd-cannot-load generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed failure-at-base failure-at-base@neovim completion-keywords diagnostic-bundle clangd-crash-context mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache include-cleaner-modules no-modules tidy-const-views
+            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-provisioned mcpp-emit-watch mcpp-emit-watch@polling mcpp-emit-edits cmake-clang cmake-clang-bdb cmake-fetchcontent-offline watch-polling payload-corrupt clangd-cannot-load generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed failure-at-base failure-at-base@neovim completion-keywords diagnostic-bundle clangd-crash-context mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views
           # generated-module{,-old-mcpp,-negotiated}'s mcpp-mock.json bakes in a POSIX driver path
           # (${env:HOME}/.mcpp/registry/..., no {exe}); it resolves the same way here as on Linux, so
           # these run on macOS but are left off win32-x64 below rather than fixed unverified.
           - platform: darwin-arm64
             os: macos-14
             extras: true
-            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache include-cleaner-modules no-modules tidy-const-views
+            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views
           # No mcpp on the arm64 runner (its tools are the cross-built ones), so the fixtures that
           # need no build tool and no compiler of their own: the semantic kit, clangd and the server
           # on aarch64, with module faults, a corrupt payload and polling included.
           - platform: linux-arm64
             os: ubuntu-24.04-arm
             cross-tools: true
-            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context inferred-cxx26 reset-cache include-cleaner-modules no-modules tidy-const-views
+            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views
           - platform: win32-x64
             part: 1 of 2
             os: windows-2022
@@ -305,7 +305,7 @@ jobs:
             part: 2 of 2
             os: windows-2022
             extras: true
-            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-clangxx-msvc cmake-clang-cl mcpp-msvc mcpp-watch failure-at-base clangd-cannot-load completion-keywords diagnostic-bundle mcpp-emit-wait inferred-cxx26 reset-cache include-cleaner-modules no-modules tidy-const-views
+            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-clangxx-msvc cmake-clang-cl mcpp-msvc mcpp-watch failure-at-base clangd-cannot-load completion-keywords diagnostic-bundle mcpp-emit-wait inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views
     defaults:
       run:
         shell: bash

@@ -15,6 +15,38 @@ import mcppls.platform.fs;
 import mcppls.platform.preopen;
 import mcppls.platform.sandbox;
 
+// X-6 (plan 2026-10-03): the one place in mcppls that asks the process tables about a process this
+// one did not start -- openkal starts and ends children but cannot say whether a pid lives, when it
+// began, or what its own pid is. There is no vendor SDK to include: this package's windows target
+// reaches its C library through openkal-musl (`_WIN32` is not even defined on it; mcpp's own
+// `__MCPP_TARGET_WINDOWS__` is the marker), so the seven calls used are declared here the way
+// openkal-windows' win32.h declares its own -- exactly what is used, `dllimport` and `__stdcall`,
+// because a linker-synthesised thunk would change what the objects say about themselves. Nothing
+// else from this system is reached.
+#if defined(__MCPP_TARGET_WINDOWS__)
+extern "C" {
+using KalHandle = void*;
+using KalDword = unsigned long;
+using KalBool = int;
+struct KalFileTime { KalDword low; KalDword high; };
+__declspec(dllimport) KalBool __stdcall GetProcessTimes(KalHandle, KalFileTime*, KalFileTime*, KalFileTime*, KalFileTime*);
+__declspec(dllimport) KalHandle __stdcall OpenProcess(KalDword, KalBool, KalDword);
+__declspec(dllimport) KalBool __stdcall CloseHandle(KalHandle);
+__declspec(dllimport) KalHandle __stdcall GetCurrentProcess();
+__declspec(dllimport) KalDword __stdcall GetCurrentProcessId();
+__declspec(dllimport) KalDword __stdcall WaitForSingleObject(KalHandle, KalDword);
+__declspec(dllimport) KalDword __stdcall GetLastError();
+}
+constexpr KalDword KAL_PROCESS_LIMITED_SYNCHRONIZE { 0x00100000 | 0x1000 };   // SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION
+constexpr KalDword KAL_WAIT_TIMEOUT { 258 };
+constexpr KalDword KAL_ERROR_INVALID_PARAMETER { 87 };
+#elif defined(__MCPP_TARGET_LINUX__)
+// Nothing: this target's self-identity reads /proc/self/stat, and getpid() would answer for the
+// sandbox rather than the process (see process_self).
+#else
+#include <unistd.h>
+#endif
+
 // The Linux openkal's own flag (vendor/openkal-linux/src/process.cpp): whether a program is started
 // with `execveat` and a directory descriptor, or with `execve` and an absolute name. It sets the flag
 // itself when `execveat` answers ENOSYS; this file sets it before the first start where that is known.
@@ -541,6 +573,58 @@ std::optional<double> parse_cpu_time(std::string_view text) {
     return total + days * 86400;
 }
 
+// X-6: a process's incarnation as its platform keeps it. Linux keeps a start time in stat's field
+// 22 (clock ticks since boot); macOS keeps a birth time in the kernel's process table; Windows
+// reports a creation FILETIME that does not repeat while the boot lasts, so a reused pid is always
+// a different incarnation. Same-boot comparisons only: after a reboot every `started` is stale, and
+// a caller that kept one across boots must fall back to the heartbeat.
+#if defined(__MCPP_TARGET_WINDOWS__)
+std::optional<ProcessIdentity> identity_of_handle(KalHandle process, std::int64_t pid) {
+    KalFileTime created {}, exited {}, kernel {}, user {};
+    if (!GetProcessTimes(process, &created, &exited, &kernel, &user)) return std::nullopt;
+    const long long stamp { static_cast<long long>((static_cast<unsigned long long>(created.high) << 32) | created.low) };
+    return ProcessIdentity { pid, std::format("{}", stamp) };
+}
+
+KalHandle open_queriable(std::int64_t pid) {
+    return OpenProcess(KAL_PROCESS_LIMITED_SYNCHRONIZE, 0, static_cast<KalDword>(pid));
+}
+#endif
+
+std::optional<ProcessIdentity> identity_from_stat(const std::string& stat, std::int64_t namedPid) {
+    const auto close = stat.rfind(')');
+    if (close == std::string::npos || close + 2 >= stat.size()) return std::nullopt;
+    // A ZOMBIE HAS NO IDENTITY. Its /proc entry outlives the process and keeps its start time,
+    // so a lease whose owner was killed reads as "the same live process" through the fields alone
+    // -- and a server restarted within the lease expiry then took itself for a second instance
+    // and started cold in a private directory (ux U10 measured 222 s instead of 25). The state
+    // letter is what process_alive already reads; the identity refuses zombies for the same
+    // reason: the question "is this the process I knew" has no answer for a dead one.
+    if (stat[close + 2] == 'Z' || stat[close + 2] == 'X') return std::nullopt;
+    // The pid before the '(' when the caller did not name one (this is /proc/self's own entry,
+    // which says who "self" really is); the caller's name otherwise, so a stale entry cannot
+    // introduce a pid nobody asked about.
+    std::int64_t pid { namedPid };
+    if (namedPid <= 0) {
+        const auto open = stat.find('(');
+        const auto head = std::string_view { stat }.substr(0, open == std::string::npos ? 0 : open);
+        if (head.empty()) return std::nullopt;
+        std::from_chars(head.data(), head.data() + head.size(), pid);
+        if (pid <= 0) return std::nullopt;
+    }
+    // After ") ": state is field 3, starttime field 22, so the 20th of what follows.
+    std::size_t field { 0 };
+    std::size_t at { close + 2 };
+    while (at < stat.size()) {
+        const auto end = stat.find(' ', at);
+        const std::string_view value { std::string_view { stat }.substr(at, end == std::string::npos ? std::string::npos : end - at) };
+        if (++field == 20) return ProcessIdentity { pid, std::string { value } };
+        if (end == std::string::npos) break;
+        at = end + 1;
+    }
+    return std::nullopt;
+}
+
 std::optional<bool> process_alive(std::int64_t pid) {
     if (pid <= 0) return std::nullopt;
     if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
@@ -564,7 +648,23 @@ std::optional<bool> process_alive(std::int64_t pid) {
         const std::string_view state { base::trim(ran->output) };
         return !state.empty() && state.front() != 'Z';
     } else {
+#if defined(__MCPP_TARGET_WINDOWS__)
+        // X-6: the handle openkal keeps is not a pid, so the process is asked for directly: one that
+        // nothing answers for is gone, one that may not be asked (another user's) cannot be judged,
+        // and one whose wait returns WAIT_TIMEOUT is running. A zero-timeout wait, not the exit
+        // code: the code is STILL_ACTIVE for a live process and whatever it exited with for a dead
+        // one, and a process that exits with code 259 would read as alive forever; the wait answers
+        // the question that was asked. Callers that must not confuse a REUSED pid compare `started`
+        // (process_identity) too -- the wait alone cannot tell incarnations apart.
+        const KalHandle process { open_queriable(pid) };
+        if (!process) return GetLastError() == KAL_ERROR_INVALID_PARAMETER ? std::optional<bool> { false } : std::nullopt;
+        const KalDword waited { WaitForSingleObject(process, 0) };
+        CloseHandle(process);
+        if (waited != 0 && waited != KAL_WAIT_TIMEOUT) return std::nullopt;   // WAIT_FAILED
+        return waited == KAL_WAIT_TIMEOUT;
+#else
         return std::nullopt;
+#endif
     }
 }
 
@@ -596,8 +696,74 @@ std::optional<double> cpu_seconds(std::int64_t pid) {
         if (!ran || ran->timedOut || ran->exitCode != 0) return std::nullopt;
         return parse_cpu_time(ran->output);
     } else {
+#if defined(__MCPP_TARGET_WINDOWS__)
+        const KalHandle process { open_queriable(pid) };
+        if (!process) return std::nullopt;
+        KalFileTime created {}, exited {}, kernel {}, user {};
+        const bool asked { GetProcessTimes(process, &created, &exited, &kernel, &user) != 0 };
+        CloseHandle(process);
+        if (!asked) return std::nullopt;
+        const auto seconds = [](const KalFileTime& time) {
+            const long long count { static_cast<long long>((static_cast<unsigned long long>(time.high) << 32) | time.low) };
+            return static_cast<double>(count) / 10'000'000.0;   // FILETIME: 100 ns units
+        };
+        return seconds(kernel) + seconds(user);
+#else
         return std::nullopt;
+#endif
     }
+}
+
+std::optional<ProcessIdentity> process_identity(std::int64_t pid) {
+    if (pid <= 0) return std::nullopt;
+    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
+        const auto stat = fs::read_file(std::format("/proc/{}/stat", pid));
+        if (!stat) return std::nullopt;
+        return identity_from_stat(*stat, pid);
+    } else if constexpr (mcppls::os::FAMILY == mcppls::os::Family::macos) {
+        // ps(1) is the one tool every macOS host has that names a process by pid; `lstart` is the
+        // birth time as the kernel keeps it, the same for every read of one incarnation and
+        // different for the next owner of the same pid. The Apple SDK's headers are not on this
+        // build's search path, so sysctl is not an option here.
+        SpawnOptions options;
+        options.program = "/bin/ps";
+        options.arguments = { "-o", "lstart=", "-p", std::to_string(pid) };
+        options.pipeInput = false;
+        auto ran = run(std::move(options), std::chrono::seconds { 2 });
+        if (!ran || ran->timedOut || ran->exitCode != 0) return std::nullopt;
+        const auto started { base::trim(ran->output) };
+        if (started.empty()) return std::nullopt;
+        return ProcessIdentity { pid, std::string { started } };
+    } else {
+#if defined(__MCPP_TARGET_WINDOWS__)
+        const KalHandle process { open_queriable(pid) };
+        if (!process) return std::nullopt;
+        const auto identity = identity_of_handle(process, pid);
+        CloseHandle(process);
+        return identity;
+#else
+        return std::nullopt;
+#endif
+    }
+}
+
+std::optional<ProcessIdentity> process_self() {
+#if defined(__MCPP_TARGET_WINDOWS__)
+    return identity_of_handle(GetCurrentProcess(), static_cast<std::int64_t>(GetCurrentProcessId()));
+#elif defined(__MCPP_TARGET_LINUX__)
+    // /proc/self/stat, never /proc/<getpid()>/stat: under a sandbox getpid() answers for the
+    // sandbox (it says 1), and the identity of "process 1" is every process's -- measured as the
+    // ux kill-server stage, where a killed server and its restart read as the same live process
+    // and the restart started cold in a private cache (222 s where 25 was the budget). self's own
+    // entry names the real process inside the sandbox and out.
+    const auto stat = fs::read_file("/proc/self/stat");
+    if (!stat) return std::nullopt;
+    return identity_from_stat(*stat, 0);
+#else
+    // The one pid POSIX hands out for free; the identity itself comes from the same source every
+    // other process's does.
+    return process_identity(static_cast<std::int64_t>(getpid()));
+#endif
 }
 
 std::vector<ThreadCpu> thread_cpu(std::int64_t pid) {

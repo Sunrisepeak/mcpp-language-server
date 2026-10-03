@@ -302,6 +302,36 @@ const std::vector<Setting>& shipped_registry() {
             .summaryZh = "clangd 可执行文件，覆盖 payload 自带的那一份。",
         },
         Setting {
+            .key = "cache.maxBytes", .kind = Kind::bytes, .defaultValue = "4G", .commandLine = "--cache-max-bytes",
+            .surface = Surface::server, .applies = Applies::restart, .category = "paths", .since = "0.0.10",
+            .summary = "How large one workspace's module cache may get. Copies and dead instance directories are removed to stay under it; the published BMIs never are, so a cache that cannot get under the limit without them is reported instead (the status bar and the cache menu say so). `unlimited` turns the budget off.",
+            .summaryZh = "单个工作区的模块缓存上限。超出时先清理副本与死实例目录回到预算内；已发布的模块本体（BMI）永远不会被删——删净副本仍超限时只报告（状态栏与缓存菜单可见）。`unlimited` 关闭预算。",
+        },
+        Setting {
+            .key = "cache.totalBytes", .kind = Kind::bytes, .defaultValue = "16G", .commandLine = "--cache-total-bytes",
+            .surface = Surface::server, .applies = Applies::restart, .category = "paths", .since = "0.0.10",
+            .summary = "How large all workspaces' module caches may get together. Only workspaces no instance has open give anything up, oldest-used first; published BMIs are never removed.",
+            .summaryZh = "所有工作区模块缓存的总上限。只有没有实例打开的工作区按最久未用的先后让出副本；已发布的模块本体不会被删。",
+        },
+        Setting {
+            .key = "cache.instanceGrace", .kind = Kind::seconds, .defaultValue = "86400", .commandLine = "--cache-instance-grace",
+            .surface = Surface::server, .applies = Applies::restart, .category = "paths", .since = "0.0.10",
+            .summary = "How long an instance directory that says nothing about itself (a leftover of mcppls 0.0.9 or older) is kept before it is removed: 86400, the default, is 24 hours. Directories that do describe themselves are judged by their own heartbeat instead.",
+            .summaryZh = "一个不自述的实例目录（0.0.9 及更早版本的遗留）在删除前保留多久：默认 86400 秒，即 24 小时。会自述的目录按它自己的心跳判断。",
+        },
+        Setting {
+            .key = "cache.showInStatusBar", .kind = Kind::enumeration, .values = { "auto", "always", "never" }, .defaultValue = "auto",
+            .surface = Surface::client, .applies = Applies::immediately, .category = "paths", .since = "0.0.10", .clientConfigurable = true,
+            .summary = "Whether the status bar shows the cache size. `auto` shows it only when the cache is near or over its budget; `always` and `never` do what they say. The hover card and the menu answer for the rest either way.",
+            .summaryZh = "状态栏是否显示缓存大小。`auto` 只在缓存接近或超过预算时显示；`always` 与 `never` 如字面。无论如何，其余数字看悬停卡片与菜单。",
+        },
+        Setting {
+            .key = "statusBar.maxLength", .kind = Kind::count, .defaultValue = "36",
+            .surface = Surface::client, .applies = Applies::immediately, .category = "paths", .since = "0.0.10", .clientConfigurable = true,
+            .summary = "How many characters the status bar item may take (24-60; an `$(icon)` counts as 2): what does not fit goes to the hover card, and the module state is never dropped for the cache's sake.",
+            .summaryZh = "状态栏项最多占多少字符（24-60；`$(图标)` 记 2）：装不下的进悬停卡片；模块状态永远优先于缓存显示。",
+        },
+        Setting {
             .key = "kit", .kind = Kind::path, .defaultValue = "", .commandLine = "--kit", .surface = Surface::server,
             .applies = Applies::restart, .category = "paths", .since = "0.0.1",
             .summary = "Semantic kit directory, overriding the one the payload carries.",
@@ -342,6 +372,8 @@ std::optional<std::string> json_to_text(const Setting& row, const Json& object) 
     case Kind::enumeration:
     case Kind::string:
     case Kind::path:
+    case Kind::bytes:
+    case Kind::count:
         return object.is_string() ? std::optional { object.get<std::string>() } : std::nullopt;
     }
     return std::nullopt;
@@ -386,6 +418,35 @@ std::optional<std::string> validate(const Setting& row, std::string_view text, s
             members.emplace_back(trimmed);
         }
         return base::join(members, ",");
+    }
+    case Kind::bytes: {
+        // A byte count as the settings write it: plain digits, a K/M/G suffix, or "unlimited".
+        std::string_view body { text };
+        if (body == "unlimited") return std::string { text };
+        std::uint64_t scale { 1 };
+        if (!body.empty() && (body.back() == 'G' || body.back() == 'g')) {
+            scale = std::uint64_t { 1 } << 30;
+            body.remove_suffix(1);
+        } else if (!body.empty() && (body.back() == 'M' || body.back() == 'm')) {
+            scale = std::uint64_t { 1 } << 20;
+            body.remove_suffix(1);
+        } else if (!body.empty() && (body.back() == 'K' || body.back() == 'k')) {
+            scale = std::uint64_t { 1 } << 10;
+            body.remove_suffix(1);
+        }
+        const bool digits { !body.empty() && std::ranges::all_of(body, [](char c) { return c >= '0' && c <= '9'; }) };
+        if (digits) {
+            std::uint64_t value { 0 };
+            std::from_chars(body.data(), body.data() + body.size(), value);
+            if (value <= std::numeric_limits<std::uint64_t>::max() / scale) return std::string { text };
+        }
+        problems.push_back({ row.key, std::format("{} is not a size (digits, K/M/G suffix, or unlimited); keeping the default", text) });
+        return std::nullopt;
+    }
+    case Kind::count: {
+        if (!text.empty() && std::ranges::all_of(text, [](char c) { return c >= '0' && c <= '9'; })) return std::string { text };
+        problems.push_back({ row.key, std::format("{} is not a non-negative number; keeping the default", text) });
+        return std::nullopt;
     }
     case Kind::string:
     case Kind::path:
@@ -454,6 +515,8 @@ Json typed_json(const Setting& row, const std::string& text) {
     case Kind::enumeration:
     case Kind::string:
     case Kind::path:
+    case Kind::bytes:
+    case Kind::count:
         return text;
     }
     return text;
@@ -469,6 +532,8 @@ std::string_view to_string(Kind kind) {
     case Kind::path: return "path";
     case Kind::seconds: return "seconds";
     case Kind::list: return "list";
+    case Kind::bytes: return "bytes";
+    case Kind::count: return "count";
     }
     return "?";
 }

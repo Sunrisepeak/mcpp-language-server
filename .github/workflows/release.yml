@@ -69,7 +69,7 @@ jobs:
         run: |
           set -euo pipefail
           mcpp build -p devtools
-          devtools=$(find tools/devtools/target -type f -name mcppls-devtools -path '*/bin/*' | head -1)
+          devtools=$(find target -type f -name mcppls-devtools -path '*/bin/*' | head -1)
           "$devtools" version --check
           declared=$("$devtools" version --print)
           echo "manifests say $declared, releasing ${{ steps.pick.outputs.version }}"

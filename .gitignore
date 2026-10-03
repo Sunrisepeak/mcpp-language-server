@@ -34,3 +34,6 @@ mcpp.lock
 
 # Local review reports (issue analyses, not shipped).
 .agents/docs/reviews/
+
+# Ad-hoc reviews and the throwaway scripts they came with (issue analyses, not shipped).
+.agents/reviews/

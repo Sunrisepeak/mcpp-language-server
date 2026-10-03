@@ -92,6 +92,11 @@ either wrapped in a top-level `mcppls` object or not.
 | `mcppls.mcpp` | a path | *(empty)* | `--mcpp` | reload | The `mcpp` executable for mcpp projects; empty means found on `PATH`. |
 | `mcppls.payload` | a path | *(empty)* | `--payload` | restart | Payload directory with clangd and the semantic kit; overridden per-file by `clangd` and `kit` below. |
 | `mcppls.clangd` | a path | *(empty)* | `--clangd` | restart | clangd executable, overriding the one the payload carries. |
+| `mcppls.cache.maxBytes` | ? | ? | `--cache-max-bytes` | restart | How large one workspace's module cache may get. Copies and dead instance directories are removed to stay under it; the published BMIs never are, so a cache that cannot get under the limit without them is reported instead (the status bar and the cache menu say so). `unlimited` turns the budget off. |
+| `mcppls.cache.totalBytes` | ? | ? | `--cache-total-bytes` | restart | How large all workspaces' module caches may get together. Only workspaces no instance has open give anything up, oldest-used first; published BMIs are never removed. |
+| `mcppls.cache.instanceGrace` | a non-negative number of seconds | `86400` | `--cache-instance-grace` | restart | How long an instance directory that says nothing about itself (a leftover of mcppls 0.0.9 or older) is kept before it is removed: 86400, the default, is 24 hours. Directories that do describe themselves are judged by their own heartbeat instead. |
+| `mcppls.cache.showInStatusBar` | `auto`, `always`, `never` | `auto` | — | immediately | Whether the status bar shows the cache size. `auto` shows it only when the cache is near or over its budget; `always` and `never` do what they say. The hover card and the menu answer for the rest either way. |
+| `mcppls.statusBar.maxLength` | ? | ? | — | immediately | How many characters the status bar item may take (24-60; an `$(icon)` counts as 2): what does not fit goes to the hover card, and the module state is never dropped for the cache's sake. |
 | `mcppls.kit` | a path | *(empty)* | `--kit` | restart | Semantic kit directory, overriding the one the payload carries. |
 | `MCPPLS_CACHE_DIR` | a path | *(empty)* | — | restart | Overrides the whole cache directory mcppls otherwise picks under the user's cache home (workspace models, toolchain probes, logs, diagnostic bundles). |
 <!-- settings:end -->

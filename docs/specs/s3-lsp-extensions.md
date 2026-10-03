@@ -76,6 +76,16 @@ interface CxxModulesStatusParams {
   issues?: CxxModulesIssue[];      // reasons for degradation; absent or empty when there are none
   notices?: CxxModulesIssue[];     // facts worth showing that reduce no feature, e.g. a producer that writes into the project
   onlineRun?: OnlineRun;           // how the last download the client asked for ended (S3-4-26)
+  cache?: CacheStatus;             // the workspace cache's own coarse numbers (S3-4-29)
+}
+
+interface CacheStatus {
+  bytes: number;                   // the cache's size, rounded UP to the next 100 MB (S3-4-30)
+  limitBytes: number;              // the configured budget (`mcppls.cache.maxBytes`)
+  state: "ok" | "near" | "over";   // near: at 70% of the budget or more
+  copies: { files: number; bytes: number };      // clangd's copy-on-read leftovers
+  instances: { count: number; bytes: number };   // per-instance cache directories
+  lastSweep?: { at: number; freedBytes: number };  // the last removal, however small
 }
 
 interface OnlineRun {
@@ -152,7 +162,7 @@ A server **SHOULD NOT** send `degraded` for a condition that ends by itself with
 
 A `producer-needs-download` issue says that the build tool, run without the network as a server runs it on its own, cannot describe the project until something is downloaded. A server **MAY** set `askOnline` on it when, asked by `workspace/executeCommand` with the command `mcppls.describeOnline`, it will describe the project once with the network allowed; every later description is without it again. <a id="S3-4-16"></a><sup>S3-4-16</sup> Until the client asks, and while the download runs, the server **MUST** go on serving the root from what it has (its sources, a partial description) <a id="S3-4-17"></a><sup>S3-4-17</sup>, and **MUST NOT** reach the network on its own. <a id="S3-4-18"></a><sup>S3-4-18</sup> A client that offers the download **MUST NOT** block anything on the question: no modal dialog, and no request, activation or startup waits for the answer. <a id="S3-4-19"></a><sup>S3-4-19</sup> It **SHOULD** ask at most once per root and set of missing things. <a id="S3-4-20"></a><sup>S3-4-20</sup> It **MUST NOT** act on an answer that comes after the root's status no longer carries the issue: the person may have built the project in their own terminal meanwhile, and the server's own offline retries find that by themselves. <a id="S3-4-21"></a><sup>S3-4-21</sup> A client that does not know `askOnline` sees an issue with a command, as before. A `producer-install-failed` issue is what that description answers when the network was allowed (the client asked, or the person set the build tool online) and the install failed: it names what failed and carries the build tool's own error lines, it carries no `askOnline` (asking again would repeat the failure), and its command is the same terminal action.
 
-A server that described a root with the network because a client asked (`mcppls.describeOnline`) **SHOULD** say how that ended in `onlineRun`, and keep it in the status of that root until another such run ends. <a id="S3-4-26"></a><sup>S3-4-26</sup> A client **SHOULD** tell the person each run once, told apart by `at`, without blocking anything (S3-4-18); a failed run's `message` says what failed, and the root's issues say what is still missing. <a id="S3-4-27"></a><sup>S3-4-27</sup> A client **MAY** remember, per workspace and only on the person's say-so, that every download the server offers is to be fetched, and then call `mcppls.describeOnline` without asking; it **MUST** offer a way to take that back. <a id="S3-4-28"></a><sup>S3-4-28</sup>
+A server that described a root with the network because a client asked (`mcppls.describeOnline`) **SHOULD** say how that ended in `onlineRun`, and keep it in the status of that root until another such run ends. A server **MAY** put the cache's own numbers in the optional `cache` field of a root's status, for a client that declared `status: true`, and only then. <a id="S3-4-29"></a><sup>S3-4-29</sup> The status carries the cache at a coarse grain -- a size rounded up to the next 100 MB, a fill level, the two counts a person compares at a glance -- and **MUST NOT** carry the per-file, per-module or per-instance detail: the detail is what `cxxModules/cache` (5.7) answers, and a field that changes with every module clangd builds would turn every status into a new one. <a id="S3-4-30"></a><sup>S3-4-30</sup> A client that does not know `cache` ignores it, as with every optional field. <a id="S3-4-26"></a><sup>S3-4-26</sup> A client **SHOULD** tell the person each run once, told apart by `at`, without blocking anything (S3-4-18); a failed run's `message` says what failed, and the root's issues say what is still missing. <a id="S3-4-27"></a><sup>S3-4-27</sup> A client **MAY** remember, per workspace and only on the person's say-so, that every download the server offers is to be fetched, and then call `mcppls.describeOnline` without asking; it **MUST** offer a way to take that back. <a id="S3-4-28"></a><sup>S3-4-28</sup>
 
 An issue the server cannot recover from without the person — an engine that keeps exiting, cannot be started or cannot run on the machine, a corrupt installation, preparation that stopped making progress — is what a bug report is written about, and what it needs is gone once the editor is restarted. For such an issue a server **SHOULD** write a diagnostic bundle by itself when the issue first appears, and name it in `bundle`. <a id="S3-4-22"></a><sup>S3-4-22</sup> The bundle **MUST** be redacted as a report is (S3-5.5-3), and stay on the machine it was written on: neither the server nor the client sends it anywhere. <a id="S3-4-23"></a><sup>S3-4-23</sup> A server **SHOULD** keep only the few newest bundles it wrote by itself. <a id="S3-4-24"></a><sup>S3-4-24</sup> A client that presents `bundle` **SHOULD** offer, once per issue and without blocking anything, to report the problem with the file attached by the person, to restart and to leave the server off for the workspace. <a id="S3-4-25"></a><sup>S3-4-25</sup> A client that does not know `bundle` sees the issue as before.
 
@@ -265,6 +275,71 @@ interface ResetCacheResult { ok: true; freedBytes: number; roots: number }   // 
 ```
 
 A server that advertises the command in `executeCommandProvider.commands` **MUST** remove a root's cache only after its engines have stopped using it, and answer with an error for a `root` it does not serve. <a id="S3-5.6-1"></a><sup>S3-5.6-1</sup> The requests the root's engines owed **MUST** be answered, by the remaining engines or empty. <a id="S3-5.6-2"></a><sup>S3-5.6-2</sup> A client **MUST NOT** register a command of its own under an id the server advertises: clients that register the server's commands (as `vscode-languageclient` does) then fail to start. <a id="S3-5.6-3"></a><sup>S3-5.6-3</sup>
+
+### 5.7 `cxxModules/cache`
+
+Direction: client → server, as a `cxxModules/cache` request. The classified report of the cache the server owns: how large it is, what part of it is the published BMIs, what part is clangd's copy-on-read leftovers, what part is dead per-instance directories, and where on the machine it all sits. A client that shows the cache -- a hover card, a menu -- reads this, not the status.
+
+```ts
+// cxxModules/cache request: no parameters
+interface CacheReportResponse {
+  roots: CacheReport[];            // one entry per root the session serves, in the order the roots were added
+}
+
+interface CacheReport {
+  state: State;                    // the root's state, the same value `cxxModules/status` carries
+  project: { name: string; source: string; level?: number; tier?: number };
+  plan?: { units: number; modules: number };      // the plan's scale, when a model is loaded
+  progress?: { done: number; total: number };     // module preparation, as the status carries it
+  bytes: number;                   // the cache's actual size, unrounded
+  canonical: { files: number; bytes: number };    // the published BMIs (`<module>.pcm`)
+  copies: { files: number; bytes: number; oldestSeconds?: number };  // the versioned copy-on-read leftovers
+  trash: { bytes: number };                       // what a previous removal moved aside and could not finish
+  instances: { count: number; bytes: number; list?: CacheInstanceInfo[] };
+  largest: { module: string; bytes: number; copies: number }[];  // at most 20
+  limits: { perWorkspace: number; total: number; over: boolean };
+  lastSweep?: { at: number; freedBytes: number; files: number; failed?: number };
+  paths: { cacheRoot: string; logDirectory: string; bundlesDirectory: string };  // the three places a person is sent to (S3-5.7-6)
+  prompts?: { agent: string; issue: string };     // rendered, ready for the clipboard (S3-5.7-2, S3-5.7-7)
+}
+
+interface CacheInstanceInfo {
+  token: string;                   // 16 hex digits, the directory's name
+  version?: string;                // the mcppls version that wrote it
+  root?: string;                   // the workspace root the instance serves
+  at?: number;                     // its last heartbeat, in milliseconds
+  bytes: number;
+  alive?: boolean;                 // its own heartbeat says it is working right now
+  own?: boolean;                   // it is the instance answering
+}
+```
+
+A server that declared `cxxModules` **MUST** answer `cxxModules/cache` for every root it serves with the numbers of the cache it actually holds. <a id="S3-5.7-1"></a><sup>S3-5.7-1</sup> A server **MUST NOT** remove, move or rewrite anything as a result of the request: it is a read. <a id="S3-5.7-2"></a><sup>S3-5.7-2</sup> A server **MAY** answer from a report it cached for at most 30 seconds, and **MUST** recompute that report before answering when a sweep of the same root finished after the cached one was made, so what a client shows after a sweep is what the sweep left. <a id="S3-5.7-3"></a><sup>S3-5.7-3</sup> The `prompts` the report carries are rendered by the server itself, for a person to hand to a local agent; they name the read-only commands to look at and the paths on this machine, and the server **MUST NOT** send them, or any other part of the report, anywhere. <a id="S3-5.7-4"></a><sup>S3-5.7-4</sup> A client **MUST** treat every path and name in the report as text: it renders them escaped, and never turns a server-sent string into a command, a URL or markup of its own. <a id="S3-5.7-5"></a><sup>S3-5.7-5</sup> A server that does not know the request answers `MethodNotFound`, and a client that receives it falls back to the status's `cache` field or to the CLI. <a id="S3-5.7-6"></a><sup>S3-5.7-6</sup> `paths` names the three places a person investigating the cache is sent to: the root's own module cache (`cacheRoot`), the server's logs (`logDirectory`), and where diagnostic bundles are written (`bundlesDirectory`, the default the bundle writer uses); a client that reveals a directory reveals one of these, and nothing it guesses itself. <a id="S3-5.7-7"></a><sup>S3-5.7-7</sup> The agent prompt is a task book, not a transcript: the verified facts, the read-only checks each with what healthy looks like, the output contract (a verdict, the evidence, what could be done without deleting), and a bug branch that asks the developer first and only then -- with their agreement -- drafts the issue, shows the draft for approval, and names the bundle paths for the person to attach; the prompt **MUST** state that the agent never uploads logs or bundles itself.
+
+### 5.8 `mcppls.sweepCache`
+
+Direction: client → server, as `workspace/executeCommand`. What the reset command is to a cache that holds something wrong, the sweep is to a cache that merely grew: it takes back what no engine is using -- the copies of dead generations, the directories of dead instances, the trash -- without stopping an engine, without invalidating a single prepared module, and without a rebuild.
+
+```ts
+// workspace/executeCommand { command: "mcppls.sweepCache", arguments: [SweepCacheParams] }
+interface SweepCacheParams {
+  root?: DocumentUri;              // absent: every root the server serves
+  categories?: ("copies" | "instances" | "trash" | "staleCommands" | "budget")[];
+                                   // absent: all of them but `staleCommands`
+  dryRun?: boolean;                // true: answer with what a sweep would free, remove nothing
+}
+interface SweepCacheResult {
+  ok: true;
+  freedBytes: number;              // what the sweep freed, or would have under `dryRun`
+  files: number;                   // the copies and command directories counted in `freedBytes`
+  instances: number;               // the instance directories removed
+  roots: number;                   // how many roots were swept
+  dryRun: boolean;
+  alreadyRunning?: boolean;        // a sweep was in flight; nothing was done by this one
+}
+```
+
+A server that advertises the command **MUST NOT** stop, restart or interrupt any engine for a sweep's sake. <a id="S3-5.8-1"></a><sup>S3-5.8-1</sup> A sweep **MUST NOT** let a request any engine owed fail. <a id="S3-5.8-2"></a><sup>S3-5.8-2</sup> A server **MUST NOT** remove a published BMI -- a `<module>.pcm` whose name is not the versioned copy shape. <a id="S3-5.8-3"></a><sup>S3-5.8-3</sup> A server **MUST NOT** remove a file a live engine generation could hold mapped: a copy is swept only when its mtime is older than the start of the oldest live generation of the engines using that cache, or when no engine uses the cache at all. <a id="S3-5.8-4"></a><sup>S3-5.8-4</sup> A server **MUST NOT** sweep a workspace's cache that another instance has open: an instance directory whose own heartbeat is fresh belongs to a live instance, whatever the workspace's lease says. <a id="S3-5.8-5"></a><sup>S3-5.8-5</sup> The `staleCommands` category -- the command directories older units' BMIs occupy -- is the engine start path's own work (C-2), so a server **MUST** skip it unless the client asked for it by name and no engine is live in that root. <a id="S3-5.8-6"></a><sup>S3-5.8-6</sup> A server **MUST** run one sweep at a time, and answer a sweep that arrives while one runs with `alreadyRunning: true` and nothing removed by it. <a id="S3-5.8-7"></a><sup>S3-5.8-7</sup> With `dryRun: true` a server **MUST** compute the answer over exactly the set it would have removed, so what a client reports as "would free" is what a sweep would free. <a id="S3-5.8-8"></a><sup>S3-5.8-8</sup>
 
 ## 6. Module features through standard LSP
 

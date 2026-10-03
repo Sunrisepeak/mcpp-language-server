@@ -117,7 +117,9 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 它会停掉这个根目录的引擎，删除它的缓存——模型、引擎数据库，以及 clangd 的模块缓存和锁——然后重新开始。日志保留。之后的第一次会话是冷启动。
 
-旧的模块会自动清理：每个单元保留它最新两条编译命令构建出的模块（BMI），更旧的在 clangd 启动时于后台删除。`mcppls cache --prune` 会对所有没有服务端打开的工作区做同样的清理。
+旧的模块会自动清理：每个单元保留它最新两条编译命令构建出的模块（BMI），更旧的在 clangd 启动时于后台删除。`mcppls cache --prune` 会对所有没有实例打开的工作区做同样的清理。
+
+缓存的其余部分有预算看管（`mcppls.cache.maxBytes`，默认每工作区 4 GB）：clangd 崩溃后遗留的 copy-on-read 副本会在下一个 clangd 启动前被清扫，死实例的目录按心跳回收，仍然超出预算的部分只报告——绝不动已发布的模块本体。在 **VS Code** 里看状态栏（悬停看分解，点击打开菜单，其中 **Sweep the Module Cache** 只清理没有引擎占用的东西，不重启、不重编），或者用 `mcppls cache --format json` 看分类数字、`mcppls cache --prune --dry-run` 预演清理。
 
 ## mcppls 无法自行恢复时
 

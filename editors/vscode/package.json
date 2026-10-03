@@ -1,8 +1,8 @@
 {
   "name": "mcpp-language-server",
-  "displayName": "C++ Modules Language Server",
-  "description": "mcppls - C++20/23 named modules that just work: go to definition, completion, hover and references across modules for any compiler, with clangd and a standard library kit built in.",
-  "version": "0.0.9",
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "version": "0.0.10",
   "publisher": "sunrisepeak",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -57,7 +57,7 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "In Restricted Mode only the module index and the built-in standard library kit are used. No compiler, build system or discovery command from the workspace is run.",
+      "description": "%capabilities.untrusted%",
       "restrictedConfigurations": [
         "mcppls.compiler"
       ]
@@ -106,13 +106,13 @@
       {
         "id": "module",
         "superType": "namespace",
-        "description": "A C++ module or module partition name"
+        "description": "%semanticToken.module.description%"
       }
     ],
     "semanticTokenModifiers": [
       {
         "id": "partition",
-        "description": "A module partition name, rather than a whole module"
+        "description": "%semanticTokenModifier.partition.description%"
       }
     ],
     "semanticTokenScopes": [
@@ -131,100 +131,140 @@
     "commands": [
       {
         "command": "mcppls.selectContext",
-        "title": "Select Context",
+        "title": "%command.mcppls.selectContext.title%",
         "category": "C++ Modules"
       },
       {
         "command": "mcppls.showModuleGraph",
-        "title": "Show Module Graph",
+        "title": "%command.mcppls.showModuleGraph.title%",
         "category": "C++ Modules"
       },
       {
         "command": "mcppls.restartServer",
-        "title": "Restart Language Server",
+        "title": "%command.mcppls.restartServer.title%",
         "category": "C++ Modules"
       },
       {
         "command": "mcppls.showLogs",
-        "title": "Show Logs",
+        "title": "%command.mcppls.showLogs.title%",
         "category": "C++ Modules"
       },
       {
         "command": "mcppls.installCommandLineTools",
-        "title": "Install Command Line Tools",
+        "title": "%command.mcppls.installCommandLineTools.title%",
         "category": "C++ Modules"
       },
       {
         "command": "mcppls.review.run",
-        "title": "Review Changes",
+        "title": "%command.mcppls.review.run.title%",
         "category": "C++ Modules",
         "enablement": "config.mcppls.ai.enabled"
       },
       {
         "command": "mcppls.review.clear",
-        "title": "Clear Review",
+        "title": "%command.mcppls.review.clear.title%",
         "category": "C++ Modules",
         "enablement": "config.mcppls.ai.enabled"
       },
       {
         "command": "mcppls.collectReport",
-        "title": "Collect Diagnostic Report",
+        "title": "%command.mcppls.collectReport.title%",
         "category": "C++ Modules"
       },
       {
         "command": "mcppls.exportDiagnosticBundle",
-        "title": "Export Diagnostic Bundle",
+        "title": "%command.mcppls.exportDiagnosticBundle.title%",
         "category": "C++ Modules"
       },
       {
         "command": "mcppls.restartClangd",
-        "title": "Restart clangd",
+        "title": "%command.mcppls.restartClangd.title%",
         "category": "C++ Modules"
       },
       {
         "command": "mcppls.resetWorkspaceCache",
-        "title": "Reset This Workspace's Cache",
+        "title": "%command.mcppls.resetWorkspaceCache.title%",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.openCacheHub",
+        "title": "%command.mcppls.openCacheHub.title%",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.sweepWorkspaceCache",
+        "title": "%command.mcppls.sweepWorkspaceCache.title%",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.copyAgentPrompt",
+        "title": "%command.mcppls.copyAgentPrompt.title%",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.copyIssuePrompt",
+        "title": "%command.mcppls.copyIssuePrompt.title%",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.revealCacheDirectory",
+        "title": "%command.mcppls.revealCacheDirectory.title%",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.newCacheIssue",
+        "title": "%command.mcppls.newCacheIssue.title%",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.openRepository",
+        "title": "%command.mcppls.openRepository.title%",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.openCacheSettings",
+        "title": "%command.mcppls.openCacheSettings.title%",
         "category": "C++ Modules"
       },
       {
         "command": "mcppls.turnOffInWorkspace",
-        "title": "Turn Off in This Workspace",
+        "title": "%command.mcppls.turnOffInWorkspace.title%",
         "category": "C++ Modules"
       },
       {
         "command": "mcppls.turnOnInWorkspace",
-        "title": "Turn On in This Workspace",
+        "title": "%command.mcppls.turnOnInWorkspace.title%",
         "category": "C++ Modules"
       },
       {
         "command": "mcppls.runBuildToolInTerminal",
-        "title": "Run the Build Tool in a Terminal",
+        "title": "%command.mcppls.runBuildToolInTerminal.title%",
         "category": "C++ Modules"
       },
       {
         "command": "mcppls.askBeforeDownloading",
-        "title": "Ask Before Downloading in This Workspace",
+        "title": "%command.mcppls.askBeforeDownloading.title%",
         "category": "C++ Modules"
       },
       {
         "command": "mcppls.turnOffOtherCppFeatures",
-        "title": "Turn Off Other C++ Language Features",
+        "title": "%command.mcppls.turnOffOtherCppFeatures.title%",
         "category": "C++ Modules"
       },
       {
         "command": "mcppls.restoreOtherCppFeatures",
-        "title": "Restore Other C++ Language Features",
+        "title": "%command.mcppls.restoreOtherCppFeatures.title%",
         "category": "C++ Modules"
       }
     ],
     "configuration": {
-      "title": "C++ Modules",
+      "title": "%configuration.title%",
       "properties": {
         "mcppls.compiler": {
           "type": "string",
           "default": "",
           "scope": "machine-overridable",
-          "markdownDescription": "Compiler whose semantics the language server follows, as an absolute path or a name on `PATH`. Empty means discovered automatically from the build system and the machine."
+          "markdownDescription": "%config.mcppls.compiler.markdownDescription%"
         },
         "mcppls.semanticKit": {
           "type": "string",
@@ -233,18 +273,18 @@
             "off"
           ],
           "enumDescriptions": [
-            "Use the built-in standard library kit when no compiler is found.",
-            "Never use the built-in kit; without a compiler only module-level features remain."
+            "%config.mcppls.semanticKit.enum.0%",
+            "%config.mcppls.semanticKit.enum.1%"
           ],
           "default": "auto",
-          "description": "Whether the built-in standard library kit may be used."
+          "description": "%config.mcppls.semanticKit.description%"
         },
         "mcppls.engine.workers": {
           "type": "string",
           "default": "auto",
           "pattern": "^(auto|[1-9][0-9]?)?$",
-          "patternErrorMessage": "auto, or a whole number from 1 to 99",
-          "description": "How many files clangd builds at once (its -j), shared by module preparation, indexing and the files you edit; one is always kept for what you are waiting on. auto: one fewer than the hardware threads, between two and eight, and no more than half the memory in gigabytes. A number sets it. Takes effect when the server restarts."
+          "patternErrorMessage": "%config.mcppls.engine.workers.patternErrorMessage%",
+          "description": "%config.mcppls.engine.workers.description%"
         },
         "mcppls.engine.name": {
           "type": "string",
@@ -253,37 +293,60 @@
             "none"
           ],
           "enumDescriptions": [
-            "The built-in clangd provides C++ semantics; mcppls's own engine answers module-level requests.",
-            "No core engine: only mcppls's own module-level features (module navigation, import completion, module diagnostics)."
+            "%config.mcppls.engine.name.enum.0%",
+            "%config.mcppls.engine.name.enum.1%"
           ],
           "default": "clangd",
-          "description": "The core semantic engine. mcppls's own module engine always runs beside it."
+          "description": "%config.mcppls.engine.name.description%"
         },
         "mcppls.ai.enabled": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "Show the AI-era features: **Review Changes** reviews the workspace's changes against `HEAD` with mcppls's rules and shows the findings, with their evidence, as problems. Nothing is sent to a model."
+          "markdownDescription": "%config.mcppls.ai.enabled.markdownDescription%"
+        },
+        "mcppls.cache.showInStatusBar": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "always",
+            "never"
+          ],
+          "default": "auto",
+          "scope": "resource",
+          "description": "%config.mcppls.cache.showInStatusBar.description%",
+          "enumDescriptions": [
+            "%config.mcppls.cache.showInStatusBar.enum.0%",
+            "%config.mcppls.cache.showInStatusBar.enum.1%",
+            "%config.mcppls.cache.showInStatusBar.enum.2%"
+          ]
+        },
+        "mcppls.statusBar.maxLength": {
+          "type": "string",
+          "default": "36",
+          "pattern": "^(2[4-9]|[3-5][0-9]|60)$",
+          "patternErrorMessage": "%config.mcppls.statusBar.maxLength.patternErrorMessage%",
+          "description": "%config.mcppls.statusBar.maxLength.description%"
         },
         "mcppls.enable": {
           "type": "boolean",
           "default": true,
           "scope": "resource",
-          "description": "Start mcppls for this workspace. Set it to false in a workspace's settings to keep the extension installed but inactive there, for a project it cannot serve yet; the status bar item turns it back on."
+          "description": "%config.mcppls.enable.description%"
         },
         "mcppls.detectConflicts": {
           "type": "boolean",
           "default": true,
-          "description": "Offer once to turn off the language features of other C++ extensions in this workspace, so results are not shown twice."
+          "description": "%config.mcppls.detectConflicts.description%"
         },
         "mcppls.semanticTokens.modules": {
           "type": "boolean",
           "default": true,
-          "description": "Module keywords and names from the server's semantic tokens. Turn this off to use only your own grammar or tree-sitter colors for module syntax."
+          "description": "%config.mcppls.semanticTokens.modules.description%"
         },
         "mcppls.completion.triggerOnSpace": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Show the module list as soon as a space is typed after `import` or `export import`. A space anywhere else never asks the server for anything."
+          "markdownDescription": "%config.mcppls.completion.triggerOnSpace.markdownDescription%"
         },
         "mcppls.trace.server": {
           "type": "string",
@@ -293,7 +356,12 @@
             "verbose"
           ],
           "default": "off",
-          "description": "Traces the communication between VS Code and the language server in the C++ Modules output; `verbose` also turns on the server's debug log. The trace is written at Trace level and the debug log at Debug level, so set that output's log level to see them."
+          "description": "%config.mcppls.trace.server.description%",
+          "enumDescriptions": [
+            "%config.mcppls.trace.server.enum.0%",
+            "%config.mcppls.trace.server.enum.1%",
+            "%config.mcppls.trace.server.enum.2%"
+          ]
         },
         "mcppls.buildTool": {
           "type": "string",
@@ -304,11 +372,11 @@
           ],
           "default": "offline",
           "enumDescriptions": [
-            "Run the build tool without the network. When it cannot describe the build without downloading something, the status says so and offers to run it in a terminal.",
-            "Let the build tool reach the network, and give it up to ten minutes.",
-            "Never run the build tool: use the cached description, or scanned sources."
+            "%config.mcppls.buildTool.enum.0%",
+            "%config.mcppls.buildTool.enum.1%",
+            "%config.mcppls.buildTool.enum.2%"
           ],
-          "description": "How mcppls may run this project's build tool (mcpp, CMake) to learn how the project is built. It is run in your login shell's environment; a run mcppls starts by itself does not reach the network by default."
+          "description": "%config.mcppls.buildTool.description%"
         },
         "mcppls.toolEnvironment": {
           "type": "string",
@@ -318,10 +386,10 @@
           ],
           "default": "auto",
           "enumDescriptions": [
-            "Read the login shell's environment once in the background and start build tools in it (POSIX). On Windows the editor's environment already matches the terminal's.",
-            "Always start build tools in the editor process's environment."
+            "%config.mcppls.toolEnvironment.enum.0%",
+            "%config.mcppls.toolEnvironment.enum.1%"
           ],
-          "description": "Which environment mcppls starts your build tools in. An editor started from a desktop entry, a Dock icon or a launcher does not carry your shell configuration, so the tool it finds may not be the one your terminal finds."
+          "description": "%config.mcppls.toolEnvironment.description%"
         },
         "mcppls.buildDiscovery.mode": {
           "type": "string",
@@ -330,11 +398,11 @@
             "off"
           ],
           "enumDescriptions": [
-            "Detect the project's build system: mcpp, CMake, xmake, meson, or an existing compile_commands.json.",
-            "Detect nothing and run nothing implicitly: use an explicitly configured mcppls.database, else scanned sources."
+            "%config.mcppls.buildDiscovery.mode.enum.0%",
+            "%config.mcppls.buildDiscovery.mode.enum.1%"
           ],
           "default": "auto",
-          "description": "Whether the project's build system is detected at all. mcppls.buildTool separately governs whether a detected build tool may be run; this governs whether it is looked for in the first place."
+          "description": "%config.mcppls.buildDiscovery.mode.description%"
         },
         "mcppls.buildDiscovery.providers": {
           "type": "array",
@@ -355,12 +423,12 @@
             "meson",
             "compile-commands"
           ],
-          "description": "Which build system providers mcppls.buildDiscovery.mode may use; leave one out to stop mcppls from detecting it."
+          "description": "%config.mcppls.buildDiscovery.providers.description%"
         },
         "mcppls.buildDiscovery.askBeforeDownload": {
           "type": "boolean",
           "default": true,
-          "description": "When the build tool needs a download to finish describing the project, offer to fetch it. Off: the status bar says a download is needed, and nothing asks."
+          "description": "%config.mcppls.buildDiscovery.askBeforeDownload.description%"
         },
         "mcppls.index.primeImplementationUnits": {
           "type": "string",
@@ -369,11 +437,11 @@
             "off"
           ],
           "enumDescriptions": [
-            "Open a module's implementation units in clangd in the background, so go-to-definition reaches a definition that only one has.",
-            "Only index what is opened in the editor."
+            "%config.mcppls.index.primeImplementationUnits.enum.0%",
+            "%config.mcppls.index.primeImplementationUnits.enum.1%"
           ],
           "default": "auto",
-          "description": "Whether mcppls opens a module's implementation units in the background so go-to-definition can reach a definition that only an implementation unit has."
+          "description": "%config.mcppls.index.primeImplementationUnits.description%"
         }
       }
     },
@@ -392,7 +460,7 @@
     "colors": [
       {
         "id": "mcppls.statusReadyForeground",
-        "description": "Status bar text when module semantics are ready. A background would be better, but VS Code accepts only its error and warning backgrounds.",
+        "description": "%color.mcppls.statusReadyForeground.description%",
         "defaults": {
           "dark": "#73c991",
           "light": "#2d883a",
@@ -402,7 +470,7 @@
       },
       {
         "id": "mcppls.statusPreparingForeground",
-        "description": "Status bar text on the lit half of the pulse while modules are being prepared. Resolving it to the default foreground turns the pulse off without breaking anything.",
+        "description": "%color.mcppls.statusPreparingForeground.description%",
         "defaults": {
           "dark": "#4daafc",
           "light": "#0066bf",
