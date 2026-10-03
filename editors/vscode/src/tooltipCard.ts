@@ -23,10 +23,11 @@ export function escapeCell(text: string): string {
     return text.replace(/([\\`|[\]])/g, '\\$1').replace(/\r?\n/g, ' ');
 }
 
-// 14 cells (review 2026-10-04): long enough that the bar column carries its share of the table's
-// width band -- the class rows and the total row then read as one even block, the right edge
-// falling where the footer's does, instead of a short strip tucked at the end of the table.
-const BAR_CELLS = 14;
+// 13 cells is the plain default (review 2026-10-04): the en table's text columns leave exactly
+// this much of the width band. The card itself computes its own count per language -- see
+// `barCells` below -- so the zh table, with narrower words, runs its bars a few cells longer and
+// closes on the same right edge.
+const BAR_CELLS = 13;
 
 /** The dot-matrix bar, monochrome: `█` for the filled share, `░` for the scale behind it. */
 export function bar(share: number, cells = BAR_CELLS): string {
@@ -117,10 +118,22 @@ function ageText(seconds: number): string {
 }
 
 /** One row of the composition table: the class, its size right-aligned, its share, its bar. */
-function compositionRow(label: string, bytes: number, total: number): string {
+function compositionRow(label: string, bytes: number, total: number, cells: number): string {
     const share = total > 0 ? bytes / total : 0;
     const percent = total > 0 ? Math.round(share * 100) : 0;
-    return `| ${label} | ${sizeText(bytes)} | ${percent}% | ${bar(share)} |`;
+    return `| ${label} | ${sizeText(bytes)} | ${percent}% | ${bar(share, cells)} |`;
+}
+
+// The bar column fills what this card's own text columns leave of the width band (review
+// 2026-10-04): the cells come from the labels and numbers the table actually shows, so the en
+// table lands on 13 cells and the zh one -- narrower words around the same Latin sizes -- runs a
+// few longer, both tables closing on the same right edge as the footer. One count a card: the
+// rows, the total row and the preparation line all share the scale, so nothing jitters.
+const BAR_BAND_WIDTH = 44;   // the widest row's plain text columns, measured with en at 13 cells
+const widest = (texts: string[]): number => Math.max(...texts.map(visibleWidth));
+function barCells(columnWidths: number[]): number {
+    const nonBar = columnWidths.reduce((sum, width) => sum + width, 0);
+    return Math.max(12, Math.min(20, BAR_BAND_WIDTH - nonBar));
 }
 
 // Markdown folds a single newline into a space; a row only gets its own line from a HARD break
@@ -134,6 +147,18 @@ export function cacheCardZones(input: CardInput): string[] {
     const detail = input.detail;
     const coarse = input.coarse;
     const zones: string[] = [];
+    const bytes = detail?.bytes ?? coarse?.bytes ?? 0;
+    const limit = detail?.limits.perWorkspace ?? coarse?.limitBytes ?? 0;
+    const fill = limit > 0 ? Math.min(1, bytes / limit) : 0;
+    const percent = limit > 0 ? Math.round(fill * 100) : 0;
+    // The card's one bar scale, from the columns the table actually shows (the total row's
+    // "bytes / limit" is the widest cell the Used column ever holds).
+    const usedText = limit > 0 ? `${sizeText(bytes)} / ${sizeText(limit)}` : sizeText(bytes);
+    const cells = barCells([
+        widest([t('Class'), t('Published'), t('Copies'), t('Instances'), t('Trash'), t('Total')]),
+        widest([t('Used'), usedText]),
+        widest([t('Share'), `${percent}%`]),
+    ]);
 
     if (input.status) {
         // One line for what the project IS: dot, name, state, counts, source -- each part drops
@@ -152,14 +177,10 @@ export function cacheCardZones(input: CardInput): string[] {
         const progress = input.status.progress ?? detail?.progress;
         if (progress && progress.total > 0) {
             const share = progress.done / progress.total;
-            zones.push(`${t('Preparing index {0}/{1}', progress.done, progress.total)} ${bar(share)} ${Math.round(share * 100)}%`);
+            zones.push(`${t('Preparing index {0}/{1}', progress.done, progress.total)} ${bar(share, cells)} ${Math.round(share * 100)}%`);
         }
     }
 
-    const bytes = detail?.bytes ?? coarse?.bytes ?? 0;
-    const limit = detail?.limits.perWorkspace ?? coarse?.limitBytes ?? 0;
-    const fill = limit > 0 ? Math.min(1, bytes / limit) : 0;
-    const percent = limit > 0 ? Math.round(fill * 100) : 0;
     if (detail) {
         // One table for the whole cache zone: the classes, then the bold total row against the
         // budget -- the grid keeps every column aligned. All four class rows are always there.
@@ -167,15 +188,15 @@ export function cacheCardZones(input: CardInput): string[] {
         const table = [
             `| ${t('Class')} | ${t('Used')} | ${t('Share')} |  |`,
             '|---|---:|---:|:--|',
-            compositionRow(t('Published'), detail.canonical?.bytes ?? 0, total),
-            compositionRow(t('Copies'), detail.copies.bytes, total),
-            compositionRow(t('Instances'), detail.instances.bytes, total),
-            compositionRow(t('Trash'), detail.trash?.bytes ?? 0, total),
+            compositionRow(t('Published'), detail.canonical?.bytes ?? 0, total, cells),
+            compositionRow(t('Copies'), detail.copies.bytes, total, cells),
+            compositionRow(t('Instances'), detail.instances.bytes, total, cells),
+            compositionRow(t('Trash'), detail.trash?.bytes ?? 0, total, cells),
         ];
         if (limit > 0) {
-            table.push(`| **${t('Total')}** | **${sizeText(bytes)} / ${sizeText(limit)}** | **${percent}%** | ${bar(fill)} |`);
+            table.push(`| **${t('Total')}** | **${usedText}** | **${percent}%** | ${bar(fill, cells)} |`);
         } else {
-            table.push(`| **${t('Total')}** | **${sizeText(bytes)}** |  | ${bar(fill)} |`);
+            table.push(`| **${t('Total')}** | **${usedText}** |  | ${bar(fill, cells)} |`);
         }
         zones.push(zone(table));
         if (detail.lastSweep && detail.lastSweep.at > 0) {
@@ -186,10 +207,14 @@ export function cacheCardZones(input: CardInput): string[] {
     } else if (coarse) {
         // No detail yet (or an old server): the total row against the budget in the same table
         // shape the full card will show, so the card never changes form while the detail loads.
+        const coarseCells = barCells([
+            widest([t('Used / budget'), `${sizeText(coarse.bytes)} / ${sizeText(coarse.limitBytes)}`]),
+            widest([t('Share'), `${percent}%`]),
+        ]);
         zones.push(zone([
             `| ${t('Used / budget')} | ${t('Share')} |  |`,
             '|---:|---:|:--|',
-            `| **${sizeText(coarse.bytes)} / ${sizeText(coarse.limitBytes)}** | ${percent}% | ${bar(fill)} |`,
+            `| **${sizeText(coarse.bytes)} / ${sizeText(coarse.limitBytes)}** | ${percent}% | ${bar(fill, coarseCells)} |`,
         ]));
         zones.push(t('Copies {0} ({1} files) · instances {2} ({3})', sizeText(coarse.copies.bytes), coarse.copies.files,
                      sizeText(coarse.instances.bytes), coarse.instances.count));
