@@ -179,9 +179,14 @@ export function repoLabel(url: string): string {
 export function cardMarkdown(input: CardInput): string {
     const zones = [...cacheCardZones(input)];
     if (input.withCommands) {
-        zones.push(`[$(clear-all) ${t('Sweep cache')}]`
-            + `(command:${input.sweepCommand}) · [$(folder-opened) ${t('Open logs & reports')}](command:${input.revealCommand}?%5B%22root%22%5D)`
-            + ` · [$(copy) ${t('Copy agent prompt')}](command:${input.copyPromptCommand})`);
+        // One action a line, stacked under the table like a menu: the table is then the WIDEST
+        // block in every language, the panel keeps one width, and no single-line row of joined
+        // links stretches the right side past the grid (the review's ragged-right complaint).
+        zones.push(zone([
+            `[$(clear-all) ${t('Sweep cache')}](command:${input.sweepCommand})`,
+            `[$(folder-opened) ${t('Open logs & reports')}](command:${input.revealCommand}?%5B%22root%22%5D)`,
+            `[$(copy) ${t('Copy agent prompt')}](command:${input.copyPromptCommand})`,
+        ]));
         zones.push(`[$(github) ${escapeCell(repoLabel(REPOSITORY))}](${REPOSITORY}) · [$(copy)](command:${input.copyRepositoryCommand})`);
     } else {
         zones.push(t('Click the status bar for the menu.'));
