@@ -146,6 +146,17 @@ export class StatusController implements vscode.Disposable {
     private readonly waiters = new Set<Waiter>();
     private pulseTimer: NodeJS.Timeout | undefined;
     private pulseLit = false;
+    // The card's table and bars need the `cxxModules/cache` detail, which only a fetch carries.
+    // The hover should never depend on the hub having been opened first (2026-10-03 UI-2), so the
+    // controller fetches it itself -- throttled to the server's own 30 s report cache -- and
+    // re-applies the card when it lands.
+    private cacheDetailFetch: (() => Promise<ReturnType<typeof cachedCacheDetail>>) | undefined;
+    private nextCacheDetailAt = 0;
+    private lastCardArgs: { detail: string | undefined; tooltipDetail: string | undefined } | undefined;
+
+    setCacheDetailFetcher(fetcher: () => Promise<ReturnType<typeof cachedCacheDetail>>): void {
+        this.cacheDetailFetch = fetcher;
+    }
 
     constructor() {
         this.item = vscode.languages.createLanguageStatusItem('mcppls.status', { language: 'cpp' });
@@ -225,7 +236,25 @@ export class StatusController implements vscode.Disposable {
         // instead of restarting the cycle a few times a second.
         this.bar.color = busy ? this.pulseColor() : foreground;
         this.bar.tooltip = this.cardTooltip(detail, tooltipDetail);
+        this.lastCardArgs = { detail, tooltipDetail };
+        this.maybeFetchCacheDetail();
         this.setPulsing(busy);
+    }
+
+    // One detail fetch per 30 s at most, only while a cache is on the status, and only until one
+    // is remembered. On arrival the card is re-applied in place -- a hover that beats the fetch
+    // shows the budget bar first, and the table the moment the answer lands.
+    private maybeFetchCacheDetail(): void {
+        if (!this.current?.cache || !this.cacheDetailFetch) return;
+        if (cachedCacheDetail() || Date.now() < this.nextCacheDetailAt) return;
+        this.nextCacheDetailAt = Date.now() + 30_000;
+        void this.cacheDetailFetch()
+            .then((fresh) => {
+                if (fresh && this.lastCardArgs) {
+                    this.bar.tooltip = this.cardTooltip(this.lastCardArgs.detail, this.lastCardArgs.tooltipDetail);
+                }
+            })
+            .catch(() => undefined);
     }
 
     // The hover card v2 (2026-10-03 UI-2): project zone, cache table, actions, repository line.
@@ -364,7 +393,9 @@ export class StatusController implements vscode.Disposable {
         this.paint(status.state, shortDetail, texts.full ?? shortDetail);
         if (offersCacheReset(issues)) {
             // A tooltip link next to the item's own click action, so the reset is offered
-            // alongside whatever the issue itself offers (0.0.7 plan C-1).
+            // alongside whatever the issue itself offers (0.0.7 plan C-1). The card stands back
+            // for it: the async detail repaint below must not replace the reset link.
+            this.lastCardArgs = undefined;
             const tooltip = new vscode.MarkdownString(undefined, true);
             tooltip.isTrusted = { enabledCommands: [RESET_CACHE_COMMAND] };
             tooltip.appendText(`mcppls — ${texts.full ?? shortDetail ?? ''}\n\n`);
@@ -416,6 +447,7 @@ export class StatusController implements vscode.Disposable {
 
     dispose(): void {
         this.setPulsing(false);
+        this.lastCardArgs = undefined;   // a fetch in flight must not repaint a disposed bar
         for (const waiter of [...this.waiters]) {
             this.settle(waiter);
             waiter.reject(new Error('The extension was deactivated.'));

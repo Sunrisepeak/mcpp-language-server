@@ -81,6 +81,20 @@ suite('tooltip card v2', () => {
         assert.ok(markdown.includes('failed to delete'), 'failures are visible, never silent');
     });
 
+    test('every row is its own line: zones are blank-line separated, rows hard-broken (the v1 run-on fix)', () => {
+        const zones = cardMarkdown(input()).split('\n\n');
+        assert.ok(zones.length >= 5, `${zones.length} zones: ${zones.map((z) => z.split('\n')[0]).join(' | ')}`);
+        assert.ok(zones[0].includes('  \n'), 'the project zone\'s rows are hard-broken, not folded into one line');
+        const table = zones.find((zone) => zone.startsWith('| Class |'));
+        assert.ok(table !== undefined, 'the table is a block of its own');
+        assert.ok(table!.split('\n').length === 6, 'header, ruler, four classes');
+        for (const zone of zones) {
+            for (const line of zone.split('\n')) {
+                assert.ok(!line.includes('Cache 3.80 GB / 4.00 GB · 95%** Copies'), 'the headline does not run into the next row');
+            }
+        }
+    });
+
     test('the preparation line appears only with real progress, and says only the truth (D18)', () => {
         const withProgress = cardMarkdown(input({ status: { state: 'preparing', root: '/w/demo', source: 'mcpp', progress: { done: 9, total: 20 } } }));
         assert.ok(withProgress.includes('Preparing index 9/20'));
@@ -106,9 +120,10 @@ suite('tooltip card v2', () => {
         assert.ok(long.includes('…'), 'a name that does not fit is cut, not wrapped');
     });
 
-    test('without a detail the card falls back to the coarse status numbers', () => {
+    test('without a detail the card falls back to the coarse numbers, with the budget bar as its one chart', () => {
         const markdown = cardMarkdown(input({ detail: undefined, coarse }));
         assert.ok(markdown.includes('**Cache 3.80 GB / 4.00 GB · 95%**'));
+        assert.ok(/Budget `█+░*` 95%/.test(markdown), 'the budget bar renders from the coarse numbers alone');
         assert.ok(markdown.includes('Copies 300 B (3 files) · instances 100 B (1)'));
         assert.ok(!markdown.includes('| Class |'), 'no half-empty table');
     });

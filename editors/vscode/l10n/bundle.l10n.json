@@ -10,6 +10,7 @@
   "A sweep would free {0} bytes ({1} files). Nothing was removed.": "A sweep would free {0} bytes ({1} files). Nothing was removed.",
   "A sweep would free nothing: there is nothing to remove.": "A sweep would free nothing: there is nothing to remove.",
   "Back": "Back",
+  "Budget": "Budget",
   "Cache {0}": "Cache {0}",
   "Cache {0} / {1} · {2}%": "Cache {0} / {1} · {2}%",
   "Cache in use": "Cache in use",

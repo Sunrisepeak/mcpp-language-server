@@ -10,6 +10,7 @@
   "A sweep would free {0} bytes ({1} files). Nothing was removed.": "预演：可释放 {0} 字节（{1} 个文件）。未删除任何东西。",
   "A sweep would free nothing: there is nothing to remove.": "预演：无可释放的内容，没有要删除的。",
   "Back": "返回",
+  "Budget": "预算",
   "Cache {0}": "缓存 {0}",
   "Cache {0} / {1} · {2}%": "缓存 {0} / {1} · {2}%",
   "Cache in use": "缓存占用",

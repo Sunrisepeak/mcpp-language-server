@@ -616,6 +616,9 @@ export function activate(context: vscode.ExtensionContext): TestApi {
         recentLog: () => host.recentLog(),
     };
     registerCommands(context, serverAccess);
+    // The hover card's table needs the `cxxModules/cache` detail; this makes it arrive without the
+    // hub being opened first (2026-10-03 UI-2). `host` is the forward-declared instance by now.
+    status.setCacheDetailFetcher(() => fetchCacheReport(host.runningClient()));
 
     // The per-workspace off switch: while it is off nothing is started, and turning it on or off at
     // runtime starts or stops the server.

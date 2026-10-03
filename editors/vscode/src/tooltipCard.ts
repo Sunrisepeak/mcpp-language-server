@@ -86,52 +86,69 @@ function compositionRow(label: string, bytes: number, total: number): string {
     return `| ${label} | ${sizeText(bytes)} | ${percent}% | \`${bar(share)}\` |`;
 }
 
-/** The card's lines without the actions: project, cache, history. */
-export function cacheCardLines(input: CardInput): string[] {
+// Markdown folds a single newline into a space; a row only gets its own line from a HARD break
+// (two trailing spaces) inside a zone, and every zone stands alone between blank lines -- and the
+// table needs its own block or the rows render as text. This is why v1 read as one long paragraph.
+function zone(rows: string[]): string {
+    return rows.filter((row) => row.length > 0).join('  \n');
+}
+
+/** The card's zones: project, cache headline, the table, history. Each is one markdown block. */
+export function cacheCardZones(input: CardInput): string[] {
     const detail = input.detail;
     const coarse = input.coarse;
-    const lines: string[] = [];
+    const zones: string[] = [];
 
     if (input.status) {
+        const project: string[] = [];
         const name = baseName(input.status.root);
         const shown = name.length > 28 ? `${name.slice(0, 27)}…` : name;
-        lines.push(`${stateDot(input.status.state, coarse?.state)} **${escapeCell(shown)} — ${stateWord(input.status.state)}**`);
+        project.push(`${stateDot(input.status.state, coarse?.state)} **${escapeCell(shown)} — ${stateWord(input.status.state)}**`);
         if (detail?.plan && (detail.plan.modules > 0 || detail.plan.units > 0)) {
             const source = input.status.source ? ` · ${escapeCell(input.status.source)}` : '';
-            lines.push(t('{0} modules · {1} units', detail.plan.modules, detail.plan.units) + source);
+            project.push(t('{0} modules · {1} units', detail.plan.modules, detail.plan.units) + source);
         }
         const progress = input.status.progress ?? detail?.progress;
         if (progress && progress.total > 0) {
             const share = progress.done / progress.total;
-            lines.push(`${t('Preparing index {0}/{1}', progress.done, progress.total)} \`${bar(share)}\` ${Math.round(share * 100)}%`);
+            project.push(`${t('Preparing index {0}/{1}', progress.done, progress.total)} \`${bar(share)}\` ${Math.round(share * 100)}%`);
         }
+        zones.push(zone(project));
     }
 
     const bytes = detail?.bytes ?? coarse?.bytes ?? 0;
     const limit = detail?.limits.perWorkspace ?? coarse?.limitBytes ?? 0;
-    lines.push(limit > 0 ? `**${t('Cache {0} / {1} · {2}%', sizeText(bytes), sizeText(limit), Math.round((bytes / limit) * 100))}**`
+    zones.push(limit > 0 ? `**${t('Cache {0} / {1} · {2}%', sizeText(bytes), sizeText(limit), Math.round((bytes / limit) * 100))}**`
                          : `**${t('Cache {0}', sizeText(bytes))}**`);
     if (detail) {
         const total = Math.max(1, bytes);
-        lines.push(`| ${t('Class')} | ${t('Used')} | ${t('Share')} |  |`);
-        lines.push('|---|---:|---:|---|');
-        lines.push(compositionRow(t('Published'), detail.canonical?.bytes ?? 0, total));
-        lines.push(compositionRow(t('Copies'), detail.copies.bytes, total));
-        lines.push(compositionRow(t('Instances'), detail.instances.bytes, total));
-        lines.push(compositionRow(t('Trash'), detail.trash?.bytes ?? 0, total));
+        const table = [
+            `| ${t('Class')} | ${t('Used')} | ${t('Share')} |  |`,
+            '|---|---:|---:|---|',
+            compositionRow(t('Published'), detail.canonical?.bytes ?? 0, total),
+            compositionRow(t('Copies'), detail.copies.bytes, total),
+            compositionRow(t('Instances'), detail.instances.bytes, total),
+            compositionRow(t('Trash'), detail.trash?.bytes ?? 0, total),
+        ];
+        zones.push(zone(table));
         if (detail.lastSweep && detail.lastSweep.at > 0) {
             const age = Math.max(1, Math.round((Date.now() - detail.lastSweep.at) / 1000));
             const failed = detail.lastSweep.failed ? t(', {0} failed to delete', detail.lastSweep.failed) : '';
-            lines.push(t('Last sweep {0}: freed {1} ({2} files){3}', ageText(age), sizeText(detail.lastSweep.freedBytes), detail.lastSweep.files, failed));
+            zones.push(t('Last sweep {0}: freed {1} ({2} files){3}', ageText(age), sizeText(detail.lastSweep.freedBytes), detail.lastSweep.files, failed));
         }
     } else if (coarse) {
-        lines.push(t('Copies {0} ({1} files) · instances {2} ({3})', sizeText(coarse.copies.bytes), coarse.copies.files,
+        // No detail yet (or an old server): the budget bar is the one chart the coarse numbers own.
+        if (coarse.limitBytes > 0) {
+            const share = Math.min(1, coarse.bytes / coarse.limitBytes);
+            zones.push(`${t('Budget')} \`${bar(share)}\` ${Math.round(share * 100)}%`);
+        }
+        zones.push(t('Copies {0} ({1} files) · instances {2} ({3})', sizeText(coarse.copies.bytes), coarse.copies.files,
                      sizeText(coarse.instances.bytes), coarse.instances.count));
         if (coarse.lastSweep) {
-            lines.push(t('The last sweep freed {0}', sizeText(coarse.lastSweep.freedBytes)));
+            zones.push(t('The last sweep freed {0}', sizeText(coarse.lastSweep.freedBytes)));
         }
     }
-    return lines;
+    return zones;
 }
 
 /** `github.com/Sunrisepeak/mcpp-language-server` -- the URL minus the protocol, the way it reads on the card. */
@@ -141,16 +158,14 @@ export function repoLabel(url: string): string {
 
 /** The whole card: project first (C-13.2: the first glance is "how is the project", the cache is the second). */
 export function cardMarkdown(input: CardInput): string {
-    const lines = [...cacheCardLines(input)];
+    const zones = [...cacheCardZones(input)];
     if (input.withCommands) {
-        lines.push('');
-        lines.push(`[$(clear-all) ${t('Sweep cache')}]`
+        zones.push(`[$(clear-all) ${t('Sweep cache')}]`
             + `(command:${input.sweepCommand}) · [$(folder-opened) ${t('Logs & reports')}](command:${input.revealCommand}?%5B%22root%22%5D)`
             + ` · [$(copy) ${t('Self-check')}](command:${input.copyPromptCommand})`);
-        lines.push(`[$(github) ${escapeCell(repoLabel(REPOSITORY))}](${REPOSITORY}) · [$(copy)](command:${input.copyRepositoryCommand})`);
+        zones.push(`[$(github) ${escapeCell(repoLabel(REPOSITORY))}](${REPOSITORY}) · [$(copy)](command:${input.copyRepositoryCommand})`);
     } else {
-        lines.push('');
-        lines.push(t('Click the status bar for the menu.'));
+        zones.push(t('Click the status bar for the menu.'));
     }
-    return lines.join('\n');
+    return zones.filter((text) => text.length > 0).join('\n\n');
 }
