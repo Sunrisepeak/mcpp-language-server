@@ -28,5 +28,15 @@ mcppls-os-macos = { path = "../os/macos" }
 [target.'cfg(windows)'.dependencies]
 mcppls-os-windows = { path = "../os/windows" }
 
+# X-6 (plan 2026-10-03): the process identity asks this system's own tables (GetProcessTimes,
+# OpenProcess, GetCurrentProcessId -- declared in process.cpp the way openkal-windows declares
+# its Win32 set, without a vendor SDK). `winprocess` is this package's own import library for
+# those three names, generated from port/winprocess.def by build.mcpp (see there for why it is
+# not called kernel32); `kernel32` itself is already on the line through openkal-windows, which
+# carries the rest (CloseHandle, GetExitCodeProcess, GetCurrentProcess). The predicate is the
+# object ABI (openkal-windows/mcpp.toml explains why `env`).
+[target.'cfg(all(windows, not(env = "msvc")))'.build]
+ldflags = ["-lwinprocess"]
+
 [lib]
 path = "src/platform.cppm"

@@ -15,16 +15,31 @@ import mcppls.platform.fs;
 import mcppls.platform.preopen;
 import mcppls.platform.sandbox;
 
-// X-6 (plan 2026-10-03): the one place in mcppls that touches the process tables directly. openkal
-// starts and ends children but cannot ask about a process this one did not start, and nothing
-// portable names this process's own pid. The system headers are confined to this one file, and the
-// macros windows.h would leak (min, max, near, far) are undef'd again right below.
-#if defined(_WIN32)
-#define NOMINMAX
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#undef min
-#undef max
+// X-6 (plan 2026-10-03): the one place in mcppls that asks the process tables about a process this
+// one did not start -- openkal starts and ends children but cannot say whether a pid lives, when it
+// began, or what its own pid is. There is no vendor SDK to include: this package's windows target
+// reaches its C library through openkal-musl (`_WIN32` is not even defined on it; mcpp's own
+// `__MCPP_TARGET_WINDOWS__` is the marker), so the seven calls used are declared here the way
+// openkal-windows' win32.h declares its own -- exactly what is used, `dllimport` and `__stdcall`,
+// because a linker-synthesised thunk would change what the objects say about themselves. Nothing
+// else from this system is reached.
+#if defined(__MCPP_TARGET_WINDOWS__)
+extern "C" {
+using KalHandle = void*;
+using KalDword = unsigned long;
+using KalBool = int;
+struct KalFileTime { KalDword low; KalDword high; };
+__declspec(dllimport) KalBool __stdcall GetProcessTimes(KalHandle, KalFileTime*, KalFileTime*, KalFileTime*, KalFileTime*);
+__declspec(dllimport) KalHandle __stdcall OpenProcess(KalDword, KalBool, KalDword);
+__declspec(dllimport) KalBool __stdcall CloseHandle(KalHandle);
+__declspec(dllimport) KalHandle __stdcall GetCurrentProcess();
+__declspec(dllimport) KalDword __stdcall GetCurrentProcessId();
+__declspec(dllimport) KalDword __stdcall WaitForSingleObject(KalHandle, KalDword);
+__declspec(dllimport) KalDword __stdcall GetLastError();
+}
+constexpr KalDword KAL_PROCESS_LIMITED_SYNCHRONIZE { 0x00100000 | 0x1000 };   // SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION
+constexpr KalDword KAL_WAIT_TIMEOUT { 258 };
+constexpr KalDword KAL_ERROR_INVALID_PARAMETER { 87 };
 #else
 #include <unistd.h>
 #endif
@@ -560,16 +575,16 @@ std::optional<double> parse_cpu_time(std::string_view text) {
 // reports a creation FILETIME that does not repeat while the boot lasts, so a reused pid is always
 // a different incarnation. Same-boot comparisons only: after a reboot every `started` is stale, and
 // a caller that kept one across boots must fall back to the heartbeat.
-#if defined(_WIN32)
-std::optional<ProcessIdentity> identity_of_handle(HANDLE process, std::int64_t pid) {
-    FILETIME created {}, exited {}, kernel {}, user {};
+#if defined(__MCPP_TARGET_WINDOWS__)
+std::optional<ProcessIdentity> identity_of_handle(KalHandle process, std::int64_t pid) {
+    KalFileTime created {}, exited {}, kernel {}, user {};
     if (!GetProcessTimes(process, &created, &exited, &kernel, &user)) return std::nullopt;
-    const long long stamp { (static_cast<long long>(created.dwHighDateTime) << 32) | created.dwLowDateTime };
+    const long long stamp { static_cast<long long>((static_cast<unsigned long long>(created.high) << 32) | created.low) };
     return ProcessIdentity { pid, std::format("{}", stamp) };
 }
 
-HANDLE open_queriable(std::int64_t pid) {
-    return OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid));
+KalHandle open_queriable(std::int64_t pid) {
+    return OpenProcess(KAL_PROCESS_LIMITED_SYNCHRONIZE, 0, static_cast<KalDword>(pid));
 }
 #endif
 
@@ -614,18 +629,20 @@ std::optional<bool> process_alive(std::int64_t pid) {
         const std::string_view state { base::trim(ran->output) };
         return !state.empty() && state.front() != 'Z';
     } else {
-#if defined(_WIN32)
+#if defined(__MCPP_TARGET_WINDOWS__)
         // X-6: the handle openkal keeps is not a pid, so the process is asked for directly: one that
         // nothing answers for is gone, one that may not be asked (another user's) cannot be judged,
-        // and one whose exit code is still STILL_ACTIVE is running -- which a reused pid also says,
-        // so callers that must not confuse incarnations compare `started` (process_identity) too.
-        const HANDLE process { open_queriable(pid) };
-        if (!process) return GetLastError() == ERROR_INVALID_PARAMETER ? std::optional<bool> { false } : std::nullopt;
-        DWORD code { 0 };
-        const bool asked { GetExitCodeProcess(process, &code) != 0 };
+        // and one whose wait returns WAIT_TIMEOUT is running. A zero-timeout wait, not the exit
+        // code: the code is STILL_ACTIVE for a live process and whatever it exited with for a dead
+        // one, and a process that exits with code 259 would read as alive forever; the wait answers
+        // the question that was asked. Callers that must not confuse a REUSED pid compare `started`
+        // (process_identity) too -- the wait alone cannot tell incarnations apart.
+        const KalHandle process { open_queriable(pid) };
+        if (!process) return GetLastError() == KAL_ERROR_INVALID_PARAMETER ? std::optional<bool> { false } : std::nullopt;
+        const KalDword waited { WaitForSingleObject(process, 0) };
         CloseHandle(process);
-        if (!asked) return std::nullopt;
-        return code != STILL_ACTIVE;
+        if (waited != 0 && waited != KAL_WAIT_TIMEOUT) return std::nullopt;   // WAIT_FAILED
+        return waited == KAL_WAIT_TIMEOUT;
 #else
         return std::nullopt;
 #endif
@@ -660,15 +677,15 @@ std::optional<double> cpu_seconds(std::int64_t pid) {
         if (!ran || ran->timedOut || ran->exitCode != 0) return std::nullopt;
         return parse_cpu_time(ran->output);
     } else {
-#if defined(_WIN32)
-        const HANDLE process { open_queriable(pid) };
+#if defined(__MCPP_TARGET_WINDOWS__)
+        const KalHandle process { open_queriable(pid) };
         if (!process) return std::nullopt;
-        FILETIME created {}, exited {}, kernel {}, user {};
+        KalFileTime created {}, exited {}, kernel {}, user {};
         const bool asked { GetProcessTimes(process, &created, &exited, &kernel, &user) != 0 };
         CloseHandle(process);
         if (!asked) return std::nullopt;
-        const auto seconds = [](const FILETIME& time) {
-            const long long count { (static_cast<long long>(time.dwHighDateTime) << 32) | time.dwLowDateTime };
+        const auto seconds = [](const KalFileTime& time) {
+            const long long count { static_cast<long long>((static_cast<unsigned long long>(time.high) << 32) | time.low) };
             return static_cast<double>(count) / 10'000'000.0;   // FILETIME: 100 ns units
         };
         return seconds(kernel) + seconds(user);
@@ -697,8 +714,8 @@ std::optional<ProcessIdentity> process_identity(std::int64_t pid) {
         if (started.empty()) return std::nullopt;
         return ProcessIdentity { pid, std::string { started } };
     } else {
-#if defined(_WIN32)
-        const HANDLE process { open_queriable(pid) };
+#if defined(__MCPP_TARGET_WINDOWS__)
+        const KalHandle process { open_queriable(pid) };
         if (!process) return std::nullopt;
         const auto identity = identity_of_handle(process, pid);
         CloseHandle(process);
@@ -710,7 +727,7 @@ std::optional<ProcessIdentity> process_identity(std::int64_t pid) {
 }
 
 std::optional<ProcessIdentity> process_self() {
-#if defined(_WIN32)
+#if defined(__MCPP_TARGET_WINDOWS__)
     return identity_of_handle(GetCurrentProcess(), static_cast<std::int64_t>(GetCurrentProcessId()));
 #else
     // The one pid POSIX hands out for free; the identity itself comes from the same source every

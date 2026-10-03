@@ -1,0 +1,77 @@
+import mcpp;
+import std;
+
+// THE PROCESS IDENTITY'S THREE NAMES, AS AN IMPORT LIBRARY OF THEIR OWN (X-6).
+//
+// process.cpp declares GetProcessTimes, OpenProcess and GetCurrentProcessId
+// itself -- this build's windows target has no vendor SDK to include, and
+// openkal-windows' win32.h showed the way. The LINK then needs import entries
+// for them, and the only kernel32 import library on this link line is
+// openkal-windows' own generated one, which lists exactly the forty-five names
+// it calls and deliberately no more (its build.mcpp says why, and what a
+// consumer that calls a forty-sixth is told). So this package carries its own
+// port/winprocess.def -- three names, still bound to KERNEL32.dll -- and turns
+// it into libwinprocess.a the same way openkal-windows turns its .def files:
+// llvm-dlltool under clang, into this package's out directory, which
+// mcpp::link_search puts on the link line. A name of its own cannot shadow
+// anything.
+//
+// UNLIKE openkal-windows, THIS RUNS ON A WINDOWS HOST TOO: its reason to skip
+// there was that the host's SDK supplies kernel32.lib complete, and a generated
+// forty-five-name substitute would shadow it. `winprocess` has no SDK
+// counterpart anywhere, so the generated library is the only one under either
+// host.
+
+namespace {
+
+std::string env_or_empty(const char* name) {
+    const char* v = std::getenv(name);
+    return v ? v : "";
+}
+
+// The same reasoning as openkal-windows' build.mcpp: the family is read from
+// the environment because the `mcpp` module this program compiles against is
+// whichever tool runs it, and absent predates the question (answered "gcc").
+std::string compiler_family() {
+    if (const char* v = std::getenv("MCPP_COMPILER"); v && *v) return v;
+    return "gcc";
+}
+
+std::string dlltool() {
+    const std::string dir = env_or_empty("MCPP_TOOLCHAIN_DIR");
+    const std::vector<std::string> names = { "llvm-dlltool", "x86_64-w64-mingw32-dlltool", "dlltool" };
+    if (!dir.empty()) {
+        for (const auto& n : names)
+            for (auto candidate : { std::format("{}/{}", dir, n), std::format("{}/bin/{}", dir, n) }) {
+                std::error_code ec;
+                if (std::filesystem::exists(candidate, ec)) return candidate;
+            }
+    }
+    return names.front();
+}
+
+// Only the windows target's objects reference these names; every other target
+// has nothing to link them to and no use for the library.
+bool target_is_windows() { return env_or_empty("MCPP_TARGET_OS") == "windows"; }
+
+}  // namespace
+
+int main() {
+    mcpp::rerun_if_changed("port/winprocess.def");
+    if (!target_is_windows() || compiler_family() != "clang") return 0;
+
+    const std::string out { env_or_empty("MCPP_OUT_DIR") };
+    const std::string root { env_or_empty("MCPP_MANIFEST_DIR") };
+    if (out.empty() || root.empty()) return 0;
+
+    const std::string tool { dlltool() };
+    const auto def = std::format("{}/port/winprocess.def", root);
+    const auto lib = std::format("{}/libwinprocess.a", out);
+    const auto cmd = std::format("\"{}\" -m i386:x86-64 -d \"{}\" -l \"{}\"", tool, def, lib);
+    if (std::system(cmd.c_str()) != 0) {
+        std::cerr << "mcppls-platform: could not build the winprocess import library (" << cmd << ")\n";
+        return 1;
+    }
+    mcpp::link_search(out.c_str());
+    return 0;
+}
