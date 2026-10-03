@@ -142,7 +142,7 @@ int report(const std::string& workspaces, bool instancesOnly, bool listModules, 
         Json out = Json::array();
         for (const auto& entry : fs::list_directory(workspaces)) {
             if (!fs::is_directory(entry)) continue;
-            const Json numbers { cache::report(entry, budget, now, {}) };
+            const Json numbers = cache::report(entry, budget, now, {});
             Json one { { "workspace", std::string { base::file_name(entry) } },
                        { "directory", entry },
                        { "modules", numbers.value("modules", std::size_t { 0 }) },
@@ -170,7 +170,7 @@ int report(const std::string& workspaces, bool instancesOnly, bool listModules, 
     std::vector<Row> rows;
     for (const auto& entry : fs::list_directory(workspaces)) {
         if (!fs::is_directory(entry)) continue;
-        const Json numbers { cache::report(entry, budget, now, {}) };
+        const Json numbers = cache::report(entry, budget, now, {});
         rows.push_back({ std::string { base::file_name(entry) },
                          numbers.value("modules", std::size_t { 0 }),
                          numbers["canonical"].value("bytes", std::uint64_t { 0 }),

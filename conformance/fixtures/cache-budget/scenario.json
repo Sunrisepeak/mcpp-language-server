@@ -28,7 +28,7 @@
    ],
    "expect": [
     {
-     "path": "/workspaces/0/canonical/files",
+     "path": "/workspaces/0/limits/perWorkspace",
      "at-least": 1
     },
     {
@@ -36,8 +36,8 @@
      "equals": 0
     },
     {
-     "path": "/workspaces/0/limits/perWorkspace",
-     "at-least": 1
+     "path": "/workspaces/0/level",
+     "equals": "ok"
     }
    ]
   },
@@ -87,8 +87,12 @@
      "equals": 0
     },
     {
-     "path": "/workspaces/0/canonical/files",
-     "at-least": 1
+     "path": "/workspaces/0/instances/count",
+     "equals": 0
+    },
+    {
+     "path": "/workspaces/0/level",
+     "equals": "ok"
     }
    ]
   },
