@@ -593,7 +593,14 @@ std::optional<ProcessIdentity> identity_from_proc(std::int64_t pid) {
     const auto stat = fs::read_file(std::format("/proc/{}/stat", pid));
     if (!stat) return std::nullopt;
     const auto close = stat->rfind(')');
-    if (close == std::string::npos) return std::nullopt;
+    if (close == std::string::npos || close + 2 >= stat->size()) return std::nullopt;
+    // A ZOMBIE HAS NO IDENTITY. Its /proc entry outlives the process and keeps its start time,
+    // so a lease whose owner was killed reads as "the same live process" through the fields alone
+    // -- and a server restarted within the lease expiry then took itself for a second instance
+    // and started cold in a private directory (ux U10 measured 222 s instead of 25). The state
+    // letter is what process_alive already reads; the identity refuses zombies for the same
+    // reason: the question "is this the process I knew" has no answer for a dead one.
+    if ((*stat)[close + 2] == 'Z' || (*stat)[close + 2] == 'X') return std::nullopt;
     std::size_t field { 0 };
     std::size_t at { close + 2 };
     while (at < stat->size()) {

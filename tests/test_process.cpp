@@ -255,6 +255,32 @@ int main() {
         expect(platform::process_identity(0) == std::nullopt) << "pid 0 is not a question";
     };
 
+    // X-6, the ux U10 defect: a killed-but-unreaped process (a zombie) keeps its /proc entry and
+    // its start time. The identity must refuse it, or a lease whose owner died reads as "the same
+    // live process" and a restart within the lease expiry starts cold in a private directory --
+    // the ux budget caught it as 222 s where 25 was allowed.
+    "a zombie has no identity, so its lease is taken over"_test = [&] {
+        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
+            // A shell that starts a child, ignores SIGCHLD (so it never reaps) and becomes a sleep:
+            // the child exits, stays a zombie for as long as this test runs, and names itself.
+            platform::SpawnOptions options;
+            options.program = "/bin/sh";
+            options.arguments = { "-c", "trap '' CHLD; sleep 0.4 & echo $!; exec sleep 30" };
+            auto shell = platform::Process::spawn(options);
+            expect(fatal(shell.has_value()));
+            const auto announced = shell->read_output_for(std::chrono::milliseconds { 2000 });
+            std::int64_t zombie { 0 };
+            if (announced.has_value() && announced->has_value()) zombie = std::stoll(announced->value());
+            expect(fatal(zombie > 0)) << "the shell did not name its child";
+            std::this_thread::sleep_for(std::chrono::milliseconds { 900 });   // the child has exited by now
+            expect(platform::process_identity(zombie) == std::nullopt) << "a zombie has no identity to answer with";
+            const auto alive = platform::process_alive(zombie);
+            expect(!alive.has_value() || !*alive) << "a zombie is not running";
+            shell->kill();
+            (void)shell->wait();
+        }
+    };
+
     "process_alive answers on Windows too, and never says a live pid is gone"_test = [&] {
         if (const auto self = platform::process_self(); self && self->pid > 0) {
             const auto alive = platform::process_alive(self->pid);
