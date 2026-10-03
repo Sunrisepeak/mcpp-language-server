@@ -179,14 +179,12 @@ export function repoLabel(url: string): string {
 export function cardMarkdown(input: CardInput): string {
     const zones = [...cacheCardZones(input)];
     if (input.withCommands) {
-        // One action a line, stacked under the table like a menu: the table is then the WIDEST
-        // block in every language, the panel keeps one width, and no single-line row of joined
-        // links stretches the right side past the grid (the review's ragged-right complaint).
-        zones.push(zone([
-            `[$(clear-all) ${t('Sweep cache')}](command:${input.sweepCommand})`,
-            `[$(folder-opened) ${t('Open logs & reports')}](command:${input.revealCommand}?%5B%22root%22%5D)`,
-            `[$(copy) ${t('Copy agent prompt')}](command:${input.copyPromptCommand})`,
-        ]));
+        // One line, SHORT names: the card is a glance surface, the hub and the palette carry the
+        // full ones. Short keeps the line under the table's width in every language, so the grid
+        // stays what the panel is as wide as (the review's ragged-right complaint).
+        zones.push(`[$(clear-all) ${t('Sweep')}](command:${input.sweepCommand})`
+            + ` · [$(folder-opened) ${t('Logs')}](command:${input.revealCommand}?%5B%22root%22%5D)`
+            + ` · [$(copy) ${t('Agent prompt')}](command:${input.copyPromptCommand})`);
         zones.push(`[$(github) ${escapeCell(repoLabel(REPOSITORY))}](${REPOSITORY}) · [$(copy)](command:${input.copyRepositoryCommand})`);
     } else {
         zones.push(t('Click the status bar for the menu.'));

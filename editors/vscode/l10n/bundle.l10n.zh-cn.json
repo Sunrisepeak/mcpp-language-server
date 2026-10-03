@@ -73,7 +73,6 @@
   "Running": "运行中",
   "Share": "占比",
   "Starting": "启动中",
-  "Sweep cache": "清理缓存",
   "Sweep failed: {0}": "清理失败：{0}",
   "Sweep the cache (no restart, no rebuild)": "清理缓存（不重启、不重编）",
   "the agent turns the findings into a draft, for you to read first": "让 agent 把结论整理成草稿，先给人看再发",
@@ -86,10 +85,10 @@
   "with the cache report": "含缓存报告",
   "Total / budget": "合计 / 预算",
   "Used / budget": "已用 / 预算",
-  "Copy agent prompt": "复制 Agent 提示词",
-  "Open logs & reports": "打开日志与报告",
   "Copy the Agent Troubleshooting Prompt": "复制 Agent 排障提示词",
   "Copied the agent prompt -- paste it to a local agent; logs never leave this machine": "已复制 Agent 提示词——粘给本地 agent；日志不出本机",
   "No agent prompt is available: the server does not carry one (older server?).": "没有可用的 Agent 提示词：服务端未携带（旧版服务端？）。",
-  "for a local AI agent: read-only checks, a report back -- logs never leave this machine": "粘给本地 AI agent，只读检查并汇报——日志不出本机"
+  "for a local AI agent: read-only checks, a report back -- logs never leave this machine": "粘给本地 AI agent，只读检查并汇报——日志不出本机",
+  "Sweep": "清理",
+  "Agent prompt": "Agent 提示词"
 }

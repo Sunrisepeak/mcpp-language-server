@@ -98,12 +98,20 @@ suite('tooltip card v2', () => {
 
     test('the actions are the three most common, and the repository line replaces the footnote (UI-5, UI-6)', () => {
         const markdown = cardMarkdown(input());
-        assert.ok(markdown.includes('[$(clear-all) Sweep cache](command:mcppls.sweepWorkspaceCache)'));
-        assert.ok(markdown.includes('[$(folder-opened) Open logs & reports](command:mcppls.revealCacheDirectory?%5B%22root%22%5D)'), 'the directory link opens the root where logs and bundles sit');
-        assert.ok(markdown.includes('[$(copy) Copy agent prompt](command:mcppls.copyAgentPrompt)'), 'the prompt link says what it does: copy, for an agent');
+        assert.ok(markdown.includes('[$(clear-all) Sweep](command:mcppls.sweepWorkspaceCache)'));
+        assert.ok(markdown.includes('[$(folder-opened) Logs](command:mcppls.revealCacheDirectory?%5B%22root%22%5D)'), 'the directory link opens the root where logs and bundles sit');
+        assert.ok(markdown.includes('[$(copy) Agent prompt](command:mcppls.copyAgentPrompt)'), 'the prompt link says what it is, short: the card is a glance surface');
         assert.ok(markdown.includes('](https://github.com/Sunrisepeak/mcpp-language-server)'), 'the repository link is a real link');
         assert.ok(markdown.includes('[$(copy)](command:mcppls.copyRepositoryUrl)'), 'the copy next to it is a command link');
         assert.ok(!markdown.includes('never leaves this machine'), 'the old footnote is gone');
+    });
+
+    test('the actions are ONE short line, narrower than the table in either language', () => {
+        const markdown = cardMarkdown(input());
+        const actions = markdown.split('\n\n').find((block) => block.includes('$(clear-all)'))!;
+        assert.ok(!actions.includes('\n'), 'the actions share one line');
+        const shown = actions.replace(/\[|\]\(command:[^)]*\)/g, '');
+        assert.ok(shown.replace(/\$\([a-z-]+\)/g, '  ').length <= 40, `the rendered line stays short: ${shown}`);
     });
 
     test('the card stays within thirteen rendered lines, and a long project name is cut (plan §6)', () => {
@@ -132,8 +140,8 @@ suite('tooltip card v2', () => {
             assert.ok(markdown.includes('| **合计 / 预算** | **3.80 GB / 4.00 GB** | **95%** |'));
             assert.ok(markdown.includes('| 已发布 | 1.90 GB | 50% | `██████░░░░░░` |'));
             assert.ok(markdown.includes('| 副本拷贝 | 1.70 GB | 45% | `█████░░░░░░░` |'));
-            assert.ok(markdown.includes('清理缓存'));
-            assert.ok(markdown.includes('复制 Agent 提示词'));
+            assert.ok(markdown.includes('清理'));
+            assert.ok(markdown.includes('Agent 提示词'));
         } finally {
             setLocalizer((message, ...args) => args.length > 0 ? message.replace(/\{(\d+)\}/g, (_, index) => String(args[Number(index)])) : message);
         }

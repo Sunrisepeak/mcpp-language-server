@@ -73,7 +73,6 @@
   "Running": "Running",
   "Share": "Share",
   "Starting": "Starting",
-  "Sweep cache": "Sweep cache",
   "Sweep failed: {0}": "Sweep failed: {0}",
   "Sweep the cache (no restart, no rebuild)": "Sweep the cache (no restart, no rebuild)",
   "the agent turns the findings into a draft, for you to read first": "the agent turns the findings into a draft, for you to read first",
@@ -86,10 +85,10 @@
   "with the cache report": "with the cache report",
   "Total / budget": "Total / budget",
   "Used / budget": "Used / budget",
-  "Copy agent prompt": "Copy agent prompt",
-  "Open logs & reports": "Open logs & reports",
   "Copy the Agent Troubleshooting Prompt": "Copy the Agent Troubleshooting Prompt",
   "Copied the agent prompt -- paste it to a local agent; logs never leave this machine": "Copied the agent prompt -- paste it to a local agent; logs never leave this machine",
   "No agent prompt is available: the server does not carry one (older server?).": "No agent prompt is available: the server does not carry one (older server?).",
-  "for a local AI agent: read-only checks, a report back -- logs never leave this machine": "for a local AI agent: read-only checks, a report back -- logs never leave this machine"
+  "for a local AI agent: read-only checks, a report back -- logs never leave this machine": "for a local AI agent: read-only checks, a report back -- logs never leave this machine",
+  "Sweep": "Sweep",
+  "Agent prompt": "Agent prompt"
 }
