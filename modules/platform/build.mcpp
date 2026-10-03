@@ -73,11 +73,21 @@ int main() {
     if (out.empty() || root.empty()) return 0;
 
     const std::string tool { dlltool() };
-    const auto def = std::format("{}/port/winprocess.def", root);
-    const auto lib = std::format("{}/libwinprocess.a", out);
-    const auto cmd = std::format("\"{}\" -m i386:x86-64 -d \"{}\" -l \"{}\"", tool, def, lib);
-    if (std::system(cmd.c_str()) != 0) {
-        std::cerr << "mcppls-platform: could not build the winprocess import library (" << cmd << ")\n";
+    std::string command { std::format("\"{}\" -m i386:x86-64 -d \"{}\" -l \"{}\"", tool,
+                                      std::format("{}/port/winprocess.def", root),
+                                      std::format("{}/libwinprocess.a", out)) };
+#ifdef _WIN32
+    // cmd.exe's /C quote heuristic eats a command that begins with a quoted path, and a '/' in a
+    // mixed-separator path reads as a switch -- both measured on the windows runner ("The filename,
+    // directory name, or volume label syntax is incorrect"). /S takes everything between the first
+    // and the last quote literally, which is exactly the command built above; the separators are
+    // normalised so nothing after the tool's name can read as a switch.
+    for (char& c : command)
+        if (c == '/') c = '\\';
+    command = std::format("cmd.exe /S /C \"{}\"", command);
+#endif
+    if (std::system(command.c_str()) != 0) {
+        std::cerr << "mcppls-platform: could not build the winprocess import library (" << command << ")\n";
         return 1;
     }
     mcpp::link_search(out.c_str());
