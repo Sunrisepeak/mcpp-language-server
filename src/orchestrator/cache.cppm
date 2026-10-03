@@ -66,8 +66,12 @@ Sweep sweep_copies(std::string_view modulesRoot, std::int64_t before, bool dryRu
 // The cheap part of the tick (plan C-9): stat a few `instance.json` files and rename the dead
 // directories aside (`<token>.trash-<ownToken>`); the removal itself happens elsewhere, so the
 // tick stays at milliseconds however large the dead directory is. Never touches a live one --
-// a live guest is protected by its own heartbeat, not by the owner's lease.
-std::size_t rename_dead_instances(std::string_view workspaceDirectory, std::chrono::milliseconds now, std::string_view ownToken);
+// a live guest is protected by its own heartbeat, not by the owner's lease, and a directory with
+// no self-description at all (a 0.0.8/0.0.9 instance) gets the same `grace` `sweep_instances`
+// gives it: its newest write stands in for a heartbeat, so a 0.0.9 guest working right now is
+// not renamed out from under a 0.0.10 owner's tick (review 2026-10-03).
+std::size_t rename_dead_instances(std::string_view workspaceDirectory, std::chrono::milliseconds now, std::string_view ownToken,
+                                  std::chrono::seconds grace);
 
 // Removes what `rename_dead_instances` renamed aside and, in a full sweep (startup task, CLI
 // `--prune`, the sweep command), judges every instance directory directly: heartbeat fresh ->

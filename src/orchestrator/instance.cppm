@@ -12,6 +12,13 @@ export namespace mcppls::orchestrator {
 inline constexpr std::chrono::seconds LEASE_RENEWAL { 10 };
 inline constexpr std::chrono::seconds LEASE_EXPIRY { 30 };
 
+// Whether the process a lease names (its pid and the incarnation stamp X-6 recorded) is gone.
+// A lease is taken over early only on a definite answer: a different incarnation, or a process
+// the platform itself says is gone. An identity the platform cannot read (another user's process
+// on Windows, a ps(1) that failed on macOS) is NOT death -- treating it as such let a live
+// owner's lease be taken over (review 2026-10-03); there the heartbeat alone decides, as before.
+bool lease_owner_gone(std::int64_t pid, std::string_view started);
+
 class WorkspaceLease {
 public:
     // `workspaceDirectory` is <cache>/workspaces/<key>; `now` is wall-clock time (a lease is read by

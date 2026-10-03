@@ -118,7 +118,8 @@ suite('tooltip card v3.1 (markdown, aligned footer)', () => {
         const lines = footer.split('  \n');
         assert.strictEqual(lines.length, 2, 'the actions and the repository, two lines');
         assert.ok(lines[0].includes('[$(clear-all) Sweep cache](command:mcppls.sweepWorkspaceCache)'));
-        assert.ok(lines[0].includes('[$(folder-opened) Open logs](command:mcppls.revealCacheDirectory?%5B%22root%22%5D)'));
+        assert.ok(lines[0].includes('[$(folder-opened) Open logs](command:mcppls.revealCacheDirectory?%5B%22logs%22%5D)'),
+            'the label says logs, so the link opens the logs directory itself');
         assert.ok(lines[0].includes('[$(copy) Copy agent prompt](command:mcppls.copyAgentPrompt)'));
         assert.ok(lines[1].includes('](https://github.com/Sunrisepeak/mcpp-language-server)'), 'the repository link is a real link');
         assert.ok(lines[1].includes('[$(copy)](command:mcppls.copyRepositoryUrl)'), 'the copy next to it is a command link');

@@ -229,7 +229,7 @@ export function cardMarkdown(input: CardInput): string {
         // triple lands 3 columns wide of it, the zh 1 narrow, and the no-break-space pass
         // below closes whatever remains (at most a column or two).
         const actions = `[$(clear-all) ${t('Sweep cache')}](command:${input.sweepCommand})`
-            + ` · [$(folder-opened) ${t('Open logs')}](command:${input.revealCommand}?%5B%22root%22%5D)`
+            + ` · [$(folder-opened) ${t('Open logs')}](command:${input.revealCommand}?%5B%22logs%22%5D)`
             + ` · [$(copy) ${t('Copy agent prompt')}](command:${input.copyPromptCommand})`;
         const actionsPlain = `$(clear-all) ${t('Sweep cache')} · $(folder-opened) ${t('Open logs')} · $(copy) ${t('Copy agent prompt')}`;
         const repo = `[$(github) ${escapeCell(repoLabel(REPOSITORY))}](${REPOSITORY}) · [$(copy)](command:${input.copyRepositoryCommand})`;

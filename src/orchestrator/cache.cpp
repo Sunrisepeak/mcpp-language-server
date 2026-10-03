@@ -80,11 +80,14 @@ std::optional<InstanceFile> instance_file(const std::string& directory) {
 }
 
 // Whether an instance (its own directory's heartbeat) says it is alive: within twice the lease
-// expiry, the same window the lease takeover already uses, and wider than a renewal interval.
+// expiry either way, the same window the lease takeover already uses, and wider than a renewal
+// interval. A heartbeat a little in the future is a clock stepped back (NTP, waking from sleep),
+// not a dead instance -- reaping every live one for that would be worse than trusting it.
 bool instance_alive(const std::optional<InstanceFile>& described, std::chrono::system_clock::time_point now) {
     if (!described || described->at <= 0) return false;
+    const auto window { std::chrono::duration_cast<std::chrono::milliseconds>(LEASE_EXPIRY * 2).count() };
     const auto age { std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() - described->at };
-    return age >= 0 && age < std::chrono::duration_cast<std::chrono::milliseconds>(LEASE_EXPIRY * 2).count();
+    return age < window && age > -window;
 }
 
 // Whether anything is working in a workspace directory this process does not own: a fresh lease, a
@@ -96,7 +99,9 @@ bool workspace_live(const std::string& directory, std::chrono::system_clock::tim
         if (!lease.is_discarded() && lease.is_object()) {
             const auto heartbeat = lease.value("heartbeat", std::int64_t { 0 });
             const auto age { std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() - heartbeat };
-            if (heartbeat > 0 && age >= 0 && age < std::chrono::duration_cast<std::chrono::milliseconds>(LEASE_EXPIRY).count()) return true;
+            // The same window either way as instance_alive: a lease a moment ahead of this clock
+            // is a stepped clock, not a dead workspace.
+            if (heartbeat > 0 && std::abs(age) < std::chrono::duration_cast<std::chrono::milliseconds>(LEASE_EXPIRY).count()) return true;
         }
     }
     if (instance_alive(instance_file(directory), now)) return true;
@@ -137,12 +142,11 @@ std::optional<std::uint64_t> parse_bytes(std::string_view text) {
         scale = std::uint64_t { 1 } << 10;
         text.remove_suffix(1);
     }
-    const std::uint64_t count { [&] {
-        std::uint64_t value { 0 };
-        const auto [_, error] = std::from_chars(text.data(), text.data() + text.size(), value);
-        return error == std::errc {} ? value : std::uint64_t { 0 };
-    }() };
-    if (count == 0 && text != "0") return std::nullopt;
+    // The number must be consumed whole: "1.5G" is not 1G and "12abc" is not 12 -- a setting that
+    // does not parse says so (nullopt) instead of silently meaning something smaller.
+    std::uint64_t count { 0 };
+    const auto [end, error] { std::from_chars(text.data(), text.data() + text.size(), count) };
+    if (error != std::errc {} || end != text.data() + text.size()) return std::nullopt;
     if (count > std::numeric_limits<std::uint64_t>::max() / scale) return std::numeric_limits<std::uint64_t>::max();
     return count * scale;
 }
@@ -153,16 +157,26 @@ Sweep sweep_copies(std::string_view modulesRoot, std::int64_t before, bool dryRu
     return sweep;
 }
 
-std::size_t rename_dead_instances(std::string_view workspaceDirectory, std::chrono::milliseconds now, std::string_view ownToken) {
+std::size_t rename_dead_instances(std::string_view workspaceDirectory, std::chrono::milliseconds now, std::string_view ownToken,
+                                  std::chrono::seconds grace) {
     const std::string instances { base::join_path(workspaceDirectory, "instances") };
     if (!fs::is_directory(instances)) return 0;
     std::size_t renamed { 0 };
     const auto nowPoint { std::chrono::system_clock::time_point { std::chrono::duration_cast<std::chrono::system_clock::duration>(now) } };
+    // The file clock is linear: its reading of "now minus the grace" is its reading of now, less
+    // the grace in nanoseconds -- the same stale-before sweep_instances computes.
+    const std::int64_t staleBefore { fs::modified_now() - std::chrono::duration_cast<std::chrono::nanoseconds>(grace).count() };
     for (const auto& entry : fs::list_directory(instances)) {
         const std::string name { base::file_name(entry) };
         if (!fs::is_directory(entry) || name.find(".trash-") != std::string::npos) continue;
         const auto described = instance_file(entry);
         if (instance_alive(described, nowPoint)) continue;
+        if (!described) {
+            // No self-description (a version before 0.0.10): the same grace sweep_instances gives
+            // it -- the newest write in the tree stands in for a heartbeat, so a 0.0.9 guest that
+            // is working right now keeps its directory, whoever owns the tick (review 2026-10-03).
+            if (newest_modified(entry) >= staleBefore) continue;
+        }
         // Renamed aside in one cheap metadata operation; the removal (seconds to minutes on a
         // full directory) happens in the background, and a failed rename waits for the next tick.
         if (fs::rename(entry, std::format("{}.trash-{}", entry, ownToken))) ++renamed;
@@ -243,6 +257,27 @@ Sweep enforce_budget(std::string_view workspacesRoot, const Budget& budget, std:
                      std::chrono::system_clock::time_point now) {
     Sweep sweep;
     if (!fs::is_directory(workspacesRoot) || budget.total == std::numeric_limits<std::uint64_t>::max()) return sweep;
+    // One walk of a workspace answers both questions the budget asks of it -- how big it is, and
+    // when it was last used -- where two walks doubled the cost on exactly the machines with the
+    // most to walk (review 2026-10-03).
+    struct Measured {
+        std::uint64_t bytes { 0 };
+        std::int64_t newest { std::numeric_limits<std::int64_t>::min() };
+    };
+    constexpr auto measured = [](this auto&& self, const std::string& directory) -> Measured {
+        Measured whole;
+        for (const auto& entry : fs::list_directory(directory)) {
+            if (fs::is_directory(entry)) {
+                const Measured nested { self(entry) };
+                whole.bytes += nested.bytes;
+                whole.newest = std::max(whole.newest, nested.newest);
+            } else if (const auto stamp = fs::stamp(entry)) {
+                whole.bytes += stamp->size;
+                whole.newest = std::max(whole.newest, stamp->modified);
+            }
+        }
+        return whole;
+    };
     struct Candidate {
         std::string path;
         std::int64_t lastUse;
@@ -252,12 +287,12 @@ Sweep enforce_budget(std::string_view workspacesRoot, const Budget& budget, std:
     for (const auto& entry : fs::list_directory(workspacesRoot)) {
         if (!fs::is_directory(entry)) continue;
         const std::string name { base::file_name(entry) };
-        const std::uint64_t bytes { directory_bytes(entry) };
-        total += bytes;
+        const Measured whole { measured(entry) };
+        total += whole.bytes;
         if (name == ownKey || workspace_live(entry, now)) continue;
         // Only dead workspaces are ranked, so the wall-clock heartbeat of the instance file is
         // stale by definition; the tree's newest file mtime is the ranking that is left.
-        candidates.push_back({ entry, newest_modified(entry) });
+        candidates.push_back({ entry, whole.newest });
     }
     if (total <= budget.total) return sweep;
     // Oldest-used first: the workspace nobody has touched for the longest gives up its copies.
