@@ -7,7 +7,7 @@ import type { LanguageClient } from 'vscode-languageclient/node';
 import { SETTABLE_CANDIDATES, UNSETTABLE_CANDIDATES } from './conflictCandidates';
 import { restoreOtherCppFeatures, turnOffOtherCppFeatures } from './conflicts';
 import { advertisesCacheReset, freedText, parseCacheResetResult, RESET_CACHE_COMMAND, SERVER_RESET_CACHE_COMMAND, sizeText } from './cacheReset';
-import { OPEN_CACHE_HUB_COMMAND, REVEAL_CACHE_DIRECTORY_COMMAND, rememberCacheDetail, SERVER_SWEEP_CACHE_COMMAND, SWEEP_WORKSPACE_CACHE_COMMAND, parseSweepResult, sweepResultText } from './cacheSweep';
+import { forgetCacheDetail, OPEN_CACHE_HUB_COMMAND, REVEAL_CACHE_DIRECTORY_COMMAND, rememberCacheDetail, SERVER_SWEEP_CACHE_COMMAND, SWEEP_WORKSPACE_CACHE_COMMAND, parseSweepResult, sweepResultText } from './cacheSweep';
 import { CacheDetail } from './cacheSegment';
 import { openCacheHub } from './cacheHubView';
 import { REPOSITORY, feedbackIssueUrl, IssueContext } from './issueUrl';
@@ -449,6 +449,7 @@ export async function resetWorkspaceCache(access: ServerAccess): Promise<unknown
     }
     const result = parseCacheResetResult(answer);
     access.log(`workspace cache reset: ${folder.uri.toString()} (${result.freedBytes} bytes freed, ok=${String(result.ok)})`);
+    forgetCacheDetail();   // the card must not show the cache that was just deleted
     void vscode.window.showInformationMessage(freedText(result));
     return answer;
 }

@@ -436,12 +436,12 @@ Fields to fill:
 - build-system: {} (leave the template's default if the analysis did not say)
 - what-happened: the conclusion in one paragraph, with the numbers the analysis produced
 - expected: the cache stays under the configured budget (mcppls.cache.maxBytes, default 4G a workspace)
-- bundle / report: attach only if the person agrees; the paths to name: {} (bundle) / {} (report); bundles are written under {}
+- bundle: attach only if the person agrees; bundles are written under {}
 - steps: the shortest sequence that reproduces it, ending with `mcppls cache --format json` output (redacted)
 
 Rules: redact home-directory paths, user names and host names; do not invent numbers the analysis did not produce; say explicitly when a number is unknown. You never upload anything: the person submits and attaches.)",
-                       text("version"), text("editor"), text("editorVersion"), text("os"), text("arch"), text("buildSystem"), text("bundle"),
-                       text("report"), text("bundlesDirectory"));
+                       text("version"), text("editor"), text("editorVersion"), text("os"), text("arch"), text("buildSystem"),
+                       text("bundlesDirectory"));
 }
 
 } // namespace mcppls::orchestrator::cache

@@ -69,6 +69,10 @@ let lastDetail: CacheDetail | undefined;
 export function rememberCacheDetail(detail: CacheDetail): void {
     lastDetail = detail;
 }
+/** The remembered detail is void after a reset: what was true of the old cache must not ride the card into the new one. */
+export function forgetCacheDetail(): void {
+    lastDetail = undefined;
+}
 export function cachedCacheDetail(): CacheDetail | undefined {
     return lastDetail;
 }
