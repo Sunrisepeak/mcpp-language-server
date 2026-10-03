@@ -170,9 +170,9 @@ export function cacheCardZones(input: CardInput): string[] {
             compositionRow(t('Trash'), detail.trash?.bytes ?? 0, total),
         ];
         if (limit > 0) {
-            table.push(`| **${t('Total / budget')}** | **${sizeText(bytes)} / ${sizeText(limit)}** | **${percent}%** | ${bar(fill)} |`);
+            table.push(`| **${t('Total')}** | **${sizeText(bytes)} / ${sizeText(limit)}** | **${percent}%** | ${bar(fill)} |`);
         } else {
-            table.push(`| **${t('Total / budget')}** | **${sizeText(bytes)}** |  | ${bar(fill)} |`);
+            table.push(`| **${t('Total')}** | **${sizeText(bytes)}** |  | ${bar(fill)} |`);
         }
         zones.push(zone(table));
         if (detail.lastSweep && detail.lastSweep.at > 0) {

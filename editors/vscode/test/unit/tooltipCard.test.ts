@@ -89,7 +89,7 @@ suite('tooltip card v3.1 (markdown, aligned footer)', () => {
         assert.ok(markdown.includes('| Copies | 1.70 GB | 45% | `█████░░░░░░░` |'));
         assert.ok(markdown.includes('| Instances | 100 MB | 3% |'), 'a class below a cell keeps its row');
         assert.ok(markdown.includes('| Trash | 1.00 KB | 0% |'));
-        assert.ok(markdown.includes('| **Total / budget** | **3.80 GB / 4.00 GB** | **95%** | `███████████░` |'));
+        assert.ok(markdown.includes('| **Total** | **3.80 GB / 4.00 GB** | **95%** | `███████████░` |'));
         assert.ok(markdown.includes('failed to delete'), 'failures are visible, never silent');
         const zones = markdown.split('\n\n');
         assert.ok(zones[0].includes('GalTranslPP') && !zones[0].includes('  \n'), 'the title is ONE line');
@@ -147,7 +147,7 @@ suite('tooltip card v3.1 (markdown, aligned footer)', () => {
             const markdown = cardMarkdown(input());
             assert.ok(markdown.startsWith('● **GalTranslPP — 就绪** · 48 个模块 · 176 个单元 · mcpp'), markdown.split('\n')[0]);
             assert.ok(markdown.includes('| 已发布 | 1.90 GB | 50% | `██████░░░░░░` |'));
-            assert.ok(markdown.includes('| **合计 / 预算** |'));
+            assert.ok(markdown.includes('| **合计** | **3.80 GB / 4.00 GB** |'));
             assert.ok(markdown.includes('清理缓存') && markdown.includes('复制 Agent 提示词'));
         } finally {
             setLocalizer((message, ...args) => args.length > 0 ? message.replace(/\{(\d+)\}/g, (_, index) => String(args[Number(index)])) : message);

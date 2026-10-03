@@ -78,7 +78,6 @@
   "Trash": "垃圾箱",
   "Type to filter; Enter runs, Esc closes": "输入以筛选；回车执行，Esc 关闭",
   "with the cache report": "含缓存报告",
-  "Total / budget": "合计 / 预算",
   "Copy the Agent Troubleshooting Prompt": "复制 Agent 排障提示词",
   "Copied the agent prompt -- paste it to a local agent; logs never leave this machine": "已复制 Agent 提示词——粘给本地 agent；日志不出本机",
   "No agent prompt is available: the server does not carry one (older server?).": "没有可用的 Agent 提示词：服务端未携带（旧版服务端？）。",
@@ -91,5 +90,6 @@
   "Sweep cache": "清理缓存",
   "Open logs": "打开日志",
   "Copy agent prompt": "复制 Agent 提示词",
-  "Logs": "日志"
+  "Logs": "日志",
+  "Total": "合计"
 }

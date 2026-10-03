@@ -78,7 +78,6 @@
   "Trash": "Trash",
   "Type to filter; Enter runs, Esc closes": "Type to filter; Enter runs, Esc closes",
   "with the cache report": "with the cache report",
-  "Total / budget": "Total / budget",
   "Copy the Agent Troubleshooting Prompt": "Copy the Agent Troubleshooting Prompt",
   "Copied the agent prompt -- paste it to a local agent; logs never leave this machine": "Copied the agent prompt -- paste it to a local agent; logs never leave this machine",
   "No agent prompt is available: the server does not carry one (older server?).": "No agent prompt is available: the server does not carry one (older server?).",
@@ -91,5 +90,6 @@
   "Sweep cache": "Sweep cache",
   "Open logs": "Open logs",
   "Copy agent prompt": "Copy agent prompt",
-  "Logs": "Logs"
+  "Logs": "Logs",
+  "Total": "Total"
 }
