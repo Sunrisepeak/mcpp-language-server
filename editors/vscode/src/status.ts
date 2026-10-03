@@ -5,10 +5,12 @@ import * as vscode from 'vscode';
 import { cacheSegment, clampMaxLength, combineTier, fits, Tier, CxxCacheStatus } from './cacheSegment';
 import type { OnlineRun } from './downloadAsk';
 import { offersCacheReset, RESET_CACHE_COMMAND } from './cacheReset';
-import { cachedCacheDetail, OPEN_CACHE_HUB_COMMAND, SWEEP_WORKSPACE_CACHE_COMMAND, COPY_AGENT_PROMPT_COMMAND } from './cacheSweep';
+import { cachedCacheDetail, OPEN_CACHE_HUB_COMMAND, SWEEP_WORKSPACE_CACHE_COMMAND, COPY_AGENT_PROMPT_COMMAND, REVEAL_CACHE_DIRECTORY_COMMAND } from './cacheSweep';
+import { COPY_REPOSITORY_URL_COMMAND } from './commands';
 import { TURN_ON_COMMAND } from './enable';
 import { stateTexts } from './statusText';
-import { cardMarkdown } from './tooltipCard';
+import { cardMarkdown, CardStatus } from './tooltipCard';
+import { t } from './strings';
 import type { ModuleIssueLike } from './unrecoverable';
 
 export type ModuleState = 'starting' | 'loading' | 'preparing' | 'ready' | 'degraded' | 'error';
@@ -164,14 +166,14 @@ export class StatusController implements vscode.Disposable {
         this.current = undefined;
         this.setPulsing(false);
         this.item.text = 'C++ Modules';
-        this.item.detail = 'Off in this workspace';
+        this.item.detail = t('Off in this workspace');
         this.item.busy = false;
         this.item.severity = vscode.LanguageStatusSeverity.Information;
         this.item.command = TURN_ON;
-        this.bar.text = '$(circle-slash) C++ Modules: off in this workspace';
+        this.bar.text = `$(circle-slash) ${t('C++ Modules: off in this workspace')}`;
         this.bar.backgroundColor = undefined;
         this.bar.color = undefined;
-        this.bar.tooltip = 'mcppls is turned off in this workspace (mcppls.enable). Click to turn it on.';
+        this.bar.tooltip = t('mcppls is turned off in this workspace (mcppls.enable). Click to turn it on.');
         this.bar.command = TURN_ON_COMMAND;
         for (const waiter of [...this.waiters]) {
             this.settle(waiter);
@@ -179,7 +181,7 @@ export class StatusController implements vscode.Disposable {
         }
     }
 
-    showStarting(detail = 'Starting'): void {
+    showStarting(detail = t('Starting')): void {
         this.bar.command = OPEN_CACHE_HUB_COMMAND;
         this.failure = undefined;
         this.current = undefined;
@@ -226,26 +228,31 @@ export class StatusController implements vscode.Disposable {
         this.setPulsing(busy);
     }
 
-    private moduleLine(detail: string | undefined, tooltipDetail: string | undefined): string {
-        return `C++ Modules${tooltipDetail || detail ? ` — ${tooltipDetail ?? detail}` : ''}`;
-    }
-
-    // The hover card (C-13.3): read-only markdown, command links through the same trusted-command
-    // mechanism the reset link in `update` already uses. What it shows comes from the coarse status
-    // numbers, plus the last detail the hub or a sweep fetched.
+    // The hover card v2 (2026-10-03 UI-2): project zone, cache table, actions, repository line.
+    // Read-only markdown; the command links go through the trusted-command mechanism, and the copy
+    // link needs it too -- hover text cannot be selected.
     private cardTooltip(detail: string | undefined, tooltipDetail: string | undefined): vscode.MarkdownString | string {
-        const coarse = this.current?.cache;
+        const current = this.current;
+        const coarse = current?.cache;
         if (!coarse) {
             return tooltipDetail || detail ? `mcppls — ${tooltipDetail ?? detail}` : 'mcppls';
         }
-        const markdown = new vscode.MarkdownString(cardMarkdown(this.moduleLine(detail, tooltipDetail), {
+        const status: CardStatus | undefined = current
+            ? { state: current.state, root: current.project?.root ?? '', source: current.project?.source, progress: current.progress }
+            : undefined;
+        const markdown = new vscode.MarkdownString(cardMarkdown({
+            status,
             coarse,
             detail: cachedCacheDetail(),
             withCommands: true,
             sweepCommand: SWEEP_WORKSPACE_CACHE_COMMAND,
+            revealCommand: REVEAL_CACHE_DIRECTORY_COMMAND,
             copyPromptCommand: COPY_AGENT_PROMPT_COMMAND,
+            copyRepositoryCommand: COPY_REPOSITORY_URL_COMMAND,
         }), true);
-        markdown.isTrusted = { enabledCommands: [SWEEP_WORKSPACE_CACHE_COMMAND, COPY_AGENT_PROMPT_COMMAND] };
+        markdown.isTrusted = {
+            enabledCommands: [SWEEP_WORKSPACE_CACHE_COMMAND, COPY_AGENT_PROMPT_COMMAND, REVEAL_CACHE_DIRECTORY_COMMAND, COPY_REPOSITORY_URL_COMMAND],
+        };
         return markdown;
     }
 
@@ -276,7 +283,7 @@ export class StatusController implements vscode.Disposable {
     // The server is up but has not described itself; it does not implement cxxModules/status.
     showRunning(): void {
         this.item.text = 'C++ Modules';
-        this.item.detail = 'Running';
+        this.item.detail = t('Running');
         this.item.busy = false;
         this.item.severity = vscode.LanguageStatusSeverity.Information;
         this.item.command = SHOW_LOGS;

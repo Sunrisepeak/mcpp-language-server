@@ -1,93 +1,156 @@
-// The hover card (0.0.10 plan C-13.2, C-13.3): the read-only half of the cache UI, one markdown
-// string the status bar shows on hover. Pure: it renders strings, and every string the server sent
-// goes through `escape` first -- a path is text, never markdown (S3 5.7: the server is trusted to
-// be true, not to be safe markup).
+// The hover card (0.0.10 plan C-13.2; v2 2026-10-03 UI-2..UI-7): the read-only half of the cache UI,
+// one markdown string the status bar shows on hover. Three zones: the project (state dot, module
+// and unit counts, the real preparation progress), the cache (a table with one bar a class), and
+// the actions plus where the project lives (the repository link, in place of the old footnote).
+// Pure: it renders strings, and every string the server sent goes through `escape` first -- a path
+// is text, never markdown (S3 5.7: the server is trusted to be true, not to be safe markup).
+//
+// What a hover can and cannot do (UI-7, written down so nobody looks for it again): VS Code strips
+// style attributes from hover markdown, so there is no colour and no font tricks -- the table's
+// alignment and the bar characters in code spans ARE the visualization. Hover text is not
+// selectable either, so "copy" has to be a command link.
 import { CacheDetail, CxxCacheStatus, sizeText } from './cacheSegment';
+import { REPOSITORY } from './issueUrl';
+import { t } from './strings';
 
 /** Turns a server-sent string into literal markdown text: pipes, backticks and brackets cannot break the card. */
 export function escapeCell(text: string): string {
     return text.replace(/([\\`|[\]])/g, '\\$1').replace(/\r?\n/g, ' ');
 }
 
-const BAR_WIDTH = 24;
-const BAR_CHARACTERS = { canonical: '▓', copies: '▒', instances: '░', trash: '·' } as const;
+const BAR_WIDTH = 12;
 
-/**
- * The text bar: the four classes in one line, each with its own character (colour never carries
- * the meaning alone). All-zero stays a visible empty bar instead of dividing by zero.
- */
-export function distributionBar(detail: Pick<CacheDetail, 'canonical' | 'copies' | 'trash' | 'instances'>, width = BAR_WIDTH): string {
-    const parts = [
-        { key: 'canonical' as const, bytes: detail.canonical?.bytes ?? 0, character: BAR_CHARACTERS.canonical },
-        { key: 'copies' as const, bytes: detail.copies?.bytes ?? 0, character: BAR_CHARACTERS.copies },
-        { key: 'instances' as const, bytes: detail.instances?.bytes ?? 0, character: BAR_CHARACTERS.instances },
-        { key: 'trash' as const, bytes: detail.trash?.bytes ?? 0, character: BAR_CHARACTERS.trash },
-    ];
-    const total = parts.reduce((sum, part) => sum + part.bytes, 0);
-    const cells = parts.map((part) => ({
-        character: part.character,
-        count: total > 0 ? Math.max(part.bytes > 0 ? 1 : 0, Math.round((part.bytes / total) * width)) : 0,
-    }));
-    // Rounding may overflow the width by one or two; give back from the fullest first.
-    let overflow = cells.reduce((sum, cell) => sum + cell.count, 0) - width;
-    for (const cell of [...cells].sort((a, b) => b.count - a.count)) {
-        if (overflow <= 0) break;
-        const give = Math.min(overflow, Math.max(0, cell.count - 1));
-        cell.count -= give;
-        overflow -= give;
+/** One bar in the card's one visual language: `█` for the filled share, `░` for the scale behind it (UI-4). */
+export function bar(share: number, width = BAR_WIDTH): string {
+    const clamped = Number.isFinite(share) ? Math.min(1, Math.max(0, share)) : 0;
+    const filled = Math.round(clamped * width);
+    return '█'.repeat(filled) + '░'.repeat(width - filled);
+}
+
+/** The last segment of a path, whichever separator it came with. */
+export function baseName(path: string): string {
+    const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+    return cut === -1 ? path : path.slice(cut + 1);
+}
+
+// UI-3: the state dot is a SHAPE, never a colour alone -- hover markdown cannot carry colour
+// anyway, and a shape reads in every theme. `○` also says over-budget: the cache tier of the card.
+export function stateDot(state: CardStatus['state'], cacheState: CxxCacheStatus['state'] | undefined): string {
+    if (state === 'error' || cacheState === 'over') return '○';
+    if (state === 'degraded') return '◐';
+    return '●';
+}
+
+function stateWord(state: CardStatus['state']): string {
+    switch (state) {
+        case 'starting': return t('Starting');
+        case 'loading': return t('Loading');
+        case 'preparing': return t('Preparing');
+        case 'ready': return t('Ready');
+        case 'degraded': return t('Degraded');
+        case 'error': return t('Error');
     }
-    return cells.map((cell) => cell.character.repeat(cell.count)).join('');
+}
+
+/** The project zone's facts, as `status.ts` maps its status notification down to (no engine names, D17). */
+export interface CardStatus {
+    state: 'starting' | 'loading' | 'preparing' | 'ready' | 'degraded' | 'error';
+    root: string;
+    source?: string;
+    progress?: { done: number; total: number };
 }
 
 export interface CardInput {
+    /** The project zone; without it the card starts at the cache (an old server's coarse numbers). */
+    status?: CardStatus;
     /** The coarse numbers the status already carries; the card falls back to them. */
     coarse?: CxxCacheStatus;
     /** The last detail the hub or a sweep fetched; the card prefers it. */
     detail?: CacheDetail;
-    /** Command links at the tail (the trusted-command mechanism the reset link already uses). */
+    /** The action links and the repository line; without them the card says where the menu is. */
     withCommands?: boolean;
     sweepCommand: string;
+    revealCommand: string;
     copyPromptCommand: string;
+    copyRepositoryCommand: string;
 }
 
-/** The cache lines of the card: the big number, the bar, the four classes, the housekeeping line. */
+function ageText(seconds: number): string {
+    return seconds < 60 ? t('{0} s ago', seconds) : t('{0} min ago', Math.round(seconds / 60));
+}
+
+/** One row of the composition table: the class, its size right-aligned, its share, its own bar. */
+function compositionRow(label: string, bytes: number, total: number): string {
+    const share = total > 0 ? bytes / total : 0;
+    const percent = total > 0 ? Math.round(share * 100) : 0;
+    return `| ${label} | ${sizeText(bytes)} | ${percent}% | \`${bar(share)}\` |`;
+}
+
+/** The card's lines without the actions: project, cache, history. */
 export function cacheCardLines(input: CardInput): string[] {
     const detail = input.detail;
-    const bytes = detail?.bytes ?? input.coarse?.bytes ?? 0;
-    const limit = detail?.limits.perWorkspace ?? input.coarse?.limitBytes ?? 0;
+    const coarse = input.coarse;
     const lines: string[] = [];
-    const fill = limit > 0 ? ` / ${sizeText(limit)} (${Math.round((bytes / limit) * 100)}%)` : '';
-    lines.push(`**缓存 ${sizeText(bytes)}${fill}**`);
+
+    if (input.status) {
+        const name = baseName(input.status.root);
+        const shown = name.length > 28 ? `${name.slice(0, 27)}…` : name;
+        lines.push(`${stateDot(input.status.state, coarse?.state)} **${escapeCell(shown)} — ${stateWord(input.status.state)}**`);
+        if (detail?.plan && (detail.plan.modules > 0 || detail.plan.units > 0)) {
+            const source = input.status.source ? ` · ${escapeCell(input.status.source)}` : '';
+            lines.push(t('{0} modules · {1} units', detail.plan.modules, detail.plan.units) + source);
+        }
+        const progress = input.status.progress ?? detail?.progress;
+        if (progress && progress.total > 0) {
+            const share = progress.done / progress.total;
+            lines.push(`${t('Preparing index {0}/{1}', progress.done, progress.total)} \`${bar(share)}\` ${Math.round(share * 100)}%`);
+        }
+    }
+
+    const bytes = detail?.bytes ?? coarse?.bytes ?? 0;
+    const limit = detail?.limits.perWorkspace ?? coarse?.limitBytes ?? 0;
+    lines.push(limit > 0 ? `**${t('Cache {0} / {1} · {2}%', sizeText(bytes), sizeText(limit), Math.round((bytes / limit) * 100))}**`
+                         : `**${t('Cache {0}', sizeText(bytes))}**`);
     if (detail) {
-        lines.push(`\`${escapeCell(distributionBar(detail))}\``);
-        const oldest = detail.copies.oldestSeconds !== undefined && detail.copies.oldestSeconds > 0 ? ` · 最老副本 ${detail.copies.oldestSeconds} 秒前` : '';
-        lines.push(
-            `已发布 ${sizeText(detail.canonical?.bytes ?? 0)} · 副本 ${sizeText(detail.copies.bytes)} (${detail.copies.files} 个) · 实例 ${sizeText(detail.instances.bytes)} · 垃圾箱 ${sizeText(detail.trash?.bytes ?? 0)}${oldest}`,
-        );
+        const total = Math.max(1, bytes);
+        lines.push(`| ${t('Class')} | ${t('Used')} | ${t('Share')} |  |`);
+        lines.push('|---|---:|---:|---|');
+        lines.push(compositionRow(t('Published'), detail.canonical?.bytes ?? 0, total));
+        lines.push(compositionRow(t('Copies'), detail.copies.bytes, total));
+        lines.push(compositionRow(t('Instances'), detail.instances.bytes, total));
+        lines.push(compositionRow(t('Trash'), detail.trash?.bytes ?? 0, total));
         if (detail.lastSweep && detail.lastSweep.at > 0) {
             const age = Math.max(1, Math.round((Date.now() - detail.lastSweep.at) / 1000));
-            const failed = detail.lastSweep.failed ? `，${detail.lastSweep.failed} 个未能删除` : '';
-            lines.push(`上次清理 ${age < 60 ? `${age} 秒前` : `${Math.round(age / 60)} 分钟前`}${failed}（释放 ${sizeText(detail.lastSweep.freedBytes)} / ${detail.lastSweep.files} 个）`);
+            const failed = detail.lastSweep.failed ? t(', {0} failed to delete', detail.lastSweep.failed) : '';
+            lines.push(t('Last sweep {0}: freed {1} ({2} files){3}', ageText(age), sizeText(detail.lastSweep.freedBytes), detail.lastSweep.files, failed));
         }
-        lines.push(`日志目录：${escapeCell(detail.paths.logDirectory)}`);
-    } else if (input.coarse) {
-        lines.push(`副本 ${sizeText(input.coarse.copies.bytes)} (${input.coarse.copies.files} 个) · 实例 ${sizeText(input.coarse.instances.bytes)} (${input.coarse.instances.count} 个)`);
-        if (input.coarse.lastSweep) {
-            lines.push(`上次清理释放 ${sizeText(input.coarse.lastSweep.freedBytes)}`);
+    } else if (coarse) {
+        lines.push(t('Copies {0} ({1} files) · instances {2} ({3})', sizeText(coarse.copies.bytes), coarse.copies.files,
+                     sizeText(coarse.instances.bytes), coarse.instances.count));
+        if (coarse.lastSweep) {
+            lines.push(t('The last sweep freed {0}', sizeText(coarse.lastSweep.freedBytes)));
         }
-        lines.push('打开菜单可看明细。');
     }
     return lines;
 }
 
-/** The whole card, module state first (C-13.2: the first glance is "how is the project", the cache is the second). */
-export function cardMarkdown(moduleLine: string, input: CardInput): string {
-    const lines = [`**${escapeCell(moduleLine)}**`, '', ...cacheCardLines(input)];
+/** `github.com/Sunrisepeak/mcpp-language-server` -- the URL minus the protocol, the way it reads on the card. */
+export function repoLabel(url: string): string {
+    return url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+}
+
+/** The whole card: project first (C-13.2: the first glance is "how is the project", the cache is the second). */
+export function cardMarkdown(input: CardInput): string {
+    const lines = [...cacheCardLines(input)];
     if (input.withCommands) {
-        lines.push('', `[$(clear-all) 清理缓存](command:${input.sweepCommand}) · [$(copy) 复制 Agent 提示词](command:${input.copyPromptCommand})`, '');
-        lines.push('_清理不重启引擎、不重新编译；日志不会离开本机。_');
+        lines.push('');
+        lines.push(`[$(clear-all) ${t('Sweep cache')}]`
+            + `(command:${input.sweepCommand}) · [$(folder-opened) ${t('Logs & reports')}](command:${input.revealCommand}?%5B%22root%22%5D)`
+            + ` · [$(copy) ${t('Self-check')}](command:${input.copyPromptCommand})`);
+        lines.push(`[$(github) ${escapeCell(repoLabel(REPOSITORY))}](${REPOSITORY}) · [$(copy)](command:${input.copyRepositoryCommand})`);
     } else {
-        lines.push('', '_点击状态栏打开清理菜单。_');
+        lines.push('');
+        lines.push(t('Click the status bar for the menu.'));
     }
     return lines.join('\n');
 }

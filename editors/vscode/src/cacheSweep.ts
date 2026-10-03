@@ -3,6 +3,7 @@
 // registers every command the server advertises, and a clash fails the client at startup. Pure: no
 // `vscode`, so the parsing and the ids are unit-testable.
 import { CacheDetail } from './cacheSegment';
+import { t } from './strings';
 
 export const SWEEP_WORKSPACE_CACHE_COMMAND = 'mcppls.sweepWorkspaceCache';
 export const SERVER_SWEEP_CACHE_COMMAND = 'mcppls.sweepCache';
@@ -47,16 +48,16 @@ export function parseSweepResult(value: unknown): SweepResult {
 
 /** What the hub and the hover card say a sweep did (C-13.3: the receipt says "no restart, no rebuild"). */
 export function sweepResultText(result: SweepResult): string {
-    if (result.alreadyRunning === true) return 'A sweep is already running.';
+    if (result.alreadyRunning === true) return t('A sweep is already running.');
     if (result.dryRun) {
         return result.freedBytes > 0
-            ? `A sweep would free ${result.freedBytes} bytes (${result.files} files). Nothing was removed.`
-            : 'A sweep would free nothing: there is nothing to remove.';
+            ? t('A sweep would free {0} bytes ({1} files). Nothing was removed.', result.freedBytes, result.files)
+            : t('A sweep would free nothing: there is nothing to remove.');
     }
     if (result.freedBytes > 0) {
-        return `Freed ${result.freedBytes} bytes (${result.files} files). No restart, no rebuild.`;
+        return t('Freed {0} bytes ({1} files). No restart, no rebuild.', result.freedBytes, result.files);
     }
-    return 'Nothing to remove: the cache is already swept.';
+    return t('Nothing to remove: the cache is already swept.');
 }
 
 /**

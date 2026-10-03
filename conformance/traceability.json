@@ -2045,13 +2045,35 @@
   ],
   "S3-5.7-4": [
     {
-      "test": "tests/test_cache.cpp: the agent prompt is the read-only instruction the plan wrote down (D19)"
+      "test": "tests/test_cache.cpp: the agent prompt is the task book the plan wrote down (D19; UI-12/UI-13 of 2026-10-03)"
     }
   ],
   "S3-5.7-5": [
     {
       "script": "editors/vscode/src/tooltipCard.ts",
       "contains": "export function escapeCell"
+    }
+  ],
+  "S3-5.7-6": [
+    {
+      "check": "cache-budget/cache-report"
+    },
+    {
+      "script": "src/orchestrator/workspace.cpp",
+      "contains": "bundlesDirectory"
+    },
+    {
+      "script": "src/bundle/writer.cpp",
+      "contains": "default_directory"
+    }
+  ],
+  "S3-5.7-7": [
+    {
+      "test": "tests/test_cache.cpp: the agent prompt is the task book the plan wrote down (D19; UI-12/UI-13 of 2026-10-03)"
+    },
+    {
+      "script": "src/orchestrator/cache.cpp",
+      "contains": "Should I draft an issue?"
     }
   ],
   "S3-5.8-1": [

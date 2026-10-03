@@ -385,56 +385,63 @@ std::string agent_prompt(const Json& facts) {
                                        interpolated(engine.value("version", std::string {}))));
         }
     }
-    return std::format(R"(You are helping debug a cache problem of mcppls (mcpp-language-server), the C++ modules language server.
+    if (engines.empty()) engines = " (none listed; ask the running server, or read its log)";
+    // The task book (plan 2026-10-03 UI-12/UI-13): facts, then the checks with "what healthy looks
+    // like", then the output contract, then the bug branch -- where, once the developer agrees, the
+    // agent does all of it itself and never uploads anything.
+    return std::format(R"(You are a local agent helping this workspace's developer check the module cache of mcppls (mcpp-language-server), the C++ modules language server. Everything here stays on this machine: you never upload logs or reports anywhere.
 
-READ ONLY. Do not delete any file. Do not run `mcppls cache --clean` or any `-CleanAll`. Do not change any configuration. Do not send any log or report anywhere. If something needs to be deleted or published, stop and ask the person first.
+RULES: READ ONLY. Do not delete any file. Do not run anything that removes. Do not change configuration. A deletion or a report needs the developer's explicit agreement first.
 
-Environment facts:
+Section 1 - facts (verified by the server):
 - mcppls {}, editor {} {}, {}/{}
 - workspace root: {}
+- build system: {}
 - cache root: {}
 - log directory: {}
-- diagnostic bundle or report, if one was made: {}{}
-- the server's own view: `mcppls report`
+- diagnostic bundles land in: {}
+- engines:{}
 
-Read-only commands to look at:
-- `mcppls cache --format json` -- the classified report: canonical BMIs vs copies vs instances vs trash
-- `mcppls cache --modules` -- the largest cached modules
-- `mcppls cache --prune --dry-run` -- what a prune would remove (it removes nothing)
-- the tail of the newest files matching {}/server-*.log* -- especially `clangd exited unexpectedly` lines
-- `incidents/` under the cache root -- what the server already recorded by itself
+Section 2 - checks to run yourself (each says what healthy looks like); the server's own view, when it runs, is `mcppls report`:
+1. `mcppls cache --format json` - the classified sizes: published BMIs vs copies vs instance directories vs trash. Healthy: copies near zero, level ok.
+2. `mcppls cache --prune --dry-run` - what a sweep would free; it removes nothing. Healthy: little or nothing.
+3. the tail of the newest files matching {}/server-*.log* - Healthy: no clustered `clangd exited unexpectedly` lines.
+4. instances/ under the cache root - Healthy: none, or only ones whose instance.json heartbeat is fresh.
+5. free disk space on the volume the cache root is on.
 
-What to check, most likely first:
-1. copies vs canonical: the copies' share of the bytes. 90%+ copies is clangd's copy-on-read leftover from engines that died; each crash leaks one copy per read module (about 305 MB each in the known case).
-2. instances/: orphan instance directories (a guest that died). Count, size, and whether any `instance.json` inside still has a fresh heartbeat `at`.
-3. trash directories: what a sweep could not finish removing (locked files).
-4. how often and how clustered `clangd exited unexpectedly` appears in the logs.
-5. `mcppls cache --prune` freed nearly nothing although the cache is large -- true for mcppls older than 0.0.10, which does not reach copies or instances.
-6. whether MCPPLS_CACHE_DIR is set: the cache is where it says, not the default location.
-7. free disk space on the volume the cache root is on.
+Section 3 - the output contract:
+Answer the developer in at most five sentences, in this order: the verdict - healthy, reclaimable (about how much), or looks like a bug; the evidence, numbers and paths; what could be done locally without deleting anything. Nothing that deletes runs until the developer agrees; --dry-run is always safe.
 
-Answer in five sentences: is this a bug; which of the above it is; the evidence; what can be done locally without deleting anything; whether it needs an issue filed.)",
-                       text("version"), text("editor"), text("editorVersion"), text("os"), text("arch"), text("root"), text("cacheRoot"),
-                       text("logDirectory"), text("bundle"), engines, text("logDirectory"));
+Section 4 - if it looks like a bug:
+1. Ask first: "This looks like an mcppls bug. Should I draft an issue?"
+2. Only after the developer agrees, do all of it yourself:
+   a. Draft the issue for the repository's bug_report.yml form: version "mcppls {}, editor {} {}", os {}/{}, what-happened as one paragraph with the numbers you verified, expected: the cache stays under the mcppls.cache.maxBytes budget. Redact home paths, user names and host names; do not invent numbers.
+   b. Show the draft to the developer and wait for their approval - nothing is submitted anywhere before they approve.
+   c. After approval, open {} in a browser and fill the form with the draft; when that is impractical, give the draft in your answer for the developer to paste.
+   d. Logs and diagnostic bundles stay on this machine: name {} so the developer can attach them personally. You never upload them.)",
+                       text("version"), text("editor"), text("editorVersion"), text("os"), text("arch"), text("root"), text("buildSystem"),
+                       text("cacheRoot"), text("logDirectory"), text("bundlesDirectory"), engines, text("logDirectory"),
+                       text("version"), text("editor"), text("editorVersion"), text("os"), text("arch"),
+                       std::string_view { "https://github.com/Sunrisepeak/mcpp-language-server/issues/new?template=bug_report.yml" },
+                       text("bundlesDirectory"));
 }
 
 std::string issue_prompt(const Json& facts) {
     const auto text = [&](std::string_view key) { return interpolated(facts.value(key, std::string {})); };
-    return std::format(R"(Turn the cache analysis below into a GitHub issue draft for https://github.com/Sunrisepeak/mcpp-language-server, using the `bug_report.yml` template fields. Write it for a person to read: the conclusion first, then the evidence. Show the draft to the person and wait for their agreement before anything is submitted anywhere; attach nothing without their say-so.
+    return std::format(R"(Turn the cache analysis you were given into a GitHub issue draft for https://github.com/Sunrisepeak/mcpp-language-server, using the repository's bug_report.yml template fields. Write it for a person to read: the conclusion first, then the evidence. Show the draft to the person and wait for their agreement before anything is submitted anywhere; attach nothing without their say-so.
 
 Fields to fill:
-- version: {}
-- editor: {} {}
+- version: {} (and the editor when known: {} {})
 - os: {}/{}
 - build-system: {} (leave the template's default if the analysis did not say)
-- what-happened: the cache grew without bound; the conclusion of the analysis in one paragraph, with the numbers
-- expected: the cache stays under the configured budget (mcppls.cache.maxBytes, default 4G per workspace)
-- bundle / report: attach only if the person agrees; name the path you would attach: {} (bundle) / {} (report)
+- what-happened: the conclusion in one paragraph, with the numbers the analysis produced
+- expected: the cache stays under the configured budget (mcppls.cache.maxBytes, default 4G a workspace)
+- bundle / report: attach only if the person agrees; the paths to name: {} (bundle) / {} (report); bundles are written under {}
 - steps: the shortest sequence that reproduces it, ending with `mcppls cache --format json` output (redacted)
 
-Rules: redact home-directory paths, user names and host names; do not invent numbers the analysis did not produce; say explicitly when a number is unknown.)",
+Rules: redact home-directory paths, user names and host names; do not invent numbers the analysis did not produce; say explicitly when a number is unknown. You never upload anything: the person submits and attaches.)",
                        text("version"), text("editor"), text("editorVersion"), text("os"), text("arch"), text("buildSystem"), text("bundle"),
-                       text("report"));
+                       text("report"), text("bundlesDirectory"));
 }
 
 } // namespace mcppls::orchestrator::cache

@@ -64,13 +64,19 @@ Workspace** and **Show Logs**, after writing a diagnostic bundle; see
 [50-troubleshooting.md](50-troubleshooting.md#when-mcppls-cannot-recover-by-itself).
 
 **The cache, on the status bar.** The one status item also carries the cache: hover for a read-only
-card (the size against the budget, the published BMIs beside clangd's leftovers, the last sweep),
-click for the cache hub — a menu in five groups (cache, sweep, maintenance, logs, open source).
-**Sweep the Module Cache** removes what no engine holds without a restart or a rebuild; the eye
-button on it is a dry run first. The open-source group copies a read-only troubleshooting prompt
-for a local agent (`mcppls cache --prompt agent` prints the same text anywhere else) and opens the
-repository or a prefilled issue. Other editors sweep with `workspace/executeCommand`
-`mcppls.sweepCache` or the CLI; the card and the hub are VS Code's.
+card in three zones — the project (state dot, module and unit counts, the real preparation
+progress), the cache (a table with one bar a class, the size against the budget, the last sweep),
+and the actions (sweep, logs & reports, the local self-check) above the repository link. Click for
+the cache hub — a menu in four groups (overview, clean, diagnostics, feedback); its `Details`
+entry drills into the largest modules, and `Open a directory…` into the three places a report
+names. **Sweep the Module Cache** removes what no engine holds without a restart or a rebuild; the
+eye button on it is a dry run first. The feedback group copies the self-check prompt — a task book
+for a local agent: verified facts, read-only checks with what healthy looks like, an output
+contract, and a bug branch where, after you agree, the agent drafts the issue itself and shows it
+to you before anything is sent (`mcppls cache --prompt agent` prints the same text anywhere else).
+The editor words follow the display language — English and 简体中文; the server's logs, CLI and
+prompts stay English. Other editors sweep with `workspace/executeCommand` `mcppls.sweepCache` or
+the CLI; the card and the hub are VS Code's.
 
 ## Claude Code
 

@@ -28,6 +28,7 @@ import {
 import { CommandLineToolsController, withInstallCommandFallback } from './commandLineTools';
 import { DownloadPromptController } from './downloadPrompt';
 import { declaresModules, editorEnvironment, exportDiagnosticBundle, extensionEnvironment, registerCommands, reloadBuildDescription } from './commands';
+import { fetchCacheReport } from './cacheHubView';
 import { sendTriggeredCompletion } from './completionGate';
 import { checkConflicts, ConflictCheck, watchForNewConflicts } from './conflicts';
 import { CrashCounter } from './crashCounter';
@@ -42,6 +43,7 @@ import { describeActiveWorkarounds } from './workarounds';
 import { overriddenByLanguageDefault } from './quickSuggestions';
 import { buildInitializationOptions } from './settingsRead';
 import { offerSettingsMigration } from './settingsMigration';
+import { setLocalizer } from './strings';
 
 const CLIENT_ID = 'mcppls';
 const CLIENT_NAME = 'C++ Modules';
@@ -80,6 +82,8 @@ export interface TestApi {
     editor(): Record<string, unknown>;
     // The commands the running server lists in `executeCommandProvider` (empty when it is not running).
     serverCommands(): string[];
+    // One `cxxModules/cache` answer from the running server, the report the hub draws (S3 5.7).
+    cacheDetail(): Promise<import('./cacheSegment').CacheDetail | undefined>;
     // What the last unrecoverable-error notification offered (test mode; nothing is put on screen).
     lastPrompt(kind: PromptKind): ShownPrompt | undefined;
     // Hands the notification logic the issues of a status, as if the server had sent them; returns the
@@ -540,6 +544,11 @@ function installUiCounters() {
 let activeHost: ServerHost | undefined;
 
 export function activate(context: vscode.ExtensionContext): TestApi {
+    // UI-1 (plan 2026-10-03): every user-facing word goes through strings.ts, and the editor's own
+    // localization picks the bundle (l10n/bundle.l10n.*.json) by the display language -- English is
+    // the source, zh-cn the one translation. First thing activation does: nothing renders before it.
+    setLocalizer((message, ...args) => vscode.l10n.t(message, ...args));
+
     const ui = process.env.MCPPLS_TEST === '1' ? installUiCounters() : undefined;
 
     const status = new StatusController();
@@ -674,6 +683,9 @@ export function activate(context: vscode.ExtensionContext): TestApi {
         environment: () => extensionEnvironment(),
         editor: () => editorEnvironment(),
         serverCommands: () => [...(host.runningClient()?.initializeResult?.capabilities.executeCommandProvider?.commands ?? [])],
+        // The hub's own view of the cache, through the same `cxxModules/cache` round trip it makes
+        // (S3 5.7): the end-to-end tests assert the envelope's fields on the real server.
+        cacheDetail: async () => fetchCacheReport(host.runningClient()),
         lastPrompt: (kind) => promptTestHarness?.lastShown(kind),
         injectIssues: (issues) => promptTestHarness ? fatal.onIssues(issues as ModuleIssue[]).map((notice) => notice.code) : [],
         serverRunning: () => host.runningClient() !== undefined,

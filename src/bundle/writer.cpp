@@ -394,7 +394,7 @@ void add_dumps(std::vector<Candidate>& candidates, std::string_view directory, s
 }
 
 std::string default_output() {
-    return base::join_path(platform::dirs::cache_directory(), std::format("bundles/mcppls-bundle-{}.zip", utc_now("{:%Y%m%dT%H%M%S}Z")));
+    return base::join_path(default_directory(), std::format("mcppls-bundle-{}.zip", utc_now("{:%Y%m%dT%H%M%S}Z")));
 }
 
 void keep_newest_bundles(std::string_view directory) {
@@ -421,6 +421,11 @@ std::string_view kind_name(Kind kind) {
 }
 
 } // namespace
+
+// Outside the anonymous namespace: the interface exports it (paths.bundlesDirectory, S3 5.7).
+std::string default_directory() {
+    return base::join_path(platform::dirs::cache_directory(), "bundles");
+}
 
 Json redact_report(const Json& report) {
     Redactor redactor { current_identity() };

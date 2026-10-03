@@ -40,9 +40,13 @@ lives under a budget, and what it is doing is visible (plan 2026-10-02, `C-7…C
 
 - **One status item, two native surfaces.** The status bar's C++ Modules item carries the cache as
   a segment under a character budget (`mcppls.statusBar.maxLength`, default 36): hover for a
-  read-only card with the breakdown, click for the hub — a QuickPick in five groups (cache, sweep,
-  maintenance, logs, open source), every entry with its codicon, one primary action (**Sweep the
-  Module Cache**, with an eye button for a dry run). No webview, no side bar, no new UI surface.
+  read-only card in three zones — the project (state dot, module and unit counts, the real
+  preparation progress), the cache (a table with one bar a class), and the actions (sweep, logs &
+  reports, the local self-check) above the repository link — click for the hub, a QuickPick in four
+  groups (overview, clean, diagnostics, feedback), every entry with its codicon, one primary action
+  (**Sweep the Module Cache**, with an eye button for a dry run), a `Details` drill-down into the
+  largest modules and an `Open a directory…` drill-down into the three places a report names. No
+  webview, no side bar, no new UI surface.
 - **The sweep command.** `mcppls.sweepCache` (extension: `mcppls.sweepWorkspaceCache`) removes what
   no engine holds — copies, trash, dead instance directories, and stale command directories only by
   explicit request where no engine is live — without stopping an engine and without a rebuild;
@@ -50,9 +54,15 @@ lives under a budget, and what it is doing is visible (plan 2026-10-02, `C-7…C
   `--max-size` and an instances-only report. The classified numbers
   (`canonical` / `copies` / `instances` / `trash`) replace the old "each module may be stored twice"
   guess, in the CLI, in the status, and behind the new `cxxModules/cache` request.
-- **A read-only prompt for a local agent.** The hub copies a troubleshooting prompt — environment
-  facts, the read-only commands to run, the hypotheses this case taught, the output format — and
-  `mcppls cache --prompt agent|issue` prints the same text anywhere else; nothing is uploaded.
+- **A task book for a local agent.** The hub copies the self-check prompt — verified facts, the
+  read-only checks each with what healthy looks like, the output contract (a verdict, the evidence,
+  what could be done without deleting), and a bug branch that asks the developer first and only
+  then drafts the issue itself, shows the draft for approval, and never uploads logs or bundles;
+  `mcppls cache --prompt agent|issue` prints the same text anywhere else.
+- **The editor speaks the display language.** English and 简体中文: the manifest through
+  `package.nls*`, the runtime words through `l10n/` bundles, with key-parity tests holding the two
+  together; the server's logs, CLI and prompts stay English. A `bundlesDirectory` field joins
+  `cxxModules/cache`'s `paths`, so a client never guesses where a diagnostic bundle lands.
 
 ## [0.0.9] — 2026-10-02
 

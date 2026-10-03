@@ -1,10 +1,13 @@
-// The QuickPick itself (0.0.10 plan C-13.3): it draws what `cacheHub.ts` models, fetches the report
-// through the language client, runs the entries through `vscode.commands`, and keeps the drill-down
-// one Esc away. A sweep shows `busy`; the receipt replaces the "last sweep" line in place.
+// The QuickPick itself (0.0.10 plan C-13.3; v2 2026-10-03 UI-9/UI-10): it draws what `cacheHub.ts`
+// models, fetches the report through the language client, and dispatches on the ENTRY each item
+// carries -- never on the label's icon text, which is how the old code lost the drill-down
+// (nothing ever matched `$(chevron-right)`, so "largest modules" was unreachable). Enter runs the
+// active entry; the eye button is the dry run; a drill-down has a back button and Esc still closes.
 import * as vscode from 'vscode';
 import { CacheDetail, CxxCacheStatus } from './cacheSegment';
-import { drillDownItems, entryLabel, hubItems, hubTitle, HubItem } from './cacheHub';
+import { directoryItems, drillDownItems, entryLabel, hubItems, hubTitle, HubEntry, HubItem } from './cacheHub';
 import { parseSweepResult, rememberCacheDetail, SERVER_SWEEP_CACHE_COMMAND, sweepResultText } from './cacheSweep';
+import { t } from './strings';
 
 interface ClientLike {
     sendRequest: (method: string, params: unknown, token?: vscode.CancellationToken) => Thenable<unknown>;
@@ -30,93 +33,120 @@ export async function fetchCacheReport(client: ClientLike | undefined, token?: v
     }
 }
 
-async function runEntry(item: HubItem & { kind: 'entry' }): Promise<void> {
-    if (!item.action) return;
-    if (item.action.external) return;   // the view never opens a browser itself; the command does
-    await vscode.commands.executeCommand(item.action.command, ...(item.action.arguments ?? []));
+// The entry travels ON the item, so the event handlers can read what accepting it means without
+// parsing its label. `entryLabel` stays the only place that renders icon plus text.
+type HubPickItem = vscode.QuickPickItem & { entry?: HubEntry };
+
+function toPickItems(items: HubItem[]): HubPickItem[] {
+    return items.map((item) =>
+        item.kind === 'separator'
+            ? { label: `─ ${item.label} ─`, kind: vscode.QuickPickItemKind.Separator }
+            : { label: entryLabel(item), description: item.description,
+                buttons: item.buttonTitle ? [{ iconPath: new vscode.ThemeIcon('eye'), tooltip: item.buttonTitle }] : [],
+                entry: item },
+    );
 }
 
-async function sweep(pick: vscode.QuickPick<vscode.QuickPickItem>, client: ClientLike | undefined, dryRun: boolean): Promise<void> {
-    pick.busy = true;
-    pick.ignoreFocusOut = true;
-    try {
-        const answer = await client?.sendRequest('workspace/executeCommand', {
-            command: SERVER_SWEEP_CACHE_COMMAND,
-            arguments: [{ dryRun }],
-        });
-        const result = parseSweepResult(answer);
-        const receipt = `${dryRun ? '$(eye) ' : '$(clear-all) '}${sweepResultText(result)}`;
-        const cacheGroup = pick.items.find((item) => item.label.startsWith('$(clear-all)'));
-        pick.items = pick.items.map((item) => (item === cacheGroup ? { ...item, description: receipt } : item));
-        await fetchCacheReport(client);   // the numbers the receipt left behind
-    } catch (error) {
-        void vscode.window.showErrorMessage(`Sweep failed: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-        pick.busy = false;
-        pick.ignoreFocusOut = false;
-    }
+async function runEntry(entry: HubEntry): Promise<void> {
+    if (entry.behavior !== 'command' || !entry.action) return;
+    if (entry.action.external) return;   // the view never opens a browser itself; the command does
+    await vscode.commands.executeCommand(entry.action.command, ...(entry.action.arguments ?? []));
 }
 
 /** Opens the hub. `coarse` carries what the status bar already knows; the detail is fetched fresh. */
 export async function openCacheHub(context: HubContext): Promise<void> {
     if (context.coarse === undefined && !context.client) {
-        void vscode.window.showWarningMessage('The C++ Modules server is not running, so there is no cache to look at.');
+        void vscode.window.showWarningMessage(t('The C++ Modules server is not running, so there is no cache to look at.'));
         return;
     }
     const detail = await fetchCacheReport(context.client);
-    const pick = vscode.window.createQuickPick();
-    pick.title = detail ? hubTitle(detail) : 'C++ Modules — 缓存';
-    pick.matchOnDescription = false;
-    pick.matchOnDetail = false;
-    pick.buttons = [{ iconPath: new vscode.ThemeIcon('eye'), tooltip: '预演：先看要删多少，不删' }];
+    const pick = vscode.window.createQuickPick<HubPickItem>();
+    pick.placeholder = t('Type to filter; Enter runs, Esc closes');
+    pick.matchOnDescription = true;   // UI-10: the numbers and verbs in descriptions filter too
+    const eye = { iconPath: new vscode.ThemeIcon('eye'), tooltip: t('Dry run: see what would go, remove nothing') };
+    const back = { iconPath: new vscode.ThemeIcon('arrow-left'), tooltip: t('Back') };
+    let drilling: 'modules' | 'directories' | undefined;
 
-    const draw = (current: CacheDetail | undefined): void => {
-        if (!current) return;
-        pick.items = hubItems(current, { canSweep: context.client?.initializeResult?.capabilities?.executeCommandProvider?.commands?.includes(SERVER_SWEEP_CACHE_COMMAND) === true }).map(
-            (item) =>
-                item.kind === 'separator'
-                    ? { label: `─ ${item.label} ─`, kind: vscode.QuickPickItemKind.Separator }
-                    : { label: entryLabel(item), description: item.description, buttons: 'buttonTitle' in item && item.buttonTitle ? [pick.buttons[0]] : [] },
-        );
+    const draw = (current: CacheDetail, receipt?: string): void => {
+        drilling = undefined;
+        pick.buttons = [eye];
+        pick.title = hubTitle(current);
+        pick.items = toPickItems(hubItems(current, {
+            canSweep: context.client?.initializeResult?.capabilities?.executeCommandProvider?.commands?.includes(SERVER_SWEEP_CACHE_COMMAND) === true,
+        }, receipt));
     };
-    draw(detail);
+    const drawDrillDown = (which: 'modules' | 'directories', current: CacheDetail): void => {
+        drilling = which;
+        pick.buttons = [back, eye];
+        pick.items = toPickItems(which === 'modules' ? drillDownItems(current) : directoryItems(current));
+    };
+    if (detail) {
+        draw(detail);
+    } else {
+        pick.title = t('C++ Modules — cache');
+        pick.buttons = [eye];
+        pick.items = [];
+    }
 
-    // The eye button on the sweep entry and the one on the title bar both mean the same: a dry run.
-    pick.onDidTriggerItemButton(async ({ item }) => {
-        if (!item.label.startsWith('$(clear-all)')) return;
-        await sweep(pick, context.client, true);
-    });
-    pick.onDidTriggerButton(async () => {
-        await sweep(pick, context.client, true);
-    });
-    pick.onDidChangeSelection(async (selected) => {
-        const chosen = selected[0];
-        if (!chosen) return;
-        if (chosen.label.startsWith('$(clear-all)')) {
-            await sweep(pick, context.client, false);
-            return;
+    async function sweep(dryRun: boolean): Promise<void> {
+        pick.busy = true;
+        pick.ignoreFocusOut = true;
+        try {
+            const answer = await context.client?.sendRequest('workspace/executeCommand', {
+                command: SERVER_SWEEP_CACHE_COMMAND,
+                arguments: [{ dryRun }],
+            });
+            const result = parseSweepResult(answer);
+            const receipt = `${dryRun ? '$(eye) ' : '$(clear-all) '}${sweepResultText(result)}`;
+            const fresh = await fetchCacheReport(context.client);
+            // UI-10: the whole list repaints, so the overview line's numbers change with the receipt.
+            if (fresh) draw(fresh, receipt);
+        } catch (error) {
+            void vscode.window.showErrorMessage(t('Sweep failed: {0}', error instanceof Error ? error.message : String(error)));
+        } finally {
+            pick.busy = false;
+            pick.ignoreFocusOut = false;
         }
-        if (chosen.label.startsWith('$(chevron-right)') || chosen.label.startsWith('$(database)') || chosen.label.startsWith('$(history)')) {
+    }
+
+    // The eye on the sweep entry and the one on the title bar mean the same: a dry run (D20).
+    pick.onDidTriggerItemButton(async ({ item }) => {
+        if ((item as HubPickItem).entry?.behavior === 'sweep') await sweep(true);
+    });
+    pick.onDidTriggerButton(async (button) => {
+        if (button === back) {
             const fresh = await fetchCacheReport(context.client);
             if (fresh) draw(fresh);
-            if (chosen.label.startsWith('$(chevron-right)') && fresh) {
-                pick.items = drillDownItems(fresh).map((item) =>
-                    item.kind === 'separator'
-                        ? { label: `─ ${item.label} ─`, kind: vscode.QuickPickItemKind.Separator }
-                        : { label: entryLabel(item), description: item.description },
-                );
+            return;
+        }
+        await sweep(true);
+    });
+    pick.onDidAccept(async () => {
+        const entry = pick.activeItems[0]?.entry;
+        if (!entry) return;
+        if (entry.behavior === 'sweep') {
+            await sweep(false);
+            return;
+        }
+        if (entry.behavior === 'detail') {
+            const fresh = await fetchCacheReport(context.client);
+            if (fresh) drawDrillDown(entry.detail ?? 'modules', fresh);
+            return;
+        }
+        if (entry.behavior === 'refresh') {
+            const fresh = await fetchCacheReport(context.client);
+            if (fresh) {
+                if (drilling === undefined) draw(fresh);
+                else drawDrillDown(drilling, fresh);
             }
             return;
         }
-        const entry = hubItems(detail ?? ({} as CacheDetail), { canSweep: true }).find((candidate) => candidate.kind === 'entry' && entryLabel(candidate) === chosen.label) as
-            | (HubItem & { kind: 'entry' })
-            | undefined;
-        if (entry?.action) await runEntry(entry);
-        if (entry?.refresh && detail) {
+        await runEntry(entry);
+        // A menu of actions closes only when the person sends Esc; a refresh entry refreshes in place.
+        if (entry.behavior === 'command') {
             const fresh = await fetchCacheReport(context.client);
-            if (fresh) draw(fresh);
+            if (fresh && drilling === undefined) draw(fresh);
         }
-        // Keep the hub open for the rest: a menu of actions closes only when the person sends Esc.
     });
     pick.onDidHide(() => pick.dispose());
     pick.show();

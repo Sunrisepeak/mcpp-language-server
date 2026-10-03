@@ -6,6 +6,8 @@ Changes to the specifications in this directory. Each specification is versioned
 
 The cache mcppls owns and clangd uses answers for itself. `cxxModules/status` may carry an optional `cache` field with the coarse numbers (a 100 MB grain, a fill level, the copies and instance counts) — S3-4-29, S3-4-30. A new `cxxModules/cache` request (5.7) answers the classified report, read-only, from a cache the server keeps at most 30 seconds and recomputes after a sweep; its `prompts` are rendered for a local agent and leave the machine through the clipboard only. A new `mcppls.sweepCache` command (5.8) removes what no engine holds — the copies of dead generations, the directories of dead instances, the trash — without stopping an engine, without touching a published BMI, one sweep at a time, with a dry run that computes over exactly the set it would have removed.
 
+Later the same day, `paths` gained `bundlesDirectory` (S3-5.7-6): the three directories a report names are the three a client may reveal, nothing guessed. The agent prompt became a task book in four parts — facts, checks with what healthy looks like, an output contract, a bug branch where the agent asks the developer first, then drafts and shows for approval and never uploads (S3-5.7-7).
+
 All additive: protocol version stays 1.
 ## 2026-10-01 — S3: an install that failed, and how a download the client asked for ended
 

@@ -1,8 +1,14 @@
-// The QuickPick hub's items (0.0.10 plan C-13.3, D15, D20): every entry opens with its codicon, the
-// entries sit in five separator groups (缓存 / 清理 / 维护 / 日志 / 开源), and the one primary
-// action is the first of the 清理 group. Pure: the view (cacheHubView.ts) only draws this.
+// The QuickPick hub's items (0.0.10 plan C-13.3, D20; v2 2026-10-03 UI-8..UI-10): four separator
+// groups (概览 / 清理 / 诊断 / 反馈), every entry opens with its codicon, and -- the fix for the
+// drill-down that never opened -- each entry SAYS what accepting it does in its `behavior`, so the
+// view dispatches on data, never on the label's icon text. Pure: the view (cacheHubView.ts) only
+// draws this.
 import { CacheDetail, sizeText } from './cacheSegment';
 import { COPY_AGENT_PROMPT_COMMAND, REVEAL_CACHE_DIRECTORY_COMMAND, SWEEP_WORKSPACE_CACHE_COMMAND } from './cacheSweep';
+import { t } from './strings';
+
+/** What accepting an entry does. `sweep` runs the sweep flow; `detail` swaps in a drill-down list. */
+export type HubBehavior = 'sweep' | 'command' | 'detail' | 'refresh';
 
 export interface HubAction {
     command: string;
@@ -16,110 +22,151 @@ export interface HubEntry {
     icon: string;
     label: string;
     description?: string;
-    /** A command the entry runs when accepted. Absent on data lines: accepting them refreshes. */
+    behavior: HubBehavior;
+    /** `behavior: 'command'`: what accepting the entry runs. */
     action?: HubAction;
-    /** Data lines say so; accepting one asks for the report again. */
-    refresh?: boolean;
+    /** `behavior: 'detail'`: which drill-down list takes over. */
+    detail?: 'modules' | 'directories';
+    /** The `$(eye)` dry-run button, on the sweep entry only (D20). */
+    buttonTitle?: string;
 }
 
 export type HubItem = { kind: 'separator'; label: string } | ({ kind: 'entry' } & HubEntry);
 
 export interface HubCapabilities {
-    /** The server advertises `mcppls.sweepCache`; otherwise the whole 清理 group stays out. */
+    /** The server advertises `mcppls.sweepCache`; otherwise the whole 清理 group's sweep stays out. */
     canSweep: boolean;
 }
 
-const SWEEP_BUTTON_TITLE = '预演（先看要删多少，不删）';
-
 /** The main entry, with the `$(eye)` dry-run button the view hangs on it (D20). */
-export function sweepEntry(): HubEntry & { buttonTitle: string } {
+export function sweepEntry(receipt?: string): HubEntry {
     return {
         icon: '$(clear-all)',
-        label: '清理缓存（不重启、不重编）',
-        description: '先预演？看条目右侧的按钮',
-        buttonTitle: SWEEP_BUTTON_TITLE,
+        label: t('Sweep the cache (no restart, no rebuild)'),
+        description: receipt ?? t('Dry run? Use the eye button'),
+        buttonTitle: t('Dry run: see what would go, remove nothing'),
+        behavior: 'sweep',
         action: { command: SWEEP_WORKSPACE_CACHE_COMMAND, arguments: [{ dryRun: false }] },
     };
 }
 
+function percentOf(detail: CacheDetail): number {
+    return detail.limits.perWorkspace > 0 ? Math.round((detail.bytes / detail.limits.perWorkspace) * 100) : 0;
+}
+
 /** All entries of the hub, in display order. Engine names never appear (D17). */
-export function hubItems(detail: CacheDetail, caps: HubCapabilities): HubItem[] {
+export function hubItems(detail: CacheDetail, caps: HubCapabilities, receipt?: string): HubItem[] {
     const items: HubItem[] = [];
-    items.push({ kind: 'separator', label: '缓存' });
+    items.push({ kind: 'separator', label: t('Overview') });
     items.push({
         kind: 'entry',
         icon: '$(database)',
-        label: `${sizeText(detail.bytes)} / ${sizeText(detail.limits.perWorkspace)}`,
-        description: detail.limits.over ? '超过预算' : `副本 ${sizeText(detail.copies.bytes)} · 实例 ${sizeText(detail.instances.bytes)} · 垃圾箱 ${sizeText(detail.trash?.bytes ?? 0)}`,
-        refresh: true,
+        label: t('Cache in use'),
+        description: `${sizeText(detail.bytes)} / ${sizeText(detail.limits.perWorkspace)} · ${percentOf(detail)}%`
+            + (detail.limits.over ? ` · ${t('over budget')}` : ''),
+        behavior: 'refresh',
+    });
+    const largest = detail.largest ?? [];
+    items.push({
+        kind: 'entry',
+        icon: '$(chevron-right)',
+        label: t('Details: largest modules and directories'),
+        description: largest.length > 0 ? t('{0} cached modules', largest.length) : undefined,
+        behavior: 'detail',
+        detail: 'modules',
     });
     if (detail.lastSweep && detail.lastSweep.at > 0) {
+        const age = Math.max(1, Math.round((Date.now() - detail.lastSweep.at) / 1000));
         items.push({
             kind: 'entry',
             icon: '$(history)',
-            label: `上次清理释放 ${sizeText(detail.lastSweep.freedBytes)}（${detail.lastSweep.files} 个文件）`,
-            description: detail.lastSweep.failed ? `${detail.lastSweep.failed} 个未能删除` : '不重启、不重编',
-            refresh: true,
+            label: t('Last sweep'),
+            description: t('freed {0} ({1} files) · {2} ago', sizeText(detail.lastSweep.freedBytes), detail.lastSweep.files,
+                           age < 60 ? t('{0} s ago', age) : t('{0} min ago', Math.round(age / 60)))
+                + (detail.lastSweep.failed ? ` · ${t('{0} failed to delete', detail.lastSweep.failed)}` : ''),
+            behavior: 'refresh',
         });
     }
+    items.push({ kind: 'separator', label: t('Clean') });
     if (caps.canSweep) {
-        items.push({ kind: 'separator', label: '清理' });
-        items.push({ kind: 'entry', ...sweepEntry() });
+        items.push({ kind: 'entry', ...sweepEntry(receipt) });
     }
-    items.push({ kind: 'separator', label: '维护' });
-    items.push({ kind: 'entry', icon: '$(debug-restart)', label: '重启引擎', action: { command: 'mcppls.restartClangd' } });
-    items.push({ kind: 'entry', icon: '$(refresh)', label: '重启服务端', action: { command: 'mcppls.restartServer' } });
-    items.push({ kind: 'entry', icon: '$(trash)', label: '重置缓存…', description: '会重新编译模块', action: { command: 'mcppls.resetWorkspaceCache' } });
-    items.push({ kind: 'separator', label: '日志' });
-    items.push({ kind: 'entry', icon: '$(file-zip)', label: '抓取日志（含报告）', action: { command: 'mcppls.exportDiagnosticBundle' } });
-    items.push({ kind: 'entry', icon: '$(output)', label: '打开日志', action: { command: 'mcppls.showLogs' } });
-    items.push({ kind: 'entry', icon: '$(folder-opened)', label: '打开日志目录', action: { command: REVEAL_CACHE_DIRECTORY_COMMAND, arguments: ['logs'] } });
-    items.push({ kind: 'entry', icon: '$(folder-opened)', label: '打开缓存目录', action: { command: REVEAL_CACHE_DIRECTORY_COMMAND, arguments: ['cache'] } });
-    items.push({ kind: 'separator', label: '开源' });
+    items.push({ kind: 'entry', icon: '$(trash)', label: t('Reset the cache…'), description: t('rebuilds the modules'),
+                 behavior: 'command', action: { command: 'mcppls.resetWorkspaceCache' } });
+    items.push({ kind: 'separator', label: t('Diagnostics') });
+    items.push({ kind: 'entry', icon: '$(debug-restart)', label: t('Restart the engine'), behavior: 'command',
+                 action: { command: 'mcppls.restartClangd' } });
+    items.push({ kind: 'entry', icon: '$(refresh)', label: t('Restart the server'), behavior: 'command',
+                 action: { command: 'mcppls.restartServer' } });
+    items.push({ kind: 'entry', icon: '$(file-zip)', label: t('Capture a diagnostic bundle'), description: t('with the cache report'),
+                 behavior: 'command', action: { command: 'mcppls.exportDiagnosticBundle' } });
+    items.push({ kind: 'entry', icon: '$(output)', label: t('Open the logs'), behavior: 'command', action: { command: 'mcppls.showLogs' } });
+    items.push({ kind: 'entry', icon: '$(folder-opened)', label: t('Open a directory…'), description: t('cache · logs · bundles'),
+                 behavior: 'detail', detail: 'directories' });
+    items.push({ kind: 'separator', label: t('Feedback') });
     items.push({
         kind: 'entry',
         icon: '$(copy)',
-        label: '复制 Agent 提示词',
-        description: '粘给本地 agent，只读排障——日志不出本机',
+        label: t('Copy the local self-check prompt'),
+        description: t('for a local agent, read-only -- logs never leave this machine'),
+        behavior: 'command',
         action: { command: COPY_AGENT_PROMPT_COMMAND },
     });
-    items.push({ kind: 'entry', icon: '$(github)', label: '新建 issue…', description: '预填版本与环境', action: { command: 'mcppls.newCacheIssue' } });
-    items.push({ kind: 'entry', icon: '$(repo)', label: '打开开源仓库', action: { command: 'mcppls.openRepository' } });
-    items.push({ kind: 'entry', icon: '$(book)', label: '打开文档', action: { command: 'mcppls.openDocumentation' } });
-    items.push({ kind: 'entry', icon: '$(gear)', label: '打开设置', action: { command: 'mcppls.openCacheSettings' } });
+    items.push({ kind: 'entry', icon: '$(github)', label: t('New issue…'), description: t('prefilled with version and environment'),
+                 behavior: 'command', action: { command: 'mcppls.newCacheIssue' } });
+    items.push({ kind: 'entry', icon: '$(repo)', label: t('Open the repository'), behavior: 'command', action: { command: 'mcppls.openRepository' } });
+    items.push({ kind: 'entry', icon: '$(book)', label: t('Open the documentation'), behavior: 'command', action: { command: 'mcppls.openDocumentation' } });
+    items.push({ kind: 'entry', icon: '$(gear)', label: t('Open the cache settings'), behavior: 'command', action: { command: 'mcppls.openCacheSettings' } });
     return items;
 }
 
-/** The one read-only drill-down (D20): the largest modules and the issue prompt, Esc returns. */
+/** The largest-modules drill-down (D20): one Esc -- or the back button -- returns to the hub. */
 export function drillDownItems(detail: CacheDetail): HubItem[] {
-    const items: HubItem[] = [{ kind: 'separator', label: '最大模块' }];
+    const items: HubItem[] = [{ kind: 'separator', label: t('Largest modules') }];
     const largest = detail.largest ?? [];
     if (largest.length === 0) {
-        items.push({ kind: 'entry', icon: '$(circle-slash)', label: '还没有缓存的模块' });
+        items.push({ kind: 'entry', icon: '$(circle-slash)', label: t('No cached modules yet'), behavior: 'refresh' });
     }
     for (const module of largest.slice(0, 5)) {
         items.push({
             kind: 'entry',
             icon: '$(file-binary)',
-            label: `${module.module} · ${sizeText(module.bytes)}`,
-            description: `${module.copies} 份`,
+            label: module.module,
+            description: `${sizeText(module.bytes)} · ${t('{0} copies', module.copies)}`,
+            behavior: 'refresh',
         });
     }
-    items.push({ kind: 'separator', label: '开源' });
+    items.push({ kind: 'separator', label: t('Feedback') });
     items.push({
         kind: 'entry',
         icon: '$(copy)',
-        label: '复制 issue 提示词',
-        description: '让 agent 把结论整理成草稿，先给人看再发',
+        label: t('Copy the issue draft prompt'),
+        description: t('the agent turns the findings into a draft, for you to read first'),
+        behavior: 'command',
         action: { command: 'mcppls.copyIssuePrompt' },
     });
     return items;
 }
 
-/** What the title says, engine-free (D17): state, then the plan's scale when the server gave it. */
-export function hubTitle(detail: Pick<CacheDetail, 'state' | 'project' | 'plan'>): string {
-    const scale = detail.plan && detail.plan.units > 0 ? ` · ${detail.plan.units} units · ${detail.plan.modules} modules` : '';
-    return `C++ Modules — ${detail.project.name}（${detail.state}${scale}）`;
+/** The three directories a report can name (UI-8): the module cache, the logs, the bundles. */
+export function directoryItems(detail: CacheDetail): HubItem[] {
+    const one = (icon: string, label: string, which: string): HubItem => ({
+        kind: 'entry', icon, label, description: t('reveal in the file manager'), behavior: 'command',
+        action: { command: REVEAL_CACHE_DIRECTORY_COMMAND, arguments: [which] },
+    });
+    return [
+        { kind: 'separator', label: t('Directories') },
+        one('$(database)', t('Module cache ({0})', sizeText(detail.bytes)), 'cache'),
+        one('$(output)', t('Logs'), 'logs'),
+        one('$(file-zip)', t('Diagnostic bundles'), 'bundles'),
+    ];
+}
+
+/** What the title says, engine-free (D17): the project, then the cache against its budget. */
+export function hubTitle(detail: CacheDetail): string {
+    const limit = detail.limits.perWorkspace;
+    const percent = limit > 0 ? ` · ${Math.round((detail.bytes / limit) * 100)}%` : '';
+    return `${detail.project.name} — ${sizeText(detail.bytes)} / ${sizeText(limit)}${percent}`;
 }
 
 /** The entry's visible label with its icon, the way the view draws it. */

@@ -33,7 +33,7 @@ mcpp run -p devtools -- uninstall --editor vscode|zed|clion|all   # 卸载
 
 **无法恢复时。** mcppls 无法自行恢复时，会先写出一个诊断包，再弹出一条通知，提供 **Report Issue…**、**Restart Server**、**Reset This Workspace's Cache**、**Turn Off in This Workspace** 和 **Show Logs**；见 [50-troubleshooting.md](50-troubleshooting.md#mcppls-无法自行恢复时)。
 
-**缓存，就在状态栏上。** 那一个状态栏项同时承载缓存：悬停看只读卡片（缓存对预算、已发布本体与 clangd 副本的分解、上次清理），点击打开缓存枢纽——分五组（缓存、清理、维护、日志、开源）的菜单。**Sweep the Module Cache** 只清理没有引擎占用的东西，不重启、不重编；它右侧的眼睛按钮先做预演。开源组可复制只读排障提示词给本地 agent（`mcppls cache --prompt agent` 在任何地方打印同一段文字）、打开仓库或预填 issue。其它编辑器用 `workspace/executeCommand` `mcppls.sweepCache` 或 CLI；卡片与枢纽是 VS Code 专有。
+**缓存，就在状态栏上。** 那一个状态栏项同时承载缓存：悬停看三段式只读卡片——项目（状态圆点、模块与单元数、真实的准备进度）、缓存（每类一条条形图的表格、对预算的大小、上次清理）、动作（清理、日志与报告、本地自检）加仓库链接。点击打开缓存枢纽——分四组（概览、清理、诊断、反馈）的菜单；“明细”下钻最大模块，“打开目录…”下钻报告点名的三个目录。**清理模块缓存** 只清理没有引擎占用的东西，不重启、不重编；它右侧的眼睛按钮先做预演。反馈组复制本地自检提示词——给本地 agent 的任务书：已核实的事实、每条带“正常长什么样”的只读检查、输出契约，以及疑似 bug 分支（你同意后由 agent 自己起草 issue、呈给你过目，任何东西发出前都先给你看；`mcppls cache --prompt agent` 在任何地方打印同一段文字）。编辑器文案跟随显示语言——英文与简体中文；服务端日志、CLI 与提示词保持英文。其它编辑器用 `workspace/executeCommand` `mcppls.sweepCache` 或 CLI；卡片与枢纽是 VS Code 专有。
 
 ## Claude Code
 

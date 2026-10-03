@@ -42,7 +42,7 @@ export interface CacheDetail {
     largest?: { module: string; bytes: number; copies: number }[];
     limits: { perWorkspace: number; total: number; over: boolean };
     lastSweep?: { at: number; freedBytes: number; files: number; failed?: number };
-    paths: { cacheRoot: string; logDirectory: string };
+    paths: { cacheRoot: string; logDirectory: string; bundlesDirectory?: string };
     cli?: { cacheQuery: string; sweep: string };
     prompts?: { agent: string; issue: string };
     engines?: { name: string; version: string; role: string; state: string }[];

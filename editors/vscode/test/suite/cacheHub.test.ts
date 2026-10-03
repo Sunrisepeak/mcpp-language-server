@@ -46,6 +46,17 @@ suite('the cache hub and the status bar', function () {
         assert.strictEqual(after.state, before.state, 'a sweep neither stops nor restarts the engine');
     });
 
+    test('the report the hub draws carries the directories and the task-book prompt (S3 5.7, UI-11/UI-12)', async () => {
+        const detail = await api.cacheDetail();
+        assert.ok(detail, 'the running server answers cxxModules/cache');
+        assert.ok(typeof detail.paths.bundlesDirectory === 'string' && detail.paths.bundlesDirectory.length > 0, 'where bundles land is on the wire');
+        assert.ok(detail.paths.logDirectory.length > 0);
+        assert.ok(detail.paths.cacheRoot.length > 0);
+        assert.ok(detail.prompts?.agent.includes('Should I draft an issue?'), 'the bug branch asks the developer first (UI-13)');
+        assert.ok(detail.prompts?.agent.includes('bug_report.yml'));
+        assert.ok(detail.prompts?.agent.includes('never upload'), 'the agent uploads nothing');
+    });
+
     test('no webview: the card and the hub are native controls, locked by the counter', () => {
         assert.strictEqual(api.webviewPanelCount(), 0);
     });

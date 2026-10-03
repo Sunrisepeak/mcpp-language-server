@@ -55,6 +55,10 @@ struct BundleFailure {
 // server runs it off its event loop.
 std::expected<BundleResult, BundleFailure> write_bundle(const BundleInput& input, const BundleOptions& options);
 
+// Where bundles land when the caller does not name a file: <cache>/bundles. The one place the
+// directory is decided, so `paths.bundlesDirectory` (S3 5.7) and the default output cannot drift.
+std::string default_directory();
+
 // A report as a client may show it: redacted under this process's identity.
 nlohmann::json redact_report(const nlohmann::json& report);
 

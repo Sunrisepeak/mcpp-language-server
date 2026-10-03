@@ -216,23 +216,27 @@ int main() {
         expect(cache::level_of(4'001, 4'000) == "over");
     };
 
-    "the agent prompt is the read-only instruction the plan wrote down (D19)"_test = [] {
+    "the agent prompt is the task book the plan wrote down (D19; UI-12/UI-13 of 2026-10-03)"_test = [] {
         const Json facts { { "version", "0.0.10" }, { "editor", "VS Code" }, { "editorVersion", "1.95" },
-                           { "os", "linux" }, { "root", "/project" }, { "cacheRoot", "/cache" },
-                           { "logDirectory", "/cache/log" },
+                           { "os", "linux" }, { "arch", "x64" }, { "root", "/project" }, { "cacheRoot", "/cache" },
+                           { "logDirectory", "/cache/log" }, { "bundlesDirectory", "/cache/bundles" }, { "buildSystem", "mcpp" },
                            { "engines", Json::array({ Json { { "name", "clangd" }, { "version", "23.1.0" } } }) } };
         const std::string prompt { cache::agent_prompt(facts) };
         expect(prompt.contains("READ ONLY"));
         expect(prompt.contains("/cache")) << "the cache root's real value";
         expect(prompt.contains("/cache/log"));
+        expect(prompt.contains("/cache/bundles")) << "where bundles land (UI-6)";
         expect(prompt.contains("clangd")) << "support facts are not hidden (D17)";
-        expect(prompt.contains("Do not delete any file"));
-        expect(prompt.contains("mcppls cache --format json"));
-        expect(prompt.contains("five sentences"));
+        expect(prompt.contains("prune --dry-run"));
+        expect(prompt.contains("Section 3")) << "the output contract section";
+        expect(prompt.contains("Should I draft an issue?")) << "the bug branch asks first (UI-13)";
+        expect(prompt.contains("issues/new?template=bug_report.yml")) << "the prefilled URL the agent opens itself";
+        expect(prompt.contains("never upload")) << "the agent uploads nothing";
         expect(!prompt.contains("{}")) << "nothing left unrendered";
         const std::string issue { cache::issue_prompt(facts) };
         expect(issue.contains("bug_report.yml"));
         expect(issue.contains("Show the draft to the person"));
+        expect(issue.contains("/cache/bundles"));
     };
 
     return report();

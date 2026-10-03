@@ -32,6 +32,14 @@
      "at-least": 1
     },
     {
+     "path": "/logDirectory",
+     "exists": true
+    },
+    {
+     "path": "/bundlesDirectory",
+     "exists": true
+    },
+    {
      "path": "/workspaces/0/copies/files",
      "equals": 0
     },

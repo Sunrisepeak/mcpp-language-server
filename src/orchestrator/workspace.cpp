@@ -32,6 +32,8 @@ import mcppls.project.provider;
 import mcppls.project.model;
 import mcppls.project.modelcache;
 import mcppls.normalize.plan;
+import mcppls.arch;
+import mcppls.bundle.writer;
 import mcppls.engine;
 import mcppls.engine.payload;
 import mcppls.engine.native.index;
@@ -645,7 +647,9 @@ struct Workspace::Impl final : engine::Host {
                      { "root", root },
                      { "cacheRoot", workspaceDirectory_ },
                      { "os", std::string { mcppls::os::FAMILY_NAME } },
-                     { "logDirectory", base::parent_path(log::file_path()) } };
+                     { "arch", std::string_view { mcppls::arch::ARCH == mcppls::arch::Arch::aarch64 ? "arm64" : "x64" } },
+                     { "logDirectory", base::parent_path(log::file_path()) },
+                     { "bundlesDirectory", bundle::default_directory() } };
         if (clientParams.is_object()) {
             const Json& info { clientParams.value("clientInfo", Json::object()) };
             facts["editor"] = info.value("name", std::string {});
@@ -2841,7 +2845,8 @@ Json Workspace::cache_report() const {
                     { "largest", numbers.value("largest", Json::array()) },
                     { "limits", numbers.value("limits", Json::object()) },
                     { "contexts", numbers.value("contexts", Json::array()) },
-                    { "paths", Json { { "cacheRoot", impl.workspaceDirectory_ }, { "logDirectory", base::parent_path(log::file_path()) } } },
+                    { "paths", Json { { "cacheRoot", impl.workspaceDirectory_ }, { "logDirectory", base::parent_path(log::file_path()) },
+                                      { "bundlesDirectory", bundle::default_directory() } } },
                     { "cli", Json { { "cacheQuery", "mcppls cache --format json" }, { "sweep", "mcppls cache --prune --dry-run" } } },
                     { "prompts", Json { { "agent", cache::agent_prompt(impl.cache_prompt_facts_()) },
                                         { "issue", cache::issue_prompt(impl.cache_prompt_facts_()) } } } };

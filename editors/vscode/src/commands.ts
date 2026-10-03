@@ -16,6 +16,9 @@ import { sourceOf } from './quickSuggestions';
 import { RENAMED_SETTINGS, resolveRenamed, workersSetting } from './settingsRead';
 import { redactJson, Who } from './redact';
 import { describeProfile, SemanticProfile } from './status';
+import { t } from './strings';
+
+export const COPY_REPOSITORY_URL_COMMAND = 'mcppls.copyRepositoryUrl';
 
 export interface ServerAccess {
     // The running client, or undefined when the server is not running.
@@ -540,14 +543,14 @@ export async function openCachePanel(access: ServerAccess): Promise<void> {
 export async function sweepWorkspaceCache(access: ServerAccess): Promise<unknown> {
     const client = access.runningClient();
     if (!client) {
-        void vscode.window.showWarningMessage('The C++ Modules server is not running; there is nothing to sweep.');
+        void vscode.window.showWarningMessage(t('The C++ Modules server is not running; there is nothing to sweep.'));
         return undefined;
     }
     // Progress, never a notification: the numbers that prove the sweep are the status bar's own
     // (they drop) and the hub's receipt line -- a modal answer to an unasked question is exactly
     // the unsolicited UI the E2E holds to zero. The answer is returned for the hub and for tests.
     const answer = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Window, title: 'C++ Modules: sweeping the cache' },
+        { location: vscode.ProgressLocation.Window, title: t('C++ Modules: sweeping the cache') },
         () => client.sendRequest('workspace/executeCommand', { command: SERVER_SWEEP_CACHE_COMMAND, arguments: [{ dryRun: false }] }),
     );
     const result = parseSweepResult(answer);
@@ -562,11 +565,11 @@ export async function copyAgentPrompt(access: ServerAccess): Promise<string | un
     const detail = await fetchCacheDetail(access);
     const prompt = detail?.prompts?.agent;
     if (!prompt) {
-        void vscode.window.showWarningMessage('No agent prompt is available: the server does not carry one (older server?).');
+        void vscode.window.showWarningMessage(t('No self-check prompt is available: the server does not carry one (older server?).'));
         return undefined;
     }
     await vscode.env.clipboard.writeText(prompt);
-    void vscode.window.showInformationMessage('已复制 ✓ 粘给本地 agent——日志不会离开本机');
+    void vscode.window.setStatusBarMessage(t('Copied the self-check prompt -- for a local agent; logs never leave this machine'), 5000);
     return prompt;
 }
 
@@ -574,22 +577,45 @@ export async function copyIssuePrompt(access: ServerAccess): Promise<string | un
     const detail = await fetchCacheDetail(access);
     const prompt = detail?.prompts?.issue;
     if (!prompt) {
-        void vscode.window.showWarningMessage('No issue prompt is available: the server does not carry one (older server?).');
+        void vscode.window.showWarningMessage(t('No issue draft prompt is available: the server does not carry one (older server?).'));
         return undefined;
     }
     await vscode.env.clipboard.writeText(prompt);
-    void vscode.window.showInformationMessage('已复制 issue 提示词 ✓ 先给人看，同意后再发');
+    void vscode.window.setStatusBarMessage(t('Copied the issue draft prompt -- show it to a person before anything is sent'), 5000);
     return prompt;
 }
 
-export async function revealCacheDirectory(access: ServerAccess, which = 'cache'): Promise<void> {
+// `home` is the cache root the logs and the bundles sit in (`<cache>/logs`, `<cache>/bundles`): the
+// parent of the log directory, whichever separator the platform used.
+function parentOf(path: string): string | undefined {
+    const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+    return cut > 0 ? path.slice(0, cut) : undefined;
+}
+
+// The card's `Logs & reports` opens `root` -- logs/ and bundles/ side by side (plan UI-5); the hub's
+// directory drill-down names each of the three precisely. An old server without `bundlesDirectory`
+// still answers: the bundle directory is the log directory's sibling.
+export async function revealCacheDirectory(access: ServerAccess, which: 'cache' | 'logs' | 'bundles' | 'root' = 'cache'): Promise<void> {
     const detail = await fetchCacheDetail(access);
-    const path = which === 'logs' ? detail?.paths.logDirectory : detail?.paths.cacheRoot;
+    const paths = detail?.paths;
+    const home = paths?.logDirectory !== undefined ? parentOf(paths.logDirectory) : undefined;
+    const separator = paths?.logDirectory?.includes('\\') ? '\\' : '/';
+    const path = which === 'logs' ? paths?.logDirectory
+        : which === 'bundles' ? (paths?.bundlesDirectory ?? (home !== undefined ? `${home}${separator}bundles` : undefined))
+        : which === 'root' ? home
+        : paths?.cacheRoot;
     if (!path) {
         access.showLogs();
         return;
     }
     await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(path));
+}
+
+// The card's `$(copy)` next to the repository link (UI-6): hover text cannot be selected, so the
+// copy has to be a command. Internal -- registered, but not in the palette.
+export async function copyRepositoryUrl(): Promise<void> {
+    await vscode.env.clipboard.writeText(REPOSITORY);
+    void vscode.window.setStatusBarMessage(t('Copied the repository address'), 3000);
 }
 
 function issueContext(): IssueContext {
@@ -616,6 +642,11 @@ export async function openRepository(): Promise<void> {
     await vscode.env.openExternal(vscode.Uri.parse(REPOSITORY));
 }
 
+// The hub's `$(book)` entry: the README is the documentation the repository itself keeps honest.
+export async function openDocumentation(): Promise<void> {
+    await vscode.env.openExternal(vscode.Uri.parse(`${REPOSITORY}#readme`));
+}
+
 export async function openCacheSettings(): Promise<void> {
     await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:sunrisepeak.mcpp-language-server cache');
 }
@@ -634,10 +665,13 @@ export function registerCommands(context: vscode.ExtensionContext, access: Serve
         vscode.commands.registerCommand(SWEEP_WORKSPACE_CACHE_COMMAND, () => sweepWorkspaceCache(access)),
         vscode.commands.registerCommand('mcppls.copyAgentPrompt', () => copyAgentPrompt(access)),
         vscode.commands.registerCommand('mcppls.copyIssuePrompt', () => copyIssuePrompt(access)),
-        vscode.commands.registerCommand(REVEAL_CACHE_DIRECTORY_COMMAND, (which?: string) => revealCacheDirectory(access, which)),
+        vscode.commands.registerCommand(REVEAL_CACHE_DIRECTORY_COMMAND, (which?: string) =>
+            revealCacheDirectory(access, which === 'logs' || which === 'bundles' || which === 'root' ? which : 'cache')),
         vscode.commands.registerCommand('mcppls.newCacheIssue', () => newCacheIssue(access)),
         vscode.commands.registerCommand('mcppls.openRepository', () => openRepository()),
+        vscode.commands.registerCommand('mcppls.openDocumentation', () => openDocumentation()),
         vscode.commands.registerCommand('mcppls.openCacheSettings', () => openCacheSettings()),
+        vscode.commands.registerCommand(COPY_REPOSITORY_URL_COMMAND, () => copyRepositoryUrl()),
         vscode.commands.registerCommand('mcppls.turnOffInWorkspace', () => turnOffInWorkspace(access.log)),
         vscode.commands.registerCommand('mcppls.turnOnInWorkspace', () => turnOnInWorkspace(access.log)),
         vscode.commands.registerCommand('mcppls.runBuildToolInTerminal', () => runBuildToolInTerminal(access)),

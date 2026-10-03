@@ -7,8 +7,10 @@ module mcppls.cli.cache;
 import std;
 import nlohmann.json;
 import mcpplibs.cmdline;
+import mcppls.arch;
 import mcppls.base.path;
 import mcppls.base.version;
+import mcppls.bundle.writer;
 import mcppls.engine.clangd.process;
 import mcppls.orchestrator.cache;
 import mcppls.os;
@@ -156,7 +158,10 @@ int report(const std::string& workspaces, bool instancesOnly, bool listModules, 
             if (!instancesOnly) one["largest"] = numbers.value("largest", Json::array());
             out.push_back(std::move(one));
         }
-        std::println("{}", Json { { "root", workspaces }, { "workspaces", std::move(out) } }.dump(2));
+        std::println("{}", Json { { "root", workspaces },
+                                  { "logDirectory", base::join_path(platform::dirs::cache_directory(), "logs") },
+                                  { "bundlesDirectory", bundle::default_directory() },
+                                  { "workspaces", std::move(out) } }.dump(2));
         return 0;
     }
     struct Row {
@@ -216,7 +221,10 @@ int report(const std::string& workspaces, bool instancesOnly, bool listModules, 
 Json prompt_facts() {
     return Json { { "version", std::string { base::VERSION } },
                   { "os", std::string { mcppls::os::FAMILY_NAME } },
-                  { "cacheRoot", platform::dirs::cache_directory() } };
+                  { "arch", std::string_view { mcppls::arch::ARCH == mcppls::arch::Arch::aarch64 ? "arm64" : "x64" } },
+                  { "cacheRoot", platform::dirs::cache_directory() },
+                  { "logDirectory", base::join_path(platform::dirs::cache_directory(), "logs") },
+                  { "bundlesDirectory", bundle::default_directory() } };
 }
 
 int prompt(std::string_view kind) {
