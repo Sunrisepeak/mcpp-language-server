@@ -224,10 +224,14 @@ export function alignedPair(first: { text: string; plain: string }, second: { te
 export function cardMarkdown(input: CardInput): string {
     const zones = [...cacheCardZones(input)];
     if (input.withCommands) {
-        const actions = `[$(clear-all) ${t('Sweep')}](command:${input.sweepCommand})`
-            + ` · [$(folder-opened) ${t('Logs')}](command:${input.revealCommand}?%5B%22root%22%5D)`
-            + ` · [$(copy) ${t('Agent prompt')}](command:${input.copyPromptCommand})`;
-        const actionsPlain = `$(clear-all) ${t('Sweep')} · $(folder-opened) ${t('Logs')} · $(copy) ${t('Agent prompt')}`;
+        // Names that pair with the repository line's length (about 49 columns) in BOTH
+        // languages, so the two lines read as one block without visible padding: the en
+        // triple lands 3 columns wide of it, the zh 1 narrow, and the no-break-space pass
+        // below closes whatever remains (at most a column or two).
+        const actions = `[$(clear-all) ${t('Sweep cache')}](command:${input.sweepCommand})`
+            + ` · [$(folder-opened) ${t('Open logs')}](command:${input.revealCommand}?%5B%22root%22%5D)`
+            + ` · [$(copy) ${t('Copy agent prompt')}](command:${input.copyPromptCommand})`;
+        const actionsPlain = `$(clear-all) ${t('Sweep cache')} · $(folder-opened) ${t('Open logs')} · $(copy) ${t('Copy agent prompt')}`;
         const repo = `[$(github) ${escapeCell(repoLabel(REPOSITORY))}](${REPOSITORY}) · [$(copy)](command:${input.copyRepositoryCommand})`;
         const repoPlain = `$(github) ${repoLabel(REPOSITORY)} · $(copy)`;
         zones.push(alignedPair({ text: actions, plain: actionsPlain }, { text: repo, plain: repoPlain }));

@@ -117,16 +117,14 @@ suite('tooltip card v3.1 (markdown, aligned footer)', () => {
         const footer = markdown.split('\n\n').pop()!;
         const lines = footer.split('  \n');
         assert.strictEqual(lines.length, 2, 'the actions and the repository, two lines');
-        assert.ok(lines[0].includes('[$(clear-all) Sweep](command:mcppls.sweepWorkspaceCache)'));
-        assert.ok(lines[0].includes('[$(folder-opened) Logs](command:mcppls.revealCacheDirectory?%5B%22root%22%5D)'));
-        assert.ok(lines[0].includes('[$(copy) Agent prompt](command:mcppls.copyAgentPrompt)'));
+        assert.ok(lines[0].includes('[$(clear-all) Sweep cache](command:mcppls.sweepWorkspaceCache)'));
+        assert.ok(lines[0].includes('[$(folder-opened) Open logs](command:mcppls.revealCacheDirectory?%5B%22root%22%5D)'));
+        assert.ok(lines[0].includes('[$(copy) Copy agent prompt](command:mcppls.copyAgentPrompt)'));
         assert.ok(lines[1].includes('](https://github.com/Sunrisepeak/mcpp-language-server)'), 'the repository link is a real link');
         assert.ok(lines[1].includes('[$(copy)](command:mcppls.copyRepositoryUrl)'), 'the copy next to it is a command link');
         // the alignment arithmetic: the narrower line is padded by half the difference
         const pad = (line: string): number => line.length - line.replace(/^\u00A0+/, '').length;
-        const pads = lines.map(pad);
-        assert.ok(Math.max(...pads) > 0, 'the narrower line really is padded');
-        assert.strictEqual(Math.min(...pads), 0, 'the wider line is not padded');
+        assert.ok(Math.max(...lines.map(pad)) <= 2, 'no visible run of padding spaces: the names carry the balance');
     });
 
     test('alignedPair centers the pair by half the width difference, in either script', () => {
@@ -150,7 +148,7 @@ suite('tooltip card v3.1 (markdown, aligned footer)', () => {
             assert.ok(markdown.startsWith('● **GalTranslPP — 就绪** · 48 个模块 · 176 个单元 · mcpp'), markdown.split('\n')[0]);
             assert.ok(markdown.includes('| 已发布 | 1.90 GB | 50% | `██████░░░░░░` |'));
             assert.ok(markdown.includes('| **合计 / 预算** |'));
-            assert.ok(markdown.includes('清理') && markdown.includes('Agent 提示词'));
+            assert.ok(markdown.includes('清理缓存') && markdown.includes('复制 Agent 提示词'));
         } finally {
             setLocalizer((message, ...args) => args.length > 0 ? message.replace(/\{(\d+)\}/g, (_, index) => String(args[Number(index)])) : message);
         }

@@ -41,7 +41,6 @@
   "Limited": "受限",
   "Loading": "加载中",
   "Loading the project": "正在加载项目",
-  "Logs": "日志",
   "mcppls is turned off in this workspace (mcppls.enable). Click to turn it on.": "mcppls 在此工作区已关闭（mcppls.enable）。点击可开启。",
   "Module cache ({0})": "模块缓存（{0}）",
   "New issue…": "新建 issue…",
@@ -84,11 +83,13 @@
   "Copied the agent prompt -- paste it to a local agent; logs never leave this machine": "已复制 Agent 提示词——粘给本地 agent；日志不出本机",
   "No agent prompt is available: the server does not carry one (older server?).": "没有可用的 Agent 提示词：服务端未携带（旧版服务端？）。",
   "for a local AI agent: read-only checks, a report back -- logs never leave this machine": "粘给本地 AI agent，只读检查并汇报——日志不出本机",
-  "Sweep": "清理",
-  "Agent prompt": "Agent 提示词",
   "Class": "构成",
   "Used": "占用",
   "Share": "占比",
   "Used / budget": "已用 / 预算",
-  "The last sweep freed {0}": "上次清理释放了 {0}"
+  "The last sweep freed {0}": "上次清理释放了 {0}",
+  "Sweep cache": "清理缓存",
+  "Open logs": "打开日志",
+  "Copy agent prompt": "复制 Agent 提示词",
+  "Logs": "日志"
 }

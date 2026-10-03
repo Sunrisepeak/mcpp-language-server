@@ -41,7 +41,6 @@
   "Limited": "Limited",
   "Loading": "Loading",
   "Loading the project": "Loading the project",
-  "Logs": "Logs",
   "mcppls is turned off in this workspace (mcppls.enable). Click to turn it on.": "mcppls is turned off in this workspace (mcppls.enable). Click to turn it on.",
   "Module cache ({0})": "Module cache ({0})",
   "New issue…": "New issue…",
@@ -84,11 +83,13 @@
   "Copied the agent prompt -- paste it to a local agent; logs never leave this machine": "Copied the agent prompt -- paste it to a local agent; logs never leave this machine",
   "No agent prompt is available: the server does not carry one (older server?).": "No agent prompt is available: the server does not carry one (older server?).",
   "for a local AI agent: read-only checks, a report back -- logs never leave this machine": "for a local AI agent: read-only checks, a report back -- logs never leave this machine",
-  "Sweep": "Sweep",
-  "Agent prompt": "Agent prompt",
   "Class": "Class",
   "Used": "Used",
   "Share": "Share",
   "Used / budget": "Used / budget",
-  "The last sweep freed {0}": "The last sweep freed {0}"
+  "The last sweep freed {0}": "The last sweep freed {0}",
+  "Sweep cache": "Sweep cache",
+  "Open logs": "Open logs",
+  "Copy agent prompt": "Copy agent prompt",
+  "Logs": "Logs"
 }
