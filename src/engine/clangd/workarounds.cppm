@@ -39,6 +39,7 @@ inline constexpr std::string_view BACKGROUND_INDEX_WITHOUT_MODULES { "WA-CLANGD-
 inline constexpr std::string_view MODULE_SCAN_PER_REQUEST { "WA-CLANGD-009" };
 inline constexpr std::string_view CONST_CORRECTNESS_VIEWS { "WA-CLANGD-010" };
 inline constexpr std::string_view LEFT_BEHIND_MODULE_COPIES { "WA-CLANGD-011" };
+inline constexpr std::string_view MODULE_IMPORTER_COMPLETION_BUDGET { "WA-CLANGD-012" };
 
 std::span<const Workaround> workarounds();
 const Workaround* find_workaround(std::string_view id);

@@ -225,13 +225,35 @@ int main() {
     "what a person waits on waits for the core engine within a budget, and the rest wait for its timeout (R-7)"_test = [] {
         using namespace std::chrono_literals;
         namespace routing = mcppls::orchestrator;
-        expect(routing::answer_budget("textDocument/completion") == 1500ms);
-        expect(routing::answer_budget("textDocument/signatureHelp") == 1500ms);
+        expect(routing::answer_budget("textDocument/completion") == 1000ms);
+        expect(routing::answer_budget("textDocument/signatureHelp") == 1000ms);
         expect(routing::answer_budget("textDocument/hover") == 2000ms);
         expect(routing::answer_budget("textDocument/definition") == 10000ms);
         expect(!routing::answer_budget("textDocument/references").has_value()) << "a long operation the person started";
         expect(!routing::answer_budget("textDocument/semanticTokens/full").has_value()) << "nobody waits on it: it arrives when it is ready";
         expect(!routing::answer_budget("textDocument/documentSymbol").has_value());
+    };
+
+    "the budget follows the file whose engine answers keep landing just past it, and only that one (UP-25)"_test = [] {
+        using namespace std::chrono_literals;
+        completion::EnginePace pace;
+        const auto t = std::chrono::steady_clock::now();
+        expect(pace.budget(t, 1000ms, 2500ms) == 1000ms) << "nothing answered yet: the flat budget";
+        pace.answered(t - 1500ms, 1050ms);
+        expect(pace.budget(t, 1000ms, 2500ms) == 1000ms) << "one answer is not a pattern";
+        pace.answered(t - 1000ms, 1100ms);
+        expect(pace.budget(t, 1000ms, 2500ms) == 1600ms) << "two recent answers past the budget: wait for them";
+        pace.answered(t - 100ms, 300ms);
+        expect(pace.budget(t, 1000ms, 2500ms) == 1000ms) << "a fast answer among them: the engine is quick here";
+        expect(pace.budget(t + 30s, 1000ms, 2500ms) == 1000ms) << "answers older than the window say nothing";
+        completion::EnginePace late;
+        late.answered(t - 2s, 2400ms);
+        late.answered(t - 1s, 2300ms);
+        expect(late.budget(t, 1000ms, 2500ms) == 2500ms) << "past the cap the budget is the cap, not more";
+        completion::EnginePace old;
+        old.answered(t - 40s, 1200ms);
+        old.answered(t - 39s, 1300ms);
+        expect(old.budget(t, 1000ms, 2500ms) == 1000ms) << "a file the engine answered long ago waits the flat budget";
     };
 
     "a late answer is recognized by its word and given to a later position in it (C-2)"_test = [] {

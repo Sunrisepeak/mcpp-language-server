@@ -11,13 +11,15 @@ product version unchanged.
 
 ### Completion
 
-- **Completion comes up in files that import modules.** clangd 23.1 costs 0.95–1.05 s per
-  completion on a file that imports modules, even when every BMI is long built and cached
-  (upstream defect UP-25, issue #24) — riding exactly on the old 1 s answer budget: past it
-  mcppls answered with its fallback and cancelled clangd's request, and after `.`, `->` or `::`
-  the fallback is empty by design, so the editor sometimes showed nothing at all. The budget for
-  completion and signature help is now **1.5 s**: clangd's real answer arrives instead of being
-  cancelled at the line, and the worst case a person waits is still bounded.
+- **Completion comes up in files that import modules.** On such a file clangd 23.1 answers every
+  completion in 0.95–1.05 s even when the BMIs are long built and cached (upstream defect UP-25,
+  issue #24) — just past the 1 s answer budget, which cancelled the engine's answer at the line and
+  answered with the fallback instead; after `.`, `->` or `::` the fallback is empty by design, so
+  the popup sometimes never came at all. The budget now follows the file: where the core engine
+  keeps answering just past the budget, completion and signature help wait up to 2.5 s for those
+  answers instead of cancelling them — and where the engine answers rarely or quickly (a broken
+  module rebuilding, a fan-out save, an ordinary file), the budget, the fallback and the
+  user-experience scenarios calibrated on them stay exactly as they were.
 
 ## [0.0.10] — 2026-10-03
 

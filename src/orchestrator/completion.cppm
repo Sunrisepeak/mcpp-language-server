@@ -89,4 +89,30 @@ bool typed_on(const WordKey& earlier, const WordKey& later);
 // `position` drops its item. The result is a CompletionList, with the engine's `isIncomplete`.
 Json retarget(const Json& result, base::Position position);
 
+// UP-25 (issue #24): what the core engine has been answering for one file, and the budget those answers earn. clangd
+// 23.1 answers a module importer's completions in about a second -- just past the flat budget -- so the flat budget
+// alone cancelled every answer the engine was about to give. The budget for such a file waits past the flat one;
+// an engine that answers rarely (a broken module rebuilding, a fan-out save) or quickly keeps the flat budget, and
+// the fallback must not get slower for it. Pure state: the workspace records each core-engine answer and reads the
+// budget before it routes the next completion of that file.
+class EnginePace {
+public:
+    // the core engine answered one completion of this file, `latency` after its request went out
+    void answered(std::chrono::steady_clock::time_point at, std::chrono::milliseconds latency);
+    // the budget for the next completion of this file: `base`, unless at least two answers of the recent
+    // window all landed past `base`, and then long enough for them (`cap` at most)
+    std::chrono::milliseconds budget(std::chrono::steady_clock::time_point now, std::chrono::milliseconds base,
+                                     std::chrono::milliseconds cap) const;
+
+private:
+    struct Answer {
+        std::chrono::steady_clock::time_point at;
+        std::chrono::milliseconds latency;
+    };
+    std::deque<Answer> recent_;
+    static constexpr std::size_t KEEP { 4 };
+    static constexpr std::chrono::seconds WINDOW { 10 };
+    static constexpr std::chrono::milliseconds MARGIN { 500 };
+};
+
 } // namespace mcppls::orchestrator::completion
