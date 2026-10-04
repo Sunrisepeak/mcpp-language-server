@@ -342,7 +342,7 @@ struct Workspace::Impl final : engine::Host {
         std::string path;
         completion::WordKey key;
         Json clientId;                          // the request the core engine is still working on
-        Clock::time_point sentAt;               // when that request went out (UP-25: the answer's latency feeds the file's pace)
+        Clock::time_point started;              // when the person asked (UP-25: the answer's latency feeds the file's pace)
         Clock::time_point until;
         std::vector<std::uint64_t> waiting;     // jobs of the same word waiting for its answer
     };
@@ -980,14 +980,16 @@ struct Workspace::Impl final : engine::Host {
         }
         const auto pace = completionPace_.find(job.path);
         if (pace == completionPace_.end()) return flat;
-        return std::max(*flat, pace->second.budget(Clock::now(), *flat, ADAPTIVE_COMPLETION_BUDGET));
+        return pace->second.budget(Clock::now(), *flat, ADAPTIVE_COMPLETION_BUDGET);
     }
 
-    void note_core_completion(const std::string& path, Clock::time_point sentAt) {
+    // The person asked at `job.started` and the budget is counted from there, so the pace measures the same span.
+    void note_core_completion(const std::string& path, Clock::time_point started) {
         if (path.empty()) return;
         if (completionPace_.size() >= FILE_STATS_LIMIT && !completionPace_.contains(path)) return;
         completionPace_[path].answered(Clock::now(),
-                                       std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - sentAt));
+                                       std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - started),
+                                       ADAPTIVE_COMPLETION_BUDGET);
     }
 
     // R-7 (plan 2026-09-30): the core engine has not answered in the request's budget (answer_budget). mcppls answers
@@ -1010,7 +1012,7 @@ struct Workspace::Impl final : engine::Host {
             if (coreAsked && position) {
                 if (auto key = completion::word_key(job.text, *position)) {
                     lateCompletions[jobId] = LateCompletion { uri_of_params(job.params), job.path, std::move(*key), clientId,
-                                                              job.engineSentAt.value_or(Clock::now()), Clock::now() + LATE_COMPLETION_KEEP, {} };
+                                                              job.started, Clock::now() + LATE_COMPLETION_KEEP, {} };
                     keepCore = true;
                 }
             }
@@ -1063,7 +1065,7 @@ struct Workspace::Impl final : engine::Host {
         if (it == lateCompletions.end()) return;
         LateCompletion late { std::move(it->second) };
         lateCompletions.erase(it);
-        if (answer.kind == engine::Answer::Kind::result) note_core_completion(late.path, late.sentAt);
+        if (answer.kind == engine::Answer::Kind::result) note_core_completion(late.path, late.started);
         // An empty answer or an error is nothing to give: whoever waits for it gets the file's words at its budget.
         if (answer.kind != engine::Answer::Kind::result || completion::is_empty(answer.value)) return;
         ++lateCompletionsArrived;
@@ -1100,9 +1102,9 @@ struct Workspace::Impl final : engine::Host {
             case engine::Answer::Kind::result:
                 if (coreEngine != nullptr && engineId == coreEngine->id()) {
                     current->second.coreAnswered = true;
-                    if (current->second.method == lsp::method::TEXT_DOCUMENT_COMPLETION && current->second.engineSentAt) {
-                        note_core_completion(current->second.path, *current->second.engineSentAt);
-                    }
+                    const bool typing { current->second.method == lsp::method::TEXT_DOCUMENT_COMPLETION
+                                        || current->second.method == lsp::method::TEXT_DOCUMENT_SIGNATURE_HELP };
+                    if (typing) note_core_completion(current->second.path, current->second.started);
                 }
                 if (!answer.value.is_null()) {
                     current->second.engineRepliedAt = Clock::now();
@@ -2552,7 +2554,10 @@ void Workspace::did_close(const Json& message, const Json& params) {
     if (found == nullptr) return;
     const Document document { *found };
     impl_->documents_.close(uri);
-    if (!document.path.empty()) impl_->editedAt.erase(base::path_key(document.path));
+    if (!document.path.empty()) {
+        impl_->editedAt.erase(base::path_key(document.path));
+        impl_->completionPace_.erase(document.path);   // the file's pace says how its engine answered while it was open
+    }
     ++impl_->snapshotGeneration;
     if (!document.path.empty()) {
         if (auto text = platform::fs::read_file(document.path)) impl_->index.update(document.path, *text);

@@ -97,10 +97,14 @@ Json retarget(const Json& result, base::Position position);
 // budget before it routes the next completion of that file.
 class EnginePace {
 public:
-    // the core engine answered one completion of this file, `latency` after its request went out
-    void answered(std::chrono::steady_clock::time_point at, std::chrono::milliseconds latency);
-    // the budget for the next completion of this file: `base`, unless at least two answers of the recent
-    // window all landed past `base`, and then long enough for them (`cap` at most)
+    // the core engine answered one completion of this file, `latency` after the person asked. Answers far beyond
+    // `cap` say the engine is busy, not slow-and-steady, and are not counted: counting them would hold every
+    // fallback of this file past a budget those answers would never meet anyway.
+    void answered(std::chrono::steady_clock::time_point at, std::chrono::milliseconds latency,
+                  std::chrono::milliseconds cap);
+    // the budget for the next completion of this file: `base`, unless the answers of the recent window all landed
+    // past `base` -- at least two of them, so one slow answer is not a pattern -- and then long enough for them
+    // (`cap` at most). The window outlives a think pause; a longer pause relearns with the answers C-2 already keeps.
     std::chrono::milliseconds budget(std::chrono::steady_clock::time_point now, std::chrono::milliseconds base,
                                      std::chrono::milliseconds cap) const;
 
@@ -111,7 +115,7 @@ private:
     };
     std::deque<Answer> recent_;
     static constexpr std::size_t KEEP { 4 };
-    static constexpr std::chrono::seconds WINDOW { 10 };
+    static constexpr std::chrono::seconds WINDOW { 60 };
     static constexpr std::chrono::milliseconds MARGIN { 500 };
 };
 

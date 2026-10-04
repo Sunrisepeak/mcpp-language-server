@@ -138,7 +138,7 @@ constexpr std::array<Workaround, 12> REGISTRY { {
         .added = "0.0.11",
         .removeWhen = "clangd keeps a file's module context between requests, or carries the imports in its preamble, so a module importer's completion costs no more than another file's",
         .canary = "",
-        .premise = "the engine's answers for one file arrive reliably and just past the flat budget: two answers in the last ten seconds, all past it, extend that file's budget to their slowest plus 500 ms (2.5 s at most). An engine that answers rarely (a broken module rebuilding, a fan-out save) or quickly keeps the flat budget, and the fallback with it",
+        .premise = "the engine's answers for one file arrive reliably and just past the flat budget: two answers in the last sixty seconds, all within two seconds of the ask and all past the flat budget, extend that file's budget to their slowest plus 500 ms (2.5 s at most). Answers far beyond that are not counted -- a busy engine is not a slow-and-steady one -- and an engine that answers rarely (a broken module rebuilding, a fan-out save) or quickly keeps the flat budget, and the fallback with it",
     },
 } };
 
