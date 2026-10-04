@@ -7,6 +7,20 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.11] — 2026-10-04
+
+### Completion
+
+- **Completion comes up in files that import modules.** On such a file clangd 23.1 answers every
+  completion in 0.95–1.05 s even when the BMIs are long built and cached (upstream defect UP-25,
+  issue #24) — just past the 1 s answer budget, which cancelled the engine's answer at the line and
+  answered with the fallback instead; after `.`, `->` or `::` the fallback is empty by design, so
+  the popup sometimes never came at all. The budget now follows the file: where the core engine
+  keeps answering just past the budget, completion and signature help wait up to 2.5 s for those
+  answers instead of cancelling them — and where the engine answers rarely or quickly (a broken
+  module rebuilding, a fan-out save, an ordinary file), the budget, the fallback and the
+  user-experience scenarios calibrated on them stay exactly as they were.
+
 ## [0.0.10] — 2026-10-03
 
 A workspace's module cache grew without bound when clangd kept crashing: every crash left its

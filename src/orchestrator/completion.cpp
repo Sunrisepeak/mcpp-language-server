@@ -227,4 +227,27 @@ Json retarget(const Json& result, base::Position position) {
     return out;
 }
 
+void EnginePace::answered(std::chrono::steady_clock::time_point at, std::chrono::milliseconds latency,
+                          std::chrono::milliseconds cap) {
+    if (latency > cap - MARGIN) return;   // beyond any budget this file could earn: the engine is busy, not steady
+    recent_.push_back(Answer { at, latency });
+    if (recent_.size() > KEEP) recent_.pop_front();
+}
+
+std::chrono::milliseconds EnginePace::budget(std::chrono::steady_clock::time_point now, std::chrono::milliseconds base,
+                                             std::chrono::milliseconds cap) const {
+    const auto window { std::chrono::duration_cast<std::chrono::steady_clock::duration>(WINDOW) };
+    std::size_t fresh { 0 };
+    std::chrono::milliseconds slowest { 0 };
+    std::chrono::milliseconds fastest { std::chrono::milliseconds::max() };
+    for (const auto& answer : recent_) {
+        if (now - answer.at > window) continue;
+        ++fresh;
+        slowest = std::max(slowest, answer.latency);
+        fastest = std::min(fastest, answer.latency);
+    }
+    if (fresh < 2 || fastest <= base) return base;
+    return std::min(cap, slowest + MARGIN);
+}
+
 } // namespace mcppls::orchestrator::completion
