@@ -46,8 +46,11 @@ Selection select_engines(std::span<engine::Engine* const> engines, const engine:
 
 std::optional<std::chrono::milliseconds> answer_budget(std::string_view method) {
     using namespace std::chrono_literals;
-    // Typing: an answer later than this reaches a person who has typed on.
-    if (method == "textDocument/completion" || method == "textDocument/signatureHelp") return 1000ms;
+    // Typing: an answer later than this reaches a person who has typed on. 1.5 s, not 1 s: clangd 23.1
+    // costs 0.95–1.05 s per completion on a file that imports modules, even one whose BMIs are long built
+    // and cached (UP-25, issue #24), so the 1 s budget cancelled the engine's answer right at the line --
+    // and after `.`, `->` or `::` the fallback is empty by design, which read as "completion does not come up".
+    if (method == "textDocument/completion" || method == "textDocument/signatureHelp") return 1500ms;
     // Pointing: the pointer is still there for a moment, and a hover while modules are prepared says so.
     if (method == "textDocument/hover" || method == "textDocument/documentHighlight") return 2000ms;
     // Asking to be taken somewhere: worth a while, not the core engine's whole timeout.

@@ -225,8 +225,8 @@ int main() {
     "what a person waits on waits for the core engine within a budget, and the rest wait for its timeout (R-7)"_test = [] {
         using namespace std::chrono_literals;
         namespace routing = mcppls::orchestrator;
-        expect(routing::answer_budget("textDocument/completion") == 1000ms);
-        expect(routing::answer_budget("textDocument/signatureHelp") == 1000ms);
+        expect(routing::answer_budget("textDocument/completion") == 1500ms);
+        expect(routing::answer_budget("textDocument/signatureHelp") == 1500ms);
         expect(routing::answer_budget("textDocument/hover") == 2000ms);
         expect(routing::answer_budget("textDocument/definition") == 10000ms);
         expect(!routing::answer_budget("textDocument/references").has_value()) << "a long operation the person started";

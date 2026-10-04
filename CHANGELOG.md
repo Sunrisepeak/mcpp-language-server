@@ -7,6 +7,18 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.11] — 2026-10-04
+
+### Completion
+
+- **Completion comes up in files that import modules.** clangd 23.1 costs 0.95–1.05 s per
+  completion on a file that imports modules, even when every BMI is long built and cached
+  (upstream defect UP-25, issue #24) — riding exactly on the old 1 s answer budget: past it
+  mcppls answered with its fallback and cancelled clangd's request, and after `.`, `->` or `::`
+  the fallback is empty by design, so the editor sometimes showed nothing at all. The budget for
+  completion and signature help is now **1.5 s**: clangd's real answer arrives instead of being
+  cancelled at the line, and the worst case a person waits is still bounded.
+
 ## [0.0.10] — 2026-10-03
 
 A workspace's module cache grew without bound when clangd kept crashing: every crash left its

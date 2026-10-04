@@ -171,7 +171,7 @@ it is always `producer`, the fingerprint is not matching — the report's `proje
 build files' timestamps are where to look.
 
 **Completion shows only words from the file, or hover says modules are being prepared.** A request
-has a budget for clangd — completion and signature help 1 s, hover 2 s, go-to-definition 10 s — and
+has a budget for clangd — completion and signature help 1.5 s, hover 2 s, go-to-definition 10 s — and
 past it mcppls answers with what it has. Completion is then the words of the file nearest the
 cursor, an incomplete list, so the editor asks again as you type; hover, while modules are being
 prepared, is a line saying so. It is clangd being busy with modules, not a failure. From 0.0.8,
