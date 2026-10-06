@@ -2168,5 +2168,27 @@
       "script": "src/orchestrator/workspace.cpp",
       "contains": "no numbers are remembered"
     }
+  ],
+  "S4-4-10": [
+    {
+      "test": "tests/test_engineidentity.cpp: an engine identity binds its platform version base source and bytes"
+    },
+    {
+      "test": "tests/test_engineidentity.cpp: missing or mistyped immutable fields cannot become an engine identity"
+    },
+    {
+      "script": "modules/pack/tests/test_payload.cpp",
+      "contains": "maintained engine assembly requires matching immutable identity before replacing output"
+    },
+    {
+      "script": "src/engine/payload.cpp",
+      "contains": "decode_engine_identity"
+    },
+    {
+      "validate": "S4 engine identity example validates"
+    },
+    {
+      "test": "tests/test_instance.cpp: identified payloads validate their engine while explicit external engines inherit no capabilities"
+    }
   ]
 }

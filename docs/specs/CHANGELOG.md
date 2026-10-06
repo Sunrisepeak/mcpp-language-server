@@ -2,6 +2,9 @@
 
 ## 2026-10-07
 
+S4-4-10: identified payloads carry validated immutable source/platform/binary
+identity and explicit capabilities; legacy/external engines inherit none.
+
 S4-4-5: libc++ kit compatibility uses the LLVM base of a maintained engine
 version; the full engine version remains its identity. Existing plain LLVM
 version examples and kit schemas are unchanged.

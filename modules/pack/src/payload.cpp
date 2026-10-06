@@ -3,6 +3,7 @@ module mcppls.pack.payload;
 import std;
 import nlohmann.json;
 import mcppls.base.error;
+import mcppls.base.engineidentity;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.base.version;
@@ -250,6 +251,21 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
                                                           options.clangdDirectory, exe, options.platform));
     }
 
+    nlohmann::json identity;
+    const std::string identityPath { base::join_path(options.clangdDirectory, "engine.json") };
+    const bool maintained { base::llvm_base_version(lockData.clangdVersion) != lockData.clangdVersion };
+    if (auto identityText = fs::read_file(identityPath)) {
+        identity = nlohmann::json::parse(*identityText, nullptr, false);
+        auto decoded = base::decode_engine_identity(identity);
+        auto digest = fetch::digest_of(clangdBinary);
+        if (!decoded || !digest) return base::fail("payload-engine-identity", "cannot read a complete engine identity and binary SHA");
+        if (auto problem = base::engine_identity_problem(*decoded, lockData.clangdVersion, options.platform, *digest)) {
+            return base::fail("payload-engine-identity", *problem);
+        }
+    } else if (maintained) {
+        return base::fail("payload-engine-identity", "a maintained engine requires engine.json with immutable provenance");
+    }
+
     const std::string out { absolute_of(options.outDirectory) };
     if (fs::exists(out)) fs::remove_all(out);
     if (auto made = fs::create_directories(base::join_path(out, "bin")); !made) return std::unexpected { made.error() };
@@ -291,12 +307,13 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
     const std::string kitName { kit.value("name", std::string {}) };
     nlohmann::json kitEntry { { "name", kitName }, { "path", "kit" } };
     nlohmann::json manifest;
-    manifest["payload-version"] = PAYLOAD_VERSION;
+    manifest["payload-version"] = identity.is_object() ? 4 : PAYLOAD_VERSION;
     manifest["platform"] = options.platform;
     manifest["server"] = { { "version", serverVersion }, { "path", "bin/mcppls" + exe } };
     manifest["clangd"] = { { "version", lockData.clangdVersion }, { "path", "clangd/bin/clangd" + exe } };
     manifest["kit"] = kitEntry;
     manifest["engines"] = { { "clangd", { { "version", lockData.clangdVersion }, { "path", "clangd/bin/clangd" + exe }, { "kit", kitEntry } } } };
+    if (identity.is_object()) manifest["engines"]["clangd"]["identity"] = identity;
     manifest["files"] = files;
     manifest["build"] = provenance(options.repositoryRoot);
 
@@ -340,7 +357,7 @@ std::vector<std::string> verify(std::string_view payloadDirectory) {
         return { std::format("payload.json does not parse: {}", error.what()) };
     }
 
-    if (manifest.value("payload-version", -1) != PAYLOAD_VERSION) {
+    if (manifest.value("payload-version", -1) != PAYLOAD_VERSION && manifest.value("payload-version", -1) != 4) {
         problems.push_back(std::format("payload-version is {}, expected {}", manifest.value("payload-version", -1), PAYLOAD_VERSION));
     }
     const std::string platform { manifest.value("platform", std::string {}) };
@@ -376,6 +393,12 @@ std::vector<std::string> verify(std::string_view payloadDirectory) {
     if (clangdEngine.value("path", std::string {}) != std::format("clangd/bin/clangd{}", exe) ||
         clangdEngine.value("version", std::string {}) != clangdPart.value("version", std::string {})) {
         problems.push_back(std::format("engines.clangd is {}, expected the clangd part's path and version", clangdEngine.dump()));
+    }
+    if (manifest.value("payload-version", -1) == 4) {
+        auto identity = base::decode_engine_identity(clangdEngine.value("identity", nlohmann::json {}));
+        auto digest = fetch::digest_of(base::join_path(dir, "clangd/bin/clangd" + exe));
+        if (!identity || !digest) problems.emplace_back("payload version 4 lacks complete engine identity or readable bytes");
+        else if (auto problem = base::engine_identity_problem(*identity, clangdVersion, platform, *digest)) problems.push_back(*problem);
     }
     const auto kitPart = manifest.value("kit", nlohmann::json::object());
     if (clangdEngine.value("kit", nlohmann::json::object()) != kitPart) {

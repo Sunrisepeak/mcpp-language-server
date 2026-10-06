@@ -4,6 +4,7 @@ import std;
 import nlohmann.json;
 import mcppls.os;
 import mcppls.base.error;
+import mcppls.base.engineidentity;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.base.version;
@@ -109,6 +110,12 @@ PayloadPaths resolve_payload(const PayloadRequest& requested) {
                 }
                 if (kit != nullptr) payloadKit = base::join_path(paths.directory, kit->value("path", std::string { "kit" }));
                 paths.platform = document.value("platform", paths.platform);
+                if (document.value("payload-version", 0) == 4) {
+                    if (paths.platform != os::PLATFORM) paths.identityProblem = "engine payload platform does not match this host";
+                    auto decoded = base::decode_engine_identity(clangd == nullptr ? nlohmann::json {} : clangd->value("identity", nlohmann::json {}));
+                    if (!decoded) paths.identityProblem = decoded.error().message;
+                    else paths.engineIdentity = std::move(*decoded);
+                }
                 // usable plan W9.4: "files": { "clangd/bin/clangd": {"size":N,"sha256":"..."}, ... },
                 // written by `mcppls-devtools payload` (mcppls.pack.payload). Absent in an older payload; nothing is checked then.
                 if (auto files = document.find("files"); files != document.end() && files->is_object()) {
@@ -131,9 +138,17 @@ PayloadPaths resolve_payload(const PayloadRequest& requested) {
         }
         if (payloadKit.empty()) payloadKit = base::join_path(paths.directory, "kit");
     }
+    if (paths.engineIdentity) {
+        const auto expected = paths.files.find("clangd/bin/clangd" + suffix);
+        const auto problem = base::engine_identity_problem(*paths.engineIdentity, paths.clangdVersion, paths.platform,
+            expected == paths.files.end() ? std::string_view {} : std::string_view { expected->second.sha256 });
+        if (problem) paths.identityProblem = *problem;
+    }
     if (!request.clangd.empty()) {
         paths.clangd = absolute(request.clangd);
         paths.clangdVersion.clear();
+        paths.engineIdentity.reset();
+        paths.identityProblem.clear();
     }
     if (paths.clangd.empty()) {
         if (auto found = platform::env::find_executable("clangd")) paths.clangd = *found;
@@ -243,6 +258,7 @@ void write_integrity_cache(std::string_view cacheFile, const std::map<std::strin
 
 std::vector<PayloadIntegrityIssue> verify_payload_integrity(const PayloadPaths& payload, std::string_view cacheFile) {
     std::vector<PayloadIntegrityIssue> issues;
+    if (!payload.identityProblem.empty()) issues.push_back(PayloadIntegrityIssue { "payload.json", payload.identityProblem });
     if (payload.files.empty()) return issues;
     auto cache = read_integrity_cache(cacheFile);
     bool cacheChanged { false };

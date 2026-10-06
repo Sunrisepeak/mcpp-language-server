@@ -71,6 +71,19 @@ The file named by `stdlib.module-metadata` uses the P3286 module metadata format
 5. A kit for Windows provides MinGW-w64 runtime semantics. The MSVC STL depends on the Visual Studio toolset and the Windows SDK, which cannot be redistributed; a consumer that finds Visual Studio installed **SHOULD** use it instead of the kit. <a id="S4-4-8"></a><sup>S4-4-8</sup>
 6. Every path in `kit.json` **MUST** be a kit path. <a id="S4-4-9"></a><sup>S4-4-9</sup>
 
+### Identified engine payloads
+
+A payload with `payload-version: 4` **MUST** carry the selected engine's immutable identity under `engines.clangd.identity`, matching the complete engine version, platform and binary SHA. Assembly rejects a maintained engine without this identity, and verification rejects missing, malformed or mismatching values. <a id="S4-4-10"></a><sup>S4-4-10</sup>
+
+The identity follows [s4-engine-identity.schema.json](schema/s4-engine-identity.schema.json):
+`engine-version`, `llvm-base-version`, `llvm-commit`, `fork-commit`,
+`patch-series-sha256`, `platform`, `sha256`, and `features`. The SHA identifies
+final distributed bytes. The complete version is preserved; libc++ compatibility
+uses its LLVM base. Features describe separately proved capabilities; a version
+suffix grants none. Legacy payloads keep their previous parsing and have no
+identified-engine capabilities. An explicit external `--clangd` overrides the
+bundled engine and does not inherit its identity or features.
+
 ## 5. Consumer procedure
 
 A consumer uses a kit when no suitable build toolchain is available and the user has not disabled kits.
