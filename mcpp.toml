@@ -37,7 +37,7 @@ libarchive = "3.8.7"
 
 [package]
 name        = "mcpp-language-server"
-version     = "0.0.11"
+version     = "0.0.12"
 description = "Compiler-agnostic C++ modules language server"
 license     = "Apache-2.0"
 authors     = ["Sunrisepeak"]
