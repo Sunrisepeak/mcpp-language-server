@@ -1416,6 +1416,12 @@
     {
       "script": "modules/pack/src/payload.cpp",
       "contains": "S4-4-5: libc++"
+    },
+    {
+      "test": "tests/test_instance.cpp: a payload's kit is taken only when its libc++ is the core engine's version"
+    },
+    {
+      "test": "tests/test_text.cpp: only a valid maintained-engine suffix selects its LLVM base"
     }
   ],
   "S4-4-6": [

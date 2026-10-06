@@ -6,6 +6,7 @@ import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
+import mcppls.base.version;
 import mcppls.platform.fs;
 import mcppls.toolchain.discover;
 import mcppls.platform.env;
@@ -148,7 +149,7 @@ PayloadPaths resolve_payload(const PayloadRequest& requested) {
 
     // The kit that matches the core engine (S4-4-5): an explicit --kit is taken as given; otherwise
     // the payload's when its libc++ is the engine's version, else that version installed by xlings.
-    const std::string wanted { request.engine == "none" || paths.clangdVersion.empty() ? std::string {} : paths.clangdVersion };
+    const std::string wanted { request.engine == "none" || paths.clangdVersion.empty() ? std::string {} : std::string { base::llvm_base_version(paths.clangdVersion) } };
     if (!request.kit.empty()) {
         const std::string kit { absolute(request.kit) };
         if (platform::fs::is_regular_file(base::join_path(kit, "kit.json"))) paths.kit = kit;

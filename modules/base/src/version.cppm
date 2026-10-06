@@ -12,6 +12,25 @@ export namespace mcppls::base {
 inline constexpr std::string_view VERSION { "0.0.12" };
 // The clangd the payload ships. Checked against packaging/payload.lock.json by the same command.
 inline constexpr std::string_view CLANGD_VERSION { "23.1.0" };
+// Maintained-engine identity stays intact in logs and caches. Its LLVM base
+// decides libc++ kit compatibility; unknown vendor suffixes remain unchanged.
+inline std::string_view llvm_base_version(std::string_view engineVersion) {
+    const std::size_t suffix { engineVersion.find("-mcppls.") };
+    if (suffix == std::string_view::npos) return engineVersion;
+    const auto release = engineVersion.substr(suffix + 8);
+    const auto digits = [](std::string_view value) {
+        return !value.empty() && std::ranges::all_of(value, [](char c) { return c >= '0' && c <= '9'; });
+    };
+    if (!digits(release)) return engineVersion;
+    const auto base = engineVersion.substr(0, suffix);
+    const auto first = base.find('.');
+    const auto second = first == std::string_view::npos ? first : base.find('.', first + 1);
+    if (first == std::string_view::npos || second == std::string_view::npos ||
+        !digits(base.substr(0, first)) || !digits(base.substr(first + 1, second - first - 1)) ||
+        !digits(base.substr(second + 1))) return engineVersion;
+    return base;
+}
+
 // The oldest mcpp that answers `mcpp emit build-database` — the `mcpp.build-database` kind, which
 // mcpp's own docs date to "mcpp 2026.9.15.1+" (docs/50-machine-output.md §8). An older mcpp, or one
 // that does not advertise the kind, is not an error: the server degrades to whatever

@@ -200,7 +200,7 @@ std::vector<std::string> kit_problems(const std::string& kitDir, const nlohmann:
     }
     const auto stdlib = kit.value("stdlib", nlohmann::json::object());
     // Rule 3: a libc++ kit describes the headers of the engine it ships with.
-    if (stdlib.value("name", std::string {}) == "libc++" && stdlib.value("version", std::string {}) != clangdVersion) {
+    if (stdlib.value("name", std::string {}) == "libc++" && stdlib.value("version", std::string {}) != base::llvm_base_version(clangdVersion)) {
         problems.push_back(std::format("S4-4-5: libc++ {} in the kit, clangd {} in the payload",
                                        stdlib.value("version", std::string {}), clangdVersion));
     }

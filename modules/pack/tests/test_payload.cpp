@@ -5,6 +5,7 @@
 // separately) would actually produce -- just enough of each part's shape for every one of
 // verify()'s checks to have something to check, so a real assemble+verify round trip runs clean.
 import std;
+import nlohmann.json;
 import mcppls.testing;
 import mcppls.base.path;
 import mcppls.pack.lock;
@@ -124,6 +125,20 @@ int main(int argc, char* argv[]) {
     const std::string server { base::join_path(work, "mcppls-fixture") };
     put(server, "#!/bin/sh\necho mcppls\n");
     const auto lockData = lock_with_clangd_version();
+
+    "a maintained engine verifies against its LLVM base libc++ kit"_test = [&] {
+        const std::string clangdDir { make_clangd_directory(work, "linux-x64") };
+        const std::string kitDir { make_kit_directory(work) };
+        const std::string out { base::join_path(work, "payload-base-kit") };
+        auto assembled = payload::assemble(options_for(work, "linux-x64", server, clangdDir, kitDir, out, repoRoot), lockData);
+        expect(fatal(assembled.has_value()));
+        if (!assembled) return;
+        auto manifest = nlohmann::json::parse(*fs::read_file(base::join_path(out, "payload.json")));
+        manifest["clangd"]["version"] = "23.1.0-mcppls.1";
+        manifest["engines"]["clangd"]["version"] = "23.1.0-mcppls.1";
+        put(base::join_path(out, "payload.json"), manifest.dump());
+        expect(payload::verify(out).empty()) << "the base kit remains compatible with the complete engine identity";
+    };
 
     "a well-formed assemble produces a payload that verifies clean"_test = [&] {
         const std::string clangdDir { make_clangd_directory(work, "linux-x64") };

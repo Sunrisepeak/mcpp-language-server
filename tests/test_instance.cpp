@@ -102,6 +102,15 @@ int main() {
         expect(matching.clangd == mcppls::base::join_path(payload, "clangd/bin/clangd") && matching.clangdVersion == "23.1.0") << matching.clangd;
         expect(matching.kit == mcppls::base::join_path(payload, "kit") && matching.kitNotice.empty()) << matching.kit;
 
+        // Retain the full maintained-engine identity while selecting its base kit.
+        Json forkManifest = manifest;
+        forkManifest["engines"]["clangd"]["version"] = "23.1.0-mcppls.1";
+        (void)fs::write_file(mcppls::base::join_path(payload, "payload.json"), forkManifest.dump());
+        const auto fork = eng::resolve_payload(eng::PayloadRequest { payload, "", "", "clangd" });
+        expect(fork.clangdVersion == "23.1.0-mcppls.1");
+        expect(fork.kit == mcppls::base::join_path(payload, "kit") && fork.kitNotice.empty());
+        (void)fs::write_file(mcppls::base::join_path(payload, "payload.json"), manifest.dump());
+
         // A kit built for another clangd is not used, and the status says why (S4-4-5).
         write_kit(mcppls::base::join_path(payload, "kit"), "22.1.8");
         const auto mismatched = eng::resolve_payload(eng::PayloadRequest { payload, "", "", "clangd" });

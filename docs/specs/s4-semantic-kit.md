@@ -66,7 +66,7 @@ The file named by `stdlib.module-metadata` uses the P3286 module metadata format
 
 1. A kit **MUST** contain only data files. It **MUST NOT** contain executables, shared libraries or scripts, and a consumer **MUST NOT** execute anything from a kit. <a id="S4-4-1"></a><a id="S4-4-2"></a><a id="S4-4-3"></a><sup>S4-4-1, S4-4-2, S4-4-3</sup>
 2. A kit **MUST** keep the module manifest and the module sources at the relative positions the manifest refers to. <a id="S4-4-4"></a><sup>S4-4-4</sup>
-3. The `stdlib.version` of a libc++ kit **MUST** equal the version of the semantic engine it is distributed with; for mcppls this is the pinned clangd version. <a id="S4-4-5"></a><sup>S4-4-5</sup>
+3. The `stdlib.version` of a libc++ kit **MUST** equal the LLVM base version of the semantic engine it is distributed with; for mcppls this is the pinned clangd version without a valid `-mcppls.<number>` suffix. For example, `23.1.0-mcppls.1` uses a `23.1.0` libc++ kit. The complete engine version remains its identity and does not imply any capability. <a id="S4-4-5"></a><sup>S4-4-5</sup>
 4. A kit for macOS **MUST** declare `"requires": [{ "kind": "macos-sdk" }]` and **MUST NOT** contain the macOS SDK, whose license does not permit redistribution. Its C library headers come from the SDK installed on the user's machine. <a id="S4-4-6"></a><a id="S4-4-7"></a><sup>S4-4-6, S4-4-7</sup>
 5. A kit for Windows provides MinGW-w64 runtime semantics. The MSVC STL depends on the Visual Studio toolset and the Windows SDK, which cannot be redistributed; a consumer that finds Visual Studio installed **SHOULD** use it instead of the kit. <a id="S4-4-8"></a><sup>S4-4-8</sup>
 6. Every path in `kit.json` **MUST** be a kit path. <a id="S4-4-9"></a><sup>S4-4-9</sup>

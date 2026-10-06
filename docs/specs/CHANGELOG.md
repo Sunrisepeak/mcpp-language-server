@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-07
+
+S4-4-5: libc++ kit compatibility uses the LLVM base of a maintained engine
+version; the full engine version remains its identity. Existing plain LLVM
+version examples and kit schemas are unchanged.
+
+
 Changes to the specifications in this directory. Each specification is versioned independently.
 
 ## 2026-10-03 — S3: the cache is on the wire
