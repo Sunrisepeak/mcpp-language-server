@@ -92,6 +92,7 @@ jobs:
           - { platform: linux-x64,    os: ubuntu-24.04,     exe: '' }
           - { platform: linux-arm64,  os: ubuntu-24.04-arm, exe: '' }
           - { platform: darwin-arm64, os: macos-14,         exe: '' }
+          - { platform: darwin-x64, os: macos-15-intel,         exe: '' }
           - { platform: win32-x64,    os: windows-2022,     exe: '.exe' }
     defaults:
       run:
@@ -149,6 +150,7 @@ jobs:
         include:
           - { platform: linux-x64,    os: ubuntu-24.04, exe: '' }
           - { platform: darwin-arm64, os: macos-14,     exe: '' }
+          - { platform: darwin-x64, os: macos-15-intel,     exe: '' }
           - { platform: win32-x64,    os: windows-2022, exe: '.exe' }
     defaults:
       run:
@@ -280,6 +282,10 @@ jobs:
             fixtures: verify-changes mcpp-all-cppm mcpp-watch@polling mcpp-emit-hang mcpp-emit-watch
           - platform: darwin-arm64
             os: macos-14
+            exe: ''
+            fixtures: inferred module-faults verify-changes multi-root mcpp-llvm mcpp-split mcpp-all-cppm mcpp-watch
+          - platform: darwin-x64
+            os: macos-15-intel
             exe: ''
             fixtures: inferred module-faults verify-changes multi-root mcpp-llvm mcpp-split mcpp-all-cppm mcpp-watch
           - platform: win32-x64

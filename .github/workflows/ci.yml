@@ -61,6 +61,8 @@ jobs:
           # macOS implementation is reached through aarch64-macos.
           - { os: macos-14, target: '--target aarch64-macos', profile: dev }
           - { os: macos-14, target: '--target aarch64-macos', profile: release }
+          - { os: macos-15-intel, target: '--target x86_64-macos', profile: dev }
+          - { os: macos-15-intel, target: '--target x86_64-macos', profile: release }
           # A Windows host defaults to the MSVC target; openkal's Windows
           # implementation is reached through the GNU target.
           - { os: windows-2022, target: '--target x86_64-windows-gnu', profile: dev }
@@ -130,6 +132,7 @@ jobs:
         include:
           - { target: x86_64-windows-gnu, exe: '.exe' }
           - { target: aarch64-macos,      exe: '' }
+          - { target: x86_64-macos,      exe: '' }
           - { target: aarch64-linux-musl, exe: '' }
     steps:
       - uses: actions/checkout@v7
@@ -147,7 +150,8 @@ jobs:
             file "$path"
             case "${{ matrix.target }}" in
               *windows*) file "$path" | grep -q 'PE32+ executable' ;;
-              *macos*)   file "$path" | grep -q 'Mach-O 64-bit arm64' ;;
+              aarch64-macos) file "$path" | grep -q 'Mach-O 64-bit arm64' ;;
+              x86_64-macos) file "$path" | grep -q 'Mach-O 64-bit x86_64' ;;
               *linux*)   file "$path" | grep -q 'ELF 64-bit LSB executable, ARM aarch64' ;;
             esac
             cp "$path" cross/
@@ -179,6 +183,7 @@ jobs:
           - { platform: linux-arm64,  os: ubuntu-24.04-arm, cross: aarch64-linux-musl,   exe: '', cross-tools: true }
           - { platform: win32-x64,    os: ubuntu-24.04,     cross: x86_64-windows-gnu,   exe: '.exe' }
           - { platform: darwin-arm64, os: macos-14,         cross: aarch64-macos,        exe: '' }
+          - { platform: darwin-x64, os: macos-15-intel,         cross: x86_64-macos,        exe: '' }
     defaults:
       run:
         shell: bash
@@ -288,6 +293,10 @@ jobs:
           # these run on macOS but are left off win32-x64 below rather than fixed unverified.
           - platform: darwin-arm64
             os: macos-14
+            extras: true
+            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views
+          - platform: darwin-x64
+            os: macos-15-intel
             extras: true
             fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views
           # No mcpp on the arm64 runner (its tools are the cross-built ones), so the fixtures that
@@ -851,6 +860,7 @@ jobs:
           - { platform: linux-x64,    os: ubuntu-24.04, exe: '' }
           - { platform: win32-x64,    os: windows-2022, exe: '.exe' }
           - { platform: darwin-arm64, os: macos-14,     exe: '' }
+          - { platform: darwin-x64, os: macos-15-intel,     exe: '' }
     defaults:
       run:
         shell: bash
@@ -958,6 +968,7 @@ jobs:
           - { platform: linux-x64,    os: ubuntu-24.04,     exe: '' }
           - { platform: linux-arm64,  os: ubuntu-24.04-arm, exe: '' }
           - { platform: darwin-arm64, os: macos-14,         exe: '' }
+          - { platform: darwin-x64, os: macos-15-intel,         exe: '' }
           - { platform: win32-x64,    os: windows-2022,     exe: '.exe' }
     defaults:
       run:
@@ -1134,6 +1145,7 @@ jobs:
         include:
           - { platform: linux-x64,    os: ubuntu-24.04, versions: 0.10.4 0.11.5 0.12.5 }
           - { platform: darwin-arm64, os: macos-14,     versions: 0.10.4 0.12.5 }
+          - { platform: darwin-x64, os: macos-15-intel,     versions: 0.10.4 0.12.5 }
           - { platform: win32-x64,    os: windows-2022, versions: 0.10.4 0.12.5 }
     defaults:
       run:

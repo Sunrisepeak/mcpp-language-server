@@ -89,6 +89,15 @@
         "target": "x86_64-w64-mingw32"
       },
       "server-target": "x86_64-windows-gnu"
+    },
+    "darwin-x64": {
+      "clangd": "clangd-mac",
+      "kit": {
+        "recipe": "libcxx-source",
+        "source": "llvm-project-src",
+        "target": "x86_64-apple-darwin"
+      },
+      "server-target": "x86_64-macos"
     }
   }
 }

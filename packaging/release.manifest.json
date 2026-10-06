@@ -5,7 +5,8 @@
     "linux-x64",
     "linux-arm64",
     "darwin-arm64",
-    "win32-x64"
+    "win32-x64",
+    "darwin-x64"
   ],
   "assets": [
     {
@@ -14,7 +15,7 @@
       "per-platform": true,
       "required": true,
       "what": "The VS Code extension for one platform, with that platform's payload inside it",
-      "install": "`code --install-extension <file>`, or the Extensions view's “Install from VSIX…”"
+      "install": "`code --install-extension <file>`, or the Extensions view's \u201cInstall from VSIX\u2026\u201d"
     },
     {
       "id": "payload",
@@ -38,7 +39,7 @@
       "per-platform": false,
       "required": true,
       "what": "The IntelliJ-platform plugin archive Gradle produces. Gradle and the JDK it compiles with come from the `clion` feature (xim:gradle, xim:jdk-temurin), so it does not depend on whatever JDK the machine happens to default to",
-      "install": "Put the payload's `payload/bin/` on PATH, then CLion: Settings → Plugins → the gear menu → *Install Plugin from Disk*, and restart"
+      "install": "Put the payload's `payload/bin/` on PATH, then CLion: Settings \u2192 Plugins \u2192 the gear menu \u2192 *Install Plugin from Disk*, and restart"
     },
     {
       "id": "checksums",

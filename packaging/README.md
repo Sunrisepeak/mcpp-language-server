@@ -84,6 +84,7 @@ mcpp run -p devtools -- payload --verify target/pack/payload
 | `linux-x64` | Linux with `dpkg` and the `libc6-dev` and `linux-libc-dev` packages installed | cmake, ninja, a C and C++ compiler for libc++'s configure checks; `strip` if available |
 | `linux-arm64` | Linux arm64 with the same packages; CI uses `ubuntu-24.04-arm` and the devtools cross-built for `aarch64-linux-musl`, so mcpp is not needed there. Another host passes `--kit`, built with `mcppls-devtools kit --sysroot-include` and aarch64 C headers, because `dpkg` lists only the host's own | the same as `linux-x64`; `llvm-strip` strips it from any host |
 | `win32-x64` | any; CI uses Linux and cross-builds the server | nothing beyond mcpp |
+| `darwin-x64` | Intel macOS; CI uses `macos-15-intel` | cmake, ninja, and the Xcode command line tools (`lipo`, `strip`, `codesign`) |
 | `darwin-arm64` | macOS | cmake, ninja, and the Xcode command line tools (`lipo`, `strip`, `codesign`) |
 
 The server is built with the **release** profile, and CI runs the unit tests in
