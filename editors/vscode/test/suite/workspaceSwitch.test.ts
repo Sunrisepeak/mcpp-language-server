@@ -30,6 +30,7 @@ suite('mcppls.enable switch', function () {
         assert.ok(extension, `${EXTENSION_ID} is not installed in the test instance`);
         api = await extension.activate();
         await api.waitForState(['ready', 'degraded'], READY_TIMEOUT_MS);
+        await until('the client to finish initialization', () => api.serverRunning());
     });
 
     suiteTeardown(async () => {
@@ -49,6 +50,8 @@ suite('mcppls.enable switch', function () {
 
         await vscode.workspace.getConfiguration('mcppls').update('enable', true, vscode.ConfigurationTarget.Workspace);
         await api.waitForState(['ready', 'degraded'], READY_TIMEOUT_MS);
+        // Server status can arrive before the client has registered its features.
+        await until('the restarted client to finish initialization', () => api.serverRunning());
         assert.strictEqual(api.serverRunning(), true);
         assert.ok(!api.statusBarText().includes('off in this workspace'), api.statusBarText());
     });
@@ -65,6 +68,7 @@ suite('mcppls.enable switch', function () {
 
         await vscode.commands.executeCommand('mcppls.turnOnInWorkspace');
         await api.waitForState(['ready', 'degraded'], READY_TIMEOUT_MS);
+        await until('the enabled client to finish initialization', () => api.serverRunning());
         assert.strictEqual(api.serverRunning(), true);
         assert.strictEqual(vscode.workspace.getConfiguration('mcppls').inspect<boolean>('enable')?.workspaceValue, undefined);
     });
