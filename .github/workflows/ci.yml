@@ -1029,12 +1029,13 @@ jobs:
           - { platform: darwin-x64, os: macos-15-intel,         exe: '' }
           - { platform: win32-x64,    os: windows-2022,     exe: '.exe' }
     env:
-      MCPPLS_E2E_EVIDENCE_DIR: ${{ runner.temp }}/editor-e2e-evidence
       MCPPLS_LOG_LEVEL: debug
     defaults:
       run:
         shell: bash
     steps:
+      - name: Set editor evidence directory on the allocated runner
+        run: echo "MCPPLS_E2E_EVIDENCE_DIR=$RUNNER_TEMP/editor-e2e-evidence" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
       # The arm64 image is not the x64 one: the display server and the libraries VS Code's
       # Electron loads are installed rather than assumed.
