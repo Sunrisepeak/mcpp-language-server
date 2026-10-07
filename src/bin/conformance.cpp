@@ -5150,7 +5150,11 @@ int prepare_clangd_crash_context(const std::string& payload) {
         "exec 3<&0\n"
         "\"$real\" \"$@\" <&3 3<&- &\n"
         "child=$!\n"
-        "sleep 25\n"
+        // The wrapper must look busy for the stuck watch: it samples this process's own CPU, and an idle
+        // shell around a working clangd reads as a dead engine (the first answer then lost the 3s+5s race
+        // on the slowest Intel macOS runners, which killed the stand-in before its designed crash).
+        "end=$(( $(date +%s) + 25 ))\n"
+        "while [ "$(date +%s)" -lt $end ]; do i=0; while [ $i -lt 5000 ]; do i=$((i+1)); done; done\n"
         "echo 'PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace.' >&2\n"
         "echo 'Signalled during AST worker action: Build AST' >&2\n"
         "echo '  Filename: {}' >&2\n"
