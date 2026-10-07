@@ -284,10 +284,16 @@ jobs:
             os: macos-14
             exe: ''
             fixtures: inferred module-faults verify-changes multi-root mcpp-llvm mcpp-split mcpp-all-cppm mcpp-watch
+          # No native mcpp on this host yet: the pinned xlings publishes no macosx-x86_64
+          # releases, so setup-mcpp cannot run here and the mcpp-shaped fixtures keep their full
+          # three-round coverage on the other four platforms (the same cross-tools split the
+          # conformance matrix uses). This host repeats the shapes that need no build tool;
+          # expand the list when a native Intel bootstrap exists.
           - platform: darwin-x64
             os: macos-15-intel
             exe: ''
-            fixtures: inferred module-faults verify-changes multi-root mcpp-llvm mcpp-split mcpp-all-cppm mcpp-watch
+            cross-tools: true
+            fixtures: inferred module-faults typing-autosave
           - platform: win32-x64
             part: 1 of 2
             os: windows-2022
@@ -304,6 +310,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
+        if: '!matrix.cross-tools'
       - uses: actions/download-artifact@v8
         with:
           name: payload-${{ matrix.platform }}
