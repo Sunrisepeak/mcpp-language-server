@@ -66,7 +66,13 @@ suite('server crash loop', function () {
         const conflictPrompts = api.promptShownCount('conflict');
         process.kill(starting as number, 'SIGKILL');
         await restarting;
-        await until('the recovered client to finish initialization', () => api.serverRunning());
+        // initialize may have replied before SIGKILL, so the killed client's start can
+        // resolve before its EOF is observed. Require a replacement process as well
+        // as completed client initialization before exercising the recovered connection.
+        await until('a new server with a fully initialized recovered client', () => {
+            const recovered = serverPid();
+            return recovered !== undefined && recovered !== starting && api.serverRunning();
+        });
         await api.waitForState(['ready', 'degraded'], READY_TIMEOUT_MS);
         // Both command registration and a request through the new connection must work.
         assert.ok((await vscode.commands.getCommands(true)).includes('clangd.applyFix'));

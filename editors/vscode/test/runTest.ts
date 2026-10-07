@@ -340,7 +340,11 @@ async function runOnce(config: {
 }): Promise<void> {
     const workspace = prepareWorkspace(config.formatVariant);
     const beforeHashes = hashWorkspace(workspace);
-    const cacheDirectory = process.env.MCPPLS_CACHE_DIR ?? fs.mkdtempSync(path.join(os.tmpdir(), 'mcppls-e2e-cache-'));
+    // Each scenario has its own cache. CI keeps these logs even when the editor
+    // exits with a failing test; os.tmpdir() on macOS is outside runner.temp.
+    const evidenceDirectory = process.env.MCPPLS_E2E_EVIDENCE_DIR;
+    if (evidenceDirectory) fs.mkdirSync(evidenceDirectory, { recursive: true });
+    const cacheDirectory = process.env.MCPPLS_CACHE_DIR ?? fs.mkdtempSync(path.join(evidenceDirectory ?? os.tmpdir(), 'mcppls-e2e-cache-'));
     // A short user data directory of its own. VS Code listens on a socket
     // inside it, and macOS limits a socket path to 104 bytes: the default
     // under .vscode-test in a CI checkout is longer and fails with `listen
@@ -349,6 +353,11 @@ async function runOnce(config: {
     console.log(`[${config.label}] workspace: ${workspace}`);
     console.log(`[${config.label}] server cache: ${cacheDirectory}`);
     console.log(`[${config.label}] user data: ${userDataDirectory}`);
+    if (evidenceDirectory) {
+        fs.writeFileSync(path.join(evidenceDirectory, `${path.basename(cacheDirectory)}.json`), JSON.stringify({
+            scenario: config.label, workspace, cacheDirectory, userDataDirectory,
+        }, null, 2));
+    }
 
     const options: RunOptions = {
         label: config.label,

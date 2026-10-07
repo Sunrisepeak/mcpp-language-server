@@ -1028,6 +1028,9 @@ jobs:
           - { platform: darwin-arm64, os: macos-14,         exe: '' }
           - { platform: darwin-x64, os: macos-15-intel,         exe: '' }
           - { platform: win32-x64,    os: windows-2022,     exe: '.exe' }
+    env:
+      MCPPLS_E2E_EVIDENCE_DIR: ${{ runner.temp }}/editor-e2e-evidence
+      MCPPLS_LOG_LEVEL: debug
     defaults:
       run:
         shell: bash
@@ -1088,6 +1091,17 @@ jobs:
           MCPPLS_E2E_SCENARIO: stress
         run: |
           if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a npm test; else npm test; fi
+      - name: Preserve editor request and engine failure evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: vscode-e2e-evidence-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/editor-e2e-evidence/*.json
+            ${{ runner.temp }}/editor-e2e-evidence/**/logs/**
+            ${{ runner.temp }}/editor-e2e-evidence/**/incidents/**
+          if-no-files-found: ignore
+          retention-days: 7
       - uses: actions/upload-artifact@v7
         with:
           name: vsix-${{ matrix.platform }}
