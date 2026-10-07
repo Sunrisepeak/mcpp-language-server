@@ -367,9 +367,26 @@ async function runOnce(config: {
         extensionTestsPath: config.extensionTestsPath,
         extensionTestsEnv: config.extensionTestsEnv,
     };
-    const exitCode = config.vsixPath
-        ? await runVsixMode({ ...options, vsixPath: config.vsixPath, extraVsixPaths: config.extraVsixPaths })
-        : await runDevPathMode(options);
+    let exitCode: number;
+    try {
+        exitCode = config.vsixPath
+            ? await runVsixMode({ ...options, vsixPath: config.vsixPath, extraVsixPaths: config.extraVsixPaths })
+            : await runDevPathMode(options);
+    } finally {
+        // The short user-data path is outside the uploaded cache directory.
+        // Preserve editor logs and extension crash reports even when runTests
+        // rejects, without moving the macOS socket into a longer directory.
+        if (evidenceDirectory) {
+            const destination = path.join(evidenceDirectory, path.basename(cacheDirectory), 'editor');
+            for (const [source, target] of [
+                [path.join(userDataDirectory, 'logs'), path.join(destination, 'logs')],
+                [path.join(userDataDirectory, 'User', 'globalStorage', 'sunrisepeak.mcpp-language-server', 'crash-reports'),
+                    path.join(destination, 'crash-reports')],
+            ]) {
+                if (fs.existsSync(source)) fs.cpSync(source, target, { recursive: true });
+            }
+        }
+    }
     if (exitCode !== 0) {
         throw new Error(`[${config.label}] the end-to-end suite exited with ${exitCode}.`);
     }

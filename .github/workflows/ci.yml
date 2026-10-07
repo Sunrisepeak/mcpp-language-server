@@ -1101,6 +1101,7 @@ jobs:
             ${{ runner.temp }}/editor-e2e-evidence/*.json
             ${{ runner.temp }}/editor-e2e-evidence/**/logs/**
             ${{ runner.temp }}/editor-e2e-evidence/**/incidents/**
+            ${{ runner.temp }}/editor-e2e-evidence/**/crash-reports/**
           if-no-files-found: ignore
           retention-days: 7
       - uses: actions/upload-artifact@v7
