@@ -1640,6 +1640,10 @@ private:
         config.verboseLog = options_.verboseLog;
         workers_ = engine_workers(std::thread::hardware_concurrency(), total_memory_bytes(), options_.workers);
         config.workers = workers_;
+        config.fallbackStyle = format_fallback_style(options_.formatFallbackStyle, options_.mcppFormatStyle,
+            platform::fs::is_regular_file(base::join_path(host_->root_directory(), "mcpp.toml")));
+        if (base::to_lower_ascii(options_.formatFallbackStyle) == "mcpp" && !options_.mcppFormatStyle)
+            add_issue_(Issue { "format-style-unavailable", "the selected engine does not declare the mcpp formatting style", "mcppls.showLogs", "environment" });
         config.modulesSupport = modulesSupport_;   // WA-CLANGD-009
         config.extraArguments = options_.extraArguments;
         // Extra engine arguments for troubleshooting, e.g. MCPPLS_ENGINE_ARGUMENTS="-j=8 --background-index-priority=background".

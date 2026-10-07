@@ -641,7 +641,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
                 // S-1, S-2 (plan 0.0.9): `mcppls.engine` and `mcppls.buildDiscovery` still match, as the old
                 // names a hand edit may touch; the new ones are named so the list says what it restarts for.
                 || event.affectsConfiguration('mcppls.engine') || event.affectsConfiguration('mcppls.engine.name')
-                || event.affectsConfiguration('mcppls.engine.workers') || event.affectsConfiguration('mcppls.buildTool')
+                || event.affectsConfiguration('mcppls.format.fallbackStyle') || event.affectsConfiguration('mcppls.engine.workers') || event.affectsConfiguration('mcppls.buildTool')
                 || event.affectsConfiguration('mcppls.toolEnvironment') || event.affectsConfiguration('mcppls.semanticTokens.modules')
                 || event.affectsConfiguration('mcppls.completion.triggerOnSpace')
                 // 0.0.6 plan §3.7 B-7, §2.6/§9 T5: new settings, same treatment as the ones above.

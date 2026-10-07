@@ -2,8 +2,9 @@
 
 The upstream configuration is a byte-preserving snapshot from mcpp commit
 74bcb859e60afc71ad759540d2de5344dda400e9. Its SHA is recorded in snapshot.json.
-The current snapshot parses with clang-format 22; clang 23 parsing and golden
-output are pending. This is a review input, not a completed formatting feature.
+The snapshot and named preset parse with clang-format 23 and both produce
+expected.cppm. The engine golden/override and raw LSP fallback tests pass.
+Product editor acceptance and final four-platform bytes remain pending.
 
 The maintained engine will register the named `mcpp` C++ preset from this
 snapshot. Existing `.clang-format` discovery remains authoritative. The product

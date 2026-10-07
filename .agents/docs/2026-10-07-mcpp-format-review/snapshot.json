@@ -3,5 +3,5 @@
   "source-commit": "74bcb859e60afc71ad759540d2de5344dda400e9",
   "source-path": ".clang-format",
   "sha256": "e03547822b284dd66a266c18586575c71581b8a32bef02325851763b44dcb2c4",
-  "clang23-validation": "pending"
+  "clang23-validation": "preset and snapshot produce identical golden output; two engine lit tests pass"
 }

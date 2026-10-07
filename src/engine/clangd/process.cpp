@@ -12,6 +12,12 @@ import mcppls.lsp.connection;
 
 namespace mcppls::engine::clangd {
 
+std::string format_fallback_style(std::string_view requested, bool supported, bool mcppProject) {
+    if (requested == "auto" || requested.empty()) return supported && mcppProject ? "mcpp" : "";
+    if (base::to_lower_ascii(requested) == "mcpp") return supported ? "mcpp" : "";
+    return std::string { requested };
+}
+
 std::vector<std::string> clangd_arguments(const ProcessConfig& config) {
     std::vector<std::string> arguments;
     if (config.modulesSupport) arguments.emplace_back("--experimental-modules-support");
@@ -27,6 +33,11 @@ std::vector<std::string> clangd_arguments(const ProcessConfig& config) {
     });
     const bool workersGiven { std::ranges::any_of(config.extraArguments, [](const std::string& argument) { return argument.starts_with("-j"); }) };
     if (config.workers > 0 && !workersGiven) arguments.push_back(std::format("-j={}", config.workers));
+    const bool styleGiven { std::ranges::any_of(config.extraArguments, [](const std::string& argument) {
+        return argument == "--fallback-style" || argument == "-fallback-style" ||
+               argument.starts_with("--fallback-style=") || argument.starts_with("-fallback-style=");
+    }) };
+    if (!config.fallbackStyle.empty() && !styleGiven) arguments.push_back("--fallback-style=" + config.fallbackStyle);
     arguments.insert(arguments.end(), config.extraArguments.begin(), config.extraArguments.end());
     return arguments;
 }

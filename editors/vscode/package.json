@@ -442,6 +442,11 @@
           ],
           "default": "auto",
           "description": "%config.mcppls.index.primeImplementationUnits.description%"
+        },
+        "mcppls.format.fallbackStyle": {
+          "type": "string",
+          "default": "auto",
+          "description": "%config.mcppls.format.fallbackStyle.description%"
         }
       }
     },

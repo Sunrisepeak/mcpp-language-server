@@ -60,6 +60,7 @@ VS Code 扩展已经会这样做）；`重新加载模型` 只重新加载项目
 | `mcppls.semanticTokens.modules` | `true`, `false` | `true` | — | 重启 | 用服务端的语义 token 给 `import`、`module`、`export` 和模块名上色。关闭后只用语法文件的颜色。 |
 | `mcppls.semanticTokens.moduleType` | `true`, `false` | `false` | — | 重启 | 客户端声明自己认得自定义的 `module` 语义 token 类型和 `partition` 修饰符；除本仓库的 VS Code 扩展外都关闭，因为没有别的客户端会声明它。不是 package.json 里的设置：VS Code 扩展自己贡献了这个 token 类型，因此固定声明为开。 |
 | `mcppls.completion.triggerOnSpace` | `true`, `false` | `true` | — | 重启 | 在 `import` 或 `export import` 后输入空格时立即弹出模块列表；其他位置的空格不会发给服务端。什么都不说的客户端只有在自证是 VS Code 或其分支时才会得到这个行为；其他客户端需要用 `initializationOptions.completion.triggerOnSpace: true` 主动开启。 |
+| `mcppls.format.fallbackStyle` | 字符串 | `auto` | `--format-fallback-style` | 重启 | 没有项目 .clang-format 时使用的格式样式。auto 在引擎支持时为 mcpp 项目使用固定的 mcpp 样式，其他情况沿用 clangd 默认。命名样式覆盖 auto；mcpp 可让其他项目主动启用，但要求引擎支持。项目 .clang-format 始终优先。 |
 | `mcppls.index.primeImplementationUnits` | `auto`, `off` | `auto` | `--prime-implementation-units` | 重启 | 在后台让 clangd 逐个构建模块的实现单元（每次少量），这样即使实现文件从没打开过，跳到定义也能到达只在实现单元里的定义。clangd 自己的后台索引看不到模块单元的导入（WA-CLANGD-008）。`off`：只有一次跳转请求所搜索的单元和你打开的文件会为此被索引。 |
 | `mcppls.enable` | `true`, `false` | `true` | — | 立即生效 | 为此工作区启动 mcppls。在某个工作区的设置里设为 `false`，扩展在那里保持安装但不启动——用于它暂时还服务不了的项目，而不必卸载；状态栏上的条目可以重新打开它。 |
 | `mcppls.detectConflicts` | `true`, `false` | `true` | — | 立即生效 | 在此工作区中提议关闭另一个 C++ 扩展的语言功能（只提议一次），之后又有冲突扩展启用时会提示。仅限 VS Code：其他客户端不会在多个语言服务端之间做取舍。 |

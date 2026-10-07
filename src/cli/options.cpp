@@ -30,6 +30,9 @@ orchestrator::EngineFactories engine_factories(const orchestrator::SessionOption
         engine::clangd::Options clangd;
         clangd.executable = payload.clangd;
         clangd.version = payload.clangdVersion;
+        clangd.formatFallbackStyle = options.formatFallbackStyle;
+        clangd.mcppFormatStyle = !payloadCorrupt && payload.engineIdentity &&
+            std::ranges::find(payload.engineIdentity->features, "format-style-mcpp") != payload.engineIdentity->features.end();
         clangd.payloadCorrupt = payloadCorrupt;
         clangd.verboseLog = options.verboseEngineLog;
         clangd.requestTimeout = options.requestTimeout;
@@ -81,6 +84,7 @@ orchestrator::SessionOptions session_options(const cmdline::ParsedArgs& args) {
     // longer, and a test that means to watch the bound fire needs it much shorter.
     options.producerTimeout = settings.seconds_value("producerTimeout");
     options.requestTimeout = std::chrono::duration_cast<std::chrono::milliseconds>(settings.seconds_value("requestTimeout"));
+    options.formatFallbackStyle = settings.string_value("format.fallbackStyle");
     options.engineWorkers = settings.string_value("engine.workers");
     // This very program, for the reviews an editor asks for: named as the process started it, else found on PATH.
     if (const auto arguments = platform::env::arguments(); !arguments.empty()) {

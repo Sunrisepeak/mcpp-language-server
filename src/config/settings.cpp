@@ -202,6 +202,17 @@ const std::vector<Setting>& shipped_registry() {
             .clientConfigurable = true,
         },
         Setting {
+            .key = "format.fallbackStyle", .kind = Kind::string, .defaultValue = "auto",
+            .commandLine = "--format-fallback-style", .surface = Surface::server, .applies = Applies::restart,
+            .category = "editor", .since = "0.0.12",
+            .summary = "Formatting fallback when no project .clang-format exists. auto selects the pinned mcpp style for an "
+                       "mcpp project when the bundled engine supports it; otherwise clangd's default. A named style overrides "
+                       "auto; mcpp opts other projects in and requires engine support. Project .clang-format always wins.",
+            .summaryZh = "没有项目 .clang-format 时使用的格式样式。auto 在引擎支持时为 mcpp 项目使用固定的 mcpp 样式，"
+                         "其他情况沿用 clangd 默认。命名样式覆盖 auto；mcpp 可让其他项目主动启用，但要求引擎支持。项目 .clang-format 始终优先。",
+            .clientConfigurable = true,
+        },
+        Setting {
             .key = "index.primeImplementationUnits", .kind = Kind::enumeration, .values = { "auto", "off" }, .defaultValue = "auto",
             .commandLine = "--prime-implementation-units", .surface = Surface::server, .applies = Applies::restart,
             .category = "editor", .since = "0.0.6",

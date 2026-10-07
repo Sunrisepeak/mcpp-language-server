@@ -36,6 +36,8 @@ struct Options {
     // is restarted. Both end within an interactive request's own timeout. Tests shorten them.
     std::chrono::milliseconds stuckAfter { std::chrono::seconds { 3 } };
     std::chrono::milliseconds stuckWatch { std::chrono::seconds { 5 } };
+    std::string formatFallbackStyle { "auto" };
+    bool mcppFormatStyle { false };  // verified bundled capability, never inferred from version
     std::vector<std::string> extraArguments;
     // mcppls.engine.workers (R-2, plan 2026-09-30): clangd's workers; nullopt or 0 is the automatic value (engine_workers).
     std::optional<std::size_t> workers;
