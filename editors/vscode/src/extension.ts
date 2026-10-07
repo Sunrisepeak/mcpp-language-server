@@ -139,8 +139,30 @@ function messageTypeName(type: MessageType): string {
     }
 }
 
+// WA-VSCODE-003: initialization failure calls stop() without awaiting its promise in vscode-languageclient.
+// Once the transport has closed, there is no server left to shut down; a failed shutdown must
+// not become an unhandled rejection in the extension host. Other stop failures still propagate.
+class ServerLanguageClient extends LanguageClient {
+    private transportClosed = false;
+
+    protected override handleConnectionClosed(): Promise<void> {
+        this.transportClosed = true;
+        return super.handleConnectionClosed();
+    }
+
+    override async stop(timeout?: number): Promise<void> {
+        try {
+            await super.stop(timeout);
+        } catch (error) {
+            if (!this.transportClosed) throw error;
+        }
+    }
+}
+
 class ServerHost implements vscode.Disposable {
     private client: LanguageClient | undefined;
+    private initializedClient: LanguageClient | undefined;
+    private startup: Promise<void> | undefined;
     private channel: vscode.LogOutputChannel | undefined;
     readonly serverLog = new ServerLogRouter();
     private readonly crashes = new CrashCounter();
@@ -156,8 +178,7 @@ class ServerHost implements vscode.Disposable {
         private readonly commandLineTools: CommandLineToolsController,
         // Called every time the server actually (re)starts, i.e. once at
         // activation and once per mcppls.restartServer or a config-driven
-        // restart -- but not for the language client's own crash-recovery
-        // respawn, which never calls back into startNow(). Used to re-run
+        // restart, but not for automatic crash recovery. Used to re-run
         // conflict detection at the same points a fresh cxxModules/status
         // naturally re-triggers the Command Line Tools check, so both
         // one-time questions are exercised the same way by a restart.
@@ -209,7 +230,8 @@ class ServerHost implements vscode.Disposable {
     }
 
     runningClient(): LanguageClient | undefined {
-        return this.client && this.client.state === State.Running ? this.client : undefined;
+        // State.Running is emitted before the library has registered the server's features.
+        return this.client && this.client === this.initializedClient && this.client.state === State.Running ? this.client : undefined;
     }
 
     start(): Promise<void> {
@@ -242,7 +264,7 @@ class ServerHost implements vscode.Disposable {
         return next;
     }
 
-    private async startNow(): Promise<void> {
+    private async startNow(recovery = false): Promise<void> {
         if (this.client) {
             return;
         }
@@ -251,7 +273,7 @@ class ServerHost implements vscode.Disposable {
             this.status.showOff();
             return;
         }
-        this.onStarting();
+        if (!recovery) this.onStarting();
         const resolution = resolveLaunch(this.context.extensionPath);
         if (!resolution.ok) {
             this.log(resolution.reason);
@@ -333,7 +355,7 @@ class ServerHost implements vscode.Disposable {
             },
         };
 
-        const client = new LanguageClient(CLIENT_ID, CLIENT_NAME, serverOptions, clientOptions);
+        const client = new ServerLanguageClient(CLIENT_ID, CLIENT_NAME, serverOptions, clientOptions);
         created = client;
         client.registerFeature(new CxxModulesFeature());
         client.onNotification('cxxModules/status', (params: CxxModulesStatus) => {
@@ -354,13 +376,17 @@ class ServerHost implements vscode.Disposable {
         this.status.showStarting();
         this.log(`Starting ${launch.executable} ${args.join(' ')}`);
         try {
-            await client.start();
+            this.startup = client.start();
+            await this.startup;
+            if (this.client !== client) return;
+            this.initializedClient = client;
             if (!this.status.lastStatus()) {
                 this.status.showRunning();
             }
             this.knownServerVersion = client.initializeResult?.serverInfo?.version;
             void this.learnServerLog(client);
         } catch (error) {
+            if (this.client !== client) return;
             const reason = `The language server could not be started: ${errorText(error)}`;
             this.log(reason);
             this.status.showFailure(reason, true);
@@ -370,11 +396,11 @@ class ServerHost implements vscode.Disposable {
     private async stopNow(): Promise<void> {
         const client = this.client;
         this.client = undefined;
+        this.initializedClient = undefined;
         if (!client) {
             return;
         }
-        // A client restarting itself after the server exited (onClosed's CloseAction.Restart) is
-        // Starting outside this queue, and the library refuses to stop a client in that state: it
+        // The library refuses to stop a client in Starting: it
         // throws before killing the process it has just spawned, which would then outlive this
         // host. Let the start settle first; dispose then stops whatever it started.
         if (client.state === State.Starting) {
@@ -415,15 +441,39 @@ class ServerHost implements vscode.Disposable {
     // The client's close handler: the server process ended. A close the extension asked for (stop,
     // restart, turning the server off, dispose) is never counted: by then `this.client` is no longer
     // this client, and the library does not call the handler for a stop it made itself.
-    private onClosed(closed: LanguageClient | undefined): CloseHandlerResult {
+    private async onClosed(closed: LanguageClient | undefined): Promise<CloseHandlerResult> {
+        // The connection has already been disposed by the library. Let initialize's continuation
+        // settle before handleConnectionClosed clears its features and resets its start promise.
+        // Otherwise the reset can orphan a rejected start promise, or initialization can register
+        // commands after cleanup has passed them.
+        if (closed === this.client) {
+            try {
+                await this.startup;
+            } catch {
+                // The transport closing during initialize is itself the crash being counted.
+            }
+        }
         const verdict = this.crashes.record(Date.now(), closed === undefined || closed !== this.client);
         if (verdict.count === 0) {
             return { action: CloseAction.DoNotRestart, handled: true };
         }
+        this.initializedClient = undefined;
         if (!verdict.giveUp) {
             this.log('The language server stopped unexpectedly and is being restarted.');
             this.status.showStarting('Restarting');
-            return { action: CloseAction.Restart, handled: true };
+            // Let handleConnectionClosed finish clearing the old client's features before the
+            // host creates its replacement. Reusing the library's automatic restart can overlap
+            // two initialize continuations when status arrives before feature registration ends,
+            // leaving commands such as clangd.applyFix registered twice. Recovery shares the
+            // manual lifecycle queue and preserves the crash budget.
+            setImmediate(() => {
+                void this.enqueue(async () => {
+                    if (this.client !== closed) return;
+                    await this.stopNow();
+                    await this.startNow(true);
+                }).catch((error) => this.log(`Restarting the language server: ${errorText(error)}`));
+            });
+            return { action: CloseAction.DoNotRestart, handled: true, message: 'Connection to server closed; the extension is scheduling recovery.' };
         }
         const reason = `The language server stopped after crashing ${verdict.count} times and was not restarted.`;
         this.log(reason);

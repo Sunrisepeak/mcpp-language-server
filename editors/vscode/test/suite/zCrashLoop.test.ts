@@ -15,21 +15,21 @@ const READY_TIMEOUT_MS = 300_000;
 
 // The server's process id: the one child of this extension host that is not a zombie or one still
 // shutting down. `undefined` while there are none or more than one (a stopped server takes a moment to exit).
-function serverPid(): number | undefined {
+function serverPid(excluding?: number): number | undefined {
     try {
         const out = execFileSync('pgrep', ['-P', String(process.pid), '-f', ' serve'], { encoding: 'utf8' });
-        const pids = out.split('\n').map(Number).filter((pid) => Number.isFinite(pid) && pid > 0);
+        const pids = out.split('\n').map(Number).filter((pid) => Number.isFinite(pid) && pid > 0 && pid !== excluding);
         return pids.length === 1 ? pids[0] : undefined;
     } catch {
         return undefined;
     }
 }
 
-async function until(what: string, condition: () => boolean, timeoutMs = 60_000): Promise<void> {
+async function until(what: string, condition: () => boolean, timeoutMs = 60_000, intervalMs = 200): Promise<void> {
     const deadline = Date.now() + timeoutMs;
     while (!condition()) {
         if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
 }
 
@@ -37,13 +37,42 @@ suite('server crash loop', function () {
     this.timeout(900_000);
 
     let api: TestApi;
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => { unhandled.push(reason); };
 
     suiteSetup(async function () {
         if (process.platform === 'win32') this.skip();
+        process.on('unhandledRejection', onUnhandled);
         const extension = vscode.extensions.getExtension<TestApi>(EXTENSION_ID);
         assert.ok(extension, `${EXTENSION_ID} is not installed in the test instance`);
         api = await extension.activate();
         await api.waitForState(['ready', 'degraded'], READY_TIMEOUT_MS);
+        await until('the language client to finish starting', () => api.serverRunning());
+    });
+
+    suiteTeardown(() => {
+        process.removeListener('unhandledRejection', onUnhandled);
+        assert.deepStrictEqual(unhandled, [], 'crash recovery left unhandled promise rejections');
+    });
+
+    test('a crash during initialization recovers with a fresh client', async () => {
+        const previous = serverPid();
+        const restarting = vscode.commands.executeCommand('mcppls.restartServer');
+        let starting: number | undefined;
+        await until('a replacement server still initializing', () => {
+            starting = serverPid(previous);
+            return starting !== undefined && starting !== previous && !api.serverRunning();
+        }, 60_000, 1);
+        const conflictPrompts = api.promptShownCount('conflict');
+        process.kill(starting as number, 'SIGKILL');
+        await restarting;
+        await until('the recovered client to finish initialization', () => api.serverRunning());
+        await api.waitForState(['ready', 'degraded'], READY_TIMEOUT_MS);
+        // Both command registration and a request through the new connection must work.
+        assert.ok((await vscode.commands.getCommands(true)).includes('clangd.applyFix'));
+        assert.ok(await api.cacheDetail(), 'the recovered client cannot request the cache report');
+        assert.strictEqual(api.promptShownCount('conflict'), conflictPrompts, 'automatic recovery repeated the conflict prompt');
+        await vscode.commands.executeCommand('mcppls.restartServer');
     });
 
     test('a restart is not a crash; the third crash stops the restarts and offers the report', async () => {
@@ -55,7 +84,7 @@ suite('server crash loop', function () {
 
         for (let crash = 1; crash <= 3; crash += 1) {
             let pid: number | undefined;
-            await until('the server process', () => (pid = serverPid()) !== undefined);
+            await until('the running server process', () => api.serverRunning() && (pid = serverPid()) !== undefined);
             process.kill(pid as number, 'SIGKILL');
             if (crash < 3) {
                 // Restarted by the client; wait until it is up again, so the next kill is a crash of a
@@ -65,6 +94,7 @@ suite('server crash loop', function () {
                     return again !== undefined && again !== pid;
                 });
                 await api.waitForState(['ready', 'degraded'], READY_TIMEOUT_MS);
+                await until('the restarted language client to finish starting', () => api.serverRunning());
             }
         }
         await until('the crash notification', () => api.lastPrompt('unrecoverable')?.message.includes('stopped after crashing 3 times') === true);

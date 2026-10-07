@@ -55,6 +55,16 @@ export const WORKAROUNDS: readonly Workaround[] = [
         removeWhen: "VS Code's own default opens the completion list alongside inline completions again",
         canary: "test/suite/workaroundCanary.test.ts: fails once VS Code's own default for `other` is no longer offWhenInlineCompletions",
     },
+    {
+        id: 'WA-VSCODE-003',
+        title: 'a server exiting during initialize does not orphan its start promise or leave shutdown rejections unhandled',
+        affects: 'vscode-languageclient 10.1.1: connection close resets _onStart before initialization settles; initialization failure calls stop without handling its rejection',
+        upstream: 'unfiled; #24 UP-V1 https://github.com/Sunrisepeak/mcpp-language-server/issues/24#issuecomment-6044639460',
+        evidence: '.agents/docs/2026-10-08-client-crash-recovery.md',
+        added: '0.0.12, 2026-10-08',
+        removeWhen: 'the upstream library passes initialization SIGKILL recovery without the close-settlement and closed-transport shutdown guards',
+        canary: 'test/suite/zCrashLoop.test.ts: initialization-crash regression; rerun without the guards when evaluating a dependency upgrade',
+    },
 ];
 
 // One line at activation naming the active workarounds, so a bug report shows which ones were on
