@@ -40,3 +40,8 @@ ldflags = ["-lwinprocess"]
 
 [lib]
 path = "src/platform.cppm"
+
+# Intel Darwin code generation may emit __bzero for an LLVM memset intrinsic.
+# This stub binds only that import to the system library; it carries no SDK.
+[target.'cfg(all(os = "macos", arch = "x86_64"))'.build]
+ldflags = ["-lmcppls_darwin"]

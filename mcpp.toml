@@ -46,8 +46,13 @@ repo        = "https://github.com/Sunrisepeak/mcpp-language-server"
 [build]
 sources = ["src/**/*.cppm", "src/**/*.cpp"]
 # The server imports three libSystem symbols, all of them macOS 10.12+; clangd in the payload is
-# built for 11.0. Honoured when cross-compiling from Linux since mcpp 2026.9.24.1 (mcpp#685).
+# built for 12.0. Honoured when cross-compiling from Linux since mcpp 2026.9.24.1 (mcpp#685).
 macos_deployment_target = "12.0"
+
+# Intel macOS is an explicit LLVM cross target while mcpp's default table
+# still marks it planned. Native execution is checked by the Intel PR runner.
+[target.x86_64-macos]
+toolchain = "llvm@22.1.8"
 
 # Every executable shares every module under src/.
 [targets.mcppls]

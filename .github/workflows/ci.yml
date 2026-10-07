@@ -61,8 +61,6 @@ jobs:
           # macOS implementation is reached through aarch64-macos.
           - { os: macos-14, target: '--target aarch64-macos', profile: dev }
           - { os: macos-14, target: '--target aarch64-macos', profile: release }
-          - { os: macos-15-intel, target: '--target x86_64-macos', profile: dev }
-          - { os: macos-15-intel, target: '--target x86_64-macos', profile: release }
           # A Windows host defaults to the MSVC target; openkal's Windows
           # implementation is reached through the GNU target.
           - { os: windows-2022, target: '--target x86_64-windows-gnu', profile: dev }
@@ -116,6 +114,66 @@ jobs:
         run: |
           mcpp run mcppls-lspgen -- generate --meta-model vendor/lsp-metamodel/metaModel-3.18.json --out src/lsp
           git diff --exit-code src/lsp
+
+  # Intel macOS has no published xlings/mcpp bootstrap. Compile both profiles
+  # with LLVM on Linux, then execute every unit binary on an Intel macOS host.
+  intel-unit-build:
+    name: Intel unit cross-build (${{ matrix.profile }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [dev, release]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - name: Compile the unit suites and their helper executables
+        run: |
+          set -euo pipefail
+          mcpp build --target x86_64-macos --profile ${{ matrix.profile }}
+          mcpp build -p devtools --target x86_64-macos --profile ${{ matrix.profile }}
+          mcpp test --target x86_64-macos --profile ${{ matrix.profile }} --no-run
+          mcpp test --workspace --target x86_64-macos --profile ${{ matrix.profile }} --no-run
+          find target/x86_64-macos -type d -name bin -print0 > "$RUNNER_TEMP/intel-bins"
+          tar --null -T "$RUNNER_TEMP/intel-bins" -czf intel-unit-${{ matrix.profile }}.tar.gz
+      - uses: actions/upload-artifact@v7
+        with:
+          name: intel-unit-${{ matrix.profile }}
+          path: intel-unit-${{ matrix.profile }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  intel-unit-run:
+    name: Intel unit execution (${{ matrix.profile }})
+    needs: intel-unit-build
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [dev, release]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: intel-unit-${{ matrix.profile }}
+      - name: Execute every unit binary on Intel macOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -xzf intel-unit-${{ matrix.profile }}.tar.gz
+          python3 - <<'PYRUN'
+          from pathlib import Path
+          import subprocess
+          tests = sorted(p for p in Path('target/x86_64-macos').rglob('test_*') if p.is_file())
+          if not tests:
+              raise SystemExit('Intel unit artifact contains no test executables')
+          for test in tests:
+              print(test, flush=True)
+              subprocess.run([str(test.resolve())], check=True, timeout=300)
+          print('Executed', len(tests), 'Intel unit binaries')
+          PYRUN
 
   # ---------------------------------------------------------------------------
   # One Linux host builds the server for every platform (design 12.4, usable plan W11):
@@ -183,7 +241,7 @@ jobs:
           - { platform: linux-arm64,  os: ubuntu-24.04-arm, cross: aarch64-linux-musl,   exe: '', cross-tools: true }
           - { platform: win32-x64,    os: ubuntu-24.04,     cross: x86_64-windows-gnu,   exe: '.exe' }
           - { platform: darwin-arm64, os: macos-14,         cross: aarch64-macos,        exe: '' }
-          - { platform: darwin-x64, os: macos-15-intel,         cross: x86_64-macos,        exe: '' }
+          - { platform: darwin-x64, os: macos-15-intel,         cross: x86_64-macos,        exe: '', cross-tools: true }
     defaults:
       run:
         shell: bash
@@ -297,8 +355,8 @@ jobs:
             fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views
           - platform: darwin-x64
             os: macos-15-intel
-            extras: true
-            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views
+            cross-tools: true
+            fixtures: inferred inferred-bom build-discovery-off engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views
           # No mcpp on the arm64 runner (its tools are the cross-built ones), so the fixtures that
           # need no build tool and no compiler of their own: the semantic kit, clangd and the server
           # on aarch64, with module faults, a corrupt payload and polling included.
