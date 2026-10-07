@@ -77,7 +77,22 @@ const EXTENSION_ROOT = path.resolve(__dirname, '..', '..');
 const REPO_ROOT = path.resolve(EXTENSION_ROOT, '..', '..');
 const BUILD_FILES = ['mcpp.toml', 'mcpp.lock', 'CMakeLists.txt', 'compile_commands.json', 'build_database.json', 'target', 'build', '.cache', 'scenario.json'];
 
-function prepareWorkspace(): string {
+function prepareWorkspace(formatVariant?: string): string {
+    if (formatVariant) {
+        const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'mcppls-format-e2e-'));
+        fs.cpSync(path.join(REPO_ROOT, 'conformance', 'fixtures', 'format-explicit'), workspace, { recursive: true });
+        fs.rmSync(path.join(workspace, 'scenario.json'));
+        fs.copyFileSync(path.join(REPO_ROOT, 'conformance', 'fixtures', 'format-mcpp', 'expected-mcpp.txt'), path.join(workspace, 'expected-mcpp.txt'));
+        fs.mkdirSync(path.join(workspace, '.vscode'));
+        fs.writeFileSync(path.join(workspace, '.vscode', 'settings.json'), JSON.stringify({
+            'mcppls.buildTool': 'off',
+            'mcppls.format.fallbackStyle': formatVariant === 'user' ? 'Google' : 'auto',
+        }));
+        if (formatVariant === 'project') {
+            fs.writeFileSync(path.join(workspace, '.clang-format'), 'BasedOnStyle: LLVM\n');
+        }
+        return workspace;
+    }
     const candidates = [
         path.join(REPO_ROOT, 'conformance', 'fixtures', 'inferred'),
         path.join(REPO_ROOT, '.agents', 'docs', 'assets', '2026-09-13-modules-lsp-spike', 'fixture'),
@@ -316,13 +331,14 @@ async function runVsixMode(options: RunOptions & { vsixPath: string; extraVsixPa
 
 async function runOnce(config: {
     label: string;
+    formatVariant?: string;
     vsixPath: string | undefined;
     extraVsixPaths: readonly string[];
     extensionTestsPath: string;
     allowedNewFiles: readonly string[];
     extensionTestsEnv?: Record<string, string>;
 }): Promise<void> {
-    const workspace = prepareWorkspace();
+    const workspace = prepareWorkspace(config.formatVariant);
     const beforeHashes = hashWorkspace(workspace);
     const cacheDirectory = process.env.MCPPLS_CACHE_DIR ?? fs.mkdtempSync(path.join(os.tmpdir(), 'mcppls-e2e-cache-'));
     // A short user data directory of its own. VS Code listens on a socket
@@ -355,6 +371,24 @@ async function runOnce(config: {
 async function main(): Promise<void> {
     const scenario = process.env.MCPPLS_E2E_SCENARIO ?? 'main';
     const vsixPath = process.env.MCPPLS_E2E_VSIX;
+
+    if (scenario === 'formatting') {
+        if (!vsixPath) {
+            throw new Error('The formatting scenario requires MCPPLS_E2E_VSIX with a maintained-engine payload.');
+        }
+        for (const variant of ['preset', 'user', 'project']) {
+            await runOnce({
+                label: `formatting: ${variant} (installed VSIX)`,
+                formatVariant: variant,
+                vsixPath,
+                extraVsixPaths: [],
+                extensionTestsPath: path.resolve(__dirname, 'suite-formatting', 'index'),
+                allowedNewFiles: [],
+                extensionTestsEnv: { MCPPLS_E2E_FORMAT_VARIANT: variant },
+            });
+        }
+        return;
+    }
 
     if (scenario === 'conflicts') {
         if (!vsixPath) {

@@ -84,6 +84,10 @@ suffix grants none. Legacy payloads keep their previous parsing and have no
 identified-engine capabilities. An explicit external `--clangd` overrides the
 bundled engine and does not inherit its identity or features.
 
+### Capability selected formatting
+
+Automatic `mcpp` formatting fallback **MUST** require a verified `format-style-mcpp` capability and `mcpp.toml` at the workspace root, preserve explicit user fallback settings and project `.clang-format` precedence, and grant no bundled capability to an external engine. Selecting this fallback writes no project configuration. <a id="S4-4-11"></a><sup>S4-4-11</sup>
+
 ## 5. Consumer procedure
 
 A consumer uses a kit when no suitable build toolchain is available and the user has not disabled kits.

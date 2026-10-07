@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "editor": "VS Code 1.132.0",
+  "mode": "isolated installed VSIX, fresh extensions/user-data/workspace per variant",
+  "vsix_sha256": "63deb1a4f9c3c3b31e5864d30ebee1759df7174d140e38dc0c7ecb15a538509d",
+  "engine_sha256": "d657c56cd752c4203bfe0525e478bff6aaa7d061dca0163ed2c4844b94f63dfe",
+  "variants": [
+    {
+      "variant": "preset",
+      "workspace_unchanged": true
+    },
+    {
+      "variant": "user",
+      "workspace_unchanged": true
+    },
+    {
+      "variant": "project",
+      "workspace_unchanged": true
+    }
+  ],
+  "golden_assertions_passed": 3,
+  "limitations": [
+    "Local host editor: not clean-machine or non-Linux VSIX acceptance.",
+    "Locally assembled payload metadata was dirty; not RC."
+  ]
+}

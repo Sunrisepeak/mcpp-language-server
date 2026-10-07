@@ -156,3 +156,5 @@ All five are published as drafts, at these versions:
 Every requirement carries a rule identifier (`S<n>-<section>-<ordinal>`), and
 `conformance/traceability.json` maps each one to its evidence: a test, a conformance check, a schema
 validation or a line of code.
+
+- S4-4-11 binds automatic mcpp formatting to verified engine capability and project scope; project/user overrides and external engines have real formatting conformance evidence.

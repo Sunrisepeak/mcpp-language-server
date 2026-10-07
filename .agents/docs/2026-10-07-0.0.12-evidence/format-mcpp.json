@@ -1,0 +1,52 @@
+{
+  "checks": [
+    {
+      "detail": "{\"cache\":{\"bytes\":100000000,\"copies\":{\"bytes\":0,\"files\":0,\"oldestSeconds\":0},\"instances\":{\"bytes\":0,\"count\":0},\"limitBytes\":4294967296,\"state\":\"ok\"},\"engine\":{\"name\":\"clangd\",\"version\":\"23.1.0-mcppls.0\"},\"engines\":[{\"name\":\"mcppls\",\"role\":\"modules\",\"state\":\"ready\",\"version\":\"0.0.12\"},{\"name\":\"clangd\",\"role\":\"core\",\"state\":\"ready\",\"version\":\"23.1.0-mcppls.0\"}],\"issues\":[{\"category\":\"project\",\"code\":\"mcpp-no-database\",\"command\":{\"command\":\"mcppls.showLogs\",\"title\":\"Fix\"},\"message\":\"mcppls.buildTool is off, so mcpp was not run\"}],\"notices\":[{\"code\":\"engine-version-untested\",\"message\":\"clangd 23.1.0-mcppls.0 has not been run through this server's conformance suite; every workaround for clangd 23.1 stays on\"}],\"profile\":{\"kind\":\"semantic-kit\",\"standard\":\"c++26\",\"stdlib\":\"libc++ 23.1.0\",\"target\":\"x86_64-unknown-linux-gnu\"},\"project\":{\"level\":2,\"root\":\"file:///tmp/mcppls-conformance-format-mcpp-4426182363052626/format-mcpp\",\"source\":\"inferred\",\"tier\":4},\"state\":\"degraded\"}",
+      "id": "F1",
+      "kind": "status",
+      "ok": true,
+      "seconds": 4.811715362,
+      "since-start": 4.966333869
+    },
+    {
+      "detail": "[{\"cacheDirectory\":\"/tmp/mcppls-conformance-format-mcpp-4426182363052626/cache/workspaces/format-mcpp-576181ef6204c7bc\",\"completion\":{\"keywordsWithoutEngine\":0,",
+      "id": "F2-capability-selected",
+      "kind": "report",
+      "ok": true,
+      "seconds": 0.003367646,
+      "since-start": 4.96973181
+    },
+    {
+      "detail": "module;\n#include <stddef.h>\nexport module format.demo;\nimport std;\nexport namespace demo {\ntemplate <class T>\nrequires requires(T x) { x + x; }\nT sum(T first, T second) {\n    auto combine = [&](T left, T right) { return left + right; };\n    return combine(first, second);\n}\nclass Buffer {\npublic:\n    Buffer(int capacity, int limit) : capacity_(capacity), limit_(limit) {}\n    int scaled() const {\n        return capacity_ * limit_ + capacity_ * limit_ + capacity_ * limit_ + capacity_ * limit_ +\n               capacity_ * limit_;\n    }\nprivate:\n    int capacity_;\n    int limit_;\n};\n}  // namespace demo\n",
+      "id": "F3-golden",
+      "kind": "formatting-equals",
+      "ok": true,
+      "seconds": 0.008678833,
+      "since-start": 4.978444386
+    },
+    {
+      "detail": ".clang-format",
+      "id": "F4-project-config",
+      "kind": "write-file",
+      "ok": true,
+      "seconds": 0.000185363,
+      "since-start": 4.978651744
+    },
+    {
+      "detail": "module;\n#include <stddef.h>\nexport module format.demo;\nimport std;\nexport namespace demo {\ntemplate <class T>\n  requires requires(T x) { x + x; }\nT sum(T first, T second) {\n  auto combine = [&](T left, T right) { return left + right; };\n  return combine(first, second);\n}\nclass Buffer {\n public:\n  Buffer(int capacity, int limit) : capacity_(capacity), limit_(limit) {}\n  int scaled() const {\n    return capacity_ * limit_ + capacity_ * limit_ + capacity_ * limit_ +\n           capacity_ * limit_ + capacity_ * limit_;\n  }\n\n private:\n  int capacity_;\n  int limit_;\n};\n}  // namespace demo\n",
+      "id": "F5-project-wins",
+      "kind": "formatting-equals",
+      "ok": true,
+      "seconds": 0.006112619,
+      "since-start": 4.984793749
+    }
+  ],
+  "failures": 0,
+  "first-diagnostics": 4.970197936,
+  "first-navigation": null,
+  "fixture": "format-mcpp",
+  "initialize": 0.154178987,
+  "ready": null,
+  "reused-workspace": false,
+  "seconds": 5.415906723
+}

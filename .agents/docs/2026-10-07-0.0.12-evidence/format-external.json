@@ -1,0 +1,36 @@
+{
+  "checks": [
+    {
+      "detail": "{\"cache\":{\"bytes\":100000000,\"copies\":{\"bytes\":0,\"files\":0,\"oldestSeconds\":0},\"instances\":{\"bytes\":0,\"count\":0},\"limitBytes\":4294967296,\"state\":\"ok\"},\"engine\":{\"name\":\"clangd\",\"version\":\"23.1.0\"},\"engines\":[{\"name\":\"mcppls\",\"role\":\"modules\",\"state\":\"ready\",\"version\":\"0.0.12\"},{\"name\":\"clangd\",\"role\":\"core\",\"state\":\"ready\",\"version\":\"23.1.0\"}],\"issues\":[{\"category\":\"environment\",\"code\":\"format-style-unavailable\",\"command\":{\"command\":\"mcppls.showLogs\",\"title\":\"Show Logs\"},\"message\":\"the selected engine does not declare the mcpp formatting style\"},{\"category\":\"project\",\"code\":\"mcpp-no-database\",\"command\":{\"command\":\"mcppls.showLogs\",\"title\":\"Fix\"},\"message\":\"mcppls.buildTool is off, so mcpp was not run\"}],\"profile\":{\"kind\":\"semantic-kit\",\"standard\":\"c++26\",\"stdlib\":\"libc++ 23.1.0\",\"target\":\"x86_64-unknown-linux-gnu\"},\"project\":{\"level\":2,\"root\":\"file:///tmp/mcppls-conformance-format-external-4426120305325516/format-external\",\"source\":\"inferred\",\"tier\":4},\"state\":\"degraded\"}",
+      "id": "E1",
+      "kind": "status",
+      "ok": true,
+      "seconds": 4.893255755,
+      "since-start": 5.055097193
+    },
+    {
+      "detail": "[{\"cacheDirectory\":\"/tmp/mcppls-conformance-format-external-4426120305325516/cache/workspaces/format-external-fac4d1477cb12f8d\",\"completion\":{\"keywordsWithoutEn",
+      "id": "E2-no-inherited-preset",
+      "kind": "report",
+      "ok": true,
+      "seconds": 0.003400086,
+      "since-start": 5.058526926
+    },
+    {
+      "detail": "module;\n#include <stddef.h>\nexport module format.demo;\nimport std;\nexport namespace demo {\ntemplate <class T>\n  requires requires(T x) { x + x; }\nT sum(T first, T second) {\n  auto combine = [&](T left, T right) { return left + right; };\n  return combine(first, second);\n}\nclass Buffer {\npublic:\n  Buffer(int capacity, int limit) : capacity_(capacity), limit_(limit) {}\n  int scaled() const {\n    return capacity_ * limit_ + capacity_ * limit_ + capacity_ * limit_ +\n           capacity_ * limit_ + capacity_ * limit_;\n  }\n\nprivate:\n  int capacity_;\n  int limit_;\n};\n} // namespace demo\n",
+      "id": "E3-native-default",
+      "kind": "formatting-equals",
+      "ok": true,
+      "seconds": 0.006144554,
+      "since-start": 5.064705108
+    }
+  ],
+  "failures": 0,
+  "first-diagnostics": 5.058769594,
+  "first-navigation": null,
+  "fixture": "format-external",
+  "initialize": 0.161434091,
+  "ready": null,
+  "reused-workspace": false,
+  "seconds": 5.507602725
+}

@@ -3882,6 +3882,42 @@ public:
                 });
             return { ok, lsp::dump(location_uris(result)) };
         }
+        if (kind == "formatting-equals") {
+            open(file);
+            const std::string original { text_of(file) };
+            const std::string expected { check.contains("expected-file")
+                ? text_of(check.at("expected-file").get<std::string>())
+                : check.value("expect", std::string {}) };
+            if (original.empty() || expected.empty()) return { false, "formatting requires nonempty input and golden" };
+            auto apply = [&](const Json& edits) -> std::optional<std::string> {
+                if (!edits.is_array()) return std::nullopt;
+                struct Edit { std::size_t begin; std::size_t end; std::string text; };
+                std::vector<Edit> changes;
+                for (const auto& edit : edits) {
+                    const auto& start = edit.at("range").at("start");
+                    const auto& end = edit.at("range").at("end");
+                    auto from = base::offset_at(original, { start.at("line").get<int>(), start.at("character").get<int>() });
+                    auto to = base::offset_at(original, { end.at("line").get<int>(), end.at("character").get<int>() });
+                    if (!from || !to || *from > *to) return std::nullopt;
+                    changes.push_back({ *from, *to, edit.at("newText").get<std::string>() });
+                }
+                std::ranges::sort(changes, std::greater {}, &Edit::begin);
+                std::string formatted { original };
+                std::size_t boundary { original.size() };
+                for (const auto& edit : changes) {
+                    if (edit.end > boundary) return std::nullopt;
+                    formatted.replace(edit.begin, edit.end - edit.begin, edit.text);
+                    boundary = edit.begin;
+                }
+                return formatted;
+            };
+            auto [ok, result] = retry("textDocument/formatting", [&] {
+                return Json { { "textDocument", Json { { "uri", uri(file) } } },
+                              { "options", Json { { "tabSize", 4 }, { "insertSpaces", true } } } };
+            }, [&](const Json& edits) { return apply(edits) == std::optional<std::string> { expected }; });
+            const auto formatted = apply(result);
+            return { ok, formatted ? *formatted : "invalid formatting edits" };
+        }
         if (kind == "hover-contains") {
             open(file);
             // `expect` is one text the hover must contain, or several of which any one will do -- for a

@@ -1,0 +1,47 @@
+{
+  "name": "format-mcpp",
+  "description": "Maintained engine capability selects pinned mcpp fallback; actual LSP edits reproduce the review golden and project override wins without product writes. Requires a candidate payload declaring format-style-mcpp.",
+  "server-arguments": [
+    "--no-discover",
+    "--build-tool",
+    "off"
+  ],
+  "checks": [
+    {
+      "id": "F1",
+      "kind": "status",
+      "source": "inferred",
+      "state": "degraded",
+      "engine-name": "clangd"
+    },
+    {
+      "id": "F2-capability-selected",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/arguments/*",
+          "equals": "--fallback-style=mcpp",
+          "min-matches": 1
+        }
+      ]
+    },
+    {
+      "id": "F3-golden",
+      "kind": "formatting-equals",
+      "file": "src/format.cppm",
+      "expected-file": "expected-mcpp.txt"
+    },
+    {
+      "id": "F4-project-config",
+      "kind": "write-file",
+      "file": ".clang-format",
+      "content": "BasedOnStyle: Google\n"
+    },
+    {
+      "id": "F5-project-wins",
+      "kind": "formatting-equals",
+      "file": "src/format.cppm",
+      "expected-file": "expected-google.txt"
+    }
+  ]
+}

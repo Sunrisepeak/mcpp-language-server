@@ -508,7 +508,7 @@
   "S1-11.2-7": [
     {
       "script": "editors/vscode/src/status.ts",
-      "contains": "status.project.source} · L${tier}"
+      "contains": "status.project.source} \u00b7 L${tier}"
     },
     {
       "check": "mcpp-emit/S1"
@@ -2189,6 +2189,29 @@
     },
     {
       "test": "tests/test_instance.cpp: identified payloads validate their engine while explicit external engines inherit no capabilities"
+    }
+  ],
+  "S4-4-11": [
+    {
+      "test": "tests/test_server.cpp: format fallback requires declared capability and preserves explicit styles"
+    },
+    {
+      "check": "format-mcpp/F3-golden"
+    },
+    {
+      "check": "format-mcpp/F5-project-wins"
+    },
+    {
+      "check": "format-explicit/U3-user-golden"
+    },
+    {
+      "check": "format-explicit/U5-project-wins"
+    },
+    {
+      "check": "format-external/E2-no-inherited-preset"
+    },
+    {
+      "check": "format-external/E3-native-default"
     }
   ]
 }

@@ -343,3 +343,23 @@ of this runner's own long-standing default (the full `experimental.cxxModules` b
 `--client zed` and `--client plain` behave exactly as `--plain-client` always has (kept as its
 alias): no `cxxModules/status` arrives, so a `status` check is skipped rather than run, and the run
 checks that standard `$/progress` still arrived instead.
+
+
+`format-mcpp` checks the pinned mcpp fallback and project configuration override
+through actual LSP formatting edits. It requires a payload with verified
+`format-style-mcpp` capability. `format-explicit` checks explicit user fallback
+and project precedence and also runs with stock clangd. `format-external` is run
+with `--clangd` pointing to stock clangd and checks that it receives no bundled
+preset. These fixtures disable the build tool deliberately: the inferred model
+is usable and reports the expected degraded state for that choice.
+
+`formatting-equals` applies returned TextEdits using UTF-16 positions, rejects
+invalid/overlapping ranges, and compares the complete output against `expect`
+or `expected-file`; an empty response cannot pass an unformatted golden.
+
+The focused installed-VSIX counterpart runs with
+`MCPPLS_E2E_SCENARIO=formatting MCPPLS_E2E_VSIX=<candidate.vsix> npm test`
+in editors/vscode. It requires the maintained formatting capability and uses
+three independent isolated workspaces for auto preset, explicit Google style
+and project LLVM style. It compares the editor provider's full edits to the
+same goldens and verifies that every workspace remains unchanged.
