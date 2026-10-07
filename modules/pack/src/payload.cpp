@@ -251,6 +251,7 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
                                                           options.clangdDirectory, exe, options.platform));
     }
 
+    std::string engineVersion { lockData.clangdVersion };
     nlohmann::json identity;
     const std::string identityPath { base::join_path(options.clangdDirectory, "engine.json") };
     const bool maintained { base::llvm_base_version(lockData.clangdVersion) != lockData.clangdVersion };
@@ -259,7 +260,12 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
         auto decoded = base::decode_engine_identity(identity);
         auto digest = fetch::digest_of(clangdBinary);
         if (!decoded || !digest) return base::fail("payload-engine-identity", "cannot read a complete engine identity and binary SHA");
-        if (auto problem = base::engine_identity_problem(*decoded, lockData.clangdVersion, options.platform, *digest)) {
+        if (base::llvm_base_version(decoded->version) != base::llvm_base_version(lockData.clangdVersion) ||
+            (maintained && decoded->version != lockData.clangdVersion)) {
+            return base::fail("payload-engine-identity", "supplied engine does not match the locked LLVM base or fork version");
+        }
+        engineVersion = decoded->version;
+        if (auto problem = base::engine_identity_problem(*decoded, engineVersion, options.platform, *digest)) {
             return base::fail("payload-engine-identity", *problem);
         }
     } else if (maintained) {
@@ -310,9 +316,9 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
     manifest["payload-version"] = identity.is_object() ? 4 : PAYLOAD_VERSION;
     manifest["platform"] = options.platform;
     manifest["server"] = { { "version", serverVersion }, { "path", "bin/mcppls" + exe } };
-    manifest["clangd"] = { { "version", lockData.clangdVersion }, { "path", "clangd/bin/clangd" + exe } };
+    manifest["clangd"] = { { "version", engineVersion }, { "path", "clangd/bin/clangd" + exe } };
     manifest["kit"] = kitEntry;
-    manifest["engines"] = { { "clangd", { { "version", lockData.clangdVersion }, { "path", "clangd/bin/clangd" + exe }, { "kit", kitEntry } } } };
+    manifest["engines"] = { { "clangd", { { "version", engineVersion }, { "path", "clangd/bin/clangd" + exe }, { "kit", kitEntry } } } };
     if (identity.is_object()) manifest["engines"]["clangd"]["identity"] = identity;
     manifest["files"] = files;
     manifest["build"] = provenance(options.repositoryRoot);
@@ -326,8 +332,12 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
     if (options.platform == mcppls::os::PLATFORM) {
         auto reported = run_capture(base::join_path(out, "clangd/bin/clangd" + exe), { "--version" });
         if (!reported) return std::unexpected { reported.error() };
-        if (!reported->contains(lockData.clangdVersion)) {
-            return base::fail("payload-clangd-version", std::format("clangd reports {}, the lock says {}", *reported, lockData.clangdVersion));
+        const std::string_view report { *reported };
+        const std::size_t marker { report.find("clangd version ") };
+        const std::string_view tail { marker == std::string_view::npos ? std::string_view {} : report.substr(marker + 15) };
+        const std::string_view actual { tail.substr(0, tail.find_first_of(" \t\r\n")) };
+        if (actual != engineVersion) {
+            return base::fail("payload-clangd-version", std::format("clangd reports {}, payload identity says {}", *reported, engineVersion));
         }
     }
     return out;

@@ -149,11 +149,13 @@ int main(int argc, char* argv[]) {
         expect(fs::is_regular_file(base::join_path(out, "sentinel")));
         identity["sha256"] = *digest;
         put(base::join_path(clangdDir, "engine.json"), identity.dump());
-        auto assembled = payload::assemble(options, forkLock);
+        expect(!payload::assemble(options, lock_with_clangd_version("24.1.0"))) << "an override cannot silently change the locked LLVM base";
+        auto assembled = payload::assemble(options, lockData);
         expect(fatal(assembled.has_value())) << (assembled ? std::string {} : assembled.error().message);
         if (!assembled) return;
         auto manifest = nlohmann::json::parse(*fs::read_file(base::join_path(out, "payload.json")));
         expect(manifest["payload-version"] == 4);
+        expect(manifest["clangd"]["version"] == "23.1.0-mcppls.1");
         expect(manifest["engines"]["clangd"]["identity"] == identity);
         expect(payload::verify(out).empty());
         manifest["engines"]["clangd"].erase("identity");
