@@ -287,13 +287,15 @@ jobs:
           # No native mcpp on this host yet: the pinned xlings publishes no macosx-x86_64
           # releases, so setup-mcpp cannot run here and the mcpp-shaped fixtures keep their full
           # three-round coverage on the other four platforms (the same cross-tools split the
-          # conformance matrix uses). This host repeats the shapes that need no build tool;
-          # expand the list when a native Intel bootstrap exists.
+          # conformance matrix uses). This host repeats the shapes that need no build tool and
+          # hold their per-step budgets on it; typing-autosave's new-import step needs the
+          # maintained engine's import path to hold its 5 s budget here, so it stays with the
+          # mcpp-shaped set until the payload carries that engine.
           - platform: darwin-x64
             os: macos-15-intel
             exe: ''
             cross-tools: true
-            fixtures: inferred module-faults typing-autosave
+            fixtures: inferred module-faults
           - platform: win32-x64
             part: 1 of 2
             os: windows-2022
