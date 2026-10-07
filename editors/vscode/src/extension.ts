@@ -17,6 +17,7 @@ import {
     LanguageClient,
     LanguageClientOptions,
     MessageType,
+    MessageTransports,
     RevealOutputChannelOn,
     ServerOptions,
     ShowMessageNotification,
@@ -25,6 +26,7 @@ import {
     StaticFeature,
     TransportKind,
 } from 'vscode-languageclient/node';
+import { TransportWriter } from './transportWriter';
 import { CommandLineToolsController, withInstallCommandFallback } from './commandLineTools';
 import { DownloadPromptController } from './downloadPrompt';
 import { declaresModules, editorEnvironment, exportDiagnosticBundle, extensionEnvironment, registerCommands, reloadBuildDescription } from './commands';
@@ -144,6 +146,11 @@ function messageTypeName(type: MessageType): string {
 // not become an unhandled rejection in the extension host. Other stop failures still propagate.
 class ServerLanguageClient extends LanguageClient {
     private transportClosed = false;
+
+    protected override async createMessageTransports(encoding: string): Promise<MessageTransports> {
+        const transports = await super.createMessageTransports(encoding);
+        return { ...transports, writer: new TransportWriter(transports.writer) };
+    }
 
     protected override handleConnectionClosed(): Promise<void> {
         this.transportClosed = true;

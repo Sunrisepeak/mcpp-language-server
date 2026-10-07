@@ -65,6 +65,16 @@ export const WORKAROUNDS: readonly Workaround[] = [
         removeWhen: 'the upstream library passes initialization SIGKILL recovery without the close-settlement and closed-transport shutdown guards',
         canary: 'test/suite/zCrashLoop.test.ts: initialization-crash regression; rerun without the guards when evaluating a dependency upgrade',
     },
+    {
+        id: 'WA-VSCODE-004',
+        title: 'a failed protocol write closes its connection without an orphaned request executor rejection',
+        affects: 'vscode-jsonrpc 9.0.2: sendRequest throws from an async Promise executor after rejecting its caller on a write failure',
+        upstream: 'unfiled; #24 UP-V2 https://github.com/Sunrisepeak/mcpp-language-server/issues/24#issuecomment-6047724985',
+        evidence: '.agents/docs/2026-10-08-client-crash-recovery.md; test/unit/transportWriter.test.ts',
+        added: '0.0.12, 2026-10-08',
+        removeWhen: 'the upstream library rejects a failed request write once without an independent unhandled rejection, with the transport wrapper removed',
+        canary: 'test/unit/transportWriter.test.ts; rerun without TransportWriter when evaluating a dependency upgrade; test/suite/zCrashLoop.test.ts validates real recovery',
+    },
 ];
 
 // One line at activation naming the active workarounds, so a bug report shows which ones were on
