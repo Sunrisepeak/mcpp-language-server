@@ -38,7 +38,7 @@ import { serverEnabled } from './enable';
 import { transition } from './enableSwitch';
 import { FatalController } from './fatal';
 import { resolveLaunch } from './payload';
-import { ServerLogLevel, ServerLogRouter } from './serverLog';
+import { announcedServerLog, ServerLogLevel, ServerLogRouter } from './serverLog';
 import { promptTestHarness, PromptKind, ShownPrompt } from './prompt';
 import { CxxModulesStatus, ModuleIssue, ModuleState, StatusController } from './status';
 import { describeActiveWorkarounds } from './workarounds';
@@ -333,6 +333,10 @@ class ServerHost implements vscode.Disposable {
                     this.serverLog.reset();
                     lines(input, (line) => {
                         this.serverLog.route(line, channel);
+                        if (this.client === created) {
+                            const announced = announcedServerLog(line);
+                            if (announced) this.knownServerLog = announced;
+                        }
                         this.stderrTail.push(line);
                         if (this.stderrTail.length > STDERR_TAIL_LINES) {
                             this.stderrTail.splice(0, this.stderrTail.length - STDERR_TAIL_LINES);
@@ -434,6 +438,9 @@ class ServerHost implements vscode.Disposable {
                 client.sendRequest<{ server?: { logFile?: string; version?: string } }>('cxxModules/report', {}),
                 new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 30000)),
             ]);
+            // A report from a replaced client must not overwrite the new
+            // process's startup announcement (its cache directory can differ).
+            if (this.client !== client) return;
             if (typeof report?.server?.logFile === 'string' && report.server.logFile.length > 0) {
                 this.knownServerLog = report.server.logFile;
             }
