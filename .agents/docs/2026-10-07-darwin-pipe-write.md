@@ -26,3 +26,9 @@ canary. No native success is inferred from cross-linking.
 Remove WA-PLATFORM-001 only when selected openkal-macos reliably reports closed
 pipe writes on both macOS architectures with default parent SIGPIPE handling.
 Other arbitrary openkal streams do not gain a blanket protection from this fix.
+
+Native follow-up: Intel dev CI run 37553665184 / job 112577351043 at
+1fa6975 passes the blocked-peer and closed-peer write canaries and both process
+binaries (main: 23 cases, 80 assertions). The job fails later in a separate
+pack platform fixture, which has now been corrected. Native release proof
+is still pending because that fixture ran before its process tests.
