@@ -1,0 +1,6 @@
+fixture tidy-const-views in /tmp/mcppls-conformance-tidy-const-views-4393253551907631/tidy-const-views
+PASS initialize (0.2s) experimental.cxxModules=true
+PASS S1 status (0.0s) {"cache":{"bytes":100000000,"copies":{"bytes":0,"files":0,"oldestSeconds":0},"instances":{"bytes":0,"count":0},"limitBytes":4294967296,"state":"ok"},"engine":{"name":"clangd","version":"23.1.0"},"engines":[{"name":"mcppls","role":"modules","state":"ready","version":"0.0.12"},{"name":"clangd","role":"core","state":"starting","version":"23.1.0"}],"issues":[],"profile":{"kind":"semantic-kit","stdlib":"libc++ 23.1.0","target":"x86_64-unknown-linux-gnu"},"project":{"level":2,"root":"file:///tmp/mcppls-conformance-tidy-const-views-4393253551907631/tidy-const-views","source":"inferred","tier":4},"state":"ready"}
+PASS T1-the-int-is-told diagnostic-code (0.5s) [{"code":"misc-const-correctness","codeDescription":{"href":"https://clang.llvm.org/extra/clang-tidy/checks/misc/const-correctness.html"},"message":"Variable 'limit' of type 'int' can be declared 'const' (fix available)","range":{"end":{"character":7,"line":6},"start":{"character":4,"line":6}},"relatedInformation":[],"severity":2,"source":"clang-tidy · libc++ 23.1.0 kit"}]
+PASS T2-const-advice-only-where-true diagnostic-code-lines (1.5s) "misc-const-correctness" on lines [6]
+tidy-const-views: 0 failure(s), 2.2s

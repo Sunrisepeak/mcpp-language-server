@@ -1,0 +1,132 @@
+{
+  "checks": [
+    {
+      "detail": "{\"cache\":{\"bytes\":100000000,\"copies\":{\"bytes\":0,\"files\":0,\"oldestSeconds\":0},\"instances\":{\"bytes\":0,\"count\":0},\"limitBytes\":4294967296,\"state\":\"ok\"},\"engine\":{\"name\":\"clangd\",\"version\":\"23.1.0\"},\"engines\":[{\"name\":\"mcppls\",\"role\":\"modules\",\"state\":\"ready\",\"version\":\"0.0.12\"},{\"name\":\"clangd\",\"role\":\"core\",\"state\":\"starting\",\"version\":\"23.1.0\"}],\"issues\":[],\"profile\":{\"kind\":\"semantic-kit\",\"standard\":\"c++26\",\"stdlib\":\"libc++ 23.1.0\",\"target\":\"x86_64-unknown-linux-gnu\"},\"project\":{\"level\":2,\"root\":\"file:///tmp/mcppls-conformance-typing-autosave-4393253549975332/typing-autosave\",\"source\":\"inferred\",\"tier\":4},\"state\":\"ready\"}",
+      "id": "S1",
+      "kind": "status",
+      "ok": true,
+      "seconds": 6.9344e-05,
+      "since-start": 0.193569355
+    },
+    {
+      "detail": "### function `greet`\n\nprovided by `\"greet/greet.cppm\"`\n\n---\n→ `std::string (aka basic_string<char>)`\n\nParameters:\n\n- `std::string_view who (aka basic_string_v",
+      "id": "T0-before",
+      "kind": "hover-contains",
+      "ok": true,
+      "seconds": 2.91615092,
+      "since-start": 3.109746538
+    },
+    {
+      "detail": "13 steps, slowest answer 0.15 s",
+      "id": "T1-type-to-the-dot-saved",
+      "kind": "type-text",
+      "ok": true,
+      "seconds": 2.995080428,
+      "since-start": 6.104853105
+    },
+    {
+      "detail": "2 steps, slowest answer 0.00 s",
+      "id": "T2-stay-on-the-dot-saved",
+      "kind": "type-text",
+      "ok": true,
+      "seconds": 12.801912207,
+      "since-start": 18.90679291
+    },
+    {
+      "detail": "[{\"cacheDirectory\":\"/dev/shm/mcppls-0012-typing-cache/workspaces/typing-autosave-baddd7192afb85f0\",\"completion\":{\"keywordsWithoutEngine\":0,\"late\":{\"arrived\":0,\"",
+      "id": "T3-disk-seen",
+      "kind": "report",
+      "ok": true,
+      "seconds": 0.002321614,
+      "since-start": 18.909136531
+    },
+    {
+      "detail": "6 steps, slowest answer 0.72 s",
+      "id": "T4-keep-typing-saved",
+      "kind": "type-text",
+      "ok": true,
+      "seconds": 1.850513354,
+      "since-start": 20.759676145
+    },
+    {
+      "detail": "### function `greet`\n\nprovided by `\"greet/greet.cppm\"`\n\n---\n→ `std::string (aka basic_string<char>)`\n\nParameters:\n\n- `std::string_view who (aka basic_string_v",
+      "id": "T5-features-back",
+      "kind": "hover-contains",
+      "ok": true,
+      "seconds": 0.003038854,
+      "since-start": 20.76272979
+    },
+    {
+      "detail": "6 steps, slowest answer 0.00 s",
+      "id": "T6-nothing-provides-it",
+      "kind": "type-text",
+      "ok": true,
+      "seconds": 0.954261019,
+      "since-start": 21.717016253
+    },
+    {
+      "detail": "2 steps, slowest answer 0.00 s",
+      "id": "T7-quiet-long-enough-for-a-stand-in",
+      "kind": "type-text",
+      "ok": true,
+      "seconds": 11.568070704,
+      "since-start": 33.285118413
+    },
+    {
+      "detail": "6 steps, slowest answer 0.72 s",
+      "id": "T8-back-to-the-module",
+      "kind": "type-text",
+      "ok": true,
+      "seconds": 3.352728605,
+      "since-start": 36.637865483
+    },
+    {
+      "detail": "### function `greet`\n\nprovided by `\"greet/greet.cppm\"`\n\n---\n→ `std::string (aka basic_string<char>)`\n\nParameters:\n\n- `std::string_view who (aka basic_string_v",
+      "id": "T9-features-after",
+      "kind": "hover-contains",
+      "ok": true,
+      "seconds": 0.002297517,
+      "since-start": 36.640169027
+    },
+    {
+      "detail": "[{\"cacheDirectory\":\"/dev/shm/mcppls-0012-typing-cache/workspaces/typing-autosave-baddd7192afb85f0\",\"completion\":{\"keywordsWithoutEngine\":0,\"late\":{\"arrived\":0,\"",
+      "id": "T10-nothing-left-aside",
+      "kind": "report",
+      "ok": true,
+      "seconds": 0.004233283,
+      "since-start": 36.644406815
+    },
+    {
+      "detail": "[{\"cacheDirectory\":\"/dev/shm/mcppls-0012-typing-cache/workspaces/typing-autosave-baddd7192afb85f0\",\"completion\":{\"keywordsWithoutEngine\":0,\"late\":{\"arrived\":0,\"",
+      "id": "T11-no-restart-but-for-a-spin",
+      "kind": "report",
+      "ok": true,
+      "seconds": 0.003037256,
+      "since-start": 36.647448327
+    },
+    {
+      "detail": "[{\"code\":\"expected_semi_after_module_or_import\",\"message\":\"Import directive must end with a ';' (fix available)\",\"range\":{\"end\":{\"character\":18,\"line\":1},\"start\":{\"character\":17,\"line\":1}},\"relatedInformation\":[],\"severity\":1,\"source\":\"clang · libc++ 23.1.0 kit\"}]",
+      "id": "D1-missing-semicolon-on-its-directive",
+      "kind": "diagnostic-code",
+      "ok": true,
+      "seconds": 0.142653683,
+      "since-start": 36.790117556
+    },
+    {
+      "detail": "[{\"code\":\"unsaved-import\",\"message\":\"module 'hello.extra' is in the project; clangd loads it once the file is saved\",\"range\":{\"end\":{\"character\":19,\"line\":2},\"start\":{\"character\":7,\"line\":2}},\"relatedInformation\":[],\"severity\":3,\"source\":\"mcppls · libc++ 23.1.0 kit\"}]",
+      "id": "D2-unsaved-import-is-information",
+      "kind": "diagnostic-code",
+      "ok": true,
+      "seconds": 0.146902272,
+      "since-start": 36.937039063
+    }
+  ],
+  "failures": 0,
+  "first-diagnostics": 3.257491016,
+  "first-navigation": null,
+  "fixture": "typing-autosave",
+  "initialize": 0.193343789,
+  "ready": 0.193533312,
+  "reused-workspace": false,
+  "seconds": 36.959420192
+}

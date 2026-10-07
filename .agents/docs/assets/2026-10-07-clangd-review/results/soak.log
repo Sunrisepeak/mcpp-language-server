@@ -1,0 +1,10 @@
+soak_loop: cycle 1/9 clean -> replied
+soak_loop: cycle 2/9 clean -> replied
+soak_loop: cycle 3/9 kill -> killed
+soak_loop: cycle 4/9 clean -> replied
+soak_loop: cycle 5/9 clean -> replied
+soak_loop: cycle 6/9 kill -> killed
+soak_loop: cycle 7/9 clean -> replied
+soak_loop: cycle 8/9 clean -> replied
+soak_loop: cycle 9/9 kill -> killed
+soak_loop: 9/9 cycles answered

@@ -1,0 +1,42 @@
+{
+  "build": {
+    "builtAt": "2026-10-06T15:06:06Z",
+    "commit": "a0cd29b735971d56042e91c6162ae373bcbb193b",
+    "dirty": true,
+    "source": "from-source"
+  },
+  "clangd": {
+    "path": "clangd/bin/clangd",
+    "version": "23.1.0"
+  },
+  "engines": {
+    "clangd": {
+      "kit": {
+        "name": "mcppls-kit-libcxx-23.1.0-x86_64-unknown-linux-gnu",
+        "path": "kit"
+      },
+      "path": "clangd/bin/clangd",
+      "version": "23.1.0"
+    }
+  },
+  "files": {
+    "clangd/bin/clangd": {
+      "sha256": "a3855155d2e2a6746d07805153a59f7c352b8b768ff7401f9cd4aed41c9bd209",
+      "size": 68240096
+    },
+    "kit/kit.json": {
+      "sha256": "74c2de97fd10e7927f81c0cc324751ce6b67e36938d72bfcb543b15ade2677b4",
+      "size": 575
+    }
+  },
+  "kit": {
+    "name": "mcppls-kit-libcxx-23.1.0-x86_64-unknown-linux-gnu",
+    "path": "kit"
+  },
+  "payload-version": 3,
+  "platform": "linux-x64",
+  "server": {
+    "path": "bin/mcppls",
+    "version": "0.0.12"
+  }
+}

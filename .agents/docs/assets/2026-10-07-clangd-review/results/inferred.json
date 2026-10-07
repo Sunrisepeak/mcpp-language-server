@@ -1,0 +1,148 @@
+{
+  "checks": [
+    {
+      "detail": "{\"cache\":{\"bytes\":100000000,\"copies\":{\"bytes\":0,\"files\":0,\"oldestSeconds\":0},\"instances\":{\"bytes\":0,\"count\":0},\"limitBytes\":4294967296,\"state\":\"ok\"},\"engine\":{\"name\":\"clangd\",\"version\":\"23.1.0\"},\"engines\":[{\"name\":\"mcppls\",\"role\":\"modules\",\"state\":\"ready\",\"version\":\"0.0.12\"},{\"name\":\"clangd\",\"role\":\"core\",\"state\":\"starting\",\"version\":\"23.1.0\"}],\"issues\":[],\"profile\":{\"kind\":\"semantic-kit\",\"standard\":\"c++26\",\"stdlib\":\"libc++ 23.1.0\",\"target\":\"x86_64-unknown-linux-gnu\"},\"project\":{\"level\":2,\"root\":\"file:///tmp/mcppls-conformance-inferred-4393253547592965/inferred\",\"source\":\"inferred\",\"tier\":4},\"state\":\"ready\"}",
+      "id": "S1",
+      "kind": "status",
+      "ok": true,
+      "seconds": 4.0907e-05,
+      "since-start": 0.196157566
+    },
+    {
+      "detail": "{\"cache\":{\"bytes\":100000000,\"copies\":{\"bytes\":0,\"files\":0,\"oldestSeconds\":0},\"instances\":{\"bytes\":0,\"count\":0},\"limitBytes\":4294967296,\"state\":\"ok\"},\"engine\":{\"name\":\"clangd\",\"version\":\"23.1.0\"},\"engines\":[{\"name\":\"mcppls\",\"role\":\"modules\",\"state\":\"ready\",\"version\":\"0.0.12\"},{\"name\":\"clangd\",\"role\":\"core\",\"state\":\"starting\",\"version\":\"23.1.0\"}],\"issues\":[],\"notices\":[{\"code\":\"shared-workspace\",\"message\":\"another mcppls instance serves this workspace; this one keeps a private cache and starts cold\"}],\"profile\":{\"kind\":\"semantic-kit\",\"standard\":\"c++26\",\"stdlib\":\"libc++ 23.1.0\",\"target\":\"x86_64-unknown-linux-gnu\"},\"project\":{\"level\":2,\"root\":\"file:///tmp/mcppls-conformance-inferred-4393253547592965/inferred\",\"source\":\"inferred\",\"tier\":4},\"state\":\"ready\"}",
+      "id": "I1-second-instance",
+      "kind": "second-instance",
+      "ok": true,
+      "seconds": 1.696237183,
+      "since-start": 1.892419042
+    },
+    {
+      "detail": "[]",
+      "id": "C1",
+      "kind": "diagnostics-empty",
+      "ok": true,
+      "seconds": 2.266686546,
+      "since-start": 4.159132786
+    },
+    {
+      "detail": "[\"file:///tmp/mcppls-conformance-inferred-4393253547592965/inferred/src/greet/greet.cppm\"]",
+      "id": "C2",
+      "kind": "definition",
+      "ok": true,
+      "seconds": 0.002461343,
+      "since-start": 4.161606218
+    },
+    {
+      "detail": "### function `greet`\n\nprovided by `\"greet/greet.cppm\"`\n\n---\n→ `std::string (aka basic_string<char>)`\n\nParameters:\n\n- `std::string_view who (aka basic_string_v",
+      "id": "C3",
+      "kind": "hover-contains",
+      "ok": true,
+      "seconds": 0.002299151,
+      "since-start": 4.163915753
+    },
+    {
+      "detail": "[\"file:///tmp/mcppls-0012-fork-review-hCVnxE/payload/kit/share/libc%2B%2B/v1/std/ostream.inc\",\"file:///tmp/mcppls-0012-fork-review-hCVnxE/payload/kit/include/c%2B%2B/v1/print\"]",
+      "id": "C4",
+      "kind": "definition-any",
+      "ok": true,
+      "seconds": 0.001671503,
+      "since-start": 4.165597902
+    },
+    {
+      "detail": "[\"file:///tmp/mcppls-conformance-inferred-4393253547592965/inferred/src/greet/greet.cppm\"]",
+      "id": "C5",
+      "kind": "definition",
+      "ok": true,
+      "seconds": 0.000273718,
+      "since-start": 4.165879706
+    },
+    {
+      "detail": "[\"file:///tmp/mcppls-conformance-inferred-4393253547592965/inferred/src/greet/detail.cppm\"]",
+      "id": "C5-partition",
+      "kind": "definition",
+      "ok": true,
+      "seconds": 0.000271448,
+      "since-start": 4.16616089
+    },
+    {
+      "detail": "```cpp\nmodule hello.greet\n```\n\nProvided by `greet.cppm` (primary module interface unit).\n\nSemantic profile: libc++ 23.1.0 (semantic kit, x86_64-unknown-linux-gn",
+      "id": "M1-hover",
+      "kind": "hover-contains",
+      "ok": true,
+      "seconds": 0.000329633,
+      "since-start": 4.166498455
+    },
+    {
+      "detail": "[{\"detail\":\"primary module interface unit\",\"kind\":2,\"name\":\"hello.greet\",\"range\":{\"end\":{\"character\":25,\"line\":0},\"start\":{\"character\":14,\"line\":0}},\"selectionR",
+      "id": "M2-outline",
+      "kind": "document-symbol-contains",
+      "ok": true,
+      "seconds": 0.309293595,
+      "since-start": 4.475815882
+    },
+    {
+      "detail": "{\"imports\":[{\"from\":\"file:///tmp/mcppls-conformance-inferred-4393253547592965/inferred/src/greet/detail.cppm\",\"module\":\"std\",\"range\":{\"end\":{\"character\":10,\"lin",
+      "id": "M3-graph",
+      "kind": "module-graph-contains",
+      "ok": true,
+      "seconds": 0.000352396,
+      "since-start": 4.476178928
+    },
+    {
+      "detail": "[\"hello.greet\"]",
+      "id": "M4-import-completion",
+      "kind": "completion-contains",
+      "ok": true,
+      "seconds": 0.00036156,
+      "since-start": 4.476548421
+    },
+    {
+      "detail": "[{\"code\":\"unresolved-module\",\"message\":\"module 'missing.module' not found\",\"range\":{\"end\":{\"character\":21,\"line\":0},\"start\":{\"character\":7,\"line\":0}},\"severity\":1,\"source\":\"mcppls\"}]",
+      "id": "M5-unresolved",
+      "kind": "diagnostic-code",
+      "ok": true,
+      "seconds": 0.00022137,
+      "since-start": 4.47677777
+    },
+    {
+      "detail": "[\"hello\",\"argc\",\"argv\",\"char\",\"main\",\"println\",\"greet\",\"return\",\"import\",\"int\",\"std\"]",
+      "id": "C6",
+      "kind": "completion-contains",
+      "ok": true,
+      "seconds": 0.004194254,
+      "since-start": 4.480985878
+    },
+    {
+      "detail": "[\"hello\",\"argc\",\"argv\",\"char\",\"main\",\"println\",\"greet\",\"return\",\"import\",\"int\",\"std\"]",
+      "id": "C7",
+      "kind": "completion-contains",
+      "ok": false,
+      "seconds": 181.413396304,
+      "since-start": 185.894399816
+    },
+    {
+      "detail": "[\"greet.cppm\",\"main.cpp\"]",
+      "id": "C9",
+      "kind": "references-span",
+      "ok": true,
+      "seconds": 0.014113976,
+      "since-start": 185.908523345
+    },
+    {
+      "detail": "[0:0 'export' keyword []] [0:7 'module' keyword []] [0:14 'hello.greet' module [\"declaration\"]] [1:0 'export' keyword []] [1:7 'import' keyword []] [1:15 'detail' module [\"partition\"]] [2:0 'import' k",
+      "id": "K1-semantic-tokens",
+      "kind": "semantic-tokens",
+      "ok": true,
+      "seconds": 0.010904,
+      "since-start": 185.919442848
+    }
+  ],
+  "failures": 1,
+  "first-diagnostics": 4.16612619,
+  "first-navigation": 4.161606218,
+  "fixture": "inferred",
+  "initialize": 0.195981342,
+  "ready": 0.196129157,
+  "reused-workspace": false,
+  "seconds": 185.938807086
+}

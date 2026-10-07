@@ -1,0 +1,26 @@
+{
+  "clangd": "/home/speak/workspace/github/mcppls-clangd/build-linux-x64/bin/clangd",
+  "rounds": 16,
+  "cold_ms": 81.5,
+  "p50_ms": 71.9,
+  "p95_ms": 77.3,
+  "max_ms": 81.5,
+  "all_ms": [
+    81.5,
+    81.2,
+    70.9,
+    76.1,
+    71.5,
+    76.5,
+    72.3,
+    71.9,
+    71.5,
+    76.2,
+    71.2,
+    76.0,
+    77.3,
+    71.0,
+    70.9,
+    70.8
+  ]
+}

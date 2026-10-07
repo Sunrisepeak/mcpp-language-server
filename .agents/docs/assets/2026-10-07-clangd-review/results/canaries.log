@@ -1,0 +1,138 @@
+fixture workaround-canaries in /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries
+PASS initialize (0.2s) experimental.cxxModules=true
+PASS WA-CLANGD-001 clangd-check (12.7s) clangd has not finished src/hang.cpp after 10 s, as expected
+E[15:09:59.323] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:09:59.323] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:09:59.696] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:09:59.696] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:09:59.925] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:09:59.925] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:09:59.950] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:09:59.950] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:09:59.974] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:09:59.974] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:00.000] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:00.000] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:00.025] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:00.025] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:00.048] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:00.048] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:00.073] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:00.073] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:00.100] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:00.100] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:00.124] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:00.124] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:00.150] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:00.150] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:00.178] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:00.178] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:00.204] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:00.204] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:00.206] Transport error: Input/output error
+E[15:10:00.981] Transport error: Input/output error
+E[15:10:01.703] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:01.703] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:02.068] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:02.068] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:02.304] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:02.304] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:02.338] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:02.338] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:02.366] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:02.366] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:02.391] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:02.391] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:02.414] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:02.414] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:02.441] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:02.441] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:02.470] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:02.470] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:02.499] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:02.500] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:02.527] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:02.527] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:02.550] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:02.550] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:02.577] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:02.577] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:02.602] Scanning modules dependencies for /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp failed: In file included from /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp:1:
+/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy/all.hpp:8:10: fatal error: 'heavy/h000.hpp' file not found
+
+E[15:10:02.602] The command line the scanning tool use is: /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang-tool -std=c++23 -xc++ -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/heavy_use.cpp 
+E[15:10:02.605] Transport error: Input/output error
+E[15:10:03.340] Transport error: Input/output error
+PASS WA-CLANGD-009 clangd-lsp (4.7s) completion median 26 ms with the arguments, 5 ms without: 4.97x, over 1.80 as expected
+E[15:10:07.355] Transport error: Input/output error
+FAIL WA-CLANGD-010 clangd-lsp (3.3s) WA-CLANGD-010 is no longer needed: this clangd no longer says a variable holding a filter view (line 4) or a view over one (line 5) can be declared const, and line 6, an int never changed, is told; remove it from src/engine/clangd/workarounds.cpp and the tidy-const-views fixture (misc-const-correctness on lines [5,6])
+--- server log server-20261006-150946.417-2890.log (last 14 of 14 lines)
+  | mcppls 2026-10-06T15:09:46.417Z [info] log file /dev/shm/mcppls-0012-canary-cache/logs/server-20261006-150946.417-2890.log
+  | mcppls 2026-10-06T15:09:46.433Z [info] tool environment from the login shell in 15 ms; 2 variables differ from this process's
+  | mcppls 2026-10-06T15:09:46.603Z [info] mcppls 0.0.12 (linux) root /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries
+  | mcppls 2026-10-06T15:09:46.603Z [info] semantic kit mcppls-kit-libcxx-23.1.0-x86_64-unknown-linux-gnu at /tmp/mcppls-0012-fork-review-hCVnxE/payload/kit (/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries)
+  | mcppls 2026-10-06T15:09:46.603Z [info] clangd 23.1.0 at /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clangd
+  | mcppls 2026-10-06T15:09:46.603Z [info] workarounds for clangd 23.1.0: WA-CLANGD-001, WA-CLANGD-002, WA-CLANGD-003, WA-CLANGD-004, WA-CLANGD-005, WA-CLANGD-006, WA-CLANGD-007, WA-CLANGD-008, WA-CLANGD-009, WA-CLANGD-010, WA-CLANGD-011, WA-CLANGD-012
+  | mcppls 2026-10-06T15:09:46.610Z [info] project model (/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries): source inferred, level 2, 1 sets, profile semantic-kit  libc++ 23.1.0
+  | mcppls 2026-10-06T15:09:46.610Z [info] engine database (/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries): 11 entries (2 standard library units, 0 stand-ins), 0 left out, 0 issues
+  | mcppls 2026-10-06T15:09:46.614Z [info] clangd (/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries): [/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries]
+  | mcppls 2026-10-06T15:09:46.614Z [info] clangd (/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries): /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang++ --driver-mode=g++ --no-default-config --target=x86_64-unknown-linux-gnu -std=c++26 -nostdinc++ -isystem /tmp/mcppls-0012-fork-review-hCVnxE/payload/kit/include/c++/v1 -isystem /tmp/mcppls-0012-fork-review-hCVnxE/payload/kit/include/x86_64-unknown-linux-gnu/c++/v1 --sysroot=/tmp/mcppls-0012-fork-review-hCVnxE/payload/kit/sysroot -c -I/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src -fmodule-file=std=/dev/shm/mcppls-0012-canary-cache/workspaces/workaround-canaries-858047ab85d86487/contexts/default/module-hints/std.pcm -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /dev/shm/mcppls-0012-canary-cache/workspaces/workaround-canaries-858047ab85d86487/contexts/default/prime/0002-std.cpp
+  | mcppls 2026-10-06T15:09:48.638Z [info] module preparation idle (/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries): 1 of 1 modules prepared
+  | mcppls 2026-10-06T15:10:03.638Z [info] building 1 implementation units for clangd's index (/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries)
+  | mcppls 2026-10-06T15:10:03.640Z [info] clangd (/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries): [/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries]
+  | mcppls 2026-10-06T15:10:03.640Z [info] clangd (/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries): /tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/bin/clang++ --driver-mode=g++ --no-default-config --target=x86_64-unknown-linux-gnu -std=c++26 -nostdinc++ -isystem /tmp/mcppls-0012-fork-review-hCVnxE/payload/kit/include/c++/v1 -isystem /tmp/mcppls-0012-fork-review-hCVnxE/payload/kit/include/x86_64-unknown-linux-gnu/c++/v1 --sysroot=/tmp/mcppls-0012-fork-review-hCVnxE/payload/kit/sysroot -c -I/tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src -x c++-module -fmodule-file=std=/dev/shm/mcppls-0012-canary-cache/workspaces/workaround-canaries-858047ab85d86487/contexts/default/module-hints/std.pcm -fmodule-output=/dev/shm/mcppls-0012-canary-cache/workspaces/workaround-canaries-858047ab85d86487/contexts/default/module-hints/hello.greet-detail.pcm -resource-dir=/tmp/mcppls-0012-fork-review-hCVnxE/payload/clangd/lib/clang/23 -- /tmp/mcppls-conformance-workaround-canaries-4393188736615706/workaround-canaries/src/greet/detail.cppm
+workaround-canaries: 1 failure(s), 21.0s

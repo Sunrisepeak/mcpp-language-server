@@ -1,0 +1,45 @@
+fixture typing-autosave in /tmp/mcppls-conformance-typing-autosave-4393253549975332/typing-autosave
+PASS initialize (0.2s) experimental.cxxModules=true
+PASS S1 status (0.0s) {"cache":{"bytes":100000000,"copies":{"bytes":0,"files":0,"oldestSeconds":0},"instances":{"bytes":0,"count":0},"limitBytes":4294967296,"state":"ok"},"engine":{"name":"clangd","version":"23.1.0"},"engines":[{"name":"mcppls","role":"modules","state":"ready","version":"0.0.12"},{"name":"clangd","role":"core","state":"starting","version":"23.1.0"}],"issues":[],"profile":{"kind":"semantic-kit","standard":"c++26","stdlib":"libc++ 23.1.0","target":"x86_64-unknown-linux-gnu"},"project":{"level":2,"root":"file:///tmp/mcppls-conformance-typing-autosave-4393253549975332/typing-autosave","source":"inferred","tier":4},"state":"ready"}
+PASS T0-before hover-contains (2.9s) ### function `greet`
+
+provided by `"greet/greet.cppm"`
+
+---
+→ `std::string (aka basic_string<char>)`
+
+Parameters:
+
+- `std::string_view who (aka basic_string_v
+PASS T1-type-to-the-dot-saved type-text (3.0s) 13 steps, slowest answer 0.15 s
+PASS T2-stay-on-the-dot-saved type-text (12.8s) 2 steps, slowest answer 0.00 s
+PASS T3-disk-seen report (0.0s) [{"cacheDirectory":"/dev/shm/mcppls-0012-typing-cache/workspaces/typing-autosave-baddd7192afb85f0","completion":{"keywordsWithoutEngine":0,"late":{"arrived":0,"
+PASS T4-keep-typing-saved type-text (1.9s) 6 steps, slowest answer 0.72 s
+PASS T5-features-back hover-contains (0.0s) ### function `greet`
+
+provided by `"greet/greet.cppm"`
+
+---
+→ `std::string (aka basic_string<char>)`
+
+Parameters:
+
+- `std::string_view who (aka basic_string_v
+PASS T6-nothing-provides-it type-text (1.0s) 6 steps, slowest answer 0.00 s
+PASS T7-quiet-long-enough-for-a-stand-in type-text (11.6s) 2 steps, slowest answer 0.00 s
+PASS T8-back-to-the-module type-text (3.4s) 6 steps, slowest answer 0.72 s
+PASS T9-features-after hover-contains (0.0s) ### function `greet`
+
+provided by `"greet/greet.cppm"`
+
+---
+→ `std::string (aka basic_string<char>)`
+
+Parameters:
+
+- `std::string_view who (aka basic_string_v
+PASS T10-nothing-left-aside report (0.0s) [{"cacheDirectory":"/dev/shm/mcppls-0012-typing-cache/workspaces/typing-autosave-baddd7192afb85f0","completion":{"keywordsWithoutEngine":0,"late":{"arrived":0,"
+PASS T11-no-restart-but-for-a-spin report (0.0s) [{"cacheDirectory":"/dev/shm/mcppls-0012-typing-cache/workspaces/typing-autosave-baddd7192afb85f0","completion":{"keywordsWithoutEngine":0,"late":{"arrived":0,"
+PASS D1-missing-semicolon-on-its-directive diagnostic-code (0.1s) [{"code":"expected_semi_after_module_or_import","message":"Import directive must end with a ';' (fix available)","range":{"end":{"character":18,"line":1},"start":{"character":17,"line":1}},"relatedInformation":[],"severity":1,"source":"clang · libc++ 23.1.0 kit"}]
+PASS D2-unsaved-import-is-information diagnostic-code (0.1s) [{"code":"unsaved-import","message":"module 'hello.extra' is in the project; clangd loads it once the file is saved","range":{"end":{"character":19,"line":2},"start":{"character":7,"line":2}},"relatedInformation":[],"severity":3,"source":"mcppls · libc++ 23.1.0 kit"}]
+typing-autosave: 0 failure(s), 37.0s

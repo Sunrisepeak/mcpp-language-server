@@ -1,0 +1,36 @@
+{
+  "checks": [
+    {
+      "detail": "{\"cache\":{\"bytes\":100000000,\"copies\":{\"bytes\":0,\"files\":0,\"oldestSeconds\":0},\"instances\":{\"bytes\":0,\"count\":0},\"limitBytes\":4294967296,\"state\":\"ok\"},\"engine\":{\"name\":\"clangd\",\"version\":\"23.1.0\"},\"engines\":[{\"name\":\"mcppls\",\"role\":\"modules\",\"state\":\"ready\",\"version\":\"0.0.12\"},{\"name\":\"clangd\",\"role\":\"core\",\"state\":\"starting\",\"version\":\"23.1.0\"}],\"issues\":[],\"profile\":{\"kind\":\"semantic-kit\",\"stdlib\":\"libc++ 23.1.0\",\"target\":\"x86_64-unknown-linux-gnu\"},\"project\":{\"level\":2,\"root\":\"file:///tmp/mcppls-conformance-tidy-const-views-4393253551907631/tidy-const-views\",\"source\":\"inferred\",\"tier\":4},\"state\":\"ready\"}",
+      "id": "S1",
+      "kind": "status",
+      "ok": true,
+      "seconds": 5.9434e-05,
+      "since-start": 0.195680772
+    },
+    {
+      "detail": "[{\"code\":\"misc-const-correctness\",\"codeDescription\":{\"href\":\"https://clang.llvm.org/extra/clang-tidy/checks/misc/const-correctness.html\"},\"message\":\"Variable 'limit' of type 'int' can be declared 'const' (fix available)\",\"range\":{\"end\":{\"character\":7,\"line\":6},\"start\":{\"character\":4,\"line\":6}},\"relatedInformation\":[],\"severity\":2,\"source\":\"clang-tidy · libc++ 23.1.0 kit\"}]",
+      "id": "T1-the-int-is-told",
+      "kind": "diagnostic-code",
+      "ok": true,
+      "seconds": 0.523699436,
+      "since-start": 0.719404422
+    },
+    {
+      "detail": "\"misc-const-correctness\" on lines [6]",
+      "id": "T2-const-advice-only-where-true",
+      "kind": "diagnostic-code-lines",
+      "ok": true,
+      "seconds": 1.50012988,
+      "since-start": 2.219565955
+    }
+  ],
+  "failures": 0,
+  "first-diagnostics": 0.195785427,
+  "first-navigation": null,
+  "fixture": "tidy-const-views",
+  "initialize": 0.195446697,
+  "ready": 0.195637671,
+  "reused-workspace": false,
+  "seconds": 2.23893771
+}

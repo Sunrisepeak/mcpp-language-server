@@ -1,0 +1,51 @@
+{
+  "checks": [
+    {
+      "detail": "clangd has not finished src/hang.cpp after 10 s, as expected",
+      "id": "WA-CLANGD-001",
+      "kind": "clangd-check",
+      "ok": true,
+      "seconds": 12.684978734,
+      "since-start": 12.881464563
+    },
+    {
+      "detail": "completion median 26 ms with the arguments, 5 ms without: 4.97x, over 1.80 as expected",
+      "id": "WA-CLANGD-009",
+      "kind": "clangd-lsp",
+      "measure": {
+        "ratio": 4.970118049390918,
+        "with": {
+          "max": 29.9489,
+          "n": 20,
+          "p50": 25.569821,
+          "p95": 28.51562
+        },
+        "without": {
+          "max": 5.863201,
+          "n": 20,
+          "p50": 5.144711,
+          "p95": 5.83211
+        }
+      },
+      "ok": true,
+      "seconds": 4.730401245,
+      "since-start": 17.611895765
+    },
+    {
+      "detail": "WA-CLANGD-010 is no longer needed: this clangd no longer says a variable holding a filter view (line 4) or a view over one (line 5) can be declared const, and line 6, an int never changed, is told; remove it from src/engine/clangd/workarounds.cpp and the tidy-const-views fixture (misc-const-correctness on lines [5,6])",
+      "id": "WA-CLANGD-010",
+      "kind": "clangd-lsp",
+      "ok": false,
+      "seconds": 3.344445085,
+      "since-start": 20.956368331
+    }
+  ],
+  "failures": 1,
+  "first-diagnostics": null,
+  "first-navigation": null,
+  "fixture": "workaround-canaries",
+  "initialize": 0.19632194,
+  "ready": 0.396615536,
+  "reused-workspace": false,
+  "seconds": 20.984077994
+}

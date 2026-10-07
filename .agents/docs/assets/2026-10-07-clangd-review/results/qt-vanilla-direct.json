@@ -1,0 +1,26 @@
+{
+  "clangd": "/home/speak/.vscode/extensions/sunrisepeak.mcpp-language-server-0.0.11-linux-x64/payload/clangd/bin/clangd",
+  "rounds": 16,
+  "cold_ms": 86.0,
+  "p50_ms": 1073.6,
+  "p95_ms": 3879.6,
+  "max_ms": 4913.8,
+  "all_ms": [
+    86.0,
+    3641.3,
+    4913.8,
+    3879.6,
+    3300.3,
+    1276.4,
+    1105.7,
+    1225.3,
+    1073.6,
+    1064.8,
+    1049.7,
+    1037.6,
+    1015.3,
+    1017.3,
+    988.0,
+    1003.7
+  ]
+}

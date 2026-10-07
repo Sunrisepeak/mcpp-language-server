@@ -1,0 +1,35 @@
+fixture inferred in /tmp/mcppls-conformance-inferred-4393580415119832/inferred
+PASS initialize (0.2s) experimental.cxxModules=true
+PASS S1 status (0.0s) {"cache":{"bytes":100000000,"copies":{"bytes":0,"files":0,"oldestSeconds":0},"instances":{"bytes":0,"count":0},"limitBytes":4294967296,"state":"ok"},"engine":{"name":"clangd","version":"23.1.0"},"engines":[{"name":"mcppls","role":"modules","state":"ready","version":"0.0.12"},{"name":"clangd","role":"core","state":"starting","version":"23.1.0"}],"issues":[],"profile":{"kind":"semantic-kit","standard":"c++26","stdlib":"libc++ 23.1.0","target":"x86_64-unknown-linux-gnu"},"project":{"level":2,"root":"file:///tmp/mcppls-conformance-inferred-4393580415119832/inferred","source":"inferred","tier":4},"state":"ready"}
+PASS I1-second-instance second-instance (1.7s) {"cache":{"bytes":100000000,"copies":{"bytes":0,"files":0,"oldestSeconds":0},"instances":{"bytes":0,"count":0},"limitBytes":4294967296,"state":"ok"},"engine":{"name":"clangd","version":"23.1.0"},"engines":[{"name":"mcppls","role":"modules","state":"ready","version":"0.0.12"},{"name":"clangd","role":"core","state":"starting","version":"23.1.0"}],"issues":[],"notices":[{"code":"shared-workspace","message":"another mcppls instance serves this workspace; this one keeps a private cache and starts cold"}],"profile":{"kind":"semantic-kit","standard":"c++26","stdlib":"libc++ 23.1.0","target":"x86_64-unknown-linux-gnu"},"project":{"level":2,"root":"file:///tmp/mcppls-conformance-inferred-4393580415119832/inferred","source":"inferred","tier":4},"state":"ready"}
+PASS C1 diagnostics-empty (2.3s) []
+PASS C2 definition (0.0s) ["file:///tmp/mcppls-conformance-inferred-4393580415119832/inferred/src/greet/greet.cppm"]
+PASS C3 hover-contains (0.0s) ### function `greet`
+
+provided by `"greet/greet.cppm"`
+
+---
+→ `std::string (aka basic_string<char>)`
+
+Parameters:
+
+- `std::string_view who (aka basic_string_v
+PASS C4 definition-any (0.0s) ["file:///home/speak/.vscode/extensions/sunrisepeak.mcpp-language-server-0.0.11-linux-x64/payload/kit/share/libc%2B%2B/v1/std/ostream.inc","file:///home/speak/.vscode/extensions/sunrisepeak.mcpp-language-server-0.0.11-linux-x64/payload/kit/include/c%2B%2B/v1/print"]
+PASS C5 definition (0.0s) ["file:///tmp/mcppls-conformance-inferred-4393580415119832/inferred/src/greet/greet.cppm"]
+PASS C5-partition definition (0.0s) ["file:///tmp/mcppls-conformance-inferred-4393580415119832/inferred/src/greet/detail.cppm"]
+PASS M1-hover hover-contains (0.0s) ```cpp
+module hello.greet
+```
+
+Provided by `greet.cppm` (primary module interface unit).
+
+Semantic profile: libc++ 23.1.0 (semantic kit, x86_64-unknown-linux-gn
+PASS M2-outline document-symbol-contains (0.3s) [{"detail":"primary module interface unit","kind":2,"name":"hello.greet","range":{"end":{"character":25,"line":0},"start":{"character":14,"line":0}},"selectionR
+PASS M3-graph module-graph-contains (0.0s) {"imports":[{"from":"file:///tmp/mcppls-conformance-inferred-4393580415119832/inferred/src/greet/detail.cppm","module":"std","range":{"end":{"character":10,"lin
+PASS M4-import-completion completion-contains (0.0s) ["hello.greet"]
+PASS M5-unresolved diagnostic-code (0.0s) [{"code":"unresolved-module","message":"module 'missing.module' not found","range":{"end":{"character":21,"line":0},"start":{"character":7,"line":0}},"severity":1,"source":"mcppls"}]
+PASS C6 completion-contains (0.0s) ["detail","greet(std::string_view who)"]
+PASS C7 completion-contains (2.5s) ["detail","greet(std::string_view who)","greet2()"]
+PASS C9 references-span (0.2s) ["greet.cppm","main.cpp"]
+PASS K1-semantic-tokens semantic-tokens (0.0s) [0:0 'export' keyword []] [0:7 'module' keyword []] [0:14 'hello.greet' module ["declaration"]] [1:0 'export' keyword []] [1:7 'import' keyword []] [1:15 'detail' module ["partition"]] [2:0 'import' k
+inferred: 0 failure(s), 7.2s
