@@ -30,6 +30,7 @@ orchestrator::EngineFactories engine_factories(const orchestrator::SessionOption
         engine::clangd::Options clangd;
         clangd.executable = payload.clangd;
         clangd.version = payload.clangdVersion;
+        if (!payloadCorrupt && payload.engineIdentity) clangd.verifiedFeatures = payload.engineIdentity->features;
         clangd.formatFallbackStyle = options.formatFallbackStyle;
         clangd.mcppFormatStyle = !payloadCorrupt && payload.engineIdentity &&
             std::ranges::find(payload.engineIdentity->features, "format-style-mcpp") != payload.engineIdentity->features.end();

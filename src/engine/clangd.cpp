@@ -29,9 +29,19 @@ namespace mcppls::engine::clangd {
 namespace log = base::log;
 namespace midx = mcppls::index;
 
-EngineTraits traits_for_version(std::string_view version, std::span<const std::string> disabled) {
+namespace {
+bool fixed_by_verified_features(std::string_view id, std::span<const std::string> features) {
+    return id == DIRECTIVE_SEMICOLON_POSITION &&
+        std::ranges::find(features, "module-directive-diagnostic-ranges") != features.end();
+}
+} // namespace
+
+EngineTraits traits_for_version(std::string_view version, std::span<const std::string> disabled,
+                               std::span<const std::string> verifiedFeatures) {
     // Every compensation for clangd's own defects is a registered workaround (import-hang plan §9).
-    const auto on = [&](std::string_view id) { return needs(id, version) && std::ranges::find(disabled, id) == disabled.end(); };
+    const auto on = [&](std::string_view id) {
+        return needs(id, version) && !fixed_by_verified_features(id, verifiedFeatures) && std::ranges::find(disabled, id) == disabled.end();
+    };
     return EngineTraits {
         .importNavigation = false,
         .pushesDiagnostics = true,
@@ -473,7 +483,7 @@ private:
 
 public:
     explicit ClangdEngine(Options options)
-        : options_ { std::move(options) }, traits_ { traits_for_version(options_.version, options_.disabledWorkarounds) }, stuck_ { options_.stuckWatch } {}
+        : options_ { std::move(options) }, traits_ { traits_for_version(options_.version, options_.disabledWorkarounds, options_.verifiedFeatures) }, stuck_ { options_.stuckWatch } {}
 
     std::string_view id() const override { return ENGINE_ID; }
     std::span<const MethodCapability> methods() const override { return methods_; }
@@ -616,7 +626,7 @@ public:
     Json workarounds_json_() const {
         Json list = Json::array();
         for (const auto& workaround : workarounds()) {
-            if (!needs(workaround, options_.version)) continue;
+            if (!needs(workaround, options_.version) || fixed_by_verified_features(workaround.id, options_.verifiedFeatures)) continue;
             const bool off { std::ranges::find(options_.disabledWorkarounds, workaround.id) != options_.disabledWorkarounds.end() };
             list.push_back(Json { { "id", workaround.id }, { "title", workaround.title }, { "upstream", workaround.upstream },
                                   { "removeWhen", workaround.removeWhen }, { "premise", workaround.premise }, { "turnedOff", off } });
@@ -648,6 +658,7 @@ public:
             const auto active = active_workarounds(options_.version);
             std::string ids;
             for (const auto id : active) {
+                if (fixed_by_verified_features(id, options_.verifiedFeatures)) continue;
                 const bool off { std::ranges::find(options_.disabledWorkarounds, id) != options_.disabledWorkarounds.end() };
                 ids += std::format("{}{}{}", ids.empty() ? "" : ", ", id, off ? " (turned off)" : "");
             }
