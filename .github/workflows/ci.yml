@@ -1192,6 +1192,7 @@ jobs:
   # the oldest and newest Neovim it supports: require('mcppls').setup() on every version, and
   # vim.lsp.enable('mcppls') (lsp/mcppls.lua) from 0.11 on. Neovim comes from xlings like every
   # other tool here (`nvim` in xim-pkgindex), each version installed and selected with `xlings use`.
+  # Intel macOS uses checksum-pinned upstream binaries until xlings publishes that host.
   neovim:
     name: Neovim (${{ matrix.platform }})
     needs: payload
@@ -1211,12 +1212,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
+        if: matrix.platform != 'darwin-x64'
       - uses: actions/download-artifact@v8
         with:
           name: payload-${{ matrix.platform }}
       - name: Unpack the payload
         run: tar -xzf payload-${{ matrix.platform }}.tar.gz
       - name: Neovim from xlings
+        if: matrix.platform != 'darwin-x64'
         run: |
           set -euo pipefail
           for version in ${{ matrix.versions }}; do
@@ -1226,13 +1229,20 @@ jobs:
               sleep 30
             done
           done
+      - name: Pinned native Intel Neovim
+        if: matrix.platform == 'darwin-x64'
+        run: bash .github/scripts/install-intel-neovim.sh "$RUNNER_TEMP/neovim"
       - name: The plugin on each Neovim
         run: |
           set -euo pipefail
           server="$PWD/payload/bin/mcppls"; [ "$RUNNER_OS" = Windows ] && server="$(cygpath -w "$PWD/payload/bin/mcppls.exe")"
           failed=''
           for version in ${{ matrix.versions }}; do
-            xlings use nvim "$version"
+            if [ "${{ matrix.platform }}" = darwin-x64 ]; then
+              export PATH="$RUNNER_TEMP/neovim/$version/bin:$PATH"
+            else
+              xlings use nvim "$version"
+            fi
             nvim --version | head -1
             # No `timeout` wrapper: macOS has none, and every wait in smoke.lua is bounded already.
             for mode in setup enable; do
