@@ -7,3 +7,4 @@ docs/specs/tools/validate.py	JSON Schema 2020-12 validation, and no C++ library 
 .github/scripts/install-mcpp.sh	CI bootstrap: installs mcpp itself, before any mcpp-built program can run.
 editors/zed/tests/smoke.sh	The real-Zed smoke (plan 0.0.8 part 2 Z-2, Z-3): drives a GUI editor binary under xvfb, starts and stops it, and inspects its process tree; that is shell work, and no mcpp-built program can stand in for Zed.
 editors/zed/tests/lsp_frames.py	The smoke's helper that reads the LSP frames a wrapper recorded between Zed and mcppls; kept beside smoke.sh, which needs it only in the same CI job.
+.agents/docs/assets/2026-10-07-clangd-review/direct_probe.py	Issue #24 review evidence: the raw-LSP probe that measured vanilla/fork completion and crash behavior on qt-demo (2026-10-07-maintained-clangd-0.0.12-plan.md); it stays beside the results it produced.
