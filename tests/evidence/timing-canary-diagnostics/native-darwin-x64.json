@@ -1,0 +1,227 @@
+{
+  "run": 37772700872,
+  "job": 113308243147,
+  "source": "a432c284f35311a1e6d8cb9a97406177e59429d0",
+  "conclusion": "success",
+  "scope": "locked stock23.1.0; native collection and current timing gate only",
+  "median_cold_first_navigation": 8.315432323,
+  "cold_budget": 12,
+  "collection_excluded_from_measured_latency": true,
+  "samples": [
+    {
+      "kind": "cold",
+      "round": 1,
+      "measurement_sha256": "55f47e7db42700b8eca03f699060a08cb3df555baacc7cd8994886013e138e57",
+      "ready": 2.150459343,
+      "first_navigation": 16.670604246,
+      "failures": 0,
+      "report_present": true,
+      "manifest_sha256": "8bb30cff0857434f895ba4afdbe59279a48aeac795a1e8b99bc87c0fe853ba58",
+      "report_sha256": "cc2a3cf9b8d4096a6352a8819bb5d6da20f797ab0fb3a3edc8ac9db0b8aae151",
+      "report_keys": [
+        "cache-directory",
+        "collection-budget-seconds",
+        "collection-excluded-from-timing",
+        "collection-seconds",
+        "report",
+        "server-command",
+        "workspace"
+      ],
+      "bounded_logs": 1
+    },
+    {
+      "kind": "cold",
+      "round": 2,
+      "measurement_sha256": "ea53a1ad4bc81eb740d16ead720ca1326fe55ae8375ffe0bb27be95563d2117a",
+      "ready": 0.703393618,
+      "first_navigation": 9.825307839,
+      "failures": 0,
+      "report_present": true,
+      "manifest_sha256": "a10faa17457ad2a5f481530ab9ad3277a4a3960c12dec2ed7ab3ccf858a02029",
+      "report_sha256": "776acf49d242db2dd513ffcdd870b34c86f5cebe3060bd4ca75e1a6f6f85c2a1",
+      "report_keys": [
+        "cache-directory",
+        "collection-budget-seconds",
+        "collection-excluded-from-timing",
+        "collection-seconds",
+        "report",
+        "server-command",
+        "workspace"
+      ],
+      "bounded_logs": 1
+    },
+    {
+      "kind": "cold",
+      "round": 3,
+      "measurement_sha256": "e3e757a5f8f5719b1beeef637cc3accaf3a73421be9bd134791524d0873fd012",
+      "ready": 0.516862162,
+      "first_navigation": 8.315432323,
+      "failures": 0,
+      "report_present": true,
+      "manifest_sha256": "77c70c1a78145cbefdda10a1ec143919a44cb2e36a93f093a8ecb0c8c5530acd",
+      "report_sha256": "8c19aa3b0621ce1ff9e4b940883547ddef0a84fcb0b759cd3aaec94fcd069d3c",
+      "report_keys": [
+        "cache-directory",
+        "collection-budget-seconds",
+        "collection-excluded-from-timing",
+        "collection-seconds",
+        "report",
+        "server-command",
+        "workspace"
+      ],
+      "bounded_logs": 1
+    },
+    {
+      "kind": "cold",
+      "round": 4,
+      "measurement_sha256": "ada97afb87b89d5e1c437a2620ffd813b674ae63c2dcccaf2debad759aa23949",
+      "ready": 0.534994288,
+      "first_navigation": 7.992542329,
+      "failures": 0,
+      "report_present": true,
+      "manifest_sha256": "f59e4f98503c32d1062161204257b8ec68c46140783334e19889284ee80a2cb9",
+      "report_sha256": "2fa046bf8df18d22e3876a0d056b22148062d0dcd3681f3dab83d402e6177dae",
+      "report_keys": [
+        "cache-directory",
+        "collection-budget-seconds",
+        "collection-excluded-from-timing",
+        "collection-seconds",
+        "report",
+        "server-command",
+        "workspace"
+      ],
+      "bounded_logs": 1
+    },
+    {
+      "kind": "cold",
+      "round": 5,
+      "measurement_sha256": "bdf16d207756e72878f462e821ace1996eb2d9707cfeaaea67448be05fd105da",
+      "ready": 0.496076831,
+      "first_navigation": 8.28741222,
+      "failures": 0,
+      "report_present": true,
+      "manifest_sha256": "334f9e8bfb49368eb62ddd75ff4629ff16684824dc6c0db675f1d728a8bd971d",
+      "report_sha256": "34fd3b7de2839ef5047f4e56c36798960b578cc5bb3ec2e31d675c117774e553",
+      "report_keys": [
+        "cache-directory",
+        "collection-budget-seconds",
+        "collection-excluded-from-timing",
+        "collection-seconds",
+        "report",
+        "server-command",
+        "workspace"
+      ],
+      "bounded_logs": 1
+    },
+    {
+      "kind": "warm",
+      "round": 1,
+      "measurement_sha256": "c63257605ca3c5f12e325a4b1eaa6badf3eafa94a962a293b3071c8f68139447",
+      "ready": 0.178246345,
+      "first_navigation": 2.931578259,
+      "failures": 0,
+      "report_present": true,
+      "manifest_sha256": "e9c393d86bd422af815703ec03764d42164f99f4e9051ee2d5b4a44672aa93e4",
+      "report_sha256": "f2da595d679ec59f3da8e1366568763f28ccf7b50c37a0ef44c21af6afac22e6",
+      "report_keys": [
+        "cache-directory",
+        "collection-budget-seconds",
+        "collection-excluded-from-timing",
+        "collection-seconds",
+        "report",
+        "server-command",
+        "workspace"
+      ],
+      "bounded_logs": 2
+    },
+    {
+      "kind": "warm",
+      "round": 2,
+      "measurement_sha256": "d9c8e46062d8f67b6c20c0f6de4c1f76329cdc32b19d1ad0faeb381e48eed01c",
+      "ready": 0.145023716,
+      "first_navigation": 2.507720845,
+      "failures": 0,
+      "report_present": true,
+      "manifest_sha256": "3a3ac487d259d50abe76282c69d622da676a4733c0e5529db18a50ef799004ab",
+      "report_sha256": "3eb77d91b23cae6b132e2dce65df79067be4891b345f8371b48813ead1c883b7",
+      "report_keys": [
+        "cache-directory",
+        "collection-budget-seconds",
+        "collection-excluded-from-timing",
+        "collection-seconds",
+        "report",
+        "server-command",
+        "workspace"
+      ],
+      "bounded_logs": 2
+    },
+    {
+      "kind": "warm",
+      "round": 3,
+      "measurement_sha256": "132789b7ce4101546afc8bbd72b15265ceeacb36d167885a768752b2e1d18744",
+      "ready": 0.310999869,
+      "first_navigation": 2.838050227,
+      "failures": 0,
+      "report_present": true,
+      "manifest_sha256": "01776ca0ca85fcecab65a62bcb1317094abdb1bb79303790717d26a188827133",
+      "report_sha256": "45f58ef87c9925334133646ef455ac5d5e93cd2c3f7e3f238229ee56689a85d3",
+      "report_keys": [
+        "cache-directory",
+        "collection-budget-seconds",
+        "collection-excluded-from-timing",
+        "collection-seconds",
+        "report",
+        "server-command",
+        "workspace"
+      ],
+      "bounded_logs": 2
+    },
+    {
+      "kind": "warm",
+      "round": 4,
+      "measurement_sha256": "757dbfa8ffb9b702064c03d0782d0839188976124bf13cdf2b452501cc10b64f",
+      "ready": 0.273642232,
+      "first_navigation": 3.158573973,
+      "failures": 0,
+      "report_present": true,
+      "manifest_sha256": "f6c3b744bd766387a4f5653b7307e120d0bd5d17a22681175f7ebf308cdb64c2",
+      "report_sha256": "925fbebfb14bfd1d250c487b75f8bd019f2a595f994ea1f3a0a58b24568559eb",
+      "report_keys": [
+        "cache-directory",
+        "collection-budget-seconds",
+        "collection-excluded-from-timing",
+        "collection-seconds",
+        "report",
+        "server-command",
+        "workspace"
+      ],
+      "bounded_logs": 2
+    },
+    {
+      "kind": "warm",
+      "round": 5,
+      "measurement_sha256": "a628ec2ae055da39e8378f6c72ab0bbad4d9d9db73ffee3c608a18d297a9765d",
+      "ready": 0.148318698,
+      "first_navigation": 2.616943717,
+      "failures": 0,
+      "report_present": true,
+      "manifest_sha256": "12029497f7fbc30ddb3a89bee3a0eff003484a6a2ede0ec58a59840b8d306436",
+      "report_sha256": "e2ea434a601b454f5a36625f2cf6a68fd7aeee02170251b854a347f856b2d752",
+      "report_keys": [
+        "cache-directory",
+        "collection-budget-seconds",
+        "collection-excluded-from-timing",
+        "collection-seconds",
+        "report",
+        "server-command",
+        "workspace"
+      ],
+      "bounded_logs": 2
+    }
+  ],
+  "limits": [
+    "Runtime startup behavior unchanged by optional collector/inventory fix; passing this run does not prove cold cost fixed.",
+    "Prior native source7062e07 median12.59s failed and stock references17.482s failed15s retained.",
+    "Not joint maintained native engine qualification."
+  ]
+}
