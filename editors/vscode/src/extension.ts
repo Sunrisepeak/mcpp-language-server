@@ -38,7 +38,7 @@ import { serverEnabled } from './enable';
 import { transition } from './enableSwitch';
 import { FatalController } from './fatal';
 import { resolveLaunch } from './payload';
-import { announcedServerLog, ServerLogLevel, ServerLogRouter } from './serverLog';
+import { absoluteServerLogPath, announcedServerLog, ServerLogLevel, ServerLogRouter } from './serverLog';
 import { promptTestHarness, PromptKind, ShownPrompt } from './prompt';
 import { CxxModulesStatus, ModuleIssue, ModuleState, StatusController } from './status';
 import { describeActiveWorkarounds } from './workarounds';
@@ -441,9 +441,8 @@ class ServerHost implements vscode.Disposable {
             // A report from a replaced client must not overwrite the new
             // process's startup announcement (its cache directory can differ).
             if (this.client !== client) return;
-            if (typeof report?.server?.logFile === 'string' && report.server.logFile.length > 0) {
-                this.knownServerLog = report.server.logFile;
-            }
+            const reportedLog = absoluteServerLogPath(report?.server?.logFile);
+            if (reportedLog) this.knownServerLog = reportedLog;
             if (typeof report?.server?.version === 'string' && !this.knownServerVersion) {
                 this.knownServerVersion = report.server.version;
             }

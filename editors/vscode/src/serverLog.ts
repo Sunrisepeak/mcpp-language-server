@@ -24,13 +24,20 @@ export interface ServerLogLine {
 
 const LOG_LINE = /^mcppls \S+ \[(debug|info|warning|error)\] ?(.*)$/;
 
+// Diagnostic reports replace home directory paths with ~/... .
+// Such display strings cannot locate files or replace a path learned from stderr.
+export function absoluteServerLogPath(value: unknown): string | undefined {
+    return typeof value === 'string' && value.length > 0
+        && (path.isAbsolute(value) || path.win32.isAbsolute(value)) ? value : undefined;
+}
+
 // The process announces its log before initialize completes. A diagnostic report
 // can be interrupted by a crash, so keep this path as soon as stderr arrives.
 export function announcedServerLog(line: string): string | undefined {
     const match = LOG_LINE.exec(line);
     if (!match || match[1] !== 'info' || !match[2].startsWith('log file ')) return undefined;
     const file = match[2].slice('log file '.length);
-    return file && (path.isAbsolute(file) || path.win32.isAbsolute(file)) ? file : undefined;
+    return absoluteServerLogPath(file);
 }
 
 // One stderr line, given the level of the log line before it. A line in the server's log format has
