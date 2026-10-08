@@ -61,3 +61,13 @@ consumer 增加 virtual 方法，因此先重建全部 141 个 clangd 消费者�
 `5cd03e1fd` 在现有 ASTReader predicate helper 中将 CXXDeductionGuideName 的 template identifier 纳入同一谓词，保留匹配模板的全部 guide。无接口/布局/序列化格式变化，operator/literal/using 不变。两项新增控制与原控制合计 144 CompletionTest 通过；反向替换为 0068 的测试确实检测到未选模板被加载。普通 lookup 对隐式 FunctionTemplateDecl 包装与显式 guide 均保留，alias/snippet 与文本声明一致。
 
 四次 std 计量的 guide ID 从 1,425 降至 48，线程 CPU 约 28–33ms 降至 2.4–2.8ms；无新增插桩短 A/B/A edited p95 192.56/183.83/185.03ms，净收益尚未完整资格验证。36 次真实 Sema/实际选定 GCC 插入及全部返回编辑字段通过；该第一轮时延因并行编译排除。已归档引擎 `tests/evidence/part2-linux/filtered-guides-candidate/`，尚未导出 0069。
+
+
+## 私有后续候选：实际补全名称契约
+
+正式 0068 的 identifier 谓词保持历史记录；私有 `31c43d3a2` 将谓词签名改为 `function_ref<bool(llvm::StringRef)>`，按 clangd 实际 TypedText 匹配 identifier、推导指引所属模板名称和 operator。OperatorKinds.def 映射及 new/delete/new[]/delete[]/call/subscript 的显式拼写需与 Sema AddTypedNameChunk 保持一致，co_await 使用 `operatorco_await`，不能使用 DeclarationName 的诊断字符串。未知 operator、literal、using 及其他名称保守保留；不额外 intern IdentifierInfo。同步 source/context 精确绑定、一次消费、嵌套恢复和普通查找行为沿用 0068。
+
+完整 Linux 四格对照 edited p95：Modules 250.61→144.09ms，全头文件 180.13→134.67ms；候选 edited 差约 9.43ms，warm 仍差约 38.26ms。146 CompletionTest、5 NamespaceLookupTest 和 83 选定实际 GCC 插入通过。无效并行负载记录独立保留；完整证据及限制见实施状态和引擎 `filtered-special-names-candidate/four-arm/`。尚未导出新 series，也没有完成所有受影响消费者的最终干净构建或发布验收。
+
+
+后续导出：本地 series 已新增 `0069-UP-25-selective-guide-operator-completion.patch`，69 补丁/69 台账检查通过，stabilizing；合成源提交 `499609a2a1503ea7fef404e5b72fbb2e9fa2a9f2`，series SHA `c70865e0d5ca7dd2b75a5442de45e030d4149a8c7709dd8f1f611173f76376de`。完整四格证据、两个无效计时和源身份已归档。独立干净目录 `/tmp/mcppls-part2-clean-special69/` 正从固定上游 tarball 应用完整 series 并重建全部消费者；当前仅构建启动，不作为通过证据。旧 0068 构建和基线保留，新候选尚未推送，PR 不合入。
