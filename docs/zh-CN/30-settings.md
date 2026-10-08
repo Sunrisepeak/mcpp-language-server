@@ -51,7 +51,7 @@ VS Code 扩展已经会这样做）；`重新加载模型` 只重新加载项目
 | `mcppls.compiler` | 字符串 | （空） | `--compiler` | 重新加载模型 | 为模块语义使用这个编译器，而不是检测到的那个：可以是绝对路径、`PATH` 上的名字，或 `kit`（强制使用内置的语义工具包）。空表示自动检测。 |
 | `mcppls.semanticKit` | `auto`, `off` | `auto` | `--semantic-kit` | 重新加载模型 | 内置的标准库工具包是否可以被使用：`auto` 在没有找到编译器时使用；`off` 从不使用（没有编译器时只剩模块相关功能）。 |
 | `mcppls.requestTimeout` | 非负整数（秒） | `60` | `--request-timeout` | 重启 | 一个引擎请求最多等待多久，超时后不经该引擎就给出答复。用户在等的请求（悬停、跳转、补全等）总共最多等 30 秒，clangd 启动或准备模块期间也算在内，之后由 mcppls 自己的引擎答复。 |
-| `MCPPLS_ENGINE_ARGUMENTS` | 字符串 | （空） | — | 重启 | 追加到 clangd 自身命令行末尾的额外参数，用于排查问题（例如 `-j=8 --background-index-priority=background`）。 |
+| `MCPPLS_ENGINE_ARGUMENTS` | 字符串 | （空） | — | 重启 | 追加到 clangd 自身命令行末尾的额外参数，用于排查问题（例如 `-j=8 --background-index-priority=normal`）。显式设置后台索引优先级会覆盖 mcppls 默认的 `background`。 |
 
 ### 编辑器体验
 
