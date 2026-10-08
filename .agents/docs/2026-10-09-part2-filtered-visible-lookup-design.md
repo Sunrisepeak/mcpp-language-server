@@ -1,6 +1,6 @@
 # Part 2：补全时按名称加载导入声明的设计边界
 
-状态：Linux 根因证据与私有原型设计，尚未实现生产优化；不导出补丁、不合入 PR。延续 Part 2 的真实语义、200ms、输入失效及资源验收。
+状态：Linux 选择性加载已实现并导出为本地 0068，stabilizing；干净构建与最终生产/原生发布资格未完成，PR 不合入。延续 Part 2 的真实语义、200ms、输入失效及资源验收。
 
 原 URI、同一 CDB 的 Qt 配对实验中，全头文件稳定语义执行约 53–56ms，Modules 约 132–136ms。新增私有 `SemaLookup.cpp` 插桩显示：Modules 的 `std` lookup 每次收集 17,144 个声明，枚举约 91–111ms，consumer 阶段约 11–12ms；全头文件收集 5,823 个声明，枚举约 34–42ms，consumer 约 6–7ms。该窗口包含 `Ctx->lookups()`、查找表物化及向量收集，尚不能将全部窗口归为磁盘读取或 `GetDecl`。所有选定 completion 均为真实 typed Sema；这是定位样本，尚非正式性能验收。
 
@@ -49,3 +49,9 @@ consumer 增加 virtual 方法，因此先重建全部 141 个 clangd 消费者�
 | edited p50 | 245.48ms | 183.09ms | 240.14ms |
 
 候选观察到的主进程 VmHWM 约 703,780KiB，基线约 732,484/736,628KiB；采样包含冷阶段，未计子进程，不能代替稳定期物理缓存/RSS 资格。证据、完整 diff 与构建配方归档在引擎 `tests/evidence/part2-linux/filtered-lookup-formal/`。候选 diff SHA `aef3a329d3d7628d9a13e6b2cb9c9bee6e37178b4dfbb766f6be05f8bb5fb405`，引擎 SHA `6de880807d5d81c7c98341570d123fb88847928c523fc06042c92a11dba6ddb7`。尚未导出，12 语境及最终 3×30、其他平台、产品与发布长期验证仍未完成。
+
+## 0068 导出与完整匹配对照
+
+引擎本地 `b053791` 已导出 `0068-UP-25-selective-external-namespace-completion.patch`，台账 68/68 检查通过。源码 `c3af7d151` 的生产部分仍对应已测 `7db2e70ab`，额外改动为测试；142 CompletionTest 与 5 NamespaceLookupTest 通过。实际多模块控制覆盖独立/已合并/后续更新的名称表及重载、普通 lookup；仍需补齐最终可见性、resolve 与消费者运行资格。
+
+四格每臂 3×30 的 edited p95：全头文件 baseline/candidate 为 184.52/155.90ms，Modules 为 255.22/188.61ms。每种模式内所有 186 个回复的全部返回项关键编辑元组相同，81 次抽样实际 GCC 插入通过。Modules 改善 26.10%，与候选全头文件仍差 32.71ms。详情与构建进度见 [实施状态](2026-10-09-0.0.12-part2-implementation-status.md)。
