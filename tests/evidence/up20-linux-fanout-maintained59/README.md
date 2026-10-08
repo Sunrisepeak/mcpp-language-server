@@ -1,0 +1,5 @@
+# UP20 maintained59 actual recovered fanout save
+
+Same recovered U7b scenario/source, CPU affinity, product binary and240s save/republication window as the tracked stock control; a fresh cache and matching builtin resources use maintained engine SHA46f703024e39b08e1db7f0d6ccda908ae6ca532b86ee366913a5d5e9acbb3987. Actual run363.35s fails, with6 natural parser crash/restarts in one session. None of8 importer diagnostics republish in240s, ux_probe_fn never clears, recovery319.50s exceeds60s. All240 interactive requests answer, but only3.85% responses use the engine; fallback p95 is not a performance pass. Original edited source bytes are restored.
+
+A same-CDB single-file clangd --check of address_set.cppm independently exits SIGSEGV; GDB locates the first failing symbol in AbstractTypeReader<ASTRecordReader>::read during allocator deserialization. Full cause and repair remain open. No forced engine kill is counted. [Result and identity](result.json), [parser stack excerpts](stack-excerpts.txt). Full raw logs remain private.

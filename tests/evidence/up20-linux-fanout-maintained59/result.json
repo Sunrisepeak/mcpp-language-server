@@ -1,0 +1,104 @@
+{
+  "measure": {
+    "checks": [
+      {
+        "detail": "not every importer's diagnostics were published again within 240 s; the diagnostic naming 'ux_probe_fn' never cleared within 240 s; the probe after the save 319.50s is over the budget 60.00s; 8 importers republished after never, probe cleared after never, interactive p95 1.00s max 6.89s, jump after 319.5s, states [\"degraded\"]",
+        "id": "U7b-fanout-crash",
+        "kind": "edit-save",
+        "measure": {
+          "completion": {
+            "max": 6.892233284,
+            "n": 240,
+            "p50": 0.001359775,
+            "p95": 1.001596625
+          },
+          "completionsUnanswered": 0,
+          "engineShare": 0.038461538461538464,
+          "errorSamples": 0,
+          "importers": 8,
+          "load": 1.96,
+          "probeSeconds": null,
+          "recoverSeconds": 319.495984676,
+          "republishSeconds": null,
+          "restarts": 6,
+          "statesSeen": [
+            "degraded"
+          ]
+        },
+        "ok": false,
+        "seconds": 363.180354727,
+        "since-start": 363.211623622
+      }
+    ],
+    "failures": 1,
+    "first-diagnostics": 34.188844999,
+    "first-navigation": null,
+    "fixture": "ux-mcpp",
+    "initialize": 0.030738761,
+    "ready": 1.265928218,
+    "reused-workspace": true,
+    "seconds": 363.353190484
+  },
+  "invocation": {
+    "argv": [
+      "taskset",
+      "-c",
+      "0,1,2,3,4,5,6,7",
+      "/home/speak/workspace/github/mcpp-language-server/target/x86_64-linux-gnu/c6a96775022a4395/bin/mcppls-conformance",
+      "run",
+      "--server",
+      "/home/speak/workspace/github/mcpp-language-server/target/x86_64-linux-gnu/c6a96775022a4395/bin/mcppls",
+      "--fixture",
+      "/tmp/mcppls-up20-fixture",
+      "--clangd",
+      "/tmp/mcppls-up20-fork/bin/clangd",
+      "--kit",
+      "/tmp/mcppls-ext-mxNsNl/sunrisepeak.mcpp-language-server-0.0.12/payload/kit",
+      "--workspace-dir",
+      "/tmp/mcppls-up20-conformance-work",
+      "--cache-dir",
+      "/tmp/mcppls-up20-maintained59-cache",
+      "--timeout",
+      "360",
+      "--keep",
+      "--verbose",
+      "--measure",
+      "/tmp/mcppls-up20-maintained59-result.json"
+    ],
+    "cpus": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "source": "d1f1c98fa26d953e084a183a9672fc1e0ce63558",
+    "stock_engine_sha256": "5a535973dd1274270c8a0d34677fe4758d8c9aaa164aa3701602c957c42dc9e2",
+    "note": "Same recovered U7b and affinity, fresh cache; original source/CDB restored before run; development maintained59 artifact, not final native payload",
+    "maintained_engine_sha256": "46f703024e39b08e1db7f0d6ccda908ae6ca532b86ee366913a5d5e9acbb3987"
+  },
+  "natural_crash_stacks": 6,
+  "forced_engine_kill": false,
+  "disk_source_restored": true,
+  "raw_log": {
+    "private_path": "/tmp/mcppls-up20-maintained59.log",
+    "bytes": 14405139,
+    "sha256": "f4bd3339ecac02a64a36047352856eff23aa3f1d3b5fab8399015bc60416402f"
+  },
+  "standalone_reduction": {
+    "command": "clangd --check=original address_set.cppm --compile-commands-dir=actual generated CDB --experimental-modules-support --background-index=false",
+    "natural_SIGSEGV": true,
+    "symbol": "clang::serialization::AbstractTypeReader<clang::ASTRecordReader>::read(clang::Type::TypeClass)",
+    "parser_context": "std::vector<Winner> -> allocator -> __new_allocator",
+    "complete_cause_known": false
+  },
+  "limits": [
+    "one recovered original save session, not independent repetitions",
+    "current GCC/libstdc++16.1 input profile, not byte-identical historical dependencies",
+    "partial-object maintained59 engine, not final native payload",
+    "crash not fixed; fallback reply latency is not semantic engine performance"
+  ]
+}
