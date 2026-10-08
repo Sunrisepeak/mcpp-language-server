@@ -20,3 +20,16 @@ ASTReader 子阶段计量已完成：6 次 `std` namespace lookup 各读取 17,1
 下一步用私有原型验证按名称加载的收益。最小控制涵盖限定 namespace、模糊词、空词、using/inline namespace、重载/模板、导入可见性、普通 lookup 不受影响及取消。真实 Qt 语义和 GCC 插入通过后才做短 A/B；无新增插桩的最终构建再跑完整分布。该路线若不能保全查找语义，则撤回原型，而不是关闭 external loading。
 
 这是已有 UP-25 性能路径的进一步定位，已核对单一登记 #24 的 UP-25；当前不声明新的上游缺陷。具体优化及正式上游补偿状态按 contributing 规则随最终实现补齐。
+
+## 私有原型首轮结果
+
+原型位于 `/tmp/mcppls-part2-filtered-lookup`，从最终 67 源提取 `SemaLookup.cpp`、`ASTReader.cpp` 和私有 `MultiOnDiskHashTable.h`，增加按名称选择的 table 读取；没有更改 BMI 格式、公共布局或 virtual API。仅在带非空、长度≤63补全词的 qualified namespace lookup 中启用。名称筛选使用大小写不敏感子序列，是当前 clangd fuzzy match 的保守超集；非 identifier、非 ASCII、空词及长词回到原路径。临时 thread-local target/pattern 只覆盖该次查找表枚举；递归普通查找与 consumer 回调前恢复原状态，部分加载后保留 external visible storage 标志。
+
+它当前是可执行实验，不是正式接口方案：生产实现还须用显式补全上下文/接口替代私有跨库 thread-local 传递，验证 ordinary lookup、嵌套/取消恢复、表 override/merge、模块可见性与所有相关消费者。
+
+- 实际 clangd FuzzyMatcher 的 124,656 组名称/词对照中，18,934 组匹配未被子序列筛选误删，包含大小写、下划线及长词边界；此有限控制不代替全量语义证明。
+- 原 Qt URI/CDB/编译参数，1 次启动、1 轮编辑、4 次 completion：全部 typed Sema 和实际 GCC 选定插入通过。warm 118.29/113.54ms、edited 187.96ms；历史同条件短基线约 175–179/248ms。尚非完整 A/B/A 或正式 p95。
+- 每次 `std::ve` 选择性加载 4,649 个 ID、346 个名称，原完整路径约 17,192 个 ID。Qt trace 的稳定语义执行约 73.86–77.46ms，edited 模块验证约 82.71ms。
+- 小模块 fixture 通过跨 namespace using、inline namespace、重载，以及 `v_t`→`vector_template` 的非前缀 fuzzy 控制；实际 GCC 插入通过。using 场景基线/候选四次返回的全部 label/kind/实际编辑元组一致。最初 `vr`→`vector` 的 fixture 预期不符合原 FuzzyMatcher 的强匹配规则，该负记录保留，不作为候选正确性或性能结论。
+
+下一步完成正式接口与正确性控制，再在无额外插桩的候选上跑短匹配 A/B/A；确认收益后才扩大至 12 语境与 3×30 验收。当前不能称 PR 达标或 release 完成。
