@@ -1,0 +1,10 @@
+{
+  "raw_log_sha256": "58d4aeaf34243a4f2add69610f2b2aa0c3b7a93bf2bd293e3720b63cd609ce61",
+  "source_restored_to_pinned_git": true,
+  "restored_source_sha256": "c4e42700dfa1a6527bdffd04c4e05aeac34c25d449f2179c321493b2364191eb",
+  "limits": [
+    "One Linux joint replacement-object run; not native/1000-save/resource qualification.",
+    "Product binary changed since maintained63/baseline: optional timing collector now present; exact snapshotted hashes/commit in invocation, not an identical-product controlled comparison.",
+    "Interactive p95 1.118s is not completion latency qualification."
+  ]
+}

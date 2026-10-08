@@ -1,0 +1,47 @@
+{
+  "argv": [
+    "taskset",
+    "-c",
+    "0,1,2,3,4,5,6,7",
+    "/tmp/mcppls-up20-product67/mcppls-conformance",
+    "run",
+    "--server",
+    "/tmp/mcppls-up20-product67/mcppls",
+    "--fixture",
+    "/tmp/mcppls-up20-fixture",
+    "--clangd",
+    "/tmp/mcppls-up20-fork67/bin/clangd",
+    "--kit",
+    "/tmp/mcppls-ext-mxNsNl/sunrisepeak.mcpp-language-server-0.0.12/payload/kit",
+    "--workspace-dir",
+    "/tmp/mcppls-up20-conformance-work",
+    "--cache-dir",
+    "/tmp/mcppls-up20-maintained67-cache",
+    "--timeout",
+    "360",
+    "--keep",
+    "--verbose",
+    "--measure",
+    "/tmp/mcppls-up20-maintained67-result.json"
+  ],
+  "cpus": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "source": "d1f1c98fa26d953e084a183a9672fc1e0ce63558",
+  "stock_engine_sha256": "5a535973dd1274270c8a0d34677fe4758d8c9aaa164aa3701602c957c42dc9e2",
+  "note": "Final joint67 same recovered source/CDB/scenario/affinity with fresh cache; product binary now includes timing-evidence collector, snapshots/hash above; not byte-identical earlier product baseline or native qualification",
+  "maintained_engine_sha256": "200acd4f71d3e8f9927d9923b7005db7b98923e42f42880ef5e39ef483ce6d49",
+  "engine_source": "66ed2d104d8affc9e75c82a5b015f9e6869a6b00",
+  "product_commit": "a432c284f35311a1e6d8cb9a97406177e59429d0",
+  "binary_sha256": {
+    "mcppls": "70156817b4bab8aa934d9fbe8dc6e1bb5d9cc15c035b6c262895cb7fcdb6f287",
+    "mcppls-conformance": "aba15e084cf490a0dba6d391c0590bd98cb27243cfb4e7ee7c77ed6f159eadb3"
+  }
+}
