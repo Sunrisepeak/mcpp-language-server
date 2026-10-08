@@ -1,0 +1,286 @@
+{
+  "source_commit": "840a97b6cec8600bca1879cce480ffd92657ed07",
+  "build": "mcpp build -j2: PASS18.74s",
+  "controls": {
+    "cold": {
+      "manifest": {
+        "command": [
+          "target/x86_64-linux-gnu/c6a96775022a4395/bin/mcppls-conformance",
+          "run",
+          "--server",
+          "target/x86_64-linux-gnu/c6a96775022a4395/bin/mcppls",
+          "--clangd",
+          "/tmp/mcppls-up20-baseline/clangd_23.1.0/bin/clangd",
+          "--kit",
+          "/tmp/mcppls-ext-mxNsNl/sunrisepeak.mcpp-language-server-0.0.12/payload/kit",
+          "--fixture",
+          "conformance/fixtures/timing",
+          "--workspace-dir",
+          "/tmp/mcppls-timing-evidence-real/workspace",
+          "--cache-dir",
+          "/tmp/mcppls-timing-evidence-real/cache",
+          "--timeout",
+          "120",
+          "--measure",
+          "/tmp/mcppls-timing-evidence-real/cold.json",
+          "--timing-evidence",
+          "/tmp/mcppls-timing-evidence-real/cold/report.json"
+        ],
+        "cwd": "/home/speak/workspace/github/mcpp-language-server",
+        "logs": [
+          {
+            "source": "/tmp/mcppls-timing-evidence-real/cache/logs/server-20261008-110722.648-f020.log",
+            "device": 66309,
+            "inode": 87212436,
+            "size": 6789,
+            "mtime_ns": 1791457660802620139,
+            "artifact": "log-0.txt",
+            "prefix_bytes": 6789,
+            "tail_offset": 6789,
+            "tail_bytes": 0,
+            "retained_sha256": "5f148f14d6153b25a31a624e66b29e6d953b0b6afb3177c5d7e0e92f52fcf6a8"
+          }
+        ],
+        "limits": {
+          "log_files": 8,
+          "log_bytes_each": 131072,
+          "directory_entries_examined": 32,
+          "report_bytes": 1048576
+        },
+        "collection_excluded_from_navigation_budget": true,
+        "exit_code": 0,
+        "binaries": [
+          {
+            "path": "/home/speak/workspace/github/mcpp-language-server/target/x86_64-linux-gnu/c6a96775022a4395/bin/mcppls-conformance",
+            "sha256": "aba15e084cf490a0dba6d391c0590bd98cb27243cfb4e7ee7c77ed6f159eadb3"
+          },
+          {
+            "path": "/home/speak/workspace/github/mcpp-language-server/target/x86_64-linux-gnu/c6a96775022a4395/bin/mcppls",
+            "sha256": "70156817b4bab8aa934d9fbe8dc6e1bb5d9cc15c035b6c262895cb7fcdb6f287"
+          }
+        ],
+        "report_present": true
+      },
+      "measure": {
+        "checks": [
+          {
+            "detail": "[\"file:///tmp/mcppls-timing-evidence-real/workspace/timing/src/greet/greet.cppm\"]",
+            "id": "T1-first-navigation",
+            "kind": "definition",
+            "ok": true,
+            "seconds": 4.627920946,
+            "since-start": 18.139230485
+          },
+          {
+            "detail": "[\"file:///tmp/mcppls-timing-evidence-real/workspace/timing/src/greet/greet.cppm\"]",
+            "id": "T2-module-navigation",
+            "kind": "definition",
+            "ok": true,
+            "seconds": 0.000849439,
+            "since-start": 18.140110878
+          },
+          {
+            "detail": "no module file of std before the server started: a cold start",
+            "id": "SC4-std-reused",
+            "kind": "module-cache-reused",
+            "ok": true,
+            "seconds": 1.3166e-05,
+            "since-start": 18.140148396
+          }
+        ],
+        "failures": 0,
+        "first-diagnostics": null,
+        "first-navigation": 18.139230485,
+        "fixture": "timing",
+        "initialize": 13.51091218,
+        "ready": 13.511539584,
+        "reused-workspace": false,
+        "seconds": 18.184137688
+      },
+      "collection_seconds": 0.014383805,
+      "report_sha256": "3245a4a67beda1d78ec6437f041fae9a5f4233ae8b1a6f099818c12c7fef34b0",
+      "report_fields": [
+        "client",
+        "engine",
+        "generatedAt",
+        "logTail",
+        "payload",
+        "roots",
+        "server",
+        "settings"
+      ],
+      "buildTimes": [
+        {
+          "asts": 1,
+          "file": "/tmp/mcppls-timing-evidence-real/workspace/timing/src/main.cpp",
+          "moduleBuilds": 1,
+          "moduleMaxSeconds": 2.66,
+          "moduleSeconds": 2.66,
+          "preambleMaxSeconds": 0.25,
+          "preambleSeconds": 0.25,
+          "preambles": 1
+        },
+        {
+          "asts": 1,
+          "file": "/tmp/mcppls-timing-evidence-real/cache/workspaces/timing-22e04c39816d1b52/contexts/default/prime/0002-std.cpp",
+          "moduleBuilds": 1,
+          "moduleMaxSeconds": 2.02,
+          "moduleSeconds": 2.02,
+          "preambleMaxSeconds": 0.25,
+          "preambleSeconds": 0.25,
+          "preambles": 1
+        },
+        {
+          "asts": 1,
+          "file": "/tmp/mcppls-timing-evidence-real/cache/workspaces/timing-22e04c39816d1b52/contexts/default/prime/0001-hello.greet.cpp",
+          "moduleBuilds": 1,
+          "moduleMaxSeconds": 0.36,
+          "moduleSeconds": 0.36,
+          "preambleMaxSeconds": 0.0,
+          "preambleSeconds": 0.0,
+          "preambles": 1
+        }
+      ],
+      "event_count": 7
+    },
+    "warm": {
+      "manifest": {
+        "command": [
+          "target/x86_64-linux-gnu/c6a96775022a4395/bin/mcppls-conformance",
+          "run",
+          "--server",
+          "target/x86_64-linux-gnu/c6a96775022a4395/bin/mcppls",
+          "--clangd",
+          "/tmp/mcppls-up20-baseline/clangd_23.1.0/bin/clangd",
+          "--kit",
+          "/tmp/mcppls-ext-mxNsNl/sunrisepeak.mcpp-language-server-0.0.12/payload/kit",
+          "--fixture",
+          "conformance/fixtures/timing",
+          "--workspace-dir",
+          "/tmp/mcppls-timing-evidence-real/workspace",
+          "--cache-dir",
+          "/tmp/mcppls-timing-evidence-real/cache",
+          "--timeout",
+          "120",
+          "--measure",
+          "/tmp/mcppls-timing-evidence-real/warm.json",
+          "--expect-warm",
+          "--timing-evidence",
+          "/tmp/mcppls-timing-evidence-real/warm/report.json"
+        ],
+        "cwd": "/home/speak/workspace/github/mcpp-language-server",
+        "logs": [
+          {
+            "source": "/tmp/mcppls-timing-evidence-real/cache/logs/server-20261008-110818.805-c3db.log",
+            "device": 66309,
+            "inode": 87212439,
+            "size": 4260,
+            "mtime_ns": 1791457699643010682,
+            "artifact": "log-0.txt",
+            "prefix_bytes": 4260,
+            "tail_offset": 4260,
+            "tail_bytes": 0,
+            "retained_sha256": "aec42ec11e0d38c69358265374472bc2118a64bd8a5b165c5337b4a0fc10836f"
+          },
+          {
+            "source": "/tmp/mcppls-timing-evidence-real/cache/logs/server-20261008-110722.648-f020.log",
+            "device": 66309,
+            "inode": 87212436,
+            "size": 6789,
+            "mtime_ns": 1791457660802620139,
+            "artifact": "log-1.txt",
+            "prefix_bytes": 6789,
+            "tail_offset": 6789,
+            "tail_bytes": 0,
+            "retained_sha256": "5f148f14d6153b25a31a624e66b29e6d953b0b6afb3177c5d7e0e92f52fcf6a8"
+          }
+        ],
+        "limits": {
+          "log_files": 8,
+          "log_bytes_each": 131072,
+          "directory_entries_examined": 32,
+          "report_bytes": 1048576
+        },
+        "collection_excluded_from_navigation_budget": true,
+        "exit_code": 0,
+        "binaries": [
+          {
+            "path": "/home/speak/workspace/github/mcpp-language-server/target/x86_64-linux-gnu/c6a96775022a4395/bin/mcppls-conformance",
+            "sha256": "aba15e084cf490a0dba6d391c0590bd98cb27243cfb4e7ee7c77ed6f159eadb3"
+          },
+          {
+            "path": "/home/speak/workspace/github/mcpp-language-server/target/x86_64-linux-gnu/c6a96775022a4395/bin/mcppls",
+            "sha256": "70156817b4bab8aa934d9fbe8dc6e1bb5d9cc15c035b6c262895cb7fcdb6f287"
+          }
+        ],
+        "report_present": true
+      },
+      "measure": {
+        "checks": [
+          {
+            "detail": "[\"file:///tmp/mcppls-timing-evidence-real/workspace/timing/src/greet/greet.cppm\"]",
+            "id": "T1-first-navigation",
+            "kind": "definition",
+            "ok": true,
+            "seconds": 0.784633542,
+            "since-start": 0.812872125
+          },
+          {
+            "detail": "[\"file:///tmp/mcppls-timing-evidence-real/workspace/timing/src/greet/greet.cppm\"]",
+            "id": "T2-module-navigation",
+            "kind": "definition",
+            "ok": true,
+            "seconds": 0.000812361,
+            "since-start": 0.813714068
+          },
+          {
+            "detail": "1 file(s) of std reused",
+            "id": "SC4-std-reused",
+            "kind": "module-cache-reused",
+            "ok": true,
+            "seconds": 0.018983534,
+            "since-start": 0.832723452
+          }
+        ],
+        "failures": 0,
+        "first-diagnostics": 0.02898764,
+        "first-navigation": 0.812872125,
+        "fixture": "timing",
+        "initialize": 0.027892522,
+        "ready": 0.028441541,
+        "reused-workspace": true,
+        "seconds": 1.560138639
+      },
+      "collection_seconds": 0.008107909,
+      "report_sha256": "0d9ebfe68282cdf77e99abbfabfe809bfd68f43021bea55e7eee514cc0c0ecd9",
+      "report_fields": [
+        "client",
+        "engine",
+        "generatedAt",
+        "logTail",
+        "payload",
+        "roots",
+        "server",
+        "settings"
+      ],
+      "buildTimes": [
+        {
+          "asts": 1,
+          "file": "/tmp/mcppls-timing-evidence-real/workspace/timing/src/main.cpp",
+          "moduleBuilds": 1,
+          "moduleMaxSeconds": 0.6,
+          "moduleSeconds": 0.6,
+          "preambleMaxSeconds": 0.0,
+          "preambleSeconds": 0.0,
+          "preambles": 1
+        }
+      ],
+      "event_count": 8
+    }
+  },
+  "limits": [
+    "One Linux cold/warm collection control, not5-round native latency qualification.",
+    "Official stock clangd23.1.0 override; maintained joint engine is not exercised by this evidence control.",
+    "First navigation budgets and original functional verdicts unchanged; separate bounded report/log collection is excluded from timing."
+  ]
+}

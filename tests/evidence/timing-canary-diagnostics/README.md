@@ -1,0 +1,5 @@
+# Cold/warm navigation diagnostics remain outside the timing budget
+
+Darwin-x64 product7062e07 cold first navigation median12.59s fails12s. Existing artifact had functional/timing JSON alone, so it could not apportion std compilation, dependency scanning and provider work. The timing-only collector now retains bounded post-check report/buildTimes/events plus bounded regular cache logs, exact commands and binary hashes; missing report stays explicit. Functional failures and deadlines retain their existing result.
+
+Root actual build passes18.74s. One stock-engine Linux cold/warm pair both passes all original checks; each obtains an actual report with buildTimes/events and one bounded log, exact server/runner command and binary SHA. Warm std reuse passes. Cold and warm snapshots remain separate. [Compact identity/collection results](result.json). These controls qualify evidence capture, not Darwin performance or maintained-engine qualification. The report request has an independent2s bound after measured checks; budgets were not raised.
