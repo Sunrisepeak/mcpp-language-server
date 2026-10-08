@@ -55,3 +55,9 @@ consumer 增加 virtual 方法，因此先重建全部 141 个 clangd 消费者�
 引擎本地 `b053791` 已导出 `0068-UP-25-selective-external-namespace-completion.patch`，台账 68/68 检查通过。源码 `c3af7d151` 的生产部分仍对应已测 `7db2e70ab`，额外改动为测试；142 CompletionTest 与 5 NamespaceLookupTest 通过。实际多模块控制覆盖独立/已合并/后续更新的名称表及重载、普通 lookup；仍需补齐最终可见性、resolve 与消费者运行资格。
 
 四格每臂 3×30 的 edited p95：全头文件 baseline/candidate 为 184.52/155.90ms，Modules 为 255.22/188.61ms。每种模式内所有 186 个回复的全部返回项关键编辑元组相同，81 次抽样实际 GCC 插入通过。Modules 改善 26.10%，与候选全头文件仍差 32.71ms。详情与构建进度见 [实施状态](2026-10-09-0.0.12-part2-implementation-status.md)。
+
+## 私有后续：模板推导指引名称筛选
+
+`5cd03e1fd` 在现有 ASTReader predicate helper 中将 CXXDeductionGuideName 的 template identifier 纳入同一谓词，保留匹配模板的全部 guide。无接口/布局/序列化格式变化，operator/literal/using 不变。两项新增控制与原控制合计 144 CompletionTest 通过；反向替换为 0068 的测试确实检测到未选模板被加载。普通 lookup 对隐式 FunctionTemplateDecl 包装与显式 guide 均保留，alias/snippet 与文本声明一致。
+
+四次 std 计量的 guide ID 从 1,425 降至 48，线程 CPU 约 28–33ms 降至 2.4–2.8ms；无新增插桩短 A/B/A edited p95 192.56/183.83/185.03ms，净收益尚未完整资格验证。36 次真实 Sema/实际选定 GCC 插入及全部返回编辑字段通过；该第一轮时延因并行编译排除。已归档引擎 `tests/evidence/part2-linux/filtered-guides-candidate/`，尚未导出 0069。
