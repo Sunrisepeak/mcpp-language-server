@@ -1,0 +1,46 @@
+{
+  "platform": "Linux local CLion2026.2.3 SDK",
+  "ci_negative": {
+    "run": 37759271920,
+    "job": 113256194372,
+    "failure": "testCMakeProjectWithTheSwitchOnHasBothEnginesAndOneNotice fixture initialization rejects positive backend freeze timeout in unit tests"
+  },
+  "configuration": {
+    "patch.engine.backend.freeze.timeout": "0",
+    "allow_in_tests": false,
+    "server_deadlines": "unchanged"
+  },
+  "sdk_contract": {
+    "class": "com.jetbrains.rider.editorActions.RiderPatchEngineBackendIsFrozenTracker$AutoLoader",
+    "type": "integer",
+    "disable": "timeout<=0",
+    "default": 2000,
+    "lookup": "stored Registry override, System.getProperty, descriptor"
+  },
+  "local": {
+    "suite": {
+      "name": "community.mcpp.mcppls.McpplsClionTest",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-08T10:53:35.793Z",
+      "hostname": "speak-pc",
+      "time": "120.809"
+    },
+    "tests": [
+      "testWorkspaceProbeIsRegisteredInClion",
+      "testCMakeProjectIsClionsByDefault",
+      "testCMakeProjectWithTheSwitchOnHasBothEnginesAndOneNotice",
+      "testMcppProjectIsMcpplss",
+      "testWhatClionAnswersAlone"
+    ],
+    "watchdog_assertions": 0,
+    "log_sha256": "7ed507af7cedb5f7f7ab53f063742e735431499c8bc59f90aa2e73593ee49a44",
+    "xml_sha256": "f3ab99f6a4f46b382c969573ae4c10ba651d5eb5dd2377357eb6c5af544cc7d5"
+  },
+  "limits": [
+    "Local SDK check; corrected native CI still required.",
+    "Existing platform warnings/async errors are recorded in the raw log, not suppressed."
+  ]
+}

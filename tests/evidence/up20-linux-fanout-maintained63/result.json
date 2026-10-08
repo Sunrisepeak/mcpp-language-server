@@ -1,0 +1,100 @@
+{
+  "measure": {
+    "checks": [
+      {
+        "detail": "8 importers republished after 6.3s, probe cleared after 2.3s, interactive p95 1.14s max 1.14s, jump after 6.5s, states []",
+        "id": "U7b-fanout-crash",
+        "kind": "edit-save",
+        "measure": {
+          "completion": {
+            "max": 1.135432322,
+            "n": 7,
+            "p50": 0.007136117,
+            "p95": 1.135432322
+          },
+          "completionsUnanswered": 0,
+          "engineShare": 0.75,
+          "errorSamples": 0,
+          "importers": 8,
+          "load": 3.4,
+          "probeSeconds": 2.305685063,
+          "recoverSeconds": 6.480893941,
+          "republishSeconds": 6.313482493,
+          "restarts": 0,
+          "statesSeen": []
+        },
+        "ok": true,
+        "seconds": 61.147465392,
+        "since-start": 61.182609161
+      }
+    ],
+    "failures": 0,
+    "first-diagnostics": 46.182746175,
+    "first-navigation": null,
+    "fixture": "ux-mcpp",
+    "initialize": 0.034737102,
+    "ready": 1.23766301,
+    "reused-workspace": true,
+    "seconds": 61.592507145
+  },
+  "invocation": {
+    "argv": [
+      "taskset",
+      "-c",
+      "0,1,2,3,4,5,6,7",
+      "/home/speak/workspace/github/mcpp-language-server/target/x86_64-linux-gnu/c6a96775022a4395/bin/mcppls-conformance",
+      "run",
+      "--server",
+      "/home/speak/workspace/github/mcpp-language-server/target/x86_64-linux-gnu/c6a96775022a4395/bin/mcppls",
+      "--fixture",
+      "/tmp/mcppls-up20-fixture",
+      "--clangd",
+      "/tmp/mcppls-up20-fork63/bin/clangd",
+      "--kit",
+      "/tmp/mcppls-ext-mxNsNl/sunrisepeak.mcpp-language-server-0.0.12/payload/kit",
+      "--workspace-dir",
+      "/tmp/mcppls-up20-conformance-work",
+      "--cache-dir",
+      "/tmp/mcppls-up20-maintained63-cache",
+      "--timeout",
+      "360",
+      "--keep",
+      "--verbose",
+      "--measure",
+      "/tmp/mcppls-up20-maintained63-result.json"
+    ],
+    "cpus": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "source": "d1f1c98fa26d953e084a183a9672fc1e0ce63558",
+    "stock_engine_sha256": "5a535973dd1274270c8a0d34677fe4758d8c9aaa164aa3701602c957c42dc9e2",
+    "note": "Same recovered source/CDB/scenario/product/affinity with fresh cache; private joint through63+64; no final native build claim",
+    "maintained_engine_sha256": "9052437d175c75b2b4f4a87fa12baef74bc9028b4ac4f527a360ae8a5408ea96",
+    "engine_source": "7214ddce46c5f76fbdd33f2d0df0a59afdbc7201"
+  },
+  "raw_log_sha256": "b975cf3b17fd7ef84996148b7b064366a557164ac6f4adc35eb3a18a03eb883d",
+  "input_sha256": {
+    "/tmp/mcppls-up20-fixture/scenario.json": "b80470f62ea6102e3ddf9a36d0a4f2861fba2afe7a1e4000f09a5a28a0e016f5",
+    "/tmp/mcppls-up20-build-database.json": "329b9832f6e16eb9651afd90aa52f4f8b389a5a81124e4c85f76582ecb974024"
+  },
+  "natural_parser_dumps": 0,
+  "limits": [
+    "One original Linux save/recovery run; not independent repetitions or 1000-save qualification.",
+    "Private replacement-object link over unchanged stable46 archives; not a clean/native whole-recipe build.",
+    "Current GCC/libstdc++16.1 profile, not byte-identical historical dependencies.",
+    "Seven completion samples and fallback responses cannot qualify engine latency gates.",
+    "Windows/macOS/final immutable payload and UP13 remain open."
+  ],
+  "edited_source_restored": {
+    "path": "modules/manifest/src/types.cppm",
+    "sha256": "c4e42700dfa1a6527bdffd04c4e05aeac34c25d449f2179c321493b2364191eb",
+    "equals_pinned_git": true
+  }
+}
