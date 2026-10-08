@@ -2,6 +2,10 @@
 
 [English](../92-release.md) | **简体中文**
 
+0.0.12 的维护分发和必需原生验收目标为 `linux-x64`、`win32-x64` 和 `darwin-arm64`。
+Intel macOS 和 Linux arm64 不在本轮范围内，历史材料保留；Linux Ubuntu 20.04 下限仍须验证。
+范围调整不等于验证通过，维护引擎完成 Linux 及后续原生资格前，不替换当前 lock 的 stock 引擎。
+
 > release 发布在本仓库的 GitHub release 页面。release 一发布，Open VSX 会自动跟上；VS Code Marketplace 在本地验证过 release 的 VSIX 之后手动上传；xlings 索引还不是发布渠道（见下文）。每个渠道用到的标识符见 [91-naming.md](91-naming.md)。
 
 ## 版本号

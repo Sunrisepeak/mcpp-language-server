@@ -1,0 +1,60 @@
+{
+  "scope": "0.0.12 Part 2 maintained distribution; configuration checks, not native qualification",
+  "supported_platforms": [
+    "darwin-arm64",
+    "linux-x64",
+    "win32-x64"
+  ],
+  "workflow_checks": {
+    ".github/workflows/ci.yml": {
+      "platforms": [
+        "darwin-arm64",
+        "linux-x64",
+        "win32-x64"
+      ],
+      "yaml_parsed": true,
+      "job_dependencies_exist": true
+    },
+    ".github/workflows/nightly.yml": {
+      "platforms": [
+        "darwin-arm64",
+        "linux-x64",
+        "win32-x64"
+      ],
+      "yaml_parsed": true,
+      "job_dependencies_exist": true
+    },
+    ".github/workflows/release-checks.yml": {
+      "platforms": [
+        "darwin-arm64",
+        "linux-x64",
+        "win32-x64"
+      ],
+      "yaml_parsed": true,
+      "job_dependencies_exist": true
+    }
+  },
+  "engine_archive_urls_sizes_sha256_versions_unchanged": true,
+  "external_override_public_resolver_control": "PASS: unbundled freebsd host resolves provided server",
+  "checks": [
+    "TypeScript compile PASS",
+    "2 focused resolver/scope controls PASS",
+    "existing devtools check platforms PASS"
+  ],
+  "historical_scope": [
+    "Intel macOS and Linux arm64 evidence/schema/target parsing retained",
+    "manual Intel cross target remains experimental",
+    "prior archive entries retained"
+  ],
+  "linux_floor": "Ubuntu 20.04 qualification requirement retained; not a new green claim",
+  "external_branch_policy": {
+    "main_legacy_protection": "HTTP404 Branch not protected",
+    "repository_rulesets": [],
+    "read_only": true
+  },
+  "limits": [
+    "Payload lock remains stock clangd; maintained engine bytes are not installed by this change.",
+    "Linux-first qualification and subsequent Windows/Apple Silicon native tests remain required.",
+    "No PR merge, publish or branch protection mutation performed."
+  ]
+}

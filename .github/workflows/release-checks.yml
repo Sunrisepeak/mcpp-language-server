@@ -90,9 +90,7 @@ jobs:
       matrix:
         include:
           - { platform: linux-x64,    os: ubuntu-24.04,     exe: '' }
-          - { platform: linux-arm64,  os: ubuntu-24.04-arm, exe: '' }
           - { platform: darwin-arm64, os: macos-14,         exe: '' }
-          - { platform: darwin-x64, os: macos-15-intel,         exe: '' }
           - { platform: win32-x64,    os: windows-2022,     exe: '.exe' }
     defaults:
       run:
@@ -150,7 +148,6 @@ jobs:
         include:
           - { platform: linux-x64,    os: ubuntu-24.04, exe: '' }
           - { platform: darwin-arm64, os: macos-14,     exe: '' }
-          - { platform: darwin-x64, os: macos-15-intel,     exe: '' }
           - { platform: win32-x64,    os: windows-2022, exe: '.exe' }
     defaults:
       run:
@@ -288,18 +285,6 @@ jobs:
             os: macos-14
             exe: ''
             fixtures: inferred module-faults verify-changes multi-root mcpp-llvm mcpp-split mcpp-all-cppm mcpp-watch
-          # No native mcpp on this host yet: the pinned xlings publishes no macosx-x86_64
-          # releases, so setup-mcpp cannot run here and the mcpp-shaped fixtures keep their full
-          # three-round coverage on the other four platforms (the same cross-tools split the
-          # conformance matrix uses). This host repeats the shapes that need no build tool and
-          # hold their per-step budgets on it; typing-autosave's new-import step needs the
-          # maintained engine's import path to hold its 5 s budget here, so it stays with the
-          # mcpp-shaped set until the payload carries that engine.
-          - platform: darwin-x64
-            os: macos-15-intel
-            exe: ''
-            cross-tools: true
-            fixtures: inferred module-faults
           - platform: win32-x64
             part: 1 of 2
             os: windows-2022

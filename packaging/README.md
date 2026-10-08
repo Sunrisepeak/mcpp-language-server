@@ -51,6 +51,9 @@ and the kit installed by xlings.
 
 ## Inputs: `payload.lock.json`
 
+Unreferenced upstream archive entries are retained for historical/manual use;
+the `platforms` table alone declares this release's three maintained targets.
+
 | Entry | What | Used by |
 |---|---|---|
 | `clangd-linux`, `clangd-mac`, `clangd-windows` | clangd 23.1.0 release archives | `mcppls.pack.clangd` |
@@ -82,13 +85,17 @@ mcpp run -p devtools -- payload --verify target/pack/payload
 | Platform | Host | Tools |
 |---|---|---|
 | `linux-x64` | Linux with `dpkg` and the `libc6-dev` and `linux-libc-dev` packages installed | cmake, ninja, a C and C++ compiler for libc++'s configure checks; `strip` if available |
-| `linux-arm64` | Linux arm64 with the same packages; CI uses `ubuntu-24.04-arm` and the devtools cross-built for `aarch64-linux-musl`, so mcpp is not needed there. Another host passes `--kit`, built with `mcppls-devtools kit --sysroot-include` and aarch64 C headers, because `dpkg` lists only the host's own | the same as `linux-x64`; `llvm-strip` strips it from any host |
 | `win32-x64` | any; CI uses Linux and cross-builds the server | nothing beyond mcpp |
-| `darwin-x64` | Intel macOS; CI uses `macos-15-intel` | cmake, ninja, and the Xcode command line tools (`lipo`, `strip`, `codesign`) |
 | `darwin-arm64` | macOS | cmake, ninja, and the Xcode command line tools (`lipo`, `strip`, `codesign`) |
 
-The server is built with the **release** profile, and CI runs the unit tests in
-both profiles on every host: release-only defects in the runtime have happened.
+The 0.0.12 maintained distribution targets `linux-x64`, `win32-x64` and
+`darwin-arm64`. Intel macOS and Linux arm64 are outside this release scope;
+historical artifacts do not imply current qualification. Linux Ubuntu 20.04
+remains a required compatibility floor when the maintained engine is qualified.
+The lock still contains the stock engine inputs until that qualification finishes.
+
+The server is built with the **release** profile, and required CI runs the unit tests in
+both profiles on the declared hosts: release-only defects in the runtime have happened.
 
 To run the VS Code extension against a local payload, put it at
 `editors/vscode/payload` or point `MCPPLS_PAYLOAD` at it.

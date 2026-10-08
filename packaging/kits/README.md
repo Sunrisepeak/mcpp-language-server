@@ -12,11 +12,14 @@ may be redistributed, license texts and `kit.json`. Nothing in it is compiled.
 
 ## Platform kits
 
+The 0.0.12 maintained distribution has three targets below. Intel macOS and
+Linux arm64 kits are not built or qualified for this release; historical recipes
+and generic target parsing remain available for manual experiments.
+
 | Platform | Recipe | Target | Standard library | C library headers |
 |---|---|---|---|---|
 | `linux-x64` | `libcxx-source` | `x86_64-unknown-linux-gnu` | libc++ 23.1.0, configured from the llvm-project source and installed as headers and module sources | glibc and Linux kernel headers from the build host's `libc6-dev` and `linux-libc-dev` packages, in `sysroot/usr/include`, with their copyright files |
 | `win32-x64` | `llvm-mingw` | `x86_64-w64-mingw32` | libc++ 23.1.0 headers and module sources from llvm-mingw 20260826, built on the same LLVM | mingw-w64 headers from `generic-w64-mingw32/include`, without `*.idl`, `*.tlb` and `*.def`, with the mingw-w64 `COPYING` files |
-| `darwin-x64` | `libcxx-source` | `x86_64-apple-darwin` | libc++ 23.1.0, configured for Intel macOS | requires the installed Apple SDK; SDK headers are not redistributed |
 | `darwin-arm64` | `libcxx-source` | `arm64-apple-darwin` | libc++ 23.1.0, configured for arm64 macOS | none: Apple's SDK license does not allow a kit to carry them, so the kit requires the SDK installed on the user's machine |
 
 | Platform | Size, MiB | Compressed, MiB |
