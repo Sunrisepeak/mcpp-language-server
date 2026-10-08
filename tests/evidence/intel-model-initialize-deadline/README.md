@@ -1,0 +1,3 @@
+# Model handshake and completion deadlines
+
+Intel macOS dev CI failed during the gateway initialize handshake because the cancellation fixture also applied its300ms completion deadline to process startup. An optional initializeTimeout preserves the existing default while allowing this fixture a bounded10s handshake. The real mock deliberately delays initialization500ms; completion retains300ms and must send cancel and return within4s. Omitting the override naturally reproduces the initialization failure. Both agent and root built the real mock; final root test_model passes23 cases/140 assertions in0.68s. This is Linux controlled evidence, not a native Intel pass. [Compact evidence](result.json).

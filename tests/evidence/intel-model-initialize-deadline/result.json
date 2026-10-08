@@ -1,0 +1,25 @@
+{
+  "failed_native_run": "https://github.com/Sunrisepeak/mcpp-language-server/actions/runs/37723411216",
+  "job": 113138794058,
+  "test": "gateway: a request past its timeout is cancelled and reported, not left hanging",
+  "failure_phase": "initialize timed out before any complete/cancel assertions",
+  "before_control": {
+    "actual_mock_initialize_delay_ms": 500,
+    "initialize_deadline_ms": 300,
+    "cases": 23,
+    "failed": 1,
+    "assertions": 136
+  },
+  "after_control": {
+    "optional_initialize_deadline_ms": 10000,
+    "completion_deadline_ms": 300,
+    "completion_cancel_elapsed_assertion_ms": 4000,
+    "cases": 23,
+    "failed": 0,
+    "assertions": 140,
+    "agent_run_seconds": 1.19,
+    "root_run_seconds": 0.68
+  },
+  "defaults": "unset initializeTimeout still uses requestTimeout; production default60s and toolTimeout startup behavior preserved",
+  "native_rerun": "pending"
+}
