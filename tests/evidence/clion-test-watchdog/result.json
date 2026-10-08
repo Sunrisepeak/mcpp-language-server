@@ -40,7 +40,14 @@
     "xml_sha256": "f3ab99f6a4f46b382c969573ae4c10ba651d5eb5dd2377357eb6c5af544cc7d5"
   },
   "limits": [
-    "Local SDK check; corrected native CI still required.",
+    "Corrected native headless job passes; this is not an overall CI or joint-engine qualification.",
     "Existing platform warnings/async errors are recorded in the raw log, not suppressed."
-  ]
+  ],
+  "native": {
+    "run": 37766811581,
+    "job": 113281429141,
+    "source": "1748249e4870a02e5a38660be510ef2cd15e0d08",
+    "conclusion": "success",
+    "scope": "CLion headless job; overall run later cancelled by a newer product push"
+  }
 }
