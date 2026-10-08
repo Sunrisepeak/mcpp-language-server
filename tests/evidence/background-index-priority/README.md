@@ -31,8 +31,17 @@ with seed 7 under the original 15 s assertion (p90 17ms, maximum 2,326 ms). The
 actual clangd startup argv contains the new default. Details and raw local
 report paths are in [linux-validation.json](linux-validation.json).
 
-This is a source-backed scheduling improvement, not proof that the failing
-native Darwin request now meets 15 s. That requires a native rerun with the
-same engine/payload; Windows index throughput has also not been measured.
-Background index completion can take longer under sustained foreground load.
-No deadline or stress assertion was changed.
+Native follow-up: run [37709654683](https://github.com/Sunrisepeak/mcpp-language-server/actions/runs/37709654683)
+at product 759deb6 passes the Darwin x64 editor job. All 40 seed-7 requests
+answer within the unchanged 15 s budget (p90 368 ms, maximum 11,954 ms).
+The actual startup argv contains the new priority; the cold references request
+19 reports 11,853 ms. Retained artifact/log identity and exact lines are in
+[darwin-native-validation.json](darwin-native-validation.json). All five
+platform editor jobs pass this run; the overall run still has generated-settings
+unit failures, repaired separately by 42eea9e and requiring a new CI verdict.
+
+This is one native passing execution with the locked product payload. Different
+CI hosts/runs do not establish a controlled causal speedup, statistical latency
+acceptance or final maintained-engine joint qualification. Windows index
+throughput has not been measured. Background index completion can take longer
+under sustained foreground load. No deadline or stress assertion changed.
