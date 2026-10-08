@@ -157,6 +157,9 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - uses: actions/download-artifact@v8
         with:
           name: payload-${{ matrix.platform }}
@@ -174,7 +177,8 @@ jobs:
           for round in 1 2 3 4 5; do
             for start in cold warm; do
               warm=(); [ "$start" = warm ] && warm=(--expect-warm)
-              "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls${{ matrix.exe }}" --payload payload \
+              python3 .github/scripts/timing_evidence.py --output "$results/evidence/$start-$round" -- \
+                  "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls${{ matrix.exe }}" --payload payload \
                   --fixture conformance/fixtures/timing \
                   --workspace-dir "$RUNNER_TEMP/timing-$round/workspace" --cache-dir "$RUNNER_TEMP/timing-$round/cache" \
                   --timeout 120 --measure "$results/$start-$round.json" ${warm[@]+"${warm[@]}"}
