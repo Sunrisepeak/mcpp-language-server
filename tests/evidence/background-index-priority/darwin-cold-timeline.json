@@ -1,0 +1,136 @@
+{
+  "run": 37703379435,
+  "job": 113077471287,
+  "platform": "darwin-x64",
+  "log": "server-20261008-001313.877-e6ab.log",
+  "events": [
+    {
+      "sourceLine": 121,
+      "line": "mcppls 2026-10-08T00:13:15.301Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): I[00:13:15.293] Indexed /Users/runner/work/_temp/editor-e2e-evidence/mcppls-e2e-cache-kZxypi/workspaces/mcppls-e2e-B2Rkxk-f23f397c0b0b8226/contexts/default/prime/0001-hello.greet.cpp (0 symbols, 0 refs, 1 files)"
+    },
+    {
+      "sourceLine": 124,
+      "line": "mcppls 2026-10-08T00:13:15.301Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): I[00:13:15.296] Indexed /Users/runner/work/_temp/editor-e2e-evidence/mcppls-e2e-cache-kZxypi/workspaces/mcppls-e2e-B2Rkxk-f23f397c0b0b8226/contexts/default/prime/0003-std.compat.cpp (0 symbols, 0 refs, 1 files)"
+    },
+    {
+      "sourceLine": 130,
+      "line": "mcppls 2026-10-08T00:13:15.308Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): I[00:13:15.303] Indexed /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/greet/greet.cppm (1 symbols, 1 refs, 1 files)"
+    },
+    {
+      "sourceLine": 141,
+      "line": "mcppls 2026-10-08T00:13:15.311Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): I[00:13:15.310] Indexed /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/main.cpp (1 symbols, 1 refs, 1 files)"
+    },
+    {
+      "sourceLine": 145,
+      "line": "mcppls 2026-10-08T00:13:15.314Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): I[00:13:15.312] Indexed /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/greet/detail.cppm (2 symbols, 1 refs, 1 files)"
+    },
+    {
+      "sourceLine": 160,
+      "line": "mcppls 2026-10-08T00:13:15.318Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): I[00:13:15.316] Indexed /Users/runner/work/_temp/editor-e2e-evidence/mcppls-e2e-cache-kZxypi/workspaces/mcppls-e2e-B2Rkxk-f23f397c0b0b8226/contexts/default/prime/0002-std.cpp (0 symbols, 0 refs, 1 files)"
+    },
+    {
+      "sourceLine": 196,
+      "line": "mcppls 2026-10-08T00:13:15.856Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): I[00:13:15.856] Indexed /var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-ext-iyGaNk/sunrisepeak.mcpp-language-server-0.0.12/payload/kit/share/libc++/v1/std.compat.cppm (1768 symbols, 10837 refs, 261 files)"
+    },
+    {
+      "sourceLine": 315,
+      "line": "mcppls 2026-10-08T00:13:33.044Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): I[00:13:33.044] Still waiting for module lock /Users/runner/work/_temp/editor-e2e-evidence/mcppls-e2e-cache-kZxypi/workspaces/mcppls-e2e-B2Rkxk-f23f397c0b0b8226/contexts/default/cdb/.cache/clangd/modules/.locks/696CF5B103F2D377 after 10s"
+    },
+    {
+      "sourceLine": 316,
+      "line": "mcppls 2026-10-08T00:13:33.198Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): I[00:13:33.198] Still waiting for module lock /Users/runner/work/_temp/editor-e2e-evidence/mcppls-e2e-cache-kZxypi/workspaces/mcppls-e2e-B2Rkxk-f23f397c0b0b8226/contexts/default/cdb/.cache/clangd/modules/.locks/696CF5B103F2D377 after 10s"
+    },
+    {
+      "sourceLine": 338,
+      "line": "mcppls 2026-10-08T00:13:34.763Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): I[00:13:34.763] Indexed /var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-ext-iyGaNk/sunrisepeak.mcpp-language-server-0.0.12/payload/kit/share/libc++/v1/std.cppm (15466 symbols, 264045 refs, 1354 files)"
+    },
+    {
+      "sourceLine": 373,
+      "line": "mcppls 2026-10-08T00:13:36.501Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): I[00:13:36.500] Built prerequisite modules for file /Users/runner/work/_temp/editor-e2e-evidence/mcppls-e2e-cache-kZxypi/workspaces/mcppls-e2e-B2Rkxk-f23f397c0b0b8226/contexts/default/prime/0002-std.cpp in 21.17 seconds"
+    },
+    {
+      "sourceLine": 380,
+      "line": "mcppls 2026-10-08T00:13:36.536Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): I[00:13:36.536] Built prerequisite modules for file /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/greet/detail.cppm in 20.90 seconds"
+    },
+    {
+      "sourceLine": 474,
+      "line": "mcppls 2026-10-08T00:13:38.602Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): I[00:13:38.595] Built prerequisite modules for file /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/main.cpp in 23.27 seconds"
+    },
+    {
+      "sourceLine": 487,
+      "line": "mcppls 2026-10-08T00:13:39.297Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): I[00:13:39.297] Built prerequisite modules for file /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/greet/greet.cppm in 2.69 seconds"
+    },
+    {
+      "sourceLine": 530,
+      "line": "mcppls 2026-10-08T00:13:39.386Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): V[00:13:39.386] ASTWorker running SemanticHighlights on version 1 of /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/greet/detail.cppm"
+    },
+    {
+      "sourceLine": 546,
+      "line": "mcppls 2026-10-08T00:13:39.388Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): V[00:13:39.387] ASTWorker running References on version 1 of /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/greet/detail.cppm"
+    },
+    {
+      "sourceLine": 548,
+      "line": "mcppls 2026-10-08T00:13:39.388Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): I[00:13:39.388] --> reply:textDocument/references(20) 19861 ms"
+    },
+    {
+      "sourceLine": 601,
+      "line": "mcppls 2026-10-08T00:13:39.393Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): V[00:13:39.393] ASTWorker running SemanticHighlights on version 1 of /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/greet/greet.cppm"
+    },
+    {
+      "sourceLine": 629,
+      "line": "mcppls 2026-10-08T00:13:39.539Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): I[00:13:39.539] Built prerequisite modules for file /Users/runner/work/_temp/editor-e2e-evidence/mcppls-e2e-cache-kZxypi/workspaces/mcppls-e2e-B2Rkxk-f23f397c0b0b8226/contexts/default/prime/0001-hello.greet.cpp in 2.69 seconds"
+    },
+    {
+      "sourceLine": 708,
+      "line": "mcppls 2026-10-08T00:13:39.770Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): V[00:13:39.770] ASTWorker running SemanticHighlights on version 1 of /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/main.cpp"
+    },
+    {
+      "sourceLine": 752,
+      "line": "mcppls 2026-10-08T00:13:39.827Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): V[00:13:39.827] ASTWorker running References on version 1 of /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/main.cpp"
+    },
+    {
+      "sourceLine": 885,
+      "line": "mcppls 2026-10-08T00:13:40.170Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): V[00:13:40.169] ASTWorker running SemanticHighlights on version 1 of /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/greet/greet.cppm"
+    },
+    {
+      "sourceLine": 942,
+      "line": "mcppls 2026-10-08T00:13:40.281Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): V[00:13:40.281] ASTWorker running References on version 1 of /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/main.cpp"
+    },
+    {
+      "sourceLine": 1064,
+      "line": "mcppls 2026-10-08T00:13:40.661Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): V[00:13:40.660] ASTWorker running SemanticHighlights on version 1 of /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/greet/greet.cppm"
+    },
+    {
+      "sourceLine": 1074,
+      "line": "mcppls 2026-10-08T00:13:40.675Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): V[00:13:40.675] ASTWorker running References on version 1 of /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/greet/greet.cppm"
+    },
+    {
+      "sourceLine": 1084,
+      "line": "mcppls 2026-10-08T00:13:40.705Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): V[00:13:40.705] ASTWorker running References on version 1 of /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/greet/greet.cppm"
+    },
+    {
+      "sourceLine": 1094,
+      "line": "mcppls 2026-10-08T00:13:40.710Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): V[00:13:40.710] ASTWorker running References on version 1 of /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/greet/greet.cppm"
+    },
+    {
+      "sourceLine": 1104,
+      "line": "mcppls 2026-10-08T00:13:40.715Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): V[00:13:40.715] ASTWorker running References on version 1 of /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/greet/greet.cppm"
+    },
+    {
+      "sourceLine": 1114,
+      "line": "mcppls 2026-10-08T00:13:40.722Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): V[00:13:40.721] ASTWorker running References on version 1 of /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/greet/greet.cppm"
+    },
+    {
+      "sourceLine": 1124,
+      "line": "mcppls 2026-10-08T00:13:40.726Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): V[00:13:40.725] ASTWorker running References on version 1 of /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/greet/greet.cppm"
+    },
+    {
+      "sourceLine": 1311,
+      "line": "mcppls 2026-10-08T00:13:41.667Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): V[00:13:41.666] ASTWorker running SemanticHighlights on version 1 of /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/greet/detail.cppm"
+    },
+    {
+      "sourceLine": 1402,
+      "line": "mcppls 2026-10-08T00:13:42.019Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk): V[00:13:42.019] ASTWorker running References on version 1 of /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-B2Rkxk/src/greet/greet.cppm"
+    }
+  ]
+}

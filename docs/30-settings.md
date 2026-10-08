@@ -56,7 +56,7 @@ either wrapped in a top-level `mcppls` object or not.
 | `mcppls.compiler` | a string | *(empty)* | `--compiler` | reload | Use this compiler for module semantics instead of what was detected: an absolute path, a name on `PATH`, or `kit` to force the bundled semantic kit. Empty means discovered automatically. |
 | `mcppls.semanticKit` | `auto`, `off` | `auto` | `--semantic-kit` | reload | Whether the bundled standard library kit may be used at all: `auto`, when no compiler is found; `off`, never (without a compiler, only module-level features remain). |
 | `mcppls.requestTimeout` | a non-negative number of seconds | `60` | `--request-timeout` | restart | How long an engine request may take before it is answered without the engine. A request a person waits for (hover, definition, completion and the like) waits at most 30s in all, including while clangd starts or prepares its modules, and is then answered by mcppls's own engine. |
-| `MCPPLS_ENGINE_ARGUMENTS` | a string | *(empty)* | — | restart | Extra arguments appended to clangd's own command line, for troubleshooting (e.g. `-j=8 --background-index-priority=background`). |
+| `MCPPLS_ENGINE_ARGUMENTS` | a string | *(empty)* | — | restart | Extra arguments appended to clangd's own command line, for troubleshooting (e.g. `-j=8 --background-index-priority=normal`). An explicit background-index priority overrides mcppls's default `background`. |
 
 ### Editor experience
 

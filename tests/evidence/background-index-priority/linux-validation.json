@@ -1,0 +1,23 @@
+{
+  "platform": "linux-x64",
+  "editor": "VS Code 1.132.0",
+  "engine": "23.1.0-mcppls.0 (existing available payload; differs from failing CI stock23.1.0)",
+  "unitTestCases": 54,
+  "unitAssertions": 483,
+  "unitFailures": 0,
+  "realStress": {
+    "requests": 40,
+    "seed": 7,
+    "failed": 0,
+    "p90Milliseconds": 17,
+    "maxMilliseconds": 2326,
+    "testMilliseconds": 3062,
+    "deadlineMilliseconds": 15000
+  },
+  "actualArgument": "mcppls 2026-10-08T00:42:36.315Z [debug] clangd (/tmp/mcppls-e2e-so9ReI): I[09:42:36.315] argv[8]: --background-index-priority=background",
+  "serverSha256": "5f386112ac50af9863399c8f1406d468a76b7ecbf5cfb4afd9fcabaccd809646",
+  "rawUnitLog": "/tmp/mcpp-background-priority-unit.log",
+  "rawStressLog": "/tmp/mcpp-background-priority-stress.log",
+  "rawServerLog": "/tmp/mcpp-background-priority-stress/mcppls-e2e-cache-QJRHVv/logs/server-20261008-004236.131-609d.log",
+  "darwinImprovementMeasured": false
+}

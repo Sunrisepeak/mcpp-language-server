@@ -800,6 +800,21 @@ int main() {
         expect(std::ranges::count(arguments, "--fallback-style=Google") == 1);
     };
 
+    "background indexing yields to cold module work unless the user chooses its priority"_test = [] {
+        cld::ProcessConfig config;
+        const std::string defaultPriority { "--background-index-priority=background" };
+        expect(std::ranges::count(cld::clangd_arguments(config), defaultPriority) == 1);
+        for (const auto& choice : std::vector<std::vector<std::string>> {
+                 { "--background-index-priority=normal" }, { "-background-index-priority=low" },
+                 { "--background-index-priority", "low" }, { "-background-index-priority", "normal" } }) {
+            config.extraArguments = choice;
+            const auto arguments = cld::clangd_arguments(config);
+            expect(std::ranges::find(arguments, defaultPriority) == arguments.end());
+            expect(std::ranges::equal(arguments | std::views::drop(arguments.size() - choice.size()), choice));
+            expect(std::ranges::find(arguments, "--background-index") != arguments.end());
+        }
+    };
+
     "clangd runs at info, not error, so an incident says what it was doing (fix plan F17.1)"_test = [] {
         cld::ProcessConfig config;
         const auto arguments = cld::clangd_arguments(config);

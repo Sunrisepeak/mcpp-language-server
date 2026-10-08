@@ -31,6 +31,14 @@ std::vector<std::string> clangd_arguments(const ProcessConfig& config) {
         // lines go to the ring buffer and the debug log only, never to the default log.
         config.verboseLog ? "--log=verbose" : "--log=info",
     });
+    // Cold module builds are interactive work. On Darwin, clangd's default low
+    // priority uses Utility QoS, which competes with those builds; background
+    // uses Background QoS. Keep the index and respect an explicit user choice.
+    const bool indexPriorityGiven { std::ranges::any_of(config.extraArguments, [](const std::string& argument) {
+        return argument == "--background-index-priority" || argument == "-background-index-priority"
+               || argument.starts_with("--background-index-priority=") || argument.starts_with("-background-index-priority=");
+    }) };
+    if (!indexPriorityGiven) arguments.emplace_back("--background-index-priority=background");
     const bool workersGiven { std::ranges::any_of(config.extraArguments, [](const std::string& argument) { return argument.starts_with("-j"); }) };
     if (config.workers > 0 && !workersGiven) arguments.push_back(std::format("-j={}", config.workers));
     const bool styleGiven { std::ranges::any_of(config.extraArguments, [](const std::string& argument) {

@@ -33,7 +33,12 @@ editor / coding agent / CI
   a time, and only after 10 s without typing, opening a file or a request; a restart clangd needs for
   a changed build description waits until typing has paused for 3 s (at most 60 s). A crash or a
   clangd that stopped answering restarts at once. Module preparation takes every worker but one when
-  an opened file waits on it, half of them otherwise.
+  an opened file waits on it, half of them otherwise. clangd's background index uses its `background`
+  priority unless `MCPPLS_ENGINE_ARGUMENTS` explicitly selects another priority. On macOS this uses
+  Background QoS instead of the engine's default Utility QoS; on Linux both priorities currently use
+  `SCHED_IDLE`. The full index remains enabled. This gives interactive cold module builds precedence;
+  it does not guarantee a particular response time. The observed cold-start contention and validation
+  limits are retained in [the evidence note](../tests/evidence/background-index-priority/README.md).
 - **What cannot be recovered is written down at once.** When the server cannot recover by itself it
   writes a redacted diagnostic bundle (`<cache>/bundles/auto-<code>-<time>.zip`, never uploaded) and
   puts it on the status issue, so an editor can offer a filled-in report.
