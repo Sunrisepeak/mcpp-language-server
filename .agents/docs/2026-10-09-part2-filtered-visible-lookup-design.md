@@ -33,3 +33,19 @@ ASTReader 子阶段计量已完成：6 次 `std` namespace lookup 各读取 17,1
 - 小模块 fixture 通过跨 namespace using、inline namespace、重载，以及 `v_t`→`vector_template` 的非前缀 fuzzy 控制；实际 GCC 插入通过。using 场景基线/候选四次返回的全部 label/kind/实际编辑元组一致。最初 `vr`→`vector` 的 fixture 预期不符合原 FuzzyMatcher 的强匹配规则，该负记录保留，不作为候选正确性或性能结论。
 
 下一步完成正式接口与正确性控制，再在无额外插桩的候选上跑短匹配 A/B/A；确认收益后才扩大至 12 语境与 3×30 验收。当前不能称 PR 达标或 release 完成。
+
+## 显式接口候选与短 A/B/A
+
+独立 worktree `/tmp/mcppls-filtered-lookup-formal` 已实现显式接口候选：consumer 的 `getExternalNameFilter` 默认返回空谓词，clangd recorder 以实际 FuzzyMatcher 提供匹配函数；Sema 只有补全专用 qualified lookup 传递谓词，普通 lookup 保持原接口。ExternalASTSource 的同步入口将谓词绑定到精确 source/context，仅允许一次消费；内部栈作用域在返回时恢复，嵌套普通加载及复合 source 不匹配时沿用完整路径。没有跨库私有 target/pattern 全局符号，也没有新增持久 AST 缓存。内部线程局部栈指针只承载这一同步入口的动态作用域。
+
+consumer 增加 virtual 方法，因此先重建全部 141 个 clangd 消费者与 7 个相关 LLVM 对象，再执行。两套二进制均成功链接；140 项 CompletionTest 通过，包括新增选择性加载后普通名称仍可查找、完整加载仍可关闭 external storage、递归普通调用不接收谓词、取消触发返回后作用域清理，以及 PCH qualified fuzzy/using/inline namespace/重载/空词控制。取消测试证明作用域清理，不是 Sema 全路径即时取消延迟证明。CIndex、interpreter 不在该局部二进制中，后续干净 kit 构建仍需覆盖它们。
+
+无新增诊断插桩的短 A/B/A 已完成，三组均使用原 URI/相同 CDB 字节/参数及独立新建 CDB/cache 目录，各 1 启动×5 轮。全部 36 个选定请求为真实 Sema，全部选定 GCC 插入通过：
+
+| 短样本 | 基线前 | 候选 | 基线后 |
+|---|---:|---:|---:|
+| warm p95，6 请求/组 | 168.44ms | 112.82ms | 179.36ms |
+| edited p95，5 请求/组 | 247.26ms | 187.05ms | 252.40ms |
+| edited p50 | 245.48ms | 183.09ms | 240.14ms |
+
+候选观察到的主进程 VmHWM 约 703,780KiB，基线约 732,484/736,628KiB；采样包含冷阶段，未计子进程，不能代替稳定期物理缓存/RSS 资格。证据、完整 diff 与构建配方归档在引擎 `tests/evidence/part2-linux/filtered-lookup-formal/`。候选 diff SHA `aef3a329d3d7628d9a13e6b2cb9c9bee6e37178b4dfbb766f6be05f8bb5fb405`，引擎 SHA `6de880807d5d81c7c98341570d123fb88847928c523fc06042c92a11dba6ddb7`。尚未导出，12 语境及最终 3×30、其他平台、产品与发布长期验证仍未完成。
