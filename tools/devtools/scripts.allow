@@ -10,3 +10,5 @@ editors/zed/tests/smoke.sh	The real-Zed smoke (plan 0.0.8 part 2 Z-2, Z-3): driv
 editors/zed/tests/lsp_frames.py	The smoke's helper that reads the LSP frames a wrapper recorded between Zed and mcppls; kept beside smoke.sh, which needs it only in the same CI job.
 .agents/docs/assets/2026-10-07-clangd-review/direct_probe.py	Issue #24 review evidence: the raw-LSP probe that measured vanilla/fork completion and crash behavior on qt-demo (2026-10-07-maintained-clangd-0.0.12-plan.md); it stays beside the results it produced.
 .github/scripts/install-intel-neovim.sh	CI bootstrap: the Intel macOS Neovim job installs checksum-pinned native editor binaries, because the xlings installer of the pinned version rejects macosx-x86_64; remove when a fixed installer is pinned.
+
+.github/scripts/stability_evidence.py	CI stability diagnostics: retains bounded text logs, CDB excerpts and measurements for each native conformance round, preserves its verdict, and cleans its owned scratch after collection.
