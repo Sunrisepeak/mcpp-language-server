@@ -1,0 +1,6 @@
+{
+  "observed_exit_code": 1,
+  "scope": "Real editor already returned greet2 as Function with label.name separate from detail(). New test incorrectly required startsWith greet2(. Product response preserved; test predicate correction needed, no source-engine failure claimed. Workspace teardown ran, original log and source retained.",
+  "recorded_unix": 1791501984.2385201,
+  "original_test_sha256": "d76de67e8f17bcf5f7a58657f73b76fe1f82edec45782bbdd3ec0b441e140f83"
+}

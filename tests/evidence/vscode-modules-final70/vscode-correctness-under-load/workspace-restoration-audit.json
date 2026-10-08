@@ -1,0 +1,9 @@
+{
+  "passed": true,
+  "scope": "Offline hash comparison after failed label-format assertion: all copied workspace files match original inferred fixture, excluding removed scenario.json.",
+  "files": {
+    "src/main.cpp": "fbbbc79189d8aa22155d46a7b33c88c5ab3daceed7e56f4d4659ccdd81020ba8",
+    "src/greet/detail.cppm": "e0c98ab4465b1f7b51b7e23f8c0be6e9d7611a78eacdb9ea8b5132e97b4d8ce9",
+    "src/greet/greet.cppm": "69cfc215711f9451575cfa7b90b02d5e4ce0369387faab16c72fe36dbae6241b"
+  }
+}

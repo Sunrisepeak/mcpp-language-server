@@ -1,0 +1,74 @@
+{
+  "status": "complete",
+  "scope": "Correctness only; all timing/resource measurements excluded. Real VSCode module suite and private user data.",
+  "started_unix": 1791502031.1336737,
+  "controller_child_pid": 2487598,
+  "exit_code": 0,
+  "finished_unix": 1791502036.4251897,
+  "owned_processes": {
+    "2487598": {
+      "pgid": 2487598,
+      "start_ticks": 12207695
+    },
+    "2487608": {
+      "pgid": 2487598,
+      "start_ticks": 12207700
+    },
+    "2487610": {
+      "pgid": 2487598,
+      "start_ticks": 12207701
+    },
+    "2487611": {
+      "pgid": 2487598,
+      "start_ticks": 12207701
+    },
+    "2487640": {
+      "pgid": 2487598,
+      "start_ticks": 12207720
+    },
+    "2487647": {
+      "pgid": 2487598,
+      "start_ticks": 12207720
+    },
+    "2487677": {
+      "pgid": 2487598,
+      "start_ticks": 12207733
+    },
+    "2487754": {
+      "pgid": 2487598,
+      "start_ticks": 12207795
+    },
+    "2487755": {
+      "pgid": 2487598,
+      "start_ticks": 12207795
+    },
+    "2487786": {
+      "pgid": 2487598,
+      "start_ticks": 12207801
+    },
+    "2487824": {
+      "pgid": 2487824,
+      "start_ticks": 12207816
+    },
+    "2487830": {
+      "pgid": 2487824,
+      "start_ticks": 12207817
+    },
+    "2487904": {
+      "pgid": 2487598,
+      "start_ticks": 12207844
+    },
+    "2487917": {
+      "pgid": 2487917,
+      "start_ticks": 12207848
+    },
+    "2487956": {
+      "pgid": 2487917,
+      "start_ticks": 12207884
+    }
+  },
+  "cleanup_groups": [],
+  "cleanup_kill_groups": [],
+  "watcher_errors": [],
+  "watcher_stopped": true
+}

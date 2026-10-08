@@ -1,0 +1,24 @@
+2026-10-09 08:24:02.626 [info] Extension host with pid 2483926 started
+2026-10-09 08:24:02.626 [info] Skipping acquiring lock for /dev/shm/mcppls-e70/mcppls-ud-0jMLhr/User/workspaceStorage/99934dfa0f7995f1ec1d95d8f0246d95.
+2026-10-09 08:24:02.634 [info] ExtensionService#_doActivateExtension vscode.github-authentication, startup: false, activationEvent: 'onAuthenticationRequest:github'
+2026-10-09 08:24:02.648 [info] ExtensionService#_doActivateExtension vscode.emmet, startup: false, activationEvent: 'onLanguage'
+2026-10-09 08:24:02.667 [info] ExtensionService#_doActivateExtension vscode.git-base, startup: true, activationEvent: '*', root cause: vscode.git
+2026-10-09 08:24:02.670 [info] ExtensionService#_doActivateExtension vscode.git, startup: true, activationEvent: '*'
+2026-10-09 08:24:02.697 [info] ExtensionService#_doActivateExtension vscode.github, startup: true, activationEvent: '*'
+2026-10-09 08:24:02.709 [warning] [vscode.git] Accessing a resource scoped configuration without providing a resource is not expected. To get the effective value for 'git.openRepositoryInParentFolders', provide the URI of a resource or 'null' for any resource.
+2026-10-09 08:24:02.709 [warning] [vscode.git] Accessing a resource scoped configuration without providing a resource is not expected. To get the effective value for 'git.showProgress', provide the URI of a resource or 'null' for any resource.
+2026-10-09 08:24:02.728 [info] ExtensionService#_doActivateExtension sunrisepeak.mcpp-language-server, startup: true, activationEvent: 'workspaceContains:**/mcpp.toml,**/*.cppm,**/CMakeLists.txt'
+2026-10-09 08:24:02.779 [warning] [sunrisepeak.mcpp-language-server] Accessing a resource scoped configuration without providing a resource is not expected. To get the effective value for 'mcppls.cache.showInStatusBar', provide the URI of a resource or 'null' for any resource.
+2026-10-09 08:24:02.798 [warning] [sunrisepeak.mcpp-language-server] Accessing a resource scoped configuration without providing a resource is not expected. To get the effective value for 'mcppls.cache.showInStatusBar', provide the URI of a resource or 'null' for any resource.
+2026-10-09 08:24:02.802 [info] Eager extensions activated
+2026-10-09 08:24:02.841 [info] ExtensionService#_doActivateExtension vscode.debug-auto-launch, startup: false, activationEvent: 'onStartupFinished'
+2026-10-09 08:24:02.842 [info] ExtensionService#_doActivateExtension vscode.merge-conflict, startup: false, activationEvent: 'onStartupFinished'
+2026-10-09 08:24:02.885 [warning] [sunrisepeak.mcpp-language-server] Accessing a resource scoped configuration without providing a resource is not expected. To get the effective value for 'mcppls.cache.showInStatusBar', provide the URI of a resource or 'null' for any resource.
+2026-10-09 08:24:02.886 [warning] [sunrisepeak.mcpp-language-server] Accessing a resource scoped configuration without providing a resource is not expected. To get the effective value for 'mcppls.cache.showInStatusBar', provide the URI of a resource or 'null' for any resource.
+2026-10-09 08:24:02.909 [warning] [sunrisepeak.mcpp-language-server] Accessing a resource scoped configuration without providing a resource is not expected. To get the effective value for 'mcppls.cache.showInStatusBar', provide the URI of a resource or 'null' for any resource.
+2026-10-09 08:24:03.127 [warning] [sunrisepeak.mcpp-language-server] Accessing a resource scoped configuration without providing a resource is not expected. To get the effective value for 'mcppls.cache.showInStatusBar', provide the URI of a resource or 'null' for any resource.
+2026-10-09 08:24:04.713 [warning] [sunrisepeak.mcpp-language-server] Accessing a resource scoped configuration without providing a resource is not expected. To get the effective value for 'mcppls.cache.showInStatusBar', provide the URI of a resource or 'null' for any resource.
+2026-10-09 08:24:04.964 [warning] [sunrisepeak.mcpp-language-server] Accessing a resource scoped configuration without providing a resource is not expected. To get the effective value for 'mcppls.cache.showInStatusBar', provide the URI of a resource or 'null' for any resource.
+2026-10-09 08:24:05.060 [warning] [sunrisepeak.mcpp-language-server] Accessing a resource scoped configuration without providing a resource is not expected. To get the effective value for 'mcppls.cache.showInStatusBar', provide the URI of a resource or 'null' for any resource.
+2026-10-09 08:25:37.077 [info] Extension host terminating: renderer closed the MessagePort
+2026-10-09 08:25:37.081 [info] Extension host with pid 2483926 exiting with code 0

@@ -1,0 +1,9 @@
+{
+  "MCPPLS_SERVER": "/tmp/mcppls-part2-floor70/editor-server.py",
+  "MCPPLS_PAYLOAD": "/tmp/mcppls-part2-floor70/no-editor-payload",
+  "MCPPLS_E2E_EDITOR": "/home/speak/.xlings/data/xpkgs/xim-x-code/1.108.0/code",
+  "MCPPLS_E2E_ONLY": "modules.test.js",
+  "MCPPLS_E2E_EVIDENCE_DIR": "/tmp/mcppls-part2-floor70/qualification/vscode-correctness-v2/evidence",
+  "MCPPLS_CACHE_DIR": "/tmp/mcppls-part2-floor70/qualification/vscode-correctness-v2/server-cache",
+  "TMPDIR": "/dev/shm/mcppls-e70v2"
+}

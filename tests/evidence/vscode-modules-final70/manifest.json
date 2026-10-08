@@ -1,0 +1,246 @@
+{
+  "audit.json": {
+    "bytes": 835,
+    "sha256": "023316b7aa23aaf4cfd875619915af65ab5931736dc5399af5f9b62f2484e995"
+  },
+  "source/editor-server.py": {
+    "bytes": 396,
+    "sha256": "1b7540728d1502720fc3e804779f299ef17272882291b135b879439e79516349"
+  },
+  "source/modules.test.js": {
+    "bytes": 13488,
+    "sha256": "46c0a00d227e2558a70cb86fd1f33f3ae0f122c81fcf4e43ff6e4040c1d619eb"
+  },
+  "source/modules.test.ts": {
+    "bytes": 12868,
+    "sha256": "d1a4a789b835fea96471a3d97c428d9dd791c6ce22b4ec4dff0a8a581e83e2e2"
+  },
+  "vscode-correctness-under-load/command.json": {
+    "bytes": 141,
+    "sha256": "0d9c5c3becea9efb2549747920a6a0166b6f640b3e002a395a1ff44167e5b89b"
+  },
+  "vscode-correctness-under-load/environment.json": {
+    "bytes": 510,
+    "sha256": "52545ecac7cbfeb004e0cfac939d276fdc9745c57a60d841be42e50d837c14b1"
+  },
+  "vscode-correctness-under-load/evidence/server-cache/editor/logs/20261009T082401/editSessions.log": {
+    "bytes": 131,
+    "sha256": "307ad0e4fb2385e78e262172de51c15d986fe3c43bb2927f18e71bedfb4763b2"
+  },
+  "vscode-correctness-under-load/evidence/server-cache/editor/logs/20261009T082401/main.log": {
+    "bytes": 242,
+    "sha256": "79cb2238670b9f0952859fcd870d9f054f134f06fbad6217f838ee8d35868aee"
+  },
+  "vscode-correctness-under-load/evidence/server-cache/editor/logs/20261009T082401/network-shared.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "vscode-correctness-under-load/evidence/server-cache/editor/logs/20261009T082401/remoteTunnelService.log": {
+    "bytes": 55,
+    "sha256": "2b47135964c3bea482fe88b467609e0ce8cfc1267c94850958fbc5a2584dda3b"
+  },
+  "vscode-correctness-under-load/evidence/server-cache/editor/logs/20261009T082401/sharedprocess.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "vscode-correctness-under-load/evidence/server-cache/editor/logs/20261009T082401/terminal.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "vscode-correctness-under-load/evidence/server-cache/editor/logs/20261009T082401/userDataSync.log": {
+    "bytes": 162,
+    "sha256": "ed03c3f15a4c863e6958327a4aa747da81dbf8157d721bbe964518075259cae1"
+  },
+  "vscode-correctness-under-load/evidence/server-cache/editor/logs/20261009T082401/window1/exthost/extHostTelemetry.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "vscode-correctness-under-load/evidence/server-cache/editor/logs/20261009T082401/window1/exthost/exthost.log": {
+    "bytes": 4628,
+    "sha256": "800860666a936b4c1089d0268d9181f764b70ad67382ec18d4d716ef696afad3"
+  },
+  "vscode-correctness-under-load/evidence/server-cache/editor/logs/20261009T082401/window1/exthost/sunrisepeak.mcpp-language-server/C++ Modules.log": {
+    "bytes": 11331,
+    "sha256": "d68d55d711089e404b27b818f2a49fd82d213dca490744438e44bdb56d94968b"
+  },
+  "vscode-correctness-under-load/evidence/server-cache/editor/logs/20261009T082401/window1/exthost/vscode.git/Git.log": {
+    "bytes": 1428,
+    "sha256": "0af7aa383b3b60d0be5383cd672c7e524dd8e6724d64b26f1fafb656f9999885"
+  },
+  "vscode-correctness-under-load/evidence/server-cache/editor/logs/20261009T082401/window1/exthost/vscode.github/GitHub.log": {
+    "bytes": 47,
+    "sha256": "55db3227984ce4363926714ef2a50667db083111175f943688a7a81d3b052afc"
+  },
+  "vscode-correctness-under-load/evidence/server-cache/editor/logs/20261009T082401/window1/exthost/vscode.github-authentication/GitHub Authentication.log": {
+    "bytes": 2105,
+    "sha256": "d9c385c3f613d59546cbe6850ff65defef4ffb2b3757d2289e11c399a35456d1"
+  },
+  "vscode-correctness-under-load/evidence/server-cache/editor/logs/20261009T082401/window1/network.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "vscode-correctness-under-load/evidence/server-cache/editor/logs/20261009T082401/window1/notebook.rendering.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "vscode-correctness-under-load/evidence/server-cache/editor/logs/20261009T082401/window1/output_20261009T082402/tasks.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "vscode-correctness-under-load/evidence/server-cache/editor/logs/20261009T082401/window1/renderer.log": {
+    "bytes": 4456,
+    "sha256": "a5c76adc6cd3c493cb6c36e8af681c15f8bd12cc3bf7a11ec742d849aa0c599e"
+  },
+  "vscode-correctness-under-load/evidence/server-cache/editor/logs/20261009T082401/window1/textModelChanges.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "vscode-correctness-under-load/evidence/server-cache/editor/logs/20261009T082401/window1/views.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "vscode-correctness-under-load/evidence/server-cache.json": {
+    "bytes": 268,
+    "sha256": "de01a5b04a17d040b0bcb83402e799c9a8607bd5ed5fd5a14788f6697fa874b5"
+  },
+  "vscode-correctness-under-load/module-test-original.ts": {
+    "bytes": 12590,
+    "sha256": "d76de67e8f17bcf5f7a58657f73b76fe1f82edec45782bbdd3ec0b441e140f83"
+  },
+  "vscode-correctness-under-load/negative-verdict.json": {
+    "bytes": 469,
+    "sha256": "33dfa4b7c7b0e1df428477125f22961316a19ab5112957991a4829deecb474f0"
+  },
+  "vscode-correctness-under-load/preparation.json": {
+    "bytes": 1666,
+    "sha256": "4e1b46f91cfa10a99a213ba3bd7e17093373c3c39bf51a45b1d6a0de6c16fb36"
+  },
+  "vscode-correctness-under-load/progress.json": {
+    "bytes": 1870,
+    "sha256": "b09bdf1176ceb880f7dc9ad5413ca547b4ff4b85b8dd500f52aa48aaa35dca7a"
+  },
+  "vscode-correctness-under-load/run.log": {
+    "bytes": 4912,
+    "sha256": "75f0e196bd37ff89db6d86d4be242517740810a77dcecc52d28569ae1ce7cc65"
+  },
+  "vscode-correctness-under-load/run.py": {
+    "bytes": 2859,
+    "sha256": "4deac3e976607f2ef6cb041be2f2358ad77f33f249a537f594beb78cbdbf703a"
+  },
+  "vscode-correctness-under-load/server-logs/server-20261008-232402.862-b09b.log": {
+    "bytes": 14222,
+    "sha256": "d926eba8d09a75468f69694bc03d6c75dbdc538687bd0b8c0fb80d0caf8a73fd"
+  },
+  "vscode-correctness-under-load/workspace-restoration-audit.json": {
+    "bytes": 487,
+    "sha256": "74d192cdb37831797ff348ecef4d27f27bbf38c8b7ee346bb06289664736cfd6"
+  },
+  "vscode-correctness-v2/command.json": {
+    "bytes": 141,
+    "sha256": "0d9c5c3becea9efb2549747920a6a0166b6f640b3e002a395a1ff44167e5b89b"
+  },
+  "vscode-correctness-v2/environment.json": {
+    "bytes": 496,
+    "sha256": "6a15c8cf7e410eba67dbe6320008c3e8106f17106865d95bb4e4240f06203514"
+  },
+  "vscode-correctness-v2/evidence/server-cache/editor/logs/20261009T082711/editSessions.log": {
+    "bytes": 131,
+    "sha256": "52eee28c7b7e2ab06372d3a391f67ad2e669bde9cf8fcc5b0f423bb7b9295471"
+  },
+  "vscode-correctness-v2/evidence/server-cache/editor/logs/20261009T082711/main.log": {
+    "bytes": 242,
+    "sha256": "87619ee84f8708b6d539590e0c4b638af7fc1d4f926b20fe68c27d3e9bfbb980"
+  },
+  "vscode-correctness-v2/evidence/server-cache/editor/logs/20261009T082711/network-shared.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "vscode-correctness-v2/evidence/server-cache/editor/logs/20261009T082711/remoteTunnelService.log": {
+    "bytes": 55,
+    "sha256": "07aca282ef864b229527ed1a1b293d1cdaa2139245ce0bc11c02aea8633ae73c"
+  },
+  "vscode-correctness-v2/evidence/server-cache/editor/logs/20261009T082711/sharedprocess.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "vscode-correctness-v2/evidence/server-cache/editor/logs/20261009T082711/terminal.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "vscode-correctness-v2/evidence/server-cache/editor/logs/20261009T082711/userDataSync.log": {
+    "bytes": 162,
+    "sha256": "c869b1107a2a9d8ba674ca38ad07775623aeec1388eeb434adaccc1e0cd3d0e5"
+  },
+  "vscode-correctness-v2/evidence/server-cache/editor/logs/20261009T082711/window1/exthost/extHostTelemetry.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "vscode-correctness-v2/evidence/server-cache/editor/logs/20261009T082711/window1/exthost/exthost.log": {
+    "bytes": 4352,
+    "sha256": "03bbc6ea6f4d358c733e11f62323362fbde49180197197aa3b721c1fc3243cb5"
+  },
+  "vscode-correctness-v2/evidence/server-cache/editor/logs/20261009T082711/window1/exthost/sunrisepeak.mcpp-language-server/C++ Modules.log": {
+    "bytes": 11231,
+    "sha256": "fb86bd5c69889dda635897f28ff74278887538982e86d84380ad65a36e63ef7b"
+  },
+  "vscode-correctness-v2/evidence/server-cache/editor/logs/20261009T082711/window1/exthost/vscode.git/Git.log": {
+    "bytes": 1185,
+    "sha256": "80560b9be76932ffdf79120055b373bd9e863c5036a11e01332516bebe2e5585"
+  },
+  "vscode-correctness-v2/evidence/server-cache/editor/logs/20261009T082711/window1/exthost/vscode.github/GitHub.log": {
+    "bytes": 47,
+    "sha256": "6bdb374303cf0fe2ec34b1863654c4ea08b3e7bd0e8cba7307f562ec08aac8c7"
+  },
+  "vscode-correctness-v2/evidence/server-cache/editor/logs/20261009T082711/window1/exthost/vscode.github-authentication/GitHub Authentication.log": {
+    "bytes": 1985,
+    "sha256": "570965988747ef3d9a0cf2a0d05e4e40c00ca389e3e26146f4b0f36c0be80fae"
+  },
+  "vscode-correctness-v2/evidence/server-cache/editor/logs/20261009T082711/window1/network.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "vscode-correctness-v2/evidence/server-cache/editor/logs/20261009T082711/window1/notebook.rendering.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "vscode-correctness-v2/evidence/server-cache/editor/logs/20261009T082711/window1/output_20261009T082712/tasks.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "vscode-correctness-v2/evidence/server-cache/editor/logs/20261009T082711/window1/renderer.log": {
+    "bytes": 2605,
+    "sha256": "bc365cc37f6cab075034aed840dafe97dddd5b29be83d512908b9fa439bc5548"
+  },
+  "vscode-correctness-v2/evidence/server-cache/editor/logs/20261009T082711/window1/textModelChanges.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "vscode-correctness-v2/evidence/server-cache/editor/logs/20261009T082711/window1/views.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "vscode-correctness-v2/evidence/server-cache.json": {
+    "bytes": 264,
+    "sha256": "f4a5cc7e44bf3cca01c1e73691ebfc26bc0c2c823621326e8755d9f72eb3a877"
+  },
+  "vscode-correctness-v2/preparation.json": {
+    "bytes": 1868,
+    "sha256": "2ea23a03b37d671800b7c464ec8b14dc56fe91713c60d81c9f895245fc9a857c"
+  },
+  "vscode-correctness-v2/progress.json": {
+    "bytes": 1566,
+    "sha256": "f934a8b1904ff43e6e86084c5e6b42e95ba866b20bfffb5d21a1511ed0a8bf1f"
+  },
+  "vscode-correctness-v2/run.log": {
+    "bytes": 2965,
+    "sha256": "e3626a6d8677ec3fc3cf7ac245208997a9f6233f68b82f42f66a9efea39b8550"
+  },
+  "vscode-correctness-v2/run.py": {
+    "bytes": 2859,
+    "sha256": "4deac3e976607f2ef6cb041be2f2358ad77f33f249a537f594beb78cbdbf703a"
+  },
+  "vscode-correctness-v2/server-logs/server-20261008-232712.633-a8d4.log": {
+    "bytes": 14324,
+    "sha256": "9be127f3ba3e027e80049ad9bc697e7c9dc353af1c3c25fdaab4b74d2cd4e55e"
+  }
+}

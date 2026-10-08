@@ -153,12 +153,6 @@ suite('C++ modules through mcppls', function () {
         const marker = 'export namespace hello {';
         assert.ok(moduleOriginal.includes(marker));
         assert.ok(!moduleOriginal.includes('greet2'));
-        const hasNewExport = (list: vscode.CompletionList | undefined): boolean =>
-            (list?.items ?? []).some((item) => {
-                const name = (typeof item.label === 'string' ? item.label : item.label.label).trim();
-                return item.kind === vscode.CompletionItemKind.Function
-                    && (name === 'greet2' || name.startsWith('greet2('));
-            });
 
         const replace = async (document: vscode.TextDocument, text: string): Promise<void> => {
             const edit = new vscode.WorkspaceEdit();
@@ -177,8 +171,8 @@ suite('C++ modules through mcppls', function () {
             const list = await eventually('completion of the saved new module export',
                 () => vscode.commands.executeCommand<vscode.CompletionList>(
                     'vscode.executeCompletionItemProvider', mainUri, new vscode.Position(5, 11)),
-                hasNewExport);
-            assert.ok(hasNewExport(list));
+                (result) => completionLabels(result).some((label) => label.startsWith('greet2(')));
+            assert.ok(completionLabels(list).some((label) => label.startsWith('greet2(')));
         } finally {
             try {
                 await replace(mainDocument, mainOriginal);

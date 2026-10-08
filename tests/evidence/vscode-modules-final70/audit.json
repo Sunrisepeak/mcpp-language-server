@@ -1,0 +1,14 @@
+{
+  "scope": "Real installed VSCode1.108 development-path9 module tests with final70 engine/fixed product/current stock kit, including new C7 saved export. All timings/resources excluded due concurrent external build. Not immutable VSIX/payload, autosave/stress, fast-export or release qualification.",
+  "passed": true,
+  "module_tests": 9,
+  "saved_export_c7_passed": true,
+  "workspace_restoration_passed": true,
+  "original_label_format_assertion_exit_code": 1,
+  "corrected_run_exit_code": 0,
+  "engine_sha256": "5213fa91c24f93f9d3a6f625f4a0699f4ea93892063a7032b2b9ef34b13a179e",
+  "server_sha256": "70156817b4bab8aa934d9fbe8dc6e1bb5d9cc15c035b6c262895cb7fcdb6f287",
+  "editor_version": "1.108.0",
+  "module_test_sha256": "d1a4a789b835fea96471a3d97c428d9dd791c6ce22b4ec4dff0a8a581e83e2e2",
+  "recorded_unix": 1791502110.5268772
+}

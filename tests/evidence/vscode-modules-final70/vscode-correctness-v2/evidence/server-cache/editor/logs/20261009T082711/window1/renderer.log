@@ -1,0 +1,18 @@
+2026-10-09 08:27:12.197 [info] Started local extension host with pid 2487786.
+2026-10-09 08:27:12.227 [info] MCP Registry configured: https://api.mcp.github.com
+2026-10-09 08:27:12.325 [info] Loading development extension at /home/speak/workspace/github/mcpp-language-server/editors/vscode
+2026-10-09 08:27:12.409 [info] Settings Sync: Account status changed from uninitialized to unavailable
+2026-10-09 08:27:12.668 [info] [0m%s%s[0m  
+2026-10-09 08:27:12.672 [info] [0m%s%s[0m    C++ modules through mcppls
+2026-10-09 08:27:14.728 [info] server status: {"cache":{"bytes":100000000,"copies":{"bytes":0,"files":0,"oldestSeconds":0},"instances":{"bytes":0,"count":0},"limitBytes":4294967296,"state":"ok"},"engine":{"name":"clangd","version":"23.1.0-mcppls.0"},"engines":[{"name":"mcppls","role":"modules","state":"ready","version":"0.0.12"},{"name":"clangd","role":"core","state":"ready","version":"23.1.0-mcppls.0"}],"issues":[],"notices":[{"code":"engine-version-untested","message":"clangd 23.1.0-mcppls.0 has not been run through this server's conformance suite; every workaround for clangd 23.1 stays on"}],"profile":{"kind":"semantic-kit","standard":"c++26","stdlib":"libc++ 23.1.0","target":"x86_64-unknown-linux-gnu"},"project":{"level":2,"root":"file:///dev/shm/mcppls-e70v2/mcppls-e2e-DcBmSB","source":"inferred","tier":4},"state":"ready"}
+2026-10-09 08:27:14.734 [info]   [32m  ✔[0m[90m %s[0m .cppm files are C++
+2026-10-09 08:27:14.736 [info]   [32m  ✔[0m[90m %s[0m definition of hello::greet lands in greet.cppm
+2026-10-09 08:27:14.738 [info]   [32m  ✔[0m[90m %s[0m definition of the module name in `import hello.greet;` lands in greet.cppm
+2026-10-09 08:27:14.741 [info]   [32m  ✔[0m[90m %s[0m hover on hello::greet has content
+2026-10-09 08:27:15.746 [info]   [32m  ✔[0m[90m %s[0m[31m (%dms)[0m references of hello::greet span main.cpp and greet.cppm 1005
+2026-10-09 08:27:15.813 [info]   [32m  ✔[0m[90m %s[0m[33m (%dms)[0m completion after hello:: offers greet 66
+2026-10-09 08:27:15.982 [info]   [32m  ✔[0m[90m %s[0m[31m (%dms)[0m saving a new module export makes it available in importer completion (C7) 169
+2026-10-09 08:27:15.983 [info]   [32m  ✔[0m[90m %s[0m the extension showed no notifications or other unsolicited UI
+2026-10-09 08:27:15.983 [info] server log lines: 23 info, 0 warning, 0 error
+2026-10-09 08:27:15.983 [info]   [32m  ✔[0m[90m %s[0m the server log reaches the output at its own level, and a working session has no errors
+2026-10-09 08:27:15.984 [info] [92m [0m[32m %d passing[0m[90m (%s)[0m 9 3s

@@ -1,0 +1,26 @@
+{
+  "status": "prepared_not_run",
+  "scope": "Real installed VSCode1.108 development-path module suite incl new saved-export C7. Final70 engine injected into fixed product with installed stock kit. Private workspace/user-data/cache; all timing/resources excluded due external compiler activity. No immutable payload/VSIX, fast export or latency qualification. Corrected new-export predicate checks actual label name and Function kind; original label/signature failure preserved. Same editor/server/engine/kit, fresh private workspace/cache; timings/resources always excluded.",
+  "command": [
+    "/home/speak/.xlings/subos/default/bin/node",
+    "/home/speak/workspace/github/mcpp-language-server/editors/vscode/out/test/runTest.js"
+  ],
+  "environment_overrides": {
+    "MCPPLS_SERVER": "/tmp/mcppls-part2-floor70/editor-server.py",
+    "MCPPLS_PAYLOAD": "/tmp/mcppls-part2-floor70/no-editor-payload",
+    "MCPPLS_E2E_EDITOR": "/home/speak/.xlings/data/xpkgs/xim-x-code/1.108.0/code",
+    "MCPPLS_E2E_ONLY": "modules.test.js",
+    "MCPPLS_E2E_EVIDENCE_DIR": "/tmp/mcppls-part2-floor70/qualification/vscode-correctness-v2/evidence",
+    "MCPPLS_CACHE_DIR": "/tmp/mcppls-part2-floor70/qualification/vscode-correctness-v2/server-cache",
+    "TMPDIR": "/dev/shm/mcppls-e70v2"
+  },
+  "editor_package_version": "1.108.0",
+  "sha256": {
+    "server": "70156817b4bab8aa934d9fbe8dc6e1bb5d9cc15c035b6c262895cb7fcdb6f287",
+    "engine": "5213fa91c24f93f9d3a6f625f4a0699f4ea93892063a7032b2b9ef34b13a179e",
+    "wrapper": "1b7540728d1502720fc3e804779f299ef17272882291b135b879439e79516349",
+    "module_test_source": "d1a4a789b835fea96471a3d97c428d9dd791c6ce22b4ec4dff0a8a581e83e2e2",
+    "compiled_module_test": "46c0a00d227e2558a70cb86fd1f33f3ae0f122c81fcf4e43ff6e4040c1d619eb",
+    "compiled_extension": "bc441fe30e7bc473921717cbb3545cd5a798eb974f89cd82c29323633547451f"
+  }
+}
