@@ -1,0 +1,82 @@
+{
+  "run": 37770044349,
+  "job": 113292253715,
+  "product_commit": "63567e3",
+  "artifact": 11548163439,
+  "artifact_name": "vscode-e2e-evidence-darwin-x64",
+  "server_log": "/tmp/mcpp-63567e3-darwin-x64-evidence/mcppls-e2e-cache-i4OqBu/logs/server-20261008-114641.285-4b6f.log",
+  "server_log_sha256": "d901899aff9efc8f8e09dbaaa11e250a6797b2c7b40c8327305e6ae9e42dd428",
+  "events": [
+    {
+      "line": 10,
+      "text": "mcppls 2026-10-08T11:46:42.117Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL): I[11:46:42.107] clangd version 23.1.0 (https://github.com/llvm/llvm-project ea7d852a70e8bdfaf601d6626a760f9771b2c4b4)"
+    },
+    {
+      "line": 22,
+      "text": "mcppls 2026-10-08T11:46:42.117Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL): I[11:46:42.113] argv[8]: --background-index-priority=background"
+    },
+    {
+      "line": 23,
+      "text": "mcppls 2026-10-08T11:46:42.117Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL): I[11:46:42.113] argv[9]: -j=3"
+    },
+    {
+      "line": 190,
+      "text": "mcppls 2026-10-08T11:46:43.335Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL): I[11:46:43.335] ASTWorker building file /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL/src/greet/detail.cppm version 1 with command "
+    },
+    {
+      "line": 253,
+      "text": "mcppls 2026-10-08T11:46:45.309Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL): V[11:46:45.308] <<< {\"id\":19,\"jsonrpc\":\"2.0\",\"method\":\"textDocument/references\",\"params\":{\"context\":{\"includeDeclaration\":true},\"position\":{\"character\":11,\"line\":2},\"textDocument\":{\"uri\":\"file:///private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL/src/greet/detail.cppm\"}}}"
+    },
+    {
+      "line": 255,
+      "text": "mcppls 2026-10-08T11:46:45.309Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL): I[11:46:45.308] <-- textDocument/references(19)"
+    },
+    {
+      "line": 338,
+      "text": "mcppls 2026-10-08T11:46:58.232Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL): I[11:46:58.231] Indexed /var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-ext-s9RfJK/sunrisepeak.mcpp-language-server-0.0.12/payload/kit/share/libc++/v1/std.cppm (15466 symbols, 264045 refs, 1354 files)"
+    },
+    {
+      "line": 339,
+      "text": "mcppls 2026-10-08T11:46:59.723Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL): I[11:46:59.723] Built module std to /Users/runner/work/_temp/editor-e2e-evidence/mcppls-e2e-cache-i4OqBu/workspaces/mcppls-e2e-iGYFHL-e566dbe3974b505f/contexts/default/cdb/.cache/clangd/modules/std.cppm-0B3F8736BFCF758A/974DD061204245E9/std-20261008-114659-723453.pcm"
+    },
+    {
+      "line": 344,
+      "text": "mcppls 2026-10-08T11:47:00.050Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL): I[11:47:00.050] Built prerequisite modules for file /Users/runner/work/_temp/editor-e2e-evidence/mcppls-e2e-cache-i4OqBu/workspaces/mcppls-e2e-iGYFHL-e566dbe3974b505f/contexts/default/prime/0002-std.cpp in 17.29 seconds"
+    },
+    {
+      "line": 393,
+      "text": "mcppls 2026-10-08T11:47:00.180Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL): I[11:47:00.179] Built prerequisite modules for file /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL/src/greet/detail.cppm in 16.83 seconds"
+    },
+    {
+      "line": 431,
+      "text": "mcppls 2026-10-08T11:47:00.520Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL): V[11:47:00.519] indexed file AST for /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL/src/greet/detail.cppm version 1:"
+    },
+    {
+      "line": 437,
+      "text": "mcppls 2026-10-08T11:47:00.520Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL): V[11:47:00.520] >>> {\"jsonrpc\":\"2.0\",\"method\":\"textDocument/publishDiagnostics\",\"params\":{\"diagnostics\":[],\"uri\":\"file:///private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL/src/greet/detail.cppm\",\"version\":1}}"
+    },
+    {
+      "line": 509,
+      "text": "mcppls 2026-10-08T11:47:02.775Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL): I[11:47:02.775] Built prerequisite modules for file /Users/runner/work/_temp/editor-e2e-evidence/mcppls-e2e-cache-i4OqBu/workspaces/mcppls-e2e-iGYFHL-e566dbe3974b505f/contexts/default/prime/0001-hello.greet.cpp in 2.63 seconds"
+    },
+    {
+      "line": 552,
+      "text": "mcppls 2026-10-08T11:47:02.791Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL): V[11:47:02.790] ASTWorker running SemanticHighlights on version 1 of /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL/src/greet/detail.cppm"
+    },
+    {
+      "line": 566,
+      "text": "mcppls 2026-10-08T11:47:02.791Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL): V[11:47:02.791] ASTWorker running References on version 1 of /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL/src/greet/detail.cppm"
+    },
+    {
+      "line": 567,
+      "text": "mcppls 2026-10-08T11:47:02.791Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL): I[11:47:02.791] --> reply:textDocument/references(19) 17482 ms"
+    },
+    {
+      "line": 568,
+      "text": "mcppls 2026-10-08T11:47:02.791Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL): V[11:47:02.791] >>> {\"id\":19,\"jsonrpc\":\"2.0\",\"result\":[{\"range\":{\"end\":{\"character\":22,\"line\":2},\"start\":{\"character\":17,\"line\":2}},\"uri\":\"file:///private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-iGYFHL/src/greet/detail.cppm\"}]}"
+    }
+  ],
+  "conclusion": "Client15s deadline fails, engine eventually returns actualreferences after17482ms; actual References ASTWorker execution and reply within1ms. Cold std prerequisite waiting dominates. Additional2.27s after mainAST/index ready before task execution lacks trace attribution.",
+  "boundaries": "No new source edits. No claim loweringpriority fixed native latency; backgroundpriority explicitlypresent. No Current-run lock wait proof; no nativeCPU/profile/trace todivide modulecost or schedulerremainingdelay.",
+  "fixture": "conformance/fixtures/inferred/src/greet/detail.cppm importsstd; exact product635 stress setup waits ready before randomnew didOpen, not per-file AST readiness. 40answeredlabel counts timeout samples, not40successfulunderbudget."
+}
