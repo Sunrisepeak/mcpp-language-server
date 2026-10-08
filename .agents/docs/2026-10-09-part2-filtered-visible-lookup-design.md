@@ -71,3 +71,10 @@ consumer 增加 virtual 方法，因此先重建全部 141 个 clangd 消费者�
 
 
 后续导出：本地 series 已新增 `0069-UP-25-selective-guide-operator-completion.patch`，69 补丁/69 台账检查通过，stabilizing；合成源提交 `499609a2a1503ea7fef404e5b72fbb2e9fa2a9f2`，series SHA `c70865e0d5ca7dd2b75a5442de45e030d4149a8c7709dd8f1f611173f76376de`。完整四格证据、两个无效计时和源身份已归档。独立干净目录 `/tmp/mcppls-part2-clean-special69/` 正从固定上游 tarball 应用完整 series 并重建全部消费者；当前仅构建启动，不作为通过证据。旧 0068 构建和基线保留，新候选尚未推送，PR 不合入。
+
+
+## 0070：普通名字/表达式的 Scope 与 TU 选择
+
+最终0069首列/普通edited p95为201.22/210.72ms，未达200ms。原限定名分支之外，Scope路径每请求仍枚举10,488个TU声明；私有批量CPU约29ms枚举+6ms消费。新增非virtual `LookupVisibleDeclsForCompletion(Scope*, ...)`，由普通名字/表达式补全传入同一borrowed StringRef谓词；LookupVisibleHelper只为NamespaceDecl或C++ TU选择外部名称。C的identifier查找路径、空谓词、普通LookupVisibleDecls、class/member遍历、本地声明/using/shadow/visibility、external-storage标记和同步RAII契约保持。类布局/已有virtual ABI与BMI格式不变，不新增答案缓存。
+
+两项新控制验证PCH/文本 unqualified/global 的局部遮蔽、using/inline namespace、重载和编辑字段，以及TU部分加载后普通查找与完整加载。2项新控制+146项既有CompletionTest通过；开发构建只重建两Sema对象和测试，复用未变69消费者，不声称70全量消费者通过。默认top100跨同基线实例的index边界候选会交换；保留原负例，另用不限engine数量的实际返回字段一致性/插入控制，再验证默认返回项属于参考合法集合，计时采用默认limit及明确索引发布/正匹配。不限数量仍可能有legacy `isIncomplete=true`，不声称全索引完备。独立完整70源码已应用并核对，Ubuntu20全量构建仍在运行；正式series70/stabilizing，最终分布/产品/平台资格待证明。
