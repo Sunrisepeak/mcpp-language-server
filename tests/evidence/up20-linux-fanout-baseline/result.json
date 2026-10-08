@@ -1,0 +1,161 @@
+{
+  "baseline": "natural-crash",
+  "platform": "linux-x64",
+  "qualification": "actual recovered full U7b scenario with immutable stock binary; fixed-engine and reduced standalone corpus replay still pending",
+  "invocation": {
+    "argv": [
+      "taskset",
+      "-c",
+      "0,1,2,3,4,5,6,7",
+      "/home/speak/workspace/github/mcpp-language-server/target/x86_64-linux-gnu/c6a96775022a4395/bin/mcppls-conformance",
+      "run",
+      "--server",
+      "/home/speak/workspace/github/mcpp-language-server/target/x86_64-linux-gnu/c6a96775022a4395/bin/mcppls",
+      "--fixture",
+      "/tmp/mcppls-up20-fixture",
+      "--clangd",
+      "/tmp/mcppls-up20-baseline/clangd_23.1.0/bin/clangd",
+      "--kit",
+      "/tmp/mcppls-ext-mxNsNl/sunrisepeak.mcpp-language-server-0.0.12/payload/kit",
+      "--workspace-dir",
+      "/tmp/mcppls-up20-conformance-work",
+      "--cache-dir",
+      "/tmp/mcppls-up20-baseline-cache",
+      "--timeout",
+      "360",
+      "--keep",
+      "--verbose",
+      "--measure",
+      "/tmp/mcppls-up20-baseline-result.json"
+    ],
+    "cpus": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "source": "d1f1c98fa26d953e084a183a9672fc1e0ce63558",
+    "stock_engine_sha256": "5a535973dd1274270c8a0d34677fe4758d8c9aaa164aa3701602c957c42dc9e2",
+    "note": "Recovered original240s U7b scenario; no baseline qualification claimed before actual result."
+  },
+  "measure": {
+    "checks": [
+      {
+        "detail": "not every importer's diagnostics were published again within 240 s; the diagnostic naming 'ux_probe_fn' never cleared within 240 s; the probe after the save 324.54s is over the budget 60.00s; 8 importers republished after never, probe cleared after never, interactive p95 1.34s max 11.48s, jump after 324.5s, states [\"degraded\"]",
+        "id": "U7b-fanout-crash",
+        "kind": "edit-save",
+        "measure": {
+          "completion": {
+            "max": 11.484023612,
+            "n": 240,
+            "p50": 0.001534544,
+            "p95": 1.344663518
+          },
+          "completionsUnanswered": 0,
+          "engineShare": 0.06666666666666667,
+          "errorSamples": 0,
+          "importers": 8,
+          "load": 1.53,
+          "probeSeconds": null,
+          "recoverSeconds": 324.535982385,
+          "republishSeconds": null,
+          "restarts": 6,
+          "statesSeen": [
+            "degraded"
+          ]
+        },
+        "ok": false,
+        "seconds": 373.230483915,
+        "since-start": 373.260802132
+      }
+    ],
+    "failures": 1,
+    "first-diagnostics": 40.924353626,
+    "first-navigation": null,
+    "fixture": "ux-mcpp",
+    "initialize": 0.029833106,
+    "ready": 1.305974829,
+    "reused-workspace": true,
+    "seconds": 373.343051436
+  },
+  "crashes": [
+    {
+      "time": "2026-10-08T03:27:19.901Z"
+    },
+    {
+      "time": "2026-10-08T03:27:34.637Z"
+    },
+    {
+      "time": "2026-10-08T03:27:44.059Z"
+    },
+    {
+      "time": "2026-10-08T03:28:04.070Z"
+    },
+    {
+      "time": "2026-10-08T03:28:44.035Z"
+    },
+    {
+      "time": "2026-10-08T03:30:04.050Z"
+    }
+  ],
+  "incidents": [
+    {
+      "at": "2026-10-08T03:27:21.661Z",
+      "clangd": {
+        "sha256": "5a535973dd1274270c8a0d34677fe4758d8c9aaa164aa3701602c957c42dc9e2",
+        "version": "23.1.0"
+      },
+      "crashAction": "Build AST",
+      "crashFile": "/tmp/mcppls-up20-conformance-work/ux-mcpp/src/pack/host_requirements.cppm",
+      "exitCode": -1,
+      "exception": null
+    },
+    {
+      "at": "2026-10-08T03:28:46.103Z",
+      "clangd": {
+        "sha256": "5a535973dd1274270c8a0d34677fe4758d8c9aaa164aa3701602c957c42dc9e2",
+        "version": "23.1.0"
+      },
+      "crashAction": "Build AST",
+      "crashFile": "/tmp/mcppls-up20-conformance-work/ux-mcpp/src/modgraph/validate.cppm",
+      "exitCode": -1,
+      "exception": null
+    },
+    {
+      "at": "2026-10-08T03:30:06.076Z",
+      "clangd": {
+        "sha256": "5a535973dd1274270c8a0d34677fe4758d8c9aaa164aa3701602c957c42dc9e2",
+        "version": "23.1.0"
+      },
+      "crashAction": "Build AST",
+      "crashFile": "/tmp/mcppls-up20-conformance-work/ux-mcpp/src/pack/route.cppm",
+      "exitCode": -1,
+      "exception": null
+    }
+  ],
+  "raw_inputs": {
+    "/tmp/mcppls-up20-baseline.log": {
+      "bytes": 7075322,
+      "sha256": "f34980ba20b9123087924a91b4a2f9c34298ba4232d54138a07863da9ac08c76"
+    },
+    "/tmp/mcppls-up20-build-database.json": {
+      "bytes": 474960,
+      "sha256": "329b9832f6e16eb9651afd90aa52f4f8b389a5a81124e4c85f76582ecb974024"
+    },
+    "/tmp/mcppls-up20-fixture/scenario.json": {
+      "bytes": 1394,
+      "sha256": "b80470f62ea6102e3ddf9a36d0a4f2861fba2afe7a1e4000f09a5a28a0e016f5"
+    },
+    "/tmp/mcppls-up20-baseline-cache/bundles/auto-engine-crash-loop-20261008T032845Z.zip": {
+      "bytes": 894778,
+      "sha256": "c64f05d830f59b1bd12feef11f86619ff1767b41cf30955457b8a3b564028a31"
+    }
+  },
+  "source_restored": true,
+  "original_check_preserved_except_stage": true,
+  "limitations": "Current dependency/compiler resolution uses GCC16.1.0/libstdc++16.1.0. Parser-state dumps are real, but no symbolized native call stack or exact natural signal number is claimed; product incident exitCode -1 does not encode that signal. Six actual crashes are not six independent cold repetitions."
+}
