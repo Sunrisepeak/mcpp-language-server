@@ -45,3 +45,11 @@ CI hosts/runs do not establish a controlled causal speedup, statistical latency
 acceptance or final maintained-engine joint qualification. Windows index
 throughput has not been measured. Background index completion can take longer
 under sustained foreground load. No deadline or stress assertion changed.
+
+The later native run37714360156 at21a3675 fails the unchanged cold references
+limit again. The engine receives detail.cppm references(19) at02:03:23.391 and
+replies at02:03:44.949, reporting21546ms with actual namespace references.
+Detail prerequisites take19.62s and the std primer21.17s; two std lock waits
+are observed. This reinforces that the previous priority pass did not close
+cold preparation latency. [Exact retained timeline](darwin-native-recurrence.json).
+No symbol location is removed, empty result fabricated, or15s assertion changed.

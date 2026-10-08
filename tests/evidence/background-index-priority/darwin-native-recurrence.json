@@ -1,0 +1,64 @@
+{
+  "run_id": 37714360156,
+  "product_commit": "21a3675",
+  "job_id": 113110486092,
+  "artifact_id": 11523612533,
+  "platform": "darwin-x64",
+  "locked_engine": "23.1.0",
+  "source_log_sha256": "70f0d00f748144a78305a7e4fde7600cd9687c365528036ec721507ecb878602",
+  "request": "references detail.cppm line2 character11 (zero based)",
+  "engine_reply_ms": 21546,
+  "stress_deadline_ms": 15000,
+  "verdict": "cold performance remains open despite previous native priority pass",
+  "timeline": [
+    {
+      "line": 240,
+      "text": "mcppls 2026-10-08T02:03:23.391Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-mnNd1m): V[02:03:23.391] <<< {\"id\":19,\"jsonrpc\":\"2.0\",\"method\":\"textDocument/references\",\"params\":{\"context\":{\"includeDeclaration\":true},\"position\":{\"character\":11,\"line\":2},\"textDocument\":{\"uri\":\"file:///private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-mnNd1m/src/greet/detail.cppm\"}}}"
+    },
+    {
+      "line": 242,
+      "text": "mcppls 2026-10-08T02:03:23.392Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-mnNd1m): I[02:03:23.391] <-- textDocument/references(19)"
+    },
+    {
+      "line": 379,
+      "text": "mcppls 2026-10-08T02:03:38.833Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-mnNd1m): I[02:03:38.832] Indexed /var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-ext-J029nN/sunrisepeak.mcpp-language-server-0.0.12/payload/kit/share/libc++/v1/std.cppm (15466 symbols, 264045 refs, 1354 files)"
+    },
+    {
+      "line": 380,
+      "text": "mcppls 2026-10-08T02:03:39.654Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-mnNd1m): I[02:03:39.654] Still waiting for module lock /Users/runner/work/_temp/editor-e2e-evidence/mcppls-e2e-cache-tD6mPV/workspaces/mcppls-e2e-mnNd1m-ca7244b01bb6d2df/contexts/default/cdb/.cache/clangd/modules/.locks/1EC870F90DBC72B9 after 10s"
+    },
+    {
+      "line": 381,
+      "text": "mcppls 2026-10-08T02:03:40.348Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-mnNd1m): I[02:03:40.348] Still waiting for module lock /Users/runner/work/_temp/editor-e2e-evidence/mcppls-e2e-cache-tD6mPV/workspaces/mcppls-e2e-mnNd1m-ca7244b01bb6d2df/contexts/default/cdb/.cache/clangd/modules/.locks/1EC870F90DBC72B9 after 10s"
+    },
+    {
+      "line": 383,
+      "text": "mcppls 2026-10-08T02:03:40.767Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-mnNd1m): I[02:03:40.767] Built prerequisite modules for file /Users/runner/work/_temp/editor-e2e-evidence/mcppls-e2e-cache-tD6mPV/workspaces/mcppls-e2e-mnNd1m-ca7244b01bb6d2df/contexts/default/prime/0002-std.cpp in 21.17 seconds"
+    },
+    {
+      "line": 437,
+      "text": "mcppls 2026-10-08T02:03:40.988Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-mnNd1m): I[02:03:40.988] Built prerequisite modules for file /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-mnNd1m/src/greet/detail.cppm in 19.62 seconds"
+    },
+    {
+      "line": 493,
+      "text": "mcppls 2026-10-08T02:03:43.433Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-mnNd1m): I[02:03:43.433] Built prerequisite modules for file /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-mnNd1m/src/main.cpp in 23.84 seconds"
+    },
+    {
+      "line": 512,
+      "text": "mcppls 2026-10-08T02:03:44.841Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-mnNd1m): I[02:03:44.841] Built prerequisite modules for file /private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-mnNd1m/src/greet/greet.cppm in 4.01 seconds"
+    },
+    {
+      "line": 560,
+      "text": "mcppls 2026-10-08T02:03:44.949Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-mnNd1m): I[02:03:44.949] --> reply:textDocument/references(19) 21546 ms"
+    },
+    {
+      "line": 561,
+      "text": "mcppls 2026-10-08T02:03:44.949Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-mnNd1m): V[02:03:44.949] >>> {\"id\":19,\"jsonrpc\":\"2.0\",\"result\":[{\"range\":{\"end\":{\"character\":22,\"line\":2},\"start\":{\"character\":17,\"line\":2}},\"uri\":\"file:///private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-mnNd1m/src/greet/detail.cppm\"}]}"
+    },
+    {
+      "line": 663,
+      "text": "mcppls 2026-10-08T02:03:45.402Z [debug] clangd (/private/var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/mcppls-e2e-mnNd1m): I[02:03:45.402] Built prerequisite modules for file /Users/runner/work/_temp/editor-e2e-evidence/mcppls-e2e-cache-tD6mPV/workspaces/mcppls-e2e-mnNd1m-ca7244b01bb6d2df/contexts/default/prime/0001-hello.greet.cpp in 4.11 seconds"
+    }
+  ],
+  "limits": "Different hosts/runs; no controlled causal comparison; not final maintained-engine qualification"
+}
