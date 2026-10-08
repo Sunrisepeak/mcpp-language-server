@@ -67,10 +67,11 @@ suite('server crash loop', function () {
         process.kill(starting as number, 'SIGKILL');
         await restarting;
         // initialize may have replied before SIGKILL, so the killed client's start can
-        // resolve before its EOF is observed. Require a replacement process as well
-        // as completed client initialization before exercising the recovered connection.
+        // resolve before its EOF is observed. The previous manually stopped server
+        // can also still be cleaning up its engine. Exclude that process as well:
+        // its surviving PID is not evidence that the killed client recovered.
         await until('a new server with a fully initialized recovered client', () => {
-            const recovered = serverPid();
+            const recovered = serverPid(previous);
             return recovered !== undefined && recovered !== starting && api.serverRunning();
         });
         await api.waitForState(['ready', 'degraded'], READY_TIMEOUT_MS);

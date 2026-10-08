@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "native_head": "21a36752c3cb6aaa015eab9bd8d4796abdf9a68c",
+  "native_run": 37714360156,
+  "job": 113110486107,
+  "artifact": 11523238166,
+  "failure": "recovered client cannot request cache report",
+  "timeline": {
+    "previous_core_exit": "01:58:06.607",
+    "killed_initializing_server_exit": "01:58:06.677",
+    "replacement_log_created": "01:58:06.693",
+    "assertion_failed": "01:58:06.695",
+    "later_normal_process_exit": "01:58:07.301"
+  },
+  "source_cause": "starting PID lookup excluded the previous process; recovery lookup did not. The previous PID can satisfy replacement detection while it is still shutting down. Exact process IDs were not retained in this native failure.",
+  "change": "exclude the previous PID in the recovered process lookup; retain distinct killed-PID, initialized client, ready/degraded, cache request and command registration assertions",
+  "local_installed_result": {
+    "editor": "VS Code 1.132.0 Linux",
+    "cases_passed": 2,
+    "elapsed_seconds": 6,
+    "vsix": "/tmp/mcpp-recovery-pid-fixed.vsix",
+    "scope": "actual installed extension/current local server and existing payload; not final joint maintained-engine package/native fixed-head qualification"
+  },
+  "raw_artifacts": {
+    "/tmp/mcpp-21-linux-editor-ci.log": {
+      "sha256": "79afcf1b56ea5df1f7adc375d2b9494b5362c44e062138ae682713262c9d2322",
+      "bytes": 86454
+    },
+    "/tmp/mcpp-recovery-pid-fixed.log": {
+      "sha256": "e09cbcd0ca9ec5465b15d63bda244e0e2f882e9858be93bd2ff4ae202a056b1c",
+      "bytes": 5747
+    },
+    "/tmp/mcpp-21-linux-editor-evidence/mcppls-e2e-cache-wUdQ5P/logs/server-20261008-015800.483-a9e2.log": {
+      "sha256": "86741a207c4b0880e45442835c7c6434622ee855ae948a95b42d9ceb6b05d66a",
+      "bytes": 93343
+    },
+    "/tmp/mcpp-21-linux-editor-evidence/mcppls-e2e-cache-wUdQ5P/editor/logs/20261008T015735/window1/exthost/sunrisepeak.mcpp-language-server/C++ Modules.log": {
+      "sha256": "da665c2cc72bd991c6f3f800349f1b88fa11a08499557c65bbe2914f5caf408b",
+      "bytes": 109493
+    }
+  }
+}
