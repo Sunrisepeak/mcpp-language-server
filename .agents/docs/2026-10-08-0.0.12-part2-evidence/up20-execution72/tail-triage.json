@@ -1,0 +1,73 @@
+{
+  "scope": "Read-only triage of existing UP20 debug log; wall replies/product latency differ. No exclusive CPU attribution or new measurement.",
+  "log_sha256": "701de68e274ac67d3e85b653d351b6ac476f2346dbcdfe9be889b44585ff1a7c",
+  "events": [
+    {
+      "line": 125,
+      "text": "  server: mcppls 2026-10-09T02:14:51.634Z [warning] the event loop took 960 ms for a loaded model and 0 ms for its timers; requests and watchdogs waited meanwhile (1 such turns so far)"
+    },
+    {
+      "line": 20733,
+      "text": "  server: mcppls 2026-10-09T02:16:20.944Z [debug] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): I[11:16:20.944] <-- textDocument/completion(2)"
+    },
+    {
+      "line": 22895,
+      "text": "  server: mcppls 2026-10-09T02:16:22.076Z [warning] the event loop took 0 ms for nothing and 352 ms for its timers; requests and watchdogs waited meanwhile (2 such turns so far)"
+    },
+    {
+      "line": 22899,
+      "text": "  server: mcppls 2026-10-09T02:16:22.076Z [debug] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): I[11:16:22.076] <-- textDocument/completion(3)"
+    },
+    {
+      "line": 23067,
+      "text": "  server: mcppls 2026-10-09T02:16:22.956Z [debug] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): I[11:16:22.956] --> reply:textDocument/completion(2) 2011 ms"
+    },
+    {
+      "line": 23940,
+      "text": "  server: mcppls 2026-10-09T02:16:29.372Z [debug] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): I[11:16:29.371] --> reply:textDocument/completion(3) 7295 ms"
+    },
+    {
+      "line": 24005,
+      "text": "  server: mcppls 2026-10-09T02:16:33.051Z [debug] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): I[11:16:33.051] <-- textDocument/completion(4)"
+    },
+    {
+      "line": 24054,
+      "text": "  server: mcppls 2026-10-09T02:16:33.149Z [debug] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): I[11:16:33.149] --> reply:textDocument/completion(4) 97 ms"
+    },
+    {
+      "line": 26003,
+      "text": "  server: mcppls 2026-10-09T02:16:34.397Z [warning] the event loop took 0 ms for nothing and 336 ms for its timers; requests and watchdogs waited meanwhile (3 such turns so far)"
+    }
+  ],
+  "actual_engine_completion_reply_ms": [
+    2011,
+    7295,
+    97
+  ],
+  "observed_saved_file_engine_reply_ms": [
+    2011,
+    7295
+  ],
+  "product_completion_p95_seconds": 1.18404766,
+  "limitations": [
+    "Original fixture does not impose interactive p95 gate.",
+    "Product C-2 late-answer reuse makes engineShare insufficient to establish a new engine execution per request.",
+    "352ms timer stall coincides with fan-out but is not proven to account for the whole1.18s tail.",
+    "Engine queue/scanner/build/Sema exclusive breakdown still required."
+  ],
+  "source_findings": {
+    "late_answer_reuse": {
+      "file": "src/orchestrator/workspace.cpp",
+      "lines": [
+        1030,
+        1036,
+        1041,
+        1072,
+        1081
+      ],
+      "guard": "URI/word key and lifetime; no new cache added by current optimization.",
+      "source_sha256": "adfa3d4b81893ea5cb26bb090b06c91a03bdeccfd8e684375bf6a2855c781c72"
+    },
+    "prior_no_completion_answer_cache_statement": "Corrected: earlier audit missed existing C-2 late-answer reuse."
+  }
+}
