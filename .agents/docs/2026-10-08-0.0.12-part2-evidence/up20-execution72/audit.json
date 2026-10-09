@@ -1,0 +1,24 @@
+{
+  "scope": "One genuine save and restore of original pinned UP20 source/workspace/8CPU profile, with final72. Not1000-save/RSS-growth/p95<=200ms/complete release proof.",
+  "measurement": {
+    "completion": {
+      "max": 1.18404766,
+      "n": 13,
+      "p50": 0.02010162,
+      "p95": 1.18404766
+    },
+    "completionsUnanswered": 0,
+    "engineShare": 0.8571428571428571,
+    "errorSamples": 0,
+    "importers": 8,
+    "load": 2.23,
+    "probeSeconds": 3.206949562,
+    "recoverSeconds": 12.269041162,
+    "republishSeconds": 12.134779389,
+    "restarts": 0,
+    "statesSeen": []
+  },
+  "tracked_source_restored": true,
+  "owned_cleanup_pass": true,
+  "all_checked_requirements_passed": true
+}

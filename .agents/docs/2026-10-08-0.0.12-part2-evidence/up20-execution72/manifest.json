@@ -1,0 +1,14 @@
+{
+  "scope": "One genuine save and restore of original pinned UP20 source/workspace/8CPU profile, with final72. Not1000-save/RSS-growth/p95<=200ms/complete release proof.",
+  "files": {
+    "README.md": "fa94cad94829cd746137a7f07b43bce4d9198b21b2696aa2e518f49c6542c1eb",
+    "audit.json": "3cab5cd7b29c0f79dc75e01b188024e46b7bc667c7922e1bdf67a85c6829616d",
+    "command.json": "32bb28cca86f5bd9d6f1c7a1e35f5348fdc108005adcdeab6621cbe6961231a4",
+    "fixture/scenario.json": "c13d6dad0434eade4da19dfa59fe132cc1ab772a62df3aee300da2347c24b682",
+    "identity.json": "479982b14c41c0683533f89a2609fa463e6032bb1dd0768a26e6564af28788c6",
+    "measure.json": "ff7397b91350ffeb80dc3cfd96951e5080aac95cd69e3375366dfddf8d112bd0",
+    "run.log.gz": "7f6acf5fcc2ca7de28f45d85cfe43f1f4df1151e1d4cb9c98e28facc04b17ecd",
+    "run.py": "95ec8c555ac2d51c4ab62d0cea8b03ad5b80912191b35ce53298272cf8f869d2",
+    "source-audit.json": "3c48d0743ed0a9ab9aacd84a0dbba5483e217f0fcae9993c012dad511ffc34a6"
+  }
+}
