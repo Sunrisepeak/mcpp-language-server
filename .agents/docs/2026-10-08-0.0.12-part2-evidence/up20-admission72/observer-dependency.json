@@ -1,0 +1,6 @@
+{
+  "library": "/usr/lib/x86_64-linux-gnu/libxxhash.so.0.8.2",
+  "sha256": "a43c43c2fbb643f42572577b6c2514905804f963d186d4d630e184c4015e68a7",
+  "failed_attempt": "/tmp/mcppls-part2-floor72/qualification/up20-admission-profile",
+  "failed_reason": "xlings Python dlopen cannot resolve system libxxhash soname; workload observer started before failed init; parent identity stopped, no server started; no timing qualified"
+}

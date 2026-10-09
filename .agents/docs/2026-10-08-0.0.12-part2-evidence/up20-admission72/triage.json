@@ -1,0 +1,310 @@
+{
+  "scope": "Diagnostic-only coherent ledger snapshots; all latency/resources excluded. Nonblocking shared ledger read lock can perturb writers; no cache mutations. This proves observed byte pressure, not exclusive performance attribution or reclaimability of every charged generation.",
+  "samples": 225,
+  "busy_nonblocking_skips": 335,
+  "pressure_samples": 42,
+  "budget_bytes": 1073741824,
+  "slot_capacity": 4096,
+  "maximum_observed_used_slots": 496,
+  "maximum_observed_charged_bytes": 1073511464,
+  "pressure_requested_bytes": [
+    335544320
+  ],
+  "pressure_samples_free_bytes_below_requested": 27,
+  "pressure_samples_full_slot_table": 0,
+  "first_pressure": {
+    "unix": 1791514869.4243517,
+    "identity": [
+      2049,
+      26609095
+    ],
+    "slots": 4096,
+    "limit": 1073741824,
+    "pressure": 335544320,
+    "charged_bytes": 739572116,
+    "counts": {
+      "2": 255,
+      "3": 206,
+      "0": 3634,
+      "1": 1
+    },
+    "charges": {
+      "2": 212494192,
+      "3": 191533604,
+      "0": 0,
+      "1": 335544320
+    },
+    "reserved": [
+      {
+        "slot": 450,
+        "generation": 2,
+        "bytes": 335544320,
+        "kind": 1,
+        "output_envelope": 268435456,
+        "capture_envelope": 67108864,
+        "main_bytes": 0,
+        "source": "/home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/cdb/.cache/clangd/modules/.locks/A79E64A5F8D0B9CA"
+      }
+    ]
+  },
+  "engine_admission_failures": [
+    {
+      "line": 15002,
+      "text": "server: mcppls 2026-10-09T03:01:08.567Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:08.567] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0044-mcpp.xlings.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 15004,
+      "text": "server: mcppls 2026-10-09T03:01:08.567Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0044-mcpp.xlings.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 15074,
+      "text": "server: mcppls 2026-10-09T03:01:09.050Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:09.050] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0150-mcpp.toolchain.model.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 15075,
+      "text": "server: mcppls 2026-10-09T03:01:09.050Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0150-mcpp.toolchain.model.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 15138,
+      "text": "server: mcppls 2026-10-09T03:01:09.399Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:09.399] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0165-mcpp.manifest.xpkg.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 15139,
+      "text": "server: mcppls 2026-10-09T03:01:09.400Z [info] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 15143,
+      "text": "server: mcppls 2026-10-09T03:01:09.400Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0165-mcpp.manifest.xpkg.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 15673,
+      "text": "server: mcppls 2026-10-09T03:01:10.251Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:10.251] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0045-mcpp.fallback.probe_sysroot.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 15677,
+      "text": "server: mcppls 2026-10-09T03:01:10.251Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0045-mcpp.fallback.probe_sysroot.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 15922,
+      "text": "server: mcppls 2026-10-09T03:01:10.527Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:10.527] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0012-mcpp.fallback.sysroot_complete.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 15923,
+      "text": "server: mcppls 2026-10-09T03:01:10.527Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0012-mcpp.fallback.sysroot_complete.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 16058,
+      "text": "server: mcppls 2026-10-09T03:01:10.867Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:10.867] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0086-mcpp.config.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 16059,
+      "text": "server: mcppls 2026-10-09T03:01:10.867Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0086-mcpp.config.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 16379,
+      "text": "server: mcppls 2026-10-09T03:01:11.446Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:11.446] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0046-mcpp.toolchain.probe.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 16381,
+      "text": "server: mcppls 2026-10-09T03:01:11.446Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0046-mcpp.toolchain.probe.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 16588,
+      "text": "server: mcppls 2026-10-09T03:01:11.788Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:11.787] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0152-mcpp.toolchain.fingerprint.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 16590,
+      "text": "server: mcppls 2026-10-09T03:01:11.788Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0152-mcpp.toolchain.fingerprint.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 16857,
+      "text": "server: mcppls 2026-10-09T03:01:12.351Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:12.351] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0035-mcpp.pack.host_requirements.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 16859,
+      "text": "server: mcppls 2026-10-09T03:01:12.351Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0035-mcpp.pack.host_requirements.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 17006,
+      "text": "server: mcppls 2026-10-09T03:01:12.566Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:12.566] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0047-mcpp.toolchain.msvc.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 17008,
+      "text": "server: mcppls 2026-10-09T03:01:12.567Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0047-mcpp.toolchain.msvc.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 17248,
+      "text": "server: mcppls 2026-10-09T03:01:12.959Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:12.959] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0088-mcpp.pm.refresh_policy.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 17252,
+      "text": "server: mcppls 2026-10-09T03:01:12.959Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0088-mcpp.pm.refresh_policy.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 17399,
+      "text": "server: mcppls 2026-10-09T03:01:13.458Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:13.458] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0049-mcpp.toolchain.gcc.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 17401,
+      "text": "server: mcppls 2026-10-09T03:01:13.458Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0049-mcpp.toolchain.gcc.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 17636,
+      "text": "server: mcppls 2026-10-09T03:01:13.931Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:13.931] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0038-mcpp.pm.lock_io.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 17637,
+      "text": "server: mcppls 2026-10-09T03:01:13.931Z [info] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 17640,
+      "text": "server: mcppls 2026-10-09T03:01:13.931Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0038-mcpp.pm.lock_io.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 17834,
+      "text": "server: mcppls 2026-10-09T03:01:14.026Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:14.026] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0048-mcpp.toolchain.clang.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 17836,
+      "text": "server: mcppls 2026-10-09T03:01:14.026Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0048-mcpp.toolchain.clang.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 17945,
+      "text": "server: mcppls 2026-10-09T03:01:14.168Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:14.168] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0094-mcpp.pm.package_fetcher.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 17947,
+      "text": "server: mcppls 2026-10-09T03:01:14.168Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0094-mcpp.pm.package_fetcher.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 18225,
+      "text": "server: mcppls 2026-10-09T03:01:14.530Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:14.529] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0040-mcpp.lockfile.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 18227,
+      "text": "server: mcppls 2026-10-09T03:01:14.530Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0040-mcpp.lockfile.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 18804,
+      "text": "server: mcppls 2026-10-09T03:01:16.739Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:16.739] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0050-mcpp.toolchain.detect.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 18806,
+      "text": "server: mcppls 2026-10-09T03:01:16.739Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0050-mcpp.toolchain.detect.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 19228,
+      "text": "server: mcppls 2026-10-09T03:01:17.972Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:17.972] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0051-mcpp.modgraph.p1689.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 19229,
+      "text": "server: mcppls 2026-10-09T03:01:17.972Z [info] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 19230,
+      "text": "server: mcppls 2026-10-09T03:01:17.972Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0051-mcpp.modgraph.p1689.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 19241,
+      "text": "server: mcppls 2026-10-09T03:01:17.992Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:17.992] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0032-mcpp.project.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 19243,
+      "text": "server: mcppls 2026-10-09T03:01:17.992Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0032-mcpp.project.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 19925,
+      "text": "server: mcppls 2026-10-09T03:01:19.956Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:19.956] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0055-mcpp.build.prepare_inputs.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 19926,
+      "text": "server: mcppls 2026-10-09T03:01:19.956Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0055-mcpp.build.prepare_inputs.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 20266,
+      "text": "server: mcppls 2026-10-09T03:01:20.836Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:20.836] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0056-mcpp.pm.publisher.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 20267,
+      "text": "server: mcppls 2026-10-09T03:01:20.837Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0056-mcpp.pm.publisher.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 20616,
+      "text": "server: mcppls 2026-10-09T03:01:22.012Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:22.012] Failed to build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0057-mcpp.publish.xpkg_emit.cpp; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 20617,
+      "text": "server: mcppls 2026-10-09T03:01:22.012Z [warning] clangd could not build module prerequisites for /home/data_disk/codex-mcppls-part2-builds/portable72/qualification/up20-admission-profile-v2/cache/workspaces/ux-mcpp-1ff4e742efcc2e9e/contexts/default/prime/0057-mcpp.publish.xpkg_emit.cpp (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 23122,
+      "text": "server: mcppls 2026-10-09T03:01:32.357Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:32.356] Failed to build module prerequisites for /tmp/mcppls-up20-conformance-work/ux-mcpp/src/pack/route.cppm; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 23124,
+      "text": "server: mcppls 2026-10-09T03:01:32.357Z [warning] clangd could not build module prerequisites for /tmp/mcppls-up20-conformance-work/ux-mcpp/src/pack/route.cppm (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 23660,
+      "text": "server: mcppls 2026-10-09T03:01:32.644Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:32.644] Failed to build module prerequisites for /tmp/mcppls-up20-conformance-work/ux-mcpp/src/pack/prebuilt.cppm; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 23662,
+      "text": "server: mcppls 2026-10-09T03:01:32.645Z [warning] clangd could not build module prerequisites for /tmp/mcppls-up20-conformance-work/ux-mcpp/src/pack/prebuilt.cppm (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 23741,
+      "text": "server: mcppls 2026-10-09T03:01:33.646Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:33.646] Failed to build module prerequisites for /tmp/mcppls-up20-conformance-work/ux-mcpp/src/xlings/address_set.cppm; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 23742,
+      "text": "server: mcppls 2026-10-09T03:01:33.646Z [info] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 23744,
+      "text": "server: mcppls 2026-10-09T03:01:33.646Z [warning] clangd could not build module prerequisites for /tmp/mcppls-up20-conformance-work/ux-mcpp/src/xlings/address_set.cppm (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 23778,
+      "text": "server: mcppls 2026-10-09T03:01:33.670Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:33.670] Failed to build module prerequisites for /tmp/mcppls-up20-conformance-work/ux-mcpp/src/pack/route.cppm; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 23783,
+      "text": "server: mcppls 2026-10-09T03:01:33.701Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:33.701] Failed to build module prerequisites for /tmp/mcppls-up20-conformance-work/ux-mcpp/src/cli/cmd_sbom.cppm; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 23784,
+      "text": "server: mcppls 2026-10-09T03:01:33.701Z [info] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 23786,
+      "text": "server: mcppls 2026-10-09T03:01:33.701Z [warning] clangd could not build module prerequisites for /tmp/mcppls-up20-conformance-work/ux-mcpp/src/cli/cmd_sbom.cppm (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 23821,
+      "text": "server: mcppls 2026-10-09T03:01:33.795Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:33.795] Failed to build module prerequisites for /tmp/mcppls-up20-conformance-work/ux-mcpp/src/modgraph/validate.cppm; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 23824,
+      "text": "server: mcppls 2026-10-09T03:01:33.796Z [warning] clangd could not build module prerequisites for /tmp/mcppls-up20-conformance-work/ux-mcpp/src/modgraph/validate.cppm (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 23839,
+      "text": "server: mcppls 2026-10-09T03:01:33.816Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:33.816] Failed to build module prerequisites for /tmp/mcppls-up20-conformance-work/ux-mcpp/src/publish/pipeline.cppm; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 23841,
+      "text": "server: mcppls 2026-10-09T03:01:33.816Z [warning] clangd could not build module prerequisites for /tmp/mcppls-up20-conformance-work/ux-mcpp/src/publish/pipeline.cppm (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 23881,
+      "text": "server: mcppls 2026-10-09T03:01:34.734Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:01:34.733] Failed to build module prerequisites for /tmp/mcppls-up20-conformance-work/ux-mcpp/src/pack/host_requirements.cppm; due to owned module cache: payload or generation admission exhausted"
+    },
+    {
+      "line": 23883,
+      "text": "server: mcppls 2026-10-09T03:01:34.734Z [warning] clangd could not build module prerequisites for /tmp/mcppls-up20-conformance-work/ux-mcpp/src/pack/host_requirements.cppm (/tmp/mcppls-up20-conformance-work/ux-mcpp): owned module cache: payload or generation admission exhausted"
+    }
+  ],
+  "source_restored": true,
+  "next_implementation": "Treat capacity pressure distinctly from corruption/I/O. At module worker admission, wait with cancellation and a deadline for transient envelopes to shrink; do not raise quota, skip leases or build outside admission. Correctness tests must hold/release a real reservation and cover cancellation/timeout. Budget waiting against the original worker deadline, then replay actual UP20. Maintenance cadence remains separate until reclaimability is proven."
+}

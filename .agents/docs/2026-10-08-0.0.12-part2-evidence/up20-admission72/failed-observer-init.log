@@ -1,0 +1,12 @@
+Traceback (most recent call last):
+  File "/tmp/mcppls-part2-floor72/qualification/up20-admission-profile/run.py", line 56, in <module>
+    ledger=LedgerObserver(root)
+  File "/tmp/mcppls-part2-floor72/qualification/up20-admission-profile/ledger_observer.py", line 6, in __init__
+    self.lib=ctypes.CDLL(ctypes.util.find_library('xxhash'));self.hash=self.lib.XXH3_64bits;self.hash.argtypes=[ctypes.c_void_p,ctypes.c_size_t];self.hash.restype=ctypes.c_uint64
+             ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/speak/.xlings/data/xpkgs/xim-x-python/3.13.12/lib/python3.13/ctypes/__init__.py", line 361, in __init__
+    self._handle = self._load_library(name, mode, handle, winmode)
+                   ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/speak/.xlings/data/xpkgs/xim-x-python/3.13.12/lib/python3.13/ctypes/__init__.py", line 401, in _load_library
+    return _dlopen(name, mode)
+OSError: libxxhash.so.0: cannot open shared object file: No such file or directory

@@ -1,0 +1,49 @@
+from pathlib import Path
+import ctypes,ctypes.util,fcntl,os,struct,threading,time,json,collections
+class LedgerObserver:
+ def __init__(self,root):
+  self.root=root;self.stop=threading.Event();self.samples=[];self.errors=[];self.busy=0;self.path=None
+  self.lib=ctypes.CDLL('/usr/lib/x86_64-linux-gnu/libxxhash.so.0.8.2');self.hash=self.lib.XXH3_64bits;self.hash.argtypes=[ctypes.c_void_p,ctypes.c_size_t];self.hash.restype=ctypes.c_uint64
+  self.thread=threading.Thread(target=self.watch);self.thread.start()
+ def watch(self):
+  while not self.stop.is_set():
+   try:
+    if self.path is None:
+     paths=list((self.root/'cache').glob('workspaces/*/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/ledger-v1'))
+     if len(paths)>1:raise RuntimeError('ambiguous ledger')
+     if paths:self.path=paths[0]
+    if self.path:self.capture()
+   except Exception as error:self.errors.append(repr(error));self.stop.set()
+   self.stop.wait(.2)
+ def capture(self):
+  fd=os.open(self.path,os.O_RDONLY|os.O_CLOEXEC|os.O_NOFOLLOW)
+  try:
+   try:fcntl.flock(fd,fcntl.LOCK_SH|fcntl.LOCK_NB)
+   except BlockingIOError:self.busy+=1;return
+   try:
+    before=os.fstat(fd);data=os.pread(fd,before.st_size,0);at=time.time();after=os.fstat(fd)
+    assert (before.st_dev,before.st_ino,before.st_size)==(after.st_dev,after.st_ino,after.st_size)
+   finally:fcntl.flock(fd,fcntl.LOCK_UN)
+  finally:os.close(fd)
+  magic,size,slots,limit,pressure=struct.unpack_from('<5Q',data)
+  assert magic==0x324548434143434d and size==1280 and 0<slots<=4096 and len(data)==40+slots*2*size
+  records=[];counts=collections.Counter();charges=collections.Counter()
+  for slot in range(slots):
+   valid=[]
+   for bank in range(2):
+    r=data[40+(2*slot+bank)*size:40+(2*slot+bank+1)*size];seq=struct.unpack_from('<Q',r)[0]
+    if not seq:continue
+    b=ctypes.create_string_buffer(r[:1272]);checksum=struct.unpack_from('<Q',r,1272)[0]
+    if self.hash(b,1272)==checksum:valid.append(r)
+   assert valid,('no valid record bank',slot)
+   r=max(valid,key=lambda x:struct.unpack_from('<Q',x)[0]);v=struct.unpack_from('<14Q',r);counts[v[3]]+=1;charges[v[3]]+=v[2]
+   if v[3]:records.append({'slot':slot,'generation':v[1],'bytes':v[2],'kind':v[3],'output_envelope':v[10],'capture_envelope':v[11],'main_bytes':v[12],'source':r[241:1265].split(b'\0')[0].decode()})
+  assert sum(charges.values())<=limit
+  sample={'unix':at,'identity':[before.st_dev,before.st_ino],'slots':slots,'limit':limit,'pressure':pressure,'charged_bytes':sum(charges.values()),'counts':dict(counts),'charges':dict(charges),'reserved': [r for r in records if r['kind']==1]}
+  if pressure:sample['charged_records_under_pressure']=records
+  self.samples.append(sample)
+ def finish(self):
+  self.stop.set();self.thread.join(timeout=2)
+  result={'scope':'Diagnostic-only 200ms coherent ledger snapshots under NONBLOCKING shared ledger flock; unlock before checksumming/decoding. This instrumentation may briefly delay writers, so every elapsed time and resource value excluded. Dual banks verified with actual XXH3_64bits checksum. No cache collection, deletion, admission or lease changes performed.','samples':self.samples,'errors':self.errors,'busy_skips':self.busy,'watcher_stopped':not self.thread.is_alive()}
+  (self.root/'ledger-samples.json').write_text(json.dumps(result,indent=2)+'\n')
+  return {k:result[k] for k in ['errors','busy_skips','watcher_stopped']}|{'sample_count':len(self.samples)}

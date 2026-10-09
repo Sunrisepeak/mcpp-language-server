@@ -1,0 +1,1118 @@
+{
+  "scope": "Diagnostic-only owned admission ledger snapshot; ALL elapsed times and resource values excluded; original UP20 one-save fan-out. Fixed baseline conformance runner, Clang22.1.8 product builds, final72 engine and kit, original URI/CDB/source, eight CPUs, fresh cache. Existing C-2 answers are not raw Sema executions. Not1000-save/resource/release qualification.",
+  "sha256": {
+    "server": "227fda4f294faa048be41d357bac18adb95d094ba27a7fff56d46bb0dcd01516",
+    "runner": "c45bd02d4349b8a4c569d8e62825d845b1ccb3cd48ce6c3070c3e37e70cdde23",
+    "engine": "696e8caa5246525669583eb0f999f23cb21a87191f3b1be59a0c3952a5d1a0b1",
+    "kit_manifest": "74c2de97fd10e7927f81c0cc324751ce6b67e36938d72bfcb543b15ade2677b4"
+  },
+  "started_unix": 1791514804.6734185,
+  "observed_compilers_at_start": [],
+  "engine_metadata": {
+    "engine-version": "23.1.0-mcppls.0",
+    "llvm-base-version": "23.1.0",
+    "llvm-commit": "ea7d852a70e8bdfaf601d6626a760f9771b2c4b4",
+    "fork-commit": "c30429fbe876c10b7dbe372a42e2d4b867b5970c",
+    "patch-series-sha256": "b53e91d831b3b45944d7bc2904145221497333dca2e890e75e7c5cfc3ed3b7df",
+    "platform": "linux-x64",
+    "sha256": "696e8caa5246525669583eb0f999f23cb21a87191f3b1be59a0c3952a5d1a0b1",
+    "features": [
+      "semantic-tokens-range",
+      "format-style-mcpp",
+      "module-directive-diagnostic-ranges"
+    ],
+    "build-binary-sha256": "b3a011e1de4ce743bd95f906ade073b498df4a54754bc9bd6dccc139aeb64d2a",
+    "llvm-tree-commit": "82cdc7777e9dec4712b5913a8cfd31ea3634b99b",
+    "cmake-cache-sha256": "28612c4a828e86ee8c6e9556ca75afa989e3649d181784ac83dd38606de2f6d3"
+  },
+  "kit_provenance_sha256": "8e3e99cead3ff815a2ec0d89f39dad81503dd5d7d550fe13008e8d4543b7547c",
+  "cpus": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "source_audit_sha256": "3c48d0743ed0a9ab9aacd84a0dbba5483e217f0fcae9993c012dad511ffc34a6",
+  "owned_cleanup": {
+    "known": {
+      "2595360": {
+        "pgid": 2595360,
+        "start_ticks": 13485052
+      },
+      "2595362": {
+        "pgid": 2595360,
+        "start_ticks": 13485102
+      },
+      "2595381": {
+        "pgid": 2595381,
+        "start_ticks": 13485105
+      },
+      "2595402": {
+        "pgid": 2595402,
+        "start_ticks": 13485106
+      },
+      "2595450": {
+        "pgid": 2595381,
+        "start_ticks": 13485282
+      },
+      "2595456": {
+        "pgid": 2595381,
+        "start_ticks": 13485603
+      },
+      "2595464": {
+        "pgid": 2595381,
+        "start_ticks": 13485646
+      },
+      "2595474": {
+        "pgid": 2595381,
+        "start_ticks": 13485733
+      },
+      "2595476": {
+        "pgid": 2595381,
+        "start_ticks": 13485749
+      },
+      "2595478": {
+        "pgid": 2595381,
+        "start_ticks": 13485771
+      },
+      "2595480": {
+        "pgid": 2595381,
+        "start_ticks": 13485793
+      },
+      "2595482": {
+        "pgid": 2595381,
+        "start_ticks": 13485817
+      },
+      "2595484": {
+        "pgid": 2595381,
+        "start_ticks": 13485882
+      },
+      "2595497": {
+        "pgid": 2595381,
+        "start_ticks": 13485984
+      },
+      "2595499": {
+        "pgid": 2595381,
+        "start_ticks": 13486004
+      },
+      "2595501": {
+        "pgid": 2595381,
+        "start_ticks": 13486030
+      },
+      "2595503": {
+        "pgid": 2595381,
+        "start_ticks": 13486033
+      },
+      "2595505": {
+        "pgid": 2595381,
+        "start_ticks": 13486048
+      },
+      "2595509": {
+        "pgid": 2595381,
+        "start_ticks": 13486090
+      },
+      "2595511": {
+        "pgid": 2595381,
+        "start_ticks": 13486106
+      },
+      "2595519": {
+        "pgid": 2595381,
+        "start_ticks": 13486167
+      },
+      "2595521": {
+        "pgid": 2595381,
+        "start_ticks": 13486170
+      },
+      "2595523": {
+        "pgid": 2595381,
+        "start_ticks": 13486190
+      },
+      "2595528": {
+        "pgid": 2595381,
+        "start_ticks": 13486257
+      },
+      "2595530": {
+        "pgid": 2595381,
+        "start_ticks": 13486263
+      },
+      "2595533": {
+        "pgid": 2595381,
+        "start_ticks": 13486273
+      },
+      "2595555": {
+        "pgid": 2595381,
+        "start_ticks": 13486284
+      },
+      "2595557": {
+        "pgid": 2595381,
+        "start_ticks": 13486322
+      },
+      "2595559": {
+        "pgid": 2595381,
+        "start_ticks": 13486327
+      },
+      "2595561": {
+        "pgid": 2595381,
+        "start_ticks": 13486347
+      },
+      "2595563": {
+        "pgid": 2595381,
+        "start_ticks": 13486359
+      },
+      "2595565": {
+        "pgid": 2595381,
+        "start_ticks": 13486415
+      },
+      "2595568": {
+        "pgid": 2595381,
+        "start_ticks": 13486433
+      },
+      "2595570": {
+        "pgid": 2595381,
+        "start_ticks": 13486449
+      },
+      "2595576": {
+        "pgid": 2595381,
+        "start_ticks": 13486500
+      },
+      "2595578": {
+        "pgid": 2595381,
+        "start_ticks": 13486529
+      },
+      "2595580": {
+        "pgid": 2595381,
+        "start_ticks": 13486538
+      },
+      "2595582": {
+        "pgid": 2595381,
+        "start_ticks": 13486556
+      },
+      "2595585": {
+        "pgid": 2595381,
+        "start_ticks": 13486594
+      },
+      "2595591": {
+        "pgid": 2595381,
+        "start_ticks": 13486609
+      },
+      "2595593": {
+        "pgid": 2595381,
+        "start_ticks": 13486641
+      },
+      "2595597": {
+        "pgid": 2595381,
+        "start_ticks": 13486690
+      },
+      "2595599": {
+        "pgid": 2595381,
+        "start_ticks": 13486693
+      },
+      "2595601": {
+        "pgid": 2595381,
+        "start_ticks": 13486720
+      },
+      "2595608": {
+        "pgid": 2595381,
+        "start_ticks": 13486756
+      },
+      "2595610": {
+        "pgid": 2595381,
+        "start_ticks": 13486759
+      },
+      "2595612": {
+        "pgid": 2595381,
+        "start_ticks": 13486774
+      },
+      "2595618": {
+        "pgid": 2595381,
+        "start_ticks": 13486820
+      },
+      "2595620": {
+        "pgid": 2595381,
+        "start_ticks": 13486825
+      },
+      "2595622": {
+        "pgid": 2595381,
+        "start_ticks": 13486840
+      },
+      "2595626": {
+        "pgid": 2595381,
+        "start_ticks": 13486860
+      },
+      "2595628": {
+        "pgid": 2595381,
+        "start_ticks": 13486871
+      },
+      "2595630": {
+        "pgid": 2595381,
+        "start_ticks": 13486900
+      },
+      "2595634": {
+        "pgid": 2595381,
+        "start_ticks": 13486926
+      },
+      "2595636": {
+        "pgid": 2595381,
+        "start_ticks": 13486947
+      },
+      "2595638": {
+        "pgid": 2595381,
+        "start_ticks": 13486974
+      },
+      "2595640": {
+        "pgid": 2595381,
+        "start_ticks": 13486999
+      },
+      "2595642": {
+        "pgid": 2595381,
+        "start_ticks": 13487011
+      },
+      "2595646": {
+        "pgid": 2595381,
+        "start_ticks": 13487053
+      },
+      "2595648": {
+        "pgid": 2595381,
+        "start_ticks": 13487096
+      },
+      "2595650": {
+        "pgid": 2595381,
+        "start_ticks": 13487109
+      },
+      "2595652": {
+        "pgid": 2595381,
+        "start_ticks": 13487125
+      },
+      "2595654": {
+        "pgid": 2595381,
+        "start_ticks": 13487163
+      },
+      "2595656": {
+        "pgid": 2595381,
+        "start_ticks": 13487165
+      },
+      "2595658": {
+        "pgid": 2595381,
+        "start_ticks": 13487201
+      },
+      "2595662": {
+        "pgid": 2595381,
+        "start_ticks": 13487254
+      },
+      "2595668": {
+        "pgid": 2595381,
+        "start_ticks": 13487274
+      },
+      "2595672": {
+        "pgid": 2595381,
+        "start_ticks": 13487317
+      },
+      "2595674": {
+        "pgid": 2595381,
+        "start_ticks": 13487326
+      },
+      "2595676": {
+        "pgid": 2595381,
+        "start_ticks": 13487342
+      },
+      "2595678": {
+        "pgid": 2595381,
+        "start_ticks": 13487404
+      },
+      "2595680": {
+        "pgid": 2595381,
+        "start_ticks": 13487408
+      },
+      "2595682": {
+        "pgid": 2595381,
+        "start_ticks": 13487440
+      },
+      "2595684": {
+        "pgid": 2595381,
+        "start_ticks": 13487444
+      },
+      "2595686": {
+        "pgid": 2595381,
+        "start_ticks": 13487473
+      },
+      "2595688": {
+        "pgid": 2595381,
+        "start_ticks": 13487481
+      },
+      "2595690": {
+        "pgid": 2595381,
+        "start_ticks": 13487505
+      },
+      "2595692": {
+        "pgid": 2595381,
+        "start_ticks": 13487514
+      },
+      "2595696": {
+        "pgid": 2595381,
+        "start_ticks": 13487547
+      },
+      "2595700": {
+        "pgid": 2595381,
+        "start_ticks": 13487600
+      },
+      "2595706": {
+        "pgid": 2595381,
+        "start_ticks": 13487648
+      },
+      "2595710": {
+        "pgid": 2595381,
+        "start_ticks": 13487695
+      },
+      "2595712": {
+        "pgid": 2595381,
+        "start_ticks": 13487722
+      },
+      "2595714": {
+        "pgid": 2595381,
+        "start_ticks": 13487750
+      },
+      "2595716": {
+        "pgid": 2595381,
+        "start_ticks": 13487753
+      },
+      "2595718": {
+        "pgid": 2595381,
+        "start_ticks": 13487780
+      },
+      "2595720": {
+        "pgid": 2595381,
+        "start_ticks": 13487790
+      },
+      "2595724": {
+        "pgid": 2595381,
+        "start_ticks": 13487817
+      },
+      "2595726": {
+        "pgid": 2595381,
+        "start_ticks": 13487843
+      },
+      "2595728": {
+        "pgid": 2595381,
+        "start_ticks": 13487854
+      },
+      "2595730": {
+        "pgid": 2595381,
+        "start_ticks": 13487873
+      },
+      "2595734": {
+        "pgid": 2595381,
+        "start_ticks": 13487947
+      },
+      "2595736": {
+        "pgid": 2595381,
+        "start_ticks": 13487952
+      },
+      "2595738": {
+        "pgid": 2595381,
+        "start_ticks": 13487979
+      },
+      "2595740": {
+        "pgid": 2595381,
+        "start_ticks": 13487987
+      },
+      "2595742": {
+        "pgid": 2595381,
+        "start_ticks": 13488004
+      },
+      "2595744": {
+        "pgid": 2595381,
+        "start_ticks": 13488046
+      },
+      "2595746": {
+        "pgid": 2595381,
+        "start_ticks": 13488049
+      },
+      "2595751": {
+        "pgid": 2595381,
+        "start_ticks": 13488159
+      },
+      "2595753": {
+        "pgid": 2595381,
+        "start_ticks": 13488164
+      },
+      "2595757": {
+        "pgid": 2595381,
+        "start_ticks": 13488233
+      },
+      "2595760": {
+        "pgid": 2595381,
+        "start_ticks": 13488243
+      },
+      "2595762": {
+        "pgid": 2595381,
+        "start_ticks": 13488266
+      },
+      "2595764": {
+        "pgid": 2595381,
+        "start_ticks": 13488303
+      },
+      "2595766": {
+        "pgid": 2595381,
+        "start_ticks": 13488307
+      },
+      "2595772": {
+        "pgid": 2595381,
+        "start_ticks": 13488333
+      },
+      "2595774": {
+        "pgid": 2595381,
+        "start_ticks": 13488342
+      },
+      "2595789": {
+        "pgid": 2595381,
+        "start_ticks": 13488380
+      },
+      "2595791": {
+        "pgid": 2595381,
+        "start_ticks": 13488398
+      },
+      "2595793": {
+        "pgid": 2595381,
+        "start_ticks": 13488408
+      },
+      "2595795": {
+        "pgid": 2595381,
+        "start_ticks": 13488419
+      },
+      "2595799": {
+        "pgid": 2595381,
+        "start_ticks": 13488464
+      },
+      "2595801": {
+        "pgid": 2595381,
+        "start_ticks": 13488467
+      },
+      "2595803": {
+        "pgid": 2595381,
+        "start_ticks": 13488488
+      },
+      "2595808": {
+        "pgid": 2595381,
+        "start_ticks": 13488521
+      },
+      "2595812": {
+        "pgid": 2595381,
+        "start_ticks": 13488551
+      },
+      "2595816": {
+        "pgid": 2595381,
+        "start_ticks": 13488576
+      },
+      "2595821": {
+        "pgid": 2595381,
+        "start_ticks": 13488633
+      },
+      "2595823": {
+        "pgid": 2595381,
+        "start_ticks": 13488643
+      },
+      "2595825": {
+        "pgid": 2595381,
+        "start_ticks": 13488663
+      },
+      "2595827": {
+        "pgid": 2595381,
+        "start_ticks": 13488729
+      },
+      "2595829": {
+        "pgid": 2595381,
+        "start_ticks": 13488748
+      },
+      "2595834": {
+        "pgid": 2595381,
+        "start_ticks": 13488765
+      },
+      "2595840": {
+        "pgid": 2595381,
+        "start_ticks": 13488810
+      },
+      "2595838": {
+        "pgid": 2595381,
+        "start_ticks": 13488807
+      },
+      "2595842": {
+        "pgid": 2595381,
+        "start_ticks": 13488835
+      },
+      "2595850": {
+        "pgid": 2595381,
+        "start_ticks": 13488856
+      },
+      "2595854": {
+        "pgid": 2595381,
+        "start_ticks": 13488891
+      },
+      "2595856": {
+        "pgid": 2595381,
+        "start_ticks": 13488895
+      },
+      "2595858": {
+        "pgid": 2595381,
+        "start_ticks": 13488922
+      },
+      "2595862": {
+        "pgid": 2595381,
+        "start_ticks": 13488966
+      },
+      "2595864": {
+        "pgid": 2595381,
+        "start_ticks": 13488971
+      },
+      "2595866": {
+        "pgid": 2595381,
+        "start_ticks": 13488980
+      },
+      "2595868": {
+        "pgid": 2595381,
+        "start_ticks": 13488995
+      },
+      "2595876": {
+        "pgid": 2595381,
+        "start_ticks": 13489043
+      },
+      "2595878": {
+        "pgid": 2595381,
+        "start_ticks": 13489047
+      },
+      "2595880": {
+        "pgid": 2595381,
+        "start_ticks": 13489090
+      },
+      "2595882": {
+        "pgid": 2595381,
+        "start_ticks": 13489095
+      },
+      "2595885": {
+        "pgid": 2595381,
+        "start_ticks": 13489114
+      },
+      "2595890": {
+        "pgid": 2595381,
+        "start_ticks": 13489143
+      },
+      "2595896": {
+        "pgid": 2595381,
+        "start_ticks": 13489176
+      },
+      "2595901": {
+        "pgid": 2595381,
+        "start_ticks": 13489180
+      },
+      "2595906": {
+        "pgid": 2595381,
+        "start_ticks": 13489193
+      },
+      "2595929": {
+        "pgid": 2595381,
+        "start_ticks": 13489241
+      },
+      "2595931": {
+        "pgid": 2595381,
+        "start_ticks": 13489289
+      },
+      "2595938": {
+        "pgid": 2595381,
+        "start_ticks": 13489313
+      },
+      "2595947": {
+        "pgid": 2595381,
+        "start_ticks": 13489334
+      },
+      "2595950": {
+        "pgid": 2595381,
+        "start_ticks": 13489353
+      },
+      "2595955": {
+        "pgid": 2595381,
+        "start_ticks": 13489368
+      },
+      "2595959": {
+        "pgid": 2595381,
+        "start_ticks": 13489394
+      },
+      "2595972": {
+        "pgid": 2595381,
+        "start_ticks": 13489435
+      },
+      "2595976": {
+        "pgid": 2595381,
+        "start_ticks": 13489451
+      },
+      "2595978": {
+        "pgid": 2595381,
+        "start_ticks": 13489482
+      },
+      "2595982": {
+        "pgid": 2595381,
+        "start_ticks": 13489537
+      },
+      "2595985": {
+        "pgid": 2595381,
+        "start_ticks": 13489562
+      },
+      "2595990": {
+        "pgid": 2595381,
+        "start_ticks": 13489583
+      },
+      "2595998": {
+        "pgid": 2595381,
+        "start_ticks": 13489618
+      },
+      "2596000": {
+        "pgid": 2595381,
+        "start_ticks": 13489623
+      },
+      "2596002": {
+        "pgid": 2595381,
+        "start_ticks": 13489655
+      },
+      "2596004": {
+        "pgid": 2595381,
+        "start_ticks": 13489663
+      },
+      "2596006": {
+        "pgid": 2595381,
+        "start_ticks": 13489673
+      },
+      "2596013": {
+        "pgid": 2595381,
+        "start_ticks": 13489722
+      },
+      "2596023": {
+        "pgid": 2595381,
+        "start_ticks": 13489743
+      },
+      "2596027": {
+        "pgid": 2595381,
+        "start_ticks": 13489790
+      },
+      "2596036": {
+        "pgid": 2595381,
+        "start_ticks": 13489823
+      },
+      "2596039": {
+        "pgid": 2595381,
+        "start_ticks": 13489827
+      },
+      "2596047": {
+        "pgid": 2595381,
+        "start_ticks": 13489899
+      },
+      "2596053": {
+        "pgid": 2595381,
+        "start_ticks": 13489931
+      },
+      "2596058": {
+        "pgid": 2595381,
+        "start_ticks": 13489936
+      },
+      "2596065": {
+        "pgid": 2595381,
+        "start_ticks": 13489998
+      },
+      "2596060": {
+        "pgid": 2595381,
+        "start_ticks": 13489994
+      },
+      "2596070": {
+        "pgid": 2595381,
+        "start_ticks": 13490034
+      },
+      "2596072": {
+        "pgid": 2595381,
+        "start_ticks": 13490061
+      },
+      "2596077": {
+        "pgid": 2595381,
+        "start_ticks": 13490071
+      },
+      "2596079": {
+        "pgid": 2595381,
+        "start_ticks": 13490118
+      },
+      "2596086": {
+        "pgid": 2595381,
+        "start_ticks": 13490154
+      },
+      "2596088": {
+        "pgid": 2595381,
+        "start_ticks": 13490164
+      },
+      "2596095": {
+        "pgid": 2595381,
+        "start_ticks": 13490176
+      },
+      "2596100": {
+        "pgid": 2595381,
+        "start_ticks": 13490201
+      },
+      "2596105": {
+        "pgid": 2595381,
+        "start_ticks": 13490246
+      },
+      "2596109": {
+        "pgid": 2595381,
+        "start_ticks": 13490264
+      },
+      "2596111": {
+        "pgid": 2595381,
+        "start_ticks": 13490295
+      },
+      "2596115": {
+        "pgid": 2595381,
+        "start_ticks": 13490332
+      },
+      "2596117": {
+        "pgid": 2595381,
+        "start_ticks": 13490335
+      },
+      "2596122": {
+        "pgid": 2595381,
+        "start_ticks": 13490367
+      },
+      "2596127": {
+        "pgid": 2595381,
+        "start_ticks": 13490381
+      },
+      "2596133": {
+        "pgid": 2595381,
+        "start_ticks": 13490425
+      },
+      "2596137": {
+        "pgid": 2595381,
+        "start_ticks": 13490431
+      },
+      "2596139": {
+        "pgid": 2595381,
+        "start_ticks": 13490444
+      },
+      "2596144": {
+        "pgid": 2595381,
+        "start_ticks": 13490497
+      },
+      "2596148": {
+        "pgid": 2595381,
+        "start_ticks": 13490501
+      },
+      "2596152": {
+        "pgid": 2595381,
+        "start_ticks": 13490539
+      },
+      "2596154": {
+        "pgid": 2595381,
+        "start_ticks": 13490543
+      },
+      "2596157": {
+        "pgid": 2595381,
+        "start_ticks": 13490555
+      },
+      "2596161": {
+        "pgid": 2595381,
+        "start_ticks": 13490594
+      },
+      "2596163": {
+        "pgid": 2595381,
+        "start_ticks": 13490642
+      },
+      "2596165": {
+        "pgid": 2595381,
+        "start_ticks": 13490645
+      },
+      "2596167": {
+        "pgid": 2595381,
+        "start_ticks": 13490686
+      },
+      "2596169": {
+        "pgid": 2595381,
+        "start_ticks": 13490695
+      },
+      "2596183": {
+        "pgid": 2595381,
+        "start_ticks": 13490734
+      },
+      "2596188": {
+        "pgid": 2595381,
+        "start_ticks": 13490775
+      },
+      "2596190": {
+        "pgid": 2595381,
+        "start_ticks": 13490798
+      },
+      "2596197": {
+        "pgid": 2595381,
+        "start_ticks": 13490832
+      },
+      "2596199": {
+        "pgid": 2595381,
+        "start_ticks": 13490891
+      },
+      "2596205": {
+        "pgid": 2595381,
+        "start_ticks": 13490956
+      },
+      "2596210": {
+        "pgid": 2595381,
+        "start_ticks": 13491001
+      },
+      "2596212": {
+        "pgid": 2595381,
+        "start_ticks": 13491004
+      },
+      "2596217": {
+        "pgid": 2595381,
+        "start_ticks": 13491042
+      },
+      "2596220": {
+        "pgid": 2595381,
+        "start_ticks": 13491053
+      },
+      "2596225": {
+        "pgid": 2595381,
+        "start_ticks": 13491066
+      },
+      "2596230": {
+        "pgid": 2595381,
+        "start_ticks": 13491106
+      },
+      "2596232": {
+        "pgid": 2595381,
+        "start_ticks": 13491128
+      },
+      "2596241": {
+        "pgid": 2595381,
+        "start_ticks": 13491201
+      },
+      "2596265": {
+        "pgid": 2595381,
+        "start_ticks": 13491256
+      },
+      "2596274": {
+        "pgid": 2595381,
+        "start_ticks": 13491349
+      },
+      "2596276": {
+        "pgid": 2595381,
+        "start_ticks": 13491377
+      },
+      "2596278": {
+        "pgid": 2595381,
+        "start_ticks": 13491380
+      },
+      "2596280": {
+        "pgid": 2595381,
+        "start_ticks": 13491429
+      },
+      "2596286": {
+        "pgid": 2595381,
+        "start_ticks": 13491482
+      },
+      "2596290": {
+        "pgid": 2595381,
+        "start_ticks": 13491518
+      },
+      "2596301": {
+        "pgid": 2595381,
+        "start_ticks": 13491586
+      },
+      "2596306": {
+        "pgid": 2595381,
+        "start_ticks": 13491631
+      },
+      "2596319": {
+        "pgid": 2595381,
+        "start_ticks": 13491713
+      },
+      "2596323": {
+        "pgid": 2595381,
+        "start_ticks": 13491735
+      },
+      "2596331": {
+        "pgid": 2595381,
+        "start_ticks": 13491772
+      },
+      "2596335": {
+        "pgid": 2595381,
+        "start_ticks": 13491814
+      },
+      "2596340": {
+        "pgid": 2595381,
+        "start_ticks": 13491851
+      },
+      "2596345": {
+        "pgid": 2595381,
+        "start_ticks": 13491868
+      },
+      "2596350": {
+        "pgid": 2595381,
+        "start_ticks": 13491902
+      },
+      "2596352": {
+        "pgid": 2595381,
+        "start_ticks": 13491946
+      },
+      "2596357": {
+        "pgid": 2595381,
+        "start_ticks": 13491966
+      },
+      "2596362": {
+        "pgid": 2595381,
+        "start_ticks": 13491991
+      },
+      "2596372": {
+        "pgid": 2595381,
+        "start_ticks": 13492048
+      },
+      "2596377": {
+        "pgid": 2595381,
+        "start_ticks": 13492122
+      },
+      "2596405": {
+        "pgid": 2595381,
+        "start_ticks": 13492237
+      },
+      "2596416": {
+        "pgid": 2595381,
+        "start_ticks": 13492311
+      },
+      "2596423": {
+        "pgid": 2595381,
+        "start_ticks": 13492338
+      },
+      "2596431": {
+        "pgid": 2595381,
+        "start_ticks": 13492392
+      },
+      "2596433": {
+        "pgid": 2595381,
+        "start_ticks": 13492419
+      },
+      "2596437": {
+        "pgid": 2595381,
+        "start_ticks": 13492452
+      },
+      "2596439": {
+        "pgid": 2595381,
+        "start_ticks": 13492469
+      },
+      "2596449": {
+        "pgid": 2595381,
+        "start_ticks": 13492535
+      },
+      "2596454": {
+        "pgid": 2595381,
+        "start_ticks": 13492609
+      },
+      "2596458": {
+        "pgid": 2595381,
+        "start_ticks": 13492653
+      },
+      "2596463": {
+        "pgid": 2595381,
+        "start_ticks": 13492695
+      },
+      "2596465": {
+        "pgid": 2595381,
+        "start_ticks": 13492723
+      },
+      "2596492": {
+        "pgid": 2595381,
+        "start_ticks": 13493644
+      },
+      "2596494": {
+        "pgid": 2595381,
+        "start_ticks": 13493686
+      },
+      "2596497": {
+        "pgid": 2595381,
+        "start_ticks": 13493722
+      },
+      "2596501": {
+        "pgid": 2595381,
+        "start_ticks": 13493822
+      },
+      "2596506": {
+        "pgid": 2595381,
+        "start_ticks": 13493905
+      },
+      "2596508": {
+        "pgid": 2595381,
+        "start_ticks": 13493945
+      },
+      "2596520": {
+        "pgid": 2595381,
+        "start_ticks": 13494190
+      },
+      "2596533": {
+        "pgid": 2595381,
+        "start_ticks": 13494286
+      },
+      "2596535": {
+        "pgid": 2595381,
+        "start_ticks": 13494294
+      },
+      "2596538": {
+        "pgid": 2595381,
+        "start_ticks": 13494339
+      },
+      "2596545": {
+        "pgid": 2595381,
+        "start_ticks": 13494441
+      },
+      "2596543": {
+        "pgid": 2595381,
+        "start_ticks": 13494438
+      },
+      "2596549": {
+        "pgid": 2595381,
+        "start_ticks": 13494552
+      },
+      "2596553": {
+        "pgid": 2595381,
+        "start_ticks": 13494613
+      },
+      "2596557": {
+        "pgid": 2595381,
+        "start_ticks": 13494703
+      },
+      "2596559": {
+        "pgid": 2595381,
+        "start_ticks": 13494706
+      },
+      "2596563": {
+        "pgid": 2595381,
+        "start_ticks": 13494761
+      },
+      "2596569": {
+        "pgid": 2595381,
+        "start_ticks": 13494806
+      }
+    },
+    "term_groups": [],
+    "kill_groups": [],
+    "remaining_observed_live": [],
+    "errors": [],
+    "watcher_stopped": true,
+    "scope": "Observed identity/descendant cleanup only; periodic discovery does not prove all fast unobserved escapes."
+  },
+  "ledger_observer": {
+    "errors": [],
+    "busy_skips": 335,
+    "watcher_stopped": true,
+    "sample_count": 225
+  },
+  "latency_qualification": false,
+  "resource_qualification": false,
+  "workload_qualified": true,
+  "tracked_source_restored": true,
+  "exit_code": 0,
+  "finished_unix": 1791514921.9463782
+}
