@@ -1,0 +1,10 @@
+{
+  "scope": "Resource observer staged separately from immutable engine and latency runs; controlled fork proof only, no real engine qualification",
+  "files": {
+    "process_tree_resources.py": "d04dfd1eaa9d5a163c2acfe1fc94085aa08149872894a6fb2afa50b37e385f1e",
+    "project-completion-tree.py": "eb5cd14f529023083eb069b15153278486b00a67de41b9ad0585abf8692b5814",
+    "test-process-tree-control.py": "367b2554a439339a1a1d18726febb5ca5b3c9720ffe00c6d929c3114425824cb",
+    "controlled-parent-child.py": "df65f2055f579b910d39233f18fb442c45eebe31cfcea067523d62bd9cb51d9b",
+    "process-tree-control.json": "4b1935dbfb386ac3b7453b04f893cdc78b3ed5c22ec35f78d1f7e17538dec5f3"
+  }
+}

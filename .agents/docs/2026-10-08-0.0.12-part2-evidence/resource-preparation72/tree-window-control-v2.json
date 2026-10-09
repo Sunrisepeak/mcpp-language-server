@@ -1,0 +1,47 @@
+{
+  "scope": "Reducer control on actual mocked framed parent/fork replies only; not real engine qualification",
+  "window": {
+    "stable_requests": 2,
+    "root_identity": [
+      2531436,
+      12754329
+    ],
+    "cpu_lower_ms": 220.0,
+    "cpu_upper_ms": 380.0,
+    "memory": {
+      "tree_rss_sum_kib": {
+        "p95": 37436,
+        "observed_max": 37436,
+        "observations": 5
+      },
+      "tree_pss_kib": {
+        "p95": 25097,
+        "observed_max": 25097,
+        "observations": 5
+      },
+      "tree_private_kib": {
+        "p95": 17828,
+        "observed_max": 17828,
+        "observations": 5
+      }
+    },
+    "scope": "Resource-only stable root plus observed descendants. CPU quantization and read interval bounds; PSS apportioning, RSS sum counts shared pages more than once. Periodic observation cannot prove fast unsampled child escape or physical cache allocation. All elapsed times excluded."
+  },
+  "negative_checks": [
+    {
+      "negative": "observer-error",
+      "rejected": true,
+      "reason": "observer/cleanup failed"
+    },
+    {
+      "negative": "missing-boundary",
+      "rejected": true,
+      "reason": "invalid/missing tree counter"
+    },
+    {
+      "negative": "membership-gap",
+      "rejected": true,
+      "reason": "membership/reap sampling gap within stable window"
+    }
+  ]
+}

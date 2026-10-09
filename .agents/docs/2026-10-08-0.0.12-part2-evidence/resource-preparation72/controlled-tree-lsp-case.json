@@ -1,0 +1,32 @@
+{
+  "id": "tree-hook-control",
+  "platform": "linux-x64",
+  "baseline": "pass",
+  "project": ".",
+  "timeout_seconds": 15,
+  "sequence": [
+    {
+      "method": "initialize",
+      "params": {}
+    },
+    {
+      "method": "textDocument/completion",
+      "params": {},
+      "expected_symbols": [
+        "vector"
+      ]
+    },
+    {
+      "method": "textDocument/completion",
+      "params": {},
+      "defer": "pending"
+    },
+    {
+      "action": "await",
+      "request": "pending",
+      "expect": {
+        "/result/items/0/kind": 7
+      }
+    }
+  ]
+}

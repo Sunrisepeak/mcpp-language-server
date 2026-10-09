@@ -1,0 +1,99 @@
+{
+  "scope": "Actual Python parent/fork-child allocation, CPU and reap controls only. No clangd or latency/resource qualification.",
+  "before": {
+    "sample_started_monotonic_ns": 127362205936455,
+    "monotonic_ns": 127362225792425,
+    "root_identity": [
+      2528548,
+      12736218
+    ],
+    "members": [
+      {
+        "pid": 2528548,
+        "ppid": 2528544,
+        "pgid": 2528548,
+        "start_ticks": 12736218,
+        "state": "S",
+        "cpu_ticks": 0,
+        "reaped_cpu_ticks": 0
+      },
+      {
+        "pid": 2528549,
+        "ppid": 2528548,
+        "pgid": 2528548,
+        "start_ticks": 12736219,
+        "state": "S",
+        "cpu_ticks": 0,
+        "reaped_cpu_ticks": 0
+      }
+    ],
+    "tree_cpu_lower_ms": 0.0,
+    "tree_cpu_upper_ms": 80.0,
+    "tree_rss_sum_kib": 51988,
+    "tree_pss_kib": 40212,
+    "tree_private_kib": 33816,
+    "cpu_tick_ms": 10.0
+  },
+  "busy": {
+    "sample_started_monotonic_ns": 127362426006178,
+    "monotonic_ns": 127362444838828,
+    "root_identity": [
+      2528548,
+      12736218
+    ],
+    "members": [
+      {
+        "pid": 2528548,
+        "ppid": 2528544,
+        "pgid": 2528548,
+        "start_ticks": 12736218,
+        "state": "S",
+        "cpu_ticks": 0,
+        "reaped_cpu_ticks": 0
+      },
+      {
+        "pid": 2528549,
+        "ppid": 2528548,
+        "pgid": 2528548,
+        "start_ticks": 12736219,
+        "state": "S",
+        "cpu_ticks": 20,
+        "reaped_cpu_ticks": 0
+      }
+    ],
+    "tree_cpu_lower_ms": 200.0,
+    "tree_cpu_upper_ms": 280.0,
+    "tree_rss_sum_kib": 52116,
+    "tree_pss_kib": 40312,
+    "tree_private_kib": 33952,
+    "cpu_tick_ms": 10.0
+  },
+  "reaped": {
+    "sample_started_monotonic_ns": 127362446227859,
+    "monotonic_ns": 127362464742228,
+    "root_identity": [
+      2528548,
+      12736218
+    ],
+    "members": [
+      {
+        "pid": 2528548,
+        "ppid": 2528544,
+        "pgid": 2528548,
+        "start_ticks": 12736218,
+        "state": "S",
+        "cpu_ticks": 0,
+        "reaped_cpu_ticks": 20
+      }
+    ],
+    "tree_cpu_lower_ms": 200.0,
+    "tree_cpu_upper_ms": 240.0,
+    "tree_rss_sum_kib": 11728,
+    "tree_pss_kib": 6068,
+    "tree_private_kib": 3228,
+    "cpu_tick_ms": 10.0
+  },
+  "root_identity_mismatch_rejected": true,
+  "parent_exit_code": 0,
+  "sampler_source_sha256": "d04dfd1eaa9d5a163c2acfe1fc94085aa08149872894a6fb2afa50b37e385f1e"
+}

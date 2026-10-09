@@ -1,0 +1,5 @@
+{
+  "scope": "Initial reducer correctly rejected an apparent startup membership gap; observer recorded exception handling time after the snapshot lock release, rather than actual failed observation end. Original code and raw controls retained.",
+  "exit_code": 1,
+  "error": "membership/reap sampling gap within stable window"
+}

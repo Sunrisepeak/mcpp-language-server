@@ -1,0 +1,316 @@
+{
+  "scope": "Actual framed Python parent/fork LSP hook control, ordinary and deferred replies, CPU and cleanup; mock answers are not clangd semantic or release evidence. All timings excluded.",
+  "replay": {
+    "id": "tree-hook-control",
+    "outcome": "pass",
+    "responses": [
+      {
+        "method": "textDocument/completion",
+        "symbols": [
+          "vector"
+        ],
+        "elapsed_ms": 150.507028,
+        "completion_items": {
+          "vector": [
+            {
+              "label": "vector",
+              "kind": 7
+            }
+          ]
+        }
+      }
+    ],
+    "raw_responses": [
+      {
+        "method": "initialize",
+        "reply": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "result": {
+            "capabilities": {}
+          }
+        },
+        "started_monotonic_ns": 127543294162456,
+        "completed_monotonic_ns": 127543307734733,
+        "elapsed_ms": 13.572277
+      },
+      {
+        "method": "textDocument/completion",
+        "reply": {
+          "jsonrpc": "2.0",
+          "id": 2,
+          "result": {
+            "items": [
+              {
+                "label": "vector",
+                "kind": 7
+              }
+            ],
+            "isIncomplete": false
+          }
+        },
+        "started_monotonic_ns": 127543340061545,
+        "completed_monotonic_ns": 127543490568573,
+        "elapsed_ms": 150.507028,
+        "resource_snapshots": {
+          "start": {
+            "sample_started_monotonic_ns": 127543313821676,
+            "monotonic_ns": 127543340059319,
+            "root_identity": [
+              2531436,
+              12754329
+            ],
+            "members": [
+              {
+                "pid": 2531440,
+                "ppid": 2531436,
+                "pgid": 2531436,
+                "start_ticks": 12754330,
+                "state": "S",
+                "cpu_ticks": 0,
+                "reaped_cpu_ticks": 0
+              },
+              {
+                "pid": 2531436,
+                "ppid": 2531434,
+                "pgid": 2531436,
+                "start_ticks": 12754329,
+                "state": "S",
+                "cpu_ticks": 1,
+                "reaped_cpu_ticks": 0
+              }
+            ],
+            "tree_cpu_lower_ms": 10.0,
+            "tree_cpu_upper_ms": 90.0,
+            "tree_rss_sum_kib": 36984,
+            "tree_pss_kib": 24970,
+            "tree_private_kib": 17724,
+            "cpu_tick_ms": 10.0,
+            "cpu_ms": 10.0,
+            "rss_kib": 13136,
+            "high_water_rss_kib": 13136,
+            "elapsed_ms": 46.165480991476215
+          },
+          "end": {
+            "sample_started_monotonic_ns": 127543490574041,
+            "monotonic_ns": 127543509739281,
+            "root_identity": [
+              2531436,
+              12754329
+            ],
+            "members": [
+              {
+                "pid": 2531440,
+                "ppid": 2531436,
+                "pgid": 2531436,
+                "start_ticks": 12754330,
+                "state": "S",
+                "cpu_ticks": 14,
+                "reaped_cpu_ticks": 0
+              },
+              {
+                "pid": 2531436,
+                "ppid": 2531434,
+                "pgid": 2531436,
+                "start_ticks": 12754329,
+                "state": "S",
+                "cpu_ticks": 1,
+                "reaped_cpu_ticks": 0
+              }
+            ],
+            "tree_cpu_lower_ms": 150.0,
+            "tree_cpu_upper_ms": 230.0,
+            "tree_rss_sum_kib": 37436,
+            "tree_pss_kib": 25097,
+            "tree_private_kib": 17828,
+            "cpu_tick_ms": 10.0,
+            "cpu_ms": 10.0,
+            "rss_kib": 13136,
+            "high_water_rss_kib": 13136,
+            "elapsed_ms": 215.84588900441304
+          }
+        }
+      },
+      {
+        "method": "textDocument/completion",
+        "reply": {
+          "jsonrpc": "2.0",
+          "id": 3,
+          "result": {
+            "items": [
+              {
+                "label": "vector",
+                "kind": 7
+              }
+            ],
+            "isIncomplete": false
+          }
+        },
+        "started_monotonic_ns": 127543528105583,
+        "completed_monotonic_ns": 127543678548898,
+        "elapsed_ms": 150.443315,
+        "resource_snapshots": {
+          "start": {
+            "sample_started_monotonic_ns": 127543509797445,
+            "monotonic_ns": 127543528103563,
+            "root_identity": [
+              2531436,
+              12754329
+            ],
+            "members": [
+              {
+                "pid": 2531440,
+                "ppid": 2531436,
+                "pgid": 2531436,
+                "start_ticks": 12754330,
+                "state": "S",
+                "cpu_ticks": 14,
+                "reaped_cpu_ticks": 0
+              },
+              {
+                "pid": 2531436,
+                "ppid": 2531434,
+                "pgid": 2531436,
+                "start_ticks": 12754329,
+                "state": "S",
+                "cpu_ticks": 1,
+                "reaped_cpu_ticks": 0
+              }
+            ],
+            "tree_cpu_lower_ms": 150.0,
+            "tree_cpu_upper_ms": 230.0,
+            "tree_rss_sum_kib": 37436,
+            "tree_pss_kib": 25097,
+            "tree_private_kib": 17828,
+            "cpu_tick_ms": 10.0,
+            "cpu_ms": 10.0,
+            "rss_kib": 13136,
+            "high_water_rss_kib": 13136,
+            "elapsed_ms": 234.21053499623667
+          },
+          "end": {
+            "sample_started_monotonic_ns": 127543678554328,
+            "monotonic_ns": 127543697368039,
+            "root_identity": [
+              2531436,
+              12754329
+            ],
+            "members": [
+              {
+                "pid": 2531440,
+                "ppid": 2531436,
+                "pgid": 2531436,
+                "start_ticks": 12754330,
+                "state": "S",
+                "cpu_ticks": 30,
+                "reaped_cpu_ticks": 0
+              },
+              {
+                "pid": 2531436,
+                "ppid": 2531434,
+                "pgid": 2531436,
+                "start_ticks": 12754329,
+                "state": "S",
+                "cpu_ticks": 1,
+                "reaped_cpu_ticks": 0
+              }
+            ],
+            "tree_cpu_lower_ms": 310.0,
+            "tree_cpu_upper_ms": 390.0,
+            "tree_rss_sum_kib": 37436,
+            "tree_pss_kib": 25097,
+            "tree_private_kib": 17828,
+            "cpu_tick_ms": 10.0,
+            "cpu_ms": 10.0,
+            "rss_kib": 13136,
+            "high_water_rss_kib": 13136,
+            "elapsed_ms": 403.47455599112436
+          }
+        }
+      }
+    ],
+    "readers_stopped": true,
+    "exit_code": 0,
+    "stderr": ""
+  },
+  "resources": {
+    "interval_ms": 200,
+    "cpu_tick_ms": 10.0,
+    "clock": "time.monotonic_ns; shared with request spans",
+    "samples": [
+      {
+        "sample_started_monotonic_ns": 127543294120672,
+        "monotonic_ns": 127543313887169,
+        "root_identity": [
+          2531436,
+          12754329
+        ],
+        "members": [
+          {
+            "pid": 2531436,
+            "ppid": 2531434,
+            "pgid": 2531436,
+            "start_ticks": 12754329,
+            "state": "S",
+            "cpu_ticks": 1,
+            "reaped_cpu_ticks": 0
+          }
+        ],
+        "tree_cpu_lower_ms": 0.0,
+        "tree_cpu_upper_ms": 50.0,
+        "tree_rss_sum_kib": 12272,
+        "tree_pss_kib": 6602,
+        "tree_private_kib": 3724,
+        "cpu_tick_ms": 10.0,
+        "cpu_ms": 10.0,
+        "rss_kib": 13136,
+        "high_water_rss_kib": 13136,
+        "elapsed_ms": 19.992710003862157
+      },
+      {
+        "sample_started_monotonic_ns": 127543528127377,
+        "monotonic_ns": 127543546407086,
+        "root_identity": [
+          2531436,
+          12754329
+        ],
+        "members": [
+          {
+            "pid": 2531440,
+            "ppid": 2531436,
+            "pgid": 2531436,
+            "start_ticks": 12754330,
+            "state": "R",
+            "cpu_ticks": 17,
+            "reaped_cpu_ticks": 0
+          },
+          {
+            "pid": 2531436,
+            "ppid": 2531434,
+            "pgid": 2531436,
+            "start_ticks": 12754329,
+            "state": "S",
+            "cpu_ticks": 1,
+            "reaped_cpu_ticks": 0
+          }
+        ],
+        "tree_cpu_lower_ms": 170.0,
+        "tree_cpu_upper_ms": 260.0,
+        "tree_rss_sum_kib": 37436,
+        "tree_pss_kib": 25097,
+        "tree_private_kib": 17828,
+        "cpu_tick_ms": 10.0,
+        "cpu_ms": 10.0,
+        "rss_kib": 13136,
+        "high_water_rss_kib": 13136,
+        "elapsed_ms": 252.51369600300677
+      }
+    ],
+    "errors": [],
+    "membership_races": [],
+    "remaining_owned_processes": [],
+    "sampler_stopped": true,
+    "latency_qualification": false,
+    "scope": "Resource-only Linux root plus observed descendants, including tracked reparented children. Own plus reaped CPU; stable membership/reap required per observation. PSS proportional mapped pages, private clean+dirty, RSS sum double counts shared pages. Fast unsampled child lifetimes/escapes and physical cache allocation remain outside coverage. All replay latency excluded."
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "scope": "Staged Linux resource-only observer and actual controlled fork/mock-LSP evidence. No real clangd performance/resource or release qualification. Original observer timestamp negative retained.",
+  "files": {
+    "process_tree_resources.py": "0be2775fee671fa964378d507422cb2616e6b19db991392f42e575b15a783cd9",
+    "process_tree_resources-original.py": "d04dfd1eaa9d5a163c2acfe1fc94085aa08149872894a6fb2afa50b37e385f1e",
+    "project-completion-tree.py": "eb99e3870650f65156ea49572c78ac67ae2b47a9ee34d72a1e53f0322d2f8d74",
+    "project-completion-tree-original.py": "eb5cd14f529023083eb069b15153278486b00a67de41b9ad0585abf8692b5814",
+    "tree_resource_window.py": "b3f7fd24a59183f21100c37cd1d92da918ea502bdcc7550d114dc7a91210d14f",
+    "test-process-tree-control.py": "367b2554a439339a1a1d18726febb5ca5b3c9720ffe00c6d929c3114425824cb",
+    "controlled-parent-child.py": "df65f2055f579b910d39233f18fb442c45eebe31cfcea067523d62bd9cb51d9b",
+    "process-tree-control.json": "4b1935dbfb386ac3b7453b04f893cdc78b3ed5c22ec35f78d1f7e17538dec5f3",
+    "test-tree-replay-control.py": "2fb167d05e1f5e49dcfd1592997d3f0e02a6227ded5fd6fb40ded6c113499ff5",
+    "controlled-tree-lsp.py": "08924170de2d46a5231abf0cbd4599ca865c3a0d276ec886c955f1f032f14437",
+    "controlled-tree-lsp-case.json": "dc3d498699eec0ab5a53f3bcce990c4f94f21e4b4ae33c9d619d426382503c64",
+    "tree-replay-control.json": "86c6f6c76d9dd715071b1813ce8410b41dfce1b8b0b77f6843981f4d2c0eaa28",
+    "test-tree-replay-control-v2.py": "ba9ffd1c581a762e4ebb318d04b90d6f0284f564ed44cc7ebf84535108e24886",
+    "controlled-tree-lsp-v2.py": "08924170de2d46a5231abf0cbd4599ca865c3a0d276ec886c955f1f032f14437",
+    "controlled-tree-lsp-case-v2.json": "dc3d498699eec0ab5a53f3bcce990c4f94f21e4b4ae33c9d619d426382503c64",
+    "tree-replay-control-v2.json": "290f4314bbfc4ed6009d3556908641cd324a9554f0460135b7e66b9a96df6b93",
+    "tree-window-original-negative.json": "1900333eba9e8dc04a9a5374672d90daf19f1bedcbd6b05ee03c8ba5840de392",
+    "tree-window-control-v2.json": "42195f8bd8480af3375eb256da665f76d89314e872db12bdafba3126e45c509e",
+    "audit-tree-controls.py": "221b972c67f68c13ad1905de6a15efc05a6fcd820a265bf1ece2e0ad18c5dedc",
+    "resource-preparation-manifest.json": "b6eb422635363edbc5bbc1f201c2191544b67ec55748dce875a3284430fdaf41",
+    "README.md": "dbedf8a5603267e1c697343701541411ee1b46402c0d7fa6f706e5fa9409e100"
+  }
+}
