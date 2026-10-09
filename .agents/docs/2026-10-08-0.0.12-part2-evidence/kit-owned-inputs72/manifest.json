@@ -1,0 +1,15 @@
+{
+  "scope": "Actual filtered Ubuntu20 input capture and unexecuted containerized same-source kit recipe; previous preparations retained",
+  "files": {
+    "sysroot-owned.log": "bed2399e1dde9c022550d4e3060e83bee6346fcbbccd98530f1e505c4cbeb748",
+    "owned_process_cleanup.py": "c8792c38ec7d658d9398ceaba419428d91b3783e151191eed4ab94493e6482e3",
+    "build-kit-before-owned-sysroot.py": "c6f83118abcb57a4c50e44cce9a3a0e2710230b01583c65f07f8f2ad522efb86",
+    "build-kit.py": "7cfa57a9dc2b9b78caa4eecc40fc8c8b97830c0d4840e38c6837a14f209714a0",
+    "README.md": "202c56b6e3f1e3f64caeb334c37b15b6be7422cae7b69199363dfdd1e206a349",
+    "build-kit-before-floor-container.py": "c27298e0707f9570cf7a7bd4cc093a934d55901b878de0ec90aaf5ec94484adb",
+    "sysroot-owned-progress.json": "630b7b28c8656c198bec6e1197d1786cfd4fd123d7b1416ee57ccc8f6d75967a",
+    "sysroot-owned-packages.txt": "0d8f1110dd225955677a9e1010e3f347741966e3a158c0d78dd12807cc9f535f",
+    "capture-owned-sysroot.py": "779af70defe128ceb803d872e5c1993028c1de0edf068f8ddcabdb068d589c24",
+    "sysroot-owned-paths.json": "2ad1f61b51b0a2b3e15e7deeb6fb0617158362d98ce91c7e7e7ace5c767de189"
+  }
+}

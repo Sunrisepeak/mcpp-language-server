@@ -1,0 +1,2 @@
+libc6-dev:amd64	2.31-0ubuntu9.18
+linux-libc-dev:amd64	5.4.0-216.236
