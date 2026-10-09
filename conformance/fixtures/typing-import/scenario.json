@@ -125,6 +125,7 @@
     },
     {
       "id": "T6-workaround-on",
+      "retired-by": "module-directive-recovery",
       "kind": "report",
       "expect": [
         {

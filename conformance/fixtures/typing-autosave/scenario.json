@@ -68,6 +68,7 @@
     },
     {
       "id": "T3-disk-seen",
+      "retired-by": "module-directive-recovery",
       "kind": "report",
       "timeout": 20,
       "expect": [
