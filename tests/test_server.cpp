@@ -1,5 +1,6 @@
 // Document store, module index and routing, without processes.
 import std;
+import mcppls.os;
 import nlohmann.json;
 import mcppls.testing;
 import mcppls.base.error;
@@ -787,6 +788,7 @@ int main() {
         expect(cld::format_fallback_style("auto", true, true) == "mcpp");
         expect(cld::format_fallback_style("auto", true, false).empty());
         expect(cld::format_fallback_style("auto", false, true).empty());
+        expect(cld::format_fallback_style("Auto", true, true) == "mcpp");
         expect(cld::format_fallback_style("mcpp", true, false) == "mcpp");
         expect(cld::format_fallback_style("Mcpp", false, true).empty());
         expect(cld::format_fallback_style("Google", true, true) == "Google");
@@ -800,10 +802,11 @@ int main() {
         expect(std::ranges::count(arguments, "--fallback-style=Google") == 1);
     };
 
-    "background indexing yields to cold module work unless the user chooses its priority"_test = [] {
+    "on macOS background indexing yields to cold module work unless the user chooses its priority"_test = [] {
         cld::ProcessConfig config;
         const std::string defaultPriority { "--background-index-priority=background" };
-        expect(std::ranges::count(cld::clangd_arguments(config), defaultPriority) == 1);
+        const bool macos { mcppls::os::FAMILY == mcppls::os::Family::macos };
+        expect(std::ranges::count(cld::clangd_arguments(config), defaultPriority) == (macos ? 1 : 0));
         for (const auto& choice : std::vector<std::vector<std::string>> {
                  { "--background-index-priority=normal" }, { "-background-index-priority=low" },
                  { "--background-index-priority", "low" }, { "-background-index-priority", "normal" } }) {

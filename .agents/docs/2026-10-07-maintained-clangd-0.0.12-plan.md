@@ -1,5 +1,7 @@
 # mcppls 0.0.12：维护版 clangd 接入方案与本地验收
 
+> **历史记录。** 0.0.12 的最终范围、决策与实施见 [Part 3](2026-10-09-0.0.12-part3-convergence-plan.md) §8。文中 `.agents/docs/2026-10-08-0.0.12-part2-evidence/`、`.agents/docs/assets/`、`tests/evidence/` 等原始证据路径位于 `mcpp-language-server-0.0.12-evidence.tar.zst`（[evidence-0.0.12](https://github.com/Sunrisepeak/mcpp-language-server/releases/tag/evidence-0.0.12)），完整增量历史在 `archive/0.0.12-joint` 分支。
+
 状态：供 review；本地候选已打包并在真实 VS Code 验证，**当前 fork 不满足默认发布门槛**。
 日期：2026-10-07（JST）。范围是分析、测试包与方案；正式 lock、生产行为和发布流程尚未切换。
 

@@ -2,15 +2,11 @@
 
 [English](../00-install.md) | **简体中文**
 
-> release 发布在 GitHub release 页面，VS Code 扩展同时也上架了 VS Code Marketplace 和 Open VSX。xlings 索引上暂时还没有。
-
-0.0.12 的维护分发范围是 `linux-x64`、`win32-x64` 和 `darwin-arm64`（Apple Silicon）。
-Intel macOS 和 Linux arm64 不属于本轮适配、验收或新分发承诺；历史下载不等于当前维护资格。
-手动安装的服务端仍可配置外部 clangd/kit，这次调整不限制用户工程的编译器。
+> release 发布在 GitHub release 页面，VS Code 扩展同时也上架了 VS Code Marketplace 和 Open VSX。xlings 索引上暂时还没有。Android 上的 Termux 运行的是 `linux-arm64` 版本（见[下文](#android-上的-termux)）。
 
 ## VS Code：从 Marketplace 安装
 
-在扩展视图里搜索 **mcppls** 或 **C++ Modules Language Server**，或者运行 `code --install-extension sunrisepeak.mcpp-language-server`（[Marketplace 页面](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server））。VS Code 会自动选对应平台的版本——`linux-x64`、`darwin-arm64` 或 `win32-x64`；其他平台暂时没有。Linux 上各架构支持哪些系统，见[支持的 Linux 系统](#支持的-linux-系统)。
+在扩展视图里搜索 **mcppls** 或 **C++ Modules Language Server**，或者运行 `code --install-extension sunrisepeak.mcpp-language-server`（[Marketplace 页面](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server））。VS Code 会自动选对应平台的版本——`linux-x64`、`linux-arm64`、`darwin-arm64` 或 `win32-x64`；其他平台暂时没有。`darwin-arm64` 需要 macOS 12 及以上；Linux 上各架构支持哪些系统，见[支持的 Linux 系统](#支持的-linux-系统)。
 
 ## Cursor、VSCodium、Windsurf 等兼容 VS Code 的编辑器：从 Open VSX 安装
 
@@ -23,7 +19,7 @@ Intel macOS 和 Linux arm64 不属于本轮适配、验收或新分发承诺；�
 - **在编辑器里**：Extensions 视图 → `…` 菜单 → *Install from VSIX…*
 - **在命令行**：`code --install-extension mcppls-linux-x64.vsix`
 
-VSIX 里带了所需的一切：服务端、一个锁定版本的 clangd，以及语义工具包。打开一个 C++ 项目，状态栏会显示它找到了什么。选和自己机器对应的文件——`linux-x64`、`darwin-arm64` 或 `win32-x64`——因为每个文件带的是各自平台的 payload。
+VSIX 里带了所需的一切：服务端、一个锁定版本的 clangd，以及语义工具包。打开一个 C++ 项目，状态栏会显示它找到了什么。选和自己机器对应的文件——`linux-x64`、`linux-arm64`、`darwin-arm64` 或 `win32-x64`——因为每个文件带的是各自平台的 payload。
 
 这个扩展是 `sunrisepeak.mcpp-language-server`，和 **mcpp**（`mcpp-community.mcpp-vscode`）是两个不同的扩展；mcpp 负责构建、工具链和项目操作。两者都值得装，参见 [10-editors.md](10-editors.md)。
 
@@ -41,20 +37,17 @@ release 里的每个文件都列在它的 `MANIFEST.md` 里，说明是什么、
 
 | 平台 | clangd | 需要 | 能运行的系统 |
 |---|---|---|---|
-| `linux-x64` | clangd/clangd 发布的 23.1.0，libstdc++ 已静态链接 | glibc 2.18 | 目前所有基于 glibc 的发行版 |
+| `linux-x64` | mcppls-clangd 23.1.0，在 Ubuntu 20.04 上构建，libstdc++ 与 zlib 已静态链接 | glibc 2.31 | Ubuntu 20.04、Debian 11、RHEL 和 Rocky Linux 9、openEuler 22.03 LTS 及以上 |
+| `linux-arm64` | 同一引擎，以相同方式为 arm64 构建 | glibc 2.31 | 同上各系统的 arm64 版本 |
 
-Linux x64 的维护引擎仍须通过 Ubuntu 20.04 下限验证；当前 lock 保留 stock 引擎，
-尚未因范围调整而取得新的维护引擎资格。Alpine 等 musl 发行版不运行自带的 clangd。
+更老的系统——Ubuntu 18.04、Debian 10、RHEL 和 Rocky Linux 8、Amazon Linux 2——上，自带的 clangd 无法启动。这时 mcppls 仍提供它自己的模块级功能（模块跳转、import 补全、模块诊断），状态栏会说明原因；也可以用 `mcppls.clangd` 指定一个能在该系统上运行的 clangd。Alpine 等基于 musl 的发行版，两种架构的 clangd 都无法运行。
 
 ### Android 上的 Termux
 
-以下是历史 Linux arm64/Termux 材料，不是 0.0.12 的维护分发承诺。历史引擎需要
-glibc 2.34 和 GCC 12 的 libstdc++（`GLIBCXX_3.4.30`）；本轮不再构建该包或要求其原生 CI。
-
-比这更老的 arm64 系统——Ubuntu 20.04、Debian 11、RHEL 和 Rocky Linux 8 与 9、Amazon Linux 2023、openEuler 22.03——上，历史自带的 clangd 无法启动。这时 mcppls 仍提供它自己的模块级功能（模块跳转、import 补全、模块诊断），状态栏会说明原因。Alpine 等基于 musl 的发行版，两种架构的 clangd 都无法运行。
+装了 Termux 的 Android 手机或平板运行的是 `linux-arm64` 版本，没有单独的安装包。Termux 的 PRoot（很多方案在它下面运行 Linux 系统）是受支持的环境：
 
 - **服务端**就是 `linux-arm64` payload 里静态链接的 `mcppls`。解压 `payload-linux-arm64.tar.gz`，把其中的 `payload/bin/` 加进 `PATH`（做法同[其他编辑器：从 release 安装](#其他编辑器从-release-安装)），再由你在那里运行的编辑器（比如 Neovim）启动它；或者在 Termux 里运行的兼容 VS Code 的编辑器中安装 `mcppls-linux-arm64.vsix`。
-- **clangd** 和任何 `linux-arm64` 系统上的一样，是 glibc 程序，所以历史下限同样适用。此前 nightly 曾保留 Termux / `proot-distro` Debian 实验。clangd 在这台机器上无法运行（glibc 低于要求）时状态是 `engine-incompatible`，被沙箱拒绝启动时是 `engine-start-failed` 并写明原因；两种情况下 mcppls 都仍提供模块级功能。
+- **clangd** 和任何 `linux-arm64` 系统上的一样，是 glibc 程序，所以上表的要求同样适用：CI 是在 Termux 里用 `proot-distro` 装的 Debian 中运行它的。clangd 在这台机器上无法运行（glibc 低于要求）时状态是 `engine-incompatible`，被沙箱拒绝启动时是 `engine-start-failed` 并写明原因；两种情况下 mcppls 都仍提供模块级功能。
 - **mcppls 为 PRoot 做了什么。** 它会检测自己运行在哪种沙箱里（`mcppls report` 里显示为 `server.sandbox`，在这里是 `proot`），并按 PRoot 的应答方式启动程序。PRoot 有两个行为曾让它无法工作：Termux 的 PRoot 拒绝“通过目录句柄启动程序”的那个调用，所以服务端启动 clangd 时会说“not supported”；PRoot 的快速路径还会在 `openat` 之后留下被改写的寄存器，读文件就报 “outside every preopened directory”（issue #32）。不需要任何配置。
 
 ## 从源码构建

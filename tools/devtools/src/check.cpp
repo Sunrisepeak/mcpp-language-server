@@ -394,6 +394,40 @@ base::Result<Report> scripts(const std::string& root) {
     return report;
 }
 
+base::Result<Report> tree(const std::string& root) {
+    constexpr std::uintmax_t LIMIT { 1u << 20 };
+    auto git = mcppls::platform::env::find_executable("git");
+    if (!git) return base::fail("check-tree", "git is not on PATH, so the tracked files cannot be listed");
+    auto output = capture(*git, { "ls-files" }, root);
+    if (!output) return std::unexpected { output.error() };
+    const auto generated = [](std::string_view path) {
+        for (std::string_view packed : { ".gz", ".zst" }) {
+            if (path.ends_with(packed)) path.remove_suffix(packed.size());
+        }
+        return std::ranges::any_of(std::array<std::string_view, 5> { ".pcm", ".pch", ".gch", ".o", ".obj" },
+                                   [&](std::string_view suffix) { return path.ends_with(suffix); });
+    };
+    Report report {};
+    std::size_t files { 0 };
+    for (const auto line : base::split_lines(*output)) {
+        if (line.empty()) continue;
+        ++files;
+        const std::string path { line };
+        if (generated(path)) {
+            report.ok = false;
+            report.problems.push_back(std::format("{} is a generated file -- build output and caches are never tracked", path));
+        }
+        std::error_code ignored;
+        const auto size = std::filesystem::file_size(std::filesystem::path { base::join_path(root, path) }, ignored);
+        if (!ignored && size > LIMIT) {
+            report.ok = false;
+            report.problems.push_back(std::format("{} is {} bytes, above 1 MiB -- raw evidence belongs in a release's evidence archive", path, size));
+        }
+    }
+    if (report.ok) report.notes.push_back(std::format("tree: {} tracked files, none generated, none above 1 MiB", files));
+    return report;
+}
+
 namespace {
 
 // ---- platforms: one table, held to by everything that cannot read it -------------------------
@@ -705,6 +739,7 @@ int command_check_all(const cmdline::ParsedArgs& arguments) {
         { "layers", check::layers(root) },
         { "versions", check::versions(root) },
         { "scripts", check::scripts(root) },
+        { "tree", check::tree(root) },
         { "platforms", check::platforms(root) },
         { "docs", docs_of_this_program(root) },
     };
@@ -757,6 +792,7 @@ int dispatch(bool& handled, int& status, std::string_view verb, const cmdline::P
     if (verb == "layers") return run_check(check::layers(root), json, "layers");
     if (verb == "versions") return run_check(check::versions(root), json, "versions");
     if (verb == "scripts") return run_check(check::scripts(root), json, "scripts");
+    if (verb == "tree") return run_check(check::tree(root), json, "tree");
     if (verb == "platforms") return run_check(check::platforms(root), json, "platforms");
     if (verb == "docs") return run_check(docs_of_this_program(root), json, "docs");
     if (verb == "binary") {
@@ -768,7 +804,7 @@ int dispatch(bool& handled, int& status, std::string_view verb, const cmdline::P
         return run_check(check::binary(*server), json, "binary");
     }
     if (verb == "all") return command_check_all(inner);
-    std::println(std::cerr, "mcppls-devtools: check needs a verb: os-surface, layers, versions, scripts, platforms, docs, binary, all");
+    std::println(std::cerr, "mcppls-devtools: check needs a verb: os-surface, layers, versions, scripts, tree, platforms, docs, binary, all");
     return 2;
 }
 
@@ -776,7 +812,7 @@ int dispatch(bool& handled, int& status, std::string_view verb, const cmdline::P
 
 cmdline::App check_command(bool& handled, int& status) {
     cmdline::App command { "check" };
-    (void) command.description("Repository invariants: platform surface, layering, versions, scripts, platforms, the built binary");
+    (void) command.description("Repository invariants: platform surface, layering, versions, scripts, tracked tree, platforms, the built binary");
 
     (void) command.subcommand("os-surface")
         .description("The platform surface is six constants (ported from tools/check_os_surface.py)")
@@ -792,6 +828,10 @@ cmdline::App check_command(bool& handled, int& status) {
 
     (void) command.subcommand("scripts")
         .description("Every tracked *.py/*.sh is declared in tools/devtools/scripts.allow")
+        .option("json").help("Structured output");
+
+    (void) command.subcommand("tree")
+        .description("No tracked file is above 1 MiB or generated (modules, precompiled headers, objects)")
         .option("json").help("Structured output");
 
     (void) command.subcommand("platforms")

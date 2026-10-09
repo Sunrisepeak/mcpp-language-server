@@ -1,20 +1,16 @@
 # Install
 
 > Releases come from the GitHub release page, and the VS Code extension is also on the VS Code
-> Marketplace and on Open VSX. Nothing is on the xlings index yet.
-
-The 0.0.12 maintained distribution targets `linux-x64`, `win32-x64` and
-`darwin-arm64` (Apple Silicon). Intel macOS and Linux arm64 are outside this
-release scope. Historical downloads are not current maintained support. External
-server and clangd configuration remain available; this scope does not restrict
-which compiler or engine a manually installed server may use.
+> Marketplace and on Open VSX. Nothing is on the xlings index yet. Termux on Android runs the
+> `linux-arm64` build ([below](#android-under-termux)).
 
 ## VS Code, from the Marketplace
 
 Search the Extensions view for **mcppls** or **C++ Modules Language Server**, or run
 `code --install-extension sunrisepeak.mcpp-language-server` ([Marketplace page](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server)). VS Code picks the
-build for your platform — `linux-x64`, `darwin-arm64` or `win32-x64`; there is none
-for other platforms yet. On Linux, see [which systems each architecture runs on](#supported-linux-systems).
+build for your platform — `linux-x64`, `linux-arm64`, `darwin-arm64` or `win32-x64`; there is none
+for other platforms yet. `darwin-arm64` needs macOS 12 or later; on Linux, see [which systems each
+architecture runs on](#supported-linux-systems).
 
 ## Cursor, VSCodium, Windsurf and other VS Code-compatible editors, from Open VSX
 
@@ -32,7 +28,7 @@ Download `mcppls-<platform>.vsix` from the [release page][releases] and install 
 
 The VSIX carries everything it needs: the server, a pinned clangd, and the semantic kit. Open a C++
 project and the status bar says what it found. Take the file matching your machine —
-`linux-x64`, `darwin-arm64` or `win32-x64` — since each carries its own platform's payload.
+`linux-x64`, `linux-arm64`, `darwin-arm64` or `win32-x64` — since each carries its own platform's payload.
 
 The extension is `sunrisepeak.mcpp-language-server`, and it is a different extension from **mcpp**
 (`mcpp-community.mcpp-vscode`), which handles building, toolchains and project operations. Both are
@@ -57,31 +53,25 @@ clangd the payload carries:
 
 | Platform | clangd | Needs | Runs on |
 |---|---|---|---|
-| `linux-x64` | clangd/clangd's 23.1.0 build, with libstdc++ linked in | glibc 2.18 | every current glibc distribution |
+| `linux-x64` | mcppls-clangd 23.1.0, built on Ubuntu 20.04 with libstdc++ and zlib linked in | glibc 2.31 | Ubuntu 20.04, Debian 11, RHEL and Rocky Linux 9, openEuler 22.03 LTS and later |
+| `linux-arm64` | the same engine, built the same way for arm64 | glibc 2.31 | the same systems, on arm64 |
 
-Linux Ubuntu 20.04 remains the maintained engine qualification floor for
-`linux-x64`; the current lock still carries the stock engine pending that
-qualification. Alpine and other musl distributions do not run the bundled clangd.
+On an older system — Ubuntu 18.04, Debian 10, RHEL and Rocky Linux 8, Amazon Linux 2 — the bundled
+clangd cannot start. mcppls then keeps its own module-level features (module navigation, import
+completion, module diagnostics), and its status says why; `mcppls.clangd` can name a clangd that
+does run there. Alpine and other musl distributions run neither architecture's clangd.
 
-<a id="android-under-termux"></a>
+### Android, under Termux
 
-### Historical Linux arm64 and Android / Termux
-
-The following describes earlier Linux arm64 artifacts, not the 0.0.12 maintained
-distribution. They used LLVM 23.1.0 with glibc 2.34 and GCC 12 libstdc++
-(`GLIBCXX_3.4.30`). Termux / PRoot has no required CI or new package in this release:
-
-On older arm64 systems — Ubuntu 20.04, Debian 11, RHEL and Rocky Linux 8 and 9, Amazon
-Linux 2023, openEuler 22.03 — those historical clangd binaries cannot start. mcppls then keeps its own
-module-level features (module navigation, import completion, module diagnostics), and its status
-says why. Alpine and other musl distributions do not run those historical clangd binaries.
+An Android phone or tablet with Termux runs the `linux-arm64` build; there is no separate package
+for it. Termux's PRoot, which many setups run a Linux system under, is a supported environment:
 
 - **The server** is the static `mcppls` of the `linux-arm64` payload. Unpack
   `payload-linux-arm64.tar.gz` and put its `payload/bin/` on `PATH`, as in [Another editor, from a
   release](#another-editor-from-a-release), and start it from the editor you run there (Neovim, say);
   or install `mcppls-linux-arm64.vsix` in a VS Code-compatible editor running inside Termux.
-- **clangd** is the same glibc program as on any `linux-arm64` system, so that historical floor
-  applies. Earlier nightly workflows carried a Debian / `proot-distro` experiment. Where it cannot run (a glibc
+- **clangd** is the same glibc program as on any `linux-arm64` system, so the floor in the table
+  applies: CI runs it in a Debian that `proot-distro` installs in Termux. Where it cannot run (a glibc
   below the floor) the status says `engine-incompatible`, and where the sandbox refuses to start it,
   `engine-start-failed` with the reason; either way mcppls keeps its module-level features.
 - **What mcppls does for PRoot.** It detects the sandbox it runs in (`mcppls report` shows it as

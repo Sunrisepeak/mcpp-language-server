@@ -47,8 +47,8 @@ constexpr KalDword KAL_ERROR_INVALID_PARAMETER { 87 };
 #include <unistd.h>
 
 // WA-PLATFORM-001 / UP-O1: remove when openkal-macos passes the closed-peer
-// and blocked-writer canaries on both macOS architectures with default SIGPIPE.
-// Evidence: .agents/docs/2026-10-07-darwin-pipe-write.md; native CI pending.
+// and blocked-writer canaries with default SIGPIPE.
+// Evidence: .agents/docs/2026-10-07-darwin-pipe-write.md.
 // Darwin's F_SETNOSIGPIPE (xnu/bsd/sys/fcntl.h) protects this descriptor only.
 // openkal-macos deliberately leaves SIGPIPE unhandled, and the C ABI above it
 // cannot install a kernel signal disposition. Use the same native syscall
@@ -65,14 +65,7 @@ static bool protect_pipe_write(kal_stream stream) {
                          : "r"(number), "r"(enabled) : "memory", "cc");
     return failed == 0;
 #else
-    long result;
-    long enabled { 1 };
-    unsigned char failed;
-    __asm__ __volatile__("syscall"
-                         : "=a"(result), "+d"(enabled), "=@ccc"(failed)
-                         : "a"(0x200005cL), "D"(static_cast<long>(stream.h)), "S"(73L)
-                         : "rcx", "r11", "memory", "cc");
-    return failed == 0;
+#error "macOS is maintained on Apple Silicon only; this pipe protection has no other syscall convention"
 #endif
 }
 #endif

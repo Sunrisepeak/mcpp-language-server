@@ -25,6 +25,8 @@ export namespace mcppls::pack::payload {
 // usable plan W9.4: records size and sha256 of clangd and the kit manifest, so the server can tell
 // a corrupt or tampered payload from a working one at startup. overall design 5.6 added `engines`.
 inline constexpr int PAYLOAD_VERSION { 3 };
+// Version 4 adds `engines.clangd.identity`: an engine with immutable provenance (engine.json).
+inline constexpr int IDENTIFIED_PAYLOAD_VERSION { 4 };
 
 struct AssembleOptions {
     std::string platform;                      // one of the lock's platforms

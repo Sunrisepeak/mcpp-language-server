@@ -4,9 +4,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { resolveLaunch, SUPPORTED_PLATFORMS } from '../../src/payload';
 
-suite('maintained distribution scope', () => {
-    test('0.0.12 declares three maintained targets', () => {
-        assert.deepStrictEqual([...SUPPORTED_PLATFORMS].sort(), ['darwin-arm64', 'linux-x64', 'win32-x64']);
+suite('distribution scope', () => {
+    test('every platform of the payload lock is bundled', () => {
+        assert.deepStrictEqual([...SUPPORTED_PLATFORMS].sort(), ['darwin-arm64', 'linux-arm64', 'linux-x64', 'win32-x64']);
     });
 
     test('an external server remains usable on an unbundled host', () => {

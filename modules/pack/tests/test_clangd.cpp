@@ -93,7 +93,7 @@ std::vector<Member> release_members(std::string_view exeName) {
 // test hands trim() its archive with `zip` and never fetches one.
 lock::Lock platforms_lock() {
     lock::Lock lockData {};
-    for (const std::string_view platform : { "linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64", "win32-x64" }) {
+    for (const std::string_view platform : { "linux-x64", "linux-arm64", "darwin-arm64", "win32-x64" }) {
         lockData.platforms.emplace(std::string { platform }, lock::Platform { .clangd = std::format("clangd-{}", platform) });
     }
     return lockData;
@@ -119,6 +119,57 @@ int main(int argc, char* argv[]) {
     const std::string work { scratch_dir() };
     const auto lockData = platforms_lock();
 
+    "a maintained engine part is taken byte for byte: never stripped, re-signed or trimmed"_test = [&] {
+        const std::string top { "./clangd-23.1.0-mcppls.0-linux-x64" };
+        const std::string binary { runnable_clangd() };
+        const std::string identity { R"({"engine-version": "23.1.0-mcppls.0"})" };
+        const std::string zip { base::join_path(work, "engine-part.zip") };
+        expect(fatal(write_zip(zip, {
+            { top + "/clangd/bin/clangd", binary, true },
+            { top + "/clangd/LICENSE.TXT", "Apache-2.0 WITH LLVM-exception", false },
+            { top + "/clangd/NOTICE.txt", "mcppls-clangd is based on LLVM/Clang 23.1.0.", false },
+            { top + "/clangd/licenses/GPL-3.txt", "runtime license", false },
+            { top + "/clangd/engine.json", identity, false },
+            { top + "/clangd/lib/clang/23/include/stddef.h", "typedef long ptrdiff_t;", false },
+            { top + "/SHA256SUMS", "checksums of the part", false },
+        })));
+        const std::string out { base::join_path(work, "part-out") };
+        auto result = clangd::trim(clangd::Options {
+            .platform = "linux-x64",
+            .outDirectory = out,
+            .zip = zip,
+            .cacheDirectory = base::join_path(work, "cache"),
+            .strip = true,   // a part is never stripped: its identity names these bytes
+        }, lockData);
+        expect(fatal(result.has_value())) << (result ? std::string {} : result.error().message);
+        if (!result) return;
+        expect(result->enginePart);
+        expect(!result->stripped);
+        expect(result->clangMajor == "23");
+        expect(fs::read_file(base::join_path(out, "bin/clangd")).value_or("") == binary);
+        expect(fs::read_file(base::join_path(out, "engine.json")).value_or("") == identity);
+        expect(fs::is_regular_file(base::join_path(out, "NOTICE.txt")));
+        expect(fs::is_regular_file(base::join_path(out, "licenses/GPL-3.txt")));
+        expect(fs::is_regular_file(base::join_path(out, "lib/clang/23/include/stddef.h")));
+        expect(!fs::exists(base::join_path(out, "SHA256SUMS")));
+        expect(!fs::exists(out + ".part"));
+    };
+
+    "a maintained engine part without its license is refused"_test = [&] {
+        const std::string top { "clangd-23.1.0-mcppls.0-win32-x64" };
+        const std::string zip { base::join_path(work, "engine-part-unlicensed.zip") };
+        expect(fatal(write_zip(zip, {
+            { top + "/clangd/bin/clangd.exe", "binary", true },
+            { top + "/clangd/engine.json", "{}", false },
+            { top + "/clangd/lib/clang/23/include/stddef.h", "typedef long ptrdiff_t;", false },
+        })));
+        auto result = clangd::trim(clangd::Options {
+            .platform = "win32-x64", .outDirectory = base::join_path(work, "unlicensed-out"), .zip = zip,
+            .cacheDirectory = base::join_path(work, "cache"),
+        }, lockData);
+        expect(!result.has_value());
+    };
+
     "win32-x64: the executable, the license and the one lib/clang/<major>/include survive"_test = [&] {
         const std::string zip { base::join_path(work, "clangd-win32.zip") };
         expect(fatal(write_zip(zip, release_members("clangd.exe"))));
@@ -143,8 +194,8 @@ int main(int argc, char* argv[]) {
         expect(!fs::exists(base::join_path(out, "share")));
     };
 
-    "Linux and both Darwin architectures set the executable bit, win32-x64 does not"_test = [&] {
-        for (const std::string_view platform : { "linux-x64", "darwin-x64", "darwin-arm64" }) {
+    "linux-x64 and darwin-arm64 set the executable bit, win32-x64 does not"_test = [&] {
+        for (const std::string_view platform : { "linux-x64", "darwin-arm64" }) {
             const std::string zip { base::join_path(work, std::format("clangd-{}.zip", platform)) };
             expect(fatal(write_zip(zip, release_members("clangd"))));
             const std::string out { base::join_path(work, std::format("{}-out", platform)) };

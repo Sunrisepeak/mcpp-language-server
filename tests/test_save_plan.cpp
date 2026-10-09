@@ -63,9 +63,18 @@ private:
 
 class Sink : public o::ClientSink { void send(const Json&) override {} };
 
-struct Fixture {
-    std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+// A loaded model names its files canonically (project/model.cpp), and the workspace resolves a
+// document's URI the same way. The temporary directory is an alias on macOS (/var is /private/var)
+// and may be a short name on Windows, so the hand-built model starts from the canonical root too.
+std::string canonical_root() {
+    const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
         std::format("mcppls-save-plan-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+    (void)fs::create_directories(root);
+    return fs::canonical_path(root);
+}
+
+struct Fixture {
+    std::string root { canonical_root() };
     std::string source { mcppls::base::join_path(root, "main.cpp") };
     std::string uri { mcppls::base::path_to_uri(source) };
     std::shared_ptr<State> state { std::make_shared<State>() };
@@ -76,7 +85,6 @@ struct Fixture {
     int version { 1 };
 
     explicit Fixture(const std::string& text, std::vector<std::string> producerImports = {}) {
-        (void)fs::create_directories(root);
         (void)fs::write_file(source, text);
         o::SessionOptions options;
         options.engineFactories = [state = state, stubs = mcppls::base::join_path(root, "stubs")](const auto&, const auto&, bool) {

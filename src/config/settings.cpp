@@ -168,8 +168,8 @@ const std::vector<Setting>& shipped_registry() {
             .key = "MCPPLS_ENGINE_ARGUMENTS", .kind = Kind::string, .defaultValue = "", .surface = Surface::environment,
             .applies = Applies::restart, .category = "engines", .since = "0.0.1",
             .summary = "Extra arguments appended to clangd's own command line, for troubleshooting "
-                       "(e.g. `-j=8 --background-index-priority=normal`). An explicit background-index priority overrides mcppls's default `background`.",
-            .summaryZh = "追加到 clangd 自身命令行末尾的额外参数，用于排查问题（例如 `-j=8 --background-index-priority=normal`）。显式设置后台索引优先级会覆盖 mcppls 默认的 `background`。",
+                       "(e.g. `-j=8 --background-index-priority=normal`). An explicit background-index priority overrides mcppls's default `background` on macOS.",
+            .summaryZh = "追加到 clangd 自身命令行末尾的额外参数，用于排查问题（例如 `-j=8 --background-index-priority=normal`）。显式设置后台索引优先级会覆盖 mcppls 在 macOS 上默认的 `background`。",
         },
         // ---- Editor experience ----------------------------------------------------------------
         Setting {

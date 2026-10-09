@@ -1,12 +1,5 @@
 # Making a release
 
-For 0.0.12, the maintained distribution and required native qualification target
-`linux-x64`, `win32-x64` and `darwin-arm64`. Intel macOS and Linux arm64 are
-outside this release scope; historical artifacts/evidence are retained. Linux
-Ubuntu 20.04 remains a required floor. Platform scope does not constitute a
-qualification result: the lock remains on stock engine bytes until the
-maintained engine passes the Linux stage and subsequent native checks.
-
 > Releases are published on this repository's GitHub release page. Open VSX follows automatically
 > when a release is published; the VS Code Marketplace is uploaded to by hand, after the release's
 > VSIX files are verified locally; the xlings index is not a channel yet (below).

@@ -110,6 +110,7 @@ PayloadPaths resolve_payload(const PayloadRequest& requested) {
                 }
                 if (kit != nullptr) payloadKit = base::join_path(paths.directory, kit->value("path", std::string { "kit" }));
                 paths.platform = document.value("platform", paths.platform);
+                // Payload version 4 (mcppls.pack.payload's IDENTIFIED_PAYLOAD_VERSION) binds the engine's identity.
                 if (document.value("payload-version", 0) == 4) {
                     if (paths.platform != os::PLATFORM) paths.identityProblem = "engine payload platform does not match this host";
                     auto decoded = base::decode_engine_identity(clangd == nullptr ? nlohmann::json {} : clangd->value("identity", nlohmann::json {}));

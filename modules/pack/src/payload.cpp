@@ -313,7 +313,7 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
     const std::string kitName { kit.value("name", std::string {}) };
     nlohmann::json kitEntry { { "name", kitName }, { "path", "kit" } };
     nlohmann::json manifest;
-    manifest["payload-version"] = identity.is_object() ? 4 : PAYLOAD_VERSION;
+    manifest["payload-version"] = identity.is_object() ? IDENTIFIED_PAYLOAD_VERSION : PAYLOAD_VERSION;
     manifest["platform"] = options.platform;
     manifest["server"] = { { "version", serverVersion }, { "path", "bin/mcppls" + exe } };
     manifest["clangd"] = { { "version", engineVersion }, { "path", "clangd/bin/clangd" + exe } };
@@ -367,8 +367,9 @@ std::vector<std::string> verify(std::string_view payloadDirectory) {
         return { std::format("payload.json does not parse: {}", error.what()) };
     }
 
-    if (manifest.value("payload-version", -1) != PAYLOAD_VERSION && manifest.value("payload-version", -1) != 4) {
-        problems.push_back(std::format("payload-version is {}, expected {}", manifest.value("payload-version", -1), PAYLOAD_VERSION));
+    const int payloadVersion { manifest.value("payload-version", -1) };
+    if (payloadVersion != PAYLOAD_VERSION && payloadVersion != IDENTIFIED_PAYLOAD_VERSION) {
+        problems.push_back(std::format("payload-version is {}, expected {} or {}", payloadVersion, PAYLOAD_VERSION, IDENTIFIED_PAYLOAD_VERSION));
     }
     const std::string platform { manifest.value("platform", std::string {}) };
     if (!known_platform(platform)) {
@@ -404,7 +405,7 @@ std::vector<std::string> verify(std::string_view payloadDirectory) {
         clangdEngine.value("version", std::string {}) != clangdPart.value("version", std::string {})) {
         problems.push_back(std::format("engines.clangd is {}, expected the clangd part's path and version", clangdEngine.dump()));
     }
-    if (manifest.value("payload-version", -1) == 4) {
+    if (payloadVersion == IDENTIFIED_PAYLOAD_VERSION) {
         auto identity = base::decode_engine_identity(clangdEngine.value("identity", nlohmann::json {}));
         auto digest = fetch::digest_of(base::join_path(dir, "clangd/bin/clangd" + exe));
         if (!identity || !digest) problems.emplace_back("payload version 4 lacks complete engine identity or readable bytes");
