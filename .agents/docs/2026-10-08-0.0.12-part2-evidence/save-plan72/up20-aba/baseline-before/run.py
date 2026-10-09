@@ -1,0 +1,75 @@
+from pathlib import Path
+import sys
+sys.path.insert(0,'/tmp/mcppls-part2-floor72/qualification')
+sys.path.insert(0,'/tmp/mcppls-part2-floor72/qualification/save-plan-up20-aba')
+from workload_observer import Workload
+import final72_identity
+from owned_process_cleanup import OwnedProcesses
+from pathlib import Path
+import shutil
+assert shutil.disk_usage(Path(__file__).parent).free >= 6*1024**3, 'insufficient staging space; no qualification process started'
+import subprocess,json,hashlib,os,signal,time
+root=Path(__file__).parent
+if (root/'identity.json').exists():raise SystemExit('refusing to overwrite prior product evidence')
+args=json.loads((root/'command.json').read_text())
+build_root=Path('/tmp/mcppls-part2-floor72')
+assert json.loads((build_root/'retry1-progress.json').read_text())['status']=='complete', 'final clean build/package must finish successfully'
+assert json.loads((build_root/'portability.json').read_text())['problems']==[], 'actual floor dependency check must pass'
+engine=Path(args[args.index('--clangd')+1])
+metadata=json.loads((engine.parent.parent/'engine.json').read_text())
+assert metadata['patch-series-sha256']=='b53e91d831b3b45944d7bc2904145221497333dca2e890e75e7c5cfc3ed3b7df', 'whole72 required'
+assert metadata['sha256']==hashlib.sha256(engine.read_bytes()).hexdigest(), 'final binary identity mismatch'
+kit_dir=Path(args[args.index('--kit')+1])
+kit_identity=json.loads((build_root/'same-source-kit/identity.json').read_text())
+assert kit_identity['status']=='complete' and kit_identity['exit_code']==0
+assert kit_identity['engine_metadata']==metadata
+assert all(hashlib.sha256((kit_dir/name).read_bytes()).hexdigest()==digest for name,digest in kit_identity['kit_files'].items())
+assert hashlib.sha256((kit_dir/'kit.json').read_bytes()).hexdigest()==kit_identity['kit_manifest_sha256']
+files={'server':Path(args[args.index('--server')+1]),'runner':Path(args[0]),'engine':Path(args[args.index('--clangd')+1]),'kit_manifest':Path(args[args.index('--kit')+1])/'kit.json'}
+identity={'scope':'Same-recipe product save replan ABA baseline-before; original UP20 one-save fan-out. Fixed baseline conformance runner, Clang22.1.8 product builds, final72 engine and kit, original URI/CDB/source, eight CPUs, fresh cache. Existing C-2 answers are not raw Sema executions. Not1000-save/resource/release qualification.','sha256':{k:hashlib.sha256(v.read_bytes()).hexdigest() for k,v in files.items()},'started_unix':time.time()}
+compilers=[]
+for p in Path('/proc').iterdir():
+ if not p.name.isdigit():continue
+ try:
+  name=(p/'comm').read_text().strip()
+  if name.startswith('clangd') or name in {'cc1','cc1plus','clang','clang++','g++','gcc','ninja'} or name.startswith(('clang-', 'clang++-', 'gcc-', 'g++-', 'cc1', 'mcxx-x-mcxx')):compilers.append({'pid':int(p.name),'name':name})
+ except (OSError,ProcessLookupError):pass
+identity['observed_compilers_at_start']=compilers
+if compilers:raise SystemExit('compiler activity blocks final product qualification')
+assert identity['sha256']['server']=='30878460e9423e956d8ce5d14a9ec323313e06841e57c3a1799fb47f9524267d'
+identity['engine_metadata']=metadata
+identity['kit_provenance_sha256']=hashlib.sha256((build_root/'same-source-kit/identity.json').read_bytes()).hexdigest()
+source_audit=json.loads((root/'source-audit.json').read_text())
+assert source_audit['source_head']=='d1f1c98fa26d953e084a183a9672fc1e0ce63558' and source_audit['differences']==[]
+workspace=Path(source_audit['workspace'])
+assert all(hashlib.sha256((workspace/name).read_bytes()).hexdigest()==digest for name,digest in source_audit['checked_files'].items())
+assert set(range(8))<=os.sched_getaffinity(0)
+identity['cpus']=list(range(8));identity['source_audit_sha256']=hashlib.sha256((root/'source-audit.json').read_bytes()).hexdigest()
+target=workspace/'modules/manifest/src/types.cppm'
+original_target=target.read_bytes();target_stat=target.stat()
+fixture=json.loads((root/'fixture/scenario.json').read_text())['checks'][0]
+expected_edited=original_target.replace(fixture['marker'].encode(),(fixture['marker']+fixture['insert']).encode(),1)
+(root/'identity.json').write_text(json.dumps(identity,indent=2)+'\n')
+workload=Workload(root)
+with (root/'run.log').open('w') as log:
+ p=subprocess.Popen(args,stdout=log,stderr=subprocess.STDOUT,start_new_session=True,preexec_fn=lambda:os.sched_setaffinity(0,set(range(8))))
+ owned=OwnedProcesses(p.pid)
+ try:code=p.wait(timeout=900)
+ except subprocess.TimeoutExpired:
+  code=124
+ finally:
+  cleanup=owned.cleanup()
+  p.wait(timeout=5)
+identity['owned_cleanup']=cleanup
+identity['workload_qualified']=workload.finish()
+if not identity['workload_qualified']:code=1
+if cleanup['errors'] or not cleanup['watcher_stopped'] or cleanup['remaining_observed_live'] or (code==0 and cleanup['term_groups']):code=1
+if target.read_bytes()==expected_edited:
+ target.write_bytes(original_target);os.utime(target,ns=(target_stat.st_atime_ns,target_stat.st_mtime_ns))
+ identity['known_interface_edit_restored_after_run']=True
+identity['tracked_source_restored']=all(hashlib.sha256((workspace/name).read_bytes()).hexdigest()==digest for name,digest in source_audit['checked_files'].items())
+if not identity['tracked_source_restored'] and code==0:code=1
+identity.update(exit_code=code,finished_unix=time.time())
+(root/'identity.json').write_text(json.dumps(identity,indent=2)+'\n')
+print('Final-byte original UP20 semantic fan-out:',code,flush=True)
+raise SystemExit(code)

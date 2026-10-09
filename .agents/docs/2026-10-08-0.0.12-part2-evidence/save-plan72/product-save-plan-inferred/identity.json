@@ -1,0 +1,65 @@
+{
+  "scope": "Final72 engine with save-replan candidate product binary and provenance-checked local full72-source kit; inferred semantic integration only. No product latency/cache-hit or immutable assembled payload claim.",
+  "sha256": {
+    "server": "227fda4f294faa048be41d357bac18adb95d094ba27a7fff56d46bb0dcd01516",
+    "runner": "c45bd02d4349b8a4c569d8e62825d845b1ccb3cd48ce6c3070c3e37e70cdde23",
+    "engine": "696e8caa5246525669583eb0f999f23cb21a87191f3b1be59a0c3952a5d1a0b1",
+    "kit_manifest": "74c2de97fd10e7927f81c0cc324751ce6b67e36938d72bfcb543b15ade2677b4"
+  },
+  "started_unix": 1791513817.3346486,
+  "observed_compilers_at_start": [],
+  "engine_metadata": {
+    "engine-version": "23.1.0-mcppls.0",
+    "llvm-base-version": "23.1.0",
+    "llvm-commit": "ea7d852a70e8bdfaf601d6626a760f9771b2c4b4",
+    "fork-commit": "c30429fbe876c10b7dbe372a42e2d4b867b5970c",
+    "patch-series-sha256": "b53e91d831b3b45944d7bc2904145221497333dca2e890e75e7c5cfc3ed3b7df",
+    "platform": "linux-x64",
+    "sha256": "696e8caa5246525669583eb0f999f23cb21a87191f3b1be59a0c3952a5d1a0b1",
+    "features": [
+      "semantic-tokens-range",
+      "format-style-mcpp",
+      "module-directive-diagnostic-ranges"
+    ],
+    "build-binary-sha256": "b3a011e1de4ce743bd95f906ade073b498df4a54754bc9bd6dccc139aeb64d2a",
+    "llvm-tree-commit": "82cdc7777e9dec4712b5913a8cfd31ea3634b99b",
+    "cmake-cache-sha256": "28612c4a828e86ee8c6e9556ca75afa989e3649d181784ac83dd38606de2f6d3"
+  },
+  "kit_provenance_sha256": "8e3e99cead3ff815a2ec0d89f39dad81503dd5d7d550fe13008e8d4543b7547c",
+  "owned_cleanup": {
+    "known": {
+      "2587698": {
+        "pgid": 2587698,
+        "start_ticks": 13386316
+      },
+      "2587700": {
+        "pgid": 2587698,
+        "start_ticks": 13386317
+      },
+      "2587718": {
+        "pgid": 2587718,
+        "start_ticks": 13386319
+      },
+      "2587755": {
+        "pgid": 2587755,
+        "start_ticks": 13386321
+      },
+      "2587739": {
+        "pgid": 2587698,
+        "start_ticks": 13386320
+      },
+      "2587779": {
+        "pgid": 2587718,
+        "start_ticks": 13386357
+      }
+    },
+    "term_groups": [],
+    "kill_groups": [],
+    "remaining_observed_live": [],
+    "errors": [],
+    "watcher_stopped": true,
+    "scope": "Observed identity/descendant cleanup only; periodic discovery does not prove all fast unobserved escapes."
+  },
+  "exit_code": 0,
+  "finished_unix": 1791513825.421047
+}

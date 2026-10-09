@@ -1,0 +1,22 @@
+[
+  "/tmp/mcppls-part2-floor72/qualification/product-save-plan/baseline-target/bin/mcppls-conformance",
+  "run",
+  "--server",
+  "/tmp/mcppls-part2-floor72/qualification/product-save-plan/baseline-target/bin/mcppls",
+  "--fixture",
+  "/tmp/mcppls-part2-floor72/qualification/save-plan-up20-aba/baseline-after/fixture",
+  "--clangd",
+  "/tmp/mcppls-part2-floor72/dist/clangd-23.1.0-mcppls.0-linux-x64/clangd/bin/clangd",
+  "--kit",
+  "/tmp/mcppls-part2-floor72/same-source-kit/kit",
+  "--workspace-dir",
+  "/tmp/mcppls-up20-conformance-work",
+  "--cache-dir",
+  "/tmp/mcppls-part2-floor72/qualification/save-plan-up20-aba/baseline-after/cache",
+  "--timeout",
+  "360",
+  "--measure",
+  "/tmp/mcppls-part2-floor72/qualification/save-plan-up20-aba/baseline-after/measure.json",
+  "--verbose",
+  "--keep"
+]

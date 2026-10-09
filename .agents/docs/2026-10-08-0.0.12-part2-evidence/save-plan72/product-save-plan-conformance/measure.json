@@ -1,0 +1,60 @@
+{
+  "checks": [
+    {
+      "detail": "{\"cache\":{\"bytes\":100000000,\"copies\":{\"bytes\":0,\"files\":0,\"oldestSeconds\":0},\"instances\":{\"bytes\":0,\"count\":0},\"limitBytes\":4294967296,\"state\":\"ok\"},\"engine\":{\"name\":\"clangd\",\"version\":\"23.1.0-mcppls.0\"},\"engines\":[{\"name\":\"mcppls\",\"role\":\"modules\",\"state\":\"ready\",\"version\":\"0.0.12\"},{\"name\":\"clangd\",\"role\":\"core\",\"state\":\"starting\",\"version\":\"23.1.0-mcppls.0\"}],\"issues\":[],\"notices\":[{\"code\":\"engine-version-untested\",\"message\":\"clangd 23.1.0-mcppls.0 has not been run through this server's conformance suite; every workaround for clangd 23.1 stays on\"}],\"profile\":{\"kind\":\"semantic-kit\",\"standard\":\"c++26\",\"stdlib\":\"libc++ 23.1.0\",\"target\":\"x86_64-unknown-linux-gnu\"},\"project\":{\"level\":2,\"root\":\"file:///tmp/mcppls-part2-floor72/qualification/product-save-plan-conformance/workspace/save-plan\",\"source\":\"inferred\",\"tier\":4},\"state\":\"ready\"}",
+      "id": "SAVE-ready",
+      "kind": "status",
+      "ok": true,
+      "seconds": 0.000298577,
+      "since-start": 0.02151697
+    },
+    {
+      "detail": "[]",
+      "id": "SAVE-initial",
+      "kind": "diagnostics-empty",
+      "ok": true,
+      "seconds": 2.060247253,
+      "since-start": 2.081843757
+    },
+    {
+      "detail": "1 steps, slowest answer 0.02 s",
+      "id": "SAVE-export",
+      "kind": "type-text",
+      "ok": true,
+      "seconds": 1.215426787,
+      "since-start": 3.297338295
+    },
+    {
+      "detail": "[\"added()\",\"original()\"]",
+      "id": "SAVE-export-visible",
+      "kind": "completion-contains",
+      "ok": true,
+      "seconds": 0.009987871,
+      "since-start": 3.307362443
+    },
+    {
+      "detail": "1 steps, slowest answer 0.02 s",
+      "id": "SAVE-import",
+      "kind": "type-text",
+      "ok": true,
+      "seconds": 2.061126302,
+      "since-start": 5.368603677
+    },
+    {
+      "detail": "[\"added()\",\"extra()\",\"original()\"]",
+      "id": "SAVE-import-visible",
+      "kind": "completion-contains",
+      "ok": true,
+      "seconds": 0.013088792,
+      "since-start": 5.381803664
+    }
+  ],
+  "failures": 0,
+  "first-diagnostics": 0.02192855,
+  "first-navigation": null,
+  "fixture": "save-plan",
+  "initialize": 0.020872513,
+  "ready": 0.021287493,
+  "reused-workspace": false,
+  "seconds": 5.44910707
+}

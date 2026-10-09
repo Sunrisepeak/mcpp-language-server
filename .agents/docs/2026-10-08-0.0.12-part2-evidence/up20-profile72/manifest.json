@@ -1,0 +1,17 @@
+{
+  "scope": "Diagnostic only; no latency/resource qualification",
+  "files": {
+    "README.md": "39e62b210e4e3aa9451fb61f718e0b1c3d7a3586219a5c08f2059f3866785d0f",
+    "command.json": "98d3e73834b69fcdf032e2577446cdeae5802a35f227a9a2d8af73a8210004c1",
+    "fixture/scenario.json": "c13d6dad0434eade4da19dfa59fe132cc1ab772a62df3aee300da2347c24b682",
+    "identity.json": "a3eac7c67c19725d3e26beccbe429970bd24ba536aca4601d95d3de7cea81d62",
+    "main-thread-syscalls-2573644.log.gz": "278c013cf622a498f5185f41c273929bdc04b04ccf573f71330a8b6423cb11d7",
+    "measure.json": "dddd912a6d47bd0558ed82cea0440620007eb67e79ddff4d21e3af47c2de7012",
+    "profiling-boundary.json": "fb7385188d5821f215b685750df2b791f873c4f4446673848e15356c20676a14",
+    "run.log.gz": "e29a11498a0488b7e89ed1d78eea7a255032fad089532d530c84bd9e671c63ae",
+    "run.py": "e575cf6ae1df5a43fb5f73824d6b5bfbbe196d4dbb514d1bf24e8331ae420a16",
+    "server-strace.py": "cd3281582cdb8bbba459d4b12d8c00d80a20c4b6b2e4c24a5dca0f6dd5e1eb4d",
+    "source-audit.json": "3c48d0743ed0a9ab9aacd84a0dbba5483e217f0fcae9993c012dad511ffc34a6",
+    "timer-window-triage.json": "c9f4902abb533dbfe6491c5fa7d3f154bcfa3ad01975026cc91e39ae71726b29"
+  }
+}

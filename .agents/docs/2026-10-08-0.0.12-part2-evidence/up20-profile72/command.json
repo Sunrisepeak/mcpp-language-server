@@ -1,0 +1,22 @@
+[
+  "/home/speak/workspace/github/mcpp-language-server/target/x86_64-linux-gnu/c6a96775022a4395/bin/mcppls-conformance",
+  "run",
+  "--server",
+  "/tmp/mcppls-part2-floor72/qualification/up20-main-thread-profile/server-strace.py",
+  "--fixture",
+  "/tmp/mcppls-part2-floor72/qualification/up20-main-thread-profile/fixture",
+  "--clangd",
+  "/tmp/mcppls-part2-floor72/dist/clangd-23.1.0-mcppls.0-linux-x64/clangd/bin/clangd",
+  "--kit",
+  "/tmp/mcppls-part2-floor72/same-source-kit/kit",
+  "--workspace-dir",
+  "/tmp/mcppls-up20-conformance-work",
+  "--cache-dir",
+  "/tmp/mcppls-part2-floor72/qualification/up20-main-thread-profile/cache",
+  "--timeout",
+  "360",
+  "--measure",
+  "/tmp/mcppls-part2-floor72/qualification/up20-main-thread-profile/measure.json",
+  "--verbose",
+  "--keep"
+]

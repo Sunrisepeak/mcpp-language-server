@@ -1,0 +1,38 @@
+{
+  "checks": [
+    {
+      "detail": "8 importers republished after 11.7s, probe cleared after 3.1s, interactive p95 1.18s max 1.18s, jump after 11.9s, states []",
+      "id": "U7b-fanout-crash",
+      "kind": "edit-save",
+      "measure": {
+        "completion": {
+          "max": 1.178419326,
+          "n": 12,
+          "p50": 0.007995143,
+          "p95": 1.178419326
+        },
+        "completionsUnanswered": 0,
+        "engineShare": 0.8461538461538461,
+        "errorSamples": 0,
+        "importers": 8,
+        "load": 2.63,
+        "probeSeconds": 3.107828505,
+        "recoverSeconds": 11.859067091,
+        "republishSeconds": 11.735643561,
+        "restarts": 0,
+        "statesSeen": []
+      },
+      "ok": true,
+      "seconds": 109.554586933,
+      "since-start": 109.588395045
+    }
+  ],
+  "failures": 0,
+  "first-diagnostics": 83.661890771,
+  "first-navigation": null,
+  "fixture": "ux-mcpp",
+  "initialize": 0.033332414,
+  "ready": 1.281291231,
+  "reused-workspace": true,
+  "seconds": 113.859604757
+}

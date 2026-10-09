@@ -1,0 +1,55 @@
+{
+  "name": "ux-mcpp",
+  "description": "Recovered original fixed-source U7b save-fanout scenario; actual crash outcome required before corpus qualification.",
+  "prepare": [],
+  "server-arguments": [
+    "--log-level",
+    "debug"
+  ],
+  "checks": [
+    {
+      "id": "U7b-fanout-crash",
+      "kind": "edit-save",
+      "file": "modules/manifest/src/types.cppm",
+      "marker": "export namespace mcpp::manifest {\n",
+      "insert": "inline int ux_probe_fn() { return 42; }\n",
+      "importers": [
+        "src/pack/route.cppm",
+        "src/pack/host_requirements.cppm",
+        "src/pack/prebuilt.cppm",
+        "src/xlings/address_set.cppm",
+        "src/publish/pipeline.cppm",
+        "src/cli/cmd_sbom.cppm",
+        "src/modgraph/validate.cppm",
+        "src/pm/index_route.cppm"
+      ],
+      "probe": {
+        "append": "\nstatic const int ux_use = mcpp::manifest::ux_probe_fn();\n",
+        "expect": "ux_probe_fn"
+      },
+      "interactive": {
+        "file": "src/pack/route.cppm",
+        "at": [
+          40,
+          0
+        ],
+        "every-ms": 1000
+      },
+      "wait-seconds": 240,
+      "recover-probe": {
+        "kind": "completion",
+        "file": "src/pack/binfmt.cppm",
+        "at": [
+          45,
+          12
+        ],
+        "expect": "string"
+      },
+      "budget": {
+        "errorStates": 0,
+        "recoverSeconds": 60,
+        "restarts": 0
+      }
+    }
+  ]
+}

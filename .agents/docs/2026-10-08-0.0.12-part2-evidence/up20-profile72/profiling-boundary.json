@@ -1,0 +1,18 @@
+{
+  "scope": "Actual main-thread syscall trace only; no fork/thread following; all elapsed times unqualified. Original final72 clean/raw/resource/product passes unchanged.",
+  "perf_negative": {
+    "command": [
+      "perf",
+      "stat",
+      "-e",
+      "task-clock",
+      "--",
+      "true"
+    ],
+    "observed_exit_code": 255,
+    "perf_event_paranoid": 4,
+    "reason": "kernel denied performance observability events; global permissions unchanged"
+  },
+  "strace_parent_control_exit_code": 0,
+  "original_fixture_unchanged": true
+}

@@ -1,0 +1,39 @@
+   Workspace building member 'mcppls-devtools'
+    Resolved openkal-llvm-runtime =0.15.1 → v0.15.1
+    Resolved openkal-llvm-runtime =0.15.1 → v0.15.1
+    Resolved openkal-llvm-runtime =0.15.1 → v0.15.1
+    Resolved openkal-llvm-runtime =0.15.1 → v0.15.1
+warning: 'mcpplibs.openkal-linux' is declared as a path dep (by 'mcpplibs.mcppls-devtools@path', /home/speak/workspace/github/mcpp-language-server/vendor/openkal-linux) and as a version dep (by 'mcpplibs.openkal-musl@0.19.1', 0.15.0); the root's declaration wins.
+  hint: declare 'mcpplibs.openkal-linux' in the root to choose the other.
+   Resolving toolchain
+    Resolved llvm@22.1.8 → @mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++
+      Target x86_64-unknown-linux-gnu
+             compiler-runtime  compiler-rt    (openkal-llvm-runtime@0.15.1, graph)
+             kernel-abi        openkal        (openkal-linux@0.15.1, graph)
+             c-abi             musl           (openkal-musl@0.19.1, graph)
+             c++-abi           libc++         (openkal-llvm-runtime@0.15.1, graph)
+    Inferred sources [src/**/*.{cppm,cpp,cc,c,S,s,asm}]
+      Cached compat.mbedtls v3.6.1 (108 units)
+      Cached compat.zstd v1.5.7 (26 units)
+      Cached compat.zlib v1.3.2 (15 units)
+      Cached compat.xz v5.8.3 (74 units)
+      Cached compat.lz4 v1.10.0 (5 units)
+      Cached compat.bzip2 v1.0.8 (7 units)
+   Compiling mcpplibs.tinyhttps v0.3.1
+      Cached compat.libarchive v3.8.7 (127 units)
+
+    Finished dev [unoptimized + debuginfo] in 2.38s
+     Running `~/workspace/github/mcpp-language-server/target/x86_64-linux-gnu/27d66c923d5b4fe8/bin/mcppls-devtools/mcppls-devtools`
+
+-- os-surface --
+OK: 3 os modules, 6 platform constants, no other difference
+-- layers --
+layers: every member depends only on strictly lower layers; mcppls-pack is reachable from no product; openkal.* is imported from nowhere else but modules/platform and modules/base's one exception
+-- versions --
+versions: every derived site agrees with mcpp.toml, and every third-party dependency uses `.workspace = true`
+-- scripts --
+scripts: every tracked *.py/*.sh (51 of them) is in tools/devtools/scripts.allow
+-- platforms --
+platforms: darwin-arm64, linux-x64, win32-x64 in the lock, and the extension, the release manifest and CI's per-platform jobs list exactly those
+-- docs --
+docs: docs/93-devtools.md names all 10 commands and no other

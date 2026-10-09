@@ -1,0 +1,13 @@
+{
+  "scope": "same-recipe Clang22.1.8 product save-replan candidate, not a release payload",
+  "source_head": "200616ae08b4409312d0818b32e929ca59a3e844",
+  "build_fingerprint": "27d66c923d5b4fe8",
+  "binary_hashes": {
+    "mcppls": "227fda4f294faa048be41d357bac18adb95d094ba27a7fff56d46bb0dcd01516",
+    "mcppls-conformance": "2adc0ec74c856bf801a95744adcc5a3325ea78f7c835acb2497fe9e35a94f8f6"
+  },
+  "source_hashes": {
+    "src/orchestrator/workspace.cpp": "246ca0a177062937369315367c6cc8d102983225972c0c4fc7069b5c0068dceb",
+    "tests/test_save_plan.cpp": "4539578706cf8923ca4360a5465573fa7f5b786df269a4f0dbceca2b8469fc54"
+  }
+}

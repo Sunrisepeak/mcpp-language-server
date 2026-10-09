@@ -1,0 +1,33 @@
+{
+  "scope": "Diagnostic-only timestamps around main-thread timer warnings; no latency qualification or exclusive CPU attribution. Trace omits reads/close/other threads; traced syscall time is not total kernel or I/O time.",
+  "timer_windows": [
+    {
+      "warning_line": 22839,
+      "warning": "  server: mcppls 2026-10-09T02:24:03.627Z [warning] the event loop took 0 ms for nothing and 360 ms for its timers; requests and watchdogs waited meanwhile (2 such turns so far)",
+      "approx_window_padding_ms": 5,
+      "syscalls": {
+        "openat": 177,
+        "write": 5,
+        "newfstatat": 8
+      },
+      "traced_syscall_seconds": 0.0009249999999999965,
+      "prime_file_opens": 176,
+      "prime_write_opens": 0
+    },
+    {
+      "warning_line": 26031,
+      "warning": "  server: mcppls 2026-10-09T02:24:17.085Z [warning] the event loop took 0 ms for nothing and 353 ms for its timers; requests and watchdogs waited meanwhile (3 such turns so far)",
+      "approx_window_padding_ms": 5,
+      "syscalls": {
+        "openat": 177,
+        "write": 4,
+        "newfstatat": 1
+      },
+      "traced_syscall_seconds": 0.0006959999999999987,
+      "prime_file_opens": 176,
+      "prime_write_opens": 0
+    }
+  ],
+  "source_path": "Workspace::did_save -> schedule_replan -> handle_timers/replan -> core apply/write_prime_sources",
+  "all_elapsed_times_excluded": true
+}

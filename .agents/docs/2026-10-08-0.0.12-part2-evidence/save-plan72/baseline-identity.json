@@ -1,0 +1,14 @@
+{
+  "scope": "Unmodified current product source/toolchain baseline before save replan candidate; original c6 final72 product evidence retained.",
+  "source_head": "200616a",
+  "build_fingerprint": "27d66c923d5b4fe8",
+  "mcpp_version": "2026.10.8.1",
+  "copied_target": "/tmp/mcppls-part2-floor72/qualification/product-save-plan/baseline-target",
+  "binary_hashes": {
+    "mcppls-mock-model": "a974cfb000bdcd3e72fa3b21cd40b7d98c7cd603704e4dd48b7a0a977ef3d16e",
+    "mcppls-mock-mcpp": "b1b8c1a424d55c81397c3d24ba2dd995a753a15363cf730a97b0cba29d43b1e9",
+    "mcppls-lspgen": "6025755dd0b9ccf3c68eb40ba762d0069f72b033a454161b8696ef5c864b9b08",
+    "mcppls": "30878460e9423e956d8ce5d14a9ec323313e06841e57c3a1799fb47f9524267d",
+    "mcppls-conformance": "c45bd02d4349b8a4c569d8e62825d845b1ccb3cd48ce6c3070c3e37e70cdde23"
+  }
+}

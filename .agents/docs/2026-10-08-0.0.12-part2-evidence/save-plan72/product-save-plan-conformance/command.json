@@ -1,0 +1,21 @@
+[
+  "/tmp/mcppls-part2-floor72/qualification/product-save-plan/baseline-target/bin/mcppls-conformance",
+  "run",
+  "--server",
+  "/tmp/mcppls-part2-floor72/qualification/product-save-plan/candidate-bin/mcppls",
+  "--fixture",
+  "/home/speak/workspace/github/mcpp-language-server/conformance/fixtures/save-plan",
+  "--clangd",
+  "/tmp/mcppls-part2-floor72/dist/clangd-23.1.0-mcppls.0-linux-x64/clangd/bin/clangd",
+  "--kit",
+  "/tmp/mcppls-part2-floor72/same-source-kit/kit",
+  "--workspace-dir",
+  "/tmp/mcppls-part2-floor72/qualification/product-save-plan-conformance/workspace",
+  "--cache-dir",
+  "/tmp/mcppls-part2-floor72/qualification/product-save-plan-conformance/cache",
+  "--timeout",
+  "30",
+  "--measure",
+  "/tmp/mcppls-part2-floor72/qualification/product-save-plan-conformance/measure.json",
+  "--verbose"
+]

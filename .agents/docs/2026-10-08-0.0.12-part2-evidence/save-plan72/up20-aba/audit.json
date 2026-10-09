@@ -1,0 +1,152 @@
+{
+  "scope": "Same-recipe product UP20 actual one-save ABA. Existing C-2 answers included; engineShare is not new Sema execution. Three arms are not a multi-start distribution or release qualification.",
+  "arms": {
+    "baseline-before": {
+      "server_sha256": "30878460e9423e956d8ce5d14a9ec323313e06841e57c3a1799fb47f9524267d",
+      "measure": {
+        "completion": {
+          "max": 1.178419326,
+          "n": 12,
+          "p50": 0.007995143,
+          "p95": 1.178419326
+        },
+        "completionsUnanswered": 0,
+        "engineShare": 0.8461538461538461,
+        "errorSamples": 0,
+        "importers": 8,
+        "load": 2.63,
+        "probeSeconds": 3.107828505,
+        "recoverSeconds": 11.859067091,
+        "republishSeconds": 11.735643561,
+        "restarts": 0,
+        "statesSeen": []
+      },
+      "event_loop_warnings": [
+        {
+          "line": 125,
+          "event_ms": 971,
+          "timers_ms": 0,
+          "text": "server: mcppls 2026-10-09T02:44:32.810Z [warning] the event loop took 971 ms for a loaded model and 0 ms for its timers; requests and watchdogs waited meanwhile (1 such turns so far)"
+        },
+        {
+          "line": 22910,
+          "event_ms": 0,
+          "timers_ms": 352,
+          "text": "server: mcppls 2026-10-09T02:45:55.837Z [warning] the event loop took 0 ms for nothing and 352 ms for its timers; requests and watchdogs waited meanwhile (2 such turns so far)"
+        },
+        {
+          "line": 26074,
+          "event_ms": 0,
+          "timers_ms": 368,
+          "text": "server: mcppls 2026-10-09T02:46:07.790Z [warning] the event loop took 0 ms for nothing and 368 ms for its timers; requests and watchdogs waited meanwhile (3 such turns so far)"
+        }
+      ],
+      "observed_workload_samples": 535,
+      "run_log_sha256": "cefc3484712962b32b170e968fed09c2735bece3e514f046276b1d7713cfb57c"
+    },
+    "candidate": {
+      "server_sha256": "227fda4f294faa048be41d357bac18adb95d094ba27a7fff56d46bb0dcd01516",
+      "measure": {
+        "completion": {
+          "max": 1.053521949,
+          "n": 13,
+          "p50": 0.016756353,
+          "p95": 1.053521949
+        },
+        "completionsUnanswered": 0,
+        "engineShare": 0.8571428571428571,
+        "errorSamples": 0,
+        "importers": 8,
+        "load": 2.89,
+        "probeSeconds": 3.207376933,
+        "recoverSeconds": 12.778803132,
+        "republishSeconds": 12.63757595,
+        "restarts": 0,
+        "statesSeen": []
+      },
+      "event_loop_warnings": [
+        {
+          "line": 125,
+          "event_ms": 1000,
+          "timers_ms": 0,
+          "text": "server: mcppls 2026-10-09T02:46:28.428Z [warning] the event loop took 1000 ms for a loaded model and 0 ms for its timers; requests and watchdogs waited meanwhile (1 such turns so far)"
+        }
+      ],
+      "observed_workload_samples": 550,
+      "run_log_sha256": "938942e8300e213e68d74025d3b09dc7fb369cdb14000a2845deb9c9cbed1c2f"
+    },
+    "baseline-after": {
+      "server_sha256": "30878460e9423e956d8ce5d14a9ec323313e06841e57c3a1799fb47f9524267d",
+      "measure": {
+        "completion": {
+          "max": 1.168414754,
+          "n": 13,
+          "p50": 0.016873815,
+          "p95": 1.168414754
+        },
+        "completionsUnanswered": 0,
+        "engineShare": 0.8571428571428571,
+        "errorSamples": 0,
+        "importers": 8,
+        "load": 2.89,
+        "probeSeconds": 3.607116541,
+        "recoverSeconds": 12.570815824,
+        "republishSeconds": 12.434433415,
+        "restarts": 0,
+        "statesSeen": []
+      },
+      "event_loop_warnings": [
+        {
+          "line": 125,
+          "event_ms": 978,
+          "timers_ms": 0,
+          "text": "server: mcppls 2026-10-09T02:48:26.917Z [warning] the event loop took 978 ms for a loaded model and 0 ms for its timers; requests and watchdogs waited meanwhile (1 such turns so far)"
+        },
+        {
+          "line": 22852,
+          "event_ms": 0,
+          "timers_ms": 344,
+          "text": "server: mcppls 2026-10-09T02:49:53.424Z [warning] the event loop took 0 ms for nothing and 344 ms for its timers; requests and watchdogs waited meanwhile (2 such turns so far)"
+        },
+        {
+          "line": 26108,
+          "event_ms": 0,
+          "timers_ms": 362,
+          "text": "server: mcppls 2026-10-09T02:50:06.095Z [warning] the event loop took 0 ms for nothing and 362 ms for its timers; requests and watchdogs waited meanwhile (3 such turns so far)"
+        }
+      ],
+      "observed_workload_samples": 550,
+      "run_log_sha256": "2ada260e717764cc250f26be5d96d6686c655c8f9e5d413bc3ba0d6dfe03209e"
+    }
+  },
+  "same_inputs_except_server": {
+    "runner": "c45bd02d4349b8a4c569d8e62825d845b1ccb3cd48ce6c3070c3e37e70cdde23",
+    "engine": "696e8caa5246525669583eb0f999f23cb21a87191f3b1be59a0c3952a5d1a0b1",
+    "kit_manifest": "74c2de97fd10e7927f81c0cc324751ce6b67e36938d72bfcb543b15ade2677b4",
+    "source_audit_sha256": "3c48d0743ed0a9ab9aacd84a0dbba5483e217f0fcae9993c012dad511ffc34a6",
+    "kit_provenance_sha256": "8e3e99cead3ff815a2ec0d89f39dad81503dd5d7d550fe13008e8d4543b7547c",
+    "cpus": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "fixture_sha256": "c13d6dad0434eade4da19dfa59fe132cc1ab772a62df3aee300da2347c24b682",
+    "workspace": "/tmp/mcppls-up20-conformance-work"
+  },
+  "completion_p95_ms": {
+    "baseline-before": 1178.419326,
+    "candidate": 1053.5219490000002,
+    "baseline-after": 1168.4147540000001
+  },
+  "candidate_p95_improvement_percent_vs_each_baseline": {
+    "baseline-before": 10.598721036250192,
+    "baseline-after": 9.833221003643711
+  },
+  "timer_warning_limit": "Absence means no slow timer warning in this log, not zero timer cost or exclusive CPU attribution.",
+  "status": "passed"
+}

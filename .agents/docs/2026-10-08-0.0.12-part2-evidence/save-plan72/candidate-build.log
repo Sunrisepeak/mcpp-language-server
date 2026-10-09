@@ -1,0 +1,17 @@
+   Workspace building member 'mcpp-language-server'
+    Resolved openkal-llvm-runtime =0.15.1 → v0.15.1
+    Resolved openkal-musl =0.19.1 → v0.19.1
+    Resolved openkal-llvm-runtime =0.15.1 → v0.15.1
+    Resolved openkal-llvm-runtime =0.15.1 → v0.15.1
+warning: 'mcpplibs.openkal-linux' is declared as a path dep (by 'mcpplibs.mcpp-language-server@path', /home/speak/workspace/github/mcpp-language-server/vendor/openkal-linux) and as a version dep (by 'mcpplibs.openkal-musl@0.19.1', 0.15.0); the root's declaration wins.
+  hint: declare 'mcpplibs.openkal-linux' in the root to choose the other.
+   Resolving toolchain
+    Resolved llvm@22.1.8 → @mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++
+      Target x86_64-unknown-linux-gnu
+             compiler-runtime  compiler-rt    (openkal-llvm-runtime@0.15.1, graph)
+             kernel-abi        openkal        (openkal-linux@0.15.1, graph)
+             c-abi             musl           (openkal-musl@0.19.1, graph)
+             c++-abi           libc++         (openkal-llvm-runtime@0.15.1, graph)
+   Compiling mcpp-language-server v0.0.12 (.)
+
+    Finished dev [unoptimized + debuginfo] in 2.44s
