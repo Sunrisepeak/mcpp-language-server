@@ -1,0 +1,67 @@
+{
+  "scope": "Private incremental admission candidate correctness investigation. Original fixture passes; strict all-prerequisite-failures wrapper exits1 and remains a negative. No latency qualification. An explicit engine cancelRequest3 precedes the sole Task-was-cancelled prerequisite failure; that is observed correlation, not a blanket exemption or proof of fully correct cancellation. Engine replied with a normal partial result, not -32800. Product had already answered/expired that request; no automatic semantic-health PASS is inferred.",
+  "engine_sha256": "3dccd2cef598d3706e2fba0a742c62f5f6078dde7f2377fe299391c842bc824f",
+  "log_sha256": "0212ef0c85f8cbea67f6524448933f15d193a725a4d49704231bf415845fa227",
+  "strict_exit_code": 1,
+  "capacity_admission_failures": 0,
+  "worker_deadline_failures": 0,
+  "prerequisite_failures": [
+    {
+      "line": 24866,
+      "text": "server: mcppls 2026-10-09T03:13:57.428Z [warning] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): E[12:13:57.428] Failed to build module prerequisites for /tmp/mcppls-up20-conformance-work/ux-mcpp/src/pack/route.cppm; due to Task was cancelled."
+    }
+  ],
+  "cancel_notifications": [
+    {
+      "line": 24818,
+      "text": "server: mcppls 2026-10-09T03:13:56.876Z [debug] clangd (/tmp/mcppls-up20-conformance-work/ux-mcpp): V[12:13:56.876] <<< {\"jsonrpc\":\"2.0\",\"method\":\"$/cancelRequest\",\"params\":{\"id\":3}}"
+    }
+  ],
+  "request3_responses": [
+    {
+      "line": 24890,
+      "id": 3,
+      "is_error": false,
+      "item_count": 100
+    }
+  ],
+  "original_fixture_measure": {
+    "checks": [
+      {
+        "detail": "8 importers republished after 34.8s, probe cleared after 3.6s, interactive p95 1.00s max 1.05s, jump after 34.9s, states []",
+        "id": "U7b-fanout-crash",
+        "kind": "edit-save",
+        "measure": {
+          "completion": {
+            "max": 1.053240474,
+            "n": 35,
+            "p50": 0.060062623,
+            "p95": 1.001364795
+          },
+          "completionsUnanswered": 0,
+          "engineShare": 0.8611111111111112,
+          "errorSamples": 0,
+          "importers": 8,
+          "load": 2.58,
+          "probeSeconds": 3.605301796,
+          "recoverSeconds": 34.904969182,
+          "republishSeconds": 34.776417032,
+          "restarts": 0,
+          "statesSeen": []
+        },
+        "ok": true,
+        "seconds": 187.135051388,
+        "since-start": 187.171047547
+      }
+    ],
+    "failures": 0,
+    "first-diagnostics": 141.645776998,
+    "first-navigation": null,
+    "fixture": "ux-mcpp",
+    "initialize": 0.03552456,
+    "ready": 1.234473339,
+    "reused-workspace": true,
+    "seconds": 191.437472653
+  },
+  "next_action": "Keep private candidate unqualified. Distinguish cancellation accounting without rewriting the failed run, characterize increased actual build/recovery work on a correct semantic baseline, then improve admission/maintenance and qualify matched raw performance."
+}

@@ -1,0 +1,65 @@
+Ubuntu clang version 12.0.0-3ubuntu1~20.04.5
+Target: x86_64-pc-linux-gnu
+Thread model: posix
+InstalledDir: /usr/bin
+
+Compiling /source/clang-tools-extra/clangd/unittests/PrerequisiteModulesTest.cpp
+In file included from /source/clang-tools-extra/clangd/unittests/PrerequisiteModulesTest.cpp:32:
+[1m/source/clang-tools-extra/clangd/ModuleDependencyScanCache.h:474:75: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+    ModuleScanManifest::Observation O{ModuleScanManifest::Stat, Path.str()};
+[0;1;32m                                                                          ^
+[0m[1m/source/clang-tools-extra/clangd/ModuleDependencyScanCache.h:485:49: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+                                      Path.str()};
+[0;1;32m                                                ^
+[0m[1m/source/clang-tools-extra/clangd/ModuleDependencyScanCache.h:520:79: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+    ModuleScanManifest::Observation O{ModuleScanManifest::RealPath, Path.str()};
+[0;1;32m                                                                              ^
+[0m[1m/source/clang-tools-extra/clangd/ModuleDependencyScanCache.h:557:56: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+        llvm::StringRef(Path.data(), Path.size()).str()};
+[0;1;32m                                                       ^
+[0m[1m/source/clang-tools-extra/clangd/ModuleDependencyScanCache.h:571:60: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+    ModuleScanManifest::Observation O{Kind, std::move(Path)};
+[0;1;32m                                                           ^
+[0m[1m/source/clang-tools-extra/clangd/ModuleDependencyScanCache.h:618:69: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+    ModuleScanManifest::Observation O{ModuleScanManifest::Open, Name};
+[0;1;32m                                                                    ^
+[0m[1m/source/clang-tools-extra/clangd/ModuleDependencyScanCache.h:672:75: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+      ModuleScanManifest::Observation O{ModuleScanManifest::FileStat, Path};
+[0;1;32m                                                                          ^
+[0m[1m/source/clang-tools-extra/clangd/ModuleDependencyScanCache.h:683:75: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+      ModuleScanManifest::Observation O{ModuleScanManifest::FileName, Path};
+[0;1;32m                                                                          ^
+[0m[1m/source/clang-tools-extra/clangd/ModuleDependencyScanCache.h:696:71: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+      ModuleScanManifest::Observation O{ModuleScanManifest::Read, Path};
+[0;1;32m                                                                      ^
+[0m[1m/source/clang-tools-extra/clangd/unittests/PrerequisiteModulesTest.cpp:1767:59: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+                                       TestDir.str().str()};
+[0;1;32m                                                          ^
+[0m[1m/source/clang-tools-extra/clangd/unittests/PrerequisiteModulesTest.cpp:1791:78: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+  ModuleScanManifest::Observation Original{ModuleScanManifest::Read, "same.h"};
+[0;1;32m                                                                             ^
+[0m11 warnings generated.
+Linking tests
+Note: Google Test filter = PrerequisiteModulesTests.OwnedAdmission*:PrerequisiteModulesTests.OwnedPayload*
+[==========] Running 7 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 7 tests from PrerequisiteModulesTests
+[ RUN      ] PrerequisiteModulesTests.OwnedPayloadAdmissionAndImmutableCopyLeases
+[       OK ] PrerequisiteModulesTests.OwnedPayloadAdmissionAndImmutableCopyLeases (2 ms)
+[ RUN      ] PrerequisiteModulesTests.OwnedAdmissionWaitsForConcurrentPublication
+[       OK ] PrerequisiteModulesTests.OwnedAdmissionWaitsForConcurrentPublication (52 ms)
+[ RUN      ] PrerequisiteModulesTests.OwnedAdmissionCancellationPreservesLiveReservation
+[       OK ] PrerequisiteModulesTests.OwnedAdmissionCancellationPreservesLiveReservation (52 ms)
+[ RUN      ] PrerequisiteModulesTests.OwnedAdmissionDeadlineAndInvalidEnvelopeKeepBounds
+[       OK ] PrerequisiteModulesTests.OwnedAdmissionDeadlineAndInvalidEnvelopeKeepBounds (51 ms)
+[ RUN      ] PrerequisiteModulesTests.OwnedPayloadCrashChargesAndChangedIdentityRetain
+[       OK ] PrerequisiteModulesTests.OwnedPayloadCrashChargesAndChangedIdentityRetain (5 ms)
+[ RUN      ] PrerequisiteModulesTests.OwnedPayloadUnknownAndSymlinkUnitsKeepCharges
+[       OK ] PrerequisiteModulesTests.OwnedPayloadUnknownAndSymlinkUnitsKeepCharges (3 ms)
+[ RUN      ] PrerequisiteModulesTests.OwnedPayloadReplacedLeaseCannotCollectLiveGeneration
+[       OK ] PrerequisiteModulesTests.OwnedPayloadReplacedLeaseCannotCollectLiveGeneration (0 ms)
+[----------] 7 tests from PrerequisiteModulesTests (169 ms total)
+
+[----------] Global test environment tear-down
+[==========] 7 tests from 1 test suite ran. (169 ms total)
+[  PASSED  ] 7 tests.

@@ -1,0 +1,14 @@
+{
+  "scope": "PRIVATE incremental cache admission candidate; not final73 package or clean release build. Same actual final72 frontend/resource headers/kit, core server227f..., fixed runnerc45..., original eight-CPU UP20 workspace/CDB/source. Strict full-log health gate supplements original fixture.",
+  "engine_sha256": "3dccd2cef598d3706e2fba0a742c62f5f6078dde7f2377fe299391c842bc824f",
+  "source_patch_sha256": "99225c8482f919c5941f62aa8bea77e2a98b3cddd67e0f92215b9cf3f5e4144e",
+  "build_identity": {
+    "scope": "Private same-Clang12 admission candidate, corrected test error consumption; production objects/archive/engine reused unchanged from first build, original final72 read-only",
+    "exit_code": 0,
+    "seconds": 13.441611051559448,
+    "sha256": {
+      "ClangdTests": "d9b23a5e03109e6fbc7a2c7bf3e854796ec2b0f42001c6a58450ffdf46d40e0a",
+      "clangd": "3dccd2cef598d3706e2fba0a742c62f5f6078dde7f2377fe299391c842bc824f"
+    }
+  }
+}

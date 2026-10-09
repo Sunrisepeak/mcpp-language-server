@@ -1,0 +1,94 @@
+Ubuntu clang version 12.0.0-3ubuntu1~20.04.5
+Target: x86_64-pc-linux-gnu
+Thread model: posix
+InstalledDir: /usr/bin
+
+Compiling /source/clang-tools-extra/clangd/ModuleBuildCache.cpp
+Compiling /source/clang-tools-extra/clangd/ModulesBuilder.cpp
+Compiling /source/clang-tools-extra/clangd/unittests/PrerequisiteModulesTest.cpp
+In file included from /source/clang-tools-extra/clangd/unittests/PrerequisiteModulesTest.cpp:32:
+[1m/source/clang-tools-extra/clangd/ModuleDependencyScanCache.h:474:75: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+    ModuleScanManifest::Observation O{ModuleScanManifest::Stat, Path.str()};
+[0;1;32m                                                                          ^
+[0m[1m/source/clang-tools-extra/clangd/ModuleDependencyScanCache.h:485:49: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+                                      Path.str()};
+[0;1;32m                                                ^
+[0m[1m/source/clang-tools-extra/clangd/ModuleDependencyScanCache.h:520:79: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+    ModuleScanManifest::Observation O{ModuleScanManifest::RealPath, Path.str()};
+[0;1;32m                                                                              ^
+[0m[1m/source/clang-tools-extra/clangd/ModuleDependencyScanCache.h:557:56: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+        llvm::StringRef(Path.data(), Path.size()).str()};
+[0;1;32m                                                       ^
+[0m[1m/source/clang-tools-extra/clangd/ModuleDependencyScanCache.h:571:60: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+    ModuleScanManifest::Observation O{Kind, std::move(Path)};
+[0;1;32m                                                           ^
+[0m[1m/source/clang-tools-extra/clangd/ModuleDependencyScanCache.h:618:69: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+    ModuleScanManifest::Observation O{ModuleScanManifest::Open, Name};
+[0;1;32m                                                                    ^
+[0m[1m/source/clang-tools-extra/clangd/ModuleDependencyScanCache.h:672:75: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+      ModuleScanManifest::Observation O{ModuleScanManifest::FileStat, Path};
+[0;1;32m                                                                          ^
+[0m[1m/source/clang-tools-extra/clangd/ModuleDependencyScanCache.h:683:75: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+      ModuleScanManifest::Observation O{ModuleScanManifest::FileName, Path};
+[0;1;32m                                                                          ^
+[0m[1m/source/clang-tools-extra/clangd/ModuleDependencyScanCache.h:696:71: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+      ModuleScanManifest::Observation O{ModuleScanManifest::Read, Path};
+[0;1;32m                                                                      ^
+[0m[1m/source/clang-tools-extra/clangd/unittests/PrerequisiteModulesTest.cpp:1767:59: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+                                       TestDir.str().str()};
+[0;1;32m                                                          ^
+[0m[1m/source/clang-tools-extra/clangd/unittests/PrerequisiteModulesTest.cpp:1791:78: [0m[0;1;35mwarning: [0m[1mmissing field 'Error' initializer [-Wmissing-field-initializers][0m
+  ModuleScanManifest::Observation Original{ModuleScanManifest::Read, "same.h"};
+[0;1;32m                                                                             ^
+[0m11 warnings generated.
+Linking clangd
+Linking tests
+Note: Google Test filter = PrerequisiteModulesTests.OwnedAdmission*:PrerequisiteModulesTests.OwnedPayload*
+[==========] Running 7 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 7 tests from PrerequisiteModulesTests
+[ RUN      ] PrerequisiteModulesTests.OwnedPayloadAdmissionAndImmutableCopyLeases
+[       OK ] PrerequisiteModulesTests.OwnedPayloadAdmissionAndImmutableCopyLeases (2 ms)
+[ RUN      ] PrerequisiteModulesTests.OwnedAdmissionWaitsForConcurrentPublication
+[       OK ] PrerequisiteModulesTests.OwnedAdmissionWaitsForConcurrentPublication (52 ms)
+[ RUN      ] PrerequisiteModulesTests.OwnedAdmissionCancellationPreservesLiveReservation
+/source/clang-tools-extra/clangd/unittests/PrerequisiteModulesTest.cpp:1225: Failure
+Value of: llvm::toString(Result.takeError())
+Expected: has substring "cancelled"
+  Actual: ""
+
+[  FAILED  ] PrerequisiteModulesTests.OwnedAdmissionCancellationPreservesLiveReservation (51 ms)
+[ RUN      ] PrerequisiteModulesTests.OwnedAdmissionDeadlineAndInvalidEnvelopeKeepBounds
+/source/clang-tools-extra/clangd/unittests/PrerequisiteModulesTest.cpp:1241: Failure
+Value of: llvm::toString(TimedOut.takeError())
+Expected: has substring "deadline exhausted"
+  Actual: ""
+
+/source/clang-tools-extra/clangd/unittests/PrerequisiteModulesTest.cpp:1245: Failure
+Value of: llvm::toString(Invalid.takeError())
+Expected: has substring "invalid reservation"
+  Actual: ""
+
+[  FAILED  ] PrerequisiteModulesTests.OwnedAdmissionDeadlineAndInvalidEnvelopeKeepBounds (50 ms)
+[ RUN      ] PrerequisiteModulesTests.OwnedPayloadCrashChargesAndChangedIdentityRetain
+[       OK ] PrerequisiteModulesTests.OwnedPayloadCrashChargesAndChangedIdentityRetain (3 ms)
+[ RUN      ] PrerequisiteModulesTests.OwnedPayloadUnknownAndSymlinkUnitsKeepCharges
+[       OK ] PrerequisiteModulesTests.OwnedPayloadUnknownAndSymlinkUnitsKeepCharges (2 ms)
+[ RUN      ] PrerequisiteModulesTests.OwnedPayloadReplacedLeaseCannotCollectLiveGeneration
+[       OK ] PrerequisiteModulesTests.OwnedPayloadReplacedLeaseCannotCollectLiveGeneration (0 ms)
+[----------] 7 tests from PrerequisiteModulesTests (164 ms total)
+
+[----------] Global test environment tear-down
+[==========] 7 tests from 1 test suite ran. (164 ms total)
+[  PASSED  ] 5 tests.
+[  FAILED  ] 2 tests, listed below:
+[  FAILED  ] PrerequisiteModulesTests.OwnedAdmissionCancellationPreservesLiveReservation
+[  FAILED  ] PrerequisiteModulesTests.OwnedAdmissionDeadlineAndInvalidEnvelopeKeepBounds
+
+ 2 FAILED TESTS
+Traceback (most recent call last):
+  File "/proof/build.py", line 14, in <module>
+    subprocess.run([str(r/'bin/ClangdTests'),'--gtest_filter=PrerequisiteModulesTests.OwnedAdmission*:PrerequisiteModulesTests.OwnedPayload*'],check=True,timeout=120)
+  File "/usr/lib/python3.8/subprocess.py", line 516, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['/proof/bin/ClangdTests', '--gtest_filter=PrerequisiteModulesTests.OwnedAdmission*:PrerequisiteModulesTests.OwnedPayload*']' returned non-zero exit status 1.

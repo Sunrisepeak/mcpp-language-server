@@ -1,0 +1,16 @@
+from pathlib import Path
+import subprocess,json,shutil,concurrent.futures,hashlib,time
+r=Path('/proof');plan=json.loads((r/'plan.json').read_text());started=time.time()
+for name in ['objects','bin','lib']:(r/name).mkdir(exist_ok=False)
+assert hashlib.sha256(Path('/out/build/lib/libclangDaemon.a').read_bytes()).hexdigest()==plan['baseline_daemon_archive_sha256']
+print(subprocess.check_output(['/usr/bin/clang++-12','--version'],text=True),flush=True)
+def compile(a):
+ print('Compiling',a[-1],flush=True);subprocess.run(a,cwd='/out/build',check=True,timeout=600)
+with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:list(pool.map(compile,plan['compile']))
+shutil.copy2('/prior/lib/libclangDaemon.a',r/'lib/libclangDaemon.a')
+shutil.copy2('/prior/bin/clangd',r/'bin/clangd')
+for name,a in [('tests',plan['link']['tests'])]:
+ print('Linking',name,flush=True);subprocess.run(a,cwd='/out/build',check=True,timeout=600)
+subprocess.run([str(r/'bin/ClangdTests'),'--gtest_filter=PrerequisiteModulesTests.OwnedAdmission*:PrerequisiteModulesTests.OwnedPayload*'],check=True,timeout=120)
+assert hashlib.sha256(Path('/out/build/lib/libclangDaemon.a').read_bytes()).hexdigest()==plan['baseline_daemon_archive_sha256']
+(r/'identity.json').write_text(json.dumps({'scope':plan['scope'],'exit_code':0,'seconds':time.time()-started,'sha256':{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in (r/'bin').iterdir()}},indent=2)+'\n')
