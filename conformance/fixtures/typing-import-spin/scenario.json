@@ -1,6 +1,6 @@
 {
   "name": "typing-import-spin",
-  "description": "Import-hang plan \u00a74 against the real defect: WA-CLANGD-001 turned off, so clangd 23.1 spins on `import hello.` (Linux, macOS) or crashes on it (Windows). A spin is found within its 20 s budget, the file set aside with that text remembered and clangd restarted; a crash is restarted as before; either way features come back while typing goes on. If a clangd update removes the defect, T2 fails too: WA-CLANGD-001 can then go.",
+  "description": "Import-hang plan \u00a74 against the real defect: WA-CLANGD-001 turned off, so clangd 23.1 spins on `import hello.` (Linux, macOS) or crashes on it (Windows). A spin is found within its 20 s budget, the file set aside with that text remembered and clangd restarted; a crash is restarted as before; either way features come back while typing goes on. If a clangd update removes the defect, T2 fails too: WA-CLANGD-001 can then go. An engine whose verified identity declares module-directive-recovery has no such spin by proof, and T2 reports itself retired there.",
   "server-arguments": [
     "--no-discover",
     "--disable-workaround",
@@ -59,6 +59,7 @@
     },
     {
       "id": "T2-spin-found",
+      "retired-by": "module-directive-recovery",
       "kind": "report",
       "timeout": 60,
       "expect": [

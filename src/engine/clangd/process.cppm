@@ -148,9 +148,10 @@ private:
 // clangd's log line for a module it could not build:
 // "E[..] Failed to build module greet; due to Failed to compile C:/.../std.ixx. Use '--log=verbose' ..."
 struct ModuleFailure {
-    std::string module;
+    std::string module;         // empty when the line names only the importer and the failed source
     std::string reason;
     std::string failedSource;   // the source that did not compile, when the reason names one
+    std::string importer;       // the file whose prerequisites failed (mcppls-clangd's per-file report)
 };
 std::optional<ModuleFailure> parse_module_failure(std::string_view line);
 // clangd's own severity for one of its log lines, by the letter before its timestamp

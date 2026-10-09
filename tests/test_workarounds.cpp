@@ -124,6 +124,18 @@ int main() {
         }
     };
 
+    "directive recovery and const-view correctness retire WA-CLANGD-001 and 010 only when declared"_test = [] {
+        const auto plain = cld::traits_for_version("23.1.0-mcppls.0");
+        expect(plain.hangsOnTrailingDotModuleName && plain.flagsNonConstViewsConst) << "the version does not prove the fixes";
+        const std::vector<std::string> recovery { "module-directive-recovery" };
+        const auto recovered = cld::traits_for_version("23.1.0-mcppls.0", {}, recovery);
+        expect(!recovered.hangsOnTrailingDotModuleName && recovered.flagsNonConstViewsConst) << "each capability retires its own";
+        const std::vector<std::string> both { "module-directive-recovery", "const-correctness-views" };
+        const auto fixed = cld::traits_for_version("23.1.0-mcppls.0", {}, both);
+        expect(!fixed.hangsOnTrailingDotModuleName && !fixed.flagsNonConstViewsConst);
+        expect(fixed.misplacesDirectiveSemicolon && fixed.readsImportsFromDisk) << "other compensations remain active";
+    };
+
     "the adapter receives capabilities only from a verified payload identity"_test = [] {
         mcppls::engine::PayloadPaths payload;
         payload.clangdVersion = "23.1.0-mcppls.0";

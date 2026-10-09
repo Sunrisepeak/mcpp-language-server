@@ -56,7 +56,41 @@ std::vector<std::string> clangd_arguments(const ProcessConfig& config) {
     return arguments;
 }
 
+namespace {
+
+// The source a compiler diagnostic is about: "<path>:<line>:<column>: error: ..." (a Windows path
+// has its own colon after the drive letter, so the first ":<digits>:<digits>:" ends it).
+std::string diagnostic_source(std::string_view text) {
+    for (std::size_t colon { text.find(':') }; colon != std::string_view::npos; colon = text.find(':', colon + 1)) {
+        std::size_t at { colon + 1 };
+        const auto digits = [&] {
+            const std::size_t from { at };
+            while (at < text.size() && text[at] >= '0' && text[at] <= '9') ++at;
+            return at > from;
+        };
+        if (digits() && at < text.size() && text[at] == ':' && (++at, digits()) && at < text.size() && text[at] == ':') {
+            return std::string { base::trim(text.substr(0, colon)) };
+        }
+    }
+    return {};
+}
+
+} // namespace
+
 std::optional<ModuleFailure> parse_module_failure(std::string_view line) {
+    // mcppls-clangd keeps an import whose module has no unit in the project textual, and says so where
+    // upstream fails the whole prerequisite set with "Don't get the module unit for module <name>":
+    //   Keeping import of third-party module <name> textual; no module unit for it in this project
+    static constexpr std::string_view TEXTUAL { "Keeping import of third-party module " };
+    if (const std::size_t at { line.find(TEXTUAL) }; at != std::string_view::npos) {
+        const std::string_view rest { line.substr(at + TEXTUAL.size()) };
+        const std::size_t space { rest.find(' ') };
+        if (space == std::string_view::npos || space == 0) return std::nullopt;
+        ModuleFailure failure;
+        failure.module = std::string { rest.substr(0, space) };
+        failure.reason = std::string { base::trim(rest.substr(rest.find(';') == std::string_view::npos ? space : rest.find(';') + 1)) };
+        return failure;
+    }
     static constexpr std::string_view MARKER { "Failed to build module " };
     const std::size_t marker { line.find(MARKER) };
     if (marker == std::string_view::npos) return std::nullopt;
@@ -64,6 +98,38 @@ std::optional<ModuleFailure> parse_module_failure(std::string_view line) {
     const std::size_t semicolon { rest.find(';') };
     if (semicolon == std::string_view::npos || semicolon == 0) return std::nullopt;
     ModuleFailure failure;
+    // mcppls-clangd reports a failed prerequisite build per importing file:
+    //   Failed to build module prerequisites for <file>; due to <reason>
+    // with the reason upstream gives (Failed to compile <source>, Don't get the module unit for module
+    // <name>: ...) or its worker's (module worker failed: <source>:<line>:<column>: error: ...). The
+    // module is then the one whose unit is <source>, which the caller knows and this line does not.
+    static constexpr std::string_view PREREQUISITES { "prerequisites for " };
+    if (rest.starts_with(PREREQUISITES)) {
+        failure.importer = std::string { base::trim(rest.substr(PREREQUISITES.size(), semicolon - PREREQUISITES.size())) };
+        std::string_view reason { rest.substr(semicolon + 1) };
+        if (const std::size_t due { reason.find("due to ") }; due != std::string_view::npos) reason = reason.substr(due + 7);
+        reason = base::trim(reason);
+        static constexpr std::string_view UNIT { "Don't get the module unit for module " };
+        static constexpr std::string_view WORKER { "module worker failed: " };
+        static constexpr std::string_view COMPILE { "Failed to compile " };
+        if (reason.starts_with(UNIT)) {
+            const std::string_view name { reason.substr(UNIT.size()) };
+            failure.module = std::string { base::trim(name.substr(0, name.find(':'))) };
+            failure.reason = std::string { reason };
+        } else if (reason.starts_with(WORKER)) {
+            failure.failedSource = diagnostic_source(reason.substr(WORKER.size()));
+            failure.reason = failure.failedSource.empty() ? std::string { reason } : std::format("Failed to compile {}", failure.failedSource);
+        } else if (reason.starts_with(COMPILE)) {
+            if (const std::size_t hint { reason.find(" Use '--log=verbose'") }; hint != std::string_view::npos) reason = reason.substr(0, hint);
+            reason = base::trim(reason);
+            if (reason.ends_with('.')) reason.remove_suffix(1);
+            failure.failedSource = std::string { base::trim(reason.substr(COMPILE.size())) };
+            failure.reason = std::string { reason };
+        } else {
+            failure.reason = std::string { reason };
+        }
+        return failure;
+    }
     failure.module = std::string { base::trim(rest.substr(0, semicolon)) };
     std::string_view reason { rest.substr(semicolon + 1) };
     if (const std::size_t due { reason.find("due to ") }; due != std::string_view::npos) reason = reason.substr(due + 7);
@@ -408,6 +474,7 @@ std::size_t LogRing::size() const {
 
 FailureKind failure_kind(const ModuleFailure& failure) {
     if (failure.reason.find("Don't get the module unit") != std::string::npos) return FailureKind::unresolved;
+    if (failure.reason.find("no module unit for it in this project") != std::string::npos) return FailureKind::unresolved;
     if (failure.reason.starts_with("Failed to compile")) return FailureKind::compile;
     return FailureKind::other;
 }

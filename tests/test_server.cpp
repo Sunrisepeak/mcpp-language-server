@@ -484,6 +484,33 @@ int main() {
         expect(fatal(other.has_value()));
         expect(other->module == "std" && other->failedSource.empty());
         expect(!cld::parse_module_failure("I[04:34:47.305] Built module std to /cache/std.pcm").has_value());
+
+        // mcppls-clangd reports per importing file and names the unit that failed, not the module.
+        const auto worker = cld::parse_module_failure(
+            "E[21:47:59.570] Failed to build module prerequisites for /p/src/plain-importer.cpp; due to module worker failed: "
+            "/p/src/broken/e.cppm:3:26: error: use of undeclared identifier 'undeclared_name'");
+        expect(fatal(worker.has_value()));
+        expect(worker->module.empty()) << worker->module;
+        expect(worker->importer == "/p/src/plain-importer.cpp") << worker->importer;
+        expect(worker->failedSource == "/p/src/broken/e.cppm") << worker->failedSource;
+        expect(cld::failure_kind(*worker) == cld::FailureKind::compile) << worker->reason;
+        const auto windows = cld::parse_module_failure(
+            R"(E[03:15:19.435] Failed to build module prerequisites for C:\p\main.cpp; due to module worker failed: C:\p\a b\e.cppm:12:3: fatal error: 'x.h' file not found)");
+        expect(fatal(windows.has_value()));
+        expect(windows->failedSource == R"(C:\p\a b\e.cppm)") << windows->failedSource;
+        const auto inProcess = cld::parse_module_failure(
+            "E[03:15:19.435] Failed to build module prerequisites for /p/main.cpp; due to Failed to compile /p/e.cppm. Use '--log=verbose' to view detailed failure reasons.");
+        expect(fatal(inProcess.has_value()));
+        expect(inProcess->failedSource == "/p/e.cppm" && inProcess->reason == "Failed to compile /p/e.cppm") << inProcess->reason;
+        const auto missing = cld::parse_module_failure(
+            "E[03:15:19.435] Failed to build module prerequisites for /p/main.cpp; due to Don't get the module unit for module fmt: no provider");
+        expect(fatal(missing.has_value()));
+        expect(missing->module == "fmt" && cld::failure_kind(*missing) == cld::FailureKind::unresolved) << missing->module;
+        const auto textual = cld::parse_module_failure(
+            "E[23:27:38.088] Keeping import of third-party module standin.b textual; no module unit for it in this project");
+        expect(fatal(textual.has_value()));
+        expect(textual->module == "standin.b") << textual->module;
+        expect(cld::failure_kind(*textual) == cld::FailureKind::unresolved) << textual->reason;
     };
 
     // C-4 (plan 2026-09-30): clangd 23.1's module locks, and the line it logs while it waits for one.

@@ -30,9 +30,18 @@ namespace log = base::log;
 namespace midx = mcppls::index;
 
 namespace {
+// A workaround retires for an engine whose verified identity declares the capability that proves its defect
+// fixed (S4-4-10: a version suffix grants none). mcppls-clangd proves each on its final package bytes.
 bool fixed_by_verified_features(std::string_view id, std::span<const std::string> features) {
-    return id == DIRECTIVE_SEMICOLON_POSITION &&
-        std::ranges::find(features, "module-directive-diagnostic-ranges") != features.end();
+    static constexpr std::array<std::pair<std::string_view, std::string_view>, 3> RETIRED_BY { {
+        { DIRECTIVE_SEMICOLON_POSITION, "module-directive-diagnostic-ranges" },
+        { TRAILING_DOT_MODULE_NAME, "module-directive-recovery" },
+        { CONST_CORRECTNESS_VIEWS, "const-correctness-views" },
+    } };
+    for (const auto& [workaround, feature] : RETIRED_BY) {
+        if (id == workaround) return std::ranges::find(features, feature) != features.end();
+    }
+    return false;
 }
 } // namespace
 
@@ -2548,7 +2557,17 @@ private:
     }
 
     void handle_module_failure_(const Json& failure) {
-        const ModuleFailure parsed { failure.value("module", std::string {}), failure.value("reason", std::string {}), failure.value("source", std::string {}) };
+        ModuleFailure parsed { failure.value("module", std::string {}), failure.value("reason", std::string {}), failure.value("source", std::string {}), {} };
+        // mcppls-clangd names the importer and the unit that failed to compile, not the module: it is
+        // the one the plan gave that unit.
+        if (parsed.module.empty() && !parsed.failedSource.empty()) {
+            for (const auto& [name, source] : moduleSources_) {
+                if (base::same_path(source, parsed.failedSource)) {
+                    parsed.module = name;
+                    break;
+                }
+            }
+        }
         if (parsed.module.empty()) return;
         const FailureKind kind { failure_kind(parsed) };
         // The standard library, which nearly every unit imports: a failure there is how this server built it,

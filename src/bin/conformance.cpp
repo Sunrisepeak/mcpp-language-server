@@ -2081,6 +2081,31 @@ public:
         return !options_.clangd.empty() ? options_.clangd : base::join_path(options_.payload, "clangd/bin/clangd") + std::string { mcppls::os::EXECUTABLE_SUFFIX };
     }
 
+    // A check's "retired-by": the capability that retires the workaround whose defect the check watches, for an engine
+    // whose verified identity declares it (the server's own rule, engine/clangd.cpp). Such an engine does not have the
+    // defect by proof, so there is nothing to watch; it still runs against any other clangd (--clangd, a payload without it).
+    std::optional<std::string> retired_canary(const Json& check) const {
+        const std::string feature { check.value("retired-by", std::string {}) };
+        if (feature.empty() || !options_.clangd.empty() || options_.payload.empty()) return std::nullopt;
+        const auto text = fs::read_file(base::join_path(options_.payload, "payload.json"));
+        if (!text) return std::nullopt;
+        const Json manifest = Json::parse(*text, nullptr, false);
+        if (manifest.is_discarded() || manifest.value("payload-version", 0) < 4) return std::nullopt;
+        const Json* identity { nullptr };
+        if (const auto engines = manifest.find("engines"); engines != manifest.end() && engines->is_object()) {
+            if (const auto clangd = engines->find("clangd"); clangd != engines->end() && clangd->is_object()) {
+                if (const auto found = clangd->find("identity"); found != clangd->end() && found->is_object()) identity = &*found;
+            }
+        }
+        if (identity == nullptr) return std::nullopt;
+        for (const auto& declared : identity->value("features", Json::array())) {
+            if (declared.is_string() && declared.get<std::string>() == feature) {
+                return std::format("retired: the payload's engine {} declares {}", identity->value("engine-version", std::string {}), feature);
+            }
+        }
+        return std::nullopt;
+    }
+
     // A check's clangd arguments, `{workspace}` and `{engine-database}` (the directory of the compile_commands.json the server
     // wrote for its own clangd, so a baseline runs the very commands the server's does) replaced.
     std::vector<std::string> direct_arguments(const Json& list) {
@@ -3304,6 +3329,7 @@ public:
 
     std::pair<bool, std::string> run_(const Json& check) {
         const std::string kind { check.value("kind", std::string {}) };
+        if (auto retired = retired_canary(check)) return { true, *retired };
         const std::string file { check.value("file", std::string { "src/main.cpp" }) };
         // A check may bring its own unsaved buffer.
         if (auto text = check.find("text"); text != check.end()) open(file, text->get<std::string>());
