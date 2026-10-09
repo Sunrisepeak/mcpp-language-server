@@ -1,0 +1,6 @@
+{
+  "scope": "Resource driver rejected during running build, no engine or result directory created",
+  "exit_code": 1,
+  "stderr": "Traceback (most recent call last):\n  File \"/tmp/mcppls-part2-floor72/qualification/resource-four-arm.py\", line 1, in <module>\n    import final72_identity\n  File \"/home/data_disk/codex-mcppls-part2-builds/portable72/qualification/final72_identity.py\", line 4, in <module>\n    assert json.loads((floor/'retry1-progress.json').read_text())['status']=='complete', 'clean72 build/test/package required; no measurement started'\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: clean72 build/test/package required; no measurement started\n",
+  "expected_rejection": true
+}

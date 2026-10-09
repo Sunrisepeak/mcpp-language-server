@@ -21,6 +21,10 @@
     "tree-window-control-v2.json": "42195f8bd8480af3375eb256da665f76d89314e872db12bdafba3126e45c509e",
     "audit-tree-controls.py": "221b972c67f68c13ad1905de6a15efc05a6fcd820a265bf1ece2e0ad18c5dedc",
     "resource-preparation-manifest.json": "b6eb422635363edbc5bbc1f201c2191544b67ec55748dce875a3284430fdaf41",
-    "README.md": "dbedf8a5603267e1c697343701541411ee1b46402c0d7fa6f706e5fa9409e100"
+    "README.md": "dbedf8a5603267e1c697343701541411ee1b46402c0d7fa6f706e5fa9409e100",
+    "resource-four-arm.py": "b097bc65aeccb5966b844179ea0d32d5ec9c463cbe1dcaf5f9a6e449cb9532f1",
+    "resource-four-arm-preparation.json": "d04aff0e3a67c49f7fc842440d157f7ac0bc4e72a754dca612db2151cd542bdc",
+    "resource-build-running-negative.json": "883964d3375658449e9add91d53c9831100cd419e4cca3932044a7e21194e2a9",
+    "final72_identity.py": "046a0066a312dba093301443838567fa4ad774d27e729b7edbb28d70e5d58a22"
   }
 }
