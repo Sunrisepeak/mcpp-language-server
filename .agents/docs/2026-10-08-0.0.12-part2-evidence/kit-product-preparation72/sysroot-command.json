@@ -1,0 +1,15 @@
+[
+  "docker",
+  "run",
+  "--rm",
+  "--pull=never",
+  "--network",
+  "none",
+  "--user",
+  "1000:1000",
+  "--mount",
+  "type=bind,src=/home/data_disk/codex-mcppls-part2-builds/portable72/same-source-kit,dst=/out",
+  "sha256:96ddf5cedf5352ca5c4f1608185f4ddc885ca4ee51ff0a4ca461779e429dcb29",
+  "bash",
+  "/out/capture-sysroot.sh"
+]

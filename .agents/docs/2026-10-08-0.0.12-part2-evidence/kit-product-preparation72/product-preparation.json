@@ -1,0 +1,9 @@
+{
+  "scope": "Final72 inferred/C7 preparation with same-source local kit guard; no product run. Build-running rejection before product mutation. Not performance/cache or immutable payload proof.",
+  "files": {
+    "run.py": "5805f6cd51624027cd72a075279d40c36c5dcbba781616fcace68fe7586fdca7",
+    "command.json": "21ba07f5fa336d84c1ec37e6df8e2ee38174f67aefc0ff4c84ba560062ecb916"
+  },
+  "preflight_exit_code": 1,
+  "preflight_stderr": "Traceback (most recent call last):\n  File \"/tmp/mcppls-part2-floor72/qualification/product-inferred/run.py\", line 4, in <module>\n    import final72_identity\n  File \"/tmp/mcppls-part2-floor72/qualification/final72_identity.py\", line 4, in <module>\n    assert json.loads((floor/'retry1-progress.json').read_text())['status']=='complete', 'clean72 build/test/package required; no measurement started'\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: clean72 build/test/package required; no measurement started\n"
+}

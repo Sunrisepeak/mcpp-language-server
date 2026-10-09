@@ -1,0 +1,7 @@
+{
+  "scope": "Preparation rejects during clean build before copying producer/generating kit",
+  "exit_code": 1,
+  "stderr": "Traceback (most recent call last):\n  File \"/tmp/mcppls-part2-floor72/same-source-kit/build-kit.py\", line 11, in <module>\n    import final72_identity\n  File \"/tmp/mcppls-part2-floor72/qualification/final72_identity.py\", line 4, in <module>\n    assert json.loads((floor/'retry1-progress.json').read_text())['status']=='complete', 'clean72 build/test/package required; no measurement started'\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: clean72 build/test/package required; no measurement started\n",
+  "expected_rejection": true,
+  "driver_sha256": "b209e00186fbe978c77bbf1977422c4f9fb76130a1d51656ff8410ad226c9c14"
+}

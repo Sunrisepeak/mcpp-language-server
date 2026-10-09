@@ -1,0 +1,17 @@
+{
+  "scope": "Actual Ubuntu20 header input capture plus unexecuted final72 kit/product recipes; not final kit/product or release qualification",
+  "files": {
+    "build-kit.py": "b209e00186fbe978c77bbf1977422c4f9fb76130a1d51656ff8410ad226c9c14",
+    "capture-sysroot.sh": "a7ca045cf7f49d84cbd41a46c0876d9f7064ce34d5dbddfacd6b0fd22c8b38d8",
+    "sysroot-command.json": "02a568d6032c4476460e252464b86f515080f733e76afd6b3e367f5af693ce17",
+    "sysroot-progress.json": "e20ce978e8665025407820150ff96856ca95cf120e1f4be0dc682dabf11806a3",
+    "sysroot-capture.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "sysroot-packages.txt": "0d8f1110dd225955677a9e1010e3f347741966e3a158c0d78dd12807cc9f535f",
+    "build-running-preflight-negative.json": "9e61258aef3c1f1f91725fb04848a11501c523ef3e0b05d1c2c4360e43f4a203",
+    "product-run.py": "5805f6cd51624027cd72a075279d40c36c5dcbba781616fcace68fe7586fdca7",
+    "product-command.json": "21ba07f5fa336d84c1ec37e6df8e2ee38174f67aefc0ff4c84ba560062ecb916",
+    "product-preparation.json": "5837ea46bc14d0e4ffc5065f708ece6383d3404ca3fe6e84f03bb8af675150fd",
+    "final72_identity.py": "046a0066a312dba093301443838567fa4ad774d27e729b7edbb28d70e5d58a22",
+    "README.md": "2abe00f3481a6f07703857c6a3960594e912cb6f354295ab967b4741d9d67fba"
+  }
+}
