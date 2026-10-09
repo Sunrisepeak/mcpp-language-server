@@ -1,0 +1,148 @@
+{
+  "checks": [
+    {
+      "detail": "{\"cache\":{\"bytes\":100000000,\"copies\":{\"bytes\":0,\"files\":0,\"oldestSeconds\":0},\"instances\":{\"bytes\":0,\"count\":0},\"limitBytes\":4294967296,\"state\":\"ok\"},\"engine\":{\"name\":\"clangd\",\"version\":\"23.1.0-mcppls.0\"},\"engines\":[{\"name\":\"mcppls\",\"role\":\"modules\",\"state\":\"ready\",\"version\":\"0.0.12\"},{\"name\":\"clangd\",\"role\":\"core\",\"state\":\"starting\",\"version\":\"23.1.0-mcppls.0\"}],\"issues\":[],\"notices\":[{\"code\":\"engine-version-untested\",\"message\":\"clangd 23.1.0-mcppls.0 has not been run through this server's conformance suite; every workaround for clangd 23.1 stays on\"}],\"profile\":{\"kind\":\"semantic-kit\",\"standard\":\"c++26\",\"stdlib\":\"libc++ 23.1.0\",\"target\":\"x86_64-unknown-linux-gnu\"},\"project\":{\"level\":2,\"root\":\"file:///tmp/mcppls-part2-floor72/qualification/product-inferred/workspace/inferred\",\"source\":\"inferred\",\"tier\":4},\"state\":\"ready\"}",
+      "id": "S1",
+      "kind": "status",
+      "ok": true,
+      "seconds": 0.000541635,
+      "since-start": 0.022098559
+    },
+    {
+      "detail": "{\"cache\":{\"bytes\":100000000,\"copies\":{\"bytes\":0,\"files\":0,\"oldestSeconds\":0},\"instances\":{\"bytes\":0,\"count\":0},\"limitBytes\":4294967296,\"state\":\"ok\"},\"engine\":{\"name\":\"clangd\",\"version\":\"23.1.0-mcppls.0\"},\"engines\":[{\"name\":\"mcppls\",\"role\":\"modules\",\"state\":\"ready\",\"version\":\"0.0.12\"},{\"name\":\"clangd\",\"role\":\"core\",\"state\":\"starting\",\"version\":\"23.1.0-mcppls.0\"}],\"issues\":[],\"notices\":[{\"code\":\"shared-workspace\",\"message\":\"another mcppls instance serves this workspace; this one keeps a private cache and starts cold\"},{\"code\":\"engine-version-untested\",\"message\":\"clangd 23.1.0-mcppls.0 has not been run through this server's conformance suite; every workaround for clangd 23.1 stays on\"}],\"profile\":{\"kind\":\"semantic-kit\",\"stdlib\":\"libc++ 23.1.0\",\"target\":\"x86_64-unknown-linux-gnu\"},\"project\":{\"root\":\"file:///tmp/mcppls-part2-floor72/qualification/product-inferred/workspace/inferred\",\"source\":\"inferred\"},\"state\":\"loading\"}",
+      "id": "I1-second-instance",
+      "kind": "second-instance",
+      "ok": true,
+      "seconds": 1.686214286,
+      "since-start": 1.708383035
+    },
+    {
+      "detail": "[]",
+      "id": "C1",
+      "kind": "diagnostics-empty",
+      "ok": true,
+      "seconds": 2.636493601,
+      "since-start": 4.345050578
+    },
+    {
+      "detail": "[\"file:///home/data_disk/codex-mcppls-part2-builds/portable72/qualification/product-inferred/workspace/inferred/src/greet/greet.cppm\"]",
+      "id": "C2",
+      "kind": "definition",
+      "ok": true,
+      "seconds": 0.011022376,
+      "since-start": 4.356191235
+    },
+    {
+      "detail": "### function `greet`\n\nprovided by `\"greet/greet.cppm\"`\n\n---\n→ `std::string (aka basic_string<char>)`\n\nParameters:\n\n- `std::string_view who (aka basic_string_v",
+      "id": "C3",
+      "kind": "hover-contains",
+      "ok": true,
+      "seconds": 0.006759902,
+      "since-start": 4.36297588
+    },
+    {
+      "detail": "[\"file:///home/data_disk/codex-mcppls-part2-builds/portable72/same-source-kit/kit/share/libc%2B%2B/v1/std/ostream.inc\",\"file:///home/data_disk/codex-mcppls-part2-builds/portable72/same-source-kit/kit/include/c%2B%2B/v1/print\"]",
+      "id": "C4",
+      "kind": "definition-any",
+      "ok": true,
+      "seconds": 0.002314314,
+      "since-start": 4.365309623
+    },
+    {
+      "detail": "[\"file:///home/data_disk/codex-mcppls-part2-builds/portable72/qualification/product-inferred/workspace/inferred/src/greet/greet.cppm\"]",
+      "id": "C5",
+      "kind": "definition",
+      "ok": true,
+      "seconds": 0.000652228,
+      "since-start": 4.365977871
+    },
+    {
+      "detail": "[\"file:///home/data_disk/codex-mcppls-part2-builds/portable72/qualification/product-inferred/workspace/inferred/src/greet/detail.cppm\"]",
+      "id": "C5-partition",
+      "kind": "definition",
+      "ok": true,
+      "seconds": 0.000880725,
+      "since-start": 4.366874651
+    },
+    {
+      "detail": "```cpp\nmodule hello.greet\n```\n\nProvided by `greet.cppm` (primary module interface unit).\n\nSemantic profile: libc++ 23.1.0 (semantic kit, x86_64-unknown-linux-gn",
+      "id": "M1-hover",
+      "kind": "hover-contains",
+      "ok": true,
+      "seconds": 0.000830708,
+      "since-start": 4.367720829
+    },
+    {
+      "detail": "[{\"detail\":\"primary module interface unit\",\"kind\":2,\"name\":\"hello.greet\",\"range\":{\"end\":{\"character\":25,\"line\":0},\"start\":{\"character\":14,\"line\":0}},\"selectionR",
+      "id": "M2-outline",
+      "kind": "document-symbol-contains",
+      "ok": true,
+      "seconds": 0.220854705,
+      "since-start": 4.588610358
+    },
+    {
+      "detail": "{\"imports\":[{\"from\":\"file:///home/data_disk/codex-mcppls-part2-builds/portable72/qualification/product-inferred/workspace/inferred/src/greet/detail.cppm\",\"modul",
+      "id": "M3-graph",
+      "kind": "module-graph-contains",
+      "ok": true,
+      "seconds": 0.000954507,
+      "since-start": 4.589586884
+    },
+    {
+      "detail": "[\"hello.greet\"]",
+      "id": "M4-import-completion",
+      "kind": "completion-contains",
+      "ok": true,
+      "seconds": 0.000894147,
+      "since-start": 4.590497809
+    },
+    {
+      "detail": "[{\"code\":\"unresolved-module\",\"message\":\"module 'missing.module' not found\",\"range\":{\"end\":{\"character\":21,\"line\":0},\"start\":{\"character\":7,\"line\":0}},\"severity\":1,\"source\":\"mcppls\"}]",
+      "id": "M5-unresolved",
+      "kind": "diagnostic-code",
+      "ok": true,
+      "seconds": 0.000479824,
+      "since-start": 4.590993668
+    },
+    {
+      "detail": "[\"detail\",\"greet(std::string_view who)\"]",
+      "id": "C6",
+      "kind": "completion-contains",
+      "ok": true,
+      "seconds": 0.036161524,
+      "since-start": 4.627176524
+    },
+    {
+      "detail": "[\"detail\",\"greet(std::string_view who)\",\"greet2()\"]",
+      "id": "C7",
+      "kind": "completion-contains",
+      "ok": true,
+      "seconds": 2.528703344,
+      "since-start": 7.155914366
+    },
+    {
+      "detail": "[\"greet.cppm\",\"main.cpp\"]",
+      "id": "C9",
+      "kind": "references-span",
+      "ok": true,
+      "seconds": 0.159644176,
+      "since-start": 7.315592037
+    },
+    {
+      "detail": "[0:0 'export' keyword []] [0:7 'module' keyword []] [0:14 'hello.greet' module [\"declaration\"]] [1:0 'export' keyword []] [1:7 'import' keyword []] [1:15 'detail' module [\"partition\"]] [2:0 'import' k",
+      "id": "K1-semantic-tokens",
+      "kind": "semantic-tokens",
+      "ok": true,
+      "seconds": 0.004685282,
+      "since-start": 7.320301748
+    }
+  ],
+  "failures": 0,
+  "first-diagnostics": 4.366519536,
+  "first-navigation": 4.356191235,
+  "fixture": "inferred",
+  "initialize": 0.020945057,
+  "ready": 0.021721426,
+  "reused-workspace": false,
+  "seconds": 7.408390207
+}

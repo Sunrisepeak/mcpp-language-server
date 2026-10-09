@@ -1,0 +1,11 @@
+{
+  "scope": "Same-source local72 Linux kit and one fresh inferred semantic product replay only; not immutable shipped payload, cold/warm navigation distributions, editor/1000 saves or full Ubuntu20 product proof.",
+  "kit_files": 3241,
+  "checks": 17,
+  "failures": 0,
+  "new_export_C7_seconds": 2.528703344,
+  "first_navigation_since_start_seconds": 4.356191235,
+  "total_seconds": 7.408390207,
+  "owned_cleanup_pass": true,
+  "all_checked_requirements_passed": true
+}

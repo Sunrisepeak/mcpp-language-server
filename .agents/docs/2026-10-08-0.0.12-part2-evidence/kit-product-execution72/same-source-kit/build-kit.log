@@ -1,0 +1,16 @@
+/usr/local/bin/cmake
+cmake version 3.31.10
+
+CMake suite maintained and supported by Kitware (kitware.com/cmake).
+/usr/bin/ninja
+1.10.0
+clang version 23.1.0-mcppls.0
+Target: x86_64-unknown-linux-gnu
+Thread model: posix
+InstalledDir: /tmp/mcppls-part2-floor72/same-source-kit/producer/bin
+mcppls-devtools: building the linux-x64 semantic kit
+mcppls 2026-10-09T02:13:42.135Z [info] /usr/local/bin/cmake -G Ninja -S /tmp/mcppls-part2-floor72/same-source-kit/work/llvm-project/runtimes -B /tmp/mcppls-part2-floor72/same-source-kit/work/build -DCMAKE_MAKE_PROGRAM=/usr/bin/ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/tmp/mcppls-part2-floor72/same-source-kit/work/stage -DCMAKE_C_COMPILER=/tmp/mcppls-part2-floor72/same-source-kit/producer/bin/clang -DCMAKE_CXX_COMPILER=/tmp/mcppls-part2-floor72/same-source-kit/producer/bin/clang++ -DLLVM_ENABLE_RUNTIMES=libcxx;libcxxabi -DLIBCXXABI_USE_LLVM_UNWINDER=OFF -DLIBCXX_INSTALL_MODULES=ON -DLIBCXX_INCLUDE_TESTS=OFF -DLIBCXX_INCLUDE_BENCHMARKS=OFF -DLIBCXXABI_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_DOCS=OFF -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON -DLLVM_DEFAULT_TARGET_TRIPLE=x86_64-unknown-linux-gnu
+mcppls 2026-10-09T02:13:46.509Z [info] /usr/bin/ninja -C /tmp/mcppls-part2-floor72/same-source-kit/work/build -j 6 install-cxx-headers install-cxxabi-headers install-cxx-modules
+mcppls 2026-10-09T02:13:47.507Z [info] dropped 8 files whose names differ only in case from a kept file: sysroot/usr/include/linux/netfilter/xt_CONNMARK.h, sysroot/usr/include/linux/netfilter/xt_DSCP.h, sysroot/usr/include/linux/netfilter/xt_MARK.h, sysroot/usr/include/linux/netfilter/xt_RATEEST.h, sysroot/usr/include/linux/netfilter/xt_TCPMSS.h, sysroot/usr/include/linux/netfilter_ipv4/ipt_ECN.h, sysroot/usr/include/linux/netfilter_ipv4/ipt_TTL.h, sysroot/usr/include/linux/netfilter_ipv6/ip6t_HL.h
+kit: /tmp/mcppls-part2-floor72/same-source-kit/kit (3241 files, 20.5 MB)
+mcppls 2026-10-09T02:13:47.558Z [info] mcppls-kit-libcxx-23.1.0-x86_64-unknown-linux-gnu: 3241 files, 20.5 MB -> /tmp/mcppls-part2-floor72/same-source-kit/kit

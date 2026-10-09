@@ -1,0 +1,17 @@
+{
+  "scope": "Same-source local72 Linux kit and one fresh inferred semantic product replay only; not immutable shipped payload, cold/warm navigation distributions, editor/1000 saves or full Ubuntu20 product proof.",
+  "files": {
+    "README.md": "5914d55974dc00ec7e42794871d1ebc99713d3b44543562465722aab783455c8",
+    "audit.json": "33b1af6c5b1a46650e5ed21312ae50b0505d268777efdd825a2c1b98d56334ba",
+    "qualification/product-inferred/command.json": "21ba07f5fa336d84c1ec37e6df8e2ee38174f67aefc0ff4c84ba560062ecb916",
+    "qualification/product-inferred/identity.json": "dcaf853b1c25a638b58c98f8071a36132fa84318af5faee19e53faafc3249ee6",
+    "qualification/product-inferred/measure.json": "e2b85f7ebb90f0f96047baab890443e402770a6930a74e470f72a73fe88d0818",
+    "qualification/product-inferred/run.log": "1e2ed7e1d80b39338df59a9711e4993e827f57ed78823b4143196b0e4b30cb38",
+    "qualification/product-inferred/run.py": "b099c0d6367caa11c75e253b60c2bf63cb2bea13218775d2bdeb0d5ebe7f3c1c",
+    "same-source-kit/build-kit.log": "1ec3eab27259238ba81d8a5a1e35936e09cfb15b3691792060b91c47c46a4e12",
+    "same-source-kit/build-kit.py": "7cfa57a9dc2b9b78caa4eecc40fc8c8b97830c0d4840e38c6837a14f209714a0",
+    "same-source-kit/identity.json": "8e3e99cead3ff815a2ec0d89f39dad81503dd5d7d550fe13008e8d4543b7547c",
+    "same-source-kit/kit/kit.json": "74c2de97fd10e7927f81c0cc324751ce6b67e36938d72bfcb543b15ade2677b4",
+    "same-source-kit/sysroot-owned-progress.json": "630b7b28c8656c198bec6e1197d1786cfd4fd123d7b1416ee57ccc8f6d75967a"
+  }
+}
