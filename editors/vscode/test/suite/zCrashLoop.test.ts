@@ -6,6 +6,7 @@
 import * as assert from 'assert';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { TestApi } from '../../src/extension';
@@ -55,30 +56,53 @@ suite('server crash loop', function () {
         assert.deepStrictEqual(unhandled, [], 'crash recovery left unhandled promise rejections');
     });
 
+    // The server answers initialize in milliseconds, too soon to be caught reliably between its spawn
+    // and the client's start by polling the process table (a slow host, PRoot, lost that race).
+    // MCPPLS_SERVER, read at every start, names a stand-in that waits before it becomes the real
+    // server: the process exists with initialize unanswered for as long as the test needs.
+    function delayedServer(): () => void {
+        const extensionPath = vscode.extensions.getExtension(EXTENSION_ID)!.extensionPath;
+        const payload = process.env.MCPPLS_PAYLOAD ? path.resolve(process.env.MCPPLS_PAYLOAD) : path.join(extensionPath, 'payload');
+        const saved = process.env.MCPPLS_SERVER;
+        const real = saved && saved.length > 0 ? saved : path.join(payload, 'bin', 'mcppls');
+        const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mcppls-delayed-server-'));
+        const standIn = path.join(directory, 'mcppls');
+        fs.writeFileSync(standIn, `#!/bin/sh\nsleep 3\nexec '${real.replace(/'/g, `'\\''`)}' "$@"\n`, { mode: 0o755 });
+        process.env.MCPPLS_SERVER = standIn;
+        return () => {
+            if (saved === undefined) delete process.env.MCPPLS_SERVER;
+            else process.env.MCPPLS_SERVER = saved;
+            fs.rmSync(directory, { recursive: true, force: true });
+        };
+    }
+
     test('a crash during initialization recovers with a fresh client', async () => {
         const previous = serverPid();
-        const restarting = vscode.commands.executeCommand('mcppls.restartServer');
-        let starting: number | undefined;
-        await until('a replacement server still initializing', () => {
-            starting = serverPid(previous);
-            return starting !== undefined && starting !== previous && !api.serverRunning();
-        }, 60_000, 1);
-        const conflictPrompts = api.promptShownCount('conflict');
-        process.kill(starting as number, 'SIGKILL');
-        await restarting;
-        // initialize may have replied before SIGKILL, so the killed client's start can
-        // resolve before its EOF is observed. The previous manually stopped server
-        // can also still be cleaning up its engine. Exclude that process as well:
-        // its surviving PID is not evidence that the killed client recovered.
-        await until('a new server with a fully initialized recovered client', () => {
-            const recovered = serverPid(previous);
-            return recovered !== undefined && recovered !== starting && api.serverRunning();
-        });
-        await api.waitForState(['ready', 'degraded'], READY_TIMEOUT_MS);
-        // Both command registration and a request through the new connection must work.
-        assert.ok((await vscode.commands.getCommands(true)).includes('clangd.applyFix'));
-        assert.ok(await api.cacheDetail(), 'the recovered client cannot request the cache report');
-        assert.strictEqual(api.promptShownCount('conflict'), conflictPrompts, 'automatic recovery repeated the conflict prompt');
+        const restore = delayedServer();
+        try {
+            const restarting = vscode.commands.executeCommand('mcppls.restartServer');
+            let starting: number | undefined;
+            await until('a replacement server still initializing', () => {
+                starting = serverPid(previous);
+                return starting !== undefined && starting !== previous && !api.serverRunning();
+            }, 60_000, 50);
+            const conflictPrompts = api.promptShownCount('conflict');
+            process.kill(starting as number, 'SIGKILL');
+            await restarting;
+            // The previous, manually stopped server can still be cleaning up its engine.
+            // Exclude it: its surviving PID is not evidence that the killed client recovered.
+            await until('a new server with a fully initialized recovered client', () => {
+                const recovered = serverPid(previous);
+                return recovered !== undefined && recovered !== starting && api.serverRunning();
+            });
+            await api.waitForState(['ready', 'degraded'], READY_TIMEOUT_MS);
+            // Both command registration and a request through the new connection must work.
+            assert.ok((await vscode.commands.getCommands(true)).includes('clangd.applyFix'));
+            assert.ok(await api.cacheDetail(), 'the recovered client cannot request the cache report');
+            assert.strictEqual(api.promptShownCount('conflict'), conflictPrompts, 'automatic recovery repeated the conflict prompt');
+        } finally {
+            restore();
+        }
         await vscode.commands.executeCommand('mcppls.restartServer');
     });
 
