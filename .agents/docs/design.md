@@ -269,6 +269,11 @@ before anything is published (`docs/92-release.md`).
 
 ## 7. Known limits
 
+- [UP-O1](https://github.com/Sunrisepeak/mcpp-language-server/issues/24#issuecomment-6028338032): openkal-macos 0.12.0 leaves closed-pipe SIGPIPE unhandled.
+  WA-PLATFORM-001 protects owned child-input descriptors in platform/process.cpp;
+  retirement requires the closed-peer and blocked-writer canaries on both macOS
+  architectures with default signal handling. Native fix validation is pending.
+
 - The CLion plugin builds and installs but has not been exercised in a running CLion.
 - linux-arm64 ships LLVM's own clangd build, which needs glibc 2.34 and a GCC 12 libstdc++ (Ubuntu
   22.04+, Debian 12+, openEuler 24.03+); elsewhere the status says `engine-incompatible` and only

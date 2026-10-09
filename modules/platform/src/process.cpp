@@ -45,6 +45,36 @@ constexpr KalDword KAL_ERROR_INVALID_PARAMETER { 87 };
 // sandbox rather than the process (see process_self).
 #else
 #include <unistd.h>
+
+// WA-PLATFORM-001 / UP-O1: remove when openkal-macos passes the closed-peer
+// and blocked-writer canaries on both macOS architectures with default SIGPIPE.
+// Evidence: .agents/docs/2026-10-07-darwin-pipe-write.md; native CI pending.
+// Darwin's F_SETNOSIGPIPE (xnu/bsd/sys/fcntl.h) protects this descriptor only.
+// openkal-macos deliberately leaves SIGPIPE unhandled, and the C ABI above it
+// cannot install a kernel signal disposition. Use the same native syscall
+// convention as that backend, without changing process-wide signal policy.
+static bool protect_pipe_write(kal_stream stream) {
+#if defined(__aarch64__)
+    register long number __asm__("x16") { 92 };   // BSD fcntl
+    register long descriptor __asm__("x0") { static_cast<long>(stream.h) };
+    register long command __asm__("x1") { 73 };  // F_SETNOSIGPIPE
+    register long enabled __asm__("x2") { 1 };
+    long failed;
+    __asm__ __volatile__("svc #0x80\n\tcset %2, cs"
+                         : "+r"(descriptor), "+r"(command), "=r"(failed)
+                         : "r"(number), "r"(enabled) : "memory", "cc");
+    return failed == 0;
+#else
+    long result;
+    long enabled { 1 };
+    unsigned char failed;
+    __asm__ __volatile__("syscall"
+                         : "=a"(result), "+d"(enabled), "=@ccc"(failed)
+                         : "a"(0x200005cL), "D"(static_cast<long>(stream.h)), "S"(73L)
+                         : "rcx", "r11", "memory", "cc");
+    return failed == 0;
+#endif
+}
 #endif
 
 // The Linux openkal's own flag (vendor/openkal-linux/src/process.cpp): whether a program is started
@@ -180,6 +210,14 @@ base::Result<Process> Process::spawn(const SpawnOptions& options) {
             return base::fail("spawn-channel", "cannot create the input channel");
         }
         state->inputOpen = true;
+#if !defined(__MCPP_TARGET_WINDOWS__) && !defined(__MCPP_TARGET_LINUX__)
+        if (!protect_pipe_write(state->input)) {
+            kal_process_channel_close(childIn);
+            kal_process_channel_close(state->input);
+            closeWork();
+            return base::fail("spawn-channel", "cannot protect the input channel from SIGPIPE");
+        }
+#endif
     }
     if (options.pipeOutput) {
         if (kal_process_channel(&state->output, &childOut) != kal_ok) {

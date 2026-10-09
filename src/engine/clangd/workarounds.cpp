@@ -70,7 +70,7 @@ constexpr std::array<Workaround, 12> REGISTRY { {
         .upstream = "unfiled (UP-15 in issue #24)",
         .evidence = ".agents/docs/2026-09-26-issue-23-fix-plan.md F12; tests/test_workarounds.cpp",
         .added = "0.0.5",
-        .removeWhen = "clangd reports expected_semi_after_module_or_import and pp_unexpected_tok_after_module_name on the directive's own line",
+        .removeWhen = "clangd reports expected_semi_after_module_or_import and pp_unexpected_tok_after_module_name on the directive's own line; retired per payload only when its verified identity includes module-directive-diagnostic-ranges",
         .canary = "",
         .premise = "the nearest non-blank line above the diagnostic is the directive that lacks the ';'",
     },

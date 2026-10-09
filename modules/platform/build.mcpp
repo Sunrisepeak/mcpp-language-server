@@ -66,6 +66,18 @@ bool target_is_windows() { return env_or_empty("MCPP_TARGET_OS") == "windows"; }
 
 int main() {
     mcpp::rerun_if_changed("port/winprocess.def");
+    mcpp::rerun_if_changed("port/libmcppls_darwin.tbd");
+    // LLVM's Intel Darwin memset lowering references __bzero, supplied by the
+    // system libSystem. The openkal stub contains only its own explicit calls.
+    // This distinct stub adds the compiler-generated import without shadowing
+    // openkal's libSystem.tbd or redistributing an Apple SDK.
+    if (env_or_empty("MCPP_TARGET_OS") == "macos" &&
+        env_or_empty("MCPP_TARGET_ARCH") == "x86_64") {
+        const std::string root { env_or_empty("MCPP_MANIFEST_DIR") };
+        if (root.empty()) return 1;
+        mcpp::link_search(std::format("{}/port", root).c_str());
+        return 0;
+    }
     if (!target_is_windows() || compiler_family() != "clang") return 0;
 
     const std::string out { env_or_empty("MCPP_OUT_DIR") };

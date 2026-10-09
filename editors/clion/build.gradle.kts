@@ -72,6 +72,9 @@ tasks.test {
     environment("HOME", layout.buildDirectory.dir("home").get().asFile.also { it.mkdirs() }.absolutePath)
     environment("SHELL", "/bin/sh")
     systemProperty("mcppls.fixtures", layout.projectDirectory.dir("src/test/fixtures").asFile.absolutePath)
+    // CLion rejects its backend freeze watchdog in unit tests.
+    // Server startup and shutdown deadlines remain independently bounded.
+    systemProperty("patch.engine.backend.freeze.timeout", "0")
     // Every wait in the tests is bounded; a test that never finishes is the one to report.
     testLogging { showStandardStreams = true; events("passed", "failed", "skipped") }
 }

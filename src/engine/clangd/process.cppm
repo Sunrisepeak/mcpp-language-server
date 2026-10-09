@@ -16,6 +16,7 @@ struct ProcessConfig {
     std::string version;             // e.g. "23.1.0"
     std::string databaseDirectory;   // what clangd reads (--compile-commands-dir)
     std::string workDirectory;
+    std::string fallbackStyle;
     std::vector<std::string> extraArguments;
     bool verboseLog { false };
     std::size_t workers { 0 };       // clangd's -j; 0: clangd's own default. Extra arguments naming -j win.
@@ -48,6 +49,8 @@ public:
     // runs or where nothing can say (fix plan F3). Never blocks.
     virtual std::optional<int> exit_code() { return std::nullopt; }
 };
+
+std::string format_fallback_style(std::string_view requested, bool supported, bool mcppProject);
 
 std::vector<std::string> clangd_arguments(const ProcessConfig& config);
 

@@ -10,7 +10,11 @@ may be redistributed, license texts and `kit.json`. Nothing in it is compiled.
 `mcppls-devtools kit` (`modules/pack/src/kit.cpp`) produces a kit from the inputs in
 `packaging/payload.lock.json`; the recipe for each platform is named there.
 
-## The three kits
+## Platform kits
+
+The 0.0.12 maintained distribution has three targets below. Intel macOS and
+Linux arm64 kits are not built or qualified for this release; historical recipes
+and generic target parsing remain available for manual experiments.
 
 | Platform | Recipe | Target | Standard library | C library headers |
 |---|---|---|---|---|

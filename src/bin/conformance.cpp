@@ -59,6 +59,7 @@ struct Options {
     std::optional<double> navigationBudget;   // seconds from initialize to the first navigation that answers; more fails the run
     std::string cacheDirectory;       // the server's cache; empty: a fresh one beside the workspace
     std::string measureFile;          // where the checks' timings are written as JSON
+    std::string timingEvidenceFile;   // bounded post-check report, only for the tiny timing fixture
     bool noDynamicWatch { false };    // usable plan W9.3: do not advertise didChangeWatchedFiles.dynamicRegistration
     // A client that is not this repository's own VS Code extension: no `experimental.cxxModules`,
     // only standard `window.workDoneProgress`. Zed, nvim, Helix and every other editor look like
@@ -330,6 +331,7 @@ private:
     bool verbose_ { false };
 
 public:
+    std::vector<std::string> serverCommand; // actual executable and argv, for timing evidence
     std::map<std::string, Json> diagnostics;     // uri -> latest diagnostics
     std::map<std::string, int> diagnosticsCount; // uri -> publishes received
     std::map<std::string, int> moduleFailedCount; // uri -> publishes received that carried a diagnostic with code "module-failed"
@@ -383,6 +385,8 @@ public:
         if (!options.clangd.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--clangd", options.clangd });
         if (!options.kit.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--kit", options.kit });
         spawn.arguments.insert(spawn.arguments.end(), serverArguments.begin(), serverArguments.end());
+        serverCommand = { spawn.program };
+        serverCommand.insert(serverCommand.end(), spawn.arguments.begin(), spawn.arguments.end());
         spawn.workDirectory = workspace;
         auto environment = mcppls::platform::env::variables();
         environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory);
@@ -3882,6 +3886,42 @@ public:
                 });
             return { ok, lsp::dump(location_uris(result)) };
         }
+        if (kind == "formatting-equals") {
+            open(file);
+            const std::string original { text_of(file) };
+            const std::string expected { check.contains("expected-file")
+                ? text_of(check.at("expected-file").get<std::string>())
+                : check.value("expect", std::string {}) };
+            if (original.empty() || expected.empty()) return { false, "formatting requires nonempty input and golden" };
+            auto apply = [&](const Json& edits) -> std::optional<std::string> {
+                if (!edits.is_array()) return std::nullopt;
+                struct Edit { std::size_t begin; std::size_t end; std::string text; };
+                std::vector<Edit> changes;
+                for (const auto& edit : edits) {
+                    const auto& start = edit.at("range").at("start");
+                    const auto& end = edit.at("range").at("end");
+                    auto from = base::offset_at(original, { start.at("line").get<int>(), start.at("character").get<int>() });
+                    auto to = base::offset_at(original, { end.at("line").get<int>(), end.at("character").get<int>() });
+                    if (!from || !to || *from > *to) return std::nullopt;
+                    changes.push_back({ *from, *to, edit.at("newText").get<std::string>() });
+                }
+                std::ranges::sort(changes, std::greater {}, &Edit::begin);
+                std::string formatted { original };
+                std::size_t boundary { original.size() };
+                for (const auto& edit : changes) {
+                    if (edit.end > boundary) return std::nullopt;
+                    formatted.replace(edit.begin, edit.end - edit.begin, edit.text);
+                    boundary = edit.begin;
+                }
+                return formatted;
+            };
+            auto [ok, result] = retry("textDocument/formatting", [&] {
+                return Json { { "textDocument", Json { { "uri", uri(file) } } },
+                              { "options", Json { { "tabSize", 4 }, { "insertSpaces", true } } } };
+            }, [&](const Json& edits) { return apply(edits) == std::optional<std::string> { expected }; });
+            const auto formatted = apply(result);
+            return { ok, formatted ? *formatted : "invalid formatting edits" };
+        }
         if (kind == "hover-contains") {
             open(file);
             // `expect` is one text the hover must contain, or several of which any one will do -- for a
@@ -4323,6 +4363,10 @@ int run(Options options) {
         }
     }
     const std::string name { scenario.value("name", std::string { base::file_name(options.fixture) }) };
+    if (!options.timingEvidenceFile.empty() && name != "timing") {
+        say("conformance: --timing-evidence is only for the tiny timing fixture");
+        return 2;
+    }
     const bool reused { !options.workspaceDirectory.empty() };
     const std::string scratch { reused ? options.workspaceDirectory
                                        : base::join_path(mcppls::platform::dirs::temp_directory(),
@@ -4538,8 +4582,30 @@ int run(Options options) {
         if (Json measure = runner.take_measure(); !measure.is_null()) entry["measure"] = std::move(measure);
         measured.push_back(std::move(entry));
     }
+    // Snapshot after every measured check, while the server can still answer. Evidence is
+    // optional and never changes a check result or its deadline; a missing report stays visible.
+    auto measuredReady = client.firstReady;
+    auto measuredDiagnostics = client.firstDiagnostics;
+    double evidenceSeconds { 0 };
+    if (!options.timingEvidenceFile.empty()) {
+        const auto evidenceBegin = Clock::now();
+        auto report = client.request("cxxModules/report", Json::object(), std::chrono::seconds { 2 });
+        Json evidence { { "server-command", client.serverCommand }, { "workspace", workspace },
+                        { "cache-directory", cacheDirectory }, { "report", nullptr },
+                        { "collection-budget-seconds", 2 }, { "collection-excluded-from-timing", true } };
+        if (report && report->dump(2).size() <= 1024 * 1024) evidence["report"] = std::move(*report);
+        else evidence["report-unavailable"] = report ? "report exceeds 1 MiB evidence bound" : "no report within 2 seconds";
+        evidence["collection-seconds"] = std::chrono::duration<double>(Clock::now() - evidenceBegin).count();
+        if (auto written = fs::write_file(options.timingEvidenceFile, evidence.dump(2) + "\n"); !written)
+            say("conformance: cannot write timing evidence {}", options.timingEvidenceFile);
+        evidenceSeconds = std::chrono::duration<double>(Clock::now() - evidenceBegin).count();
+    }
     runner.finish();
     client.stop();
+    if (options.timingEvidenceFile.empty()) {
+        measuredReady = client.firstReady;
+        measuredDiagnostics = client.firstDiagnostics;
+    }
     Json firstNavigation = nullptr;
     for (const auto& check : measured) {
         const std::string kind { check.value("kind", std::string {}) };
@@ -4554,7 +4620,7 @@ int run(Options options) {
         say("{} navigation-budget first navigation {} within {:.1f}s", within ? "PASS" : "FAIL",
             firstNavigation.is_number() ? std::format("{:.2f}s", firstNavigation.get<double>()) : std::string { "never answered" }, *options.navigationBudget);
     }
-    const double total { std::chrono::duration<double>(Clock::now() - begin).count() };
+    const double total { std::chrono::duration<double>(Clock::now() - begin).count() - evidenceSeconds };
     // The point of plain-client mode: a client with no custom capability must still be told that
     // work is happening. Standard `$/progress` is the only channel it has, and before the
     // cold-start work it received nothing at all.
@@ -4576,8 +4642,8 @@ int run(Options options) {
         };
         Json summary { { "fixture", name }, { "failures", failures }, { "seconds", total }, { "reused-workspace", alreadyPrepared } };
         summary["initialize"] = initializeSeconds;
-        summary["ready"] = since(client.firstReady);
-        summary["first-diagnostics"] = since(client.firstDiagnostics);
+        summary["ready"] = since(measuredReady);
+        summary["first-diagnostics"] = since(measuredDiagnostics);
         summary["first-navigation"] = firstNavigation;
         summary["checks"] = measured;
         if (auto written = fs::write_file(options.measureFile, summary.dump(2) + "\n"); !written) say("conformance: cannot write {}", options.measureFile);
@@ -5114,7 +5180,11 @@ int prepare_clangd_crash_context(const std::string& payload) {
         "exec 3<&0\n"
         "\"$real\" \"$@\" <&3 3<&- &\n"
         "child=$!\n"
-        "sleep 25\n"
+        // The wrapper must look busy for the stuck watch: it samples this process's own CPU, and an idle
+        // shell around a working clangd reads as a dead engine (the first answer then lost the 3s+5s race
+        // on the slowest Intel macOS runners, which killed the stand-in before its designed crash).
+        "end=$(( $(date +%s) + 25 ))\n"
+        "while [ $(date +%s) -lt $end ]; do i=0; while [ $i -lt 5000 ]; do i=$((i+1)); done; done\n"
         "echo 'PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace.' >&2\n"
         "echo 'Signalled during AST worker action: Build AST' >&2\n"
         "echo '  Filename: {}' >&2\n"
@@ -5245,6 +5315,7 @@ int main(int argc, char* argv[]) {
     (void)runCommand.option("workspace-dir").takes_value().help("Directory reused across runs: the fixture is copied and prepared there once");
     (void)runCommand.option("cache-dir").takes_value().help("The server's cache directory, e.g. shared by a cold and a warm run");
     (void)runCommand.option("measure").takes_value().help("File the checks' timings are written to, as JSON");
+    (void)runCommand.option("timing-evidence").takes_value().help("Bounded report after timing fixture checks; excluded from timing budgets");
     (void)runCommand.option("expect-warm").help("module-cache-reused checks fail unless an earlier run left module files in --cache-dir");
     (void)runCommand.option("navigation-budget").takes_value().help("Seconds the first navigation may take from initialize; more fails the run");
     (void)runCommand.option("no-dynamic-watch").help("Do not advertise didChangeWatchedFiles.dynamicRegistration, exercising the polling fallback");
@@ -5267,6 +5338,7 @@ int main(int argc, char* argv[]) {
         options.workspaceDirectory = args.value("workspace-dir") ? absolute(*args.value("workspace-dir")) : std::string {};
         options.cacheDirectory = args.value("cache-dir") ? absolute(*args.value("cache-dir")) : std::string {};
         options.measureFile = args.value("measure") ? absolute(*args.value("measure")) : std::string {};
+        options.timingEvidenceFile = args.value("timing-evidence") ? absolute(*args.value("timing-evidence")) : std::string {};
         options.expectWarm = args.is_flag_set("expect-warm");
         options.noDynamicWatch = args.is_flag_set("no-dynamic-watch");
         options.plainClient = args.is_flag_set("plain-client");

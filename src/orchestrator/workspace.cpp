@@ -1273,6 +1273,30 @@ struct Workspace::Impl final : engine::Host {
         if (model->source == project::SourceKind::inferred && project::is_cxx_source_name(path) && base::is_within(path, root)) schedule_reload();
     }
 
+    // A body save reaches the engine but does not change its database. F13 still needs a
+    // new plan for a deferred stand-in, an import now on disk, or a conditional import the
+    // producer omitted and the editing-source union would add. Compare fresh disk text;
+    // a matching draft alone does not establish what clangd will read after an autosave.
+    bool saved_structure_is_planned(std::string_view path) const {
+        if (!model || !firstPlanWritten || plan.standInsDeferred) return false;
+        const std::string key { base::path_key(path) };
+        const auto known = structures.find(key);
+        const auto* scan = index.scan_of(path);
+        if (known == structures.end() || scan == nullptr || structure_of(*scan) != known->second) return false;
+        const auto disk = platform::fs::read_file(path);
+        if (!disk || structure_of(project::scan_source(*disk)) != known->second) return false;
+        const auto required = project::required_names(*scan);
+        bool represented { false };
+        for (const auto& entry : plan.entries) {
+            if (base::path_key(entry.file) != key) continue;
+            represented = true;
+            if (std::ranges::any_of(required, [&](const std::string& name) {
+                return std::ranges::find(entry.imports, name) == entry.imports.end();
+            })) return false;
+        }
+        return represented;
+    }
+
     // A C++ source of the workspace the plan has no unit for is planned at once (robustness design C2); the core engine
     // holds it until then. A new source of an inferred model is in the model reloaded for it.
     void note_opened(std::string_view path) {
@@ -2587,7 +2611,8 @@ void Workspace::did_save(const Json& message, const Json& params) {
     // file is quiet (clangd builds with what is on disk).
     if (!saved.path.empty()) {
         const auto edited = impl_->editedAt.find(base::path_key(saved.path));
-        if (edited != impl_->editedAt.end() && Clock::now() - edited->second < Impl::EDITING_WINDOW) impl_->schedule_replan();
+        if (edited != impl_->editedAt.end() && Clock::now() - edited->second < Impl::EDITING_WINDOW
+            && !impl_->saved_structure_is_planned(saved.path)) impl_->schedule_replan();
     }
 }
 

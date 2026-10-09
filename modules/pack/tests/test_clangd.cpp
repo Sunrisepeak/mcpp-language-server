@@ -93,7 +93,7 @@ std::vector<Member> release_members(std::string_view exeName) {
 // test hands trim() its archive with `zip` and never fetches one.
 lock::Lock platforms_lock() {
     lock::Lock lockData {};
-    for (const std::string_view platform : { "linux-x64", "linux-arm64", "darwin-arm64", "win32-x64" }) {
+    for (const std::string_view platform : { "linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64", "win32-x64" }) {
         lockData.platforms.emplace(std::string { platform }, lock::Platform { .clangd = std::format("clangd-{}", platform) });
     }
     return lockData;
@@ -143,8 +143,8 @@ int main(int argc, char* argv[]) {
         expect(!fs::exists(base::join_path(out, "share")));
     };
 
-    "linux-x64 and darwin-arm64 set the executable bit, win32-x64 does not"_test = [&] {
-        for (const std::string_view platform : { "linux-x64", "darwin-arm64" }) {
+    "Linux and both Darwin architectures set the executable bit, win32-x64 does not"_test = [&] {
+        for (const std::string_view platform : { "linux-x64", "darwin-x64", "darwin-arm64" }) {
             const std::string zip { base::join_path(work, std::format("clangd-{}.zip", platform)) };
             expect(fatal(write_zip(zip, release_members("clangd"))));
             const std::string out { base::join_path(work, std::format("{}-out", platform)) };

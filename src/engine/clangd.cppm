@@ -18,7 +18,9 @@ inline constexpr std::string_view ENGINE_ID { "clangd" };
 // releases no longer need aligned allocation turned off (llvm-project#218152, fixed in 23.1.1) but
 // have not run through the conformance suite; any other version gets every compensation.
 // `disabled`: registered workarounds (WA-CLANGD-<n>) turned off whatever the version.
-EngineTraits traits_for_version(std::string_view version, std::span<const std::string> disabled = {});
+// `verifiedFeatures`: capabilities of the verified payload; a version alone cannot prove a fork fix.
+EngineTraits traits_for_version(std::string_view version, std::span<const std::string> disabled = {},
+                               std::span<const std::string> verifiedFeatures = {});
 
 // WA-CLANGD-009: whether the project of `plan` uses C++ modules at all -- a unit that is part of or provides a module,
 // imports one (`import std;` included), or an import nothing provides (a stand-in, or an issue naming the module).
@@ -36,6 +38,9 @@ struct Options {
     // is restarted. Both end within an interactive request's own timeout. Tests shorten them.
     std::chrono::milliseconds stuckAfter { std::chrono::seconds { 3 } };
     std::chrono::milliseconds stuckWatch { std::chrono::seconds { 5 } };
+    std::string formatFallbackStyle { "auto" };
+    bool mcppFormatStyle { false };  // verified bundled capability, never inferred from version
+    std::vector<std::string> verifiedFeatures; // verified payload identity only, absent for custom or corrupt engines
     std::vector<std::string> extraArguments;
     // mcppls.engine.workers (R-2, plan 2026-09-30): clangd's workers; nullopt or 0 is the automatic value (engine_workers).
     std::optional<std::size_t> workers;

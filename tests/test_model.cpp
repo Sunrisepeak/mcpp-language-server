@@ -520,10 +520,13 @@ int main() {
     "gateway: a request past its timeout is cancelled and reported, not left hanging"_test = [&] {
         if (!mockModel) return;
         const std::string trace { temp_dir("timeout-trace") + ".jsonl" };
-        const std::string script { write_temp_json("timeout", Json::parse(R"({"delayMs": 5000, "result": {"json": {}}})")) };
+        // Force initialize beyond the completion deadline: this test must reach complete and
+        // observe its cancel even when process startup/handshake exceeds 300ms (Intel macOS CI).
+        const std::string script { write_temp_json("timeout", Json::parse(R"({"initializeDelayMs": 500, "delayMs": 5000, "result": {"json": {}}})")) };
         model::GatewayOptions options;
         options.executable = *mockModel;
         options.requestTimeout = std::chrono::milliseconds { 300 };
+        options.initializeTimeout = std::chrono::seconds { 10 };
         options.arguments = { "--script", script, "--trace", trace };
         model::GatewayClient client { options };
         expect(fatal(client.start().has_value()));

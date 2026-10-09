@@ -22,6 +22,7 @@ checks fail at once with that reason instead of each waiting out its timeout.
 
 | Fixture | What it covers |
 |---|---|
+| `save-plan` | Actual autosave of a module's new export reaches an importer without changing module names or imports; autosave of a new exported import still updates the plan and makes its exports available. Uses the semantic kit and no build system |
 | `xmake-basic` | 0.0.8 part 2 X-1, X-6, X-7: an xmake project with GCC 16 and `import std`, described by xmake run privately (source xmake, L3, std prepared, navigation works); the provisional model never says `untrusted-workspace`; nothing is written into the project. Linux, needs `xmake` on PATH |
 | `xmake-late-config` | X-1, X-5 (E1): no `set_languages`, and a stale `compile_commands.json` in the root (`prepare xmake-stale-compdb`); the engine commands are xmake's, not the file's; adding `set_languages("c++23")` to xmake.lua reaches the engine within 15 s with no `compdb-invalid`, `model-stale` or `preparation-stalled`; the project directory is unchanged once the edit is put back |
 | `xmake-needs-download` | Plan 0.0.9 D-1, D-2, D-3, D-6, against a stand-in `xmake` script (`fake-bin/`, first on the server's PATH by the scenario's `server-path-prepend`; POSIX only, so in the Linux fixture lists). Offline, missing packages: `producer-needs-download` naming them, that build tools are included, that the run stayed offline and that the system package manager works too, `askOnline`, the project untouched. `mcppls.describeOnline` and the install fails: `producer-install-failed` with xmake's error lines and its install log, no ask. Missing at the `xmake project` stage: needs-download, not `xmake-configure-failed`. `.xmake/*/*/xmake.conf` holds `proxy`, `dotnet` and `dotnet_sdkver` (which `xmake f` refuses) and a project option: `xmake f` runs once per load, with no `xmake-options-left-out` |
@@ -343,3 +344,23 @@ of this runner's own long-standing default (the full `experimental.cxxModules` b
 `--client zed` and `--client plain` behave exactly as `--plain-client` always has (kept as its
 alias): no `cxxModules/status` arrives, so a `status` check is skipped rather than run, and the run
 checks that standard `$/progress` still arrived instead.
+
+
+`format-mcpp` checks the pinned mcpp fallback and project configuration override
+through actual LSP formatting edits. It requires a payload with verified
+`format-style-mcpp` capability. `format-explicit` checks explicit user fallback
+and project precedence and also runs with stock clangd. `format-external` is run
+with `--clangd` pointing to stock clangd and checks that it receives no bundled
+preset. These fixtures disable the build tool deliberately: the inferred model
+is usable and reports the expected degraded state for that choice.
+
+`formatting-equals` applies returned TextEdits using UTF-16 positions, rejects
+invalid/overlapping ranges, and compares the complete output against `expect`
+or `expected-file`; an empty response cannot pass an unformatted golden.
+
+The focused installed-VSIX counterpart runs with
+`MCPPLS_E2E_SCENARIO=formatting MCPPLS_E2E_VSIX=<candidate.vsix> npm test`
+in editors/vscode. It requires the maintained formatting capability and uses
+three independent isolated workspaces for auto preset, explicit Google style
+and project LLVM style. It compares the editor provider's full edits to the
+same goldens and verifies that every workspace remains unchanged.

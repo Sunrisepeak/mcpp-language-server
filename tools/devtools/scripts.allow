@@ -5,5 +5,9 @@
 
 docs/specs/tools/validate.py	JSON Schema 2020-12 validation, and no C++ library in the mcpp index supports it yet; ported when one does, or when the schemas can say the same in draft-07.
 .github/scripts/install-mcpp.sh	CI bootstrap: installs mcpp itself, before any mcpp-built program can run.
+.github/scripts/timing_evidence.py	CI timing diagnostics: captures bounded per-round engine reports and cache log excerpts around the native conformance executable; preserves its exit status and keeps collection outside measured latency.
 editors/zed/tests/smoke.sh	The real-Zed smoke (plan 0.0.8 part 2 Z-2, Z-3): drives a GUI editor binary under xvfb, starts and stops it, and inspects its process tree; that is shell work, and no mcpp-built program can stand in for Zed.
 editors/zed/tests/lsp_frames.py	The smoke's helper that reads the LSP frames a wrapper recorded between Zed and mcppls; kept beside smoke.sh, which needs it only in the same CI job.
+.github/scripts/install-intel-neovim.sh	CI bootstrap: the Intel macOS Neovim job installs checksum-pinned native editor binaries, because the xlings installer of the pinned version rejects macosx-x86_64; remove when a fixed installer is pinned.
+
+.github/scripts/stability_evidence.py	CI stability diagnostics: retains bounded text logs, CDB excerpts and measurements for each native conformance round, preserves its verdict, and cleans its owned scratch after collection.

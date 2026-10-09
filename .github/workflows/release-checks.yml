@@ -90,7 +90,6 @@ jobs:
       matrix:
         include:
           - { platform: linux-x64,    os: ubuntu-24.04,     exe: '' }
-          - { platform: linux-arm64,  os: ubuntu-24.04-arm, exe: '' }
           - { platform: darwin-arm64, os: macos-14,         exe: '' }
           - { platform: win32-x64,    os: windows-2022,     exe: '.exe' }
     defaults:
@@ -155,6 +154,9 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - uses: actions/download-artifact@v8
         with:
           name: payload-${{ matrix.platform }}
@@ -172,7 +174,8 @@ jobs:
           for round in 1 2 3 4 5; do
             for start in cold warm; do
               warm=(); [ "$start" = warm ] && warm=(--expect-warm)
-              "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls${{ matrix.exe }}" --payload payload \
+              python3 .github/scripts/timing_evidence.py --output "$results/evidence/$start-$round" -- \
+                  "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls${{ matrix.exe }}" --payload payload \
                   --fixture conformance/fixtures/timing \
                   --workspace-dir "$RUNNER_TEMP/timing-$round/workspace" --cache-dir "$RUNNER_TEMP/timing-$round/cache" \
                   --timeout 120 --measure "$results/$start-$round.json" ${warm[@]+"${warm[@]}"}
@@ -297,7 +300,11 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - uses: ./.github/actions/setup-mcpp
+        if: '!matrix.cross-tools'
       - uses: actions/download-artifact@v8
         with:
           name: payload-${{ matrix.platform }}
@@ -307,26 +314,41 @@ jobs:
         run: |
           set -euo pipefail
           failed=''
+          evidence="$RUNNER_TEMP/stability-evidence"
+          mkdir -p "$evidence"
           for round in 1 2 3; do
             for fixture in ${{ matrix.fixtures }}; do
               extra=()
               case "$fixture" in *@polling) extra=(--no-dynamic-watch) ;; esac
               echo "::group::round $round: $fixture"
               started=$(date +%s)
-              if ! "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls${{ matrix.exe }}" --payload payload \
-                    ${extra[@]+"${extra[@]}"} --fixture "conformance/fixtures/${fixture%@*}" --timeout 180; then
+              key="$round-${fixture//@/-}"
+              scratch="$RUNNER_TEMP/stability-scratch/$key"
+              if ! python3 .github/scripts/stability_evidence.py --output "$evidence/$key" --scratch "$scratch" -- \
+                    "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls${{ matrix.exe }}" --payload payload \
+                    ${extra[@]+"${extra[@]}"} --fixture "conformance/fixtures/${fixture%@*}" --timeout 180 \
+                    --workspace-dir "$scratch/workspace" --cache-dir "$scratch/cache" --keep --measure "$scratch/measure.json"; then
                 failed="$failed $round:$fixture"
               fi
               echo "::endgroup::"
               echo "round $round $fixture $(( $(date +%s) - started )) s" | tee -a "$RUNNER_TEMP/stability.txt"
             done
           done
-          { echo '| round | fixture | seconds |'; echo '|---|---|---|'
+          { echo '| round | fixture | seconds (runner + diagnostics) |'; echo '|---|---|---|'
             awk '{ printf "| %s | %s | %s |\n", $2, $3, $4 }' "$RUNNER_TEMP/stability.txt"; } >> "$GITHUB_STEP_SUMMARY"
           if [ -n "$failed" ]; then
             echo "::error::failed (round:fixture):$failed"
             exit 1
           fi
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: stability-evidence-${{ matrix.platform }}-${{ strategy.job-index }}
+          path: |
+            ${{ runner.temp }}/stability-evidence
+            ${{ runner.temp }}/stability.txt
+          if-no-files-found: warn
+
 
   # Everything a release would publish, staged and checked. Release takes this artifact as it is.
   candidate:

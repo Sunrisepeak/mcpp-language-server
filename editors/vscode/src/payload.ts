@@ -23,8 +23,9 @@ export interface PayloadManifest {
 }
 
 // 1: the first layout; 2 adds `files`, which the server itself checks; 3 adds `engines`, which the
-// server reads to pick each engine's executable and matching kit. The extension reads none of them.
-export const SUPPORTED_PAYLOAD_VERSIONS: readonly number[] = [1, 2, 3];
+// server reads to pick each engine's executable and matching kit. Version 4 binds an immutable
+// engine identity, which the server verifies before using its capabilities.
+export const SUPPORTED_PAYLOAD_VERSIONS: readonly number[] = [1, 2, 3, 4];
 
 export interface ServerLaunch {
     executable: string;
@@ -40,7 +41,7 @@ export type LaunchResolution =
 
 // The platforms of packaging/payload.lock.json, as `${process.platform}-${process.arch}` names them;
 // `mcppls-devtools check platforms` fails when the two lists differ.
-export const SUPPORTED_PLATFORMS: readonly string[] = ['linux-x64', 'linux-arm64', 'win32-x64', 'darwin-arm64'];
+export const SUPPORTED_PLATFORMS: readonly string[] = ['linux-x64', 'win32-x64', 'darwin-arm64'];
 
 export function currentPlatform(): string {
     return `${process.platform}-${process.arch}`;
