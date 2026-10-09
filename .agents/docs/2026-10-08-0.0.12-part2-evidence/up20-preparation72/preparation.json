@@ -1,0 +1,11 @@
+{
+  "scope": "Prepared original482-file audited UP20 one-save replay only, no actual engine/product run. Original fixture preserved; new copy additionally enforces zero restart. Same original prepared workspace and eight CPUs. Not1000 saves.",
+  "files": {
+    "run.py": "d59ab38668317fa7608c98bbaea04e28cdbe702ec92dcaadb2a42855f75cba67",
+    "command.json": "32bb28cca86f5bd9d6f1c7a1e35f5348fdc108005adcdeab6621cbe6961231a4",
+    "fixture/scenario.json": "c13d6dad0434eade4da19dfa59fe132cc1ab772a62df3aee300da2347c24b682",
+    "source-audit.json": "3c48d0743ed0a9ab9aacd84a0dbba5483e217f0fcae9993c012dad511ffc34a6"
+  },
+  "build_running_preflight_exit_code": 1,
+  "stderr": "Traceback (most recent call last):\n  File \"/tmp/mcppls-part2-floor72/qualification/up20-original/run.py\", line 4, in <module>\n    import final72_identity\n  File \"/tmp/mcppls-part2-floor72/qualification/final72_identity.py\", line 4, in <module>\n    assert json.loads((floor/'retry1-progress.json').read_text())['status']=='complete', 'clean72 build/test/package required; no measurement started'\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: clean72 build/test/package required; no measurement started\n"
+}

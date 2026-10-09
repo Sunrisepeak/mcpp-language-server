@@ -1,0 +1,25 @@
+{
+  "scope": "Actual parent and detached child cleanup control only; not product or engine lifecycle qualification",
+  "cleanup": {
+    "known": {
+      "2537553": {
+        "pgid": 2537553,
+        "start_ticks": 12844991
+      },
+      "2537556": {
+        "pgid": 2537556,
+        "start_ticks": 12844993
+      }
+    },
+    "term_groups": [
+      2537553,
+      2537556
+    ],
+    "kill_groups": [],
+    "remaining_observed_live": [],
+    "errors": [],
+    "watcher_stopped": true,
+    "scope": "Observed identity/descendant cleanup only; periodic discovery does not prove all fast unobserved escapes."
+  },
+  "caller_survived": true
+}

@@ -1,0 +1,14 @@
+{
+  "scope": "Original UP20 source audit and unexecuted final72 fan-out driver; actual Python detached-child cleanup control only",
+  "files": {
+    "source-audit.json": "3c48d0743ed0a9ab9aacd84a0dbba5483e217f0fcae9993c012dad511ffc34a6",
+    "preparation.json": "e489a176b9f3b7addd6e3af813bf5308c0303eaa214aaf8e039d3043d51955b2",
+    "run.py": "95ec8c555ac2d51c4ab62d0cea8b03ad5b80912191b35ce53298272cf8f869d2",
+    "run-before-owned-cleanup.py": "d59ab38668317fa7608c98bbaea04e28cdbe702ec92dcaadb2a42855f75cba67",
+    "command.json": "32bb28cca86f5bd9d6f1c7a1e35f5348fdc108005adcdeab6621cbe6961231a4",
+    "fixture/scenario.json": "c13d6dad0434eade4da19dfa59fe132cc1ab772a62df3aee300da2347c24b682",
+    "owned_process_cleanup.py": "c8792c38ec7d658d9398ceaba419428d91b3783e151191eed4ab94493e6482e3",
+    "owned-cleanup-control.json": "32f4845ebc65e437c07f33dea05712065d731e3c5ca2ebbc3e255709656cc994",
+    "README.md": "21bc7b1d36196750f0959da581d72f887818cd63848b307dcdde6e0b3682656a"
+  }
+}
