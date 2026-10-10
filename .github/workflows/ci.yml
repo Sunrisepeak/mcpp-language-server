@@ -230,17 +230,48 @@ jobs:
             cp cross/mcppls-devtools host-devtools
           fi
           chmod +x host-devtools cross/*
+      # A candidate engine (docs/92-release.md, "A new engine"): packaging/engine-candidate.json names
+      # a mcppls-clangd PR's CI run, whose packaged part replaces the lock's clangd, so the two are
+      # tested together before the engine is released. Only a pull request (or a manual CI run) may.
+      - name: Candidate engine
+        id: candidate
+        run: |
+          set -euo pipefail
+          file=packaging/engine-candidate.json
+          [ -f "$file" ] || exit 0
+          if [ '${{ github.event_name }}' != pull_request ] && { [ '${{ github.event_name }}' != workflow_dispatch ] || [ '${{ github.workflow }}' != CI ]; }; then
+            echo "::error::$file names an unreleased engine; it is for a pull request's CI, not ${{ github.workflow }} (${{ github.event_name }}). Release the engine, switch packaging/payload.lock.json to it and remove the file."
+            exit 1
+          fi
+          echo "repository=$(jq -r .repository "$file")" >> "$GITHUB_OUTPUT"
+          echo "run-id=$(jq -r '.["run-id"]' "$file")" >> "$GITHUB_OUTPUT"
+          jq . "$file"
+      - uses: actions/download-artifact@v8
+        if: steps.candidate.outputs.run-id != ''
+        with:
+          name: clangd-${{ matrix.platform }}-portable
+          repository: ${{ steps.candidate.outputs.repository }}
+          run-id: ${{ steps.candidate.outputs.run-id }}
+          github-token: ${{ github.token }}
+          path: candidate
       # Fetch, trim clangd, build the semantic kit, assemble and verify: one command, the one a
       # developer runs (docs/93-devtools.md), with the cross-built server named.
       - name: Assemble
         run: |
           set -euo pipefail
+          engine=()
+          if [ -d candidate ]; then
+            part=$(dirname "$(find candidate -path '*clangd/engine.json' | head -1)")
+            chmod +x "$part"/bin/*
+            jq '{version: .["engine-version"], fork: .["fork-commit"], sha256, features}' "$part/engine.json"
+            engine=(--clangd "$part")
+          fi
           server="cross/mcppls${{ matrix.exe }}"
           runner="cross/mcppls-conformance${{ matrix.exe }}"
           mock="cross/mcppls-mock-mcpp${{ matrix.exe }}"
           mockModel="cross/mcppls-mock-model${{ matrix.exe }}"
           packer="cross/mcppls-devtools${{ matrix.exe }}"
-          ./host-devtools payload --platform ${{ matrix.platform }} --server "$server" --out payload --cache "$PAYLOAD_CACHE"
+          ./host-devtools payload --platform ${{ matrix.platform }} --server "$server" "${engine[@]}" --out payload --cache "$PAYLOAD_CACHE"
           ./host-devtools payload --verify payload --json > "$RUNNER_TEMP/verify.json"
           cat "$RUNNER_TEMP/verify.json"
           if [ -f cross/SHA256SUMS ]; then
