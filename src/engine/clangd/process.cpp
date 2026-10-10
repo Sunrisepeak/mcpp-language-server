@@ -52,6 +52,14 @@ std::vector<std::string> clangd_arguments(const ProcessConfig& config) {
                argument.starts_with("--fallback-style=") || argument.starts_with("-fallback-style=");
     }) };
     if (!config.fallbackStyle.empty() && !styleGiven) arguments.push_back("--fallback-style=" + config.fallbackStyle);
+    const bool policyGiven { std::ranges::any_of(config.extraArguments, [](const std::string& argument) {
+        return argument.starts_with("--modules-builder-worker-policy") || argument.starts_with("-modules-builder-worker-policy");
+    }) };
+    // The owned cache's payload bounds are a worker's: an in-process build runs without them.
+    if (config.inProcessModuleBuilds && !policyGiven) {
+        arguments.emplace_back("--modules-builder-worker-policy=in-process");
+        arguments.emplace_back("--modules-builder-owned-cache-payload-mib=0");
+    }
     arguments.insert(arguments.end(), config.extraArguments.begin(), config.extraArguments.end());
     return arguments;
 }

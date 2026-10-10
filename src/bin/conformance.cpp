@@ -25,6 +25,7 @@ import mcppls.platform.process;
 import mcppls.platform.task;
 import mcppls.lsp.jsonrpc;
 import mcppls.lsp.connection;
+import mcppls.project.scan;
 import mcppls.orchestrator.tokens;
 import mcppls.bundle.redact;
 import mcppls.bundle.zip;
@@ -278,12 +279,44 @@ std::map<std::string, std::string> snapshot(const std::string& root) {
     return files;
 }
 
+// mcppls-clangd's owned module cache (Linux) publishes every module file as
+// <modules>/.owned-payload-v1/generation-<slot>-<n>/payload.pcm, so neither the name nor the directory says whose it
+// is. The file does: its control block names the unit it was built from (ORIGINAL_FILE), the first absolute source
+// path in it, and the unit's own `export module` declaration names the module.
+bool owned_payload(std::string_view path) { return path.contains("/.owned-payload-v1/") && path.ends_with("/payload.pcm"); }
+
+std::string owned_payload_source(const std::string& path) {
+    static std::map<std::string, std::string> known;
+    if (const auto found = known.find(path); found != known.end()) return found->second;
+    static const std::regex SOURCE { R"((/[\w./+-]+\.(?:cppm|ixx|cxxm|mpp|cc|cpp|cxx|c\+\+m)))" };
+    std::string source;
+    std::ifstream in { path, std::ios::binary };
+    std::string head(1 << 16, '\0');
+    in.read(head.data(), static_cast<std::streamsize>(head.size()));
+    head.resize(static_cast<std::size_t>(in.gcount()));
+    std::smatch match;
+    if (std::regex_search(head, match, SOURCE)) source = match[1].str();
+    known.emplace(path, source);
+    return source;
+}
+
+// "name" or "name:partition", as the unit declares it; empty when it declares no module.
+std::string declared_module(const std::string& source) {
+    const auto text = fs::read_file(source);
+    if (!text) return {};
+    const auto declaration = mcppls::project::scan_source(*text).declaration;
+    if (!declaration) return {};
+    return declaration->partition.empty() ? declaration->module : declaration->module + ":" + declaration->partition;
+}
+
 // The engine's published module files for a module under a cache directory, with their stamps. clangd
 // publishes <module>.pcm (a partition as <module>-<partition>.pcm) under a directory per source and
 // command; the copies it hands to readers carry a timestamp in their names and are not included.
+// mcppls-clangd's owned payloads are the module's when the unit they were built from declares it.
 std::map<std::string, std::string> module_files(const std::string& cacheDirectory, std::string_view module) {
     std::string published { module };
     std::ranges::replace(published, ':', '-');
+    const std::string declared { module };
     published += ".pcm";
     std::map<std::string, std::string> files;
     if (cacheDirectory.empty()) return files;
@@ -294,7 +327,7 @@ std::map<std::string, std::string> module_files(const std::string& cacheDirector
         for (const auto& entry : fs::list_directory(directory)) {
             if (fs::is_directory(entry)) {
                 pending.push_back(entry);
-            } else if (base::file_name(entry) == published) {
+            } else if (base::file_name(entry) == published || (owned_payload(entry) && declared_module(owned_payload_source(entry)) == declared)) {
                 const auto stamp = fs::stamp(entry);
                 files[entry] = stamp ? std::format("{}:{}", stamp->size, stamp->modified) : std::string {};
             }
@@ -1289,14 +1322,24 @@ struct Builds {
     std::size_t first { 0 };
 };
 Builds builds_since(const std::map<std::string, std::string>& before, const std::map<std::string, std::string>& now) {
-    // A module file is <modules>/<unit>-<hash>/<command hash>/<name>.pcm: its unit is two directories up.
-    const auto unit_of = [](const std::string& path) { return base::parent_path(base::parent_path(path)); };
+    // A module file is <modules>/<unit>-<hash>/<command hash>/<name>.pcm: its unit is two directories up. An owned
+    // payload's unit is the source it was built from.
+    const auto unit_of = [](const std::string& path) {
+        return owned_payload(path) ? owned_payload_source(path) : base::parent_path(base::parent_path(path));
+    };
+    const auto size_of = [](const std::string& stamp) { return stamp.substr(0, stamp.find(':')); };
     std::set<std::string> unitsBefore;
-    for (const auto& [path, stamp] : before) unitsBefore.insert(unit_of(path));
+    std::set<std::pair<std::string, std::string>> ownedBefore;   // (unit, size) of each owned payload there was
+    for (const auto& [path, stamp] : before) {
+        unitsBefore.insert(unit_of(path));
+        if (owned_payload(path)) ownedBefore.emplace(unit_of(path), size_of(stamp));
+    }
     Builds builds;
     for (const auto& [path, stamp] : now) {
         const auto it = before.find(path);
         if (it != before.end() && it->second == stamp) continue;
+        // An owned read copy is a new generation holding the very bytes of a payload there was: not a build.
+        if (it == before.end() && owned_payload(path) && ownedBefore.contains({ unit_of(path), size_of(stamp) })) continue;
         if (unitsBefore.contains(unit_of(path))) ++builds.rebuilt;
         else ++builds.first;
     }
@@ -2405,6 +2448,33 @@ public:
             }
         };
 
+        // "firstOpenSeconds" (issue #50): an engine may wait for a file's first preamble before it answers a completion
+        // in it, as mcppls-clangd does in a module importer. That wait is measured on its own, asking once a second at
+        // the cursor until the engine answers one, and the typing below starts after it, so its budgets hold the file
+        // as a person edits it, not as it opens.
+        std::optional<double> firstOpen;
+        const auto firstOpenLimit { budget_number(check, "firstOpenSeconds") };
+        if (firstOpenLimit) {
+            const auto engineAnswers = [&] {
+                long count { 0 };
+                for (const auto& [engine, answers] : answered_by(root_report(), "textDocument/completion")) {
+                    if (engine != "mcppls") count += answers;
+                }
+                return count;
+            };
+            const long answersBefore { engineAnswers() };
+            const auto opened { Clock::now() };
+            while (seconds_since(opened) < *firstOpenLimit + 30.0 && client_.unusable().empty()) {
+                (void)client_.send_async("textDocument/completion", Json { { "textDocument", Json { { "uri", documentUri } } },
+                                                                           { "position", Json { { "line", cursor.line }, { "character", cursor.character } } } });
+                client_.pump_until(Clock::now() + std::chrono::seconds { 1 });
+                if (engineAnswers() > answersBefore) {
+                    firstOpen = seconds_since(opened);
+                    break;
+                }
+            }
+            client_.pump_until(Clock::now() + std::chrono::milliseconds { 1500 });   // what was still asked is answered before
+        }
         const Json before = root_report();
         const std::size_t samplesBefore { client_.statusSamples.size() };
         const auto failedDiagnosticsOf = [&](const std::string& documentUriOf) {
@@ -2543,6 +2613,10 @@ public:
         Json detail;
         const auto share { engine_share(before, after, "textDocument/completion", &detail) };
         enforce_min(check, "engineShare", share, "engine share of completion", failures);
+        if (firstOpenLimit) {
+            if (!firstOpen) failures.push_back(std::format("clangd answered no completion within {:.0f} s of the file opening", *firstOpenLimit + 30.0));
+            else if (*firstOpen > *firstOpenLimit) failures.push_back(std::format("clangd's first completion came {:.1f}s after the file opened, over the budget {:.1f}s", *firstOpen, *firstOpenLimit));
+        }
         std::set<std::string> statesSeen;
         for (std::size_t i { samplesBefore }; i < client_.statusSamples.size(); ++i) statesSeen.insert(client_.statusSamples[i].state);
         for (const auto& never : check.value("states-never", Json::array())) {
@@ -2552,7 +2626,8 @@ public:
                        { "answered", answered.size() }, { "clientTimeouts", timeouts }, { "serverTimeouts", serverTimeouts }, { "errors", errors },
                        { "completion", latency }, { "engineShare", share ? Json(*share) : Json(nullptr) }, { "answeredBy", detail },
                        { "restarts", restarts }, { "filesSetAside", setAside }, { "diagnosticsRefresh", refresh ? Json(*refresh) : Json(nullptr) },
-                       { "statesSeen", statesSeen }, { "doomed", doomed }, { "moduleFailedDiagnostics", moduleFailedDiagnostics }, { "stalledSamples", stalledSamples } };
+                       { "statesSeen", statesSeen }, { "doomed", doomed }, { "moduleFailedDiagnostics", moduleFailedDiagnostics }, { "stalledSamples", stalledSamples },
+                       { "firstOpenSeconds", firstOpen ? Json(*firstOpen) : Json(nullptr) } };
         std::string importerBrief;
         if (withImporter) {
             summary["importer"] = Json { { "file", importerFile }, { "completions", importerCompletions.size() }, { "answered", importerAnswered.size() },
@@ -2561,7 +2636,8 @@ public:
                                         importerEmpty, importerModuleFailed);
         }
         return finish_measure(std::move(failures), std::move(summary),
-                              std::format("{:.0f} s at {:.0f} Hz, {} completions p95 {:.2f}s max {:.2f}s{}, {} restart(s), {} set aside, {} doomed, {} module-failed diagnostic(s), {} stalled sample(s), {} timeout(s), diagnostics after {}",
+                              std::format("{}{:.0f} s at {:.0f} Hz, {} completions p95 {:.2f}s max {:.2f}s{}, {} restart(s), {} set aside, {} doomed, {} module-failed diagnostic(s), {} stalled sample(s), {} timeout(s), diagnostics after {}",
+                                          firstOpen ? std::format("first clangd answer {:.1f}s after opening; then ", *firstOpen) : std::string {},
                                           typingSeconds, hz, completions.size(), latency["p95"].get<double>(), latency["max"].get<double>(), importerBrief, restarts, setAside, doomed,
                                           moduleFailedDiagnostics, stalledSamples, allTimeouts, refresh ? std::format("{:.1f}s", *refresh) : std::string { "never" }));
     }
@@ -3638,10 +3714,16 @@ public:
                 if (it == now.end()) differences.push_back("removed " + path);
                 else if (it->second != stamp) differences.push_back("rebuilt " + path);
             }
-            for (const auto& [path, stamp] : now) {
-                if (!before->second.contains(path)) differences.push_back("added " + path);
+            std::set<std::string> sizesBefore;   // an owned read copy holds the bytes of a payload there was
+            for (const auto& [path, stamp] : before->second) {
+                if (owned_payload(path)) sizesBefore.insert(stamp.substr(0, stamp.find(':')));
             }
-            return { differences.empty(), differences.empty() ? std::format("{} file(s) of {} reused", now.size(), module) : lsp::dump(differences) };
+            for (const auto& [path, stamp] : now) {
+                if (before->second.contains(path)) continue;
+                if (owned_payload(path) && sizesBefore.contains(stamp.substr(0, stamp.find(':')))) continue;
+                differences.push_back("added " + path);
+            }
+            return { differences.empty(), differences.empty() ? std::format("{} file(s) of {} reused", before->second.size(), module) : lsp::dump(differences) };
         }
         if (kind == "workspace-unchanged") {
             // Give the server time to do what it does after opening the workspace.

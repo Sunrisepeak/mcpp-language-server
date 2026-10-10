@@ -829,6 +829,19 @@ int main() {
         expect(std::ranges::count(arguments, "--fallback-style=Google") == 1);
     };
 
+    "under PRoot the maintained engine compiles modules in process unless the user chooses"_test = [] {
+        cld::ProcessConfig config;
+        const std::string inProcess { "--modules-builder-worker-policy=in-process" };
+        expect(std::ranges::count(cld::clangd_arguments(config), inProcess) == 0);
+        config.inProcessModuleBuilds = true;
+        const auto proot = cld::clangd_arguments(config);
+        expect(std::ranges::count(proot, inProcess) == 1);
+        expect(std::ranges::count(proot, std::string { "--modules-builder-owned-cache-payload-mib=0" }) == 1) << "the owned cache's bounds need a worker";
+        config.extraArguments = { "--modules-builder-worker-policy=required" };
+        const auto chosen = cld::clangd_arguments(config);
+        expect(std::ranges::count(chosen, inProcess) == 0 && chosen.back() == "--modules-builder-worker-policy=required");
+    };
+
     "on macOS background indexing yields to cold module work unless the user chooses its priority"_test = [] {
         cld::ProcessConfig config;
         const std::string defaultPriority { "--background-index-priority=background" };

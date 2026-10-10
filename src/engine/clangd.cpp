@@ -12,6 +12,7 @@ import mcppls.base.uri;
 import mcppls.platform.env;
 import mcppls.platform.fs;
 import mcppls.platform.process;
+import mcppls.platform.sandbox;
 import mcppls.lsp.jsonrpc;
 import mcppls.lsp.protocol;
 import mcppls.project.scan;
@@ -1662,6 +1663,10 @@ private:
         config.workers = workers_;
         config.fallbackStyle = format_fallback_style(options_.formatFallbackStyle, options_.mcppFormatStyle,
             platform::fs::is_regular_file(base::join_path(host_->root_directory(), "mcpp.toml")));
+        // Under PRoot every process is traced call by call, so mcppls-clangd's supervised compiler worker, a
+        // process per module, costs many times an in-process build; there it compiles in clangd, as upstream
+        // does. Only a verified maintained engine has the option (an external clangd would refuse to start).
+        config.inProcessModuleBuilds = !options_.verifiedFeatures.empty() && !platform::sandbox().empty();
         if (base::to_lower_ascii(options_.formatFallbackStyle) == "mcpp" && !options_.mcppFormatStyle)
             add_issue_(Issue { "format-style-unavailable", "the selected engine does not declare the mcpp formatting style", "mcppls.showLogs", "environment" });
         config.modulesSupport = modulesSupport_;   // WA-CLANGD-009

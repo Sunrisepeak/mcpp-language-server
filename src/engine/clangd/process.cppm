@@ -17,6 +17,7 @@ struct ProcessConfig {
     std::string databaseDirectory;   // what clangd reads (--compile-commands-dir)
     std::string workDirectory;
     std::string fallbackStyle;
+    bool inProcessModuleBuilds { false };   // mcppls-clangd compiles prerequisite modules in clangd (PRoot)
     std::vector<std::string> extraArguments;
     bool verboseLog { false };
     std::size_t workers { 0 };       // clangd's -j; 0: clangd's own default. Extra arguments naming -j win.
