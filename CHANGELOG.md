@@ -75,6 +75,17 @@ identity, and the server checks both before it trusts what the engine declares.
 - `textDocument/semanticTokens/range` is answered, and `misc-const-correctness` no longer suggests
   `const` for a range a pipeline consumes.
 
+### Fixes
+
+- **"preparation-stalled" no longer fires the moment preparation starts again (#49).** Preparation
+  that had finished a while earlier and was given modules again — a model reloaded, a file opened
+  that imports a module nobody had prepared — measured its stall clock from the previous run's
+  last progress. It reported "made no progress for a minute (34/39 done)" seconds after starting,
+  and wrote a diagnostic bundle.
+- A file mcppls's own engine answers for a while (its module does not compile) is no longer taken
+  for one clangd will not finish once it goes back, and a syntax error in a file the editor opened
+  outside the workspace is no longer reported as a project issue.
+
 ### VS Code
 
 - **A server that crashes while starting recovers cleanly.** Recovery waits for the failed start

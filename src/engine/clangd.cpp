@@ -2613,7 +2613,9 @@ private:
         // A unit whose scan keeps failing is reported again at each attempt, the real case of a module to stand in for
         // (partial-scan-standins); a provider index catching up reports it once. So for a planned module only a report
         // repeated KEPT_TEXTUAL_CONFIRM after the first is taken; a module the plan has no unit for is taken at once.
-        if (providerPlanned && parsed.reason.find("no module unit for it in this project") != std::string::npos) {
+        // A unit clangd has said it could not scan is that real case at once, however often clangd repeats it.
+        const bool providerUnscannable { providerPlanned && unscannableUnits_.contains(base::path_key(base::normalize_path(provider->second))) };
+        if (providerPlanned && !providerUnscannable && parsed.reason.find("no module unit for it in this project") != std::string::npos) {
             const auto now { Clock::now() };
             const auto [first, fresh] = keptTextualAt_.try_emplace(parsed.module, now);
             if (fresh || now - first->second < KEPT_TEXTUAL_CONFIRM) {
@@ -4315,10 +4317,20 @@ private:
     // std, which nearly every file imports, and the imports of every open document, then as many
     // ready modules as the limit allows. std.compat waits for a file that imports it: building it
     // takes cores a cold start needs.
+    // Asks the primer for `names`. Preparation that was idle and now has work starts its stall clock now (issue #49: a
+    // model loaded again 37 minutes after the last preparation ended gave it 5 modules, and 5 s later it "made no progress
+    // for a minute (34/39 done)", measured from that last preparation's progress).
+    std::size_t want_primes_(const std::vector<std::string>& names) {
+        const bool wasIdle { !primer_.busy() };
+        const std::size_t added { primer_.want(names) };
+        if (wasIdle && primer_.busy()) lastPrimeProgressAt_ = Clock::now();
+        return added;
+    }
+
     void prepare_modules_() {
         if (!accepting_) return;
         const std::vector<std::string> standard { "std" };
-        primer_.want(standard);
+        want_primes_(standard);
         for (const auto& document : host_->documents()) prepare_imports_of_(document, false);
         pump_primer_();
     }
@@ -4330,7 +4342,7 @@ private:
         // built with the kit's commands, which the build tool's model replaces a few seconds on -- a restart and every one
         // of them again. They are prepared once that model is in: apply() calls prepare_modules_ again.
         if (provisionalModel_) std::erase_if(names, [](const std::string& name) { return name != "std" && name != "std.compat"; });
-        if (primer_.want(names) > 0 && pump) pump_primer_();
+        if (want_primes_(names) > 0 && pump) pump_primer_();
     }
 
     // clangd's persistent module cache as it is now: for each source file name, the BMIs built from
