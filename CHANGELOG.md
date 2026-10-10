@@ -23,6 +23,19 @@ identity, and the server checks both before it trusts what the engine declares.
   as with stock clangd 23.1. Completion loads from imported modules only the names that can match
   what was typed, shares the draft's verified imports, and lists each constructor overload once. Module importers still answer about 30 ms slower than the same
   project written with headers once warm; that gap is open.
+- **Files that include heavy headers and import modules keep their preamble.** A file that
+  includes Qt or `<windows.h>` and imports modules (whose own global module fragments include them
+  too) used to be parsed in full, headers and all, for every request: about 0.6 s per completion
+  for a Qt importer with stock clangd and before this release, and seconds per update with
+  `<windows.h>`. Its headers are now kept in a preamble that is checked against every input it
+  read, on Linux, Windows and macOS: 0.05 s per completion on the same Qt file. New conformance
+  fixtures `ux-modules-qt` (Linux) and `ux-modules-windows` (Windows) hold answers, latency while
+  typing, crashes and stalls on such projects.
+- **Typing an import, or editing a module the file imports, no longer waits on a rebuild.**
+  Completion on an import line, or on a blank line among the imports, uses the modules it has. An
+  import nothing in the project builds keeps them too. After a dependency is edited, completion
+  waits up to 250 ms for its rebuild and otherwise answers from the modules as they were, while
+  the rebuild goes on. A cached dependency scan no longer reads every header again.
 - **Unsaved edits count.** Dependency scans read the request's own buffers. A cached scan or BMI
   verdict is reused only after every input it observed replays unchanged, including `__DATE__`-like
   builtins and files that did not exist.
