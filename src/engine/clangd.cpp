@@ -1326,7 +1326,10 @@ public:
         for (const auto& [module, source] : moduleSources_) {
             if ((module == "std" || module == "std.compat") && base::same_path(source, normalized)) standardModule = module;
         }
-        const bool neverTyped { !standardModule.empty() || !base::is_within(normalized, host_->root_directory()) };
+        // A file outside the workspace that the database does not name is one the editor opened (a probe, a header
+        // looked at), whose half-typed text is the person's like any other file's.
+        const bool neverTyped { !standardModule.empty()
+                                || (!base::is_within(normalized, host_->root_directory()) && writtenArguments_.contains(base::path_key(normalized))) };
         if (!driver && !notFound && !neverTyped) return;
         // clangd names the unit as its command line did, with backslashes and `..` on Windows (GalTranslPP:
         // `D:\a\...\Updater\..\3rdParty\3rdModule\boost.ixx`); the plan's units are normalized.
@@ -2940,6 +2943,10 @@ private:
             quarantine_.release(key);
             aside_.erase(key);
             if (accepting_) (void)send_(lsp::make_notification("textDocument/didClose", Json { { "textDocument", Json { { "uri", document.uri } } } }));
+            // Closed in clangd, it is built there no more: a build it was in when it was closed is not one that never ends
+            // once the file goes back (SpinWatch), and what clangd last said of it is not its state.
+            fileStatus_.erase(document.uri);
+            spin_.forget(document.uri);
             publish_doom_diagnostic_(document, info->second);
         }
         host_->record_event("file-doomed", Json { { "file", key }, { "module", info->second.viaModule },
