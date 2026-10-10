@@ -32,6 +32,8 @@ struct Options {
     std::string version;
     bool payloadCorrupt { false };
     bool verboseLog { false };
+    // The payload bound of mcppls-clangd's owned module cache, in MiB (0: none); unset, the engine's own (1 GiB).
+    std::optional<std::uint64_t> ownedCachePayloadMiB;
     std::chrono::milliseconds requestTimeout { std::chrono::seconds { 60 } };
     // StuckWatch: once clangd leaves a request unanswered this long, with nothing answered since, its
     // CPU is watched for `stuckWatch`; still unanswered then, with next to no CPU used, it is stuck and

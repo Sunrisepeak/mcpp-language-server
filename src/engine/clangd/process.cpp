@@ -55,10 +55,15 @@ std::vector<std::string> clangd_arguments(const ProcessConfig& config) {
     const bool policyGiven { std::ranges::any_of(config.extraArguments, [](const std::string& argument) {
         return argument.starts_with("--modules-builder-worker-policy") || argument.starts_with("-modules-builder-worker-policy");
     }) };
+    const bool payloadGiven { std::ranges::any_of(config.extraArguments, [](const std::string& argument) {
+        return argument.starts_with("--modules-builder-owned-cache-payload-mib") || argument.starts_with("-modules-builder-owned-cache-payload-mib");
+    }) };
     // The owned cache's payload bounds are a worker's: an in-process build runs without them.
     if (config.inProcessModuleBuilds && !policyGiven) {
         arguments.emplace_back("--modules-builder-worker-policy=in-process");
-        arguments.emplace_back("--modules-builder-owned-cache-payload-mib=0");
+        if (!payloadGiven) arguments.emplace_back("--modules-builder-owned-cache-payload-mib=0");
+    } else if (config.ownedCachePayloadMiB && !payloadGiven) {
+        arguments.push_back(std::format("--modules-builder-owned-cache-payload-mib={}", *config.ownedCachePayloadMiB));
     }
     arguments.insert(arguments.end(), config.extraArguments.begin(), config.extraArguments.end());
     return arguments;

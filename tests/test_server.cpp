@@ -850,6 +850,23 @@ int main() {
         expect(std::ranges::count(chosen, inProcess) == 0 && chosen.back() == "--modules-builder-worker-policy=required");
     };
 
+    "the maintained engine's owned module cache is bounded by the workspace's cache budget"_test = [] {
+        cld::ProcessConfig config;
+        const auto flag = [](const std::vector<std::string>& arguments) {
+            return std::ranges::count_if(arguments, [](const std::string& argument) { return argument.starts_with("--modules-builder-owned-cache-payload-mib"); });
+        };
+        expect(flag(cld::clangd_arguments(config)) == 0) << "unset: the engine's own bound, and nothing for an engine without the option";
+        config.ownedCachePayloadMiB = 3072;
+        expect(std::ranges::count(cld::clangd_arguments(config), std::string { "--modules-builder-owned-cache-payload-mib=3072" }) == 1);
+        config.extraArguments = { "--modules-builder-owned-cache-payload-mib=512" };
+        const auto chosen = cld::clangd_arguments(config);
+        expect(flag(chosen) == 1 && chosen.back() == "--modules-builder-owned-cache-payload-mib=512") << "the user's own wins";
+        config.extraArguments.clear();
+        config.inProcessModuleBuilds = true;
+        expect(std::ranges::count(cld::clangd_arguments(config), std::string { "--modules-builder-owned-cache-payload-mib=0" }) == 1)
+            << "in process, the bounds are off";
+    };
+
     "on macOS background indexing yields to cold module work unless the user chooses its priority"_test = [] {
         cld::ProcessConfig config;
         const std::string defaultPriority { "--background-index-priority=background" };

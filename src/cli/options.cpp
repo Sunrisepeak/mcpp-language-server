@@ -12,6 +12,7 @@ import mcppls.engine.payload;
 import mcppls.engine.native;
 import mcppls.engine.native.index;
 import mcppls.engine.clangd;
+import mcppls.orchestrator.cache;
 import mcppls.orchestrator.workspace;
 import mcppls.ai.model.source;
 
@@ -36,6 +37,14 @@ orchestrator::EngineFactories engine_factories(const orchestrator::SessionOption
             std::ranges::find(payload.engineIdentity->features, "format-style-mcpp") != payload.engineIdentity->features.end();
         clangd.payloadCorrupt = payloadCorrupt;
         clangd.verboseLog = options.verboseEngineLog;
+        // mcppls-clangd's owned module cache admits payloads up to a bound of its own, 1 GiB; past it, builds wait for
+        // room. The cache this server keeps to its budget is the workspace's (mcppls.cache.maxBytes), so the engine is
+        // given three quarters of that (ux-mcpp: a profile change's modules beside the first profile's, with every
+        // reader's copy, waited out admission and the files that needed them stalled). Unlimited is unbounded.
+        if (const auto budget = orchestrator::cache::parse_bytes(options.settings.string_value("cache.maxBytes"))) {
+            constexpr std::uint64_t MIB { std::uint64_t { 1 } << 20 };
+            clangd.ownedCachePayloadMiB = *budget == std::numeric_limits<std::uint64_t>::max() ? 0 : std::max<std::uint64_t>(1024, *budget / 4 * 3 / MIB);
+        }
         clangd.requestTimeout = options.requestTimeout;
         if (options.engineWorkers != "auto" && !options.engineWorkers.empty()) {
             std::size_t workers { 0 };
