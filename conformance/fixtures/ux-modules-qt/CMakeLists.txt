@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Qt 5 (qtbase5-dev): its headers in the global module fragments, as a Qt project written with modules has them.
+# The distribution's prefix is named: a CMake installed elsewhere (xlings') does not search it on its own.
+list(APPEND CMAKE_PREFIX_PATH /usr /usr/lib/${CMAKE_SYSTEM_PROCESSOR}-linux-gnu/cmake)
 find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets)
 
 add_library(views)

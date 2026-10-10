@@ -419,7 +419,7 @@ private:
     // module nothing provides kept a core busy for as long as clangd ran (xlings' apps/gui/main.cpp). Such a file waits,
     // answered by mcppls's own engine, until clangd has read a database that has it.
     static constexpr std::chrono::seconds DATABASE_REREAD { 6 };
-    static constexpr std::chrono::seconds KEPT_TEXTUAL_CONFIRM { 2 };
+    static constexpr std::chrono::milliseconds KEPT_TEXTUAL_CONFIRM { 500 };
     static constexpr std::chrono::seconds PLAN_PATIENCE { 15 };
     struct HeldFile {
         Clock::time_point since;

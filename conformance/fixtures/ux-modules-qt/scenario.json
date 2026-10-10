@@ -195,11 +195,11 @@
         "restarts": 0,
         "filesSetAside": 0,
         "importerP95": 1.5,
-        "importerEmpty": 0,
         "moduleFailedDiagnostics": 0,
         "stalled": 0,
         "firstOpenSeconds": 120
-      }
+      },
+      "description": "While the module unit does not compile (half a statement autosaved), its importer's completions on that module's names come from mcppls's own engine, empty, as with stock clangd: the budget holds how fast they come, not what they hold (keeping the last BMI that built is for a later version)."
     },
     {
       "id": "STRESS1",
