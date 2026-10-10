@@ -1247,8 +1247,9 @@ int main() {
         options.executable = executable;
         options.version = "23.1.0";
         options.processFactory = [shared] { return std::make_unique<BuildingProcess>(shared); };
-        options.implementationIdle = std::chrono::milliseconds { 300 };
-        options.implementationQuiet = std::chrono::milliseconds { 200 };
+        // Wide enough that a loaded runner's pause between two steps is not taken for the person stopping.
+        options.implementationIdle = std::chrono::milliseconds { 1500 };
+        options.implementationQuiet = std::chrono::milliseconds { 1000 };
         RecordingHost host { root };
         auto engine = cld::make_engine(std::move(options));
         engine->start(host);
@@ -1275,7 +1276,7 @@ int main() {
         auto was_opened = [&](const std::string& path) { return std::ranges::find(opened, path) != opened.end(); };
         expect(!was_opened(math) && !was_opened(greet)) << "R-5: not while the person is at work (a file was just opened)";
         expect(engine->next_deadline().has_value()) << "the engine wakes itself once they pause";
-        std::this_thread::sleep_for(std::chrono::milliseconds { 250 });
+        std::this_thread::sleep_for(std::chrono::milliseconds { 1100 });
         engine->handle_timers();
         for (int turn { 0 }; turn < 4; ++turn) host.pump(*engine);
         opened = BuildingProcess::files(*shared, "textDocument/didOpen");
@@ -1304,14 +1305,14 @@ int main() {
         host.pump(*engine);
         opened = BuildingProcess::files(*shared, "textDocument/didOpen");
         expect(static_cast<std::size_t>(std::ranges::count(opened, math)) == before + 1) << "not while they type";
-        std::this_thread::sleep_for(std::chrono::milliseconds { 250 });
+        std::this_thread::sleep_for(std::chrono::milliseconds { 1100 });
         engine->handle_timers();
         host.pump(*engine);
         opened = BuildingProcess::files(*shared, "textDocument/didOpen");
         expect(static_cast<std::size_t>(std::ranges::count(opened, math)) == before + 2) << "built once they stopped";
 
         // Idle long enough: the rest of the implementation units.
-        std::this_thread::sleep_for(std::chrono::milliseconds { 400 });
+        std::this_thread::sleep_for(std::chrono::milliseconds { 1600 });
         engine->handle_timers();
         host.pump(*engine);
         host.pump(*engine);
