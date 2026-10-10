@@ -231,9 +231,5 @@
       ]
     }
   ],
-  "server-arguments": [
-    "--log-level",
-    "debug"
-  ],
   "failure-log-lines": "Textual module preamble|replay differs|scan memo declined|scan manifest probe boundary|Built preamble of size"
 }
