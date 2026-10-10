@@ -513,6 +513,14 @@ int main() {
         expect(cld::failure_kind(*textual) == cld::FailureKind::unresolved) << textual->reason;
     };
 
+    "an owned module payload names the unit it was built from first"_test = [] {
+        using namespace std::string_literals;
+        const std::string head { "CPCH\x01\x02 /usr/lib/clang/23/include\0\x05/src/core/xim/catalog.cppm\0\x03/usr/include/c++/v1/vector\0/src/core/xim/other.cppm"s };
+        expect(cld::pcm_original_source(head) == "/src/core/xim/catalog.cppm") << cld::pcm_original_source(head);
+        expect(cld::pcm_original_source("CPCH no paths at all").empty());
+        expect(cld::pcm_original_source("x/rel/not.cppm /abs/unit.ixx") == "/abs/unit.ixx") << "a relative path is not the unit";
+    };
+
     // C-4 (plan 2026-09-30): clangd 23.1's module locks, and the line it logs while it waits for one.
     "clangd's module locks are found, read and cleared"_test = [] {
         namespace fs = mcppls::platform::fs;

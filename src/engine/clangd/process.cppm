@@ -155,6 +155,10 @@ struct ModuleFailure {
     std::string importer;       // the file whose prerequisites failed (mcppls-clangd's per-file report)
 };
 std::optional<ModuleFailure> parse_module_failure(std::string_view line);
+// mcppls-clangd's owned module cache publishes every BMI as <modules>/.owned-payload-v1/generation-<slot>-<n>/payload.pcm.
+// The unit it was built from is the first absolute source path the file's control block names (ORIGINAL_FILE), which
+// comes before any input it read; `head` is the start of the file. Empty when none is found.
+std::string pcm_original_source(std::string_view head);
 // clangd's own severity for one of its log lines, by the letter before its timestamp
 // ("E[10:31:02.1] ..."): E is a problem worth a person's attention, I/V/D are its everyday chatter,
 // and a line with no such prefix (a continuation, or something else entirely) is kept at info.

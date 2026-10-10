@@ -85,6 +85,22 @@ std::string diagnostic_source(std::string_view text) {
 
 } // namespace
 
+std::string pcm_original_source(std::string_view head) {
+    static constexpr std::array<std::string_view, 8> SUFFIXES { ".cppm", ".ixx", ".cxxm", ".c++m", ".mpp", ".cpp", ".cxx", ".cc" };
+    const auto path_char = [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '/' || c == '.' || c == '_' || c == '-' || c == '+';
+    };
+    for (std::size_t at { head.find('/') }; at != std::string_view::npos; at = head.find('/', at + 1)) {
+        if (at > 0 && path_char(head[at - 1])) continue;   // inside a longer token
+        std::size_t end { at };
+        while (end < head.size() && path_char(head[end])) ++end;
+        const std::string_view path { head.substr(at, end - at) };
+        if (std::ranges::any_of(SUFFIXES, [&](std::string_view suffix) { return path.size() > suffix.size() && path.ends_with(suffix); })) return std::string { path };
+        at = end > at ? end - 1 : at;
+    }
+    return {};
+}
+
 std::optional<ModuleFailure> parse_module_failure(std::string_view line) {
     // mcppls-clangd keeps an import whose module has no unit in the project textual, and says so where
     // upstream fails the whole prerequisite set with "Don't get the module unit for module <name>":

@@ -196,6 +196,7 @@ private:
     // clangd's persistent module cache as the plan found it (cached_bmis), read the first time a
     // module becomes ready for preparation and not again until the next plan.
     std::optional<std::map<std::string, std::vector<std::string>, std::less<>>> startupBmis_;
+    std::optional<std::set<std::string, std::less<>>> startupOwnedSources_;   // path keys (owned_bmi_sources_)
     // W-4 (plan 2026-09-30): which command each module was last prepared with, and its source's stamp then
     // (<database>/module-builds.json). A BMI in clangd's cache is only known to match the command it was built
     // with; one of another command (issue #30, a profile switch) or of an older source is not "built".
@@ -911,6 +912,7 @@ public:
         }
         for (const auto& key : backgroundLeaving) close_background_(key);
         startupBmis_.reset();
+        startupOwnedSources_.reset();
         planApplied_ = true;
         const bool unresolvedForgot { forget_changed_unresolved_() };
         const bool doomForgot { forget_changed_doom_() };
@@ -3715,6 +3717,7 @@ private:
         builtModules_.clear();
         builtModulesLoaded_ = false;
         startupBmis_.reset();
+        startupOwnedSources_.reset();
         unresolvedModules_.clear();
         doomRoots_.clear();
         doomedModules_.clear();
@@ -4335,6 +4338,22 @@ private:
         return bmis;
     }
 
+    // The units mcppls-clangd's owned cache (Linux) keeps a BMI of, by path key. Its files are all named payload.pcm,
+    // one per generation directory, so each says whose it is in its control block (pcm_original_source).
+    std::set<std::string, std::less<>> owned_bmi_sources_() const {
+        std::set<std::string, std::less<>> sources;
+        const std::string owned { base::join_path(databaseDirectory_, ".cache/clangd/modules/.owned-payload-v1") };
+        for (const auto& generation : platform::fs::list_directory(owned)) {
+            if (!base::file_name(generation).starts_with("generation-")) continue;
+            std::ifstream in { base::join_path(generation, "payload.pcm"), std::ios::binary };
+            std::string head(1 << 16, '\0');
+            in.read(head.data(), static_cast<std::streamsize>(head.size()));
+            head.resize(static_cast<std::size_t>(in.gcount()));
+            if (const std::string source { pcm_original_source(head) }; !source.empty()) sources.insert(base::path_key(source));
+        }
+        return sources;
+    }
+
     // usable plan W7, W-4: whether clangd already keeps `module`'s BMI for the command the database gives it now,
     // so an importer's own build reuses it and a prime unit would only take clangd workers from the files a person
     // opened. Known only for a module this engine prepared before (module-builds.json) whose command and source
@@ -4360,6 +4379,8 @@ private:
             return true;
         };
         if (!current(module.name)) return false;
+        if (!startupOwnedSources_) startupOwnedSources_ = owned_bmi_sources_();
+        if (startupOwnedSources_->contains(base::path_key(source->second))) return true;
         if (!startupBmis_) startupBmis_ = cached_bmis_();
         const auto files = startupBmis_->find(base::file_name(source->second));
         if (files == startupBmis_->end()) return false;
