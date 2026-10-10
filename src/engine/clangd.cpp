@@ -9,6 +9,7 @@ import mcppls.base.path;
 import mcppls.base.sha256;
 import mcppls.base.text;
 import mcppls.base.uri;
+import mcppls.base.version;
 import mcppls.platform.env;
 import mcppls.platform.fs;
 import mcppls.platform.process;
@@ -65,8 +66,10 @@ EngineTraits traits_for_version(std::string_view version, std::span<const std::s
         .readsImportsFromDisk = on(UNSAVED_IMPORT_NOT_FOUND),
         .scansModulesOnEveryRequest = on(MODULE_SCAN_PER_REQUEST),
         .flagsNonConstViewsConst = on(CONST_CORRECTNESS_VIEWS),
-        .kitStdlibVersion = std::string { version },
-        .tested = version == "23.1.0",
+        // A maintained engine (23.1.0-mcppls.<n>) is its LLVM base for the kit, and the one this server bundles is
+        // what its conformance suite runs.
+        .kitStdlibVersion = std::string { base::llvm_base_version(version) },
+        .tested = version == "23.1.0" || version == base::CLANGD_VERSION,
     };
 }
 

@@ -46,6 +46,9 @@ int main() {
     "the traits are the registry's"_test = [] {
         const auto pinned = cld::traits_for_version("23.1.0");
         expect(pinned.tested && pinned.hangsOnTrailingDotModuleName && pinned.hangsOnUnresolvedImports);
+        const auto bundled = cld::traits_for_version("23.1.0-mcppls.0");
+        expect(bundled.tested && bundled.kitStdlibVersion == "23.1.0") << "the bundled maintained engine is the tested one, its kit the LLVM base";
+        expect(!cld::traits_for_version("23.1.0-mcppls.7").tested) << "another maintained build is not";
         expect(pinned.needsModulePreparation && pinned.needsModuleHints && pinned.msvcStlNeedsNoAlignedAllocation);
         expect(!cld::traits_for_version("23.1.1").msvcStlNeedsNoAlignedAllocation);
         expect(cld::traits_for_version("23.1.1").hangsOnTrailingDotModuleName);
