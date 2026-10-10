@@ -1,0 +1,233 @@
+{
+  "name": "ux-modules-windows",
+  "description": "C++ modules mixed with <windows.h> (0.0.12, issue #50): two module units whose global module fragments include <windows.h>, and a file that includes it and imports both, built by CMake with MSVC (cl.exe) and Ninja. Answers are right, and they stay fast while a person types in the importer and in a module unit that autosaves: every completion answered, diagnostics back within seconds (a report had them five or six seconds behind each keystroke), no restart (a crash counts as one), nothing set aside.",
+  "prepare-environment": "msvc",
+  "prepare": [
+    [
+      "cmake",
+      "-S",
+      ".",
+      "-B",
+      "build",
+      "-G",
+      "Ninja",
+      "-DCMAKE_CXX_COMPILER=cl",
+      "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+    ],
+    [
+      "cmake",
+      "--build",
+      "build"
+    ]
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "cmake",
+      "profile-kind": "build-toolchain",
+      "state": "ready"
+    },
+    {
+      "id": "C1",
+      "kind": "diagnostics-empty",
+      "file": "src/main.cpp",
+      "timeout": 240
+    },
+    {
+      "id": "C1-module-with-windows-h",
+      "kind": "diagnostics-empty",
+      "file": "src/files.cppm",
+      "timeout": 240
+    },
+    {
+      "id": "C2-hover-module-member",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        8,
+        28
+      ],
+      "expect": "entryNames",
+      "timeout": 120
+    },
+    {
+      "id": "C3-definition-into-module",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        8,
+        28
+      ],
+      "expect": "src/files.cppm",
+      "timeout": 60
+    },
+    {
+      "id": "C4-windows-api",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        10,
+        6
+      ],
+      "expect": "SetLastError",
+      "timeout": 60
+    },
+    {
+      "id": "U3-idle",
+      "kind": "latency",
+      "phase": "idle",
+      "rounds": 20,
+      "requests": [
+        {
+          "kind": "completion",
+          "name": "module-member",
+          "file": "src/main.cpp",
+          "at": [
+            9,
+            35
+          ]
+        },
+        {
+          "kind": "completion",
+          "name": "windows-api",
+          "file": "src/main.cpp",
+          "at": [
+            10,
+            7
+          ]
+        },
+        {
+          "kind": "hover",
+          "file": "src/main.cpp",
+          "at": [
+            8,
+            28
+          ]
+        },
+        {
+          "kind": "definition",
+          "file": "src/main.cpp",
+          "at": [
+            8,
+            28
+          ],
+          "expect": "src/files.cppm"
+        }
+      ],
+      "budget": {
+        "completion.p95": 0.8,
+        "hover.p95": 0.3,
+        "definition.p95": 0.5,
+        "engineShare": 0.9
+      }
+    },
+    {
+      "id": "U5-typing-in-the-importer",
+      "kind": "typing",
+      "file": "src/main.cpp",
+      "seconds": 60,
+      "hz": 10,
+      "completion-every-ms": 1000,
+      "scripts": [
+        {
+          "line": 11,
+          "text": "DWORD written = 0; HANDLE out = ::GetStdHandle(STD_OUTPUT_HANDLE); ::WriteConsoleW(out, L\"x\", 1, &writ"
+        },
+        {
+          "line": 11,
+          "text": "auto uptime = process.uptimeMilliseconds(); if (uptime > 0 && process.isCurr"
+        },
+        {
+          "line": 11,
+          "text": "for (const auto& name : directory.entryNames()) { ::OutputDebugStringW(name.c_s"
+        },
+        {
+          "line": 11,
+          "text": "SYSTEMTIME now {}; ::GetLocalTime(&now); std::wstring stamp = std::to_wstring(now.wHo"
+        }
+      ],
+      "diagnostic-probe": {
+        "line": 11,
+        "text": "int ux_probe_typo = ux_undeclared_name;",
+        "expect": "ux_undeclared_name"
+      },
+      "budget": {
+        "firstOpenSeconds": 120,
+        "p95": 1.0,
+        "max": 3.0,
+        "timeouts": 0,
+        "restarts": 0,
+        "filesSetAside": 0,
+        "engineShare": 0.75,
+        "diagnosticsRefresh": 4.0
+      }
+    },
+    {
+      "id": "U16-module-autosave",
+      "kind": "typing",
+      "file": "src/process.cppm",
+      "seconds": 60,
+      "hz": 10,
+      "completion-every-ms": 1000,
+      "autosave-idle-ms": 1000,
+      "scripts": [
+        {
+          "line": 13,
+          "text": "inline DWORD sessionId() { DWORD session = 0; ::ProcessIdToSessionId(::GetCurrentProcessId(), &sess"
+        },
+        {
+          "line": 13,
+          "text": "inline bool isElevated() { HANDLE token = nullptr; if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &tok"
+        }
+      ],
+      "importer": {
+        "file": "src/main.cpp",
+        "line": 11,
+        "text": "    directory."
+      },
+      "budget": {
+        "firstOpenSeconds": 120,
+        "p95": 1.0,
+        "max": 3.0,
+        "timeouts": 0,
+        "restarts": 0,
+        "filesSetAside": 0,
+        "stalled": 0,
+        "importerP95": 1.5
+      }
+    },
+    {
+      "id": "STRESS1",
+      "kind": "stress",
+      "seed": 13,
+      "actions": 60,
+      "requestTimeout": 65,
+      "files": [
+        "src/*.cppm",
+        "src/*.cpp"
+      ],
+      "budget": {
+        "timeouts": 0,
+        "p90": 5,
+        "maxStallSeconds": 45,
+        "rssMB": 3000
+      }
+    },
+    {
+      "id": "R1-no-crash-no-restart",
+      "kind": "report",
+      "timeout": 10,
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/restarts",
+          "max-items": 0
+        },
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside",
+          "max-items": 0
+        }
+      ]
+    }
+  ]
+}

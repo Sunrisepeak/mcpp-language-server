@@ -1,7 +1,7 @@
 // src/serverLog.ts in plain Node (`npm run test:unit`): no VS Code, so CI runs it in seconds before
 // the end-to-end suite, which checks the same routing through a real extension host.
 import * as assert from 'assert';
-import { classifyServerLine, ServerLogLevel, ServerLogRouter, ServerLogSink } from '../../src/serverLog';
+import { absoluteServerLogPath, announcedServerLog, classifyServerLine, ServerLogLevel, ServerLogRouter, ServerLogSink } from '../../src/serverLog';
 
 class RecordingSink implements ServerLogSink {
     readonly written: [string, string][] = [];
@@ -12,6 +12,29 @@ class RecordingSink implements ServerLogSink {
 }
 
 suite('server stderr log levels', () => {
+    test('a redacted report cannot replace the startup filesystem path', () => {
+        const startup = announcedServerLog('mcppls now [info] log file /home/runner/cache/logs/server.log');
+        for (const reported of ['~/cache/logs/server.log', '~\\cache\\logs\\server.log', 'relative.log', '', undefined, null]) {
+            assert.strictEqual(absoluteServerLogPath(reported) ?? startup, startup);
+        }
+        assert.strictEqual(absoluteServerLogPath('/tmp/cache/logs/server.log'), '/tmp/cache/logs/server.log');
+        assert.strictEqual(absoluteServerLogPath('C:\\cache\\logs\\server.log'), 'C:\\cache\\logs\\server.log');
+    });
+
+    test('the startup log path is available before any diagnostic report', () => {
+        assert.strictEqual(announcedServerLog('mcppls 2026-10-08T00:00:00.123Z [info] log file /cache with spaces/logs/server.log'),
+            '/cache with spaces/logs/server.log');
+        assert.strictEqual(announcedServerLog('mcppls 2026-10-08T00:00:00.123Z [info] log file C:\\cache\\logs\\server.log'),
+            'C:\\cache\\logs\\server.log');
+        for (const line of [
+            'log file /cache/server.log',
+            'mcppls now [debug] log file /cache/server.log',
+            'mcppls now [info] clangd: log file /cache/server.log',
+            'mcppls now [info] log file ',
+            'mcppls now [info] log file relative.log',
+        ]) assert.strictEqual(announcedServerLog(line), undefined, line);
+    });
+
     test('each level the server writes is kept, and its timestamp dropped', () => {
         const levels: ServerLogLevel[] = ['debug', 'info', 'warning', 'error'];
         for (const level of levels) {

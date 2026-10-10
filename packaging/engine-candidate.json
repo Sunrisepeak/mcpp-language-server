@@ -1,0 +1,6 @@
+{
+  "comment": "A mcppls-clangd PR's CI run whose packaged parts this PR's CI assembles its payloads from (docs/92-release.md, \"A new engine\"). Never on main or in a release.",
+  "repository": "Sunrisepeak/mcppls-clangd",
+  "run-id": 38063670345,
+  "engine-commit": "9295fe9"
+}

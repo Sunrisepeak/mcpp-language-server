@@ -126,6 +126,10 @@ project does not have (yet) — the file is answered by mcppls's own engine unti
 the status lists it as `file-unsafe-on-disk`, category `code`, with the reason, and stays *ready*.
 A module nothing provides gets a stand-in within a second of the save, and the file goes back to
 clangd once clangd has read the database with it, about six seconds later.
+With the bundled mcppls-clangd (0.0.12) neither happens: it finishes `import hello.` at once and
+reports an import of a module the project does not have, so the file stays with clangd, and only a
+module unit's own such import gets a stand-in, once the unit has not been edited for a few seconds
+(`WA-CLANGD-001` and `WA-CLANGD-013` retire for an engine that declares the fix).
 
 **"Import directive must end with a ';'" on the wrong line, or "module X not found" for an import you
 just typed.** clangd reports a directive missing its `;` on the code after it; mcppls moves the

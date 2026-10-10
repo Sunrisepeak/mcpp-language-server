@@ -1,6 +1,6 @@
 {
   "name": "workaround-canaries",
-  "description": "Import-hang plan §9: each registered clangd workaround's defect, run against the payload's clangd. A check here failing means an update of clangd fixed the defect, and the workaround it names can be removed (src/engine/clangd/workarounds.cpp). WA-CLANGD-001 runs clangd --check; WA-CLANGD-009 and 010 drive the clangd over LSP (kind clangd-lsp, 0.0.9 plan M-3), since clangd --check prints no clang-tidy diagnostics and times no completion.",
+  "description": "Import-hang plan §9: each registered clangd workaround's defect, run against the payload's clangd. A check here failing means an update of clangd fixed the defect, and the workaround it names can be removed (src/engine/clangd/workarounds.cpp). A canary with retired-by holds by proof for an engine whose verified identity declares that capability, as the server retires its workaround there; it still runs against any other clangd. WA-CLANGD-001 runs clangd --check; WA-CLANGD-009 and 010 drive the clangd over LSP (kind clangd-lsp, 0.0.9 plan M-3), since clangd --check prints no clang-tidy diagnostics and times no completion.",
   "prepare": [
     ["{conformance}", "prepare", "heavy-headers", "120"]
   ],
@@ -10,6 +10,7 @@
   "checks": [
     {
       "id": "WA-CLANGD-001",
+      "retired-by": "module-directive-recovery",
       "kind": "clangd-check",
       "file": "src/hang.cpp",
       "expect": "hangs",
@@ -32,6 +33,7 @@
     },
     {
       "id": "WA-CLANGD-010",
+      "retired-by": "const-correctness-views",
       "kind": "clangd-lsp",
       "only-on": ["linux"],
       "action": "diagnostics",

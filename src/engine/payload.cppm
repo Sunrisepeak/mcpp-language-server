@@ -4,6 +4,7 @@ export module mcppls.engine.payload;
 
 import std;
 import mcppls.base.error;
+import mcppls.base.engineidentity;
 
 export namespace mcppls::engine {
 
@@ -25,6 +26,8 @@ struct PayloadPaths {
     // Path relative to `directory` -> expected size/sha256. Empty when payload.json declares none
     // (an older payload, or no payload at all): nothing is checked.
     std::map<std::string, PayloadFileIntegrity> files;
+    std::optional<base::EngineIdentity> engineIdentity;
+    std::string identityProblem;
 };
 
 struct PayloadRequest {

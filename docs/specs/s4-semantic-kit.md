@@ -66,10 +66,27 @@ The file named by `stdlib.module-metadata` uses the P3286 module metadata format
 
 1. A kit **MUST** contain only data files. It **MUST NOT** contain executables, shared libraries or scripts, and a consumer **MUST NOT** execute anything from a kit. <a id="S4-4-1"></a><a id="S4-4-2"></a><a id="S4-4-3"></a><sup>S4-4-1, S4-4-2, S4-4-3</sup>
 2. A kit **MUST** keep the module manifest and the module sources at the relative positions the manifest refers to. <a id="S4-4-4"></a><sup>S4-4-4</sup>
-3. The `stdlib.version` of a libc++ kit **MUST** equal the version of the semantic engine it is distributed with; for mcppls this is the pinned clangd version. <a id="S4-4-5"></a><sup>S4-4-5</sup>
+3. The `stdlib.version` of a libc++ kit **MUST** equal the LLVM base version of the semantic engine it is distributed with; for mcppls this is the pinned clangd version without a valid `-mcppls.<number>` suffix. For example, `23.1.0-mcppls.1` uses a `23.1.0` libc++ kit. The complete engine version remains its identity and does not imply any capability. <a id="S4-4-5"></a><sup>S4-4-5</sup>
 4. A kit for macOS **MUST** declare `"requires": [{ "kind": "macos-sdk" }]` and **MUST NOT** contain the macOS SDK, whose license does not permit redistribution. Its C library headers come from the SDK installed on the user's machine. <a id="S4-4-6"></a><a id="S4-4-7"></a><sup>S4-4-6, S4-4-7</sup>
 5. A kit for Windows provides MinGW-w64 runtime semantics. The MSVC STL depends on the Visual Studio toolset and the Windows SDK, which cannot be redistributed; a consumer that finds Visual Studio installed **SHOULD** use it instead of the kit. <a id="S4-4-8"></a><sup>S4-4-8</sup>
 6. Every path in `kit.json` **MUST** be a kit path. <a id="S4-4-9"></a><sup>S4-4-9</sup>
+
+### Identified engine payloads
+
+A payload with `payload-version: 4` **MUST** carry the selected engine's immutable identity under `engines.clangd.identity`, matching the complete engine version, platform and binary SHA. Assembly rejects a maintained engine without this identity, and verification rejects missing, malformed or mismatching values. <a id="S4-4-10"></a><sup>S4-4-10</sup>
+
+The identity follows [s4-engine-identity.schema.json](schema/s4-engine-identity.schema.json):
+`engine-version`, `llvm-base-version`, `llvm-commit`, `fork-commit`,
+`patch-series-sha256`, `platform`, `sha256`, and `features`. The SHA identifies
+final distributed bytes. The complete version is preserved; libc++ compatibility
+uses its LLVM base. Features describe separately proved capabilities; a version
+suffix grants none. Legacy payloads keep their previous parsing and have no
+identified-engine capabilities. An explicit external `--clangd` overrides the
+bundled engine and does not inherit its identity or features.
+
+### Capability selected formatting
+
+Automatic `mcpp` formatting fallback **MUST** require a verified `format-style-mcpp` capability and `mcpp.toml` at the workspace root, preserve explicit user fallback settings and project `.clang-format` precedence, and grant no bundled capability to an external engine. Selecting this fallback writes no project configuration. <a id="S4-4-11"></a><sup>S4-4-11</sup>
 
 ## 5. Consumer procedure
 

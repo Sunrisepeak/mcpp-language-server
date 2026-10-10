@@ -1,41 +1,36 @@
 {
   "lock-version": 1,
-  "comment": "Every upstream input of the bundled payload, and the one table of platforms. Change versions here only; CI fetches, verifies and assembles. Each sha256 was checked against two independent downloads and against the digest GitHub records for the release asset. The server version is read from mcpp.toml. A platform is named <os>-<arch> as VS Code names extension targets; the VS Code extension, the release manifest and CI's matrices list the same platforms, which `mcppls-devtools check platforms` holds them to.",
-  "clangd-version": "23.1.0",
+  "comment": "Every upstream input of the bundled payload, and the one table of platforms. Change versions here only; CI fetches, verifies and assembles. Each sha256 was checked against two independent downloads and against the digest the release publishes beside the asset. The server version is read from mcpp.toml. A platform is named <os>-<arch> as VS Code names extension targets; the VS Code extension, the release manifest and CI's matrices list the same platforms, which `mcppls-devtools check platforms` holds them to.",
+  "clangd-version": "23.1.0-mcppls.0",
   "libcxx-version": "23.1.0",
   "entries": {
-    "clangd-linux": {
-      "url": "https://github.com/clangd/clangd/releases/download/23.1.0/clangd-linux-23.1.0.zip",
-      "file": "clangd-linux-23.1.0.zip",
-      "size": 117949007,
-      "sha256": "e53b1a96196095faedb7642cf64964f7fb9ad4a0c1f00dd2c172a3d9dcbafdfd",
+    "mcppls-clangd-linux-x64": {
+      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.12/clangd-23.1.0-mcppls.0-linux-x64.tar.gz",
+      "file": "clangd-23.1.0-mcppls.0-linux-x64.tar.gz",
+      "size": 20880071,
+      "sha256": "59eaf899e8751eb86a410a641cde0d92b7ae6823afa5f5181f78847c982154c5",
       "license": "Apache-2.0 WITH LLVM-exception"
     },
-    "clangd-mac": {
-      "url": "https://github.com/clangd/clangd/releases/download/23.1.0/clangd-mac-23.1.0.zip",
-      "file": "clangd-mac-23.1.0.zip",
-      "size": 100060151,
-      "sha256": "1082e6638223b785ca2daf0939f13afcd0bb95c84ee9a4bbaff4745365159253",
+    "mcppls-clangd-linux-arm64": {
+      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.12/clangd-23.1.0-mcppls.0-linux-arm64.tar.gz",
+      "file": "clangd-23.1.0-mcppls.0-linux-arm64.tar.gz",
+      "size": 19841009,
+      "sha256": "d7f043f0028ac5f99b4b44bfd24e75e68a379216e02fcb5c7dc3b15fc586b6a6",
       "license": "Apache-2.0 WITH LLVM-exception"
     },
-    "clangd-windows": {
-      "url": "https://github.com/clangd/clangd/releases/download/23.1.0/clangd-windows-23.1.0.zip",
-      "file": "clangd-windows-23.1.0.zip",
-      "size": 29690805,
-      "sha256": "23412a240756a162e7b98a282f36aa2a23a88db5ce16a0cbc4fef7253768c810",
+    "mcppls-clangd-darwin-arm64": {
+      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.12/clangd-23.1.0-mcppls.0-darwin-arm64.tar.gz",
+      "file": "clangd-23.1.0-mcppls.0-darwin-arm64.tar.gz",
+      "size": 19794603,
+      "sha256": "5f648f7c89e8b73e85c006bbd0f53df7e53840eb2e9d23a87a5335e986924584",
       "license": "Apache-2.0 WITH LLVM-exception"
     },
-    "clangd-linux-arm64": {
-      "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.0/LLVM-23.1.0-Linux-ARM64.tar.xz",
-      "file": "LLVM-23.1.0-Linux-ARM64.tar.xz",
-      "size": 1828948604,
-      "sha256": "cfb31bfc713ef453248bf5bd026312f838ad6c52c25623e987cb6a340f3050d4",
-      "license": "Apache-2.0 WITH LLVM-exception",
-      "license-from": {
-        "entry": "llvm-project-src",
-        "member": "llvm/LICENSE.TXT"
-      },
-      "comment": "LLVM's own Linux arm64 release: clangd/clangd publishes no arm64 Linux build. Only bin/clangd and lib/clang/23/include are kept. It links the system's libstdc++ (GLIBCXX_3.4.30, GCC 12) and glibc 2.34, so it runs on Ubuntu 22.04+, Debian 12+, openEuler 24.03+ (docs/00-install.md). The archive has no LICENSE.TXT; the same text comes from llvm-project-src."
+    "mcppls-clangd-win32-x64": {
+      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.12/clangd-23.1.0-mcppls.0-win32-x64.tar.gz",
+      "file": "clangd-23.1.0-mcppls.0-win32-x64.tar.gz",
+      "size": 20178383,
+      "sha256": "e609d56e2a3ae83b78a800f5fe1c34fadb14daa9d2a988dd17a6b2f290313749",
+      "license": "Apache-2.0 WITH LLVM-exception"
     },
     "llvm-project-src": {
       "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.0/llvm-project-23.1.0.src.tar.xz",
@@ -55,7 +50,7 @@
   },
   "platforms": {
     "linux-x64": {
-      "clangd": "clangd-linux",
+      "clangd": "mcppls-clangd-linux-x64",
       "kit": {
         "recipe": "libcxx-source",
         "source": "llvm-project-src",
@@ -64,7 +59,7 @@
       "server-target": "x86_64-linux-gnu"
     },
     "linux-arm64": {
-      "clangd": "clangd-linux-arm64",
+      "clangd": "mcppls-clangd-linux-arm64",
       "kit": {
         "recipe": "libcxx-source",
         "source": "llvm-project-src",
@@ -73,7 +68,7 @@
       "server-target": "aarch64-linux-musl"
     },
     "darwin-arm64": {
-      "clangd": "clangd-mac",
+      "clangd": "mcppls-clangd-darwin-arm64",
       "kit": {
         "recipe": "libcxx-source",
         "source": "llvm-project-src",
@@ -82,7 +77,7 @@
       "server-target": "aarch64-macos"
     },
     "win32-x64": {
-      "clangd": "clangd-windows",
+      "clangd": "mcppls-clangd-win32-x64",
       "kit": {
         "recipe": "llvm-mingw",
         "source": "llvm-mingw",

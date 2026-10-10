@@ -7,7 +7,7 @@ namespace mcppls::engine::clangd {
 
 namespace {
 
-constexpr std::array<Workaround, 12> REGISTRY { {
+constexpr std::array<Workaround, 13> REGISTRY { {
     {
         .id = TRAILING_DOT_MODULE_NAME,
         .title = "a module name ending in '.' at the end of its line spins clangd forever; clangd is given the line with ';' after the dot",
@@ -15,7 +15,7 @@ constexpr std::array<Workaround, 12> REGISTRY { {
         .upstream = "unfiled; fixed on llvm-project main, likely by 6dcfc17b1b (#187846), not in 23.1.2",
         .evidence = ".agents/docs/2026-09-25-import-hang-status-highlight.md §1; conformance fixtures typing-import, workaround-canaries",
         .added = "0.0.4",
-        .removeWhen = "the bundled clangd and the oldest clangd the server supports finish `import a.` at once",
+        .removeWhen = "the bundled clangd and the oldest clangd the server supports finish `import a.` at once; retired per payload only when its verified identity includes module-directive-recovery",
         .canary = "conformance/fixtures/workaround-canaries: clangd --check on `import hello.` does not finish",
         .premise = "clangd reads a file only as it is given; it also reads the file's imports from disk (UP-14), so the server checks what is on disk on every save and watched change (fix plan F16)",
     },
@@ -70,7 +70,7 @@ constexpr std::array<Workaround, 12> REGISTRY { {
         .upstream = "unfiled (UP-15 in issue #24)",
         .evidence = ".agents/docs/2026-09-26-issue-23-fix-plan.md F12; tests/test_workarounds.cpp",
         .added = "0.0.5",
-        .removeWhen = "clangd reports expected_semi_after_module_or_import and pp_unexpected_tok_after_module_name on the directive's own line",
+        .removeWhen = "clangd reports expected_semi_after_module_or_import and pp_unexpected_tok_after_module_name on the directive's own line; retired per payload only when its verified identity includes module-directive-diagnostic-ranges",
         .canary = "",
         .premise = "the nearest non-blank line above the diagnostic is the directive that lacks the ';'",
     },
@@ -114,7 +114,7 @@ constexpr std::array<Workaround, 12> REGISTRY { {
         .upstream = "unfiled (UP-22 in issue #24); clang-tidy 22.1.8 does not warn for a view an adaptor returned",
         .evidence = "issue #37 (vulkan-rt rank_device_by_memory); .agents/docs/reviews/2026-10-01-issue-37-review.md §A; tests/test_workarounds.cpp",
         .added = "0.0.9",
-        .removeWhen = "misc-const-correctness leaves a variable alone whose view has no const begin() and is used through it",
+        .removeWhen = "misc-const-correctness leaves a variable alone whose view has no const begin() and is used through it; retired per payload only when its verified identity includes const-correctness-views",
         .canary = "",
         .premise = "the diagnostic names the variable's type, the canonical one after `aka` where it differs, and that type is a std::ranges view whose base is its first template argument",
     },
@@ -139,6 +139,17 @@ constexpr std::array<Workaround, 12> REGISTRY { {
         .removeWhen = "clangd keeps a file's module context between requests, or carries the imports in its preamble, so a module importer's completion costs no more than another file's",
         .canary = "",
         .premise = "the engine's answers for one file arrive reliably and just past the flat budget: two answers in the last sixty seconds, all within two seconds of the ask and all past the flat budget, extend that file's budget to their slowest plus 500 ms (2.5 s at most). Answers far beyond that are not counted -- a busy engine is not a slow-and-steady one -- and an engine that answers rarely (a broken module rebuilding, a fan-out save) or quickly keeps the flat budget, and the fallback with it",
+    },
+    {
+        .id = IMPORTER_STAND_INS,
+        .title = "a unit whose own import resolves to nothing stalls clangd 23.1 as it builds the unit; such an import gets a stand-in even in a file that provides no module, and a file whose text on disk imports a module clangd has no unit for is set aside",
+        .fixedIn = "",
+        .upstream = "unfiled (UP-02 in issue #24)",
+        .evidence = "robustness design C2; fix plan F13 and F16; conformance fixtures typing-import, typing-autosave, module-faults; mcppls-clangd ci/unresolved_import_canary.py, which clangd 23.1.0 does not answer within 60 s",
+        .added = "0.0.12",
+        .removeWhen = "clangd reports an import nothing provides and keeps answering the file; retired per payload only when its verified identity includes unresolved-import-recovery. The stand-ins a module unit's importers build with (WA-CLANGD-002) stay: they keep the features of a module whose import does not resolve",
+        .canary = "",
+        .premise = "clangd builds a unit with an import nothing provides only once that import has a unit in the database, real or a stand-in",
     },
 } };
 

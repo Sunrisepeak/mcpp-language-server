@@ -242,6 +242,7 @@ function mcpplsSettings(): Record<string, unknown> {
         compiler: settings.get('compiler'),
         semanticKit: settings.get('semanticKit'),
         'engine.name': resolveRenamed(settings, RENAMED_SETTINGS[0], 'clangd'),
+        'format.fallbackStyle': settings.get<string>('format.fallbackStyle') || 'auto',
         'engine.workers': workersSetting(settings.get<string>('engine.workers')),
         'buildDiscovery.mode': resolveRenamed(settings, RENAMED_SETTINGS[1], 'auto'),
         buildTool: settings.get('buildTool'),

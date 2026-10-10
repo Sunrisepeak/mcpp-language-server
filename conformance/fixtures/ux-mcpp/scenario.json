@@ -355,6 +355,7 @@
         "expect": "ux_undeclared_name"
       },
       "budget": {
+        "firstOpenSeconds": 90,
         "p95": 1.0,
         "max": 3.0,
         "timeouts": 0,
@@ -413,6 +414,7 @@
       },
       "autosave-ms": 1000,
       "budget": {
+        "firstOpenSeconds": 90,
         "p95": 1.0,
         "max": 3.0,
         "timeouts": 0,
@@ -455,6 +457,7 @@
         "text": "    int ux_probe_value = 1; ux_probe_"
       },
       "budget": {
+        "firstOpenSeconds": 90,
         "p95": 1.1,
         "importerP95": 1.5,
         "importerEmpty": 0,

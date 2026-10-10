@@ -130,6 +130,10 @@ toolchain.
 `mcppls-devtools check scripts` fails on any other script; the list and the reason for each entry
 are in `tools/devtools/scripts.allow`.
 
+`mcppls-devtools check tree` keeps the repository to sources: it fails on a tracked file above 1 MiB
+and on a generated module, precompiled header or object file. Raw evidence and caches belong in a
+release's evidence archive, not in the tree.
+
 ## Adding a command
 
 - The logic goes in a library module — `modules/pack` for packaging data, `tools/devtools/src` for

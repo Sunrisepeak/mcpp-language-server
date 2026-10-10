@@ -6,11 +6,19 @@ import mcppls.base.error;
 import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.text;
+import mcppls.os;
 import mcppls.platform.fs;
 import mcppls.platform.process;
 import mcppls.lsp.connection;
 
 namespace mcppls::engine::clangd {
+
+std::string format_fallback_style(std::string_view requested, bool supported, bool mcppProject) {
+    const std::string name { base::to_lower_ascii(requested) };
+    if (name == "auto" || name.empty()) return supported && mcppProject ? "mcpp" : "";
+    if (name == "mcpp") return supported ? "mcpp" : "";
+    return std::string { requested };
+}
 
 std::vector<std::string> clangd_arguments(const ProcessConfig& config) {
     std::vector<std::string> arguments;
@@ -25,13 +33,88 @@ std::vector<std::string> clangd_arguments(const ProcessConfig& config) {
         // lines go to the ring buffer and the debug log only, never to the default log.
         config.verboseLog ? "--log=verbose" : "--log=info",
     });
+    // Cold module builds are interactive work. On macOS, clangd's default low
+    // priority uses Utility QoS, which competes with those builds; background
+    // uses Background QoS. On Linux both are SCHED_IDLE, and Windows' background
+    // mode also lowers I/O priority, unmeasured for indexing, so only macOS
+    // changes. Keep the index and respect an explicit user choice.
+    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::macos) {
+        const bool indexPriorityGiven { std::ranges::any_of(config.extraArguments, [](const std::string& argument) {
+            return argument == "--background-index-priority" || argument == "-background-index-priority"
+                   || argument.starts_with("--background-index-priority=") || argument.starts_with("-background-index-priority=");
+        }) };
+        if (!indexPriorityGiven) arguments.emplace_back("--background-index-priority=background");
+    }
     const bool workersGiven { std::ranges::any_of(config.extraArguments, [](const std::string& argument) { return argument.starts_with("-j"); }) };
     if (config.workers > 0 && !workersGiven) arguments.push_back(std::format("-j={}", config.workers));
+    const bool styleGiven { std::ranges::any_of(config.extraArguments, [](const std::string& argument) {
+        return argument == "--fallback-style" || argument == "-fallback-style" ||
+               argument.starts_with("--fallback-style=") || argument.starts_with("-fallback-style=");
+    }) };
+    if (!config.fallbackStyle.empty() && !styleGiven) arguments.push_back("--fallback-style=" + config.fallbackStyle);
+    const bool policyGiven { std::ranges::any_of(config.extraArguments, [](const std::string& argument) {
+        return argument.starts_with("--modules-builder-worker-policy") || argument.starts_with("-modules-builder-worker-policy");
+    }) };
+    // The owned cache's payload bounds are a worker's: an in-process build runs without them.
+    if (config.inProcessModuleBuilds && !policyGiven) {
+        arguments.emplace_back("--modules-builder-worker-policy=in-process");
+        arguments.emplace_back("--modules-builder-owned-cache-payload-mib=0");
+    }
     arguments.insert(arguments.end(), config.extraArguments.begin(), config.extraArguments.end());
     return arguments;
 }
 
+namespace {
+
+// The source a compiler diagnostic is about: "<path>:<line>:<column>: error: ..." (a Windows path
+// has its own colon after the drive letter, so the first ":<digits>:<digits>:" ends it).
+std::string diagnostic_source(std::string_view text) {
+    for (std::size_t colon { text.find(':') }; colon != std::string_view::npos; colon = text.find(':', colon + 1)) {
+        std::size_t at { colon + 1 };
+        const auto digits = [&] {
+            const std::size_t from { at };
+            while (at < text.size() && text[at] >= '0' && text[at] <= '9') ++at;
+            return at > from;
+        };
+        if (digits() && at < text.size() && text[at] == ':' && (++at, digits()) && at < text.size() && text[at] == ':') {
+            return std::string { base::trim(text.substr(0, colon)) };
+        }
+    }
+    return {};
+}
+
+} // namespace
+
+std::string pcm_original_source(std::string_view head) {
+    static constexpr std::array<std::string_view, 8> SUFFIXES { ".cppm", ".ixx", ".cxxm", ".c++m", ".mpp", ".cpp", ".cxx", ".cc" };
+    const auto path_char = [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '/' || c == '.' || c == '_' || c == '-' || c == '+';
+    };
+    for (std::size_t at { head.find('/') }; at != std::string_view::npos; at = head.find('/', at + 1)) {
+        if (at > 0 && path_char(head[at - 1])) continue;   // inside a longer token
+        std::size_t end { at };
+        while (end < head.size() && path_char(head[end])) ++end;
+        const std::string_view path { head.substr(at, end - at) };
+        if (std::ranges::any_of(SUFFIXES, [&](std::string_view suffix) { return path.size() > suffix.size() && path.ends_with(suffix); })) return std::string { path };
+        at = end > at ? end - 1 : at;
+    }
+    return {};
+}
+
 std::optional<ModuleFailure> parse_module_failure(std::string_view line) {
+    // mcppls-clangd keeps an import whose module has no unit in the project textual, and says so where
+    // upstream fails the whole prerequisite set with "Don't get the module unit for module <name>":
+    //   Keeping import of third-party module <name> textual; no module unit for it in this project
+    static constexpr std::string_view TEXTUAL { "Keeping import of third-party module " };
+    if (const std::size_t at { line.find(TEXTUAL) }; at != std::string_view::npos) {
+        const std::string_view rest { line.substr(at + TEXTUAL.size()) };
+        const std::size_t space { rest.find(' ') };
+        if (space == std::string_view::npos || space == 0) return std::nullopt;
+        ModuleFailure failure;
+        failure.module = std::string { rest.substr(0, space) };
+        failure.reason = std::string { base::trim(rest.substr(rest.find(';') == std::string_view::npos ? space : rest.find(';') + 1)) };
+        return failure;
+    }
     static constexpr std::string_view MARKER { "Failed to build module " };
     const std::size_t marker { line.find(MARKER) };
     if (marker == std::string_view::npos) return std::nullopt;
@@ -39,6 +122,38 @@ std::optional<ModuleFailure> parse_module_failure(std::string_view line) {
     const std::size_t semicolon { rest.find(';') };
     if (semicolon == std::string_view::npos || semicolon == 0) return std::nullopt;
     ModuleFailure failure;
+    // mcppls-clangd reports a failed prerequisite build per importing file:
+    //   Failed to build module prerequisites for <file>; due to <reason>
+    // with the reason upstream gives (Failed to compile <source>, Don't get the module unit for module
+    // <name>: ...) or its worker's (module worker failed: <source>:<line>:<column>: error: ...). The
+    // module is then the one whose unit is <source>, which the caller knows and this line does not.
+    static constexpr std::string_view PREREQUISITES { "prerequisites for " };
+    if (rest.starts_with(PREREQUISITES)) {
+        failure.importer = std::string { base::trim(rest.substr(PREREQUISITES.size(), semicolon - PREREQUISITES.size())) };
+        std::string_view reason { rest.substr(semicolon + 1) };
+        if (const std::size_t due { reason.find("due to ") }; due != std::string_view::npos) reason = reason.substr(due + 7);
+        reason = base::trim(reason);
+        static constexpr std::string_view UNIT { "Don't get the module unit for module " };
+        static constexpr std::string_view WORKER { "module worker failed: " };
+        static constexpr std::string_view COMPILE { "Failed to compile " };
+        if (reason.starts_with(UNIT)) {
+            const std::string_view name { reason.substr(UNIT.size()) };
+            failure.module = std::string { base::trim(name.substr(0, name.find(':'))) };
+            failure.reason = std::string { reason };
+        } else if (reason.starts_with(WORKER)) {
+            failure.failedSource = diagnostic_source(reason.substr(WORKER.size()));
+            failure.reason = failure.failedSource.empty() ? std::string { reason } : std::format("Failed to compile {}", failure.failedSource);
+        } else if (reason.starts_with(COMPILE)) {
+            if (const std::size_t hint { reason.find(" Use '--log=verbose'") }; hint != std::string_view::npos) reason = reason.substr(0, hint);
+            reason = base::trim(reason);
+            if (reason.ends_with('.')) reason.remove_suffix(1);
+            failure.failedSource = std::string { base::trim(reason.substr(COMPILE.size())) };
+            failure.reason = std::string { reason };
+        } else {
+            failure.reason = std::string { reason };
+        }
+        return failure;
+    }
     failure.module = std::string { base::trim(rest.substr(0, semicolon)) };
     std::string_view reason { rest.substr(semicolon + 1) };
     if (const std::size_t due { reason.find("due to ") }; due != std::string_view::npos) reason = reason.substr(due + 7);
@@ -383,6 +498,7 @@ std::size_t LogRing::size() const {
 
 FailureKind failure_kind(const ModuleFailure& failure) {
     if (failure.reason.find("Don't get the module unit") != std::string::npos) return FailureKind::unresolved;
+    if (failure.reason.find("no module unit for it in this project") != std::string::npos) return FailureKind::unresolved;
     if (failure.reason.starts_with("Failed to compile")) return FailureKind::compile;
     return FailureKind::other;
 }

@@ -143,6 +143,51 @@ suite('C++ modules through mcppls', function () {
         }
     });
 
+    test('saving a new module export makes it available in importer completion (C7)', async () => {
+        const folder = vscode.workspace.workspaceFolders![0];
+        const moduleUri = vscode.Uri.joinPath(folder.uri, 'src', 'greet', 'greet.cppm');
+        const moduleDocument = await vscode.workspace.openTextDocument(moduleUri);
+        const mainDocument = await vscode.workspace.openTextDocument(mainUri);
+        const moduleOriginal = moduleDocument.getText();
+        const mainOriginal = mainDocument.getText();
+        const marker = 'export namespace hello {';
+        assert.ok(moduleOriginal.includes(marker));
+        assert.ok(!moduleOriginal.includes('greet2'));
+        const hasNewExport = (list: vscode.CompletionList | undefined): boolean =>
+            (list?.items ?? []).some((item) => {
+                const name = (typeof item.label === 'string' ? item.label : item.label.label).trim();
+                return item.kind === vscode.CompletionItemKind.Function
+                    && (name === 'greet2' || name.startsWith('greet2('));
+            });
+
+        const replace = async (document: vscode.TextDocument, text: string): Promise<void> => {
+            const edit = new vscode.WorkspaceEdit();
+            edit.replace(document.uri,
+                new vscode.Range(new vscode.Position(0, 0), document.positionAt(document.getText().length)), text);
+            assert.ok(await vscode.workspace.applyEdit(edit));
+            assert.ok(await document.save());
+        };
+
+        try {
+            await replace(moduleDocument,
+                moduleOriginal.replace(marker, `${marker}\n  int greet2() { return 2; }`));
+            const edit = new vscode.WorkspaceEdit();
+            edit.insert(mainUri, new vscode.Position(5, 0), '    hello::\n');
+            assert.ok(await vscode.workspace.applyEdit(edit));
+            const list = await eventually('completion of the saved new module export',
+                () => vscode.commands.executeCommand<vscode.CompletionList>(
+                    'vscode.executeCompletionItemProvider', mainUri, new vscode.Position(5, 11)),
+                hasNewExport);
+            assert.ok(hasNewExport(list));
+        } finally {
+            try {
+                await replace(mainDocument, mainOriginal);
+            } finally {
+                await replace(moduleDocument, moduleOriginal);
+            }
+        }
+    });
+
     test('the extension showed no notifications or other unsolicited UI', async () => {
         // No conflicting extension is installed in this suite (see the
         // "conflicts" scenario for that), so the real check runs and finds

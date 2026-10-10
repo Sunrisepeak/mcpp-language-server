@@ -76,6 +76,18 @@ check("S2 example envelope of a read-only command declares read-project only", e
 for name in ["s4-kit-linux-x64.json", "s4-kit-win32-x64.json", "s4-kit-darwin-arm64.json"]:
     validate(f"S4 example validates: {name}", s4, load(ex / name))
 
+identity_schema = schemas["s4-engine-identity.schema.json"]
+engine_identity = load(ex / "s4-engine-identity-linux-x64.json")
+validate("S4 engine identity example validates", identity_schema, engine_identity)
+for field in identity_schema.schema["required"]:
+    missing = dict(engine_identity)
+    del missing[field]
+    validate(f"S4 engine identity rejects missing {field}", identity_schema, missing, False)
+for field in ("llvm-commit", "fork-commit", "patch-series-sha256", "sha256"):
+    malformed = dict(engine_identity)
+    malformed[field] = "<unresolved>"
+    validate(f"S4 engine identity rejects placeholder {field}", identity_schema, malformed, False)
+
 # 3. semantic checks the schema cannot express (S1 sections 7, 8.2, 10; S4 rule 4)
 IMPORTABLE = {"module-interface", "module-partition-interface", "module-partition-implementation"}
 def s1_semantics(name, doc):

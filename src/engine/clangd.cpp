@@ -9,9 +9,11 @@ import mcppls.base.path;
 import mcppls.base.sha256;
 import mcppls.base.text;
 import mcppls.base.uri;
+import mcppls.base.version;
 import mcppls.platform.env;
 import mcppls.platform.fs;
 import mcppls.platform.process;
+import mcppls.platform.sandbox;
 import mcppls.lsp.jsonrpc;
 import mcppls.lsp.protocol;
 import mcppls.project.scan;
@@ -29,13 +31,34 @@ namespace mcppls::engine::clangd {
 namespace log = base::log;
 namespace midx = mcppls::index;
 
-EngineTraits traits_for_version(std::string_view version, std::span<const std::string> disabled) {
+namespace {
+// A workaround retires for an engine whose verified identity declares the capability that proves its defect
+// fixed (S4-4-10: a version suffix grants none). mcppls-clangd proves each on its final package bytes.
+bool fixed_by_verified_features(std::string_view id, std::span<const std::string> features) {
+    static constexpr std::array<std::pair<std::string_view, std::string_view>, 4> RETIRED_BY { {
+        { DIRECTIVE_SEMICOLON_POSITION, "module-directive-diagnostic-ranges" },
+        { TRAILING_DOT_MODULE_NAME, "module-directive-recovery" },
+        { CONST_CORRECTNESS_VIEWS, "const-correctness-views" },
+        { IMPORTER_STAND_INS, "unresolved-import-recovery" },
+    } };
+    for (const auto& [workaround, feature] : RETIRED_BY) {
+        if (id == workaround) return std::ranges::find(features, feature) != features.end();
+    }
+    return false;
+}
+} // namespace
+
+EngineTraits traits_for_version(std::string_view version, std::span<const std::string> disabled,
+                               std::span<const std::string> verifiedFeatures) {
     // Every compensation for clangd's own defects is a registered workaround (import-hang plan §9).
-    const auto on = [&](std::string_view id) { return needs(id, version) && std::ranges::find(disabled, id) == disabled.end(); };
+    const auto on = [&](std::string_view id) {
+        return needs(id, version) && !fixed_by_verified_features(id, verifiedFeatures) && std::ranges::find(disabled, id) == disabled.end();
+    };
     return EngineTraits {
         .importNavigation = false,
         .pushesDiagnostics = true,
         .hangsOnUnresolvedImports = on(UNRESOLVED_IMPORT_STAND_INS),
+        .hangsOnImportersUnresolvedImports = on(UNRESOLVED_IMPORT_STAND_INS) && on(IMPORTER_STAND_INS),
         .needsModulePreparation = on(MODULE_PREPARATION),
         .needsModuleHints = on(MODULE_HINTS),
         .indexesModuleUnitsWithoutModules = on(BACKGROUND_INDEX_WITHOUT_MODULES),
@@ -45,8 +68,10 @@ EngineTraits traits_for_version(std::string_view version, std::span<const std::s
         .readsImportsFromDisk = on(UNSAVED_IMPORT_NOT_FOUND),
         .scansModulesOnEveryRequest = on(MODULE_SCAN_PER_REQUEST),
         .flagsNonConstViewsConst = on(CONST_CORRECTNESS_VIEWS),
-        .kitStdlibVersion = std::string { version },
-        .tested = version == "23.1.0",
+        // A maintained engine (23.1.0-mcppls.<n>) is its LLVM base for the kit, and the one this server bundles is
+        // what its conformance suite runs.
+        .kitStdlibVersion = std::string { base::llvm_base_version(version) },
+        .tested = version == "23.1.0" || version == base::CLANGD_VERSION,
     };
 }
 
@@ -176,6 +201,7 @@ private:
     // clangd's persistent module cache as the plan found it (cached_bmis), read the first time a
     // module becomes ready for preparation and not again until the next plan.
     std::optional<std::map<std::string, std::vector<std::string>, std::less<>>> startupBmis_;
+    std::optional<std::set<std::string, std::less<>>> startupOwnedSources_;   // path keys (owned_bmi_sources_)
     // W-4 (plan 2026-09-30): which command each module was last prepared with, and its source's stamp then
     // (<database>/module-builds.json). A BMI in clangd's cache is only known to match the command it was built
     // with; one of another command (issue #30, a profile switch) or of an older source is not "built".
@@ -296,6 +322,8 @@ private:
     // When each module the database provides joined it (fix plan F16): a module is of use to clangd only once it
     // has read that database, DATABASE_REREAD later, or a clangd started after it did.
     std::map<std::string, Clock::time_point, std::less<>> moduleJoinedAt_;
+    // When mcppls-clangd first said it kept an import of a planned module textual (handle_module_failure_).
+    std::map<std::string, Clock::time_point, std::less<>> keptTextualAt_;
     std::optional<Clock::time_point> databaseReadAt_;   // when this clangd first read the database (it was given a file)
     std::optional<Clock::time_point> diskRecheckAt_;
     // Modules the plan's units import that no unit provides and no issue calls unresolved: resolved another way (a
@@ -391,6 +419,7 @@ private:
     // module nothing provides kept a core busy for as long as clangd ran (xlings' apps/gui/main.cpp). Such a file waits,
     // answered by mcppls's own engine, until clangd has read a database that has it.
     static constexpr std::chrono::seconds DATABASE_REREAD { 6 };
+    static constexpr std::chrono::seconds KEPT_TEXTUAL_CONFIRM { 2 };
     static constexpr std::chrono::seconds PLAN_PATIENCE { 15 };
     struct HeldFile {
         Clock::time_point since;
@@ -473,7 +502,7 @@ private:
 
 public:
     explicit ClangdEngine(Options options)
-        : options_ { std::move(options) }, traits_ { traits_for_version(options_.version, options_.disabledWorkarounds) }, stuck_ { options_.stuckWatch } {}
+        : options_ { std::move(options) }, traits_ { traits_for_version(options_.version, options_.disabledWorkarounds, options_.verifiedFeatures) }, stuck_ { options_.stuckWatch } {}
 
     std::string_view id() const override { return ENGINE_ID; }
     std::span<const MethodCapability> methods() const override { return methods_; }
@@ -616,7 +645,7 @@ public:
     Json workarounds_json_() const {
         Json list = Json::array();
         for (const auto& workaround : workarounds()) {
-            if (!needs(workaround, options_.version)) continue;
+            if (!needs(workaround, options_.version) || fixed_by_verified_features(workaround.id, options_.verifiedFeatures)) continue;
             const bool off { std::ranges::find(options_.disabledWorkarounds, workaround.id) != options_.disabledWorkarounds.end() };
             list.push_back(Json { { "id", workaround.id }, { "title", workaround.title }, { "upstream", workaround.upstream },
                                   { "removeWhen", workaround.removeWhen }, { "premise", workaround.premise }, { "turnedOff", off } });
@@ -648,6 +677,7 @@ public:
             const auto active = active_workarounds(options_.version);
             std::string ids;
             for (const auto id : active) {
+                if (fixed_by_verified_features(id, options_.verifiedFeatures)) continue;
                 const bool off { std::ranges::find(options_.disabledWorkarounds, id) != options_.disabledWorkarounds.end() };
                 ids += std::format("{}{}{}", ids.empty() ? "" : ", ", id, off ? " (turned off)" : "");
             }
@@ -681,6 +711,7 @@ public:
         input.moduleHintDirectory = traits_.needsModuleHints ? moduleHintDirectory_ : std::string {};
         input.stubDirectory = traits_.hangsOnUnresolvedImports ? stubDirectory_ : std::string {};
         input.excludeUnresolvedImports = traits_.hangsOnUnresolvedImports;
+        input.importersStallUnresolved = traits_.hangsOnImportersUnresolvedImports;
         input.noAlignedAllocationWithMsvcStl = traits_.msvcStlNeedsNoAlignedAllocation;
     }
 
@@ -838,7 +869,10 @@ public:
         }
         // Fix plan F16: when each module joined the database, for a file whose text on disk imports it.
         for (const auto& [name, source] : newModuleSources) {
-            if (const auto before = moduleSources_.find(name); before == moduleSources_.end() || !base::same_path(before->second, source)) moduleJoinedAt_[name] = appliedAt;
+            if (const auto before = moduleSources_.find(name); before == moduleSources_.end() || !base::same_path(before->second, source)) {
+                moduleJoinedAt_[name] = appliedAt;
+                keptTextualAt_.erase(name);   // a report about the provider it had is not one about this one
+            }
         }
         std::erase_if(moduleJoinedAt_, [&](const auto& item) { return !newModuleSources.contains(item.first); });
         moduleSources_ = std::move(newModuleSources);
@@ -884,6 +918,7 @@ public:
         }
         for (const auto& key : backgroundLeaving) close_background_(key);
         startupBmis_.reset();
+        startupOwnedSources_.reset();
         planApplied_ = true;
         const bool unresolvedForgot { forget_changed_unresolved_() };
         const bool doomForgot { forget_changed_doom_() };
@@ -1291,7 +1326,10 @@ public:
         for (const auto& [module, source] : moduleSources_) {
             if ((module == "std" || module == "std.compat") && base::same_path(source, normalized)) standardModule = module;
         }
-        const bool neverTyped { !standardModule.empty() || !base::is_within(normalized, host_->root_directory()) };
+        // A file outside the workspace that the database does not name is one the editor opened (a probe, a header
+        // looked at), whose half-typed text is the person's like any other file's.
+        const bool neverTyped { !standardModule.empty()
+                                || (!base::is_within(normalized, host_->root_directory()) && writtenArguments_.contains(base::path_key(normalized))) };
         if (!driver && !notFound && !neverTyped) return;
         // clangd names the unit as its command line did, with backslashes and `..` on Windows (GalTranslPP:
         // `D:\a\...\Updater\..\3rdParty\3rdModule\boost.ixx`); the plan's units are normalized.
@@ -1640,6 +1678,14 @@ private:
         config.verboseLog = options_.verboseLog;
         workers_ = engine_workers(std::thread::hardware_concurrency(), total_memory_bytes(), options_.workers);
         config.workers = workers_;
+        config.fallbackStyle = format_fallback_style(options_.formatFallbackStyle, options_.mcppFormatStyle,
+            platform::fs::is_regular_file(base::join_path(host_->root_directory(), "mcpp.toml")));
+        // Under PRoot every process is traced call by call, so mcppls-clangd's supervised compiler worker, a
+        // process per module, costs many times an in-process build; there it compiles in clangd, as upstream
+        // does. Only a verified maintained engine has the option (an external clangd would refuse to start).
+        config.inProcessModuleBuilds = !options_.verifiedFeatures.empty() && !platform::sandbox().empty();
+        if (base::to_lower_ascii(options_.formatFallbackStyle) == "mcpp" && !options_.mcppFormatStyle)
+            add_issue_(Issue { "format-style-unavailable", "the selected engine does not declare the mcpp formatting style", "mcppls.showLogs", "environment" });
         config.modulesSupport = modulesSupport_;   // WA-CLANGD-009
         config.extraArguments = options_.extraArguments;
         // Extra engine arguments for troubleshooting, e.g. MCPPLS_ENGINE_ARGUMENTS="-j=8 --background-index-priority=background".
@@ -2533,7 +2579,17 @@ private:
     }
 
     void handle_module_failure_(const Json& failure) {
-        const ModuleFailure parsed { failure.value("module", std::string {}), failure.value("reason", std::string {}), failure.value("source", std::string {}) };
+        ModuleFailure parsed { failure.value("module", std::string {}), failure.value("reason", std::string {}), failure.value("source", std::string {}), {} };
+        // mcppls-clangd names the importer and the unit that failed to compile, not the module: it is
+        // the one the plan gave that unit.
+        if (parsed.module.empty() && !parsed.failedSource.empty()) {
+            for (const auto& [name, source] : moduleSources_) {
+                if (base::same_path(source, parsed.failedSource)) {
+                    parsed.module = name;
+                    break;
+                }
+            }
+        }
         if (parsed.module.empty()) return;
         const FailureKind kind { failure_kind(parsed) };
         // The standard library, which nearly every unit imports: a failure there is how this server built it,
@@ -2551,6 +2607,21 @@ private:
         // get" is a scanning problem of the files that import it, which the kit would not make any better.
         const auto provider = moduleSources_.find(parsed.module);
         const bool providerPlanned { provider != moduleSources_.end() && !generated_path_(provider->second) };
+        // mcppls-clangd keeps an import textual, rather than failing the file, when its provider index has no unit for
+        // the module, and says so while that index reloads too. For a module the plan does give a unit, that is the
+        // engine catching up with the database, not a module to stand in for: a stand-in would push the real unit out.
+        // A unit whose scan keeps failing is reported again at each attempt, the real case of a module to stand in for
+        // (partial-scan-standins); a provider index catching up reports it once. So for a planned module only a report
+        // repeated KEPT_TEXTUAL_CONFIRM after the first is taken; a module the plan has no unit for is taken at once.
+        if (providerPlanned && parsed.reason.find("no module unit for it in this project") != std::string::npos) {
+            const auto now { Clock::now() };
+            const auto [first, fresh] = keptTextualAt_.try_emplace(parsed.module, now);
+            if (fresh || now - first->second < KEPT_TEXTUAL_CONFIRM) {
+                log::info("clangd kept an import of {} textual while the plan gives it {} ({}); taken once it says so again", parsed.module,
+                          provider->second, host_->root_directory());
+                return;
+            }
+        }
         const FailureAction action { failure_action(kind, FailureContext { .standardLibrary = stdFailed, .providerPlanned = providerPlanned,
                                                                            .providerRead = engine_read_unit_of_(parsed.module, Clock::now()),
                                                                            .alreadyOnKit = stdFromKit_ }) };
@@ -2872,6 +2943,10 @@ private:
             quarantine_.release(key);
             aside_.erase(key);
             if (accepting_) (void)send_(lsp::make_notification("textDocument/didClose", Json { { "textDocument", Json { { "uri", document.uri } } } }));
+            // Closed in clangd, it is built there no more: a build it was in when it was closed is not one that never ends
+            // once the file goes back (SpinWatch), and what clangd last said of it is not its state.
+            fileStatus_.erase(document.uri);
+            spin_.forget(document.uri);
             publish_doom_diagnostic_(document, info->second);
         }
         host_->record_event("file-doomed", Json { { "file", key }, { "module", info->second.viaModule },
@@ -3118,7 +3193,7 @@ private:
                 if (sanitize_module_names(line).changed()) return std::format("it has `{}`, a module name ending in '.', which clangd 23.1 spins on (UP-01)", base::trim(line));
             }
         }
-        if (!traits_.hangsOnUnresolvedImports || writtenDatabase_.empty()) return std::nullopt;
+        if (!traits_.hangsOnImportersUnresolvedImports || writtenDatabase_.empty()) return std::nullopt;
         const auto planned = fileImports_.find(key);
         const bool watched { unresolvedOnDiskSince_.contains(key) };   // set aside for it already: back once clangd can build it
         for (const auto& name : project::required_names(project::scan_source(text))) {
@@ -3135,7 +3210,7 @@ private:
     // clangd builds it, if the editor has it open, and is left out of what clangd is told of changes on disk either way;
     // one that is safe again goes back. `document`: the editor's, if open. True: `path` is not safe for clangd now.
     bool check_disk_(std::string_view path, const DocumentView* document) {
-        if (path.empty() || !project::is_cxx_source_name(path) || (!traits_.hangsOnTrailingDotModuleName && !traits_.hangsOnUnresolvedImports)) return false;
+        if (path.empty() || !project::is_cxx_source_name(path) || (!traits_.hangsOnTrailingDotModuleName && !traits_.hangsOnImportersUnresolvedImports)) return false;
         const std::string key { base::path_key(path) };
         const auto now = Clock::now();
         const auto text = platform::fs::read_file(path);
@@ -3655,6 +3730,7 @@ private:
         builtModules_.clear();
         builtModulesLoaded_ = false;
         startupBmis_.reset();
+        startupOwnedSources_.reset();
         unresolvedModules_.clear();
         doomRoots_.clear();
         doomedModules_.clear();
@@ -4275,6 +4351,22 @@ private:
         return bmis;
     }
 
+    // The units mcppls-clangd's owned cache (Linux) keeps a BMI of, by path key. Its files are all named payload.pcm,
+    // one per generation directory, so each says whose it is in its control block (pcm_original_source).
+    std::set<std::string, std::less<>> owned_bmi_sources_() const {
+        std::set<std::string, std::less<>> sources;
+        const std::string owned { base::join_path(databaseDirectory_, ".cache/clangd/modules/.owned-payload-v1") };
+        for (const auto& generation : platform::fs::list_directory(owned)) {
+            if (!base::file_name(generation).starts_with("generation-")) continue;
+            std::ifstream in { base::join_path(generation, "payload.pcm"), std::ios::binary };
+            std::string head(1 << 16, '\0');
+            in.read(head.data(), static_cast<std::streamsize>(head.size()));
+            head.resize(static_cast<std::size_t>(in.gcount()));
+            if (const std::string source { pcm_original_source(head) }; !source.empty()) sources.insert(base::path_key(source));
+        }
+        return sources;
+    }
+
     // usable plan W7, W-4: whether clangd already keeps `module`'s BMI for the command the database gives it now,
     // so an importer's own build reuses it and a prime unit would only take clangd workers from the files a person
     // opened. Known only for a module this engine prepared before (module-builds.json) whose command and source
@@ -4300,6 +4392,8 @@ private:
             return true;
         };
         if (!current(module.name)) return false;
+        if (!startupOwnedSources_) startupOwnedSources_ = owned_bmi_sources_();
+        if (startupOwnedSources_->contains(base::path_key(source->second))) return true;
         if (!startupBmis_) startupBmis_ = cached_bmis_();
         const auto files = startupBmis_->find(base::file_name(source->second));
         if (files == startupBmis_->end()) return false;

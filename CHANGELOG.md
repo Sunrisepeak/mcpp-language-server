@@ -7,6 +7,80 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.12] — 2026-10-09
+
+The bundled clangd is now **mcppls-clangd**: LLVM 23.1.0 with 25 patches for C++ modules
+([mcppls-clangd 0.0.12](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.12),
+reporting `23.1.0-mcppls.0`). Each patch maps to rows of the upstream-defects register (issue #24)
+and carries a drop condition. The payload pins the engine by its binary SHA-256 and its source
+identity, and the server checks both before it trusts what the engine declares.
+
+### Completion on files that import modules
+
+- **Completion answers from the semantic parser, quickly.** On the Qt project fixture (12 contexts,
+  3 starts × 30 rounds each, Linux x64), warm completion has p95 53–91 ms and completion right after
+  an edit 133–168 ms. In the same measurement, completion after an edit is at least twice as fast
+  as with stock clangd 23.1. Completion loads from imported modules only the names that can match
+  what was typed, shares the draft's verified imports, and lists each constructor overload once. Module importers still answer about 30 ms slower than the same
+  project written with headers once warm; that gap is open.
+- **Unsaved edits count.** Dependency scans read the request's own buffers. A cached scan or BMI
+  verdict is reused only after every input it observed replays unchanged, including `__DATE__`-like
+  builtins and files that did not exist.
+
+### Building modules
+
+- **Prerequisite modules build as one bounded, cancellable graph.** Independent modules compile in
+  parallel within a shared limit. A cycle fails before any BMI is built, and closing a document
+  cancels its waits. A module change rebuilds only the modules that depend on it.
+- **On Linux, module compilers run in supervised worker processes.** They stop when clangd dies,
+  are admitted against a shared memory budget, and the files they leave are collected once nothing
+  holds them.
+- **Malformed module directives recover in place.** A missing `;` is reported on the directive
+  that lacks it, and a directive after a missing BMI no longer derails the rest of the file. The
+  product's own relocation of that diagnostic (WA-CLANGD-006) retires for an engine that declares
+  the fix.
+- **An import of a module nothing provides is reported, and the file keeps answering.** A module
+  unit whose import resolves to nothing no longer stalls clangd or the files that import it. For
+  an engine that declares this (`unresolved-import-recovery`), the product stops giving such an
+  import in a file that provides no module a stand-in, and stops setting a file aside while an
+  autosave has such an import on disk (WA-CLANGD-013). Typing an import with autosave on no longer
+  rewrites the engine database at each name it passes through. A module unit's own unresolved
+  import still gets a stand-in, once the unit has not been edited for a few seconds, so its
+  importers keep their features (WA-CLANGD-002).
+- **Reusing a dependency scan no longer reads every header again.** A header that is on disk with
+  the identity, size and modification time the scan saw, and was last modified well before it, is
+  taken as unchanged, as clang does for a module's inputs. A hit on the standard library module's
+  scan used to read and hash each libc++ header.
+
+### Editing
+
+- **Formatting has an mcpp fallback.** `mcppls.format.fallbackStyle` (default `auto`): a project
+  without `.clang-format` that is an mcpp project formats in the pinned mcpp style. A named style
+  overrides it, and a project `.clang-format` always wins. Other projects keep clangd's default.
+- **Compiler extensions complete.** Attribute syntax, cleanup functions and, on Windows targets,
+  SEH constructs are offered where they are valid.
+- `textDocument/semanticTokens/range` is answered, and `misc-const-correctness` no longer suggests
+  `const` for a range a pipeline consumes.
+
+### VS Code
+
+- **A server that crashes while starting recovers cleanly.** Recovery waits for the failed start
+  to settle, then starts a fresh client through the same queue as a manual restart, under the same
+  crash budget. A failed protocol write closes the connection instead of leaving an unhandled
+  rejection (WA-VSCODE-003, WA-VSCODE-004). A crash report keeps the log path the server announced.
+
+### Platforms and compatibility
+
+- **linux-arm64 runs on far more systems.** Its clangd is the maintained engine built on an
+  Ubuntu 20.04 floor, so it needs glibc 2.31 (Ubuntu 20.04, Debian 11, RHEL 9 and later) instead
+  of 2.34 and GCC 12's libstdc++.
+- **linux-x64's bundled clangd now needs glibc 2.31.** Stock clangd needed 2.18. On an older system
+  (Ubuntu 18.04, Debian 10, RHEL 8) the bundled clangd cannot start. mcppls then keeps its own
+  module-level features and says why in its status, and `mcppls.clangd` can point at another
+  clangd.
+- **macOS needs 12 or later** (was 11): the engine is built for macOS 12.
+- An external server or clangd keeps working as before. Intel macOS still has no bundled build.
+
 ## [0.0.11] — 2026-10-04
 
 ### Completion

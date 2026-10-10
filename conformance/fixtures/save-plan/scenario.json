@@ -1,0 +1,83 @@
+{
+  "name": "save-plan",
+  "description": "Actual autosave keeps new exports visible when the module graph is unchanged, and replans a new exported import. No compiler or build system.",
+  "server-arguments": [
+    "--no-discover"
+  ],
+  "checks": [
+    {
+      "id": "SAVE-ready",
+      "kind": "status",
+      "source": "inferred",
+      "profile-kind": "semantic-kit",
+      "state": "ready",
+      "engine-name": "clangd"
+    },
+    {
+      "id": "SAVE-initial",
+      "kind": "diagnostics-empty",
+      "file": "src/main.cpp"
+    },
+    {
+      "id": "SAVE-export",
+      "kind": "type-text",
+      "file": "src/value.cppm",
+      "line": 4,
+      "steps": [
+        "  int added() { return 2; }"
+      ],
+      "save": true,
+      "interval-ms": 1000,
+      "answer-within": 5,
+      "states-never": [
+        "error"
+      ]
+    },
+    {
+      "id": "SAVE-export-visible",
+      "kind": "completion-contains",
+      "file": "src/main.cpp",
+      "insert": [
+        3,
+        "  sample::"
+      ],
+      "at": [
+        3,
+        10
+      ],
+      "expect": [
+        "original",
+        "added"
+      ]
+    },
+    {
+      "id": "SAVE-import",
+      "kind": "type-text",
+      "file": "src/value.cppm",
+      "line": 1,
+      "steps": [
+        "export import save.extra;"
+      ],
+      "save": true,
+      "interval-ms": 1000,
+      "answer-within": 5,
+      "states-never": [
+        "error"
+      ]
+    },
+    {
+      "id": "SAVE-import-visible",
+      "kind": "completion-contains",
+      "file": "src/main.cpp",
+      "at": [
+        3,
+        10
+      ],
+      "expect": [
+        "original",
+        "added",
+        "extra"
+      ]
+    }
+  ]
+}

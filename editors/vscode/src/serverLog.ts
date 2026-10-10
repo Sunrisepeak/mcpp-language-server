@@ -5,6 +5,8 @@
 // as a wall of errors. Here each line keeps its own level, and loses the timestamp the log channel
 // adds again. Imports nothing from VS Code, so the plain-Node unit tests can load it.
 
+import * as path from 'path';
+
 export type ServerLogLevel = 'debug' | 'info' | 'warning' | 'error';
 
 // The LogOutputChannel methods a line is written with.
@@ -21,6 +23,22 @@ export interface ServerLogLine {
 }
 
 const LOG_LINE = /^mcppls \S+ \[(debug|info|warning|error)\] ?(.*)$/;
+
+// Diagnostic reports replace home directory paths with ~/... .
+// Such display strings cannot locate files or replace a path learned from stderr.
+export function absoluteServerLogPath(value: unknown): string | undefined {
+    return typeof value === 'string' && value.length > 0
+        && (path.isAbsolute(value) || path.win32.isAbsolute(value)) ? value : undefined;
+}
+
+// The process announces its log before initialize completes. A diagnostic report
+// can be interrupted by a crash, so keep this path as soon as stderr arrives.
+export function announcedServerLog(line: string): string | undefined {
+    const match = LOG_LINE.exec(line);
+    if (!match || match[1] !== 'info' || !match[2].startsWith('log file ')) return undefined;
+    const file = match[2].slice('log file '.length);
+    return absoluteServerLogPath(file);
+}
 
 // One stderr line, given the level of the log line before it. A line in the server's log format has
 // its own level. Any other line either continues the message above (a multi-line message is one

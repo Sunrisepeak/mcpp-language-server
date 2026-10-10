@@ -49,6 +49,7 @@ struct SessionOptions {
     std::chrono::seconds producerTimeout { 0 };
     bool verboseEngineLog { false };
     std::chrono::milliseconds requestTimeout { std::chrono::seconds { 60 } };
+    std::string formatFallbackStyle { "auto" };
     std::string engineWorkers { "auto" };   // mcppls.engine.workers (R-2): "auto" or a number
     // Registered workarounds turned off (import-hang plan §9): to see whether one is still needed.
     std::vector<std::string> disabledWorkarounds;
