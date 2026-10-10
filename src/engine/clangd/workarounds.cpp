@@ -7,7 +7,7 @@ namespace mcppls::engine::clangd {
 
 namespace {
 
-constexpr std::array<Workaround, 12> REGISTRY { {
+constexpr std::array<Workaround, 13> REGISTRY { {
     {
         .id = TRAILING_DOT_MODULE_NAME,
         .title = "a module name ending in '.' at the end of its line spins clangd forever; clangd is given the line with ';' after the dot",
@@ -139,6 +139,17 @@ constexpr std::array<Workaround, 12> REGISTRY { {
         .removeWhen = "clangd keeps a file's module context between requests, or carries the imports in its preamble, so a module importer's completion costs no more than another file's",
         .canary = "",
         .premise = "the engine's answers for one file arrive reliably and just past the flat budget: two answers in the last sixty seconds, all within two seconds of the ask and all past the flat budget, extend that file's budget to their slowest plus 500 ms (2.5 s at most). Answers far beyond that are not counted -- a busy engine is not a slow-and-steady one -- and an engine that answers rarely (a broken module rebuilding, a fan-out save) or quickly keeps the flat budget, and the fallback with it",
+    },
+    {
+        .id = IMPORTER_STAND_INS,
+        .title = "a unit whose own import resolves to nothing stalls clangd 23.1 as it builds the unit; such an import gets a stand-in even in a file that provides no module, and a file whose text on disk imports a module clangd has no unit for is set aside",
+        .fixedIn = "",
+        .upstream = "unfiled (UP-02 in issue #24)",
+        .evidence = "robustness design C2; fix plan F13 and F16; conformance fixtures typing-import, typing-autosave, module-faults; mcppls-clangd ci/unresolved_import_canary.py, which clangd 23.1.0 does not answer within 60 s",
+        .added = "0.0.12",
+        .removeWhen = "clangd reports an import nothing provides and keeps answering the file; retired per payload only when its verified identity includes unresolved-import-recovery. The stand-ins a module unit's importers build with (WA-CLANGD-002) stay: they keep the features of a module whose import does not resolve",
+        .canary = "",
+        .premise = "clangd builds a unit with an import nothing provides only once that import has a unit in the database, real or a stand-in",
     },
 } };
 

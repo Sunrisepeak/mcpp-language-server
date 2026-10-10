@@ -576,7 +576,7 @@
       "timeout": 60
     },
     {
-      "id": "O1-planned-with-a-stand-in",
+      "id": "O1-planned-open-file",
       "kind": "report",
       "timeout": 10,
       "expect": [
@@ -585,12 +585,20 @@
           "min-items": 1
         },
         {
-          "path": "/roots/0/plan/standIns",
-          "contains": "hello.gui"
-        },
-        {
           "path": "/roots/0/engines/*/details/filesSetAside",
           "max-items": 0
+        }
+      ]
+    },
+    {
+      "id": "O1b-its-import-gets-a-stand-in",
+      "retired-by": "unresolved-import-recovery",
+      "kind": "report",
+      "timeout": 10,
+      "expect": [
+        {
+          "path": "/roots/0/plan/standIns",
+          "contains": "hello.gui"
         }
       ]
     },

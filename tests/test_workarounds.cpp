@@ -139,6 +139,17 @@ int main() {
         expect(fixed.misplacesDirectiveSemicolon && fixed.readsImportsFromDisk) << "other compensations remain active";
     };
 
+    "unresolved-import recovery retires WA-CLANGD-013 and leaves a module unit's stand-ins (WA-CLANGD-002)"_test = [] {
+        const auto plain = cld::traits_for_version("23.1.0-mcppls.0");
+        expect(plain.hangsOnUnresolvedImports && plain.hangsOnImportersUnresolvedImports) << "the version does not prove it";
+        const std::vector<std::string> recovery { "unresolved-import-recovery" };
+        const auto recovered = cld::traits_for_version("23.1.0-mcppls.0", {}, recovery);
+        expect(recovered.hangsOnUnresolvedImports && !recovered.hangsOnImportersUnresolvedImports);
+        const std::vector<std::string> noStandIns { "WA-CLANGD-002" };
+        expect(!cld::traits_for_version("23.1.0", noStandIns).hangsOnImportersUnresolvedImports)
+            << "without stand-ins at all, there are none for importers either";
+    };
+
     "the adapter receives capabilities only from a verified payload identity"_test = [] {
         mcppls::engine::PayloadPaths payload;
         payload.clangdVersion = "23.1.0-mcppls.0";

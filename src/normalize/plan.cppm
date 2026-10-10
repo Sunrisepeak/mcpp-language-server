@@ -131,6 +131,11 @@ struct PlanInput {
     // imports cannot resolve, and providers importing them, stay out of the database: clangd 23.1
     // deadlocks building them (robustness design, experiments S2, S6). Other units always stay.
     bool excludeUnresolvedImports { true };
+    // Whether clangd also stalls building a unit that provides no module, or a file whose text on disk imports, a
+    // module nothing provides (WA-CLANGD-013). Where it does not, such a unit keeps the import, which clangd reports,
+    // and gets no stand-in; a stand-in for a module unit's own import waits while the unit is being edited, on disk or
+    // not, until the unit is quiet: only its importers' features hang on it, not clangd.
+    bool importersStallUnresolved { true };
     // MSVC STL contexts turn aligned allocation off (clangd 23.1.0, usable plan E8/E9).
     bool noAlignedAllocationWithMsvcStl { true };
     // The core engine could not build the toolchain's standard library module (robustness design C5): C++

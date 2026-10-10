@@ -510,6 +510,7 @@ EnginePlan plan_engine(const PlanInput& input) {
     const auto editing = [&](std::string_view source, std::string_view name) {
         const auto path = std::ranges::find_if(input.editingSources, [&](const std::string& each) { return base::same_path(each, source); });
         if (path == input.editingSources.end()) return false;
+        if (!input.importersStallUnresolved) return true;   // what an autosave put on disk stalls nothing (WA-CLANGD-013)
         const auto disk = input.editingDiskImports.find(*path);
         return disk == input.editingDiskImports.end() || std::ranges::find(disk->second, name) == disk->second.end();
     };
@@ -546,8 +547,11 @@ EnginePlan plan_engine(const PlanInput& input) {
                 // import-hang plan §5: a name nothing provides, imported by a file being edited, is most likely still being
                 // typed: no stand-in until the file is quiet. A unit that provides a module gets one at once, since building
                 // it with an import it cannot resolve is what stalls clangd.
-                const bool deferred { standIns && !provider && !providers.contains(name) && editing(candidates[i].source, name) };
-                if (deferred) {
+                const bool importerOnly { !provider && !providers.contains(name) };
+                const bool deferred { standIns && !providers.contains(name) && (!provider || !input.importersStallUnresolved) && editing(candidates[i].source, name) };
+                if (standIns && importerOnly && !input.importersStallUnresolved) {
+                    // WA-CLANGD-013 retired: clangd reports the import, and the file needs no stand-in for it.
+                } else if (deferred) {
                     plan.standInsDeferred = true;
                 } else if (standIns) {
                     stubbed.insert(name);
@@ -572,9 +576,10 @@ EnginePlan plan_engine(const PlanInput& input) {
             if (resolved) continue;
             // A provider with an import that cannot resolve cannot be built, and building it is what deadlocks. A file
             // being edited waits for its stand-in until it is quiet (import-hang plan §5).
-            const bool deferred { standIns && !provider && editing(candidates[i].source, name) };
+            const bool importerKeepsIt { !provider && !input.importersStallUnresolved };   // WA-CLANGD-013 retired
+            const bool deferred { standIns && !importerKeepsIt && (!provider || !input.importersStallUnresolved) && editing(candidates[i].source, name) };
             if (deferred) plan.standInsDeferred = true;
-            const bool standIn { standIns && !deferred };
+            const bool standIn { standIns && !deferred && !importerKeepsIt };
             if (standIn) stubbed.insert(name);
             else if (!standIns && input.excludeUnresolvedImports && provider) excluded[i] = true;
             if (reported.insert(candidates[i].source + "\n" + name).second) {

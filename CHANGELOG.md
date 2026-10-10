@@ -39,6 +39,18 @@ identity, and the server checks both before it trusts what the engine declares.
   that lacks it, and a directive after a missing BMI no longer derails the rest of the file. The
   product's own relocation of that diagnostic (WA-CLANGD-006) retires for an engine that declares
   the fix.
+- **An import of a module nothing provides is reported, and the file keeps answering.** A module
+  unit whose import resolves to nothing no longer stalls clangd or the files that import it. For
+  an engine that declares this (`unresolved-import-recovery`), the product stops giving such an
+  import in a file that provides no module a stand-in, and stops setting a file aside while an
+  autosave has such an import on disk (WA-CLANGD-013). Typing an import with autosave on no longer
+  rewrites the engine database at each name it passes through. A module unit's own unresolved
+  import still gets a stand-in, once the unit has not been edited for a few seconds, so its
+  importers keep their features (WA-CLANGD-002).
+- **Reusing a dependency scan no longer reads every header again.** A header that is on disk with
+  the identity, size and modification time the scan saw, and was last modified well before it, is
+  taken as unchanged, as clang does for a module's inputs. A hit on the standard library module's
+  scan used to read and hash each libc++ header.
 
 ### Editing
 

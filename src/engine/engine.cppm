@@ -35,6 +35,7 @@ struct EngineTraits {
     bool importNavigation { false };                  // answers definition on `import M;` itself
     bool pushesDiagnostics { true };
     bool hangsOnUnresolvedImports { false };          // units whose imports cannot resolve stay out of its database
+    bool hangsOnImportersUnresolvedImports { false }; // so does a unit providing no module, and a file whose disk text has one
     bool needsModulePreparation { false };            // the server prepares modules in parallel for it
     bool needsModuleHints { false };                  // its database names the unit of each module
     bool indexesModuleUnitsWithoutModules { false };  // its background index cannot see a module unit's imports; implementation units are built in the foreground

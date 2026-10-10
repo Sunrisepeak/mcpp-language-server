@@ -655,6 +655,24 @@ int main() {
         std::ranges::sort(stubs);
         expect(stubs == std::vector<std::string> { "gone", "half", "hello" }) << "once quiet, every stand-in: " << std::format("{}", stubs);
         expect(!quiet.standInsDeferred);
+
+        // WA-CLANGD-013 retired (an engine that reports an import nothing provides and keeps answering the file): a file
+        // that provides no module keeps such an import, quiet or not, and a module unit's own stand-in waits while the
+        // unit is edited, even once an autosave put the import on disk.
+        input.importersStallUnresolved = false;
+        input.editingSources = { "/p/src/main.cpp", "/p/src/greet.cppm" };
+        input.editingDiskImports = { { "/p/src/greet.cppm", { "half" } } };
+        const auto recovering = n::plan_engine(input);
+        expect(recovering.stubModules.empty()) << std::format("{}", recovering.stubModules);
+        expect(recovering.standInsDeferred);
+        for (const auto* name : { "gone", "hello", "half" }) {
+            expect(std::ranges::any_of(recovering.issues, [&](const n::PlanIssue& issue) { return issue.module == name; })) << "still reported: " << name;
+        }
+        input.editingSources.clear();
+        const auto recoveredQuiet = n::plan_engine(input);
+        expect(recoveredQuiet.stubModules == std::vector<std::string> { "half" }) << "only the module unit's: " << std::format("{}", recoveredQuiet.stubModules);
+        expect(!recoveredQuiet.standInsDeferred);
+        expect(recoveredQuiet.excludedFiles.empty()) << std::format("{}", recoveredQuiet.excludedFiles);
     };
 
     "a file the editor opened that no set describes joins with the nearest unit's arguments"_test = [] {

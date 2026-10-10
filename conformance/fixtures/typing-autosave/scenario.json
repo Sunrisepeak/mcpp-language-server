@@ -196,7 +196,15 @@
         {
           "path": "/roots/0/engines/*/details/filesSetAside",
           "max-items": 0
-        },
+        }
+      ]
+    },
+    {
+      "id": "T10b-handed-back",
+      "retired-by": "unresolved-import-recovery",
+      "kind": "report",
+      "timeout": 30,
+      "expect": [
         {
           "path": "/roots/0/events/*/kind",
           "equals": "file-handed-back"

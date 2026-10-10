@@ -35,10 +35,11 @@ namespace {
 // A workaround retires for an engine whose verified identity declares the capability that proves its defect
 // fixed (S4-4-10: a version suffix grants none). mcppls-clangd proves each on its final package bytes.
 bool fixed_by_verified_features(std::string_view id, std::span<const std::string> features) {
-    static constexpr std::array<std::pair<std::string_view, std::string_view>, 3> RETIRED_BY { {
+    static constexpr std::array<std::pair<std::string_view, std::string_view>, 4> RETIRED_BY { {
         { DIRECTIVE_SEMICOLON_POSITION, "module-directive-diagnostic-ranges" },
         { TRAILING_DOT_MODULE_NAME, "module-directive-recovery" },
         { CONST_CORRECTNESS_VIEWS, "const-correctness-views" },
+        { IMPORTER_STAND_INS, "unresolved-import-recovery" },
     } };
     for (const auto& [workaround, feature] : RETIRED_BY) {
         if (id == workaround) return std::ranges::find(features, feature) != features.end();
@@ -57,6 +58,7 @@ EngineTraits traits_for_version(std::string_view version, std::span<const std::s
         .importNavigation = false,
         .pushesDiagnostics = true,
         .hangsOnUnresolvedImports = on(UNRESOLVED_IMPORT_STAND_INS),
+        .hangsOnImportersUnresolvedImports = on(UNRESOLVED_IMPORT_STAND_INS) && on(IMPORTER_STAND_INS),
         .needsModulePreparation = on(MODULE_PREPARATION),
         .needsModuleHints = on(MODULE_HINTS),
         .indexesModuleUnitsWithoutModules = on(BACKGROUND_INDEX_WITHOUT_MODULES),
@@ -709,6 +711,7 @@ public:
         input.moduleHintDirectory = traits_.needsModuleHints ? moduleHintDirectory_ : std::string {};
         input.stubDirectory = traits_.hangsOnUnresolvedImports ? stubDirectory_ : std::string {};
         input.excludeUnresolvedImports = traits_.hangsOnUnresolvedImports;
+        input.importersStallUnresolved = traits_.hangsOnImportersUnresolvedImports;
         input.noAlignedAllocationWithMsvcStl = traits_.msvcStlNeedsNoAlignedAllocation;
     }
 
@@ -3183,7 +3186,7 @@ private:
                 if (sanitize_module_names(line).changed()) return std::format("it has `{}`, a module name ending in '.', which clangd 23.1 spins on (UP-01)", base::trim(line));
             }
         }
-        if (!traits_.hangsOnUnresolvedImports || writtenDatabase_.empty()) return std::nullopt;
+        if (!traits_.hangsOnImportersUnresolvedImports || writtenDatabase_.empty()) return std::nullopt;
         const auto planned = fileImports_.find(key);
         const bool watched { unresolvedOnDiskSince_.contains(key) };   // set aside for it already: back once clangd can build it
         for (const auto& name : project::required_names(project::scan_source(text))) {
@@ -3200,7 +3203,7 @@ private:
     // clangd builds it, if the editor has it open, and is left out of what clangd is told of changes on disk either way;
     // one that is safe again goes back. `document`: the editor's, if open. True: `path` is not safe for clangd now.
     bool check_disk_(std::string_view path, const DocumentView* document) {
-        if (path.empty() || !project::is_cxx_source_name(path) || (!traits_.hangsOnTrailingDotModuleName && !traits_.hangsOnUnresolvedImports)) return false;
+        if (path.empty() || !project::is_cxx_source_name(path) || (!traits_.hangsOnTrailingDotModuleName && !traits_.hangsOnImportersUnresolvedImports)) return false;
         const std::string key { base::path_key(path) };
         const auto now = Clock::now();
         const auto text = platform::fs::read_file(path);
