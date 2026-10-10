@@ -316,6 +316,8 @@ private:
     // When each module the database provides joined it (fix plan F16): a module is of use to clangd only once it
     // has read that database, DATABASE_REREAD later, or a clangd started after it did.
     std::map<std::string, Clock::time_point, std::less<>> moduleJoinedAt_;
+    // When mcppls-clangd first said it kept an import of a planned module textual (handle_module_failure_).
+    std::map<std::string, Clock::time_point, std::less<>> keptTextualAt_;
     std::optional<Clock::time_point> databaseReadAt_;   // when this clangd first read the database (it was given a file)
     std::optional<Clock::time_point> diskRecheckAt_;
     // Modules the plan's units import that no unit provides and no issue calls unresolved: resolved another way (a
@@ -411,6 +413,7 @@ private:
     // module nothing provides kept a core busy for as long as clangd ran (xlings' apps/gui/main.cpp). Such a file waits,
     // answered by mcppls's own engine, until clangd has read a database that has it.
     static constexpr std::chrono::seconds DATABASE_REREAD { 6 };
+    static constexpr std::chrono::seconds KEPT_TEXTUAL_CONFIRM { 2 };
     static constexpr std::chrono::seconds PLAN_PATIENCE { 15 };
     struct HeldFile {
         Clock::time_point since;
@@ -859,7 +862,10 @@ public:
         }
         // Fix plan F16: when each module joined the database, for a file whose text on disk imports it.
         for (const auto& [name, source] : newModuleSources) {
-            if (const auto before = moduleSources_.find(name); before == moduleSources_.end() || !base::same_path(before->second, source)) moduleJoinedAt_[name] = appliedAt;
+            if (const auto before = moduleSources_.find(name); before == moduleSources_.end() || !base::same_path(before->second, source)) {
+                moduleJoinedAt_[name] = appliedAt;
+                keptTextualAt_.erase(name);   // a report about the provider it had is not one about this one
+            }
         }
         std::erase_if(moduleJoinedAt_, [&](const auto& item) { return !newModuleSources.contains(item.first); });
         moduleSources_ = std::move(newModuleSources);
@@ -2590,6 +2596,21 @@ private:
         // get" is a scanning problem of the files that import it, which the kit would not make any better.
         const auto provider = moduleSources_.find(parsed.module);
         const bool providerPlanned { provider != moduleSources_.end() && !generated_path_(provider->second) };
+        // mcppls-clangd keeps an import textual, rather than failing the file, when its provider index has no unit for
+        // the module, and says so while that index reloads too. For a module the plan does give a unit, that is the
+        // engine catching up with the database, not a module to stand in for: a stand-in would push the real unit out.
+        // A unit whose scan keeps failing is reported again at each attempt, the real case of a module to stand in for
+        // (partial-scan-standins); a provider index catching up reports it once. So for a planned module only a report
+        // repeated KEPT_TEXTUAL_CONFIRM after the first is taken; a module the plan has no unit for is taken at once.
+        if (providerPlanned && parsed.reason.find("no module unit for it in this project") != std::string::npos) {
+            const auto now { Clock::now() };
+            const auto [first, fresh] = keptTextualAt_.try_emplace(parsed.module, now);
+            if (fresh || now - first->second < KEPT_TEXTUAL_CONFIRM) {
+                log::info("clangd kept an import of {} textual while the plan gives it {} ({}); taken once it says so again", parsed.module,
+                          provider->second, host_->root_directory());
+                return;
+            }
+        }
         const FailureAction action { failure_action(kind, FailureContext { .standardLibrary = stdFailed, .providerPlanned = providerPlanned,
                                                                            .providerRead = engine_read_unit_of_(parsed.module, Clock::now()),
                                                                            .alreadyOnKit = stdFromKit_ }) };
