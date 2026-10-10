@@ -2,7 +2,9 @@
   "name": "ux-modules-qt",
   "description": "C++ modules mixed with Qt headers (0.0.12, issue #50): a module unit whose global module fragment includes <QtWidgets/QtWidgets>, another that includes Qt Core headers, and a file that includes Qt headers and imports both, built by CMake with clang++ against the system's Qt 5 (qtbase5-dev). Answers are right, and they stay fast while a person types in the importer and in a module unit that autosaves: every completion answered, no restart (a crash counts as one), nothing set aside, diagnostics back within seconds.",
   "server-arguments": [
-    "--no-discover"
+    "--no-discover",
+    "--log-level",
+    "debug"
   ],
   "prepare": [
     [
@@ -233,5 +235,6 @@
         }
       ]
     }
-  ]
+  ],
+  "failure-log-lines": "Textual module preamble|replay differs|scan memo declined|scan manifest probe boundary|Built preamble of size"
 }

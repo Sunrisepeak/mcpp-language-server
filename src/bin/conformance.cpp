@@ -336,6 +336,27 @@ std::map<std::string, std::string> module_files(const std::string& cacheDirector
     return files;
 }
 
+// The lines of the server's logs that match `pattern` (a fixture's "failure-log-lines"), all of them, however long ago: what
+// a check's one line and the tail below leave out, such as why clangd gave a file no preamble.
+void print_server_log_matches(const std::string& cacheDirectory, const std::string& pattern) {
+    if (pattern.empty()) return;
+    const std::regex wanted { pattern };
+    constexpr std::size_t LIMIT { 120 };
+    auto files = fs::list_directory(base::join_path(cacheDirectory, "logs"));
+    std::ranges::sort(files);
+    std::size_t printed { 0 };
+    for (const auto& file : files) {
+        const auto text = fs::read_file(file);
+        if (!text) continue;
+        for (const auto line : base::split_lines(*text)) {
+            if (!std::regex_search(line.begin(), line.end(), wanted)) continue;
+            if (printed++ == 0) say("--- server log lines matching {}", pattern);
+            if (printed <= LIMIT) say("  | {}", line);
+        }
+    }
+    if (printed > LIMIT) say("  | ... {} more", printed - LIMIT);
+}
+
 // The last lines of each log file the server wrote under its cache directory.
 void print_server_log_tail(const std::string& cacheDirectory) {
     constexpr std::size_t LINES { 200 };
@@ -4742,6 +4763,7 @@ int run(Options options) {
     // A failure in CI leaves nothing behind but this output: the server's own log says what it was
     // doing while a check waited, which the check's one line cannot. --verbose already printed it.
     if (failures > 0 && !options.verbose) print_server_log_tail(cacheDirectory);
+    if (failures > 0) print_server_log_matches(cacheDirectory, scenario.value("failure-log-lines", std::string {}));
     say("{}: {} failure(s), {:.1f}s", name, failures, total);
     if (!options.measureFile.empty()) {
         // The timeline of usable plan W7: initialize, the first ready state, the first diagnostics, the first navigation.
