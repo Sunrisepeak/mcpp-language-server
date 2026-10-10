@@ -79,6 +79,7 @@
     },
     {
       "id": "T2-crash-restarted",
+      "retired-by": "module-directive-recovery",
       "kind": "report",
       "timeout": 60,
       "only-on": [
