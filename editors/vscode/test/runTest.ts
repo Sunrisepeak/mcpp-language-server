@@ -135,14 +135,31 @@ function retried<T>(read: () => T): T {
 
 function hashWorkspace(workspace: string): Map<string, string> {
     const result = new Map<string, string>();
+    // An entry gone between its directory's listing and its own read was being removed as the walk went (on Windows,
+    // the editor deleting the `.vscode` folder it emptied as it exits): it is not part of the workspace left behind.
+    const gone = (error: unknown): boolean => (error as NodeJS.ErrnoException).code === 'ENOENT';
     const walk = (dir: string): void => {
-        for (const entry of retried(() => fs.readdirSync(dir, { withFileTypes: true }))) {
+        let entries: fs.Dirent[];
+        try {
+            entries = retried(() => fs.readdirSync(dir, { withFileTypes: true }));
+        } catch (error) {
+            if (dir !== workspace && gone(error)) return;
+            throw error;
+        }
+        for (const entry of entries) {
             const full = path.join(dir, entry.name);
             if (entry.isDirectory()) {
                 walk(full);
             } else if (entry.isFile()) {
                 const relative = path.relative(workspace, full).split(path.sep).join('/');
-                result.set(relative, crypto.createHash('sha256').update(retried(() => fs.readFileSync(full))).digest('hex'));
+                let bytes: Buffer;
+                try {
+                    bytes = retried(() => fs.readFileSync(full));
+                } catch (error) {
+                    if (gone(error)) continue;
+                    throw error;
+                }
+                result.set(relative, crypto.createHash('sha256').update(bytes).digest('hex'));
             }
         }
     };
