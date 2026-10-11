@@ -43,7 +43,7 @@ suite('cache reset', () => {
 // extension registered first makes the client fail with "command '...' already exists".
 suite('command ids', () => {
     // What the server lists in executeCommandProvider.commands (src/engine and src/orchestrator).
-    const SERVER_COMMANDS = ['mcppls.review.run', 'mcppls.review.clear', 'mcppls.reloadBuildDescription', 'mcppls.describeOnline',
+    const SERVER_COMMANDS = ['mcppls.review.run', 'mcppls.review.clear', 'mcppls.reloadBuildDescription', 'mcppls.applyBuildProgram', 'mcppls.describeOnline',
         'mcppls.restartEngine', 'mcppls.exportBundle', SERVER_RESET_CACHE_COMMAND, SERVER_SWEEP_CACHE_COMMAND];
     // out/test/unit -> the extension root
     const root = path.resolve(__dirname, '..', '..', '..');

@@ -149,6 +149,11 @@
         "category": "C++ Modules"
       },
       {
+        "command": "mcppls.applyBuildProgram",
+        "title": "%command.mcppls.applyBuildProgram.title%",
+        "category": "C++ Modules"
+      },
+      {
         "command": "mcppls.showLogs",
         "title": "%command.mcppls.showLogs.title%",
         "category": "C++ Modules"
@@ -381,6 +386,19 @@
             "%config.mcppls.buildTool.enum.2%"
           ],
           "description": "%config.mcppls.buildTool.description%"
+        },
+        "mcppls.buildProgram.apply": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "manual"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "%config.mcppls.buildProgram.apply.enum.0%",
+            "%config.mcppls.buildProgram.apply.enum.1%"
+          ],
+          "description": "%config.mcppls.buildProgram.apply.description%"
         },
         "mcppls.toolEnvironment": {
           "type": "string",

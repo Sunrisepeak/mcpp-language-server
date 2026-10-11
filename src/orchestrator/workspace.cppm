@@ -42,6 +42,7 @@ struct SessionOptions {
     // mcppls.buildTool (design 4.4): offline --- the default --- runs the build tool without the
     // network; online lets it reach the network and gives it ten minutes; off never runs it.
     std::string buildTool { "offline" };
+    std::string buildProgramApply { "auto" };   // auto | manual (0.0.13 W3(a))
     // mcppls.toolEnvironment (design 4.3): auto reads the login shell on POSIX; editor always uses
     // this process's environment, for a shell configuration with side effects.
     std::string toolEnvironment { "auto" };
@@ -232,6 +233,8 @@ public:
     // Reads the build description again, offline. What the user does about a needed download
     // happens outside this server, so the only way to learn it worked is to look again.
     void reload_build_description();
+    // 0.0.13 W3(a): describe the project again for a changed build program now, past the wait for it to compile.
+    void apply_build_program();
     // Plan 2026-09-27 B-2: describe the project once more, this time letting the build tool reach the network
     // (the person's choice, from the editor). Later loads are offline again. False: nothing needs a download.
     bool describe_online();

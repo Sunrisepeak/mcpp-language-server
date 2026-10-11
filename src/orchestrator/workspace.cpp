@@ -411,6 +411,13 @@ struct Workspace::Impl final : engine::Host {
     std::string producerVersion;
     std::string staleCacheWhy;   // which input made the cached model stale (0.0.13 W6)
     std::string keptModelNotice;   // why a newer answer was not taken in place of this model (0.0.13 W3)
+    // 0.0.13 W3(a): a build program (build.mcpp) changed and the project is not described again yet. Describing it
+    // compiles and runs the build program, so a change is applied once it has been saved and left alone for a moment,
+    // and not while clangd says it does not compile; `buildProgramHeld` says why it waits.
+    std::string buildProgramPending;
+    std::string buildProgramHeld;
+    std::optional<Clock::time_point> buildProgramChangedAt;
+    std::optional<Clock::time_point> buildProgramCheckAt;
     std::string modelAdoptedAtUtc;   // when the model in hand was taken, for that notice
     std::map<std::string, Json, std::less<>> producerDiagnostics;   // path key -> mcpp's diagnostics on a build program
     std::string needsDownload;                           // the producer, run offline, cannot go on without a download
@@ -530,6 +537,12 @@ struct Workspace::Impl final : engine::Host {
         engineDiagnostics[std::string { engineId }][uri] = std::move(diagnostics);
         if (coreEngine != nullptr && engineId == coreEngine->id()) coreDiagnosticsVersions[uri] = version.value_or(-1);
         publish_diagnostics(uri, true);
+        // A build program waiting on clangd's verdict gets it now.
+        if (!buildProgramPending.empty() && coreEngine != nullptr && engineId == coreEngine->id() && !buildProgramCheckAt) {
+            if (const Document* document = documents_.find(uri); document != nullptr && base::same_path(document->path, buildProgramPending)) {
+                buildProgramCheckAt = Clock::now();
+            }
+        }
     }
 
     void forget_engine_diagnostics(std::string_view engineId) override {
@@ -797,6 +810,7 @@ struct Workspace::Impl final : engine::Host {
             if (at && (!deadline || *at < *deadline)) deadline = at;
         };
         consider(reloadAt);
+        consider(buildProgramCheckAt);
         consider(replanAt);
         if (!coreWaitOver) consider(coreWaitUntil);
         consider(loadGiveUpAt);
@@ -2587,6 +2601,7 @@ struct Workspace::Impl final : engine::Host {
         if (!payload.kitNotice.empty()) notices.push_back(Json { { "code", "kit-version-mismatch" }, { "message", payload.kitNotice } });
         if (const std::string mismatch { version_mismatch() }; !mismatch.empty()) notices.push_back(Json { { "code", "version-mismatch" }, { "message", mismatch } });
         if (!keptModelNotice.empty()) notices.push_back(Json { { "code", std::string { spec::BUILD_PROGRAM_FAILED_ISSUE } }, { "message", keptModelNotice } });
+        if (!buildProgramHeld.empty()) notices.push_back(Json { { "code", "build-program-held" }, { "message", buildProgramHeld } });
         if (lease && lease->shared()) {
             notices.push_back(Json { { "code", "shared-workspace" },
                                      { "message", "another mcppls instance serves this workspace; this one keeps a private cache and starts cold" } });
@@ -2640,6 +2655,80 @@ struct Workspace::Impl final : engine::Host {
     }
 
     // ---- timers -----------------------------------------------------------------------
+
+    static constexpr std::chrono::milliseconds BUILD_PROGRAM_QUIET { 2000 };
+    static constexpr std::chrono::seconds BUILD_PROGRAM_VERDICT_WAIT { 10 };
+
+    void note_build_program_changed(const std::string& path) {
+        const auto now = Clock::now();
+        buildProgramPending = path;
+        buildProgramChangedAt = now;
+        if (options.buildProgramApply == "manual") {
+            buildProgramCheckAt.reset();
+            buildProgramHeld = std::format("{} changed; it is applied when you ask (C++ Modules: Apply build.mcpp, mcppls.applyBuildProgram)",
+                                           base::file_name(path));
+            update_status();
+            return;
+        }
+        buildProgramCheckAt = now + BUILD_PROGRAM_QUIET;   // each change starts the quiet period again
+    }
+
+    // Whether the build program can be applied now: saved as the editor has it, and not a file clangd says does not
+    // compile. clangd reads it with its own set's arguments (mcpp 2026.10.11.1 and later); with an older mcpp, or a
+    // file not open, or no verdict within BUILD_PROGRAM_VERDICT_WAIT, mcpp decides, and a failure keeps the model (W3(b)).
+    void check_build_program() {
+        buildProgramCheckAt.reset();
+        if (buildProgramPending.empty()) return;
+        const auto now = Clock::now();
+        if (const Document* document = documents_.find_by_path(buildProgramPending)) {
+            if (auto disk = platform::fs::read_file(buildProgramPending); disk && *disk != document->text) {
+                buildProgramCheckAt = now + BUILD_PROGRAM_QUIET;   // what mcpp would read is not what is being edited
+                return;
+            }
+            // Only a file clangd is given has a verdict to wait for: an older mcpp describes no build program.
+            const bool engineReads { std::ranges::any_of(plan.entries, [&](const auto& entry) { return base::same_path(entry.file, document->path); }) };
+            if (coreEngine != nullptr && engineReads) {
+                const auto version = coreDiagnosticsVersions.find(document->uri);
+                const bool current { version != coreDiagnosticsVersions.end() && version->second == document->version };
+                if (!current && buildProgramChangedAt && now - *buildProgramChangedAt < BUILD_PROGRAM_VERDICT_WAIT) {
+                    buildProgramCheckAt = now + std::chrono::milliseconds { 500 };
+                    return;
+                }
+                std::size_t errors { 0 };
+                if (current) {
+                    if (const auto byEngine = engineDiagnostics.find(std::string { coreEngine->id() }); byEngine != engineDiagnostics.end()) {
+                        if (const auto entry = byEngine->second.find(document->uri); entry != byEngine->second.end() && entry->second.is_array()) {
+                            for (const auto& diagnostic : entry->second) errors += diagnostic.value("severity", 1) == 1 ? 1 : 0;
+                        }
+                    }
+                }
+                if (errors > 0) {
+                    const std::string held { std::format("{} has {} error{} in the editor; the project is described again once it compiles",
+                                                         base::file_name(buildProgramPending), errors, errors == 1 ? "" : "s") };
+                    if (held != buildProgramHeld) {
+                        buildProgramHeld = held;
+                        log::info("not describing {} yet: {}", root, buildProgramHeld);
+                        journal.add("build-program-held", Json { { "file", buildProgramPending }, { "errors", errors } });
+                        update_status();
+                    }
+                    return;   // the next diagnostics of the file check again
+                }
+            }
+        }
+        apply_build_program("it was saved and is quiet");
+    }
+
+    void apply_build_program(std::string_view why) {
+        if (buildProgramPending.empty() && buildProgramHeld.empty()) return;
+        log::info("applying {} ({}): describing {} again", buildProgramPending.empty() ? std::string { "the build programs" } : base::file_name(buildProgramPending), why, root);
+        journal.add("build-program-applied", Json { { "file", buildProgramPending }, { "why", std::string { why } } });
+        buildProgramPending.clear();
+        buildProgramHeld.clear();
+        buildProgramCheckAt.reset();
+        for (const auto& engine : engines) engine->sources_changed();
+        start_model_load();
+        update_status();
+    }
 
     void handle_timers() {
         // 0.0.13 W10 (#52-8): a turn of the timers that holds the loop says which part held it; one once took 15 minutes
@@ -2713,6 +2802,7 @@ struct Workspace::Impl final : engine::Host {
         }
         phase("starting a model load");
         if (replanAt && *replanAt <= now) replan();
+        if (buildProgramCheckAt && *buildProgramCheckAt <= now) check_build_program();
         phase("a replan");
         if (coreWaitUntil && !coreWaitOver && *coreWaitUntil <= now) {
             coreWaitOver = true;
@@ -2956,6 +3046,10 @@ void Workspace::handle_watched_files(const Json& changes) {
             // mcpp rewrites its own compile_commands.json while the model loads.
             if (name == "compile_commands.json" && impl_->model && impl_->model->source == project::SourceKind::mcpp) continue;
             reload = describedAgain = true;
+            continue;
+        }
+        if (producerInput && project::is_build_program_source(path) && impl_->detectedSource == project::SourceKind::mcpp) {
+            impl_->note_build_program_changed(path);   // applied once it is quiet and compiles (0.0.13 W3(a))
             continue;
         }
         if (!project::is_cxx_source_name(path)) {
@@ -3544,6 +3638,8 @@ bool Workspace::describe_online() {
     return true;
 }
 
+void Workspace::apply_build_program() { impl_->apply_build_program("asked for"); }
+
 void Workspace::reload_build_description() {
     // Only when something is actually waiting on it. A window regaining focus is not news, and a
     // build tool run for every focus change is exactly the implicit work this design removed.
@@ -3558,6 +3654,7 @@ void Workspace::reload_build_description() {
 
 void Workspace::reload_with_options(const SessionOptions& options, const std::string& compilerOverride, bool kitEnabled) {
     impl_->options.buildTool = options.buildTool;
+    impl_->options.buildProgramApply = options.buildProgramApply;
     impl_->options.discoverCompilers = options.discoverCompilers;
     impl_->options.database = options.database;
     impl_->options.mcpp = options.mcpp;

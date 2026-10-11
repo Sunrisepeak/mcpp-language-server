@@ -155,7 +155,7 @@ Json merge_capabilities(const Json& engineCapabilities) {
     if (!capabilities.contains("executeCommandProvider") || !capabilities["executeCommandProvider"].is_object()) capabilities["executeCommandProvider"] = Json::object();
     Json& commands = capabilities["executeCommandProvider"]["commands"];
     if (!commands.is_array()) commands = Json::array();
-    for (const std::string_view command : { "mcppls.review.run", "mcppls.review.clear", "mcppls.reloadBuildDescription", "mcppls.describeOnline", "mcppls.restartEngine",
+    for (const std::string_view command : { "mcppls.review.run", "mcppls.review.clear", "mcppls.reloadBuildDescription", "mcppls.applyBuildProgram", "mcppls.describeOnline", "mcppls.restartEngine",
                                              "mcppls.exportBundle", "mcppls.resetCache", "mcppls.sweepCache" }) {
         if (std::ranges::find(commands, Json(command)) == commands.end()) commands.push_back(std::string { command });
     }

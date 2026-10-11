@@ -109,6 +109,8 @@ export function buildInitializationOptions(configuration: SettingsReader, compil
         'format.fallbackStyle': configuration.get<string>('format.fallbackStyle') || 'auto',
         // build description design 4.4: how the user's build tool may be run.
         buildTool: buildToolSetting(configuration.get<string>('buildTool')),
+        // 0.0.13 W3(a): when a changed build.mcpp is applied (it runs mcpp, which compiles and runs it).
+        'buildProgram.apply': configuration.get<string>('buildProgram.apply') === 'manual' ? 'manual' : 'auto',
         // build description design 4.3: which environment it is run in.
         toolEnvironment: configuration.get<string>('toolEnvironment') === 'editor' ? 'editor' : 'auto',
         // This extension finds other C/C++ language servers itself (mcppls.detectConflicts)
