@@ -7,29 +7,29 @@
     "mcppls-clangd-linux-x64": {
       "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.12/clangd-23.1.0-mcppls.0-linux-x64.tar.gz",
       "file": "clangd-23.1.0-mcppls.0-linux-x64.tar.gz",
-      "size": 20880071,
-      "sha256": "59eaf899e8751eb86a410a641cde0d92b7ae6823afa5f5181f78847c982154c5",
+      "size": 20903483,
+      "sha256": "073e77270c281a5605ce7b4abbf13ee42b3d7174b92d4d8fc097ab845ee0f266",
       "license": "Apache-2.0 WITH LLVM-exception"
     },
     "mcppls-clangd-linux-arm64": {
       "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.12/clangd-23.1.0-mcppls.0-linux-arm64.tar.gz",
       "file": "clangd-23.1.0-mcppls.0-linux-arm64.tar.gz",
-      "size": 19841009,
-      "sha256": "d7f043f0028ac5f99b4b44bfd24e75e68a379216e02fcb5c7dc3b15fc586b6a6",
+      "size": 19857354,
+      "sha256": "1902a8268e5c538f6db800931a71d9309ad59f89cfdc93e9be7601c17a64125f",
       "license": "Apache-2.0 WITH LLVM-exception"
     },
     "mcppls-clangd-darwin-arm64": {
       "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.12/clangd-23.1.0-mcppls.0-darwin-arm64.tar.gz",
       "file": "clangd-23.1.0-mcppls.0-darwin-arm64.tar.gz",
-      "size": 19794603,
-      "sha256": "5f648f7c89e8b73e85c006bbd0f53df7e53840eb2e9d23a87a5335e986924584",
+      "size": 19812929,
+      "sha256": "61231d843b67a6574fa51bb2f46922407c78f4d61a3400c6f9bbec3348e2454f",
       "license": "Apache-2.0 WITH LLVM-exception"
     },
     "mcppls-clangd-win32-x64": {
       "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.12/clangd-23.1.0-mcppls.0-win32-x64.tar.gz",
       "file": "clangd-23.1.0-mcppls.0-win32-x64.tar.gz",
-      "size": 20178383,
-      "sha256": "e609d56e2a3ae83b78a800f5fe1c34fadb14daa9d2a988dd17a6b2f290313749",
+      "size": 20193295,
+      "sha256": "da1dc94fc3525286a22920687c4d5cf8259783ee2f8b5f3c14c20cca7a948ccc",
       "license": "Apache-2.0 WITH LLVM-exception"
     },
     "llvm-project-src": {
