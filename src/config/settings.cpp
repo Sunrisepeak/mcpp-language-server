@@ -168,8 +168,8 @@ const std::vector<Setting>& shipped_registry() {
             .key = "MCPPLS_ENGINE_ARGUMENTS", .kind = Kind::string, .defaultValue = "", .surface = Surface::environment,
             .applies = Applies::restart, .category = "engines", .since = "0.0.1",
             .summary = "Extra arguments appended to clangd's own command line, for troubleshooting "
-                       "(e.g. `-j=8 --background-index-priority=background`).",
-            .summaryZh = "追加到 clangd 自身命令行末尾的额外参数，用于排查问题（例如 `-j=8 --background-index-priority=background`）。",
+                       "(e.g. `-j=8 --background-index-priority=normal`). An explicit background-index priority overrides mcppls's default `background` on macOS.",
+            .summaryZh = "追加到 clangd 自身命令行末尾的额外参数，用于排查问题（例如 `-j=8 --background-index-priority=normal`）。显式设置后台索引优先级会覆盖 mcppls 在 macOS 上默认的 `background`。",
         },
         // ---- Editor experience ----------------------------------------------------------------
         Setting {
@@ -199,6 +199,17 @@ const std::vector<Setting>& shipped_registry() {
             .summaryZh = "在 `import` 或 `export import` 后输入空格时立即弹出模块列表；其他位置的空格不会发给服务端。什么都不说的客户端"
                          "只有在自证是 VS Code 或其分支时才会得到这个行为；其他客户端需要用 "
                          "`initializationOptions.completion.triggerOnSpace: true` 主动开启。",
+            .clientConfigurable = true,
+        },
+        Setting {
+            .key = "format.fallbackStyle", .kind = Kind::string, .defaultValue = "auto",
+            .commandLine = "--format-fallback-style", .surface = Surface::server, .applies = Applies::restart,
+            .category = "editor", .since = "0.0.12",
+            .summary = "Formatting fallback when no project .clang-format exists. auto selects the pinned mcpp style for an "
+                       "mcpp project when the bundled engine supports it; otherwise clangd's default. A named style overrides "
+                       "auto; mcpp opts other projects in and requires engine support. Project .clang-format always wins.",
+            .summaryZh = "没有项目 .clang-format 时使用的格式样式。auto 在引擎支持时为 mcpp 项目使用固定的 mcpp 样式，"
+                         "其他情况沿用 clangd 默认。命名样式覆盖 auto；mcpp 可让其他项目主动启用，但要求引擎支持。项目 .clang-format 始终优先。",
             .clientConfigurable = true,
         },
         Setting {

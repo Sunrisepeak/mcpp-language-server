@@ -16,6 +16,9 @@ struct GatewayOptions {
     std::string workDirectory;               // empty: this process's current directory
     std::chrono::milliseconds requestTimeout { std::chrono::seconds { 60 } };
     std::chrono::milliseconds stopGrace { std::chrono::milliseconds { 500 } };
+    // A separate startup/handshake budget when completion requests have a short deadline.
+    // Unset preserves the existing requestTimeout budget for initialize.
+    std::optional<std::chrono::milliseconds> initializeTimeout;
 };
 
 class GatewayClient : public ModelClient {

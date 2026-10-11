@@ -508,7 +508,7 @@
   "S1-11.2-7": [
     {
       "script": "editors/vscode/src/status.ts",
-      "contains": "status.project.source} · L${tier}"
+      "contains": "status.project.source} \u00b7 L${tier}"
     },
     {
       "check": "mcpp-emit/S1"
@@ -1416,6 +1416,12 @@
     {
       "script": "modules/pack/src/payload.cpp",
       "contains": "S4-4-5: libc++"
+    },
+    {
+      "test": "tests/test_instance.cpp: a payload's kit is taken only when its libc++ is the core engine's version"
+    },
+    {
+      "test": "tests/test_text.cpp: only a valid maintained-engine suffix selects its LLVM base"
     }
   ],
   "S4-4-6": [
@@ -2161,6 +2167,51 @@
     {
       "script": "src/orchestrator/workspace.cpp",
       "contains": "no numbers are remembered"
+    }
+  ],
+  "S4-4-10": [
+    {
+      "test": "tests/test_engineidentity.cpp: an engine identity binds its platform version base source and bytes"
+    },
+    {
+      "test": "tests/test_engineidentity.cpp: missing or mistyped immutable fields cannot become an engine identity"
+    },
+    {
+      "script": "modules/pack/tests/test_payload.cpp",
+      "contains": "maintained engine assembly requires matching immutable identity before replacing output"
+    },
+    {
+      "script": "src/engine/payload.cpp",
+      "contains": "decode_engine_identity"
+    },
+    {
+      "validate": "S4 engine identity example validates"
+    },
+    {
+      "test": "tests/test_instance.cpp: identified payloads validate their engine while explicit external engines inherit no capabilities"
+    }
+  ],
+  "S4-4-11": [
+    {
+      "test": "tests/test_server.cpp: format fallback requires declared capability and preserves explicit styles"
+    },
+    {
+      "check": "format-mcpp/F3-golden"
+    },
+    {
+      "check": "format-mcpp/F5-project-wins"
+    },
+    {
+      "check": "format-explicit/U3-user-golden"
+    },
+    {
+      "check": "format-explicit/U5-project-wins"
+    },
+    {
+      "check": "format-external/E2-no-inherited-preset"
+    },
+    {
+      "check": "format-external/E3-native-default"
     }
   ]
 }

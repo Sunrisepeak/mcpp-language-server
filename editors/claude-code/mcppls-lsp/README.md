@@ -2,8 +2,8 @@
 
 Registers `mcppls`, the compiler-agnostic C++ modules language server, as Claude Code's
 language server for C and C++ sources: `.cpp`, `.cc`, `.cxx`, `.c++`, `.cppm`, `.ccm`,
-`.cxxm`, `.c++m`, `.ixx`, `.mpp`, `.mxx`, `.h`, `.hh`, `.hpp`, `.hxx`, `.inl` (language id
-`cpp`) and `.c` (language id `c`). The server is started as `mcppls serve` over stdio, the
+`.cxxm`, `.c++m`, `.ixx`, `.mpp`, `.mxx`, `.mcpp` (mcpp's `build.mcpp`), `.h`, `.hh`, `.hpp`, `.hxx`,
+`.inl` (language id `cpp`) and `.c` (language id `c`). The server is started as `mcppls serve` over stdio, the
 same command a plain editor client would use.
 
 With this plugin enabled and `mcppls` on `PATH`, Claude Code gets automatic diagnostics

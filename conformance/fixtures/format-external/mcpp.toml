@@ -1,0 +1,5 @@
+[package]
+name = "format-mcpp-fixture"
+version = "0.1.0"
+[build]
+sources = ["src/**/*.cppm"]

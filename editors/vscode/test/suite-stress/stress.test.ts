@@ -89,7 +89,10 @@ suite('C++ modules under random use', function () {
                     ask(kind, document.uri, at).then(() => 'answered' as const),
                     new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), REQUEST_BUDGET_MS)),
                 ]);
-                if (outcome === 'timeout') failures.push(`${where}: no answer within ${REQUEST_BUDGET_MS} ms`);
+                if (outcome === 'timeout') {
+                    failures.push(`${where}: no answer within ${REQUEST_BUDGET_MS} ms`);
+                    console.log(`stress timeout: action ${action + 1}, ${where}, status ${JSON.stringify(api.lastStatus())}`);
+                }
                 latencies.push(Date.now() - started);
             } catch (error) {
                 failures.push(`${where}: ${error instanceof Error ? error.message : String(error)}`);

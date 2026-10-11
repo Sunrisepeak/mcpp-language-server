@@ -78,6 +78,13 @@ jobs:
             echo "::error::Run: mcpp run -p devtools -- version --set ${{ steps.pick.outputs.version }}"
             exit 1
           }
+      # A release ships the engine the lock names, released and pinned; a candidate never does.
+      - name: No candidate engine
+        run: |
+          [ ! -f packaging/engine-candidate.json ] || {
+            echo "::error::packaging/engine-candidate.json names an unreleased engine. Release the engine, switch packaging/payload.lock.json to it and remove the file."
+            exit 1
+          }
       # CHANGELOG.md says a release's notes are its section, so the section has to exist before an
       # hour of pre-release testing, not be found missing after it.
       - name: CHANGELOG.md has this version's section

@@ -125,6 +125,15 @@ int conformance_level(const Database& database);
 
 const Toolchain* find_toolchain(const Database& database, std::string_view id);
 std::optional<std::size_t> find_set(const Database& database, std::string_view name);
+
+// mcpp's configuration of the programs a build compiles and runs on the machine doing the build: `build.mcpp`, the
+// libraries of `[build-dependencies]` and mcpp's engine interface (mcpp SPEC-005 R3.13, mcpp-community/mcpp#797). Their
+// sets see only each other, and no set of another configuration sees them.
+inline constexpr std::string_view BUILD_PROGRAM_CONFIGURATION { "build-program" };
+// The set of mcpp's engine interface (`import mcpp;`, `import mcpp.core;`): sources mcpp writes once for each of its
+// versions, under its home directory, and never edits.
+inline constexpr std::string_view ENGINE_INTERFACE_SET { "mcpp:core" };
+bool is_build_program_set(const Set& set);
 std::string absolute_source(const TranslationUnit& unit);
 std::string absolute_path_in_unit(const TranslationUnit& unit, std::string_view path);
 

@@ -25,6 +25,7 @@ import mcppls.platform.process;
 import mcppls.platform.task;
 import mcppls.lsp.jsonrpc;
 import mcppls.lsp.connection;
+import mcppls.project.scan;
 import mcppls.orchestrator.tokens;
 import mcppls.bundle.redact;
 import mcppls.bundle.zip;
@@ -59,6 +60,7 @@ struct Options {
     std::optional<double> navigationBudget;   // seconds from initialize to the first navigation that answers; more fails the run
     std::string cacheDirectory;       // the server's cache; empty: a fresh one beside the workspace
     std::string measureFile;          // where the checks' timings are written as JSON
+    std::string timingEvidenceFile;   // bounded post-check report, only for the tiny timing fixture
     bool noDynamicWatch { false };    // usable plan W9.3: do not advertise didChangeWatchedFiles.dynamicRegistration
     // A client that is not this repository's own VS Code extension: no `experimental.cxxModules`,
     // only standard `window.workDoneProgress`. Zed, nvim, Helix and every other editor look like
@@ -277,12 +279,49 @@ std::map<std::string, std::string> snapshot(const std::string& root) {
     return files;
 }
 
+// mcppls-clangd's owned module cache (Linux) publishes every module file as
+// <modules>/.owned-payload-v1/generation-<slot>-<n>/payload.pcm, so neither the name nor the directory says whose it
+// is. The file does: its control block names the unit it was built from (ORIGINAL_FILE), the first absolute source
+// path in it, and the unit's own `export module` declaration names the module.
+bool owned_payload(std::string_view path) { return path.contains("/.owned-payload-v1/") && path.ends_with("/payload.pcm"); }
+
+std::string owned_payload_source(const std::string& path) {
+    static std::map<std::string, std::string> known;
+    if (const auto found = known.find(path); found != known.end()) return found->second;
+    static const std::regex SOURCE { R"((/[\w./+-]+\.(?:cppm|ixx|cxxm|mpp|cc|cpp|cxx|c\+\+m)))" };
+    std::string source;
+    std::ifstream in { path, std::ios::binary };
+    std::string head(1 << 16, '\0');
+    in.read(head.data(), static_cast<std::streamsize>(head.size()));
+    head.resize(static_cast<std::size_t>(in.gcount()));
+    std::smatch match;
+    if (std::regex_search(head, match, SOURCE)) source = match[1].str();
+    known.emplace(path, source);
+    return source;
+}
+
+// "name" or "name:partition", as the unit declares it; empty when it declares no module.
+std::string declared_module(const std::string& source) {
+    const auto text = fs::read_file(source);
+    if (!text) return {};
+    const auto declaration = mcppls::project::scan_source(*text).declaration;
+    if (!declaration) return {};
+    return declaration->partition.empty() ? declaration->module : declaration->module + ":" + declaration->partition;
+}
+
+// The line ending a text uses, kept when a check edits it as an editor keeps a file's: a checkout on Windows has CRLF
+// files, and rewriting every line's ending at the first keystroke changed the preamble of a file whose body was typed in
+// (its text is the included lines), which rebuilt it and parsed every header of the file meanwhile.
+std::string_view line_ending_of(std::string_view text) { return text.find("\r\n") != std::string_view::npos ? "\r\n" : "\n"; }
+
 // The engine's published module files for a module under a cache directory, with their stamps. clangd
 // publishes <module>.pcm (a partition as <module>-<partition>.pcm) under a directory per source and
 // command; the copies it hands to readers carry a timestamp in their names and are not included.
+// mcppls-clangd's owned payloads are the module's when the unit they were built from declares it.
 std::map<std::string, std::string> module_files(const std::string& cacheDirectory, std::string_view module) {
     std::string published { module };
     std::ranges::replace(published, ':', '-');
+    const std::string declared { module };
     published += ".pcm";
     std::map<std::string, std::string> files;
     if (cacheDirectory.empty()) return files;
@@ -293,13 +332,34 @@ std::map<std::string, std::string> module_files(const std::string& cacheDirector
         for (const auto& entry : fs::list_directory(directory)) {
             if (fs::is_directory(entry)) {
                 pending.push_back(entry);
-            } else if (base::file_name(entry) == published) {
+            } else if (base::file_name(entry) == published || (owned_payload(entry) && declared_module(owned_payload_source(entry)) == declared)) {
                 const auto stamp = fs::stamp(entry);
                 files[entry] = stamp ? std::format("{}:{}", stamp->size, stamp->modified) : std::string {};
             }
         }
     }
     return files;
+}
+
+// The lines of the server's logs that match `pattern` (a fixture's "failure-log-lines"), all of them, however long ago: what
+// a check's one line and the tail below leave out, such as why clangd gave a file no preamble.
+void print_server_log_matches(const std::string& cacheDirectory, const std::string& pattern) {
+    if (pattern.empty()) return;
+    const std::regex wanted { pattern };
+    constexpr std::size_t LIMIT { 120 };
+    auto files = fs::list_directory(base::join_path(cacheDirectory, "logs"));
+    std::ranges::sort(files);
+    std::size_t printed { 0 };
+    for (const auto& file : files) {
+        const auto text = fs::read_file(file);
+        if (!text) continue;
+        for (const auto line : base::split_lines(*text)) {
+            if (!std::regex_search(line.begin(), line.end(), wanted)) continue;
+            if (printed++ == 0) say("--- server log lines matching {}", pattern);
+            if (printed <= LIMIT) say("  | {}", line);
+        }
+    }
+    if (printed > LIMIT) say("  | ... {} more", printed - LIMIT);
 }
 
 // The last lines of each log file the server wrote under its cache directory.
@@ -330,6 +390,7 @@ private:
     bool verbose_ { false };
 
 public:
+    std::vector<std::string> serverCommand; // actual executable and argv, for timing evidence
     std::map<std::string, Json> diagnostics;     // uri -> latest diagnostics
     std::map<std::string, int> diagnosticsCount; // uri -> publishes received
     std::map<std::string, int> moduleFailedCount; // uri -> publishes received that carried a diagnostic with code "module-failed"
@@ -383,6 +444,8 @@ public:
         if (!options.clangd.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--clangd", options.clangd });
         if (!options.kit.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--kit", options.kit });
         spawn.arguments.insert(spawn.arguments.end(), serverArguments.begin(), serverArguments.end());
+        serverCommand = { spawn.program };
+        serverCommand.insert(serverCommand.end(), spawn.arguments.begin(), spawn.arguments.end());
         spawn.workDirectory = workspace;
         auto environment = mcppls::platform::env::variables();
         environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory);
@@ -454,6 +517,7 @@ public:
         Json result { nullptr };
         bool timedOut { false };
         bool isError { false };
+        Json error { nullptr };   // the error answer, when isError
     };
 
     RequestOutcome request_full(std::string_view method, Json params, std::chrono::seconds timeout) {
@@ -467,7 +531,7 @@ public:
                 unanswered_ = 0;
                 if (message->contains("error")) {
                     if (verbose_) say("  error response to {}: {}", method, lsp::dump((*message)["error"]));
-                    return { Json(nullptr), false, true };
+                    return { Json(nullptr), false, true, (*message)["error"] };
                 }
                 return { message->value("result", Json {}), false, false };
             }
@@ -1285,14 +1349,24 @@ struct Builds {
     std::size_t first { 0 };
 };
 Builds builds_since(const std::map<std::string, std::string>& before, const std::map<std::string, std::string>& now) {
-    // A module file is <modules>/<unit>-<hash>/<command hash>/<name>.pcm: its unit is two directories up.
-    const auto unit_of = [](const std::string& path) { return base::parent_path(base::parent_path(path)); };
+    // A module file is <modules>/<unit>-<hash>/<command hash>/<name>.pcm: its unit is two directories up. An owned
+    // payload's unit is the source it was built from.
+    const auto unit_of = [](const std::string& path) {
+        return owned_payload(path) ? owned_payload_source(path) : base::parent_path(base::parent_path(path));
+    };
+    const auto size_of = [](const std::string& stamp) { return stamp.substr(0, stamp.find(':')); };
     std::set<std::string> unitsBefore;
-    for (const auto& [path, stamp] : before) unitsBefore.insert(unit_of(path));
+    std::set<std::pair<std::string, std::string>> ownedBefore;   // (unit, size) of each owned payload there was
+    for (const auto& [path, stamp] : before) {
+        unitsBefore.insert(unit_of(path));
+        if (owned_payload(path)) ownedBefore.emplace(unit_of(path), size_of(stamp));
+    }
     Builds builds;
     for (const auto& [path, stamp] : now) {
         const auto it = before.find(path);
         if (it != before.end() && it->second == stamp) continue;
+        // An owned read copy is a new generation holding the very bytes of a payload there was: not a build.
+        if (it == before.end() && owned_payload(path) && ownedBefore.contains({ unit_of(path), size_of(stamp) })) continue;
         if (unitsBefore.contains(unit_of(path))) ++builds.rebuilt;
         else ++builds.first;
     }
@@ -2077,6 +2151,31 @@ public:
         return !options_.clangd.empty() ? options_.clangd : base::join_path(options_.payload, "clangd/bin/clangd") + std::string { mcppls::os::EXECUTABLE_SUFFIX };
     }
 
+    // A check's "retired-by": the capability that retires the workaround whose defect the check watches, for an engine
+    // whose verified identity declares it (the server's own rule, engine/clangd.cpp). Such an engine does not have the
+    // defect by proof, so there is nothing to watch; it still runs against any other clangd (--clangd, a payload without it).
+    std::optional<std::string> retired_canary(const Json& check) const {
+        const std::string feature { check.value("retired-by", std::string {}) };
+        if (feature.empty() || !options_.clangd.empty() || options_.payload.empty()) return std::nullopt;
+        const auto text = fs::read_file(base::join_path(options_.payload, "payload.json"));
+        if (!text) return std::nullopt;
+        const Json manifest = Json::parse(*text, nullptr, false);
+        if (manifest.is_discarded() || manifest.value("payload-version", 0) < 4) return std::nullopt;
+        const Json* identity { nullptr };
+        if (const auto engines = manifest.find("engines"); engines != manifest.end() && engines->is_object()) {
+            if (const auto clangd = engines->find("clangd"); clangd != engines->end() && clangd->is_object()) {
+                if (const auto found = clangd->find("identity"); found != clangd->end() && found->is_object()) identity = &*found;
+            }
+        }
+        if (identity == nullptr) return std::nullopt;
+        for (const auto& declared : identity->value("features", Json::array())) {
+            if (declared.is_string() && declared.get<std::string>() == feature) {
+                return std::format("retired: the payload's engine {} declares {}", identity->value("engine-version", std::string {}), feature);
+            }
+        }
+        return std::nullopt;
+    }
+
     // A check's clangd arguments, `{workspace}` and `{engine-database}` (the directory of the compile_commands.json the server
     // wrote for its own clangd, so a baseline runs the very commands the server's does) replaced.
     std::vector<std::string> direct_arguments(const Json& list) {
@@ -2299,27 +2398,30 @@ public:
             importerUri = uri(importerFile);
             open(importerFile);
             importerOriginal = text_of(importerFile);
+            const std::string_view importerEol { line_ending_of(importerOriginal) };
             std::vector<std::string> importerLines;
             for (const auto line : base::split_lines(importerOriginal)) importerLines.emplace_back(line);
             const std::string probeText { importer->value("text", std::string {}) };
             const std::size_t at { std::min(static_cast<std::size_t>(std::max(0, importer->value("line", 0))), importerLines.size()) };
             importerLines.insert(importerLines.begin() + static_cast<std::ptrdiff_t>(at), probeText);
             std::string probed;
-            for (const auto& line : importerLines) probed += line + "\n";
+            for (const auto& line : importerLines) (probed += line) += importerEol;
             change(importerFile, probed);
             importerPosition = Json { { "line", at }, { "character", probeText.size() } };
         }
         const bool withImporter { !importerFile.empty() };
 
         std::vector<std::string> lines;
+        std::string eol;
         {
             const std::string current { text_of(file) };
+            eol = line_ending_of(current);
             for (const auto line : base::split_lines(current)) lines.emplace_back(line);
         }
         const std::vector<std::string> original { lines };
-        const auto join_lines = [](const std::vector<std::string>& all) {
+        const auto join_lines = [&eol](const std::vector<std::string>& all) {
             std::string text;
-            for (const auto& line : all) text += line + "\n";
+            for (const auto& line : all) (text += line) += eol;
             return text;
         };
         std::mt19937_64 rng { static_cast<std::uint64_t>(check.value("seed", 7)) };
@@ -2376,6 +2478,33 @@ public:
             }
         };
 
+        // "firstOpenSeconds" (issue #50): an engine may wait for a file's first preamble before it answers a completion
+        // in it, as mcppls-clangd does in a module importer. That wait is measured on its own, asking once a second at
+        // the cursor until the engine answers one, and the typing below starts after it, so its budgets hold the file
+        // as a person edits it, not as it opens.
+        std::optional<double> firstOpen;
+        const auto firstOpenLimit { budget_number(check, "firstOpenSeconds") };
+        if (firstOpenLimit) {
+            const auto engineAnswers = [&] {
+                long count { 0 };
+                for (const auto& [engine, answers] : answered_by(root_report(), "textDocument/completion")) {
+                    if (engine != "mcppls") count += answers;
+                }
+                return count;
+            };
+            const long answersBefore { engineAnswers() };
+            const auto opened { Clock::now() };
+            while (seconds_since(opened) < *firstOpenLimit + 30.0 && client_.unusable().empty()) {
+                (void)client_.send_async("textDocument/completion", Json { { "textDocument", Json { { "uri", documentUri } } },
+                                                                           { "position", Json { { "line", cursor.line }, { "character", cursor.character } } } });
+                client_.pump_until(Clock::now() + std::chrono::seconds { 1 });
+                if (engineAnswers() > answersBefore) {
+                    firstOpen = seconds_since(opened);
+                    break;
+                }
+            }
+            client_.pump_until(Clock::now() + std::chrono::milliseconds { 1500 });   // what was still asked is answered before
+        }
         const Json before = root_report();
         const std::size_t samplesBefore { client_.statusSamples.size() };
         const auto failedDiagnosticsOf = [&](const std::string& documentUriOf) {
@@ -2514,6 +2643,10 @@ public:
         Json detail;
         const auto share { engine_share(before, after, "textDocument/completion", &detail) };
         enforce_min(check, "engineShare", share, "engine share of completion", failures);
+        if (firstOpenLimit) {
+            if (!firstOpen) failures.push_back(std::format("clangd answered no completion within {:.0f} s of the file opening", *firstOpenLimit + 30.0));
+            else if (*firstOpen > *firstOpenLimit) failures.push_back(std::format("clangd's first completion came {:.1f}s after the file opened, over the budget {:.1f}s", *firstOpen, *firstOpenLimit));
+        }
         std::set<std::string> statesSeen;
         for (std::size_t i { samplesBefore }; i < client_.statusSamples.size(); ++i) statesSeen.insert(client_.statusSamples[i].state);
         for (const auto& never : check.value("states-never", Json::array())) {
@@ -2523,7 +2656,8 @@ public:
                        { "answered", answered.size() }, { "clientTimeouts", timeouts }, { "serverTimeouts", serverTimeouts }, { "errors", errors },
                        { "completion", latency }, { "engineShare", share ? Json(*share) : Json(nullptr) }, { "answeredBy", detail },
                        { "restarts", restarts }, { "filesSetAside", setAside }, { "diagnosticsRefresh", refresh ? Json(*refresh) : Json(nullptr) },
-                       { "statesSeen", statesSeen }, { "doomed", doomed }, { "moduleFailedDiagnostics", moduleFailedDiagnostics }, { "stalledSamples", stalledSamples } };
+                       { "statesSeen", statesSeen }, { "doomed", doomed }, { "moduleFailedDiagnostics", moduleFailedDiagnostics }, { "stalledSamples", stalledSamples },
+                       { "firstOpenSeconds", firstOpen ? Json(*firstOpen) : Json(nullptr) } };
         std::string importerBrief;
         if (withImporter) {
             summary["importer"] = Json { { "file", importerFile }, { "completions", importerCompletions.size() }, { "answered", importerAnswered.size() },
@@ -2532,7 +2666,8 @@ public:
                                         importerEmpty, importerModuleFailed);
         }
         return finish_measure(std::move(failures), std::move(summary),
-                              std::format("{:.0f} s at {:.0f} Hz, {} completions p95 {:.2f}s max {:.2f}s{}, {} restart(s), {} set aside, {} doomed, {} module-failed diagnostic(s), {} stalled sample(s), {} timeout(s), diagnostics after {}",
+                              std::format("{}{:.0f} s at {:.0f} Hz, {} completions p95 {:.2f}s max {:.2f}s{}, {} restart(s), {} set aside, {} doomed, {} module-failed diagnostic(s), {} stalled sample(s), {} timeout(s), diagnostics after {}",
+                                          firstOpen ? std::format("first clangd answer {:.1f}s after opening; then ", *firstOpen) : std::string {},
                                           typingSeconds, hz, completions.size(), latency["p95"].get<double>(), latency["max"].get<double>(), importerBrief, restarts, setAside, doomed,
                                           moduleFailedDiagnostics, stalledSamples, allTimeouts, refresh ? std::format("{:.1f}s", *refresh) : std::string { "never" }));
     }
@@ -3300,6 +3435,7 @@ public:
 
     std::pair<bool, std::string> run_(const Json& check) {
         const std::string kind { check.value("kind", std::string {}) };
+        if (auto retired = retired_canary(check)) return { true, *retired };
         const std::string file { check.value("file", std::string { "src/main.cpp" }) };
         // A check may bring its own unsaved buffer.
         if (auto text = check.find("text"); text != check.end()) open(file, text->get<std::string>());
@@ -3503,7 +3639,7 @@ public:
                 if (line < 0 || static_cast<std::size_t>(line) >= lines.size()) return { false, std::format("line {} is not in {}", line, file) };
                 lines[static_cast<std::size_t>(line)] = step.get<std::string>();
                 std::string text;
-                for (const auto& each : lines) text += each + "\n";
+                for (const auto& each : lines) (text += each) += line_ending_of(current);
                 change(file, text);
                 if (save) {
                     (void)fs::write_file_atomic(base::join_path(workspace_, file), text);
@@ -3608,10 +3744,16 @@ public:
                 if (it == now.end()) differences.push_back("removed " + path);
                 else if (it->second != stamp) differences.push_back("rebuilt " + path);
             }
-            for (const auto& [path, stamp] : now) {
-                if (!before->second.contains(path)) differences.push_back("added " + path);
+            std::set<std::string> sizesBefore;   // an owned read copy holds the bytes of a payload there was
+            for (const auto& [path, stamp] : before->second) {
+                if (owned_payload(path)) sizesBefore.insert(stamp.substr(0, stamp.find(':')));
             }
-            return { differences.empty(), differences.empty() ? std::format("{} file(s) of {} reused", now.size(), module) : lsp::dump(differences) };
+            for (const auto& [path, stamp] : now) {
+                if (before->second.contains(path)) continue;
+                if (owned_payload(path) && sizesBefore.contains(stamp.substr(0, stamp.find(':')))) continue;
+                differences.push_back("added " + path);
+            }
+            return { differences.empty(), differences.empty() ? std::format("{} file(s) of {} reused", before->second.size(), module) : lsp::dump(differences) };
         }
         if (kind == "workspace-unchanged") {
             // Give the server time to do what it does after opening the workspace.
@@ -3846,6 +3988,20 @@ public:
             const bool held { check.value("subset", false) ? std::ranges::includes(expected, lines) : lines == expected };
             return { published && held, published ? std::format("{} on lines {}", code.dump(), lines) : std::string { "no diagnostics were published" } };
         }
+        if (kind == "request") {
+            // mcpp-community/mcpp#797: one request about `file` -- `method`, at `at` when given, with `params` added -- and
+            // its answer: `expect`, the result exactly, or `expect-error`, the code of the error it is refused with.
+            open(file);
+            Json params { { "textDocument", Json { { "uri", uri(file) } } } };
+            if (check.contains("at")) params["position"] = position(check.at("at"));
+            for (const auto& item : check.value("params", Json::object()).items()) params[item.key()] = item.value();
+            const auto outcome = client_.request_full(check.value("method", std::string {}), std::move(params), timeout_);
+            if (outcome.timedOut) return { false, "no answer" };
+            if (const auto code = check.find("expect-error"); code != check.end()) {
+                return { outcome.isError && outcome.error.value("code", 0) == code->get<int>(), lsp::dump(outcome.isError ? outcome.error : outcome.result) };
+            }
+            return { !outcome.isError && outcome.result == check.value("expect", Json {}), lsp::dump(outcome.isError ? outcome.error : outcome.result) };
+        }
         if (kind == "diagnostic-code") {
             open(file);
             const std::string documentUri { uri(file) };
@@ -3882,6 +4038,42 @@ public:
                 });
             return { ok, lsp::dump(location_uris(result)) };
         }
+        if (kind == "formatting-equals") {
+            open(file);
+            const std::string original { text_of(file) };
+            const std::string expected { check.contains("expected-file")
+                ? text_of(check.at("expected-file").get<std::string>())
+                : check.value("expect", std::string {}) };
+            if (original.empty() || expected.empty()) return { false, "formatting requires nonempty input and golden" };
+            auto apply = [&](const Json& edits) -> std::optional<std::string> {
+                if (!edits.is_array()) return std::nullopt;
+                struct Edit { std::size_t begin; std::size_t end; std::string text; };
+                std::vector<Edit> changes;
+                for (const auto& edit : edits) {
+                    const auto& start = edit.at("range").at("start");
+                    const auto& end = edit.at("range").at("end");
+                    auto from = base::offset_at(original, { start.at("line").get<int>(), start.at("character").get<int>() });
+                    auto to = base::offset_at(original, { end.at("line").get<int>(), end.at("character").get<int>() });
+                    if (!from || !to || *from > *to) return std::nullopt;
+                    changes.push_back({ *from, *to, edit.at("newText").get<std::string>() });
+                }
+                std::ranges::sort(changes, std::greater {}, &Edit::begin);
+                std::string formatted { original };
+                std::size_t boundary { original.size() };
+                for (const auto& edit : changes) {
+                    if (edit.end > boundary) return std::nullopt;
+                    formatted.replace(edit.begin, edit.end - edit.begin, edit.text);
+                    boundary = edit.begin;
+                }
+                return formatted;
+            };
+            auto [ok, result] = retry("textDocument/formatting", [&] {
+                return Json { { "textDocument", Json { { "uri", uri(file) } } },
+                              { "options", Json { { "tabSize", 4 }, { "insertSpaces", true } } } };
+            }, [&](const Json& edits) { return apply(edits) == std::optional<std::string> { expected }; });
+            const auto formatted = apply(result);
+            return { ok, formatted ? *formatted : "invalid formatting edits" };
+        }
         if (kind == "hover-contains") {
             open(file);
             // `expect` is one text the hover must contain, or several of which any one will do -- for a
@@ -3912,7 +4104,8 @@ public:
                 std::vector<std::string> copy { lines.begin(), lines.end() };
                 const std::size_t at { std::min<std::size_t>(insert->at(0).get<std::size_t>(), copy.size()) };
                 copy.insert(copy.begin() + static_cast<std::ptrdiff_t>(at), insert->at(1).get<std::string>());
-                change(file, base::join(copy, "\n") + "\n");
+                const std::string eol { line_ending_of(current) };
+                change(file, base::join(copy, eol) + eol);
             }
             if (auto edit = check.find("edit"); edit != check.end()) {
                 // {"file": "...", "replace": "...", "with": "..."}: an unsaved edit in another open buffer.
@@ -4323,6 +4516,10 @@ int run(Options options) {
         }
     }
     const std::string name { scenario.value("name", std::string { base::file_name(options.fixture) }) };
+    if (!options.timingEvidenceFile.empty() && name != "timing") {
+        say("conformance: --timing-evidence is only for the tiny timing fixture");
+        return 2;
+    }
     const bool reused { !options.workspaceDirectory.empty() };
     const std::string scratch { reused ? options.workspaceDirectory
                                        : base::join_path(mcppls::platform::dirs::temp_directory(),
@@ -4538,8 +4735,30 @@ int run(Options options) {
         if (Json measure = runner.take_measure(); !measure.is_null()) entry["measure"] = std::move(measure);
         measured.push_back(std::move(entry));
     }
+    // Snapshot after every measured check, while the server can still answer. Evidence is
+    // optional and never changes a check result or its deadline; a missing report stays visible.
+    auto measuredReady = client.firstReady;
+    auto measuredDiagnostics = client.firstDiagnostics;
+    double evidenceSeconds { 0 };
+    if (!options.timingEvidenceFile.empty()) {
+        const auto evidenceBegin = Clock::now();
+        auto report = client.request("cxxModules/report", Json::object(), std::chrono::seconds { 2 });
+        Json evidence { { "server-command", client.serverCommand }, { "workspace", workspace },
+                        { "cache-directory", cacheDirectory }, { "report", nullptr },
+                        { "collection-budget-seconds", 2 }, { "collection-excluded-from-timing", true } };
+        if (report && report->dump(2).size() <= 1024 * 1024) evidence["report"] = std::move(*report);
+        else evidence["report-unavailable"] = report ? "report exceeds 1 MiB evidence bound" : "no report within 2 seconds";
+        evidence["collection-seconds"] = std::chrono::duration<double>(Clock::now() - evidenceBegin).count();
+        if (auto written = fs::write_file(options.timingEvidenceFile, evidence.dump(2) + "\n"); !written)
+            say("conformance: cannot write timing evidence {}", options.timingEvidenceFile);
+        evidenceSeconds = std::chrono::duration<double>(Clock::now() - evidenceBegin).count();
+    }
     runner.finish();
     client.stop();
+    if (options.timingEvidenceFile.empty()) {
+        measuredReady = client.firstReady;
+        measuredDiagnostics = client.firstDiagnostics;
+    }
     Json firstNavigation = nullptr;
     for (const auto& check : measured) {
         const std::string kind { check.value("kind", std::string {}) };
@@ -4554,7 +4773,7 @@ int run(Options options) {
         say("{} navigation-budget first navigation {} within {:.1f}s", within ? "PASS" : "FAIL",
             firstNavigation.is_number() ? std::format("{:.2f}s", firstNavigation.get<double>()) : std::string { "never answered" }, *options.navigationBudget);
     }
-    const double total { std::chrono::duration<double>(Clock::now() - begin).count() };
+    const double total { std::chrono::duration<double>(Clock::now() - begin).count() - evidenceSeconds };
     // The point of plain-client mode: a client with no custom capability must still be told that
     // work is happening. Standard `$/progress` is the only channel it has, and before the
     // cold-start work it received nothing at all.
@@ -4568,6 +4787,7 @@ int run(Options options) {
     // A failure in CI leaves nothing behind but this output: the server's own log says what it was
     // doing while a check waited, which the check's one line cannot. --verbose already printed it.
     if (failures > 0 && !options.verbose) print_server_log_tail(cacheDirectory);
+    if (failures > 0) print_server_log_matches(cacheDirectory, scenario.value("failure-log-lines", std::string {}));
     say("{}: {} failure(s), {:.1f}s", name, failures, total);
     if (!options.measureFile.empty()) {
         // The timeline of usable plan W7: initialize, the first ready state, the first diagnostics, the first navigation.
@@ -4576,8 +4796,8 @@ int run(Options options) {
         };
         Json summary { { "fixture", name }, { "failures", failures }, { "seconds", total }, { "reused-workspace", alreadyPrepared } };
         summary["initialize"] = initializeSeconds;
-        summary["ready"] = since(client.firstReady);
-        summary["first-diagnostics"] = since(client.firstDiagnostics);
+        summary["ready"] = since(measuredReady);
+        summary["first-diagnostics"] = since(measuredDiagnostics);
         summary["first-navigation"] = firstNavigation;
         summary["checks"] = measured;
         if (auto written = fs::write_file(options.measureFile, summary.dump(2) + "\n"); !written) say("conformance: cannot write {}", options.measureFile);
@@ -5114,7 +5334,11 @@ int prepare_clangd_crash_context(const std::string& payload) {
         "exec 3<&0\n"
         "\"$real\" \"$@\" <&3 3<&- &\n"
         "child=$!\n"
-        "sleep 25\n"
+        // The wrapper must look busy for the stuck watch: it samples this process's own CPU, and an idle
+        // shell around a working clangd reads as a dead engine (the first answer then lost the 3s+5s race
+        // on the slowest Intel macOS runners, which killed the stand-in before its designed crash).
+        "end=$(( $(date +%s) + 25 ))\n"
+        "while [ $(date +%s) -lt $end ]; do i=0; while [ $i -lt 5000 ]; do i=$((i+1)); done; done\n"
         "echo 'PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace.' >&2\n"
         "echo 'Signalled during AST worker action: Build AST' >&2\n"
         "echo '  Filename: {}' >&2\n"
@@ -5245,6 +5469,7 @@ int main(int argc, char* argv[]) {
     (void)runCommand.option("workspace-dir").takes_value().help("Directory reused across runs: the fixture is copied and prepared there once");
     (void)runCommand.option("cache-dir").takes_value().help("The server's cache directory, e.g. shared by a cold and a warm run");
     (void)runCommand.option("measure").takes_value().help("File the checks' timings are written to, as JSON");
+    (void)runCommand.option("timing-evidence").takes_value().help("Bounded report after timing fixture checks; excluded from timing budgets");
     (void)runCommand.option("expect-warm").help("module-cache-reused checks fail unless an earlier run left module files in --cache-dir");
     (void)runCommand.option("navigation-budget").takes_value().help("Seconds the first navigation may take from initialize; more fails the run");
     (void)runCommand.option("no-dynamic-watch").help("Do not advertise didChangeWatchedFiles.dynamicRegistration, exercising the polling fallback");
@@ -5267,6 +5492,7 @@ int main(int argc, char* argv[]) {
         options.workspaceDirectory = args.value("workspace-dir") ? absolute(*args.value("workspace-dir")) : std::string {};
         options.cacheDirectory = args.value("cache-dir") ? absolute(*args.value("cache-dir")) : std::string {};
         options.measureFile = args.value("measure") ? absolute(*args.value("measure")) : std::string {};
+        options.timingEvidenceFile = args.value("timing-evidence") ? absolute(*args.value("timing-evidence")) : std::string {};
         options.expectWarm = args.is_flag_set("expect-warm");
         options.noDynamicWatch = args.is_flag_set("no-dynamic-watch");
         options.plainClient = args.is_flag_set("plain-client");

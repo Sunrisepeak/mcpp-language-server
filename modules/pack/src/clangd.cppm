@@ -1,4 +1,6 @@
-// Reducing an official clangd release archive to what the payload ships.
+// Reducing an official clangd release archive to what the payload ships, or taking a maintained
+// engine part (mcppls-clangd's `clangd-<version>-<platform>.tar.gz`, whose clangd/ holds
+// engine.json) exactly as it was built and qualified.
 //
 // This ports trim_clangd.py. Keeps bin/clangd[.exe], lib/clang/<major>/include (clang's builtin
 // headers, which clangd finds relative to its own executable) and LICENSE.TXT; everything else in
@@ -30,6 +32,7 @@ struct Result {
     // The first line of `clangd --version`, read only when this host can run the binary it just
     // produced (trim_clangd.py's `host_runs_it`); absent otherwise, never a stale guess.
     std::optional<std::string> versionLine;
+    bool enginePart { false };            // a maintained engine part, taken byte for byte
 };
 
 // Linux: stripped with llvm-strip, or with strip for this host's own architecture, when one is on

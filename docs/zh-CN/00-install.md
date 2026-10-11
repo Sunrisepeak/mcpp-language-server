@@ -6,7 +6,7 @@
 
 ## VS Code：从 Marketplace 安装
 
-在扩展视图里搜索 **mcppls** 或 **C++ Modules Language Server**，或者运行 `code --install-extension sunrisepeak.mcpp-language-server`（[Marketplace 页面](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server））。VS Code 会自动选对应平台的版本——`linux-x64`、`linux-arm64`、`darwin-arm64` 或 `win32-x64`；其他平台暂时没有。Linux 上各架构支持哪些系统，见[支持的 Linux 系统](#支持的-linux-系统)。
+在扩展视图里搜索 **mcppls** 或 **C++ Modules Language Server**，或者运行 `code --install-extension sunrisepeak.mcpp-language-server`（[Marketplace 页面](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server））。VS Code 会自动选对应平台的版本——`linux-x64`、`linux-arm64`、`darwin-arm64` 或 `win32-x64`；其他平台暂时没有。`darwin-arm64` 需要 macOS 12 及以上；Linux 上各架构支持哪些系统，见[支持的 Linux 系统](#支持的-linux-系统)。
 
 ## Cursor、VSCodium、Windsurf 等兼容 VS Code 的编辑器：从 Open VSX 安装
 
@@ -37,10 +37,10 @@ release 里的每个文件都列在它的 `MANIFEST.md` 里，说明是什么、
 
 | 平台 | clangd | 需要 | 能运行的系统 |
 |---|---|---|---|
-| `linux-x64` | clangd/clangd 发布的 23.1.0，libstdc++ 已静态链接 | glibc 2.18 | 目前所有基于 glibc 的发行版 |
-| `linux-arm64` | LLVM 官方发布的 23.1.0 Linux arm64 版本（clangd/clangd 不发布 arm64 Linux 版本） | glibc 2.34、GCC 12 的 libstdc++（`GLIBCXX_3.4.30`）、zlib | Ubuntu 22.04 及以上、Debian 12 及以上、openEuler 24.03 LTS 及以上（已测试）；Fedora 36 及以上（按其软件包版本推断） |
+| `linux-x64` | mcppls-clangd 23.1.0，在 Ubuntu 20.04 上构建，libstdc++ 与 zlib 已静态链接 | glibc 2.31 | Ubuntu 20.04、Debian 11、RHEL 和 Rocky Linux 9、openEuler 22.03 LTS 及以上 |
+| `linux-arm64` | 同一引擎，以相同方式为 arm64 构建 | glibc 2.31 | 同上各系统的 arm64 版本 |
 
-比这更老的 arm64 系统——Ubuntu 20.04、Debian 11、RHEL 和 Rocky Linux 8 与 9、Amazon Linux 2023、openEuler 22.03——上，自带的 clangd 无法启动。这时 mcppls 仍提供它自己的模块级功能（模块跳转、import 补全、模块诊断），状态栏会说明原因。Alpine 等基于 musl 的发行版，两种架构的 clangd 都无法运行。
+更老的系统——Ubuntu 18.04、Debian 10、RHEL 和 Rocky Linux 8、Amazon Linux 2——上，自带的 clangd 无法启动。这时 mcppls 仍提供它自己的模块级功能（模块跳转、import 补全、模块诊断），状态栏会说明原因；也可以用 `mcppls.clangd` 指定一个能在该系统上运行的 clangd。Alpine 等基于 musl 的发行版，两种架构的 clangd 都无法运行。
 
 ### Android 上的 Termux
 

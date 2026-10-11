@@ -1,0 +1,150 @@
+{
+  "name": "mcpp-build-programs",
+  "description": "A package whose build.mcpp imports mcpp's engine interface and a library of [build-dependencies], gen, and which has a package, both, in both tables, described by mcpp's own `emit build-database` (mcpp 2026.10.11.1, mcpp-community/mcpp#797): build.mcpp is read as C++ with the arguments of its own set, its imports resolve in the build programs' graph, navigation reaches the engine interface, the target reads both as it builds it, and an import across the two configurations is diagnosed. MCPPLS_BUILD_PROGRAMS_MCPP names an mcpp of that version or later, which CI installs beside the pinned one; unset, the mcpp on PATH is asked.",
+  "server-arguments": [
+    "--mcpp",
+    "{env:MCPPLS_BUILD_PROGRAMS_MCPP|}"
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "mcpp",
+      "profile-kind": "build-toolchain",
+      "profile-compiler": "clang",
+      "level": 3,
+      "state": "ready"
+    },
+    {
+      "id": "T1",
+      "kind": "diagnostics-empty",
+      "file": "src/main.cpp",
+      "$comment": "GEN and BOTH are the flags build.mcpp gives the target: mcpp ran the build program to describe the target"
+    },
+    {
+      "id": "T2",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        54
+      ],
+      "expect": "deps/both/src/both.cppm"
+    },
+    {
+      "id": "B1",
+      "kind": "diagnostics-empty",
+      "file": "build.mcpp",
+      "$comment": "build.mcpp is C++ by mcpp's -x c++ and its imports resolve in the build programs' graph"
+    },
+    {
+      "id": "B2",
+      "kind": "definition",
+      "file": "build.mcpp",
+      "at": [
+        6,
+        19
+      ],
+      "expect": "deps/gen/src/gen.cppm"
+    },
+    {
+      "id": "B3",
+      "kind": "definition",
+      "file": "build.mcpp",
+      "at": [
+        7,
+        44
+      ],
+      "expect": "deps/both/src/both.cppm"
+    },
+    {
+      "id": "B4",
+      "kind": "definition",
+      "file": "build.mcpp",
+      "at": [
+        6,
+        11
+      ],
+      "expect": "modules/mcpp.cppm",
+      "$comment": "mcpp's engine interface, under <MCPP_HOME>/engine/<version>/modules"
+    },
+    {
+      "id": "B5",
+      "kind": "hover-contains",
+      "file": "build.mcpp",
+      "at": [
+        6,
+        11
+      ],
+      "expect": "cxxflag"
+    },
+    {
+      "id": "B6",
+      "kind": "definition",
+      "file": "build.mcpp",
+      "at": [
+        2,
+        8
+      ],
+      "expect": "deps/gen/src/gen.cppm"
+    },
+    {
+      "id": "R1",
+      "kind": "request",
+      "file": "build.mcpp",
+      "method": "textDocument/rename",
+      "at": [
+        6,
+        11
+      ],
+      "params": {
+        "newName": "flag"
+      },
+      "expect-error": -32803,
+      "$comment": "a rename that would edit mcpp's engine interface is refused as a whole"
+    },
+    {
+      "id": "B7",
+      "kind": "completion-contains",
+      "file": "build.mcpp",
+      "insert": [
+        8,
+        "    mcpp::"
+      ],
+      "at": [
+        8,
+        10
+      ],
+      "expect": "cxxflag"
+    },
+    {
+      "id": "X1",
+      "kind": "diagnostic-code",
+      "file": "src/main.cpp",
+      "text": "import mcpp;\nint main() {}\n",
+      "expect": "build-program-module",
+      "line": 0,
+      "$comment": "SPEC-007 P1: a target does not import the engine interface"
+    },
+    {
+      "id": "X2",
+      "kind": "diagnostic-code",
+      "file": "src/main.cpp",
+      "text": "import std;\nimport gen;\nint main() {}\n",
+      "expect": "build-program-module",
+      "line": 1
+    },
+    {
+      "id": "X3",
+      "kind": "diagnostic-code",
+      "file": "build.mcpp",
+      "text": "import app.greet;\nint main() {}\n",
+      "expect": "target-module",
+      "line": 0
+    },
+    {
+      "id": "W1",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}

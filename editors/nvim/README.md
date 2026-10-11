@@ -108,7 +108,7 @@ require('mcppls').setup({
 ```
 
 The root is the nearest directory with a root marker, else the current directory. `.cppm`, `.ixx`,
-`.mpp`, `.ccm` and `.cxxm` files are C++.
+`.mpp`, `.ccm` and `.cxxm` files are C++, and so is `build.mcpp`, mcpp's build program.
 
 ## Highlighting `import`
 

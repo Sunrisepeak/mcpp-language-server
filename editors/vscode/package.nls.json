@@ -70,5 +70,6 @@
   "semanticToken.module.description": "A C++ module or module partition name",
   "semanticTokenModifier.partition.description": "A module partition name, rather than a whole module",
   "color.mcppls.statusReadyForeground.description": "Status bar text when module semantics are ready. A background would be better, but VS Code accepts only its error and warning backgrounds.",
-  "color.mcppls.statusPreparingForeground.description": "Status bar text on the lit half of the pulse while modules are being prepared. Resolving it to the default foreground turns the pulse off without breaking anything."
+  "color.mcppls.statusPreparingForeground.description": "Status bar text on the lit half of the pulse while modules are being prepared. Resolving it to the default foreground turns the pulse off without breaking anything.",
+  "config.mcppls.format.fallbackStyle.description": "Formatting fallback when no project .clang-format exists. auto uses the pinned mcpp style for mcpp projects when supported by the bundled engine. An explicit style overrides auto; project .clang-format always wins."
 }

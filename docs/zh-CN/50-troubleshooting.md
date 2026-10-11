@@ -61,7 +61,7 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **输入 `import` 时编辑器卡死（0.0.3 及更早版本）。** clangd 23.1 遇到模块名以 `.` 结尾、而且 `.` 就在行尾的文件（`import hello.`、`export module a.`）时永远处理不完，这个文件之后的所有版本都排在它后面等待；而输入任何带点的模块名都会经过这个状态。mcppls 0.0.4 改为把这一行在点后补上 `;` 再交给 clangd，clangd 会立即报告这个错误（规避措施 `WA-CLANGD-001`）；报告里的 `engines[].details.workarounds` 会列出它。
 
-**开着自动保存输入 import 时，这个文件有几秒钟不走 clangd。** clangd 从磁盘上的文本读取一个文件的 import，而不是从编辑器里读（0.0.4 及更早版本会就此永久卡住：`import hello.` 被自动保存后，这个文件的所有请求都得不到应答）。一次保存把 clangd 会卡住的内容写到磁盘上时——以 `.` 结尾的模块名，或者 import 了项目里（还）没有的模块——这个文件改由 mcppls 自己的引擎应答，直到再次保存；状态里以 `file-unsafe-on-disk`（类别 `code`）列出它并说明原因，状态仍是 *ready*。没有任何单元提供的模块会在保存后一秒内得到替身单元，等 clangd 读到带替身的数据库（大约六秒后），文件就交还给 clangd。
+**开着自动保存输入 import 时，这个文件有几秒钟不走 clangd。** clangd 从磁盘上的文本读取一个文件的 import，而不是从编辑器里读（0.0.4 及更早版本会就此永久卡住：`import hello.` 被自动保存后，这个文件的所有请求都得不到应答）。一次保存把 clangd 会卡住的内容写到磁盘上时——以 `.` 结尾的模块名，或者 import 了项目里（还）没有的模块——这个文件改由 mcppls 自己的引擎应答，直到再次保存；状态里以 `file-unsafe-on-disk`（类别 `code`）列出它并说明原因，状态仍是 *ready*。没有任何单元提供的模块会在保存后一秒内得到替身单元，等 clangd 读到带替身的数据库（大约六秒后），文件就交还给 clangd。随附的 mcppls-clangd（0.0.12）不会出现这两种情况：它立即处理完 `import hello.`，并报告 import 了项目里没有的模块，文件一直留在 clangd；只有模块单元自身的这种 import 会得到替身，而且要等这个单元几秒内没再被编辑（引擎声明了修复时，`WA-CLANGD-001` 和 `WA-CLANGD-013` 退役）。
 
 **“Import directive must end with a ';'” 标在了别的行上，或刚输入的 import 报 “module X not found”。** clangd 把缺少 `;` 的指令报在它后面的代码上；mcppls 会把这条诊断移回指令所在行（规避措施 `WA-CLANGD-006`）。刚输入、还没保存的 import，clangd 要等文件保存后才会构建（它从磁盘读取 import）；只要这个模块在项目里，这时给出的是信息级提示 “module 'X' is in the project; clangd loads it once the file is saved”，而不是错误（`WA-CLANGD-007`）。
 

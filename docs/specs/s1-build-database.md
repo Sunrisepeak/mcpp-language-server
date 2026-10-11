@@ -156,12 +156,14 @@ A set is, approximately, all translation units of one build target in one config
 
 How units are grouped into sets follows how the build resolves imports. A build that resolves every import against one flat module graph, in which any module of the project, of its dependencies and of the standard library can be imported from any unit, may group units per package rather than per target: for example one set for a package, one for its tests and one for the standard library modules the build compiles (mcpp writes `<package>`, `<package>:test` and `mcpp:std`). The `visible-sets` of each such set then lists every other set. That is the complete visibility closure of such a build (section 10); a narrower list would describe a rule the build does not apply.
 
+A build may also compile programs that it runs itself, on the machine doing the build: mcpp's build programs, for example, are `build.mcpp`, the libraries of `[build-dependencies]` and mcpp's engine interface. Such programs are a configuration of their own. Their sets name it in `ide.configuration` (mcpp writes `build-program`, with the sets `<package>:build`, `<package>:host`, `mcpp:core` and `mcpp:std:host`), and a source that both configurations compile is a unit of one set in each, with the arguments of each. Each configuration resolves imports over a module graph of its own, so the `visible-sets` of a set name sets of its own configuration only, and no set of one configuration sees a set of the other. A consumer that reads several configurations in one context, as a default context may, reads a source that two of them compile with the arguments of one, and reads a configuration whose toolchain differs from the others' in a context of its own.
+
 ### 7.1 Set-level `ide` object
 
 | Field | Type | Requirement | Description |
 |---|---|---|---|
 | `toolchain` | string | MUST | Id of an entry in the document-level `toolchains` map. <a id="S1-7.1-1"></a><sup>S1-7.1-1</sup> |
-| `configuration` | string | SHOULD | Configuration name, for example `debug`, `release` or `dev`. <a id="S1-7.1-2"></a><sup>S1-7.1-2</sup> |
+| `configuration` | string | SHOULD | Configuration name, for example `debug`, `release` or `dev`, or the configuration of the programs a build compiles and runs itself (section 7; mcpp writes `build-program`). <a id="S1-7.1-2"></a><sup>S1-7.1-2</sup> |
 | `kind` | enum | SHOULD | `library`, `executable`, `test` or `other`. Consumers use it to choose a default context. <a id="S1-7.1-3"></a><sup>S1-7.1-3</sup> |
 | `options` | SemanticOptions | level 3 MUST | Structured form of `baseline-arguments` (section 9). <a id="S1-7.1-4"></a><sup>S1-7.1-4</sup> |
 | `module-metadata` | string[] | MAY | Module metadata files of external modules visible to this set, excluding the toolchain's standard library. |

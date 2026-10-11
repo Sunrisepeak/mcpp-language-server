@@ -170,6 +170,17 @@ int main() {
         expect(std::chrono::steady_clock::now() - stopping < 10s) << "the writer, blocked in a write, lets go once the peer is gone";
     };
 
+    "writing after the child exits returns an error and preserves the parent"_test = [&] {
+        auto process = platform::Process::spawn({ .program = self, .arguments = { "--exit", "0" } });
+        expect(fatal(process.has_value()));
+        const auto status = process->wait();
+        expect(fatal(status.has_value()));
+        expect(*status == 0);
+        const auto written = process->write("peer is gone");
+        expect(!written.has_value());
+        if (!written) expect(written.error().code == "process-write");
+    };
+
     "native_pid is the process a signal of 0 reaches while it runs, or nullopt on Windows"_test = [&] {
         auto process = platform::Process::spawn({ .program = self, .arguments = { "--sleep" } });
         expect(fatal(process.has_value())) << (process ? "" : process.error().message);

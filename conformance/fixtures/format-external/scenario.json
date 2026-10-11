@@ -1,0 +1,37 @@
+{
+  "name": "format-external",
+  "description": "An explicit external clangd must not inherit the bundled mcpp formatting capability. The requested maintained style falls back to the external engine default and is visible as an issue. Run with --clangd set to vanilla clangd.",
+  "server-arguments": [
+    "--no-discover",
+    "--format-fallback-style",
+    "mcpp",
+    "--build-tool",
+    "off"
+  ],
+  "checks": [
+    {
+      "id": "E1",
+      "kind": "status",
+      "source": "inferred",
+      "state": "degraded",
+      "engine-name": "clangd"
+    },
+    {
+      "id": "E2-no-inherited-preset",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/arguments/*",
+          "equals": "--fallback-style=mcpp",
+          "max-matches": 0
+        }
+      ]
+    },
+    {
+      "id": "E3-native-default",
+      "kind": "formatting-equals",
+      "file": "src/format.cppm",
+      "expected-file": "expected-llvm.txt"
+    }
+  ]
+}

@@ -71,6 +71,13 @@ std::string imported_name(const ScanResult& result, const ImportDeclaration& imp
 
 // True when the file name has a conventional C++ source or module extension.
 bool is_cxx_source_name(std::string_view path);
+// True when the Clang driver infers the file's language from its name (C, C++, a C++ module unit, a header,
+// preprocessed source, Objective-C, CUDA, HIP, assembly). A unit whose name does not is C++ only because its command
+// says `-x c++`: an mcpp build program, `build.mcpp` (mcpp-community/mcpp#797).
+bool clang_names_language(std::string_view path);
+// An mcpp build program by its name (`build.mcpp`, mcpp-community/mcpp#797): C++ that mcpp compiles for the
+// machine doing the build, described by mcpp 2026.10.11.1 and later in a set of the `build-program` configuration.
+bool is_build_program_source(std::string_view path);
 // Whether a unit of a build database is something a C-family compiler compiles (plan 2026-09-27 Q1-2): C,
 // C++ and module units, Objective-C, CUDA and HIP by extension, or anything its arguments force a language on
 // (`-x c++`, `/Tp`). A rule's own input -- a Qt form, a resource list, a translation -- is not, even when a

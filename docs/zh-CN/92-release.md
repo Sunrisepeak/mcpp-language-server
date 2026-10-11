@@ -88,6 +88,25 @@ nightly 运行还多一个 `termux` job：termux 自己的用户空间和 PRoot�
 
 也可以先手动推送一个 `v*` 标签，效果相同。
 
+## 新引擎
+
+随附的 clangd 是 mcppls-clangd，在它自己的仓库发布，在这里由 `packaging/payload.lock.json` 锁定。
+同时涉及两边的改动按下面的顺序进行，保证引擎发布出来的东西已经和本仓库的 CI 一起通过，发布后不会再冒出问题：
+
+1. **引擎 PR 的 CI 为每个平台构建打包好的部件**（`clangd-<platform>-portable`，带 `engine.json`），验证方式与正式发布相同。
+2. **本仓库的 PR 在引擎合入之前就用这份构建测试。** 提交 `packaging/engine-candidate.json`，写明引擎 PR 的那次运行：
+
+   ```json
+   { "repository": "Sunrisepeak/mcppls-clangd", "run-id": 38052537482,
+     "engine-commit": "<构建它的引擎 PR head>" }
+   ```
+
+   CI 的 `payload` 任务随后用那次运行的部件组装每个平台的 payload，而不是锁文件里的归档，之后的所有任务都测试它。发现的问题在哪个 PR 就在哪个 PR 修，并把文件指向新的运行，直到两边都通过。
+3. **合入并发布引擎**，再把锁文件切换到发布的归档（大小和 SHA-256，各自用两次下载和发布的 `.sha256` 核对），并在同一个提交里**删除候选文件**。CI 在发布的字节上再跑一次。
+4. 合入本 PR 并发布。
+
+候选文件永远不会进入发布：CI 在 `main` 和发布的运行中拒绝它，Release 工作流发现它会立即停止。构建产物保留 14 天；更早的运行可以重新运行引擎 PR 的 CI 重建。
+
 ## 核实一次发布
 
 不以构建过程的输出为准，而是用公开可下载的文件重新验证。

@@ -30,6 +30,7 @@ import mcppls.project.detect;
 import mcppls.project.providers;
 import mcppls.project.provider;
 import mcppls.project.model;
+import mcppls.project.mcpp;
 import mcppls.project.modelcache;
 import mcppls.normalize.plan;
 import mcppls.arch;
@@ -371,6 +372,9 @@ struct Workspace::Impl final : engine::Host {
     // database with the nearest unit's arguments and stay for the session, so opening one again leaves the database as it is.
     std::set<std::string> openedOutsideModel;
     std::set<std::string> plannedFiles;      // path keys of the plan's units and of the files it left out
+    // mcpp-community/mcpp#797: path keys of mcpp's engine interface, which mcpp writes once for each of its versions:
+    // no edit is offered there, and none reaches it.
+    std::set<std::string, std::less<>> readOnlySources;
     std::vector<std::string> loggedStandards;   // the standards the last log line about raising them named
     bool loggedStandardAssumed { false };        // X-3 (plan 0.0.8 part 2): said once that C++23 was chosen for the module units
     // S5 2.2: advanced whenever a document, a watched file, the model or the plan changes.
@@ -875,6 +879,7 @@ struct Workspace::Impl final : engine::Host {
         const Document* document { uri.empty() ? nullptr : documents_.find(uri) };
         if (document != nullptr) job.text = document->text;
         job.view = engine::RequestView { job.method, &job.params, job.path, job.text };
+        if (!job.path.empty() && readOnlySources.contains(base::path_key(job.path)) && refuse_edit(jobId)) return;
         if (job.method == lsp::method::TEXT_DOCUMENT_COMPLETION) {
             if (completion::is_space_trigger(job.params)) {
                 route_space_triggered(jobId);
@@ -929,6 +934,57 @@ struct Workspace::Impl final : engine::Host {
             job.budgetAt = job.started + *budget;
         }
         ask_next(jobId);
+    }
+
+    // mcpp-community/mcpp#797: mcpp's engine interface is written by mcpp, once for each of its versions; a request
+    // that would edit it is answered without an edit. Whether `jobId`, a request about such a file, was answered so.
+    bool refuse_edit(std::uint64_t jobId) {
+        const std::string& method { jobs.at(jobId).method };
+        if (method == "textDocument/formatting" || method == "textDocument/rangeFormatting" || method == "textDocument/rangesFormatting"
+            || method == "textDocument/onTypeFormatting" || method == "textDocument/codeAction") {
+            finish_job(jobId, Json::array());
+            return true;
+        }
+        if (method == "textDocument/prepareRename") {
+            finish_job(jobId, Json(nullptr));
+            return true;
+        }
+        if (method == "textDocument/rename") {
+            finish_job_with_error(jobId, read_only_error(jobs.at(jobId).path));
+            return true;
+        }
+        return false;
+    }
+
+    Json read_only_error(std::string_view path) const {
+        return Json { { "code", lsp::REQUEST_FAILED },
+                      { "message", std::format("{} is mcpp's engine interface, which mcpp writes for each of its versions and which is not edited",
+                                               base::file_name(path)) } };
+    }
+
+    // The first file of mcpp's engine interface a workspace edit changes, if any.
+    std::optional<std::string> read_only_target(const Json& edit) const {
+        if (!edit.is_object() || readOnlySources.empty()) return std::nullopt;
+        const auto check = [&](const std::string& uri) -> std::optional<std::string> {
+            const std::string path { path_of_uri(uri) };
+            if (!path.empty() && readOnlySources.contains(base::path_key(path))) return path;
+            return std::nullopt;
+        };
+        if (const auto changes = edit.find("changes"); changes != edit.end() && changes->is_object()) {
+            for (auto change = changes->begin(); change != changes->end(); ++change) {
+                if (auto path = check(change.key())) return path;
+            }
+        }
+        if (const auto changes = edit.find("documentChanges"); changes != edit.end() && changes->is_array()) {
+            for (const auto& change : *changes) {
+                const Json* document { lsp::find(change, "textDocument") };
+                const Json* uri { document != nullptr ? lsp::find(*document, "uri") : lsp::find(change, "uri") };
+                if (uri != nullptr && uri->is_string()) {
+                    if (auto path = check(uri->get<std::string>())) return path;
+                }
+            }
+        }
+        return std::nullopt;
     }
 
     static std::optional<base::Position> position_of(const Json& params) {
@@ -1235,6 +1291,13 @@ struct Workspace::Impl final : engine::Host {
             result = result.is_null() ? completion::keywords_only(it->second.keywords) : completion::merge(result, it->second.keywords);
         }
         result = explain_if_preparing(it->second, std::move(result));
+        // A rename from a file of the project that reaches mcpp's engine interface (mcpp#797) is not made in part.
+        if (it->second.method == "textDocument/rename") {
+            if (const auto path = read_only_target(result)) {
+                finish_job_with_error(jobId, read_only_error(*path));
+                return;
+            }
+        }
         note_request(it->second, result.is_null() ? "empty" : "result");
         const Json id = it->second.clientId;
         jobs.erase(it);
@@ -1273,11 +1336,37 @@ struct Workspace::Impl final : engine::Host {
         if (model->source == project::SourceKind::inferred && project::is_cxx_source_name(path) && base::is_within(path, root)) schedule_reload();
     }
 
+    // A body save reaches the engine but does not change its database. F13 still needs a
+    // new plan for a deferred stand-in, an import now on disk, or a conditional import the
+    // producer omitted and the editing-source union would add. Compare fresh disk text;
+    // a matching draft alone does not establish what clangd will read after an autosave.
+    bool saved_structure_is_planned(std::string_view path) const {
+        if (!model || !firstPlanWritten || plan.standInsDeferred) return false;
+        const std::string key { base::path_key(path) };
+        const auto known = structures.find(key);
+        const auto* scan = index.scan_of(path);
+        if (known == structures.end() || scan == nullptr || structure_of(*scan) != known->second) return false;
+        const auto disk = platform::fs::read_file(path);
+        if (!disk || structure_of(project::scan_source(*disk)) != known->second) return false;
+        const auto required = project::required_names(*scan);
+        bool represented { false };
+        for (const auto& entry : plan.entries) {
+            if (base::path_key(entry.file) != key) continue;
+            represented = true;
+            if (std::ranges::any_of(required, [&](const std::string& name) {
+                return std::ranges::find(entry.imports, name) == entry.imports.end();
+            })) return false;
+        }
+        return represented;
+    }
+
     // A C++ source of the workspace the plan has no unit for is planned at once (robustness design C2); the core engine
     // holds it until then. A new source of an inferred model is in the model reloaded for it.
     void note_opened(std::string_view path) {
-        if (!model || model->source == project::SourceKind::inferred) return;
-        if (!project::is_cxx_source_name(path) || !base::is_within(path, root) || plannedFiles.contains(base::path_key(path))) return;
+        // A build program (mcpp-community/mcpp#797) is planned in any model: one no set describes is left unread.
+        const bool program { project::is_build_program_source(path) };
+        if (!model || (model->source == project::SourceKind::inferred && !program)) return;
+        if (!(project::is_cxx_source_name(path) || program) || !base::is_within(path, root) || plannedFiles.contains(base::path_key(path))) return;
         const auto soon = Clock::now() + std::chrono::milliseconds { 100 };
         if (!replanAt || soon < *replanAt) replanAt = soon;
     }
@@ -1789,6 +1878,18 @@ struct Workspace::Impl final : engine::Host {
         for (auto& manifest : project::module_manifests(*model, kit ? &*kit : nullptr)) manifests.emplace_back(manifest.path, manifest.origin);
         auto external = index::external_modules(manifests, metadataReader);
         index.set_external(std::move(external));
+        // mcpp-community/mcpp#797: the configurations that compile each unit, and mcpp's engine interface.
+        std::map<std::string, unsigned, std::less<>> configurations;
+        readOnlySources.clear();
+        for (const auto& set : model->database.sets) {
+            const unsigned configuration { spec::is_build_program_set(set) ? index::BUILD_PROGRAMS : index::TARGETS };
+            for (const auto& unit : set.units) {
+                const std::string key { base::path_key(spec::absolute_source(unit)) };
+                configurations[key] |= configuration;
+                if (set.name == spec::ENGINE_INTERFACE_SET) readOnlySources.insert(key);
+            }
+        }
+        index.set_configurations(std::move(configurations), readOnlySources);
         const auto& profile = model->profile;
         index.set_profile_label(profile.kind == "semantic-kit" ? std::format("{} (semantic kit, {})", profile.stdlib, profile.target)
                                                                : std::format("{} · {} ({})", profile.compiler, profile.stdlib, profile.target));
@@ -1837,6 +1938,15 @@ struct Workspace::Impl final : engine::Host {
         input.modelOrigin = modelOrigin;
         if (coreEngine != nullptr) coreEngine->configure_plan(input);
         normalize::EnginePlan newPlan { normalize::plan_engine(input) };
+        // An open build program no set describes is not read (mcpp-community/mcpp#797); one another context reads is
+        // already in otherContextSources.
+        for (const Document* document : documents_.all()) {
+            if (document->path.empty() || !project::is_build_program_source(document->path)) continue;
+            const auto same = [&](const std::string& file) { return base::same_path(file, document->path); };
+            if (std::ranges::any_of(newPlan.entries, same, &normalize::EngineEntry::file)) continue;
+            if (std::ranges::any_of(newPlan.otherContextSources, same, &std::pair<std::string, std::string>::first)) continue;
+            newPlan.unreadSources.push_back(document->path);
+        }
         // A stand-in held back for a file being edited is planned once the file has been quiet for EDITING_WINDOW.
         if (newPlan.standInsDeferred && lastEdit) {
             const auto quiet = *lastEdit + EDITING_WINDOW + std::chrono::milliseconds { 100 };
@@ -1981,6 +2091,37 @@ struct Workspace::Impl final : engine::Host {
 
     // ---- diagnostics and status -------------------------------------------------------
 
+    // mcpp-community/mcpp#797: a build program, or a unit only build programs compile, that the context does not read
+    // says which context does; a `.mcpp` file mcpp's build database does not describe says which mcpp describes one.
+    std::optional<Json> configuration_diagnostic(std::string_view path) const {
+        if (path.empty() || !model || plannedFiles.contains(base::path_key(path))) return std::nullopt;
+        const auto said = [](std::string message) {
+            return Json { { "range", index::to_json(base::Range {}) }, { "severity", 3 }, { "code", "build-program-context" },
+                          { "source", "mcppls" }, { "message", std::move(message) } };
+        };
+        const auto elsewhere = std::ranges::find_if(plan.otherContextSources, [&](const auto& each) { return base::same_path(each.first, path); });
+        if (elsewhere != plan.otherContextSources.end()) {
+            const auto set = spec::find_set(model->database, elsewhere->second);
+            const std::string toolchain { set ? model->database.sets[*set].toolchain : std::string {} };
+            return said(std::format("{} is compiled for the build programs{}, which this context does not read; the context {} does "
+                                    "(mcppls: Select Context)",
+                                    base::file_name(path), toolchain.empty() ? std::string {} : std::format(", with {}", toolchain), elsewhere->second));
+        }
+        if (!project::is_build_program_source(path) || model->source != project::SourceKind::mcpp) return std::nullopt;
+        const bool described { std::ranges::any_of(model->database.sets, [&](const spec::Set& set) {
+            return std::ranges::any_of(set.units, [&](const spec::TranslationUnit& unit) { return base::same_path(spec::absolute_source(unit), path); });
+        }) };
+        if (described) return std::nullopt;
+        const std::string& version { model->producerVersion };
+        if (version.empty() || project::mcpp_version_less(version, base::BUILD_PROGRAMS_MCPP_VERSION)) {
+            return said(std::format("{} is not read: {} describes the targets only, and mcpp {} and later describe build programs in the "
+                                    "build database", base::file_name(path), version.empty() ? std::string { "this mcpp" } : std::format("mcpp {}", version),
+                                    base::BUILD_PROGRAMS_MCPP_VERSION));
+        }
+        return said(std::format("{} is not read: mcpp's build database does not describe it (mcpp compiles the build.mcpp beside a "
+                                "package's mcpp.toml)", base::file_name(path)));
+    }
+
     void publish_diagnostics(std::string_view uri, bool force = false) {
         const Document* document { documents_.find(uri) };
         if (document == nullptr) {
@@ -1991,7 +2132,14 @@ struct Workspace::Impl final : engine::Host {
                           Json { { "uri", std::string { uri } }, { "diagnostics", review == reviewDiagnostics.end() ? Json::array() : review->second } });
             return;
         }
-        const Json moduleDiagnostics = document->path.empty() ? Json::array() : index.diagnostics(document->path);
+        Json moduleDiagnostics = document->path.empty() ? Json::array() : index.diagnostics(document->path);
+        if (auto said = configuration_diagnostic(document->path)) {
+            // A build program no set describes is not read at all: what it imports is not judged either.
+            if (std::ranges::any_of(plan.unreadSources, [&](const std::string& file) { return base::same_path(file, document->path); })) {
+                moduleDiagnostics = Json::array();
+            }
+            moduleDiagnostics.push_back(std::move(*said));
+        }
         Json fromEngines = Json::array();
         for (const auto& [engineId, byUri] : engineDiagnostics) {
             const auto entry = byUri.find(uri);
@@ -2587,7 +2735,8 @@ void Workspace::did_save(const Json& message, const Json& params) {
     // file is quiet (clangd builds with what is on disk).
     if (!saved.path.empty()) {
         const auto edited = impl_->editedAt.find(base::path_key(saved.path));
-        if (edited != impl_->editedAt.end() && Clock::now() - edited->second < Impl::EDITING_WINDOW) impl_->schedule_replan();
+        if (edited != impl_->editedAt.end() && Clock::now() - edited->second < Impl::EDITING_WINDOW
+            && !impl_->saved_structure_is_planned(saved.path)) impl_->schedule_replan();
     }
 }
 
@@ -2675,7 +2824,9 @@ Json Workspace::contexts() const {
     if (impl_->model) {
         for (const auto& set : impl_->model->database.sets) {
             std::string label { set.name };
-            if (!set.kind.empty() && set.kind != "other") label += std::format(" ({})", set.kind);
+            const bool program { spec::is_build_program_set(set) };
+            if (!set.kind.empty() && set.kind != "other") label += std::format(" ({}{})", program && set.kind == "executable" ? "build program" : set.kind,
+                                                                               program && set.kind != "executable" ? ", for build programs" : "");
             available.push_back(Json { { "id", set.name }, { "label", label }, { "profile", impl_->profile_json() } });
         }
     }

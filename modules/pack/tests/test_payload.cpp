@@ -5,9 +5,11 @@
 // separately) would actually produce -- just enough of each part's shape for every one of
 // verify()'s checks to have something to check, so a real assemble+verify round trip runs clean.
 import std;
+import nlohmann.json;
 import mcppls.testing;
 import mcppls.base.path;
 import mcppls.pack.lock;
+import mcppls.pack.fetch;
 import mcppls.pack.payload;
 import mcppls.platform.env;
 import mcppls.platform.fs;
@@ -124,6 +126,56 @@ int main(int argc, char* argv[]) {
     const std::string server { base::join_path(work, "mcppls-fixture") };
     put(server, "#!/bin/sh\necho mcppls\n");
     const auto lockData = lock_with_clangd_version();
+
+    "maintained engine assembly requires matching immutable identity before replacing output"_test = [&] {
+        const std::string platform { mcppls::os::PLATFORM == "win32-x64" ? "linux-x64" : "win32-x64" };
+        const std::string clangdDir { make_clangd_directory(work, platform) };
+        const std::string kitDir { make_kit_directory(work) };
+        const std::string out { base::join_path(work, "payload-identified") };
+        put(base::join_path(out, "sentinel"), "keep");
+        const auto forkLock = lock_with_clangd_version("23.1.0-mcppls.1");
+        const auto options = options_for(work, platform, server, clangdDir, kitDir, out, repoRoot);
+        expect(!payload::assemble(options, forkLock));
+        expect(fs::is_regular_file(base::join_path(out, "sentinel")));
+        const auto digest = mcppls::pack::fetch::digest_of(base::join_path(clangdDir, "bin/clangd" + suffix_for(platform)));
+        expect(fatal(digest.has_value()));
+        if (!digest) return;
+        nlohmann::json identity { { "engine-version", "23.1.0-mcppls.1" }, { "llvm-base-version", "23.1.0" },
+                                 { "llvm-commit", std::string(40, 'a') }, { "fork-commit", std::string(40, 'b') },
+                                 { "patch-series-sha256", std::string(64, 'c') }, { "platform", platform },
+                                 { "sha256", std::string(64, 'd') }, { "features", nlohmann::json::array() } };
+        put(base::join_path(clangdDir, "engine.json"), identity.dump());
+        expect(!payload::assemble(options, forkLock)) << "forged binary SHA is rejected";
+        expect(fs::is_regular_file(base::join_path(out, "sentinel")));
+        identity["sha256"] = *digest;
+        put(base::join_path(clangdDir, "engine.json"), identity.dump());
+        expect(!payload::assemble(options, lock_with_clangd_version("24.1.0"))) << "an override cannot silently change the locked LLVM base";
+        auto assembled = payload::assemble(options, lockData);
+        expect(fatal(assembled.has_value())) << (assembled ? std::string {} : assembled.error().message);
+        if (!assembled) return;
+        auto manifest = nlohmann::json::parse(*fs::read_file(base::join_path(out, "payload.json")));
+        expect(manifest["payload-version"] == 4);
+        expect(manifest["clangd"]["version"] == "23.1.0-mcppls.1");
+        expect(manifest["engines"]["clangd"]["identity"] == identity);
+        expect(payload::verify(out).empty());
+        manifest["engines"]["clangd"].erase("identity");
+        put(base::join_path(out, "payload.json"), manifest.dump());
+        expect(!payload::verify(out).empty()) << "new manifests cannot omit identity";
+    };
+
+    "a maintained engine verifies against its LLVM base libc++ kit"_test = [&] {
+        const std::string clangdDir { make_clangd_directory(work, "linux-x64") };
+        const std::string kitDir { make_kit_directory(work) };
+        const std::string out { base::join_path(work, "payload-base-kit") };
+        auto assembled = payload::assemble(options_for(work, "linux-x64", server, clangdDir, kitDir, out, repoRoot), lockData);
+        expect(fatal(assembled.has_value()));
+        if (!assembled) return;
+        auto manifest = nlohmann::json::parse(*fs::read_file(base::join_path(out, "payload.json")));
+        manifest["clangd"]["version"] = "23.1.0-mcppls.1";
+        manifest["engines"]["clangd"]["version"] = "23.1.0-mcppls.1";
+        put(base::join_path(out, "payload.json"), manifest.dump());
+        expect(payload::verify(out).empty()) << "the base kit remains compatible with the complete engine identity";
+    };
 
     "a well-formed assemble produces a payload that verifies clean"_test = [&] {
         const std::string clangdDir { make_clangd_directory(work, "linux-x64") };

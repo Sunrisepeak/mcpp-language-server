@@ -14,6 +14,7 @@
       ".ixx": "cpp",
       ".mpp": "cpp",
       ".mxx": "cpp",
+      ".mcpp": "cpp",
       ".h": "cpp",
       ".hh": "cpp",
       ".hpp": "cpp",

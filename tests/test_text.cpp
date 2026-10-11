@@ -1,11 +1,20 @@
 import std;
 import mcppls.testing;
 import mcppls.base.text;
+import mcppls.base.version;
 
 using namespace mcppls::base;
 
 int main() {
     using namespace mcppls::testing;
+    "only a valid maintained-engine suffix selects its LLVM base"_test = [] {
+        expect(mcppls::base::llvm_base_version("23.1.0-mcppls.1") == "23.1.0");
+        expect(mcppls::base::llvm_base_version("23.1.0") == "23.1.0");
+        for (const std::string_view invalid : { "23.1.0-mcppls.", "23.1.0-mcppls.1-extra", "23.1.0.1-mcppls.1", "23.1.0-vendor.1" }) {
+            expect(mcppls::base::llvm_base_version(invalid) == invalid);
+        }
+    };
+
 
     "UTF-16 columns count surrogate pairs twice"_test = [] {
         const std::string_view text { "a\xF0\x9F\x98\x80" "b" };   // a😀b

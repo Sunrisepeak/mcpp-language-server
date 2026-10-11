@@ -1,9 +1,9 @@
 # Packaging
 
 Everything mcppls ships besides its own source: a **payload** per platform,
-holding the server, a trimmed clangd 23.1 and the `mcppls-kit` semantic kit.
-The VS Code extension carries a payload inside its platform VSIX; the xlings
-packages carry the same parts as two archives.
+holding the server, the maintained clangd (mcppls-clangd, LLVM 23.1) and the
+`mcppls-kit` semantic kit. The VS Code extension carries a payload inside its
+platform VSIX; the xlings packages carry the same parts as two archives.
 
 ```
 packaging/
@@ -19,7 +19,7 @@ This directory holds data only. The code that reads it is `modules/pack`
 | Module | Command | Does |
 |---|---|---|
 | `mcppls.pack.fetch`, `.lock` | (inside the others) | download an input named by the lock and prove it by sha256 |
-| `mcppls.pack.clangd` | `payload --only clangd` | reduce an official clangd release to what is shipped |
+| `mcppls.pack.clangd` | `payload --only clangd` | take the maintained engine part as built, or reduce an official clangd release to what is shipped |
 | `mcppls.pack.kit` | `kit` | assemble the semantic kit for one platform (kits/README.md) |
 | `mcppls.pack.payload` | `payload`, `payload --verify`, `payload --from` | put the three parts into the payload layout, and verify one |
 | `mcppls.pack.release` | `release check`, `release xlings` | check a staged release; split payloads into xlings-res archives |
@@ -34,12 +34,14 @@ its manifest.
 
 ```
 <payload>/
-  payload.json                      payload-version 3, platform, the version and
-                                    relative path of each part, and `engines`: per
-                                    engine its executable, version and matching kit
+  payload.json                      payload-version 4 (3 for an engine without
+                                    identity), platform, the version and relative
+                                    path of each part, and `engines`: per engine its
+                                    executable, version, matching kit and identity
   bin/mcppls[.exe]
   clangd/bin/clangd[.exe]
   clangd/lib/clang/<major>/include/  clang's builtin headers, found beside clangd
+  clangd/engine.json                 the maintained engine's source and binary identity
   kit/kit.json + kit data            spec S4
   licenses/                          mcppls and LLVM license texts
 ```
@@ -53,8 +55,7 @@ and the kit installed by xlings.
 
 | Entry | What | Used by |
 |---|---|---|
-| `clangd-linux`, `clangd-mac`, `clangd-windows` | clangd 23.1.0 release archives | `mcppls.pack.clangd` |
-| `clangd-linux-arm64` | LLVM 23.1.0's own Linux arm64 release (clangd/clangd publishes none); its license comes from `llvm-project-src` (`license-from`) | `mcppls.pack.clangd` |
+| `mcppls-clangd-<platform>` | the maintained engine, mcppls-clangd 0.0.12's `clangd-23.1.0-mcppls.0-<platform>.tar.gz`: clangd, its builtin headers, licenses and `engine.json` (source and binary identity), taken byte for byte | `mcppls.pack.clangd` |
 | `llvm-project-src` | llvm-project 23.1.0 source archive | `mcppls.pack.kit`, recipe `libcxx-source` |
 | `llvm-mingw` | llvm-mingw 20260826 (LLVM 23.1.0), UCRT, Linux x86_64 host | `mcppls.pack.kit`, recipe `llvm-mingw` |
 

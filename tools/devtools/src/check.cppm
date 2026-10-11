@@ -8,6 +8,8 @@
 //   mcppls-devtools check versions              version --check, plus every third-party dep uses
 //                                                `.workspace = true`
 //   mcppls-devtools check scripts                every tracked *.py/*.sh is in scripts.allow
+//   mcppls-devtools check tree                   no tracked file above 1 MiB, none generated
+//                                                (module, precompiled header, object)
 //   mcppls-devtools check platforms              the VS Code extension, the release manifest and CI's
 //                                                per-platform jobs list exactly the lock's platforms
 //   mcppls-devtools check binary --server PATH  the server's symbol table carries no archive or
@@ -34,6 +36,9 @@ base::Result<Report> os_surface(const std::string& root);
 base::Result<Report> layers(const std::string& root);
 base::Result<Report> versions(const std::string& root);
 base::Result<Report> scripts(const std::string& root);
+// The repository carries sources, not output: a tracked file above 1 MiB or a generated module,
+// precompiled header or object file (raw evidence and caches belong in a release's evidence archive).
+base::Result<Report> tree(const std::string& root);
 // packaging/payload.lock.json's platforms are the one table: every row is a well-formed
 // `<os>-<arch>` with a clangd entry and a server target, and whatever cannot read the lock -- the
 // VS Code extension's SUPPORTED_PLATFORMS, release.manifest.json and CI's per-platform matrices --

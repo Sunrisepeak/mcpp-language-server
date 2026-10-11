@@ -6,6 +6,7 @@ import nlohmann.json;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
+import mcppls.base.version;
 import mcppls.platform.fs;
 import mcppls.pack.release;
 import mcppls.pack.archive;
@@ -86,7 +87,9 @@ base::Result<XlingsResult> make_xlings_artifacts(const std::string& root, const 
     std::map<std::string, std::string> values;
     values["@VERSION@"] = productVersion;
     values["@KIT_VERSION@"] = effectiveKitVersion;
-    values["@CLANGD_VERSION@"] = effectiveClangdVersion;
+    // The xlings descriptors depend on an LLVM release (xim:llvm-tools@<version>): a maintained
+    // engine's version names its LLVM base there.
+    values["@CLANGD_VERSION@"] = std::string { base::llvm_base_version(effectiveClangdVersion) };
 
     // One xlings-res platform per lock platform: its name, and the {os}_{arch} xlings spelling the
     // .lua.in templates use.

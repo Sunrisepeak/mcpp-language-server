@@ -505,6 +505,21 @@ bool is_cxx_source_name(std::string_view path) {
     return std::ranges::any_of(EXTENSIONS, [&](std::string_view candidate) { return base::iequals_ascii(candidate, extension); });
 }
 
+bool clang_names_language(std::string_view path) {
+    // clang/lib/Driver/Types.cpp, lookupTypeForExtension, with its case: `.C` is C++ and `.c` is C.
+    static constexpr std::array<std::string_view, 35> EXTENSIONS {
+        ".c", ".C", ".cc", ".CC", ".cp", ".cpp", ".CPP", ".c++", ".C++", ".cxx", ".CXX", ".cppm", ".ccm", ".cxxm", ".c++m",
+        ".h", ".H", ".hh", ".hpp", ".hxx", ".h++", ".i", ".ii", ".m", ".M", ".mm", ".mi", ".mii", ".cu", ".cui", ".hip",
+        ".s", ".S", ".sx", ".cl",
+    };
+    const std::string_view extension { base::extension(path) };
+    return std::ranges::find(EXTENSIONS, extension) != EXTENSIONS.end();
+}
+
+bool is_build_program_source(std::string_view path) {
+    return base::extension(path) == ".mcpp";
+}
+
 bool compiled_by_c_family(std::string_view source, std::span<const std::string> arguments) {
     if (is_cxx_source_name(source)) return true;
     static constexpr std::array<std::string_view, 10> OTHERS { ".c", ".m", ".mm", ".cu", ".hip", ".i", ".ii", ".mi", ".mii", ".C" };

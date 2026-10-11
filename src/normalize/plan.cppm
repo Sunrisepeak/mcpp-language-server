@@ -67,6 +67,13 @@ struct EnginePlan {
     bool standInsDeferred { false };          // a stand-in was held back for a file being edited: plan again once it is not
     std::vector<PlanIssue> issues;
     std::vector<std::string> excludedFiles;   // providers left out because they cannot be built
+    // Units the context leaves to the context of their own configuration, with the set that reads them
+    // (mcpp-community/mcpp#797): a build program the context does not read, and a build program's instance of a module
+    // the targets also provide, which a context reading both configurations reads as the targets build it.
+    std::vector<std::pair<std::string, std::string>> otherContextSources;
+    // Set by the workspace, not by plan_engine: open build programs no set describes (an mcpp older than
+    // 2026.10.11.1). They are not read; the core engine would read them with a command of its own guessing.
+    std::vector<std::string> unreadSources;
     std::string contextSet;                   // empty: every set
     std::size_t stdUnits { 0 };
     // Set by the workspace, not by plan_engine (fix plan F4, F14): what the model's toolchain, profile and
@@ -131,6 +138,11 @@ struct PlanInput {
     // imports cannot resolve, and providers importing them, stay out of the database: clangd 23.1
     // deadlocks building them (robustness design, experiments S2, S6). Other units always stay.
     bool excludeUnresolvedImports { true };
+    // Whether clangd also stalls building a unit that provides no module, or a file whose text on disk imports, a
+    // module nothing provides (WA-CLANGD-013). Where it does not, such a unit keeps the import, which clangd reports,
+    // and gets no stand-in; a stand-in for a module unit's own import waits while the unit is being edited, on disk or
+    // not, until the unit is quiet: only its importers' features hang on it, not clangd.
+    bool importersStallUnresolved { true };
     // MSVC STL contexts turn aligned allocation off (clangd 23.1.0, usable plan E8/E9).
     bool noAlignedAllocationWithMsvcStl { true };
     // The core engine could not build the toolchain's standard library module (robustness design C5): C++

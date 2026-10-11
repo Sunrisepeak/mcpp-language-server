@@ -12,6 +12,7 @@ import mcppls.engine.payload;
 import mcppls.engine.native;
 import mcppls.engine.native.index;
 import mcppls.engine.clangd;
+import mcppls.orchestrator.cache;
 import mcppls.orchestrator.workspace;
 import mcppls.ai.model.source;
 
@@ -30,8 +31,22 @@ orchestrator::EngineFactories engine_factories(const orchestrator::SessionOption
         engine::clangd::Options clangd;
         clangd.executable = payload.clangd;
         clangd.version = payload.clangdVersion;
+        if (!payloadCorrupt && payload.engineIdentity) clangd.verifiedFeatures = payload.engineIdentity->features;
+        clangd.formatFallbackStyle = options.formatFallbackStyle;
+        clangd.mcppFormatStyle = !payloadCorrupt && payload.engineIdentity &&
+            std::ranges::find(payload.engineIdentity->features, "format-style-mcpp") != payload.engineIdentity->features.end();
         clangd.payloadCorrupt = payloadCorrupt;
         clangd.verboseLog = options.verboseEngineLog;
+        // mcppls-clangd's owned module cache (Linux) admits payloads up to a bound of its own, 1 GiB; past it, builds wait for
+        // room. The cache this server keeps to its budget is the workspace's (mcppls.cache.maxBytes), so the engine is
+        // given three quarters of that (ux-mcpp: a profile change's modules beside the first profile's, with every
+        // reader's copy, waited out admission and the files that needed them stalled). Unlimited is unbounded; the
+        // option is a 32-bit count of MiB.
+        if (const auto budget = orchestrator::cache::parse_bytes(options.settings.string_value("cache.maxBytes"))) {
+            constexpr std::uint64_t MIB { std::uint64_t { 1 } << 20 };
+            clangd.ownedCachePayloadMiB = *budget == std::numeric_limits<std::uint64_t>::max()
+                ? 0 : std::clamp<std::uint64_t>(*budget / 4 * 3 / MIB, 1024, std::numeric_limits<std::uint32_t>::max());
+        }
         clangd.requestTimeout = options.requestTimeout;
         if (options.engineWorkers != "auto" && !options.engineWorkers.empty()) {
             std::size_t workers { 0 };
@@ -81,6 +96,7 @@ orchestrator::SessionOptions session_options(const cmdline::ParsedArgs& args) {
     // longer, and a test that means to watch the bound fire needs it much shorter.
     options.producerTimeout = settings.seconds_value("producerTimeout");
     options.requestTimeout = std::chrono::duration_cast<std::chrono::milliseconds>(settings.seconds_value("requestTimeout"));
+    options.formatFallbackStyle = settings.string_value("format.fallbackStyle");
     options.engineWorkers = settings.string_value("engine.workers");
     // This very program, for the reviews an editor asks for: named as the process started it, else found on PATH.
     if (const auto arguments = platform::env::arguments(); !arguments.empty()) {

@@ -116,6 +116,34 @@ The medians and per-round timings are in each run's summary. To try a candidate 
 
 Pushing a `v*` tag by hand does the same thing, for anyone who prefers tagging first.
 
+## A new engine
+
+The bundled clangd is mcppls-clangd, released from its own repository and pinned here in
+`packaging/payload.lock.json`. A change to both goes in this order, so that what the engine
+releases has already passed this repository's CI with it, and the release brings no surprise:
+
+1. **The engine PR's CI builds the packaged part** for each platform (`clangd-<platform>-portable`,
+   with its `engine.json`), proved like a release's.
+2. **This repository's PR tests with that build before the engine is merged.** Commit
+   `packaging/engine-candidate.json`, naming the engine PR's run:
+
+   ```json
+   { "repository": "Sunrisepeak/mcppls-clangd", "run-id": 38052537482,
+     "engine-commit": "<the engine PR head it was built from>" }
+   ```
+
+   CI's `payload` jobs then assemble every payload from that run's parts instead of the lock's
+   archives, and every later job tests them. Fix what it finds in either PR, and point the file
+   at the new run, until both are green.
+3. **Merge and release the engine**, then switch the lock to the released archives (their size and
+   SHA-256, each checked against two downloads and the published `.sha256`) and **delete the
+   candidate file** in the same commit. CI runs once more on the released bytes.
+4. Merge this PR and release.
+
+A candidate file never reaches a release: CI refuses it on `main` and in a release's run, and the
+Release workflow stops at once if it is there. Artifacts are kept 14 days; an older run is rebuilt
+by re-running the engine PR's CI.
+
 ## Verifying a release
 
 Do not trust what the build said; recompute it from what the public can actually download.

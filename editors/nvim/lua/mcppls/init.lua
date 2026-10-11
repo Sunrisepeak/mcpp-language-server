@@ -12,9 +12,9 @@ local M = {}
 local uv = vim.uv or vim.loop
 local is_windows = uv.os_uname().sysname:find('Windows') ~= nil
 
--- Module interface units Neovim may not know as C++ yet.
+-- Module interface units Neovim may not know as C++ yet, and mcpp's build programs (build.mcpp).
 vim.filetype.add({
-  extension = { cppm = 'cpp', ixx = 'cpp', mpp = 'cpp', ccm = 'cpp', cxxm = 'cpp', ['c++m'] = 'cpp' },
+  extension = { cppm = 'cpp', ixx = 'cpp', mpp = 'cpp', ccm = 'cpp', cxxm = 'cpp', ['c++m'] = 'cpp', mcpp = 'cpp' },
 })
 
 M.filetypes = { 'c', 'cpp' }

@@ -70,5 +70,6 @@
   "semanticToken.module.description": "C++ 模块或模块分区名",
   "semanticTokenModifier.partition.description": "模块分区名，而非整个模块",
   "color.mcppls.statusReadyForeground.description": "模块语义就绪时状态栏文字的颜色。背景色更好，但 VS Code 只接受它自己的错误与警告背景。",
-  "color.mcppls.statusPreparingForeground.description": "模块准备期间脉冲点亮半周期上的状态栏文字颜色。解析为默认前景色即可关闭脉冲而不出问题。"
+  "color.mcppls.statusPreparingForeground.description": "模块准备期间脉冲点亮半周期上的状态栏文字颜色。解析为默认前景色即可关闭脉冲而不出问题。",
+  "config.mcppls.format.fallbackStyle.description": "没有项目 .clang-format 时的格式样式。auto 在内置引擎支持时为 mcpp 项目使用固定 mcpp 样式。显式样式覆盖 auto，项目 .clang-format 始终优先。"
 }

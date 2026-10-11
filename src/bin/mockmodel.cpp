@@ -14,7 +14,8 @@
 //   mcppls-mock-model --self-check <path>   # exercises the script parser directly; see tests/test_model.cpp
 //
 // Script fields, all optional: "model" (the id `initialize` advertises and `complete` echoes back,
-// default "mock-model"), "delayMs" (added before every answer), "delayFirstMs" (added on top of
+// default "mock-model"), "initializeDelayMs" (before the initialize answer), "delayMs" (before
+// every complete answer), "delayFirstMs" (added on top of
 // delayMs, but only for the first `complete` this process receives, so a test can make one of two
 // concurrent calls answer after the other without slowing every call down), "exitBeforeResponse"
 // (the process exits, unanswered, once that call's delay has passed without being cancelled), "error"
@@ -33,6 +34,7 @@ namespace {
 struct Script {
     std::string model { "mock-model" };
     int delayMs { 0 };
+    int initializeDelayMs { 0 };
     int delayFirstMs { 0 };
     bool exitBeforeResponse { false };
     std::optional<Json> error;
@@ -52,6 +54,7 @@ Script load_script(const std::string& path) {
     if (document.is_discarded() || !document.is_object()) return script;
     script.model = document.value("model", script.model);
     script.delayMs = document.value("delayMs", script.delayMs);
+    script.initializeDelayMs = document.value("initializeDelayMs", script.initializeDelayMs);
     script.delayFirstMs = document.value("delayFirstMs", script.delayFirstMs);
     script.exitBeforeResponse = document.value("exitBeforeResponse", script.exitBeforeResponse);
     if (const auto found = document.find("error"); found != document.end() && found->is_object()) script.error = *found;
@@ -184,6 +187,8 @@ int main(int argc, char* argv[]) {
 
         if (method == "initialize") {
             trace(Json { { "method", "initialize" } });
+            if (script.initializeDelayMs > 0)
+                std::this_thread::sleep_for(std::chrono::milliseconds { script.initializeDelayMs });
             write_line(Json { { "id", id }, { "result", initialize_result(script) } });
         } else if (method == "shutdown") {
             write_line(Json { { "id", id }, { "result", nullptr } });

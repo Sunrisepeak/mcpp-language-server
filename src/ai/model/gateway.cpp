@@ -105,14 +105,15 @@ base::Result<void> GatewayClient::start() {
         state_->forget(id);
         return std::unexpected { sent.error() };
     }
-    auto response = channel->pop_until(std::chrono::steady_clock::now() + state_->options.requestTimeout);
+    auto response = channel->pop_until(std::chrono::steady_clock::now()
+                                      + state_->options.initializeTimeout.value_or(state_->options.requestTimeout));
     state_->forget(id);
     if (!response) {
         const bool exited { state_->closed.load() };
         base::log::warning("mcppls-model: {}", exited ? "the child exited before answering initialize" : "initialize timed out");
         return base::fail(exited ? "model-gateway-exited" : "model-gateway-timeout",
                           exited ? "the model gateway process exited before answering initialize"
-                                 : "the model gateway did not answer initialize within the request timeout");
+                                 : "the model gateway did not answer initialize within the initialization timeout");
     }
     if (const auto error = response->find("error"); error != response->end()) {
         return base::fail("model-gateway-error", error->value("message", std::string { "initialize failed" }));

@@ -76,6 +76,18 @@ check("S2 example envelope of a read-only command declares read-project only", e
 for name in ["s4-kit-linux-x64.json", "s4-kit-win32-x64.json", "s4-kit-darwin-arm64.json"]:
     validate(f"S4 example validates: {name}", s4, load(ex / name))
 
+identity_schema = schemas["s4-engine-identity.schema.json"]
+engine_identity = load(ex / "s4-engine-identity-linux-x64.json")
+validate("S4 engine identity example validates", identity_schema, engine_identity)
+for field in identity_schema.schema["required"]:
+    missing = dict(engine_identity)
+    del missing[field]
+    validate(f"S4 engine identity rejects missing {field}", identity_schema, missing, False)
+for field in ("llvm-commit", "fork-commit", "patch-series-sha256", "sha256"):
+    malformed = dict(engine_identity)
+    malformed[field] = "<unresolved>"
+    validate(f"S4 engine identity rejects placeholder {field}", identity_schema, malformed, False)
+
 # 3. semantic checks the schema cannot express (S1 sections 7, 8.2, 10; S4 rule 4)
 IMPORTABLE = {"module-interface", "module-partition-interface", "module-partition-implementation"}
 def s1_semantics(name, doc):
@@ -286,19 +298,32 @@ for md in sorted(root.glob("*.md")):
 
 # 7. the simulated producer data of conformance fixtures (mcpp-community/mcpp#636) is S1, in the shape mcpp
 #    decided: level 2 (level 3 is the S1 library's), one set per package plus <package>:test and mcpp:std, and
-#    every set seeing every other, since the build resolves imports over one flat module graph
+#    every set seeing every other, since the build resolves imports over one flat module graph. From mcpp
+#    2026.10.11.1 (mcpp-community/mcpp#797) the programs the build compiles and runs itself form a second graph, in
+#    sets of the `build-program` configuration: <package>:build, <package>:host, mcpp:core and mcpp:std:host. Each
+#    configuration is one flat graph, and no set sees a set of the other.
 def mcpp_contract(name, doc):
     sets = doc["sets"]
     names = [s["name"] for s in sets]
+    programs = {s["name"] for s in sets if s["ide"].get("configuration") == "build-program"}
     check(f"mcpp {name}: level 2, structured options left to the S1 library",
           all("options" not in s["ide"] and all("options" not in tu["ide"] for tu in s["translation-units"]) for s in sets))
     check(f"mcpp {name}: sets are packages, <package>:test and mcpp:std",
-          all(re.fullmatch(r"[^:]+(:test)?|mcpp:std", n) for n in names))
-    check(f"mcpp {name}: every set sees every other set",
-          all(sorted(s["visible-sets"]) == sorted(n for n in names if n != s["name"]) for s in sets))
+          all(re.fullmatch(r"[^:]+(:test)?|mcpp:std", n) for n in names if n not in programs))
+    check(f"mcpp {name}: the build programs' sets are <package>:build, <package>:host, mcpp:core and mcpp:std:host",
+          all(re.fullmatch(r"[^:]+:(build|host)|mcpp:core|mcpp:std:host", n) for n in programs))
+    check(f"mcpp {name}: every set sees every other set of its configuration, and no set of the other",
+          all(sorted(s["visible-sets"]) == sorted(n for n in names if n != s["name"] and (n in programs) == (s["name"] in programs))
+              for s in sets))
     std_sets = {s["name"] for s in sets for tu in s["translation-units"] if {"std", "std.compat"} & set(tu.get("provides", {}))}
-    check(f"mcpp {name}: the standard library modules are units of mcpp:std", std_sets == {"mcpp:std"})
+    check(f"mcpp {name}: the standard library modules are units of mcpp:std, and of mcpp:std:host for build programs",
+          std_sets == {"mcpp:std"} | ({"mcpp:std:host"} if programs else set()))
     check(f"mcpp {name}: <package>:test sets hold tests", all(s["ide"].get("kind") == "test" for s in sets if s["name"].endswith(":test")))
+    check(f"mcpp {name}: <package>:build sets are executables, the build programs",
+          all(s["ide"].get("kind") == "executable" for s in sets if s["name"].endswith(":build")))
+    core = [s for s in sets if s["name"] == "mcpp:core"]
+    check(f"mcpp {name}: mcpp:core provides the engine interface, mcpp and mcpp.core",
+          all({"mcpp", "mcpp.core"} <= {m for tu in s["translation-units"] for m in tu.get("provides", {})} for s in core))
 
 for mock in sorted((repository / "conformance" / "fixtures").glob("*/mcpp-mock.json")):
     data = load(mock)

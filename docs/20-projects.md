@@ -56,6 +56,19 @@ A few things are worth knowing:
   `target/` when a build has written them, and otherwise says which are missing, with **Build in
   Terminal**; once a build writes them, the files that include them get their semantics without a
   restart.
+- **`build.mcpp` and the libraries it imports.** From mcpp 2026.10.11.1 the build database also
+  describes the build programs: `build.mcpp`, the libraries of `[build-dependencies]` and mcpp's
+  engine interface (`import mcpp;`), in sets of their own configuration (`<package>:build`,
+  `<package>:host`, `mcpp:core`). `build.mcpp` is read as C++ with the arguments mcpp compiles it
+  with, so navigation, hover, completion and diagnostics reach its libraries and the engine
+  interface. A package in both `[dependencies]` and `[build-dependencies]` is read as the targets
+  build it; the context `<package>:build` (**mcppls: Select Context**) reads the build programs as
+  mcpp compiles them, and is where they are read when they use a toolchain of their own, as in a
+  cross build. An import across the two — a target importing `mcpp` or a library of
+  `[build-dependencies]`, `build.mcpp` importing a module of the targets — is an error, as it is for
+  mcpp. The engine interface under `<MCPP_HOME>/engine/<version>/modules` belongs to mcpp and is
+  read-only: no formatting, code action or rename edits it, and VS Code opens it read-only. With an
+  older mcpp, `build.mcpp` is not read, and a note in the file names the mcpp that describes it.
 - **An older mcpp** without `emit build-database` is not the end of it: if a newer mcpp is installed
   elsewhere on the machine (the xlings package store, mcpp's own registry store), mcppls asks *that*
   one instead, read-only and offline the same way, only to describe the project — the project still

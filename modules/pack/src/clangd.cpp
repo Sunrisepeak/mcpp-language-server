@@ -25,29 +25,45 @@ namespace {
 // trim_clangd.py's own `extract()` found them: from the raw archive listing, before anything is
 // written, so the selection passed to mcppls.pack.archive::extract already knows the paths
 // (relative to that top-level directory) it needs to keep.
+//
+// A maintained engine part (mcppls-clangd's release: `<top>/clangd/` with engine.json) is the
+// finished engine -- built, stripped and signed where it was qualified, its bytes named by
+// engine.json. It is taken as it is: one changed byte breaks the identity the payload verifies.
 struct Shape {
     std::string major;
+    bool enginePart { false };
 };
+
+// `./top/file` and `top/file` are the same member (mcppls.pack.archive reads them the same way).
+std::string_view member_path(std::string_view path) {
+    while (path.starts_with("./")) path.remove_prefix(2);
+    return path;
+}
 
 base::Result<Shape> shape_of(std::string_view archivePath, const std::vector<archive::Entry>& entries) {
     std::set<std::string> roots;
     for (const auto& item : entries) {
-        if (const auto slash = item.path.find('/'); slash != std::string::npos) roots.insert(item.path.substr(0, slash));
+        const std::string_view path { member_path(item.path) };
+        if (const auto slash = path.find('/'); slash != std::string_view::npos) roots.insert(std::string { path.substr(0, slash) });
     }
     if (roots.size() != 1) {
         std::vector<std::string> found { roots.begin(), roots.end() };
         return base::fail("clangd-shape", std::format("expected one top-level directory in {}, found {}",
                                                        archivePath, found.empty() ? "none" : base::join(found, ", ")));
     }
-    const std::string root { *roots.begin() + "/" };
+    const bool enginePart { std::ranges::any_of(entries, [&](const archive::Entry& item) {
+        return member_path(item.path) == *roots.begin() + "/clangd/engine.json";
+    }) };
+    const std::string root { *roots.begin() + (enginePart ? "/clangd/" : "/") };
     const std::string prefix { root + "lib/clang/" };
 
     std::set<std::string> majors;
     for (const auto& item : entries) {
-        if (!item.path.starts_with(prefix)) continue;
+        const std::string_view path { member_path(item.path) };
+        if (!path.starts_with(prefix)) continue;
         // trim_clangd.py: `name.count("/") >= 4`, on the full (unstripped) archive path.
-        if (static_cast<std::size_t>(std::ranges::count(item.path, '/')) < 4) continue;
-        const std::string_view relative { std::string_view { item.path }.substr(root.size()) };   // "lib/clang/<major>/..."
+        if (static_cast<std::size_t>(std::ranges::count(path.substr(root.size()), '/')) < 3) continue;
+        const std::string_view relative { path.substr(root.size()) };   // "lib/clang/<major>/..."
         const auto afterLib = relative.find('/');
         const auto afterClang = relative.find('/', afterLib + 1);
         const auto afterMajor = relative.find('/', afterClang + 1);
@@ -58,7 +74,7 @@ base::Result<Shape> shape_of(std::string_view archivePath, const std::vector<arc
         return base::fail("clangd-shape", std::format("expected one lib/clang/<major> in {}, found {}",
                                                        archivePath, found.empty() ? "none" : base::join(found, ", ")));
     }
-    return Shape { *majors.begin() };
+    return Shape { *majors.begin(), enginePart };
 }
 
 // A tool run to completion; the tail of standard error on a non-zero exit, so a strip or codesign
@@ -151,6 +167,50 @@ base::Result<void> license_from_lock(const lock::Lock& lockData, const std::stri
     return {};
 }
 
+// The first line of `clangd --version`, when this host runs the binary (trim_clangd.py's
+// `host_runs_it`: PLATFORM already folds in family and architecture).
+base::Result<std::optional<std::string>> version_line(const std::string& binary, std::string_view platformName) {
+    if (platformName != mcppls::os::PLATFORM) return std::optional<std::string> {};
+    auto out = run_tool(binary, { "--version" });
+    if (!out) return std::unexpected { out.error() };
+    const auto lines = base::split_lines(*out);
+    return lines.empty() ? std::optional<std::string> {} : std::optional<std::string> { std::string { lines.front() } };
+}
+
+// Everything under the part's clangd/ -- the binary, builtin headers, LICENSE.TXT, NOTICE.txt,
+// runtime licenses and engine.json -- unchanged: no strip, no thinning, no re-signing.
+base::Result<Result> take_engine_part(const std::string& archivePath, const Options& options, const targets::Target& target,
+                                      const Shape& shape) {
+    const std::string scratch { options.outDirectory + ".part" };
+    if (fs::exists(scratch)) fs::remove_all(scratch);
+    auto written = archive::extract(archivePath, scratch, [](std::string_view relative) { return relative.starts_with("clangd/"); });
+    if (!written) return std::unexpected { written.error() };
+    std::error_code moved;
+    std::filesystem::rename(base::join_path(scratch, "clangd"), options.outDirectory, moved);
+    fs::remove_all(scratch);
+    if (moved) return base::fail("clangd-part", std::format("cannot place the engine part of {}: {}", archivePath, moved.message()));
+    const std::string binary { base::join_path(options.outDirectory, std::format("bin/clangd{}", targets::executable_suffix(target))) };
+    for (const std::string& required : { binary, base::join_path(options.outDirectory, "LICENSE.TXT"), base::join_path(options.outDirectory, "engine.json") }) {
+        if (!fs::is_regular_file(required)) return base::fail("clangd-missing-binary", std::format("{} has no {}", archivePath, required));
+    }
+    if (target.os != targets::Os::win32) {
+        const std::vector<std::string> executables { binary };
+        if (auto marked = fs::make_executable(executables); !marked) return std::unexpected { marked.error() };
+    }
+    auto versionLine = version_line(binary, options.platform);
+    if (!versionLine) return std::unexpected { versionLine.error() };
+    return Result {
+        .directory = fs::canonical_path(options.outDirectory),
+        .binary = binary,
+        .clangMajor = shape.major,
+        .filesKept = written->size(),
+        .totalBytes = dir_size(options.outDirectory),
+        .stripped = false,
+        .versionLine = *versionLine,
+        .enginePart = true,
+    };
+}
+
 } // namespace
 
 base::Result<Result> trim(const Options& options, const lock::Lock& lockData) {
@@ -180,6 +240,7 @@ base::Result<Result> trim(const Options& options, const lock::Lock& lockData) {
     const std::string includePrefix { std::format("lib/clang/{}/include/", shape->major) };
 
     if (fs::exists(options.outDirectory)) fs::remove_all(options.outDirectory);
+    if (shape->enginePart) return take_engine_part(archivePath, options, *target, *shape);
     auto written = archive::extract(archivePath, options.outDirectory, [&](std::string_view relative) {
         return relative == binWanted || relative == "LICENSE.TXT" || relative.starts_with(includePrefix);
     });
@@ -211,15 +272,8 @@ base::Result<Result> trim(const Options& options, const lock::Lock& lockData) {
         }
     }
 
-    // trim_clangd.py's `host_runs_it`: this host's PLATFORM already folds in family and
-    // architecture, so a match here is exactly "this binary can run on this machine".
-    std::optional<std::string> versionLine;
-    if (options.platform == mcppls::os::PLATFORM) {
-        auto out = run_tool(binary, { "--version" });
-        if (!out) return std::unexpected { out.error() };
-        const auto lines = base::split_lines(*out);
-        if (!lines.empty()) versionLine = std::string { lines.front() };
-    }
+    auto versionLine = version_line(binary, options.platform);
+    if (!versionLine) return std::unexpected { versionLine.error() };
 
     return Result {
         .directory = fs::canonical_path(options.outDirectory),
@@ -228,7 +282,7 @@ base::Result<Result> trim(const Options& options, const lock::Lock& lockData) {
         .filesKept = written->size(),
         .totalBytes = dir_size(options.outDirectory),
         .stripped = stripped,
-        .versionLine = versionLine,
+        .versionLine = *versionLine,
     };
 }
 

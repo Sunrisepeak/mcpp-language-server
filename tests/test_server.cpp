@@ -1,5 +1,6 @@
 // Document store, module index and routing, without processes.
 import std;
+import mcppls.os;
 import nlohmann.json;
 import mcppls.testing;
 import mcppls.base.error;
@@ -353,6 +354,71 @@ int main() {
         expect(index.diagnostics("/p/src/greet/noiface.cpp")[0]["code"] == "unresolved-module");
     };
 
+    // mcpp-community/mcpp#797: the targets and the build programs are two configurations that never see each other. A
+    // package in both [dependencies] and [build-dependencies] is compiled in both; mcpp's engine interface only for build
+    // programs.
+    "an import across configurations is diagnosed, and import completion stays within one"_test = [] {
+        using mcppls::index::BUILD_PROGRAMS;
+        using mcppls::index::TARGETS;
+        using mcppls::index::ModuleIndex;
+        ModuleIndex index;
+        index.update("/p/build.mcpp", "import mcpp;\nimport gen;\nimport both;\nint main() {}\n");
+        index.update("/p/src/main.cpp", "import both;\nimport app.greet;\nint main() {}\n");
+        index.update("/p/src/greet.cppm", "export module app.greet;\n");
+        index.update("/p/deps/both/both.cppm", "export module both;\n");
+        index.update("/p/deps/gen/gen.cppm", "export module gen;\n");
+        index.update("/home/.mcpp/engine/1/modules/mcpp.cppm", "export module mcpp;\nexport import mcpp.core;\n");
+        index.update("/home/.mcpp/engine/1/modules/mcpp_core.cppm", "export module mcpp.core;\n");
+        const auto key = [](std::string_view path) { return mcppls::base::path_key(path); };
+        index.set_configurations({ { key("/p/build.mcpp"), BUILD_PROGRAMS }, { key("/p/src/main.cpp"), TARGETS }, { key("/p/src/greet.cppm"), TARGETS },
+                                   { key("/p/deps/both/both.cppm"), TARGETS | BUILD_PROGRAMS }, { key("/p/deps/gen/gen.cppm"), BUILD_PROGRAMS },
+                                   { key("/home/.mcpp/engine/1/modules/mcpp.cppm"), BUILD_PROGRAMS },
+                                   { key("/home/.mcpp/engine/1/modules/mcpp_core.cppm"), BUILD_PROGRAMS } },
+                                 { key("/home/.mcpp/engine/1/modules/mcpp.cppm"), key("/home/.mcpp/engine/1/modules/mcpp_core.cppm") });
+        expect(index.diagnostics("/p/build.mcpp").empty()) << index.diagnostics("/p/build.mcpp").dump();
+        expect(index.diagnostics("/p/src/main.cpp").empty()) << index.diagnostics("/p/src/main.cpp").dump();
+
+        index.update("/p/src/main.cpp", "import mcpp;\nimport gen;\nint main() {}\n");
+        const Json target = index.diagnostics("/p/src/main.cpp");
+        expect(fatal(target.size() == 2u)) << target.dump();
+        expect(target[0]["code"] == "build-program-module" && target[0]["range"]["start"]["line"] == 0) << target.dump();
+        expect(target[0]["message"].get<std::string>().find("engine interface") != std::string::npos) << target.dump();
+        expect(target[1]["code"] == "build-program-module" && target[1]["message"].get<std::string>().find("[build-dependencies]") != std::string::npos)
+            << target.dump();
+        index.update("/p/build.mcpp", "import app.greet;\nint main() {}\n");
+        const Json program = index.diagnostics("/p/build.mcpp");
+        expect(program.size() == 1u && program[0]["code"] == "target-module") << program.dump();
+
+        // A file no set describes is not judged; one that both configurations compile sees both.
+        index.update("/p/src/scratch.cpp", "import mcpp;\n");
+        expect(index.diagnostics("/p/src/scratch.cpp").empty());
+        index.update("/p/deps/both/both.cppm", "export module both;\nimport gen;\nimport app.greet;\n");
+        expect(index.diagnostics("/p/deps/both/both.cppm").empty());
+
+        const auto labels = [&](std::string_view path) {
+            std::set<std::string> found;
+            for (const auto& item : index.completion(path, "import ", Position { 0, 7 })["items"]) found.insert(item["label"].get<std::string>());
+            return found;
+        };
+        expect(labels("/p/build.mcpp") == std::set<std::string> { "both", "gen", "mcpp", "mcpp.core" }) << std::format("{}", labels("/p/build.mcpp"));
+        expect(labels("/p/src/main.cpp") == std::set<std::string> { "app.greet", "both" }) << std::format("{}", labels("/p/src/main.cpp"));
+        expect(labels("/p/src/scratch.cpp").size() == 5u);
+
+        // Two versions of one package: each configuration navigates to its own.
+        index.update("/p/deps/both2/both.cppm", "export module both;\n");
+        auto split = std::map<std::string, unsigned, std::less<>> { { key("/p/build.mcpp"), BUILD_PROGRAMS }, { key("/p/src/main.cpp"), TARGETS },
+                                                                    { key("/p/deps/both/both.cppm"), TARGETS },
+                                                                    { key("/p/deps/both2/both.cppm"), BUILD_PROGRAMS } };
+        index.set_configurations(std::move(split), {});
+        index.update("/p/build.mcpp", "import both;\n");
+        index.update("/p/src/main.cpp", "import both;\n");
+        const Json fromProgram = index.definition("/p/build.mcpp", Position { 0, 8 });
+        const Json fromTarget = index.definition("/p/src/main.cpp", Position { 0, 8 });
+        expect(fromProgram.size() == 1u && fromProgram[0]["uri"] == mcppls::base::path_to_uri("/p/deps/both2/both.cppm")) << fromProgram.dump();
+        expect(fromTarget.size() == 1u && fromTarget[0]["uri"] == mcppls::base::path_to_uri("/p/deps/both/both.cppm")) << fromTarget.dump();
+        expect(index.diagnostics("/p/build.mcpp").empty() && index.diagnostics("/p/src/main.cpp").empty());
+    };
+
     "graph and module info"_test = [] {
         const auto index = fixture_index();
         const Json graph = index.graph();
@@ -483,6 +549,41 @@ int main() {
         expect(fatal(other.has_value()));
         expect(other->module == "std" && other->failedSource.empty());
         expect(!cld::parse_module_failure("I[04:34:47.305] Built module std to /cache/std.pcm").has_value());
+
+        // mcppls-clangd reports per importing file and names the unit that failed, not the module.
+        const auto worker = cld::parse_module_failure(
+            "E[21:47:59.570] Failed to build module prerequisites for /p/src/plain-importer.cpp; due to module worker failed: "
+            "/p/src/broken/e.cppm:3:26: error: use of undeclared identifier 'undeclared_name'");
+        expect(fatal(worker.has_value()));
+        expect(worker->module.empty()) << worker->module;
+        expect(worker->importer == "/p/src/plain-importer.cpp") << worker->importer;
+        expect(worker->failedSource == "/p/src/broken/e.cppm") << worker->failedSource;
+        expect(cld::failure_kind(*worker) == cld::FailureKind::compile) << worker->reason;
+        const auto windows = cld::parse_module_failure(
+            R"(E[03:15:19.435] Failed to build module prerequisites for C:\p\main.cpp; due to module worker failed: C:\p\a b\e.cppm:12:3: fatal error: 'x.h' file not found)");
+        expect(fatal(windows.has_value()));
+        expect(windows->failedSource == R"(C:\p\a b\e.cppm)") << windows->failedSource;
+        const auto inProcess = cld::parse_module_failure(
+            "E[03:15:19.435] Failed to build module prerequisites for /p/main.cpp; due to Failed to compile /p/e.cppm. Use '--log=verbose' to view detailed failure reasons.");
+        expect(fatal(inProcess.has_value()));
+        expect(inProcess->failedSource == "/p/e.cppm" && inProcess->reason == "Failed to compile /p/e.cppm") << inProcess->reason;
+        const auto missing = cld::parse_module_failure(
+            "E[03:15:19.435] Failed to build module prerequisites for /p/main.cpp; due to Don't get the module unit for module fmt: no provider");
+        expect(fatal(missing.has_value()));
+        expect(missing->module == "fmt" && cld::failure_kind(*missing) == cld::FailureKind::unresolved) << missing->module;
+        const auto textual = cld::parse_module_failure(
+            "E[23:27:38.088] Keeping import of third-party module standin.b textual; no module unit for it in this project");
+        expect(fatal(textual.has_value()));
+        expect(textual->module == "standin.b") << textual->module;
+        expect(cld::failure_kind(*textual) == cld::FailureKind::unresolved) << textual->reason;
+    };
+
+    "an owned module payload names the unit it was built from first"_test = [] {
+        using namespace std::string_literals;
+        const std::string head { "CPCH\x01\x02 /usr/lib/clang/23/include\0\x05/src/core/xim/catalog.cppm\0\x03/usr/include/c++/v1/vector\0/src/core/xim/other.cppm"s };
+        expect(cld::pcm_original_source(head) == "/src/core/xim/catalog.cppm") << cld::pcm_original_source(head);
+        expect(cld::pcm_original_source("CPCH no paths at all").empty());
+        expect(cld::pcm_original_source("x/rel/not.cppm /abs/unit.ixx") == "/abs/unit.ixx") << "a relative path is not the unit";
     };
 
     // C-4 (plan 2026-09-30): clangd 23.1's module locks, and the line it logs while it waits for one.
@@ -781,6 +882,70 @@ int main() {
         config.extraArguments = { "-j=16" };
         const auto arguments = cld::clangd_arguments(config);
         expect(std::ranges::count_if(arguments, [](const std::string& argument) { return argument.starts_with("-j"); }) == 1) << "an explicit -j wins";
+    };
+
+    "format fallback requires declared capability and preserves explicit styles"_test = [] {
+        expect(cld::format_fallback_style("auto", true, true) == "mcpp");
+        expect(cld::format_fallback_style("auto", true, false).empty());
+        expect(cld::format_fallback_style("auto", false, true).empty());
+        expect(cld::format_fallback_style("Auto", true, true) == "mcpp");
+        expect(cld::format_fallback_style("mcpp", true, false) == "mcpp");
+        expect(cld::format_fallback_style("Mcpp", false, true).empty());
+        expect(cld::format_fallback_style("Google", true, true) == "Google");
+        cld::ProcessConfig config;
+        config.fallbackStyle = "mcpp";
+        auto arguments = cld::clangd_arguments(config);
+        expect(std::ranges::count(arguments, "--fallback-style=mcpp") == 1);
+        config.extraArguments = { "--fallback-style=Google" };
+        arguments = cld::clangd_arguments(config);
+        expect(std::ranges::find(arguments, "--fallback-style=mcpp") == arguments.end());
+        expect(std::ranges::count(arguments, "--fallback-style=Google") == 1);
+    };
+
+    "under PRoot the maintained engine compiles modules in process unless the user chooses"_test = [] {
+        cld::ProcessConfig config;
+        const std::string inProcess { "--modules-builder-worker-policy=in-process" };
+        expect(std::ranges::count(cld::clangd_arguments(config), inProcess) == 0);
+        config.inProcessModuleBuilds = true;
+        const auto proot = cld::clangd_arguments(config);
+        expect(std::ranges::count(proot, inProcess) == 1);
+        expect(std::ranges::count(proot, std::string { "--modules-builder-owned-cache-payload-mib=0" }) == 1) << "the owned cache's bounds need a worker";
+        config.extraArguments = { "--modules-builder-worker-policy=required" };
+        const auto chosen = cld::clangd_arguments(config);
+        expect(std::ranges::count(chosen, inProcess) == 0 && chosen.back() == "--modules-builder-worker-policy=required");
+    };
+
+    "the maintained engine's owned module cache is bounded by the workspace's cache budget"_test = [] {
+        cld::ProcessConfig config;
+        const auto flag = [](const std::vector<std::string>& arguments) {
+            return std::ranges::count_if(arguments, [](const std::string& argument) { return argument.starts_with("--modules-builder-owned-cache-payload-mib"); });
+        };
+        expect(flag(cld::clangd_arguments(config)) == 0) << "unset: the engine's own bound, and nothing for an engine without the option";
+        config.ownedCachePayloadMiB = 3072;
+        expect(std::ranges::count(cld::clangd_arguments(config), std::string { "--modules-builder-owned-cache-payload-mib=3072" }) == 1);
+        config.extraArguments = { "--modules-builder-owned-cache-payload-mib=512" };
+        const auto chosen = cld::clangd_arguments(config);
+        expect(flag(chosen) == 1 && chosen.back() == "--modules-builder-owned-cache-payload-mib=512") << "the user's own wins";
+        config.extraArguments.clear();
+        config.inProcessModuleBuilds = true;
+        expect(std::ranges::count(cld::clangd_arguments(config), std::string { "--modules-builder-owned-cache-payload-mib=0" }) == 1)
+            << "in process, the bounds are off";
+    };
+
+    "on macOS background indexing yields to cold module work unless the user chooses its priority"_test = [] {
+        cld::ProcessConfig config;
+        const std::string defaultPriority { "--background-index-priority=background" };
+        const bool macos { mcppls::os::FAMILY == mcppls::os::Family::macos };
+        expect(std::ranges::count(cld::clangd_arguments(config), defaultPriority) == (macos ? 1 : 0));
+        for (const auto& choice : std::vector<std::vector<std::string>> {
+                 { "--background-index-priority=normal" }, { "-background-index-priority=low" },
+                 { "--background-index-priority", "low" }, { "-background-index-priority", "normal" } }) {
+            config.extraArguments = choice;
+            const auto arguments = cld::clangd_arguments(config);
+            expect(std::ranges::find(arguments, defaultPriority) == arguments.end());
+            expect(std::ranges::equal(arguments | std::views::drop(arguments.size() - choice.size()), choice));
+            expect(std::ranges::find(arguments, "--background-index") != arguments.end());
+        }
     };
 
     "clangd runs at info, not error, so an incident says what it was doing (fix plan F17.1)"_test = [] {
@@ -1164,8 +1329,9 @@ int main() {
         options.executable = executable;
         options.version = "23.1.0";
         options.processFactory = [shared] { return std::make_unique<BuildingProcess>(shared); };
-        options.implementationIdle = std::chrono::milliseconds { 300 };
-        options.implementationQuiet = std::chrono::milliseconds { 200 };
+        // Wide enough that a loaded runner's pause between two steps is not taken for the person stopping.
+        options.implementationIdle = std::chrono::milliseconds { 1500 };
+        options.implementationQuiet = std::chrono::milliseconds { 1000 };
         RecordingHost host { root };
         auto engine = cld::make_engine(std::move(options));
         engine->start(host);
@@ -1192,7 +1358,7 @@ int main() {
         auto was_opened = [&](const std::string& path) { return std::ranges::find(opened, path) != opened.end(); };
         expect(!was_opened(math) && !was_opened(greet)) << "R-5: not while the person is at work (a file was just opened)";
         expect(engine->next_deadline().has_value()) << "the engine wakes itself once they pause";
-        std::this_thread::sleep_for(std::chrono::milliseconds { 250 });
+        std::this_thread::sleep_for(std::chrono::milliseconds { 1100 });
         engine->handle_timers();
         for (int turn { 0 }; turn < 4; ++turn) host.pump(*engine);
         opened = BuildingProcess::files(*shared, "textDocument/didOpen");
@@ -1221,14 +1387,14 @@ int main() {
         host.pump(*engine);
         opened = BuildingProcess::files(*shared, "textDocument/didOpen");
         expect(static_cast<std::size_t>(std::ranges::count(opened, math)) == before + 1) << "not while they type";
-        std::this_thread::sleep_for(std::chrono::milliseconds { 250 });
+        std::this_thread::sleep_for(std::chrono::milliseconds { 1100 });
         engine->handle_timers();
         host.pump(*engine);
         opened = BuildingProcess::files(*shared, "textDocument/didOpen");
         expect(static_cast<std::size_t>(std::ranges::count(opened, math)) == before + 2) << "built once they stopped";
 
         // Idle long enough: the rest of the implementation units.
-        std::this_thread::sleep_for(std::chrono::milliseconds { 400 });
+        std::this_thread::sleep_for(std::chrono::milliseconds { 1600 });
         engine->handle_timers();
         host.pump(*engine);
         host.pump(*engine);

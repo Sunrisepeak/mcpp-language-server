@@ -4,6 +4,7 @@ import nlohmann.json;
 import mcppls.testing;
 import mcppls.os;
 import mcppls.base.path;
+import mcppls.base.sha256;
 import mcppls.platform.dirs;
 import mcppls.platform.fs;
 import mcppls.engine.payload;
@@ -102,6 +103,15 @@ int main() {
         expect(matching.clangd == mcppls::base::join_path(payload, "clangd/bin/clangd") && matching.clangdVersion == "23.1.0") << matching.clangd;
         expect(matching.kit == mcppls::base::join_path(payload, "kit") && matching.kitNotice.empty()) << matching.kit;
 
+        // Retain the full maintained-engine identity while selecting its base kit.
+        Json forkManifest = manifest;
+        forkManifest["engines"]["clangd"]["version"] = "23.1.0-mcppls.1";
+        (void)fs::write_file(mcppls::base::join_path(payload, "payload.json"), forkManifest.dump());
+        const auto fork = eng::resolve_payload(eng::PayloadRequest { payload, "", "", "clangd" });
+        expect(fork.clangdVersion == "23.1.0-mcppls.1");
+        expect(fork.kit == mcppls::base::join_path(payload, "kit") && fork.kitNotice.empty());
+        (void)fs::write_file(mcppls::base::join_path(payload, "payload.json"), manifest.dump());
+
         // A kit built for another clangd is not used, and the status says why (S4-4-5).
         write_kit(mcppls::base::join_path(payload, "kit"), "22.1.8");
         const auto mismatched = eng::resolve_payload(eng::PayloadRequest { payload, "", "", "clangd" });
@@ -110,6 +120,40 @@ int main() {
         // Without a core engine any kit does, and an explicit --kit is taken as given.
         expect(eng::resolve_payload(eng::PayloadRequest { payload, "", "", "none" }).kit == mcppls::base::join_path(payload, "kit"));
         expect(eng::resolve_payload(eng::PayloadRequest { payload, "", mcppls::base::join_path(payload, "kit"), "clangd" }).kit == mcppls::base::join_path(payload, "kit"));
+        fs::remove_all(payload);
+    };
+
+    "identified payloads validate their engine while explicit external engines inherit no capabilities"_test = [] {
+        const std::string payload { scratch("payload-v4") };
+        const std::string relative { "clangd/bin/clangd" + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+        (void)fs::create_directories(mcppls::base::join_path(payload, "clangd/bin"));
+        (void)fs::write_file(mcppls::base::join_path(payload, relative), "fixture engine");
+        write_kit(mcppls::base::join_path(payload, "kit"), "23.1.0");
+        const std::string digest { mcppls::base::sha256_hex("fixture engine") };
+        Json identity { { "engine-version", "23.1.0-mcppls.1" }, { "llvm-base-version", "23.1.0" },
+                        { "llvm-commit", std::string(40, 'a') }, { "fork-commit", std::string(40, 'b') },
+                        { "patch-series-sha256", std::string(64, 'c') }, { "platform", mcppls::os::PLATFORM },
+                        { "sha256", digest }, { "features", Json::array({ "semantic-tokens-range" }) } };
+        Json manifest { { "payload-version", 4 }, { "platform", mcppls::os::PLATFORM },
+                        { "engines", Json { { "clangd", Json { { "version", "23.1.0-mcppls.1" }, { "path", relative }, { "identity", identity } } } } },
+                        { "files", Json { { relative, Json { { "size", 14 }, { "sha256", digest } } } } } };
+        const auto write = [&] { (void)fs::write_file(mcppls::base::join_path(payload, "payload.json"), manifest.dump()); };
+        write();
+        const auto matching = eng::resolve_payload(eng::PayloadRequest { payload, "", "", "clangd" });
+        expect(matching.engineIdentity.has_value() && matching.identityProblem.empty());
+        expect(matching.kit == mcppls::base::join_path(payload, "kit"));
+        expect(eng::verify_payload_integrity(matching, mcppls::base::join_path(payload, "integrity-cache.json")).empty());
+        manifest["engines"]["clangd"]["identity"]["sha256"] = std::string(64, 'e');
+        write();
+        const auto forged = eng::resolve_payload(eng::PayloadRequest { payload, "", "", "clangd" });
+        expect(!forged.identityProblem.empty());
+        expect(!eng::verify_payload_integrity(forged, "").empty());
+        manifest["engines"]["clangd"].erase("identity");
+        write();
+        const auto missing = eng::resolve_payload(eng::PayloadRequest { payload, "", "", "clangd" });
+        expect(!missing.identityProblem.empty());
+        const auto external = eng::resolve_payload(eng::PayloadRequest { payload, mcppls::base::join_path(payload, "external-missing"), "", "clangd" });
+        expect(!external.engineIdentity && external.identityProblem.empty());
         fs::remove_all(payload);
     };
 

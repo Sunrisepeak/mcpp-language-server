@@ -1,0 +1,19 @@
+[package]
+name        = "app"
+version     = "0.1.0"
+description = "Conformance fixture: a build program with libraries of its own (mcpp-community/mcpp#797)"
+license     = "Apache-2.0"
+
+[toolchain]
+default = "llvm@22.1.8"
+
+[dependencies]
+both = { path = "deps/both" }
+
+[build-dependencies]
+gen  = { path = "deps/gen" }
+both = { path = "deps/both" }
+
+[targets.app]
+kind = "bin"
+main = "src/main.cpp"

@@ -1,0 +1,14 @@
+{
+  "engine-version": "23.1.0-mcppls.0",
+  "llvm-base-version": "23.1.0",
+  "llvm-commit": "ea7d852a70e8bdfaf601d6626a760f9771b2c4b4",
+  "fork-commit": "1ed55508fda9f4bc57c87b90143eb4e7e528383e",
+  "patch-series-sha256": "56b06d833d8d3ebd29da93601e87d973e9010653fb553b52dc05b77aea465f92",
+  "platform": "linux-x64",
+  "sha256": "0fafb3ee1e11f1c6303eb5b1874d04c40f837d8a5b302b0613d929e5d68c79ea",
+  "features": [
+    "semantic-tokens-range"
+  ],
+  "build-binary-sha256": "e542a4b871a5c7be8c62aede5e55d4cfeaf459c9618488f69aa28d633da4d1f7",
+  "cmake-cache-sha256": "a4363c5921cb6f6e27f951e42b17b397bda76beef25e384d951dd644cb07d124"
+}

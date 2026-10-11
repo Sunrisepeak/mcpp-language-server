@@ -90,6 +90,17 @@ suite('C++ modules through mcppls', function () {
         assert.strictEqual(document.languageId, 'cpp');
     });
 
+    // mcpp-community/mcpp#797: mcpp's build program is C++, and the engine interface it imports, which mcpp writes for each
+    // of its versions, is opened read-only. The fixture has no build.mcpp; what the extension contributes is checked, and
+    // that VS Code takes the read-only default from it.
+    test('build.mcpp is C++, and mcpp\'s engine interface opens read-only', async () => {
+        const extension = vscode.extensions.getExtension(EXTENSION_ID)!;
+        const languages: { id: string; extensions?: string[] }[] = extension.packageJSON.contributes.languages;
+        assert.ok(languages.some((language) => language.id === 'cpp' && (language.extensions ?? []).includes('.mcpp')));
+        const readOnly = vscode.workspace.getConfiguration('files').get<Record<string, boolean>>('readonlyInclude') ?? {};
+        assert.strictEqual(readOnly['**/.mcpp/engine/*/modules/**'], true, JSON.stringify(readOnly));
+    });
+
     test('definition of hello::greet lands in greet.cppm', async () => {
         const uris = await eventually('definition of hello::greet',
             () => vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>(
@@ -140,6 +151,51 @@ suite('C++ modules through mcppls', function () {
             revert.delete(mainUri, new vscode.Range(new vscode.Position(5, 0), new vscode.Position(6, 0)));
             await vscode.workspace.applyEdit(revert);
             await document.save();
+        }
+    });
+
+    test('saving a new module export makes it available in importer completion (C7)', async () => {
+        const folder = vscode.workspace.workspaceFolders![0];
+        const moduleUri = vscode.Uri.joinPath(folder.uri, 'src', 'greet', 'greet.cppm');
+        const moduleDocument = await vscode.workspace.openTextDocument(moduleUri);
+        const mainDocument = await vscode.workspace.openTextDocument(mainUri);
+        const moduleOriginal = moduleDocument.getText();
+        const mainOriginal = mainDocument.getText();
+        const marker = 'export namespace hello {';
+        assert.ok(moduleOriginal.includes(marker));
+        assert.ok(!moduleOriginal.includes('greet2'));
+        const hasNewExport = (list: vscode.CompletionList | undefined): boolean =>
+            (list?.items ?? []).some((item) => {
+                const name = (typeof item.label === 'string' ? item.label : item.label.label).trim();
+                return item.kind === vscode.CompletionItemKind.Function
+                    && (name === 'greet2' || name.startsWith('greet2('));
+            });
+
+        const replace = async (document: vscode.TextDocument, text: string): Promise<void> => {
+            const edit = new vscode.WorkspaceEdit();
+            edit.replace(document.uri,
+                new vscode.Range(new vscode.Position(0, 0), document.positionAt(document.getText().length)), text);
+            assert.ok(await vscode.workspace.applyEdit(edit));
+            assert.ok(await document.save());
+        };
+
+        try {
+            await replace(moduleDocument,
+                moduleOriginal.replace(marker, `${marker}\n  int greet2() { return 2; }`));
+            const edit = new vscode.WorkspaceEdit();
+            edit.insert(mainUri, new vscode.Position(5, 0), '    hello::\n');
+            assert.ok(await vscode.workspace.applyEdit(edit));
+            const list = await eventually('completion of the saved new module export',
+                () => vscode.commands.executeCommand<vscode.CompletionList>(
+                    'vscode.executeCompletionItemProvider', mainUri, new vscode.Position(5, 11)),
+                hasNewExport);
+            assert.ok(hasNewExport(list));
+        } finally {
+            try {
+                await replace(mainDocument, mainOriginal);
+            } finally {
+                await replace(moduleDocument, moduleOriginal);
+            }
         }
     });
 

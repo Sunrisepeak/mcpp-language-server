@@ -4,6 +4,7 @@
 export module mcppls.base;
 
 export import mcppls.base.error;
+export import mcppls.base.engineidentity;
 export import mcppls.base.glob;
 export import mcppls.base.log;
 export import mcppls.base.path;

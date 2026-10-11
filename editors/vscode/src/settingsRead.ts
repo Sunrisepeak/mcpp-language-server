@@ -105,6 +105,8 @@ export function buildInitializationOptions(configuration: SettingsReader, compil
         'engine.name': resolveRenamed(configuration, RENAMED_SETTINGS[0], 'clangd') === 'none' ? 'none' : 'clangd',
         // S-2 (plan 0.0.9): how many files clangd builds at once; a change restarts the server.
         'engine.workers': workersSetting(configuration.get<string>('engine.workers')),
+        // The formatting fallback without a project .clang-format; a change restarts the server.
+        'format.fallbackStyle': configuration.get<string>('format.fallbackStyle') || 'auto',
         // build description design 4.4: how the user's build tool may be run.
         buildTool: buildToolSetting(configuration.get<string>('buildTool')),
         // build description design 4.3: which environment it is run in.

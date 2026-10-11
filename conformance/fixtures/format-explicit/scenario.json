@@ -1,0 +1,54 @@
+{
+  "name": "format-explicit",
+  "description": "An explicit user fallback overrides mcpp auto selection; a later project .clang-format overrides that fallback. Checks actual formatting edits against clang 23 goldens.",
+  "server-arguments": [
+    "--no-discover",
+    "--build-tool",
+    "off",
+    "--format-fallback-style",
+    "Google"
+  ],
+  "checks": [
+    {
+      "id": "U1",
+      "kind": "status",
+      "source": "inferred",
+      "state": "degraded",
+      "engine-name": "clangd"
+    },
+    {
+      "id": "U2-user-selected",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/arguments/*",
+          "equals": "--fallback-style=Google",
+          "min-matches": 1
+        },
+        {
+          "path": "/roots/0/engines/*/details/arguments/*",
+          "equals": "--fallback-style=mcpp",
+          "max-matches": 0
+        }
+      ]
+    },
+    {
+      "id": "U3-user-golden",
+      "kind": "formatting-equals",
+      "file": "src/format.cppm",
+      "expected-file": "expected-google.txt"
+    },
+    {
+      "id": "U4-project-config",
+      "kind": "write-file",
+      "file": ".clang-format",
+      "content": "BasedOnStyle: LLVM\n"
+    },
+    {
+      "id": "U5-project-wins",
+      "kind": "formatting-equals",
+      "file": "src/format.cppm",
+      "expected-file": "expected-llvm.txt"
+    }
+  ]
+}

@@ -5,6 +5,9 @@ import mcppls.engine.clangd;
 import mcppls.engine.clangd.workarounds;
 import mcppls.normalize.plan;
 import mcppls.engine.clangd.process;
+import mcppls.engine.payload;
+import mcppls.orchestrator.workspace;
+import mcppls.cli.options;
 
 namespace cld = mcppls::engine::clangd;
 
@@ -43,6 +46,9 @@ int main() {
     "the traits are the registry's"_test = [] {
         const auto pinned = cld::traits_for_version("23.1.0");
         expect(pinned.tested && pinned.hangsOnTrailingDotModuleName && pinned.hangsOnUnresolvedImports);
+        const auto bundled = cld::traits_for_version("23.1.0-mcppls.0");
+        expect(bundled.tested && bundled.kitStdlibVersion == "23.1.0") << "the bundled maintained engine is the tested one, its kit the LLVM base";
+        expect(!cld::traits_for_version("23.1.0-mcppls.7").tested) << "another maintained build is not";
         expect(pinned.needsModulePreparation && pinned.needsModuleHints && pinned.msvcStlNeedsNoAlignedAllocation);
         expect(!cld::traits_for_version("23.1.1").msvcStlNeedsNoAlignedAllocation);
         expect(cld::traits_for_version("23.1.1").hangsOnTrailingDotModuleName);
@@ -107,6 +113,57 @@ int main() {
         const std::vector<std::string> off { std::string { cld::DIRECTIVE_SEMICOLON_POSITION }, std::string { cld::UNSAVED_IMPORT_NOT_FOUND } };
         const auto disabled = cld::traits_for_version("23.1.0", off);
         expect(!disabled.misplacesDirectiveSemicolon && !disabled.readsImportsFromDisk) << "each can be turned off";
+    };
+
+    "only a verified diagnostic range capability retires WA-CLANGD-006"_test = [] {
+        const std::vector<std::string> fixed { "module-directive-diagnostic-ranges" };
+        const std::vector<std::string> other { "semantic-tokens-range" };
+        for (const auto version : { "23.1.0", "23.1.0-mcppls.0", "23.1.1" }) {
+            expect(cld::traits_for_version(version).misplacesDirectiveSemicolon) << "the version does not prove the fix";
+            expect(cld::traits_for_version(version, {}, other).misplacesDirectiveSemicolon);
+            const auto verified = cld::traits_for_version(version, {}, fixed);
+            expect(!verified.misplacesDirectiveSemicolon);
+            expect(verified.readsImportsFromDisk && verified.hangsOnTrailingDotModuleName) << "other compensations remain active";
+        }
+    };
+
+    "directive recovery and const-view correctness retire WA-CLANGD-001 and 010 only when declared"_test = [] {
+        const auto plain = cld::traits_for_version("23.1.0-mcppls.0");
+        expect(plain.hangsOnTrailingDotModuleName && plain.flagsNonConstViewsConst) << "the version does not prove the fixes";
+        const std::vector<std::string> recovery { "module-directive-recovery" };
+        const auto recovered = cld::traits_for_version("23.1.0-mcppls.0", {}, recovery);
+        expect(!recovered.hangsOnTrailingDotModuleName && recovered.flagsNonConstViewsConst) << "each capability retires its own";
+        const std::vector<std::string> both { "module-directive-recovery", "const-correctness-views" };
+        const auto fixed = cld::traits_for_version("23.1.0-mcppls.0", {}, both);
+        expect(!fixed.hangsOnTrailingDotModuleName && !fixed.flagsNonConstViewsConst);
+        expect(fixed.misplacesDirectiveSemicolon && fixed.readsImportsFromDisk) << "other compensations remain active";
+    };
+
+    "unresolved-import recovery retires WA-CLANGD-013 and leaves a module unit's stand-ins (WA-CLANGD-002)"_test = [] {
+        const auto plain = cld::traits_for_version("23.1.0-mcppls.0");
+        expect(plain.hangsOnUnresolvedImports && plain.hangsOnImportersUnresolvedImports) << "the version does not prove it";
+        const std::vector<std::string> recovery { "unresolved-import-recovery" };
+        const auto recovered = cld::traits_for_version("23.1.0-mcppls.0", {}, recovery);
+        expect(recovered.hangsOnUnresolvedImports && !recovered.hangsOnImportersUnresolvedImports);
+        const std::vector<std::string> noStandIns { "WA-CLANGD-002" };
+        expect(!cld::traits_for_version("23.1.0", noStandIns).hangsOnImportersUnresolvedImports)
+            << "without stand-ins at all, there are none for importers either";
+    };
+
+    "the adapter receives capabilities only from a verified payload identity"_test = [] {
+        mcppls::engine::PayloadPaths payload;
+        payload.clangdVersion = "23.1.0-mcppls.0";
+        const mcppls::orchestrator::SessionOptions options;
+        const auto active = [&](bool corrupt) {
+            return mcppls::cli::engine_factories(options, payload, corrupt).core()->traits().misplacesDirectiveSemicolon;
+        };
+        expect(active(false)) << "an older payload of the same fork version keeps the workaround";
+        payload.engineIdentity.emplace();
+        payload.engineIdentity->features = { "module-directive-diagnostic-ranges" };
+        expect(!active(false)) << "the verified capability reaches the adapter";
+        expect(active(true)) << "a corrupt payload cannot retire a workaround";
+        payload.engineIdentity.reset();
+        expect(active(false)) << "a custom engine has no bundled identity";
     };
 
     "a directive missing its ';' is reported where it is (WA-CLANGD-006)"_test = [] {

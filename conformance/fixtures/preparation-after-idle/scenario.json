@@ -1,0 +1,13 @@
+{
+  "name": "preparation-after-idle",
+  "description": "Issue #49: preparation that ended a long while ago, given modules again (a file opened that imports one nothing prepared yet, a model loaded again), starts its stall clock afresh. 0.0.11 measured it from the last progress of the preparation before, so it was 'preparation-stalled ... made no progress for a minute (34/39 done)' five seconds after it began, and wrote a bundle.",
+  "server-arguments": ["--no-discover"],
+  "checks": [
+    {"id": "S1", "kind": "status", "source": "inferred", "state": "ready", "engine-name": "clangd"},
+    {"id": "P0-first-preparation", "kind": "hover-contains", "file": "src/main.cpp", "at": [2, 21], "expect": "fa", "timeout": 90},
+    {"id": "P1-idle-past-the-stall-timeout", "kind": "report", "not-before-since-start": 80, "timeout": 30,
+     "expect": [{"path": "/roots/0/engines/*/details/preparation/running", "equals": 0}]},
+    {"id": "P2-more-to-prepare", "kind": "hover-contains", "file": "src/second.cpp", "at": [2, 21], "expect": "fb", "timeout": 60},
+    {"id": "P3-never-stalled", "kind": "status-never", "issue-codes": ["preparation-stalled"]}
+  ]
+}

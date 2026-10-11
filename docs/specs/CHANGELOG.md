@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-10-11 — S1: the programs a build runs are a configuration of their own
+
+Section 7 describes a build that compiles programs it runs itself, on the machine doing the build — mcpp's build
+programs from mcpp 2026.10.11.1 (mcpp-community/mcpp#797): `build.mcpp`, the libraries of `[build-dependencies]` and
+mcpp's engine interface. Their sets are a configuration of their own (`ide.configuration` `build-program`), a source two
+configurations compile is a unit of a set in each, and `visible-sets` stay within a configuration. The mcpp contract that
+`tools/validate.py` checks includes the sets `<package>:build`, `<package>:host`, `mcpp:core` and `mcpp:std:host`.
+Informative: the profile version stays 0.3.0.
+
+## 2026-10-07
+
+S4-4-10: identified payloads carry validated immutable source/platform/binary
+identity and explicit capabilities; legacy/external engines inherit none.
+
+S4-4-5: libc++ kit compatibility uses the LLVM base of a maintained engine
+version; the full engine version remains its identity. Existing plain LLVM
+version examples and kit schemas are unchanged.
+
+
 Changes to the specifications in this directory. Each specification is versioned independently.
 
 ## 2026-10-03 — S3: the cache is on the wire
@@ -146,3 +165,5 @@ All five are published as drafts, at these versions:
 Every requirement carries a rule identifier (`S<n>-<section>-<ordinal>`), and
 `conformance/traceability.json` maps each one to its evidence: a test, a conformance check, a schema
 validation or a line of code.
+
+- S4-4-11 binds automatic mcpp formatting to verified engine capability and project scope; project/user overrides and external engines have real formatting conformance evidence.

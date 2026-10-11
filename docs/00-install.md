@@ -9,7 +9,8 @@
 Search the Extensions view for **mcppls** or **C++ Modules Language Server**, or run
 `code --install-extension sunrisepeak.mcpp-language-server` ([Marketplace page](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server)). VS Code picks the
 build for your platform — `linux-x64`, `linux-arm64`, `darwin-arm64` or `win32-x64`; there is none
-for other platforms yet. On Linux, see [which systems each architecture runs on](#supported-linux-systems).
+for other platforms yet. `darwin-arm64` needs macOS 12 or later; on Linux, see [which systems each
+architecture runs on](#supported-linux-systems).
 
 ## Cursor, VSCodium, Windsurf and other VS Code-compatible editors, from Open VSX
 
@@ -52,13 +53,13 @@ clangd the payload carries:
 
 | Platform | clangd | Needs | Runs on |
 |---|---|---|---|
-| `linux-x64` | clangd/clangd's 23.1.0 build, with libstdc++ linked in | glibc 2.18 | every current glibc distribution |
-| `linux-arm64` | LLVM's own 23.1.0 Linux arm64 build (clangd/clangd publishes none) | glibc 2.34, GCC 12's libstdc++ (`GLIBCXX_3.4.30`), zlib | Ubuntu 22.04 and later, Debian 12 and later, openEuler 24.03 LTS and later (tested); Fedora 36 and later (by its package versions) |
+| `linux-x64` | mcppls-clangd 23.1.0, built on Ubuntu 20.04 with libstdc++ and zlib linked in | glibc 2.31 | Ubuntu 20.04, Debian 11, RHEL and Rocky Linux 9, openEuler 22.03 LTS and later |
+| `linux-arm64` | the same engine, built the same way for arm64 | glibc 2.31 | the same systems, on arm64 |
 
-On an arm64 system older than that — Ubuntu 20.04, Debian 11, RHEL and Rocky Linux 8 and 9, Amazon
-Linux 2023, openEuler 22.03 — the bundled clangd cannot start. mcppls then keeps its own
-module-level features (module navigation, import completion, module diagnostics), and its status
-says why. Alpine and other musl distributions run neither architecture's clangd.
+On an older system — Ubuntu 18.04, Debian 10, RHEL and Rocky Linux 8, Amazon Linux 2 — the bundled
+clangd cannot start. mcppls then keeps its own module-level features (module navigation, import
+completion, module diagnostics), and its status says why; `mcppls.clangd` can name a clangd that
+does run there. Alpine and other musl distributions run neither architecture's clangd.
 
 ### Android, under Termux
 
