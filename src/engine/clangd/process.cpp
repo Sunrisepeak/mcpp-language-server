@@ -388,10 +388,13 @@ std::optional<LogReader::AstBuild> parse_ast_build(std::string_view message) {
 }
 
 bool telling_message(std::string_view message) {
-    static constexpr std::array<std::string_view, 9> PREFIXES {
+    // mcppls-clangd 0.0.13 says why a module is rebuilt ("Rebuilding module M: ..."), what a file's prerequisites cost
+    // ("Prerequisites of F: ..."), why a preamble is not reused ("Preamble of F is not compatible: ...") and when
+    // completion answers before its modules ("Completion in F answer..."); the rest are clangd's own.
+    static constexpr std::array<std::string_view, 10> PREFIXES {
         "Built prerequisite modules for file", "Building first preamble for", "Rebuilding invalidated preamble",
-        "Built preamble of size", "Built module ", "Rebuilding module ", "Module rebuild reasons", "Preamble for ",
-        "Failed to build",
+        "Built preamble of size", "Built module ", "Rebuilding module ", "Prerequisites of ", "Preamble of ",
+        "Completion in ", "Failed to build",
     };
     return std::ranges::any_of(PREFIXES, [&](std::string_view prefix) { return message.starts_with(prefix); });
 }

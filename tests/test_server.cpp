@@ -1871,6 +1871,9 @@ int main() {
         expect(reader.read("I[00:56:20.713] Built preamble of size 274032 for file /p/math2.cppm version 1 in 0.02 seconds").telling);
         expect(reader.read("I[00:56:20.790] Built module math to /c/math.pcm").telling);
         expect(reader.read("I[00:56:20.790] Rebuilding module math: input changed /p/math.cppm").telling);
+        expect(reader.read("I[00:57:01.000] Prerequisites of /p/main.cpp: 25 modules, 25 reused, 0 built, 0 failed, in 3.10 s").telling);
+        expect(reader.read("I[00:57:02.000] Preamble of /p/main.cpp is not compatible: the compile command changed").telling);
+        expect(reader.read("I[00:57:03.000] Completion in /p/main.cpp answered before its first preamble").telling);
         expect(!reader.read("I[00:56:04.692] Code complete: 3802 results from Sema").telling);
         // A header without a command (another clangd's spelling) still marks the build, and echoes nothing.
         const auto bare = reader.read("I[01:00:00.000] ASTWorker building file /p/a.cpp version 3");

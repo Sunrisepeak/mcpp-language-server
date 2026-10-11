@@ -72,6 +72,8 @@ constexpr std::array<std::string_view, 10> BUILD_FILES { "mcpp.toml", "mcpp.lock
 constexpr std::array<std::string_view, 7> WATCH_POLL_SKIP_DIRECTORIES { "target", "build", "node_modules", "out",
                                                                         "_build", "cmake-build-debug", "cmake-build-release" };
 
+// A turn of a root's timers past this says which part of it took the time (0.0.13 W10).
+constexpr std::chrono::milliseconds TIMERS_SLOW { 1000 };
 // Changes to cxxModules/status that keep its state are sent at most this often (S3 4).
 constexpr std::chrono::milliseconds STATUS_COALESCE { 250 };
 // import-hang plan §6: a change from a working state to degraded goes out only once it has lasted this
@@ -407,6 +409,7 @@ struct Workspace::Impl final : engine::Host {
     std::string firstModelOrigin;                        // where the model this session started with came from
     std::string producerPath;                            // for the fingerprint of the next save
     std::string producerVersion;
+    std::string staleCacheWhy;   // which input made the cached model stale (0.0.13 W6)
     std::string needsDownload;                           // the producer, run offline, cannot go on without a download
     // D-2 (plan 0.0.9): that load was offline (an online one that fails says producer-install-failed instead), so a client may
     // offer to fetch what is missing; and what the load that failed with the network allowed said, named in the status.
@@ -1421,8 +1424,22 @@ struct Workspace::Impl final : engine::Host {
             adopt_model(std::make_shared<project::ProjectModel>(std::move(cached->model)), "cache-fresh");
             return;
         }
-        log::info("the cached {} model for {} is older than its inputs; the producer has three seconds before it is used anyway",
-                  project::to_string(detection.kind), root);
+        // 0.0.13 W5, W6: which input moved, and whether only its time did. A checkout or a branch switch rewrites files with
+        // the bytes they had; the model they describe is the cached one, and the cache is fresh.
+        std::string staleWhy { "an input changed (this cache predates the record of which)" };
+        if (!cached->inputs.empty()) {
+            const auto verdict = project::compare_inputs(cached->inputs, project::input_stamps(root, cached->model.watch, detection.manifest, cached->producer));
+            if (verdict.unchanged) {
+                log::info("the cached {} model for {} matches its inputs ({} rewritten with the same content); planning with it while the producer confirms it",
+                          project::to_string(detection.kind), root, verdict.touched);
+                adopt_model(std::make_shared<project::ProjectModel>(std::move(cached->model)), "cache-fresh");
+                return;
+            }
+            staleWhy = verdict.changed;
+        }
+        staleCacheWhy = staleWhy;
+        log::info("the cached {} model for {} is older than its inputs ({}); the producer has three seconds before it is used anyway",
+                  project::to_string(detection.kind), root, staleWhy);
         staleCache = std::move(cached);
         loadGiveUpAt = Clock::now() + std::chrono::seconds { 3 };
     }
@@ -1433,8 +1450,8 @@ struct Workspace::Impl final : engine::Host {
         if (staleCache) {
             auto cached = std::move(*staleCache);
             staleCache.reset();
-            staleModelReason = std::format("{} has not answered yet; the model from the last session is in use and may be stale",
-                                           project::to_string(cached.model.source));
+            staleModelReason = std::format("{} has not answered yet; the model from the last session is in use and may be stale ({})",
+                                           project::to_string(cached.model.source), staleCacheWhy);
             adopt_model(std::make_shared<project::ProjectModel>(std::move(cached.model)), "cache-stale");
             return;
         }
@@ -1558,6 +1575,7 @@ struct Workspace::Impl final : engine::Host {
         cached.producerVersion = producerVersion;
         cached.producerMs = lastProducerMs;
         cached.fingerprint = project::inputs_fingerprint(root, model->watch, detectedManifest, producerPath, producerVersion);
+        cached.inputs = project::input_stamps(root, model->watch, detectedManifest, producerPath);
         cached.savedAtMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
         if (auto saved = project::save_model(cacheDirectory, cached); !saved) {
@@ -2524,6 +2542,26 @@ struct Workspace::Impl final : engine::Host {
     // ---- timers -----------------------------------------------------------------------
 
     void handle_timers() {
+        // 0.0.13 W10 (#52-8): a turn of the timers that holds the loop says which part held it; one once took 15 minutes
+        // and the log could say only "its timers".
+        const auto timersBegan = Clock::now();
+        auto phaseStart = timersBegan;
+        std::string slowestPhase;
+        Clock::duration slowestTook {};
+        const auto phase = [&](std::string_view name) {
+            const auto at = Clock::now();
+            if (at - phaseStart > slowestTook) {
+                slowestTook = at - phaseStart;
+                slowestPhase = std::string { name };
+            }
+            phaseStart = at;
+        };
+        const auto sayPhases = [&] {
+            const auto took = Clock::now() - timersBegan;
+            if (took < TIMERS_SLOW) return;
+            log::warning("the timers of {} took {} ms, {} ms of them in {}", root, std::chrono::duration_cast<std::chrono::milliseconds>(took).count(),
+                         std::chrono::duration_cast<std::chrono::milliseconds>(slowestTook).count(), slowestPhase);
+        };
         for (const auto& engine : engines) {
             const auto before = Clock::now();
             engine->handle_timers();
@@ -2532,6 +2570,7 @@ struct Workspace::Impl final : engine::Host {
                 journal.add("timers-slow", Json { { "engine", std::string { engine->id() } },
                                                   { "ms", std::chrono::duration_cast<std::chrono::milliseconds>(took).count() } });
             }
+            phase(std::format("the {} engine's timers", engine->id()));
         }
         const auto now = Clock::now();
         {
@@ -2551,6 +2590,7 @@ struct Workspace::Impl final : engine::Host {
                 it = lateCompletions.erase(it);
             }
         }
+        phase("answers past their budget");
         if (leaseRenewAt && *leaseRenewAt <= now) {
             lease->renew(std::chrono::system_clock::now());
             // C-9: the tick's cheap part -- stat the few `instance.json` files and rename the dead
@@ -2561,6 +2601,7 @@ struct Workspace::Impl final : engine::Host {
             if (cache::rename_dead_instances(workspaceDirectory_, heartbeat, ownToken_, cache_grace()) > 0) start_cache_task_("tick", platform::fs::modified_now());
             leaseRenewAt = now + LEASE_RENEWAL;
         }
+        phase("the workspace lease and dead instances");
         if (reloadAt && *reloadAt <= now) {
             reloadAt.reset();
             start_model_load();
@@ -2570,7 +2611,9 @@ struct Workspace::Impl final : engine::Host {
             log::info("asking {} again, offline, whether it can describe {} now", project::to_string(detectedSource), root);
             start_model_load();
         }
+        phase("starting a model load");
         if (replanAt && *replanAt <= now) replan();
+        phase("a replan");
         if (coreWaitUntil && !coreWaitOver && *coreWaitUntil <= now) {
             coreWaitOver = true;
             if (modelOrigin == "inferred" && model) {
@@ -2584,6 +2627,7 @@ struct Workspace::Impl final : engine::Host {
             statusFlushAt.reset();
             update_status();
         }
+        phase("the engine wait and the status");
         if (tokensRefreshAt && *tokensRefreshAt <= now) {
             tokensRefreshAt.reset();
             // A request, not a notification (LSP 3.16): its answer carries nothing, and an id the session cannot
@@ -2625,6 +2669,8 @@ struct Workspace::Impl final : engine::Host {
                 for (const auto& engine : engines) engine->apply(nullptr);
             }
         }
+        phase("the rest");
+        sayPhases();
     }
 };
 
@@ -2841,8 +2887,16 @@ void Workspace::handle_watched_files(const Json& changes) {
     }
     if (reload) impl_->schedule_reload(!describedAgain);
     else if (replan) impl_->schedule_replan();
-    const Json message = lsp::make_notification("workspace/didChangeWatchedFiles", Json { { "changes", changes } });
-    for (const auto& engine : impl_->engines) engine->notify(message);
+    // 0.0.13 W10 (#53): clangd refuses the whole notification for one change that is not a file ("clangd only supports
+    // 'file' URI scheme for workspace files"), and the files beside it went unseen; only file: URIs go on.
+    Json forwarded = Json::array();
+    for (const auto& change : changes) {
+        if (change.is_object() && change.value("uri", std::string {}).starts_with("file:")) forwarded.push_back(change);
+    }
+    if (!forwarded.empty()) {
+        const Json message = lsp::make_notification("workspace/didChangeWatchedFiles", Json { { "changes", std::move(forwarded) } });
+        for (const auto& engine : impl_->engines) engine->notify(message);
+    }
     for (const Document* document : impl_->documents_.all()) impl_->publish_diagnostics(document->uri);
 }
 

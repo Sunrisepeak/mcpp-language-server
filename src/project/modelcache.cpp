@@ -180,10 +180,93 @@ std::string inputs_fingerprint(std::string_view root, std::span<const std::strin
     return base::sha256_hex(text);
 }
 
+namespace {
+
+std::vector<std::string> fingerprint_paths(std::string_view root, std::span<const std::string> watch, std::string_view manifest) {
+    std::vector<std::string> paths;
+    if (!manifest.empty()) paths.emplace_back(manifest);
+    for (const auto& entry : watch) paths.push_back(base::is_absolute_path(entry) ? entry : base::join_path(root, entry));
+    std::ranges::sort(paths);
+    paths.erase(std::ranges::unique(paths).begin(), paths.end());
+    return paths;
+}
+
+InputStamp stamp_of(std::string path, bool hashContent) {
+    InputStamp stamp;
+    stamp.path = std::move(path);
+    if (auto found = platform::fs::stamp(stamp.path)) {
+        stamp.present = true;
+        stamp.size = found->size;
+        stamp.modified = static_cast<std::int64_t>(found->modified);
+        if (hashContent && found->size <= CONTENT_HASH_LIMIT) {
+            if (auto text = platform::fs::read_file(stamp.path)) stamp.contentHash = base::sha256_hex(*text);
+        }
+    }
+    return stamp;
+}
+
+} // namespace
+
+std::vector<InputStamp> input_stamps(std::string_view root, std::span<const std::string> watch, std::string_view manifest,
+                                     std::string_view producer) {
+    std::vector<InputStamp> stamps;
+    // The producer is a program: its content is not hashed, and a new one is a change.
+    if (!producer.empty()) stamps.push_back(stamp_of(std::string { producer }, false));
+    for (auto& path : fingerprint_paths(root, watch, manifest)) {
+        // A glob has no stamp; the fingerprint carries it as text, and so does this (absent, never touched).
+        if (path.find_first_of("*?[") != std::string::npos) {
+            stamps.push_back(InputStamp { std::move(path) });
+            continue;
+        }
+        stamps.push_back(stamp_of(std::move(path), true));
+    }
+    return stamps;
+}
+
+InputsVerdict compare_inputs(std::span<const InputStamp> cached, std::span<const InputStamp> current) {
+    InputsVerdict verdict;
+    std::map<std::string_view, const InputStamp*> before;
+    for (const auto& stamp : cached) before.emplace(stamp.path, &stamp);
+    std::map<std::string_view, const InputStamp*> after;
+    for (const auto& stamp : current) after.emplace(stamp.path, &stamp);
+    const auto change = [&](std::string text) {
+        if (verdict.changed.empty()) verdict.changed = std::move(text);
+    };
+    for (const auto& [path, was] : before) {
+        const auto now = after.find(path);
+        if (now == after.end()) {
+            change(std::format("{} is no longer an input", path));
+            continue;
+        }
+        const InputStamp& is { *now->second };
+        if (*was == is) continue;
+        if (was->present != is.present) {
+            change(std::format("{} {}", path, is.present ? "appeared" : "was removed"));
+        } else if (!was->contentHash.empty() && was->contentHash == is.contentHash && was->size == is.size) {
+            ++verdict.touched;   // a checkout or a restore: the same bytes
+        } else if (was->size != is.size) {
+            change(std::format("{} changed ({} -> {} bytes)", path, was->size, is.size));
+        } else {
+            change(std::format("{} changed (modified again{})", path, was->contentHash.empty() ? "" : ", other content"));
+        }
+    }
+    for (const auto& [path, is] : after) {
+        if (!before.contains(path)) change(std::format("{} is a new input", path));
+    }
+    verdict.unchanged = verdict.changed.empty();
+    return verdict;
+}
+
 base::Result<void> save_model(std::string_view directory, const CachedModel& cached) {
+    Json inputs = Json::array();
+    for (const auto& stamp : cached.inputs) {
+        inputs.push_back(Json { { "path", stamp.path }, { "present", stamp.present }, { "size", stamp.size }, { "modified", stamp.modified },
+                                { "content", stamp.contentHash } });
+    }
     Json envelope {
         { "version", CACHE_VERSION },
         { "fingerprint", cached.fingerprint },
+        { "inputs", std::move(inputs) },
         { "producer", cached.producer },
         { "producerVersion", cached.producerVersion },
         { "savedAtMs", cached.savedAtMs },
@@ -215,6 +298,14 @@ std::optional<CachedModel> load_model(std::string_view directory, SourceKind sou
     cached.producerVersion = envelope.value("producerVersion", std::string {});
     cached.savedAtMs = envelope.value("savedAtMs", std::int64_t { 0 });
     cached.producerMs = envelope.value("producerMs", std::int64_t { 0 });
+    // Optional: a cache an older server wrote has none, and is judged by its fingerprint alone.
+    if (const auto inputs = envelope.find("inputs"); inputs != envelope.end() && inputs->is_array()) {
+        for (const auto& item : *inputs) {
+            if (!item.is_object()) continue;
+            cached.inputs.push_back(InputStamp { item.value("path", std::string {}), item.value("present", false), item.value("size", std::uint64_t { 0 }),
+                                                 item.value("modified", std::int64_t { 0 }), item.value("content", std::string {}) });
+        }
+    }
     return cached;
 }
 
