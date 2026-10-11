@@ -271,7 +271,7 @@ jobs:
           mock="cross/mcppls-mock-mcpp${{ matrix.exe }}"
           mockModel="cross/mcppls-mock-model${{ matrix.exe }}"
           packer="cross/mcppls-devtools${{ matrix.exe }}"
-          ./host-devtools payload --platform ${{ matrix.platform }} --server "$server" "${engine[@]}" --out payload --cache "$PAYLOAD_CACHE"
+          ./host-devtools payload --platform ${{ matrix.platform }} --server "$server" ${engine[@]+"${engine[@]}"} --out payload --cache "$PAYLOAD_CACHE"
           ./host-devtools payload --verify payload --json > "$RUNNER_TEMP/verify.json"
           cat "$RUNNER_TEMP/verify.json"
           if [ -f cross/SHA256SUMS ]; then
