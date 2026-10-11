@@ -2948,6 +2948,10 @@ private:
         // with the failed import diagnosed where it is; the modules stay doomed for preparation and the issue says why.
         if (!traits_.losesAllModulesOnOneFailure) {
             apply_doom_diff_({});
+            // No file changes hands, but the modules still cannot be prepared: the issue says which and why.
+            const bool had { std::ranges::any_of(issues_, [](const Issue& issue) { return issue.code == "modules-doomed"; }) };
+            update_doom_issue_();
+            if (had || !doomedModules_.empty()) host_->status_changed();
             return;
         }
         for (const auto& [file, module] : fileModule_) {
