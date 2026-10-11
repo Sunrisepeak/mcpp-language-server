@@ -309,6 +309,11 @@ std::string declared_module(const std::string& source) {
     return declaration->partition.empty() ? declaration->module : declaration->module + ":" + declaration->partition;
 }
 
+// The line ending a text uses, kept when a check edits it as an editor keeps a file's: a checkout on Windows has CRLF
+// files, and rewriting every line's ending at the first keystroke changed the preamble of a file whose body was typed in
+// (its text is the included lines), which rebuilt it and parsed every header of the file meanwhile.
+std::string_view line_ending_of(std::string_view text) { return text.find("\r\n") != std::string_view::npos ? "\r\n" : "\n"; }
+
 // The engine's published module files for a module under a cache directory, with their stamps. clangd
 // publishes <module>.pcm (a partition as <module>-<partition>.pcm) under a directory per source and
 // command; the copies it hands to readers carry a timestamp in their names and are not included.
@@ -2392,27 +2397,30 @@ public:
             importerUri = uri(importerFile);
             open(importerFile);
             importerOriginal = text_of(importerFile);
+            const std::string_view importerEol { line_ending_of(importerOriginal) };
             std::vector<std::string> importerLines;
             for (const auto line : base::split_lines(importerOriginal)) importerLines.emplace_back(line);
             const std::string probeText { importer->value("text", std::string {}) };
             const std::size_t at { std::min(static_cast<std::size_t>(std::max(0, importer->value("line", 0))), importerLines.size()) };
             importerLines.insert(importerLines.begin() + static_cast<std::ptrdiff_t>(at), probeText);
             std::string probed;
-            for (const auto& line : importerLines) probed += line + "\n";
+            for (const auto& line : importerLines) (probed += line) += importerEol;
             change(importerFile, probed);
             importerPosition = Json { { "line", at }, { "character", probeText.size() } };
         }
         const bool withImporter { !importerFile.empty() };
 
         std::vector<std::string> lines;
+        std::string eol;
         {
             const std::string current { text_of(file) };
+            eol = line_ending_of(current);
             for (const auto line : base::split_lines(current)) lines.emplace_back(line);
         }
         const std::vector<std::string> original { lines };
-        const auto join_lines = [](const std::vector<std::string>& all) {
+        const auto join_lines = [&eol](const std::vector<std::string>& all) {
             std::string text;
-            for (const auto& line : all) text += line + "\n";
+            for (const auto& line : all) (text += line) += eol;
             return text;
         };
         std::mt19937_64 rng { static_cast<std::uint64_t>(check.value("seed", 7)) };
@@ -3630,7 +3638,7 @@ public:
                 if (line < 0 || static_cast<std::size_t>(line) >= lines.size()) return { false, std::format("line {} is not in {}", line, file) };
                 lines[static_cast<std::size_t>(line)] = step.get<std::string>();
                 std::string text;
-                for (const auto& each : lines) text += each + "\n";
+                for (const auto& each : lines) (text += each) += line_ending_of(current);
                 change(file, text);
                 if (save) {
                     (void)fs::write_file_atomic(base::join_path(workspace_, file), text);
@@ -4081,7 +4089,8 @@ public:
                 std::vector<std::string> copy { lines.begin(), lines.end() };
                 const std::size_t at { std::min<std::size_t>(insert->at(0).get<std::size_t>(), copy.size()) };
                 copy.insert(copy.begin() + static_cast<std::ptrdiff_t>(at), insert->at(1).get<std::string>());
-                change(file, base::join(copy, "\n") + "\n");
+                const std::string eol { line_ending_of(current) };
+                change(file, base::join(copy, eol) + eol);
             }
             if (auto edit = check.find("edit"); edit != check.end()) {
                 // {"file": "...", "replace": "...", "with": "..."}: an unsaved edit in another open buffer.
