@@ -417,6 +417,7 @@ struct Workspace::Impl final : engine::Host {
         std::string beganUtc;
         std::optional<double> model, engine, firstDiagnostics, firstCompletion, ready;
         std::string origin;
+        std::string state;   // what it settled at: ready or degraded
         bool said { false };
     };
     Startup startup;
@@ -431,7 +432,11 @@ struct Workspace::Impl final : engine::Host {
     std::optional<Clock::time_point> buildProgramChangedAt;
     std::optional<Clock::time_point> buildProgramCheckAt;
     std::string modelAdoptedAtUtc;   // when the model in hand was taken, for that notice
-    std::map<std::string, Json, std::less<>> producerDiagnostics;   // path key -> mcpp's diagnostics on a build program
+    struct ProducerDiagnostics {
+        std::string path;   // as the root spells it, for its URI
+        Json diagnostics;
+    };
+    std::map<std::string, ProducerDiagnostics, std::less<>> producerDiagnostics;   // path key -> mcpp's diagnostics on a build program
     std::string needsDownload;                           // the producer, run offline, cannot go on without a download
     // D-2 (plan 0.0.9): that load was offline (an online one that fails says producer-install-failed instead), so a client may
     // offer to fetch what is missing; and what the load that failed with the network allowed said, named in the status.
@@ -1895,28 +1900,27 @@ struct Workspace::Impl final : engine::Host {
     // mcpp's own words about a build program that failed, on that file: the compiler's "file:line:col: error: ..." lines
     // where they name it, else the message at its first line. The files that had some and have none now are cleared.
     void note_build_program_failures(const project::ProjectModel& loaded) {
-        std::map<std::string, Json, std::less<>> next;
+        std::map<std::string, ProducerDiagnostics, std::less<>> next;
         for (const auto& issue : loaded.issues) {
             if (issue.code != spec::BUILD_PROGRAM_FAILED_ISSUE || issue.path.empty()) continue;
             const std::string file { base::is_absolute_path(issue.path) ? issue.path : base::join_path(root, issue.path) };
-            next[base::path_key(file)] = build_program_diagnostics(file, issue.message);
+            next[base::path_key(file)] = ProducerDiagnostics { file, build_program_diagnostics(file, issue.message) };
         }
-        std::vector<std::string> touched;
-        for (const auto& [key, diagnostics] : producerDiagnostics) {
-            if (!next.contains(key)) touched.push_back(key);
+        std::vector<std::string> touched;   // the paths whose diagnostics change, as the root spells them
+        for (const auto& [key, entry] : producerDiagnostics) {
+            if (!next.contains(key)) touched.push_back(entry.path);
         }
-        for (const auto& [key, diagnostics] : next) touched.push_back(key);
+        for (const auto& [key, entry] : next) touched.push_back(entry.path);
         producerDiagnostics = std::move(next);
-        for (const auto& key : touched) {
-            const Document* document { documents_.find_by_path(key) };
-            const std::string uri { document != nullptr ? document->uri : base::path_to_uri(key) };
+        for (const auto& path : touched) {
+            const Document* document { documents_.find_by_path(path) };
             if (document != nullptr) {
-                publish_diagnostics(uri);
-            } else {
-                const auto found = producerDiagnostics.find(key);
-                client.notify("textDocument/publishDiagnostics",
-                              Json { { "uri", uri }, { "diagnostics", found == producerDiagnostics.end() ? Json::array() : found->second } });
+                publish_diagnostics(document->uri);
+                continue;
             }
+            const auto found = producerDiagnostics.find(base::path_key(path));
+            client.notify("textDocument/publishDiagnostics",
+                          Json { { "uri", base::path_to_uri(path) }, { "diagnostics", found == producerDiagnostics.end() ? Json::array() : found->second.diagnostics } });
         }
     }
 
@@ -2290,7 +2294,7 @@ struct Workspace::Impl final : engine::Host {
         }
         Json moduleDiagnostics = document->path.empty() ? Json::array() : index.diagnostics(document->path);
         if (const auto produced = producerDiagnostics.find(base::path_key(document->path)); produced != producerDiagnostics.end()) {
-            for (const auto& diagnostic : produced->second) moduleDiagnostics.push_back(diagnostic);
+            for (const auto& diagnostic : produced->second.diagnostics) moduleDiagnostics.push_back(diagnostic);
         }
         if (auto said = configuration_diagnostic(document->path)) {
             // A build program no set describes is not read at all: what it imports is not judged either.
@@ -2572,7 +2576,8 @@ struct Workspace::Impl final : engine::Host {
         // sending progress after the gate sends it to the only client that already had it.
         update_progress(state, coreEngine != nullptr ? std::optional { coreEngine->status() } : std::nullopt);
         if (state == State::ready || state == State::degraded) say_one_engine_per_file_once();
-        if (state == State::ready && !startup.said) say_startup_();
+        // A start that ends degraded is the one most worth reading: it is said too, with the state it reached.
+        if ((state == State::ready || state == State::degraded) && !startup.said) say_startup_(state);
         if (!clientSupportsStatus) return;
         Json issues = Json::array();
         auto add = [&](std::string_view code, std::string_view message, std::string_view command, std::string_view title = "Fix",
@@ -2716,7 +2721,7 @@ struct Workspace::Impl final : engine::Host {
     }
 
     Json startup_json_() const {
-        Json json { { "began", startup.beganUtc }, { "origin", startup.origin } };
+        Json json { { "began", startup.beganUtc }, { "origin", startup.origin }, { "state", startup.state } };
         const auto put = [&](std::string_view key, const std::optional<double>& value) {
             if (value) json[std::string { key }] = std::round(*value * 100) / 100;
         };
@@ -2736,9 +2741,10 @@ struct Workspace::Impl final : engine::Host {
         return json;
     }
 
-    void say_startup_() {
+    void say_startup_(State state) {
         startup.said = true;
         startup.ready = since_start_();
+        startup.state = std::string { to_string(state) };
         const Json json = startup_json_();
         std::string rebuilt { "?" };
         if (json.contains("modulesBuilt")) {
@@ -2749,10 +2755,10 @@ struct Workspace::Impl final : engine::Host {
             }
             if (!reasons.empty()) rebuilt += std::format(" ({})", reasons);
         }
-        log::info("startup ({}): model {} {} · engine {} · first diagnostics {} · first completion {} · modules built {} · restarts {} · ready {}", root,
+        log::info("startup ({}): model {} {} · engine {} · first diagnostics {} · first completion {} · modules built {} · restarts {} · {} {}", root,
                   startup.origin.empty() ? std::string { "none" } : startup.origin, seconds_text_(startup.model), seconds_text_(startup.engine),
                   seconds_text_(startup.firstDiagnostics), seconds_text_(startup.firstCompletion), rebuilt,
-                  json.value("restarts", std::size_t { 0 }), seconds_text_(startup.ready));
+                  json.value("restarts", std::size_t { 0 }), startup.state, seconds_text_(startup.ready));
         journal.add("startup", json);
         // The last five starts of this workspace, newest last.
         const std::string path { base::join_path(cacheDirectory, "startups.json") };
@@ -2825,9 +2831,19 @@ struct Workspace::Impl final : engine::Host {
         if (buildProgramPending.empty()) return;
         const auto now = Clock::now();
         if (const Document* document = documents_.find_by_path(buildProgramPending)) {
-            if (auto disk = platform::fs::read_file(buildProgramPending); disk && *disk != document->text) {
-                buildProgramCheckAt = now + BUILD_PROGRAM_QUIET;   // what mcpp would read is not what is being edited
-                return;
+            if (auto disk = platform::fs::read_file(buildProgramPending)) {
+                std::string_view saved { *disk };
+                if (saved.starts_with("\xEF\xBB\xBF")) saved.remove_prefix(3);   // the editor's text has no BOM
+                if (saved != document->text) {
+                    // What mcpp would read is not what is being edited: wait for the next save, but not for ever -- after a
+                    // while the saved text is applied (it is what the person saved; clangd's verdict is on the edits since).
+                    if (buildProgramChangedAt && now - *buildProgramChangedAt < BUILD_PROGRAM_VERDICT_WAIT) {
+                        buildProgramCheckAt = now + BUILD_PROGRAM_QUIET;
+                        return;
+                    }
+                    apply_build_program("saved; the editor has edits since");
+                    return;
+                }
             }
             // Only a file clangd is given has a verdict to wait for: an older mcpp describes no build program.
             const bool engineReads { std::ranges::any_of(plan.entries, [&](const auto& entry) { return base::same_path(entry.file, document->path); }) };
@@ -3790,7 +3806,15 @@ bool Workspace::describe_online() {
     return true;
 }
 
-void Workspace::apply_build_program() { impl_->apply_build_program("asked for"); }
+void Workspace::apply_build_program() {
+    // Asked for: the project is described again whether or not a change is waiting.
+    if (impl_->buildProgramPending.empty() && impl_->buildProgramHeld.empty()) {
+        log::info("describing {} again (asked for)", root_);
+        impl_->start_model_load();
+        return;
+    }
+    impl_->apply_build_program("asked for");
+}
 
 void Workspace::reload_build_description() {
     // Only when something is actually waiting on it. A window regaining focus is not news, and a

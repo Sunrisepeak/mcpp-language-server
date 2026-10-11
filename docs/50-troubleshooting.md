@@ -32,7 +32,7 @@ lines have a fixed shape; the report's `events` carry the same facts.
 | Line | Says |
 |---|---|
 | `versions (<root>): server … · extension … · editor …` | What is running; a `version mismatch` warning follows when the editor package started another server |
-| `startup (<root>): model <origin> <s> · engine <s> · first diagnostics <s> · first completion <s> · modules built <n> (<n> <why>, …) · restarts <n> · ready <s>` | One line per start, when the root is first ready |
+| `startup (<root>): model <origin> <s> · engine <s> · first diagnostics <s> · first completion <s> · modules built <n> (<n> <why>, …) · restarts <n> · <ready or degraded> <s>` | One line per start, when the root first settles |
 | `health (<root>): completion <n> p50 … p95 …, <n>% by the core engine · … · engine <state> (<n> restarts, <n> modules built)` | Every ten minutes of use |
 | `the cached <kind> model for <root> is older than its inputs (<which input, and how>)` | Why a warm start could not use its model at once; one rewritten with its own bytes (a checkout) is not stale |
 | `clangd (<root>): I[…] Rebuilding module <M>: <why>` | mcppls-clangd 0.0.13: why a module was built rather than reused — none for this command and prerequisites (and how many were built with others), or the input that changed |

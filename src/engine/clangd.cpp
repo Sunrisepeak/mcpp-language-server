@@ -1302,7 +1302,10 @@ public:
         } else if (kind == "ast-build") {
             // 0.0.13 W4 (#53): clangd began building another version of a file. A file typed in without a pause is rebuilt
             // version after version while its status says "parsing main file" throughout; each build is timed on its own.
-            const std::string key { base::path_key(event.value("file", std::string {})) };
+            // clangd names the file as the system spells it: D:\src\... on Windows, where documents are D:/src/...
+            std::string file { event.value("file", std::string {}) };
+            if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) std::ranges::replace(file, '\\', '/');
+            const std::string key { base::path_key(file) };
             for (const auto& document : host_->documents()) {
                 if (!document.path.empty() && base::path_key(document.path) == key) {
                     spin_.began(document.uri, event.value("version", std::int64_t { 0 }), Clock::now());
