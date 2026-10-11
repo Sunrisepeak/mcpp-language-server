@@ -3169,6 +3169,12 @@ void Workspace::did_close(const Json& message, const Json& params) {
     for (auto& [engineId, byUri] : impl_->engineDiagnostics) byUri.erase(uri);
     impl_->client.notify("textDocument/publishDiagnostics", Json { { "uri", uri }, { "diagnostics", Json::array() } });
     if (impl_->reviewDiagnostics.contains(uri)) impl_->publish_diagnostics(uri);
+    // A build program held on the editor's errors has no editor left to wait on: mcpp decides (0.0.13 W3).
+    // (In manual mode it waits for the command whatever the editor has.)
+    if (!impl_->buildProgramPending.empty() && !impl_->buildProgramHeld.empty() && impl_->options.buildProgramApply != "manual"
+        && base::same_path(document.path, impl_->buildProgramPending)) {
+        impl_->buildProgramCheckAt = Clock::now();
+    }
     impl_->update_status();
 }
 
