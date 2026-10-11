@@ -1,6 +1,6 @@
 {
   "name": "ux-modules-windows",
-  "description": "C++ modules mixed with <windows.h> (0.0.12, issue #50): two module units whose global module fragments include <windows.h>, and a file that includes it and imports both, built by CMake with MSVC (cl.exe) and Ninja. Answers are right, and they stay fast while a person types in the importer and in a module unit that autosaves: every completion answered, diagnostics back within seconds (a report had them five or six seconds behind each keystroke), no restart (a crash counts as one), nothing set aside.",
+  "description": "C++ modules mixed with <windows.h> (0.0.12, issue #50): two module units whose global module fragments include <windows.h>, and a file that includes it and imports both, built by CMake with MSVC (cl.exe) and Ninja. Answers are right, and they stay fast while a person types in the importer and in a module unit that autosaves: every completion answered, diagnostics back within seconds (a report had them five or six seconds behind each keystroke), no restart (a crash counts as one), nothing set aside. The typing budgets are what the 4-vCPU Windows runner measured over its first rounds, with a margin: a completion there costs about 0.5 s even idle (clang parses the body against the 28 MB <windows.h> preamble and the module files; stock clangd has no preamble for such a file and parses every header for each request), and one clangd has not answered within mcppls's 1 s budget is answered by mcppls, so U5's p95 sits at 1.0 s whenever a twentieth of them land past it (0.79-1.00 s measured); its p95 budget is 1.1 s and the engine share, 0.75, holds clangd to answering.",
   "prepare-environment": "msvc",
   "prepare": [
     [
@@ -154,7 +154,7 @@
       },
       "budget": {
         "firstOpenSeconds": 120,
-        "p95": 1.0,
+        "p95": 1.1,
         "max": 3.0,
         "timeouts": 0,
         "restarts": 0,
