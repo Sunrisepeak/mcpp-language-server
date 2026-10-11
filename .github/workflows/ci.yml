@@ -264,7 +264,7 @@ jobs:
             part=$(dirname "$(find candidate -path '*clangd/engine.json' | head -1)")
             chmod +x "$part"/bin/*
             jq '{version: .["engine-version"], fork: .["fork-commit"], sha256, features}' "$part/engine.json"
-            engine=(--clangd "$part")
+            engine=(--clangd "$part" --candidate)
           fi
           server="cross/mcppls${{ matrix.exe }}"
           runner="cross/mcppls-conformance${{ matrix.exe }}"

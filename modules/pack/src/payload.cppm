@@ -36,6 +36,9 @@ struct AssembleOptions {
     std::string outDirectory;                   // replaced if it exists
     std::string repositoryRoot;                 // LICENSE and (best-effort) git provenance live here
     std::optional<std::string> serverVersion;   // defaults to mcppls::base::VERSION
+    // A new engine under test (docs/92-release.md, "A new engine"): another fork version of the locked LLVM base is taken,
+    // its identity still checked. A release never sets it: its engine is the lock's.
+    bool candidateEngine { false };
 };
 
 // Assembles the payload directory; returns its path. Every check assemble_payload.py made before

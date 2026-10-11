@@ -261,7 +261,7 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
         auto digest = fetch::digest_of(clangdBinary);
         if (!decoded || !digest) return base::fail("payload-engine-identity", "cannot read a complete engine identity and binary SHA");
         if (base::llvm_base_version(decoded->version) != base::llvm_base_version(lockData.clangdVersion) ||
-            (maintained && decoded->version != lockData.clangdVersion)) {
+            (maintained && decoded->version != lockData.clangdVersion && !options.candidateEngine)) {
             return base::fail("payload-engine-identity", "supplied engine does not match the locked LLVM base or fork version");
         }
         engineVersion = decoded->version;

@@ -100,7 +100,7 @@ struct Payload {
 Payload assemble_payload(const std::string& root, std::string_view platformName, const std::string& outDirectory,
                          const std::string& clangdDirectory, const std::string& kitDirectory,
                          const std::string& serverPath, const std::string& cacheDirectory,
-                         std::optional<std::string> serverVersion, bool strip) {
+                         std::optional<std::string> serverVersion, bool strip, bool candidateEngine) {
     const std::string work { base::join_path(root, "target/pack") };
     (void) platform::fs::create_directories(work);
 
@@ -155,6 +155,7 @@ Payload assemble_payload(const std::string& root, std::string_view platformName,
         .outDirectory = outDirectory,
         .repositoryRoot = root,
         .serverVersion = serverVersion,
+        .candidateEngine = candidateEngine,
     }, *lockData);
     if (!assembled) {
         std::println(std::cerr, "  assembling the payload failed: {}", assembled.error().message);
@@ -338,7 +339,7 @@ int command_payload(const cmdline::ParsedArgs& arguments) {
     const bool strip { !arguments.is_flag_set("no-strip") };
     const auto payload = assemble_payload(root, *platformName, out, arguments.value("clangd").value_or(""),
                                           arguments.value("kit").value_or(""), *server, cache,
-                                          arguments.value("server-version"), strip);
+                                          arguments.value("server-version"), strip, arguments.is_flag_set("candidate"));
     if (!payload.built) return 1;
 
     auto problems = pack::payload::verify(payload.directory);
@@ -400,7 +401,7 @@ int put_payload(const std::string& root, const cmdline::ParsedArgs& arguments, c
     if (!server) return 2;
     const auto payload = assemble_payload(root, mcppls::os::PLATFORM, directory,
                                           arguments.value("clangd").value_or(""), arguments.value("kit").value_or(""),
-                                          *server, base::join_path(root, ".payload-cache"), std::nullopt, true);
+                                          *server, base::join_path(root, ".payload-cache"), std::nullopt, true, false);
     return payload.built ? 0 : 1;
 }
 
@@ -639,6 +640,7 @@ cmdline::App payload_command(bool& handled, int& status) {
     (void) command.option("kit").takes_value().help("Use this already-built semantic kit directory");
     (void) command.option("cache").takes_value().help("Where fetched inputs are cached (default <root>/.payload-cache)");
     (void) command.option("no-strip").help("Keep clangd's debug symbols instead of stripping it");
+    (void) command.option("candidate").help("With --clangd: a new engine under test, another fork version of the locked LLVM base (CI only)");
     (void) command.option("only").takes_value().help("clangd: trim clangd alone and stop there");
     (void) command.option("verify").takes_value().value_name("DIR").help("Only check an already-assembled payload");
     (void) command.option("from").takes_value().value_name("DIR").help("Copy an already-assembled payload to --out instead of building one");
