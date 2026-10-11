@@ -7,7 +7,7 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
-## [0.0.12] — 2026-10-09
+## [0.0.12] — 2026-10-11
 
 The bundled clangd is now **mcppls-clangd**: LLVM 23.1.0 with 25 patches for C++ modules
 ([mcppls-clangd 0.0.12](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.12),
