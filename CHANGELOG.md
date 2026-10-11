@@ -64,7 +64,9 @@ identity, and the server checks both before it trusts what the engine declares.
   lost, evicted or damaged is built again, and when its bytes are the same its importers are
   reused instead of being rebuilt one by one (ux-mcpp: 42 importers after one lost module).
   Reusing a cached module no longer looks at every slot of the cache, which made each of a
-  request's prerequisites cost about 12 ms (1-2 s for a completion right after an autosave).
+  request's prerequisites cost about 12 ms, and a file's last prerequisites stay with the engine
+  between requests, so typing an import no longer copies every module it needs again (1-2 s for a
+  completion right after an autosave).
 - **The module cache follows the workspace's cache budget.** On Linux, mcppls-clangd's own module
   cache gets three quarters of `mcppls.cache.maxBytes` (at least 1 GiB; unbounded when the budget
   is) instead of a fixed 1 GiB, past which module builds waited for room: a profile change with
