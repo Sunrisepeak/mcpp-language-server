@@ -320,6 +320,7 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
                 std::format("{} generated {} the build description names in its planning directory {} read from the project's own build output",
                             generated.relocated.size(), generated.relocated.size() == 1 ? "path" : "paths", generated.relocated.size() == 1 ? "is" : "are") });
         }
+        model.generatedMissing = generated.missing;
         if (!generated.missing.empty()) {
             std::vector<std::string> names;
             for (const auto& path : generated.missing) names.push_back(std::string { base::file_name(path) });
