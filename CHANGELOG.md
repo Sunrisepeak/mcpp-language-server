@@ -7,6 +7,64 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.13] — 2026-10-12
+
+The bundled engine is [mcppls-clangd 0.0.13](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.13)
+(`23.1.0-mcppls.1`): 28 patches, three of them new. This release is about seeing what happens, opening a project
+again quickly, and editing without one failure taking the rest down.
+
+### Completion and modules
+
+- **Completion answers while modules are still being built.** In a file that imports modules, completion
+  waits for the file's first preamble at most 600 ms and for a module the file newly imports at most 250 ms.
+  Past that it answers with what there is, marked incomplete, so the editor asks again as you type and the
+  imported names come once they are built. Completion used to wait for every missing module: minutes on a
+  large Windows project while its modules were prepared.
+- **One module that does not compile leaves the others** (#47). The files importing it keep every other
+  module, `std` included; the import of the failed module says `module M did not compile: <its first error>`,
+  and the error is in the default log too. The module is tried again once its source changes. With an older
+  engine, its importers are answered by mcppls's own engine as before (`WA-CLANGD-014`).
+- **A file typed into without a pause is not taken for one clangd will not finish** (#53). clangd builds such a
+  file version after version under one "parsing" status; each version is now timed on its own, and a build that
+  really never ends is still found.
+
+### build.mcpp
+
+- **A build program that does not compile leaves the project its complete description.** A half-typed
+  `build.mcpp`, or one mcpp fails to compile or run for a reason of its own, no longer takes the targets' flags
+  and generated units away. The state stays ready with a `build-program-failed` notice, mcpp's error is a
+  diagnostic on `build.mcpp` at its line, and clangd is not restarted. The next complete description is taken.
+- **A changed `build.mcpp` is applied once it is saved, left alone for two seconds, and compiles in the
+  editor.** Describing the project compiles and runs the build program; a run for every autosave was the
+  cost. The status says `build-program-held` while it waits. New setting `mcppls.buildProgram.apply`
+  (`auto`, or `manual` with **C++ Modules: Apply build.mcpp**, `mcppls.applyBuildProgram`).
+- **An include the build has not generated yet says so**: build once (**Build in Terminal**) and it has its
+  semantics.
+
+### Opening a project again
+
+- **A checkout keeps the cached model.** The model cache records each input's content: a branch switch or a
+  restored file that rewrites the build description with its own bytes leaves the cache fresh, where every
+  warm start of a large Windows project began "older than its inputs" after one. When an input did change,
+  the log names it.
+- Together with the kept description above, a warm start no longer describes the project differently from
+  the session before when mcpp fails midway, which made its modules be built again under other commands.
+
+### Seeing what happens
+
+- **Versions in the overview.** The status and the report carry `about`: the server, the editor package, the
+  engine and how often it was restarted, the kit and the mcpp in use, with no paths (S3-4-31). VS Code's hub
+  opens with them (click to copy) and the running state. An editor package that started a server other than
+  its own is called out (`version-mismatch`).
+- **A default log says why.** One line per start says what it cost (model, engine, first diagnostics, first
+  completion, modules built and why, restarts, ready); the report keeps the last five starts. mcppls-clangd
+  says why each module is rebuilt and what each file's modules cost; every ten minutes of use a health line
+  sums up requests and the engine. clangd's command echo after every file build is kept at debug, and its
+  errors are limited apart from its chatter. Restarts say whether they count against clangd. A turn of the
+  timers that holds the event loop says which part held it. `docs/50-troubleshooting.md` lists the lines.
+- Watched-file changes that are not files no longer make clangd refuse the whole notification (#53).
+- The mcpp version is kept with mcpp's answer, so every describe reports it.
+
 ## [0.0.12] — 2026-10-11
 
 The bundled clangd is now **mcppls-clangd**: LLVM 23.1.0 with 25 patches for C++ modules

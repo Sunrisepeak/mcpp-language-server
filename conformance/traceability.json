@@ -2213,5 +2213,28 @@
     {
       "check": "format-external/E3-native-default"
     }
+  ],
+  "S3-4-31": [
+    {
+      "check": "build-program-broken/S1"
+    },
+    {
+      "script": "src/orchestrator/workspace.cpp",
+      "contains": "{ \"about\", about_json() },"
+    }
+  ],
+  "S3-4-32": [
+    {
+      "script": "src/orchestrator/workspace.cpp",
+      "contains": "notices.push_back(Json { { \"code\", \"version-mismatch\" }"
+    }
+  ],
+  "S3-4-33": [
+    {
+      "check": "build-program-broken/S2-kept-and-ready"
+    },
+    {
+      "check": "build-program-manual/S2-held"
+    }
   ]
 }

@@ -2739,7 +2739,7 @@ struct Workspace::Impl final : engine::Host {
     void say_startup_() {
         startup.said = true;
         startup.ready = since_start_();
-        const Json json { startup_json_() };
+        const Json json = startup_json_();
         std::string rebuilt { "?" };
         if (json.contains("modulesBuilt")) {
             rebuilt = std::to_string(json["modulesBuilt"].get<std::size_t>());
@@ -3041,7 +3041,7 @@ void Workspace::start(Json clientParams, bool clientSupportsStatus, bool usePoll
     log::info("mcppls {} ({}) root {}", base::VERSION, mcppls::os::PLATFORM, root_);
     {
         // 0.0.13 W7: the versions in the log's first lines, so a log read alone says what ran.
-        const Json about { impl_->about_json() };
+        const Json about = impl_->about_json();
         std::string editor;
         if (about.contains("editor")) editor = std::format(" · editor {} {}", about["editor"].value("name", std::string {}), about["editor"].value("version", std::string {}));
         log::info("versions ({}): server {}{}{}", root_, base::VERSION,

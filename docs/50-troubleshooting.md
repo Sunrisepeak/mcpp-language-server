@@ -7,6 +7,8 @@ carrying what almost every question turns out to need:
 
 | In the report | Answers |
 |---|---|
+| `about` | Which mcppls, editor package, engine (and how often it was restarted), kit and mcpp are running, with no path in it; `about.mismatch` when the editor package started a server other than its own. VS Code shows it at the top of the hub's overview (click it to copy) |
+| `startup`, `startups` | What this start cost — model and where it came from, engine, first diagnostics, first completion, modules built by why, restarts, ready — and the last five starts of the workspace, to compare a warm start with a cold one |
 | `project.source`, `project.tier`, `project.level` | Where the build description came from (`tier`, the README's L1..L4), and how complete its document is (`level`, S1's own number — a different question from `tier`) |
 | `project.notices` | Facts worth knowing that cost no feature: a stale database entry dropped, a generated module recovered instead of stubbed, a producer negotiated in place of the project's pinned mcpp |
 | `project.origin` / `firstOrigin` | Whether this session started from the cache, from the build tool, or from scanned sources |
@@ -21,6 +23,26 @@ carrying what almost every question turns out to need:
 
 Log files outlive the editor: the report names the path, and they are kept under the cache
 directory with timestamps.
+
+### What the log says
+
+A default log (`info`) answers "why is it slow" and "why did it do that" without `debug`. These
+lines have a fixed shape; the report's `events` carry the same facts.
+
+| Line | Says |
+|---|---|
+| `versions (<root>): server … · extension … · editor …` | What is running; a `version mismatch` warning follows when the editor package started another server |
+| `startup (<root>): model <origin> <s> · engine <s> · first diagnostics <s> · first completion <s> · modules built <n> (<n> <why>, …) · restarts <n> · ready <s>` | One line per start, when the root is first ready |
+| `health (<root>): completion <n> p50 … p95 …, <n>% by the core engine · … · engine <state> (<n> restarts, <n> modules built)` | Every ten minutes of use |
+| `the cached <kind> model for <root> is older than its inputs (<which input, and how>)` | Why a warm start could not use its model at once; one rewritten with its own bytes (a checkout) is not stale |
+| `clangd (<root>): I[…] Rebuilding module <M>: <why>` | mcppls-clangd 0.0.13: why a module was built rather than reused — none for this command and prerequisites (and how many were built with others), or the input that changed |
+| `clangd (<root>): I[…] Prerequisites of <file>: <n> modules, <n> reused, <n> built, <n> failed, in <s> (reuse checks <s>, builds <s>, the rest scanning and planning)` | What one file's modules cost |
+| `clangd (<root>): I[…] Preamble of <file> is not compatible: <why>` | Why a file's preamble was built again |
+| `restarting clangd (<root>): <reason> (<cause>)` | Every restart, and whether it counts against clangd |
+| `the timers of <root> took <ms> ms, <ms> ms of them in <part>` | What held the event loop |
+
+The command clangd echoes after each file build is kept at `debug`, and clangd's own errors and the
+lines above are limited apart from its chatter, so a burst of the one never leaves the other out.
 
 The report is made to be shared: your home directory is `~` in it, your user and machine names are
 `<user>` and `<host>`, and anything that looks like a secret (a token, a password, an API key, an
@@ -130,6 +152,23 @@ With the bundled mcppls-clangd (0.0.12) neither happens: it finishes `import hel
 reports an import of a module the project does not have, so the file stays with clangd, and only a
 module unit's own such import gets a stand-in, once the unit has not been edited for a few seconds
 (`WA-CLANGD-001` and `WA-CLANGD-013` retire for an engine that declares the fix).
+
+**Completion right after opening a file that imports modules lists only words, then the names.** With
+mcppls-clangd 0.0.13, completion waits for a file's first preamble at most 600 ms and for a module the
+file newly imports at most 250 ms; past that it answers with what there is, marked incomplete, so the
+editor asks again as you type and gets the imported names once they are built.
+
+**One module does not compile, and the files importing it lost everything.** With mcppls-clangd 0.0.13
+they keep every other module: the import of the failed one says `module M did not compile: <its first
+error>`, and the rest of the file works. With an older engine the importers are answered by mcppls's
+own engine until the module changes (`WA-CLANGD-014`).
+
+**Typing in `build.mcpp` restarted clangd, or a target lost its flags.** A changed `build.mcpp` is
+applied (mcpp describes the project again, compiling and running it) once it is saved and left alone
+for two seconds, and not while the editor shows errors in it — the status says `build-program-held`.
+If it then does not compile, the project keeps its last complete description: the status says
+`build-program-failed`, mcpp's error is on `build.mcpp`, and nothing restarts. `mcppls.buildProgram.apply
+= manual` applies it only with **C++ Modules: Apply build.mcpp**.
 
 **"Import directive must end with a ';'" on the wrong line, or "module X not found" for an import you
 just typed.** clangd reports a directive missing its `;` on the code after it; mcppls moves the
