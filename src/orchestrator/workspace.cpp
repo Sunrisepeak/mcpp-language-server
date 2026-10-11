@@ -410,6 +410,18 @@ struct Workspace::Impl final : engine::Host {
     std::string producerPath;                            // for the fingerprint of the next save
     std::string producerVersion;
     std::string staleCacheWhy;   // which input made the cached model stale (0.0.13 W6)
+    // 0.0.13 W6: this start's timeline, said in one line when the root is first ready and kept, with the last few starts,
+    // in the report and in <cache>/startups.json: a warm start and a cold one are compared from those lines alone.
+    struct Startup {
+        Clock::time_point began { Clock::now() };
+        std::string beganUtc;
+        std::optional<double> model, engine, firstDiagnostics, firstCompletion, ready;
+        std::string origin;
+        bool said { false };
+    };
+    Startup startup;
+    std::optional<Clock::time_point> healthAt;
+    std::size_t healthRequestsSeen { 0 };
     std::string keptModelNotice;   // why a newer answer was not taken in place of this model (0.0.13 W3)
     // 0.0.13 W3(a): a build program (build.mcpp) changed and the project is not described again yet. Describing it
     // compiles and runs the build program, so a change is applied once it has been saved and left alone for a moment,
@@ -535,7 +547,10 @@ struct Workspace::Impl final : engine::Host {
 
     void publish_engine_diagnostics(std::string_view engineId, const std::string& uri, Json diagnostics, std::optional<std::int64_t> version) override {
         engineDiagnostics[std::string { engineId }][uri] = std::move(diagnostics);
-        if (coreEngine != nullptr && engineId == coreEngine->id()) coreDiagnosticsVersions[uri] = version.value_or(-1);
+        if (coreEngine != nullptr && engineId == coreEngine->id()) {
+            coreDiagnosticsVersions[uri] = version.value_or(-1);
+            if (!startup.firstDiagnostics) startup.firstDiagnostics = since_start_();
+        }
         publish_diagnostics(uri, true);
         // A build program waiting on clangd's verdict gets it now.
         if (!buildProgramPending.empty() && coreEngine != nullptr && engineId == coreEngine->id() && !buildProgramCheckAt) {
@@ -552,6 +567,7 @@ struct Workspace::Impl final : engine::Host {
 
     void engine_settled(std::string_view engineId, const Json& serverCapabilities) override {
         if (coreEngine != nullptr && engineId != coreEngine->id()) return;
+        if (!startup.engine) startup.engine = since_start_();
         if (coreEngine != nullptr) coreCapabilities = serverCapabilities;
         // Rebuilt from the very capabilities merge_capabilities is about to see (or already saw,
         // for the first root), so a request's core-engine tokens are always remapped by the same
@@ -811,6 +827,7 @@ struct Workspace::Impl final : engine::Host {
         };
         consider(reloadAt);
         consider(buildProgramCheckAt);
+        consider(healthAt);
         consider(replanAt);
         if (!coreWaitOver) consider(coreWaitUntil);
         consider(loadGiveUpAt);
@@ -1239,6 +1256,10 @@ struct Workspace::Impl final : engine::Host {
         if (stats.recentMs.size() > 256) stats.recentMs.pop_front();
         stats.maxMs = std::max(stats.maxMs, ms);
         if (!job.answeredBy.empty()) ++stats.answeredBy[job.answeredBy];
+        if (!startup.firstCompletion && job.method == "textDocument/completion" && outcome == "result" && coreEngine != nullptr
+            && job.answeredBy == coreEngine->id()) {
+            startup.firstCompletion = since_start_();
+        }
         if (job.engineSentAt && job.engineRepliedAt && outcome == "result") {
             const double engineMs { std::chrono::duration<double, std::milli>(*job.engineRepliedAt - *job.engineSentAt).count() };
             stats.recentEngineMs.emplace_back(engineMs, std::max(0.0, ms - engineMs));
@@ -1600,7 +1621,13 @@ struct Workspace::Impl final : engine::Host {
         }
     }
 
+    double since_start_() const { return std::chrono::duration<double>(Clock::now() - startup.began).count(); }
+
     void note_model_source(std::string origin) {
+        if (!startup.model) {
+            startup.model = since_start_();
+            startup.origin = origin;
+        }
         modelOrigin = std::move(origin);
         if (firstModelOrigin.empty()) firstModelOrigin = modelOrigin;
         staleCache.reset();   // whatever it was waiting to be used instead of, that has happened
@@ -2518,6 +2545,7 @@ struct Workspace::Impl final : engine::Host {
         // sending progress after the gate sends it to the only client that already had it.
         update_progress(state, coreEngine != nullptr ? std::optional { coreEngine->status() } : std::nullopt);
         if (state == State::ready || state == State::degraded) say_one_engine_per_file_once();
+        if (state == State::ready && !startup.said) say_startup_();
         if (!clientSupportsStatus) return;
         Json issues = Json::array();
         auto add = [&](std::string_view code, std::string_view message, std::string_view command, std::string_view title = "Fix",
@@ -2655,6 +2683,95 @@ struct Workspace::Impl final : engine::Host {
     }
 
     // ---- timers -----------------------------------------------------------------------
+
+    static std::string seconds_text_(const std::optional<double>& value) {
+        return value ? std::format("{:.1f} s", *value) : std::string { "-" };
+    }
+
+    Json startup_json_() const {
+        Json json { { "began", startup.beganUtc }, { "origin", startup.origin } };
+        const auto put = [&](std::string_view key, const std::optional<double>& value) {
+            if (value) json[std::string { key }] = std::round(*value * 100) / 100;
+        };
+        put("modelSeconds", startup.model);
+        put("engineSeconds", startup.engine);
+        put("firstDiagnosticsSeconds", startup.firstDiagnostics);
+        put("firstCompletionSeconds", startup.firstCompletion);
+        put("readySeconds", startup.ready);
+        if (coreEngine != nullptr) {
+            const engine::EngineStatus core { coreEngine->status() };
+            std::size_t built { 0 };
+            for (const auto& [why, count] : core.rebuilds) built += count;
+            json["modulesBuilt"] = built;
+            json["rebuilds"] = Json(core.rebuilds);
+            json["restarts"] = core.restarts;
+        }
+        return json;
+    }
+
+    void say_startup_() {
+        startup.said = true;
+        startup.ready = since_start_();
+        const Json json { startup_json_() };
+        std::string rebuilt { "?" };
+        if (json.contains("modulesBuilt")) {
+            rebuilt = std::to_string(json["modulesBuilt"].get<std::size_t>());
+            std::string reasons;
+            for (const auto& entry : json["rebuilds"].items()) {
+                reasons += std::format("{}{} {}", reasons.empty() ? "" : ", ", entry.value().get<std::size_t>(), entry.key());
+            }
+            if (!reasons.empty()) rebuilt += std::format(" ({})", reasons);
+        }
+        log::info("startup ({}): model {} {} · engine {} · first diagnostics {} · first completion {} · modules built {} · restarts {} · ready {}", root,
+                  startup.origin.empty() ? std::string { "none" } : startup.origin, seconds_text_(startup.model), seconds_text_(startup.engine),
+                  seconds_text_(startup.firstDiagnostics), seconds_text_(startup.firstCompletion), rebuilt,
+                  json.value("restarts", std::size_t { 0 }), seconds_text_(startup.ready));
+        journal.add("startup", json);
+        // The last five starts of this workspace, newest last.
+        const std::string path { base::join_path(cacheDirectory, "startups.json") };
+        Json history = Json::array();
+        if (auto text = platform::fs::read_file(path)) {
+            history = Json::parse(*text, nullptr, false);
+            if (!history.is_array()) history = Json::array();
+        }
+        history.push_back(json);
+        while (history.size() > 5) history.erase(history.begin());
+        (void)platform::fs::write_file_atomic(path, history.dump());
+        healthAt = Clock::now() + HEALTH_EVERY;
+    }
+
+    static constexpr std::chrono::minutes HEALTH_EVERY { 10 };
+
+    // 0.0.13 W6: one line every ten minutes of use: how requests fared and what the engine did meanwhile.
+    void say_health_() {
+        healthAt = Clock::now() + HEALTH_EVERY;
+        std::size_t requests { 0 };
+        for (const auto& [method, stats] : requestStats) requests += stats.count;
+        if (requests == healthRequestsSeen) return;   // nothing was asked: nothing to say
+        healthRequestsSeen = requests;
+        std::string methods;
+        for (const std::string_view method : { "textDocument/completion", "textDocument/hover", "textDocument/definition" }) {
+            const auto found = requestStats.find(method);
+            if (found == requestStats.end() || found->second.recentMs.empty()) continue;
+            std::vector<double> sorted { found->second.recentMs.begin(), found->second.recentMs.end() };
+            std::ranges::sort(sorted);
+            const auto at = [&](double p) { return sorted[std::min(sorted.size() - 1, static_cast<std::size_t>(p * static_cast<double>(sorted.size())))]; };
+            std::size_t byCore { 0 };
+            if (coreEngine != nullptr) {
+                if (const auto by = found->second.answeredBy.find(coreEngine->id()); by != found->second.answeredBy.end()) byCore = by->second;
+            }
+            methods += std::format("{}{} {} p50 {:.0f} ms p95 {:.0f} ms, {}% by the core engine", methods.empty() ? "" : " · ", method.substr(method.find('/') + 1),
+                                   found->second.count, at(0.5), at(0.95), found->second.count == 0 ? 0 : byCore * 100 / found->second.count);
+        }
+        std::string engineText;
+        if (coreEngine != nullptr) {
+            const engine::EngineStatus core { coreEngine->status() };
+            std::size_t built { 0 };
+            for (const auto& [why, count] : core.rebuilds) built += count;
+            engineText = std::format(" · engine {} ({} restarts, {} modules built)", core.state, core.restarts, built);
+        }
+        log::info("health ({}): {}{}", root, methods.empty() ? std::string { "no timed requests" } : methods, engineText);
+    }
 
     static constexpr std::chrono::milliseconds BUILD_PROGRAM_QUIET { 2000 };
     static constexpr std::chrono::seconds BUILD_PROGRAM_VERDICT_WAIT { 10 };
@@ -2803,6 +2920,7 @@ struct Workspace::Impl final : engine::Host {
         phase("starting a model load");
         if (replanAt && *replanAt <= now) replan();
         if (buildProgramCheckAt && *buildProgramCheckAt <= now) check_build_program();
+        if (healthAt && *healthAt <= now) say_health_();
         phase("a replan");
         if (coreWaitUntil && !coreWaitOver && *coreWaitUntil <= now) {
             coreWaitOver = true;
@@ -2891,6 +3009,8 @@ void Workspace::start(Json clientParams, bool clientSupportsStatus, bool usePoll
     impl_->dynamicWatch = !usePolling;
     if (usePolling) impl_->start_watch_polling();
     impl_->startedAtUtc = std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
+    impl_->startup = Impl::Startup {};
+    impl_->startup.beganUtc = impl_->startedAtUtc;
     log::info("mcppls {} ({}) root {}", base::VERSION, mcppls::os::PLATFORM, root_);
     {
         // 0.0.13 W7: the versions in the log's first lines, so a log read alone says what ran.
@@ -3264,7 +3384,12 @@ Json Workspace::report() const {
                                                      { "maxMicros", impl.spaceTrigger.maxMicros }, { "totalMicros", impl.spaceTrigger.totalMicros } } },
                            { "keywordsWithoutEngine", impl.keywordsWithoutEngine }, { "wordsWithoutCore", impl.wordsWithoutCore },
                            { "late", Json { { "arrived", impl.lateCompletionsArrived }, { "served", impl.lateCompletionsServed } } } };
-    return Json { { "root", root_ }, { "key", key_ }, { "about", impl.about_json() }, { "cacheDirectory", impl.cacheDirectory },
+    Json startups = Json::array();
+    if (auto text = platform::fs::read_file(base::join_path(impl.cacheDirectory, "startups.json"))) {
+        startups = Json::parse(*text, nullptr, false);
+        if (!startups.is_array()) startups = Json::array();
+    }
+    return Json { { "root", root_ }, { "key", key_ }, { "about", impl.about_json() }, { "startup", impl.startup_json_() }, { "startups", std::move(startups) }, { "cacheDirectory", impl.cacheDirectory },
                   { "trusted", impl.options.trusted }, { "state", std::string { to_string(impl.compute_state()) } }, { "project", std::move(project) },
                   { "toolEnvironment", std::move(environment) }, { "toolRuns", std::move(toolRuns) },
                   { "plan", std::move(plan) }, { "engines", std::move(engines) }, { "requests", std::move(requests) },

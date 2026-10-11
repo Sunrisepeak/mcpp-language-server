@@ -35,11 +35,12 @@ namespace {
 // A workaround retires for an engine whose verified identity declares the capability that proves its defect
 // fixed (S4-4-10: a version suffix grants none). mcppls-clangd proves each on its final package bytes.
 bool fixed_by_verified_features(std::string_view id, std::span<const std::string> features) {
-    static constexpr std::array<std::pair<std::string_view, std::string_view>, 4> RETIRED_BY { {
+    static constexpr std::array<std::pair<std::string_view, std::string_view>, 5> RETIRED_BY { {
         { DIRECTIVE_SEMICOLON_POSITION, "module-directive-diagnostic-ranges" },
         { TRAILING_DOT_MODULE_NAME, "module-directive-recovery" },
         { CONST_CORRECTNESS_VIEWS, "const-correctness-views" },
         { IMPORTER_STAND_INS, "unresolved-import-recovery" },
+        { FAILED_MODULE_IMPORTERS, "partial-prerequisite-modules" },
     } };
     for (const auto& [workaround, feature] : RETIRED_BY) {
         if (id == workaround) return std::ranges::find(features, feature) != features.end();
@@ -68,6 +69,7 @@ EngineTraits traits_for_version(std::string_view version, std::span<const std::s
         .readsImportsFromDisk = on(UNSAVED_IMPORT_NOT_FOUND),
         .scansModulesOnEveryRequest = on(MODULE_SCAN_PER_REQUEST),
         .flagsNonConstViewsConst = on(CONST_CORRECTNESS_VIEWS),
+        .losesAllModulesOnOneFailure = on(FAILED_MODULE_IMPORTERS),
         // A maintained engine (23.1.0-mcppls.<n>) is its LLVM base for the kit, and the one this server bundles is
         // what its conformance suite runs.
         .kitStdlibVersion = std::string { base::llvm_base_version(version) },
@@ -393,6 +395,8 @@ private:
     // robustness design O1, O3: for a report of a problem.
     std::deque<std::pair<std::string, std::string>> restartHistory_;   // (UTC time, reason), the latest 20
     std::size_t restartTotal_ { 0 };                                     // every restart of this session, past the 20 kept
+    std::map<std::string, std::size_t, std::less<>> rebuilds_;           // modules built, by why (0.0.13 W6)
+    std::deque<std::pair<std::string, std::string>> recentRebuilds_;    // (module, why), the latest 30
     std::size_t linesLeftOut_ { 0 };                                   // clangd log lines the limiter left out
     ProcessConfig lastConfig_;
     std::map<std::string, Clock::time_point, std::less<>> touchedAt_;   // path key -> when the document was last opened or changed
@@ -527,6 +531,7 @@ public:
         if (preparingBusy) std::tie(status.prepared, status.toPrepare) = primer_.progress();
         status.issues = issues_;
         status.restarts = restartTotal_;
+        status.rebuilds = rebuilds_;
         if (stalled && doomedModules_.empty()) {
             status.issues.push_back(Issue { "preparation-stalled",
                 std::format("module preparation made no progress for a minute ({}/{} done)", status.prepared, status.toPrepare), "mcppls.showLogs" });
@@ -590,6 +595,11 @@ public:
             { "unavailable", unavailable_ },
             { "recentExits", crashes_.size() },
             { "restarts", std::move(restarts) },
+            { "rebuilds", Json { { "byReason", Json(rebuilds_) }, { "recent", [&] {
+                  Json recent = Json::array();
+                  for (const auto& [module, why] : recentRebuilds_) recent.push_back(Json { { "module", module }, { "why", why } });
+                  return recent;
+              }() } } },
             { "restartScheduled", restartAt_.has_value() },
             { "filesSetAside", quarantine_.members() },
             { "filesWaitingForDatabase", held_files_() },
@@ -1287,6 +1297,8 @@ public:
             note_scan_failure_(event.value("file", std::string {}), event.value("reason", std::string {}), event.value("driver", false));
         } else if (kind == "module-lock-wait") {
             handle_module_lock_wait_(event.value("path", std::string {}));
+        } else if (kind == "module-rebuild") {
+            note_rebuild_(event.value("module", std::string {}), event.value("reason", std::string {}));
         } else if (kind == "ast-build") {
             // 0.0.13 W4 (#53): clangd began building another version of a file. A file typed in without a pause is rebuilt
             // version after version while its status says "parsing main file" throughout; each build is timed on its own.
@@ -1751,6 +1763,14 @@ private:
                 if (read.astBuild) {
                     sink(Json { { "kind", "ast-build" }, { "generation", generation }, { "file", read.astBuild->file }, { "version", read.astBuild->version } });
                 }
+                // mcppls-clangd 0.0.13: "Rebuilding module M: <why>", once per module it builds.
+                if (const std::size_t at { line.find("Rebuilding module ") }; at != std::string_view::npos) {
+                    const std::string_view rest { line.substr(at + 18) };
+                    if (const std::size_t colon { rest.find(": ") }; colon != std::string_view::npos) {
+                        sink(Json { { "kind", "module-rebuild" }, { "generation", generation }, { "module", std::string { rest.substr(0, colon) } },
+                                    { "reason", std::string { rest.substr(colon + 2) } } });
+                    }
+                }
                 if (read.important || parse_module_failure(line)) {
                     if (level == log::Level::warning) log::warning("clangd ({}): {}", root, line);
                     else log::info("clangd ({}): {}", root, line);
@@ -1827,7 +1847,10 @@ private:
     void restart_(std::string_view reason, RestartCause cause = RestartCause::recovery) {
         if (incompatible_) return;   // it cannot run on this machine; another start changes nothing
         settle_exit_();   // the verdict on the last exit comes first, whatever brings the restart forward
-        log::info("restarting clangd ({}): {} ({})", host_->root_directory(), reason, to_string(cause));
+        // 0.0.13 W6: `user` is "never counted against clangd" -- a person's command, or a change of theirs (a toolchain, a model
+        // replacing the provisional one); the log says that rather than "(user)", which read as if someone had asked.
+        log::info("restarting clangd ({}): {} ({})", host_->root_directory(), reason,
+                  cause == RestartCause::user ? std::string_view { "not counted against clangd" } : to_string(cause));
         restartGate_.record(Clock::now(), cause);
         ++restartTotal_;
         restartHistory_.emplace_back(std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now())), std::string { reason });
@@ -2102,9 +2125,29 @@ private:
                 }
                 continue;
             }
-            if (!traits_.readsImportsFromDisk || code != "module_not_found") continue;
-            const auto name = module_not_found_name(diagnostic.value("message", std::string {}));
+            if (code != "module_not_found" && code != "ast_file_not_found") continue;
+            // "module 'M' not found", or, where the database names each module's BMI (WA-CLANGD-004), "Module file
+            // '<context>/module-hints/M.pcm' not found".
+            const auto name = code == "module_not_found" ? module_not_found_name(diagnostic.value("message", std::string {}))
+                                                          : hint_module_name_(diagnostic.value("message", std::string {}));
             if (!name) continue;
+            // 0.0.13 W2 (#47): an import of a module that did not compile says why, where clangd says only "not found".
+            if (doomedModules_.contains(*name)) {
+                // The words and code of the diagnostic WA-CLANGD-014 publishes for an importer it serves (publish_doom_diagnostic_).
+                std::string message { std::format("module {} did not compile", *name) };
+                for (const auto& [rootModule, info] : doomRoots_) {
+                    const auto dooms = doomed_modules(moduleRequires_, rootModule);
+                    if (rootModule == *name || std::ranges::find(dooms, *name) != dooms.end()) {
+                        message = rootModule == *name ? std::format("module {} did not compile: {}", rootModule, info.reason)
+                                                      : std::format("module {} cannot be built because {} did not compile: {}", *name, rootModule, info.reason);
+                        break;
+                    }
+                }
+                diagnostic["message"] = std::move(message);
+                diagnostic["code"] = "module-failed";
+                continue;
+            }
+            if (!traits_.readsImportsFromDisk || code != "module_not_found") continue;
             const auto provider = moduleSources_.find(*name);
             if (provider == moduleSources_.end() || generated_path_(provider->second) || document->path.empty()) continue;
             if (!bufferImports) bufferImports = project::required_names(project::scan_source(document->text));
@@ -2120,7 +2163,30 @@ private:
         }
     }
 
+    // The module of a missing BMI this server named in the database: ".../module-hints/<module>.pcm".
+    static std::optional<std::string> hint_module_name_(std::string_view message) {
+        static constexpr std::string_view HINTS { "module-hints" };
+        const std::size_t at { message.find(HINTS) };
+        if (at == std::string_view::npos || at + HINTS.size() >= message.size()) return std::nullopt;
+        std::string_view rest { message.substr(at + HINTS.size() + 1) };
+        const std::size_t end { rest.find(".pcm") };
+        if (end == std::string_view::npos || end == 0) return std::nullopt;
+        return std::string { rest.substr(0, end) };
+    }
+
     static std::size_t text_hash_(std::string_view text) { return std::hash<std::string_view> {}(text); }
+
+    // 0.0.13 W6: a warm start that rebuilds what it should reuse is found by why its modules were built.
+    void note_rebuild_(std::string module, std::string reason) {
+        std::string category { "other" };
+        if (reason.starts_with("no BMI was built for it before")) category = "no-bmi";
+        else if (reason.starts_with("no BMI for this command")) category = reason.contains(" built with other ") ? "command" : "no-bmi";
+        else if (reason.contains("has been modified") || reason.contains("changed")) category = "input";
+        else if (reason.contains("not valid") || reason.contains("could not be validated") || reason.contains("not a valid")) category = "invalid";
+        ++rebuilds_[category];
+        recentRebuilds_.emplace_back(std::move(module), std::move(reason));
+        if (recentRebuilds_.size() > 30) recentRebuilds_.pop_front();
+    }
 
     void open_in_engine_(const DocumentView& document) {
         spin_.sent(document.uri, text_hash_(document.text), Clock::now());
@@ -2875,6 +2941,12 @@ private:
             if (root == rootOf.end()) return;
             next.emplace(file, DoomedFile { root->second, viaModule, doomRoots_.at(root->second).reason });
         };
+        // WA-CLANGD-014: an engine that builds the modules that do compile when one does not serves the importers itself,
+        // with the failed import diagnosed where it is; the modules stay doomed for preparation and the issue says why.
+        if (!traits_.losesAllModulesOnOneFailure) {
+            apply_doom_diff_({});
+            return;
+        }
         for (const auto& [file, module] : fileModule_) {
             if (!doomedModules_.contains(module)) continue;
             // M-1 (plan 0.0.8): the unit whose compile failed stays with clangd. It needs no BMI of itself, so clangd reads
