@@ -373,14 +373,29 @@ jobs:
         run: |
           set -euo pipefail
           case " ${{ matrix.fixtures }} " in *" mcpp-build-programs "*) ;; *) exit 0 ;; esac
-          for attempt in 1 2 3; do
-            if xlings install "mcpp@$MCPP_BUILD_PROGRAMS_VERSION" -y -g; then break; fi
-            [ "$attempt" = 3 ] && { echo "::error::mcpp@$MCPP_BUILD_PROGRAMS_VERSION could not be installed"; exit 1; }
-            sleep 30
-          done
-          xlings use mcpp "$MCPP_VERSION"
+          # From mcpp's own release, its checksum checked: the index snapshot the pinned xlings syncs can lag a new mcpp
+          # by days (2026.10.11.1 was in xim-pkgindex, not yet in the snapshot), and the pinned mcpp stays the default.
+          case "$RUNNER_OS-$(uname -m)" in
+            Linux-x86_64) platform=linux-x86_64; ext=tar.gz ;;
+            Linux-aarch64) platform=linux-aarch64; ext=tar.gz ;;
+            macOS-arm64) platform=macosx-arm64; ext=tar.gz ;;
+            Windows-*) platform=windows-x86_64; ext=zip ;;
+            *) echo "::error::no mcpp release for $RUNNER_OS-$(uname -m)"; exit 1 ;;
+          esac
+          archive="mcpp-$MCPP_BUILD_PROGRAMS_VERSION-$platform.$ext"
+          base="https://github.com/mcpp-community/mcpp/releases/download/v$MCPP_BUILD_PROGRAMS_VERSION"
+          temp="$RUNNER_TEMP"; python=python3
+          if [ "$RUNNER_OS" = Windows ]; then temp=$(cygpath -u "$RUNNER_TEMP"); python=python; fi
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$temp/$archive" "$base/$archive"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$temp/$archive.sha256" "$base/$archive.sha256"
+          expected=$(cut -d' ' -f1 "$temp/$archive.sha256")
+          actual=$("$python" -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$temp/$archive")
+          [ "$expected" = "$actual" ] || { echo "::error::$archive: sha256 $actual, the release says $expected"; exit 1; }
+          rm -rf "$temp/mcpp-build-programs" && mkdir -p "$temp/mcpp-build-programs"
+          "$python" -c "import shutil,sys; shutil.unpack_archive(sys.argv[1], sys.argv[2])" "$temp/$archive" "$temp/mcpp-build-programs"
           exe=''; [ "$RUNNER_OS" = Windows ] && exe='.exe'
-          mcpp="$HOME/.xlings/data/xpkgs/xim-x-mcpp/$MCPP_BUILD_PROGRAMS_VERSION/bin/mcpp$exe"
+          mcpp="$temp/mcpp-build-programs/mcpp-$MCPP_BUILD_PROGRAMS_VERSION-$platform/bin/mcpp$exe"
+          chmod +x "$mcpp" 2>/dev/null || true
           "$mcpp" --version
           mcpp --version
           if [ "$RUNNER_OS" = Windows ]; then mcpp=$(cygpath -m "$mcpp"); fi
