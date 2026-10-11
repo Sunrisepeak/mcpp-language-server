@@ -60,6 +60,15 @@ identity, and the server checks both before it trusts what the engine declares.
   rewrites the engine database at each name it passes through. A module unit's own unresolved
   import still gets a stand-in, once the unit has not been edited for a few seconds, so its
   importers keep their features (WA-CLANGD-002).
+- **A module built again to the same bytes keeps the modules that import it.** A BMI that was
+  lost, evicted or damaged is built again, and when its bytes are the same its importers are
+  reused instead of being rebuilt one by one (ux-mcpp: 42 importers after one lost module).
+  Reusing a cached module no longer looks at every slot of the cache, which made each of a
+  request's prerequisites cost about 12 ms (1-2 s for a completion right after an autosave).
+- **The module cache follows the workspace's cache budget.** On Linux, mcppls-clangd's own module
+  cache gets three quarters of `mcppls.cache.maxBytes` (at least 1 GiB; unbounded when the budget
+  is) instead of a fixed 1 GiB, past which module builds waited for room: a profile change with
+  its modules beside the first profile's stalled the files that needed them.
 - **Reusing a dependency scan no longer reads every header again.** A header that is on disk with
   the identity, size and modification time the scan saw, and was last modified well before it, is
   taken as unchanged, as clang does for a module's inputs. A hit on the standard library module's
