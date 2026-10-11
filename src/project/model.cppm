@@ -15,6 +15,7 @@ export namespace mcppls::project {
 struct ModelIssue {
     std::string code;
     std::string message;
+    std::string path {};   // the file it concerns, relative to the root, when the producer named one (build-program-failed)
 };
 
 struct SemanticProfile {

@@ -332,6 +332,13 @@ std::optional<base::Result<InferredDatabase>> emit_build_database(const std::str
         if (diagnostic.code == spec::OFFLINE_DOWNLOAD_REQUIRED) {
             enriched.issues.emplace_back(std::string { spec::NEEDS_DOWNLOAD }, diagnostic.message);
         }
+        // 0.0.13 W3: a build program (build.mcpp) that did not compile or run. What it contributes to the targets -- their
+        // flags, the units its rules generate -- is missing from this answer, which the workspace therefore does not take
+        // in place of a complete one; mcpp's message goes onto the file.
+        if (diagnostic.code == spec::BUILD_PROGRAM_FAILED) {
+            // The file it is about on the message's first line (model.cpp makes it the issue's path).
+            enriched.issues.emplace_back(std::string { spec::BUILD_PROGRAM_FAILED_ISSUE }, std::format("{}\n{}", diagnostic.path, diagnostic.message));
+        }
     }
     return base::Result<InferredDatabase> { std::move(enriched) };
 }

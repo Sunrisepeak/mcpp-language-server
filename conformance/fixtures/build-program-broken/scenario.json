@@ -1,0 +1,104 @@
+{
+  "name": "build-program-broken",
+  "description": "0.0.13 W3: a build program (build.mcpp) that does not compile while it is edited. mcpp answers with the targets it could describe and MCPP_BUILD_DATABASE_PROGRAM_FAILED naming build.mcpp; the model in hand is kept (what build.mcpp gives the targets -- their flags, the units its rules generate -- is not in such an answer), the state stays ready with a build-program-failed notice, mcpp's compile error is a diagnostic on build.mcpp at its line, clangd is not restarted, and features keep working. When build.mcpp compiles again the answer is taken. Simulated by mcppls-mock-mcpp.",
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}"
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "mcpp",
+      "level": 3,
+      "state": "ready"
+    },
+    {
+      "id": "C1",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "src/greet/greet.cppm"
+    },
+    {
+      "id": "W1-build-program-broken",
+      "kind": "write-file",
+      "file": "mcpp-mock.json",
+      "content-from": "recorded/mcpp-mock-broken.json",
+      "expect-reload": true,
+      "timeout": 30
+    },
+    {
+      "id": "S2-kept-and-ready",
+      "kind": "status",
+      "source": "mcpp",
+      "level": 3,
+      "state": "ready",
+      "notice-code": "build-program-failed",
+      "timeout": 30
+    },
+    {
+      "id": "D1-mcpp-says-where",
+      "kind": "diagnostic-code",
+      "file": "build.mcpp",
+      "expect": "build-program-failed",
+      "line": 3,
+      "severity": 1
+    },
+    {
+      "id": "C2-still",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "src/greet/greet.cppm"
+    },
+    {
+      "id": "R1-no-restart",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/restarts",
+          "max-items": 0
+        },
+        {
+          "path": "/roots/0/events/*/kind",
+          "max-matches": 0,
+          "equals": "engine-restart"
+        }
+      ]
+    },
+    {
+      "id": "W2-compiles-again",
+      "kind": "write-file",
+      "file": "mcpp-mock.json",
+      "content-from": "recorded/mcpp-mock.json",
+      "expect-reload": true,
+      "timeout": 30
+    },
+    {
+      "id": "S3-taken",
+      "kind": "status",
+      "source": "mcpp",
+      "level": 3,
+      "state": "ready",
+      "timeout": 30
+    },
+    {
+      "id": "R2-still-no-restart",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/events/*/kind",
+          "max-matches": 0,
+          "equals": "engine-restart"
+        }
+      ]
+    }
+  ]
+}

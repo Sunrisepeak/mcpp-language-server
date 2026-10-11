@@ -410,6 +410,9 @@ struct Workspace::Impl final : engine::Host {
     std::string producerPath;                            // for the fingerprint of the next save
     std::string producerVersion;
     std::string staleCacheWhy;   // which input made the cached model stale (0.0.13 W6)
+    std::string keptModelNotice;   // why a newer answer was not taken in place of this model (0.0.13 W3)
+    std::string modelAdoptedAtUtc;   // when the model in hand was taken, for that notice
+    std::map<std::string, Json, std::less<>> producerDiagnostics;   // path key -> mcpp's diagnostics on a build program
     std::string needsDownload;                           // the producer, run offline, cannot go on without a download
     // D-2 (plan 0.0.9): that load was offline (an online one that fails says producer-install-failed instead), so a client may
     // offer to fetch what is missing; and what the load that failed with the network allowed said, named in the status.
@@ -1820,8 +1823,100 @@ struct Workspace::Impl final : engine::Host {
             update_status();
             return;
         }
+        // 0.0.13 W3: a build program (build.mcpp) that did not compile or run leaves out of the answer what it gives the
+        // targets -- their flags, the units its rules generate. A complete model in hand is kept: targets keep their Qt
+        // headers while build.mcpp is being typed, and clangd is not restarted twice per half-typed save. mcpp's errors go
+        // onto the build program either way; the next complete answer replaces the model.
+        note_build_program_failures(*loadedModel);
+        if (model && model->source == loadedModel->source && build_program_failed(*loadedModel) && !build_program_failed(*model)
+            && std::ranges::none_of(model->issues, [](const project::ModelIssue& issue) { return issue.code == "producer-partial"; })) {
+            const auto failed = std::ranges::find_if(loadedModel->issues, [](const project::ModelIssue& issue) { return issue.code == spec::BUILD_PROGRAM_FAILED_ISSUE; });
+            keptModelNotice = std::format("{} does not compile; the project keeps the description it had at {}", failed->path.empty() ? std::string { "a build program" } : failed->path,
+                                          modelAdoptedAtUtc.empty() ? std::string { "start" } : modelAdoptedAtUtc);
+            log::warning("model reload ({}): {}", root, keptModelNotice);
+            journal.add("model-kept", Json { { "reason", keptModelNotice }, { "why", std::string { spec::BUILD_PROGRAM_FAILED_ISSUE } } });
+            if (reloadAfterLoad) {
+                reloadAfterLoad = false;
+                start_model_load();
+            }
+            update_status();
+            return;
+        }
+        keptModelNotice.clear();
         staleModelReason.clear();
         adopt_model(std::move(loadedModel), "producer");
+    }
+
+    static bool build_program_failed(const project::ProjectModel& candidate) {
+        return std::ranges::any_of(candidate.issues, [](const project::ModelIssue& issue) { return issue.code == spec::BUILD_PROGRAM_FAILED_ISSUE; });
+    }
+
+    // mcpp's own words about a build program that failed, on that file: the compiler's "file:line:col: error: ..." lines
+    // where they name it, else the message at its first line. The files that had some and have none now are cleared.
+    void note_build_program_failures(const project::ProjectModel& loaded) {
+        std::map<std::string, Json, std::less<>> next;
+        for (const auto& issue : loaded.issues) {
+            if (issue.code != spec::BUILD_PROGRAM_FAILED_ISSUE || issue.path.empty()) continue;
+            const std::string file { base::is_absolute_path(issue.path) ? issue.path : base::join_path(root, issue.path) };
+            next[base::path_key(file)] = build_program_diagnostics(file, issue.message);
+        }
+        std::vector<std::string> touched;
+        for (const auto& [key, diagnostics] : producerDiagnostics) {
+            if (!next.contains(key)) touched.push_back(key);
+        }
+        for (const auto& [key, diagnostics] : next) touched.push_back(key);
+        producerDiagnostics = std::move(next);
+        for (const auto& key : touched) {
+            const Document* document { documents_.find_by_path(key) };
+            const std::string uri { document != nullptr ? document->uri : base::path_to_uri(key) };
+            if (document != nullptr) {
+                publish_diagnostics(uri);
+            } else {
+                const auto found = producerDiagnostics.find(key);
+                client.notify("textDocument/publishDiagnostics",
+                              Json { { "uri", uri }, { "diagnostics", found == producerDiagnostics.end() ? Json::array() : found->second } });
+            }
+        }
+    }
+
+    static Json build_program_diagnostics(std::string_view file, std::string_view message) {
+        Json diagnostics = Json::array();
+        const std::string_view name { base::file_name(file) };
+        std::string first;
+        for (const auto rawLine : base::split(message, '\n')) {
+            const std::string_view line { base::trim(rawLine) };
+            if (line.empty()) continue;
+            if (first.empty()) first = std::string { line };
+            // "<path>:<line>:<column>: error: <text>" (GCC, Clang; MSVC's "<path>(<line>): error" has no column and is left as text)
+            const std::size_t error { line.find(": error: ") };
+            const std::size_t fatal { line.find(": fatal error: ") };
+            const std::size_t at { fatal != std::string_view::npos ? fatal : error };
+            if (at == std::string_view::npos) continue;
+            const std::string_view where { line.substr(0, at) };
+            const auto parts = base::split(where, ':');
+            if (parts.size() < 3) continue;
+            const std::string_view columnText { parts[parts.size() - 1] };
+            const std::string_view lineText { parts[parts.size() - 2] };
+            std::string_view path { where.substr(0, where.size() - columnText.size() - lineText.size() - 2) };
+            int lineNumber { 0 };
+            int column { 0 };
+            if (std::from_chars(lineText.data(), lineText.data() + lineText.size(), lineNumber).ec != std::errc {}
+                || std::from_chars(columnText.data(), columnText.data() + columnText.size(), column).ec != std::errc {})
+                continue;
+            if (base::file_name(path) != name) continue;
+            const std::string text { line.substr(at + (fatal != std::string_view::npos ? 15 : 9)) };
+            const Json position { { "line", std::max(0, lineNumber - 1) }, { "character", std::max(0, column - 1) } };
+            diagnostics.push_back(Json { { "range", Json { { "start", position }, { "end", position } } }, { "severity", 1 }, { "source", "mcpp" },
+                                         { "code", std::string { spec::BUILD_PROGRAM_FAILED_ISSUE } }, { "message", text } });
+            if (diagnostics.size() >= 20) break;
+        }
+        if (diagnostics.empty()) {
+            const Json position { { "line", 0 }, { "character", 0 } };
+            diagnostics.push_back(Json { { "range", Json { { "start", position }, { "end", position } } }, { "severity", 1 }, { "source", "mcpp" },
+                                         { "code", std::string { spec::BUILD_PROGRAM_FAILED_ISSUE } },
+                                         { "message", std::format("mcpp could not build this build program: {}", first.empty() ? std::string { "no reason given" } : first) } });
+        }
+        return diagnostics;
     }
 
     // Everything that makes a model this workspace's model: the watch registration, the index, the
@@ -1867,6 +1962,7 @@ struct Workspace::Impl final : engine::Host {
         }
         note_model_source(std::move(origin));
         modelDescription = std::move(description);
+        modelAdoptedAtUtc = std::format("{:%H:%M}", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
         log::info("project model ({}): source {}, level {}, {} sets, profile {} {} {}", root, project::to_string(model->source), model->level,
                   model->database.sets.size(), model->profile.kind, model->profile.compiler, model->profile.stdlib);
         for (const auto& issue : model->issues) log::info("model issue [{}] {}", issue.code, issue.message);
@@ -2152,6 +2248,9 @@ struct Workspace::Impl final : engine::Host {
             return;
         }
         Json moduleDiagnostics = document->path.empty() ? Json::array() : index.diagnostics(document->path);
+        if (const auto produced = producerDiagnostics.find(base::path_key(document->path)); produced != producerDiagnostics.end()) {
+            for (const auto& diagnostic : produced->second) moduleDiagnostics.push_back(diagnostic);
+        }
         if (auto said = configuration_diagnostic(document->path)) {
             // A build program no set describes is not read at all: what it imports is not judged either.
             if (std::ranges::any_of(plan.unreadSources, [&](const std::string& file) { return base::same_path(file, document->path); })) {
@@ -2487,6 +2586,7 @@ struct Workspace::Impl final : engine::Host {
         }
         if (!payload.kitNotice.empty()) notices.push_back(Json { { "code", "kit-version-mismatch" }, { "message", payload.kitNotice } });
         if (const std::string mismatch { version_mismatch() }; !mismatch.empty()) notices.push_back(Json { { "code", "version-mismatch" }, { "message", mismatch } });
+        if (!keptModelNotice.empty()) notices.push_back(Json { { "code", std::string { spec::BUILD_PROGRAM_FAILED_ISSUE } }, { "message", keptModelNotice } });
         if (lease && lease->shared()) {
             notices.push_back(Json { { "code", "shared-workspace" },
                                      { "message", "another mcppls instance serves this workspace; this one keeps a private cache and starts cold" } });
