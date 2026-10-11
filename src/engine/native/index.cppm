@@ -25,6 +25,12 @@ struct ExternalModule {
     std::string origin;        // stdlib | module-metadata
 };
 
+// The configurations that compile a unit of the model (mcpp-community/mcpp#797): the targets', the build programs'
+// (`build.mcpp`, the libraries of `[build-dependencies]`, mcpp's engine interface), or both, for a package in both
+// tables. 0 for a file no set describes.
+inline constexpr unsigned TARGETS { 1 };
+inline constexpr unsigned BUILD_PROGRAMS { 2 };
+
 struct ModuleHit {
     std::string name;          // fully qualified, "m:p" for partitions
     base::Range range;
@@ -42,10 +48,17 @@ private:
     struct Candidate {
         std::string name;     // "m" or "m:p"
         std::string detail;   // the role of the unit that provides it, or where an external module comes from
+        unsigned configurations { 0 };   // of its providers; 0 for an external module, which every configuration sees
     };
+    std::map<std::string, unsigned, std::less<>> configurations_;   // path key -> TARGETS | BUILD_PROGRAMS
+    std::set<std::string, std::less<>> engineInterface_;            // path keys of mcpp's engine interface
     mutable std::optional<std::vector<Candidate>> candidates_;
     std::uint64_t structure_ { 0 };
     const std::vector<Candidate>& candidates_now_() const;
+    // The code and message of an import of `name` whose providers, `units`, are all of the configuration `importer`
+    // is not compiled in; nullopt when the import is within a configuration or either is unknown.
+    std::optional<std::pair<std::string_view, std::string>> across_configurations(std::string_view importer, std::string_view name,
+                                                                                  std::span<const ModuleUnit> units) const;
     void structure_changed_();
 
 public:
@@ -54,11 +67,18 @@ public:
     void clear();
     void set_external(std::vector<ExternalModule> modules);
     void set_profile_label(std::string label);
+    // Which configurations compile each unit, by path key, and which units are mcpp's engine interface. A unit sees
+    // the modules its own configuration provides: an import of a module only the other configuration provides is
+    // diagnosed, and import completion does not offer one.
+    void set_configurations(std::map<std::string, unsigned, std::less<>> byPathKey, std::set<std::string, std::less<>> engineInterface);
+    unsigned configuration_of(std::string_view path) const;
 
     bool contains(std::string_view path) const;
     const project::ScanResult* scan_of(std::string_view path) const;
     std::vector<std::string> files() const;
     std::vector<ModuleUnit> providers(std::string_view name) const;
+    // The providers a unit of `importer` sees: those of its configuration, when it has one and they do.
+    std::vector<ModuleUnit> providers_for(std::string_view importer, std::string_view name) const;
     const ExternalModule* external(std::string_view name) const;
     std::vector<std::string> module_names() const;
     // Advanced whenever the set of declared modules, or the role of a unit declaring one, changes.

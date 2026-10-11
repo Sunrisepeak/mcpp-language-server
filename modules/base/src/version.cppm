@@ -38,4 +38,9 @@ inline std::string_view llvm_base_version(std::string_view engineVersion) {
 // degradation, rather than only that it happened.
 inline constexpr std::string_view MINIMUM_MCPP_VERSION { "2026.9.15.1" };
 
+// The oldest mcpp whose build database describes its build programs: `build.mcpp`, the libraries of
+// `[build-dependencies]` and mcpp's engine interface, in sets of the `build-program` configuration (mcpp
+// SPEC-005 R3.13, mcpp-community/mcpp#797). An older mcpp describes the targets only.
+inline constexpr std::string_view BUILD_PROGRAMS_MCPP_VERSION { "2026.10.11.1" };
+
 } // namespace mcppls::base

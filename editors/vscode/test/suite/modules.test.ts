@@ -90,6 +90,17 @@ suite('C++ modules through mcppls', function () {
         assert.strictEqual(document.languageId, 'cpp');
     });
 
+    // mcpp-community/mcpp#797: mcpp's build program is C++, and the engine interface it imports, which mcpp writes for each
+    // of its versions, is opened read-only. The fixture has no build.mcpp; what the extension contributes is checked, and
+    // that VS Code takes the read-only default from it.
+    test('build.mcpp is C++, and mcpp\'s engine interface opens read-only', async () => {
+        const extension = vscode.extensions.getExtension(EXTENSION_ID)!;
+        const languages: { id: string; extensions?: string[] }[] = extension.packageJSON.contributes.languages;
+        assert.ok(languages.some((language) => language.id === 'cpp' && (language.extensions ?? []).includes('.mcpp')));
+        const readOnly = vscode.workspace.getConfiguration('files').get<Record<string, boolean>>('readonlyInclude') ?? {};
+        assert.strictEqual(readOnly['**/.mcpp/engine/*/modules/**'], true, JSON.stringify(readOnly));
+    });
+
     test('definition of hello::greet lands in greet.cppm', async () => {
         const uris = await eventually('definition of hello::greet',
             () => vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>(

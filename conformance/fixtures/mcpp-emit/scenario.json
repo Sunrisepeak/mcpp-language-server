@@ -1,6 +1,6 @@
 {
   "name": "mcpp-emit",
-  "description": "mcpp answering `emit build-database --format json` (mcpp-community/mcpp#636), simulated by mcppls-mock-mcpp from recorded data in the shape mcpp decided: a level 2 database with one set for the package, one for its tests (hello:test) and one for the standard library modules mcpp builds (mcpp:std), each seeing every other. The S1 library completes the model to level 3; nothing is configured or written in the project.",
+  "description": "mcpp answering `emit build-database --format json` (mcpp-community/mcpp#636), simulated by mcppls-mock-mcpp from recorded data in the shape mcpp decided: a level 2 database with one set for the package, one for its tests (hello:test) and one for the standard library modules mcpp builds (mcpp:std), each seeing every other. The S1 library completes the model to level 3; nothing is configured or written in the project. The package's build.mcpp, which an mcpp of that age does not describe, is not read, and says which mcpp describes it.",
   "server-arguments": [
     "--mcpp",
     "{runner-dir}/mcppls-mock-mcpp{exe}"
@@ -126,6 +126,18 @@
         20
       ],
       "expect": "src/greet/greet.cppm"
+    },
+    {
+      "id": "B1-undescribed",
+      "kind": "diagnostic-code",
+      "file": "build.mcpp",
+      "expect": "build-program-context",
+      "severity": 3,
+      "line": 0,
+      "absent": [
+        "unresolved-module"
+      ],
+      "$comment": "mcpp-community/mcpp#797: the database of an mcpp older than 2026.10.11.1 does not describe build.mcpp; it is not read, and the status of the file says which mcpp describes it"
     },
     {
       "id": "W1",

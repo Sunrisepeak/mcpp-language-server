@@ -34,11 +34,13 @@ settings**) and add:
   "languages": {
     "C++": { "language_servers": ["mcppls", "!clangd"] },
     "C":   { "language_servers": ["mcppls", "!clangd"] }
-  }
+  },
+  "file_types": { "C++": ["mcpp"] }
 }
 ```
 
-Zed ships clangd for C and C++. Without this step it runs beside mcppls, two engines answering one
+`file_types` makes mcpp's build program, `build.mcpp`, a C++ file; an extension cannot add a suffix
+to a language Zed defines. Zed ships clangd for C and C++. Without this step it runs beside mcppls, two engines answering one
 question, and diagnostics can appear twice. mcppls still works that way — CI opens a project in a
 real Zed with Zed's default settings and checks that mcppls answers — but it starts clangd itself,
 with a module database clangd would not otherwise have, so Zed's own copy adds nothing.

@@ -1,0 +1,3 @@
+import mcpp;
+
+int main() { mcpp::cxxflag("-DGREETING_FROM_BUILD=1"); }

@@ -59,6 +59,51 @@ ToolchainFacts msvc_facts(s::Family family) {
     return facts;
 }
 
+// mcpp-community/mcpp#797: what mcpp 2026.10.11.1 describes for a package with a build.mcpp that imports mcpp's engine
+// interface and a library of [build-dependencies], `gen`, and that has `both` in both tables. The build programs' sets see
+// only each other. `hostToolchain` is theirs; `hostBoth` is the source of their instance of `both`.
+s::Database build_program_database(std::string hostToolchain, std::string hostBoth = "/p/deps/both/both.cppm") {
+    s::Database database;
+    database.hasIde = true;
+    const auto unit = [](std::string source, std::vector<std::string> arguments, std::string provides, std::vector<std::string> requires_) {
+        s::TranslationUnit each;
+        each.source = source;
+        each.workDirectory = "/p";
+        each.arguments = { "/opt/gcc/bin/g++", "-std=c++23", "-fmodules" };
+        each.arguments.insert(each.arguments.end(), arguments.begin(), arguments.end());
+        each.arguments.insert(each.arguments.end(), { "-c", source, "-o", source + ".o" });
+        if (!provides.empty()) each.providedModules.emplace_back(provides, "");
+        each.role = provides.empty() ? s::Role::non_module : s::Role::module_interface;
+        each.requiredModules = std::move(requires_);
+        return each;
+    };
+    const auto set = [&](std::string name, std::string configuration, std::string toolchain, std::vector<s::TranslationUnit> units) {
+        s::Set each;
+        each.name = std::move(name);
+        each.hasIde = true;
+        each.configuration = std::move(configuration);
+        each.toolchain = std::move(toolchain);
+        each.units = std::move(units);
+        database.sets.push_back(std::move(each));
+    };
+    const std::string target { "gcc-16.1.0-x86_64-linux-gnu" };
+    set("app", "dev", target, { unit("/p/src/main.cpp", { "-DTARGET" }, "", { "both" }) });
+    set("mcpplibs.both", "dev", target, { unit("/p/deps/both/both.cppm", { "-DTARGET" }, "both", {}) });
+    set("mcpplibs.gen:host", "build-program", hostToolchain, { unit("/p/deps/gen/gen.cppm", { "-DHOST" }, "gen", {}) });
+    set("mcpplibs.both:host", "build-program", hostToolchain, { unit(hostBoth, { "-DHOST" }, "both", {}) });
+    set("mcpp:core", "build-program", hostToolchain, { unit("/home/.mcpp/engine/1/modules/mcpp.cppm", { "-DHOST" }, "mcpp", {}) });
+    set("app:build", "build-program", hostToolchain, { unit("/p/build.mcpp", { "-DHOST", "-x", "c++" }, "", { "mcpp", "gen", "both" }) });
+    std::vector<std::string> targets { "app", "mcpplibs.both" };
+    std::vector<std::string> programs { "mcpplibs.gen:host", "mcpplibs.both:host", "mcpp:core", "app:build" };
+    for (auto& each : database.sets) {
+        const auto& group = s::is_build_program_set(each) ? programs : targets;
+        for (const auto& name : group) {
+            if (name != each.name) each.visibleSets.push_back(name);
+        }
+    }
+    return database;
+}
+
 } // namespace
 
 int main() {
@@ -205,6 +250,77 @@ int main() {
     // Fix plan F1 (issue #23): a windows-msvc command with -flto and without -c makes the driver plan a link, and
     // its `LTO requires -fuse-ld=lld` fails clangd's module scan, so no module is built. Every engine command
     // carries exactly one -c, and the link arguments stay: the project's LTO is not the engine's business.
+    // mcpp-community/mcpp#797: build.mcpp is C++ because mcpp's command says `-x c++`; the translations drop the build's
+    // spelling of the language, and the plan states it again for a source whose name does not tell the Clang driver.
+    "a build program is read as C++ whatever its name"_test = [] {
+        expect(p::clang_names_language("/p/src/main.cpp") && p::clang_names_language("/p/src/m.cppm") && p::clang_names_language("/p/a.C"));
+        expect(p::clang_names_language("/p/a.c") && p::clang_names_language("/p/include/a.h") && p::clang_names_language("/p/a.hpp"));
+        expect(!p::clang_names_language("/p/build.mcpp") && !p::clang_names_language("/p/m.ixx") && !p::clang_names_language("/p/a.inl"));
+        expect(p::is_build_program_source("/p/build.mcpp") && !p::is_build_program_source("/p/build.cpp"));
+        const auto database = build_program_database("gcc-16.1.0-x86_64-linux-gnu");
+        std::map<std::string, ToolchainFacts, std::less<>> facts { { "gcc-16.1.0-x86_64-linux-gnu", gcc_facts() } };
+        n::PlanInput input;
+        input.database = &database;
+        input.facts = &facts;
+        input.engineDriverDirectory = "/payload/clangd/bin";
+        input.scanner = [](std::string_view) { return p::ScanResult {}; };
+        const auto plan = n::plan_engine(input);
+        const auto entry = std::ranges::find(plan.entries, std::string { "/p/build.mcpp" }, &n::EngineEntry::file);
+        expect(fatal(entry != plan.entries.end()));
+        const auto& arguments = entry->arguments;
+        expect(arguments.size() > 3 && arguments[arguments.size() - 3] == "-x" && arguments[arguments.size() - 2] == "c++" && arguments.back() == "/p/build.mcpp")
+            << std::format("{}", arguments);
+        const auto main = std::ranges::find(plan.entries, std::string { "/p/src/main.cpp" }, &n::EngineEntry::file);
+        expect(fatal(main != plan.entries.end()));
+        expect(!contains(main->arguments, "-x")) << std::format("{}", main->arguments);
+    };
+
+    // The default context reads both configurations when they share a toolchain: a unit both compile is read as the
+    // targets build it, and a build program's own version of a module the targets provide is read in its own context.
+    "the default context reads the targets first, and the build programs beside them"_test = [] {
+        std::map<std::string, ToolchainFacts, std::less<>> facts { { "gcc-16.1.0-x86_64-linux-gnu", gcc_facts() },
+                                                                    { "gcc-16.1.0-host", gcc_facts() } };
+        n::PlanInput input;
+        input.facts = &facts;
+        input.engineDriverDirectory = "/payload/clangd/bin";
+        input.scanner = [](std::string_view) { return p::ScanResult {}; };
+        const auto entry_of = [](const n::EnginePlan& plan, std::string_view file) {
+            return std::ranges::find(plan.entries, std::string { file }, &n::EngineEntry::file);
+        };
+
+        const auto shared = build_program_database("gcc-16.1.0-x86_64-linux-gnu");
+        input.database = &shared;
+        const auto one = n::plan_engine(input);
+        const auto both = entry_of(one, "/p/deps/both/both.cppm");
+        expect(fatal(both != one.entries.end()));
+        expect(contains(both->arguments, "-DTARGET") && !contains(both->arguments, "-DHOST")) << std::format("{}", both->arguments);
+        expect(entry_of(one, "/p/build.mcpp") != one.entries.end() && entry_of(one, "/home/.mcpp/engine/1/modules/mcpp.cppm") != one.entries.end());
+        expect(one.issues.empty() && one.otherContextSources.empty()) << one.issues.size() << " issues";
+
+        const auto versions = build_program_database("gcc-16.1.0-x86_64-linux-gnu", "/p/deps/both2/both.cppm");
+        input.database = &versions;
+        const auto two = n::plan_engine(input);
+        expect(entry_of(two, "/p/deps/both2/both.cppm") == two.entries.end());
+        expect(std::ranges::none_of(two.issues, [](const n::PlanIssue& issue) { return issue.code == "ambiguous-module"; }));
+        expect(two.otherContextSources == std::vector<std::pair<std::string, std::string>> { { "/p/deps/both2/both.cppm", "mcpplibs.both:host" } })
+            << std::format("{}", two.otherContextSources);
+
+        // A cross build: the build programs are compiled for the build machine and read in their own context.
+        const auto cross = build_program_database("gcc-16.1.0-host");
+        input.database = &cross;
+        const auto targets = n::plan_engine(input);
+        expect(entry_of(targets, "/p/build.mcpp") == targets.entries.end() && entry_of(targets, "/p/src/main.cpp") != targets.entries.end());
+        expect(std::ranges::find(targets.otherContextSources, std::pair<std::string, std::string> { "/p/build.mcpp", "app:build" })
+               != targets.otherContextSources.end()) << std::format("{}", targets.otherContextSources);
+        input.contextSet = "app:build";
+        const auto programs = n::plan_engine(input);
+        expect(entry_of(programs, "/p/build.mcpp") != programs.entries.end() && entry_of(programs, "/p/src/main.cpp") == programs.entries.end());
+        const auto host = entry_of(programs, "/p/deps/both/both.cppm");
+        expect(fatal(host != programs.entries.end()));
+        expect(contains(host->arguments, "-DHOST")) << std::format("{}", host->arguments);
+        expect(programs.otherContextSources.empty()) << std::format("{}", programs.otherContextSources);
+    };
+
     "every engine command stops before linking, and keeps -flto"_test = [] {
         const auto once = [](const std::vector<std::string>& out) { return std::ranges::count(out, std::string { "-c" }) == 1; };
         auto clangxx = msvc_facts(s::Family::clang);

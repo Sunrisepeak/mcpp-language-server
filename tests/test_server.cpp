@@ -354,6 +354,71 @@ int main() {
         expect(index.diagnostics("/p/src/greet/noiface.cpp")[0]["code"] == "unresolved-module");
     };
 
+    // mcpp-community/mcpp#797: the targets and the build programs are two configurations that never see each other. A
+    // package in both [dependencies] and [build-dependencies] is compiled in both; mcpp's engine interface only for build
+    // programs.
+    "an import across configurations is diagnosed, and import completion stays within one"_test = [] {
+        using mcppls::index::BUILD_PROGRAMS;
+        using mcppls::index::TARGETS;
+        using mcppls::index::ModuleIndex;
+        ModuleIndex index;
+        index.update("/p/build.mcpp", "import mcpp;\nimport gen;\nimport both;\nint main() {}\n");
+        index.update("/p/src/main.cpp", "import both;\nimport app.greet;\nint main() {}\n");
+        index.update("/p/src/greet.cppm", "export module app.greet;\n");
+        index.update("/p/deps/both/both.cppm", "export module both;\n");
+        index.update("/p/deps/gen/gen.cppm", "export module gen;\n");
+        index.update("/home/.mcpp/engine/1/modules/mcpp.cppm", "export module mcpp;\nexport import mcpp.core;\n");
+        index.update("/home/.mcpp/engine/1/modules/mcpp_core.cppm", "export module mcpp.core;\n");
+        const auto key = [](std::string_view path) { return mcppls::base::path_key(path); };
+        index.set_configurations({ { key("/p/build.mcpp"), BUILD_PROGRAMS }, { key("/p/src/main.cpp"), TARGETS }, { key("/p/src/greet.cppm"), TARGETS },
+                                   { key("/p/deps/both/both.cppm"), TARGETS | BUILD_PROGRAMS }, { key("/p/deps/gen/gen.cppm"), BUILD_PROGRAMS },
+                                   { key("/home/.mcpp/engine/1/modules/mcpp.cppm"), BUILD_PROGRAMS },
+                                   { key("/home/.mcpp/engine/1/modules/mcpp_core.cppm"), BUILD_PROGRAMS } },
+                                 { key("/home/.mcpp/engine/1/modules/mcpp.cppm"), key("/home/.mcpp/engine/1/modules/mcpp_core.cppm") });
+        expect(index.diagnostics("/p/build.mcpp").empty()) << index.diagnostics("/p/build.mcpp").dump();
+        expect(index.diagnostics("/p/src/main.cpp").empty()) << index.diagnostics("/p/src/main.cpp").dump();
+
+        index.update("/p/src/main.cpp", "import mcpp;\nimport gen;\nint main() {}\n");
+        const Json target = index.diagnostics("/p/src/main.cpp");
+        expect(fatal(target.size() == 2u)) << target.dump();
+        expect(target[0]["code"] == "build-program-module" && target[0]["range"]["start"]["line"] == 0) << target.dump();
+        expect(target[0]["message"].get<std::string>().find("engine interface") != std::string::npos) << target.dump();
+        expect(target[1]["code"] == "build-program-module" && target[1]["message"].get<std::string>().find("[build-dependencies]") != std::string::npos)
+            << target.dump();
+        index.update("/p/build.mcpp", "import app.greet;\nint main() {}\n");
+        const Json program = index.diagnostics("/p/build.mcpp");
+        expect(program.size() == 1u && program[0]["code"] == "target-module") << program.dump();
+
+        // A file no set describes is not judged; one that both configurations compile sees both.
+        index.update("/p/src/scratch.cpp", "import mcpp;\n");
+        expect(index.diagnostics("/p/src/scratch.cpp").empty());
+        index.update("/p/deps/both/both.cppm", "export module both;\nimport gen;\nimport app.greet;\n");
+        expect(index.diagnostics("/p/deps/both/both.cppm").empty());
+
+        const auto labels = [&](std::string_view path) {
+            std::set<std::string> found;
+            for (const auto& item : index.completion(path, "import ", Position { 0, 7 })["items"]) found.insert(item["label"].get<std::string>());
+            return found;
+        };
+        expect(labels("/p/build.mcpp") == std::set<std::string> { "both", "gen", "mcpp", "mcpp.core" }) << std::format("{}", labels("/p/build.mcpp"));
+        expect(labels("/p/src/main.cpp") == std::set<std::string> { "app.greet", "both" }) << std::format("{}", labels("/p/src/main.cpp"));
+        expect(labels("/p/src/scratch.cpp").size() == 5u);
+
+        // Two versions of one package: each configuration navigates to its own.
+        index.update("/p/deps/both2/both.cppm", "export module both;\n");
+        auto split = std::map<std::string, unsigned, std::less<>> { { key("/p/build.mcpp"), BUILD_PROGRAMS }, { key("/p/src/main.cpp"), TARGETS },
+                                                                    { key("/p/deps/both/both.cppm"), TARGETS },
+                                                                    { key("/p/deps/both2/both.cppm"), BUILD_PROGRAMS } };
+        index.set_configurations(std::move(split), {});
+        index.update("/p/build.mcpp", "import both;\n");
+        index.update("/p/src/main.cpp", "import both;\n");
+        const Json fromProgram = index.definition("/p/build.mcpp", Position { 0, 8 });
+        const Json fromTarget = index.definition("/p/src/main.cpp", Position { 0, 8 });
+        expect(fromProgram.size() == 1u && fromProgram[0]["uri"] == mcppls::base::path_to_uri("/p/deps/both2/both.cppm")) << fromProgram.dump();
+        expect(fromTarget.size() == 1u && fromTarget[0]["uri"] == mcppls::base::path_to_uri("/p/deps/both/both.cppm")) << fromTarget.dump();
+        expect(index.diagnostics("/p/build.mcpp").empty() && index.diagnostics("/p/src/main.cpp").empty());
+    };
+
     "graph and module info"_test = [] {
         const auto index = fixture_index();
         const Json graph = index.graph();

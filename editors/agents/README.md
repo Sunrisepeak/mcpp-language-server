@@ -27,8 +27,8 @@ Every integration below starts the server as `mcppls serve` (LSP over stdio) —
 
 The plugin at `../claude-code/mcppls-lsp` (marketplace `mcppls`, `editors/claude-code`)
 registers `mcppls serve` as the language server for C and C++ sources, including the
-C++20/23 module extensions (`.cppm`, `.ccm`, `.cxxm`, `.c++m`, `.ixx`, `.mpp`, `.mxx`) next
-to the traditional ones. It **replaces** the official `clangd-lsp` code-intelligence
+C++20/23 module extensions (`.cppm`, `.ccm`, `.cxxm`, `.c++m`, `.ixx`, `.mpp`, `.mxx`) and mcpp's
+build programs (`.mcpp`) next to the traditional ones. It **replaces** the official `clangd-lsp` code-intelligence
 plugin for a project — the two should not both be enabled; see that plugin's own README.
 
 From a clone of this repository:

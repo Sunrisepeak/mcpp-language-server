@@ -21,6 +21,7 @@ private val CXX_EXTENSIONS = setOf(
     "cpp", "cxx", "cc", "c++", "c",
     "h", "hpp", "hxx", "hh",
     "cppm", "ccm", "cxxm", "c++m", "ixx", "mpp", "mxx",
+    "mcpp",   // mcpp's build programs, build.mcpp
 )
 
 private val TOLD_ABOUT_TWO_ENGINES = Key.create<Boolean>("community.mcpp.mcppls.toldAboutTwoEngines")

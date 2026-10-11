@@ -374,6 +374,10 @@ const Toolchain* find_toolchain(const Database& database, std::string_view id) {
     return nullptr;
 }
 
+bool is_build_program_set(const Set& set) {
+    return set.configuration == BUILD_PROGRAM_CONFIGURATION;
+}
+
 std::optional<std::size_t> find_set(const Database& database, std::string_view name) {
     for (std::size_t i { 0 }; i < database.sets.size(); ++i) {
         if (database.sets[i].name == name) return i;

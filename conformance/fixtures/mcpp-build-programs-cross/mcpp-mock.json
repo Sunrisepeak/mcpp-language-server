@@ -1,0 +1,717 @@
+{
+  "database": {
+    "ide": {
+      "generator": {
+        "name": "mcpp",
+        "version": "2026.10.11.1"
+      },
+      "profile-version": "0.3.0",
+      "toolchains": {
+        "llvm-22.1.8-x86_64-unknown-linux-gnu": {
+          "build-id": "ea8def082a061212",
+          "config-files": [],
+          "driver": "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++",
+          "family": "clang",
+          "stdlib": {
+            "name": "libc++",
+            "version": "22.1.8"
+          },
+          "target": "x86_64-unknown-linux-gnu",
+          "version": "22.1.8"
+        },
+        "llvm-22.1.8-x86_64-unknown-linux-gnu-build-machine": {
+          "build-id": "ea8def082a061212",
+          "config-files": [],
+          "driver": "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++",
+          "family": "clang",
+          "stdlib": {
+            "name": "libc++",
+            "version": "22.1.8"
+          },
+          "target": "x86_64-unknown-linux-gnu",
+          "version": "22.1.8"
+        }
+      }
+    },
+    "revision": 0,
+    "sets": [
+      {
+        "baseline-arguments": [
+          "-std=c++23",
+          "-fmodule-file=std=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a/pcm.cache/std.pcm",
+          "-fprebuilt-module-path=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a/pcm.cache",
+          "-O0",
+          "-g",
+          "-fPIC",
+          "--no-default-config",
+          "-nostdinc++",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1",
+          "-nostdlibinc",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-glibc/2.44.3/include",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-linux-headers/5.11.1/include",
+          "-D__MCPP_TARGET_LINUX__=1",
+          "-x",
+          "c++-module"
+        ],
+        "family-name": "mcpplibs.both",
+        "ide": {
+          "configuration": "dev",
+          "kind": "library",
+          "toolchain": "llvm-22.1.8-x86_64-unknown-linux-gnu"
+        },
+        "name": "mcpplibs.both",
+        "translation-units": [
+          {
+            "arguments": [
+              "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++",
+              "-std=c++23",
+              "-fmodule-file=std=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a/pcm.cache/std.pcm",
+              "-fprebuilt-module-path=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a/pcm.cache",
+              "-O0",
+              "-g",
+              "-fPIC",
+              "--no-default-config",
+              "-nostdinc++",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1",
+              "-nostdlibinc",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-glibc/2.44.3/include",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-linux-headers/5.11.1/include",
+              "-D__MCPP_TARGET_LINUX__=1",
+              "-x",
+              "c++-module",
+              "-c",
+              "${root}/deps/both/src/both.cppm",
+              "-o",
+              "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a/obj/mcpplibs_both/src/both.m.o"
+            ],
+            "ide": {
+              "role": "module-interface"
+            },
+            "local-arguments": [],
+            "object": "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a/obj/mcpplibs_both/src/both.m.o",
+            "private": false,
+            "provides": {
+              "both": ""
+            },
+            "requires": [],
+            "source": "${root}/deps/both/src/both.cppm",
+            "work-directory": "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a"
+          }
+        ],
+        "visible-sets": [
+          "app",
+          "mcpp:std"
+        ]
+      },
+      {
+        "baseline-arguments": [
+          "-std=c++23",
+          "-fmodule-file=std=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a/pcm.cache/std.pcm",
+          "-fprebuilt-module-path=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a/pcm.cache",
+          "-O0",
+          "-g",
+          "-fPIC",
+          "--no-default-config",
+          "-nostdinc++",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1",
+          "-nostdlibinc",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-glibc/2.44.3/include",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-linux-headers/5.11.1/include",
+          "-D__MCPP_TARGET_LINUX__=1",
+          "-DGEN=7",
+          "-DBOTH=42"
+        ],
+        "family-name": "app",
+        "ide": {
+          "configuration": "dev",
+          "kind": "executable",
+          "toolchain": "llvm-22.1.8-x86_64-unknown-linux-gnu"
+        },
+        "name": "app",
+        "translation-units": [
+          {
+            "arguments": [
+              "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++",
+              "-std=c++23",
+              "-fmodule-file=std=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a/pcm.cache/std.pcm",
+              "-fprebuilt-module-path=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a/pcm.cache",
+              "-O0",
+              "-g",
+              "-fPIC",
+              "--no-default-config",
+              "-nostdinc++",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1",
+              "-nostdlibinc",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-glibc/2.44.3/include",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-linux-headers/5.11.1/include",
+              "-D__MCPP_TARGET_LINUX__=1",
+              "-DGEN=7",
+              "-DBOTH=42",
+              "-x",
+              "c++-module",
+              "-c",
+              "${root}/src/greet.cppm",
+              "-o",
+              "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a/obj/greet.m.o"
+            ],
+            "ide": {
+              "role": "module-interface"
+            },
+            "local-arguments": [
+              "-x",
+              "c++-module"
+            ],
+            "object": "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a/obj/greet.m.o",
+            "private": false,
+            "provides": {
+              "app.greet": ""
+            },
+            "requires": [],
+            "source": "${root}/src/greet.cppm",
+            "work-directory": "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a"
+          },
+          {
+            "arguments": [
+              "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++",
+              "-std=c++23",
+              "-fmodule-file=std=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a/pcm.cache/std.pcm",
+              "-fprebuilt-module-path=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a/pcm.cache",
+              "-O0",
+              "-g",
+              "-fPIC",
+              "--no-default-config",
+              "-nostdinc++",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1",
+              "-nostdlibinc",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-glibc/2.44.3/include",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-linux-headers/5.11.1/include",
+              "-D__MCPP_TARGET_LINUX__=1",
+              "-DGEN=7",
+              "-DBOTH=42",
+              "@${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a/modmap/app-33d32db8.modmap",
+              "-c",
+              "${root}/src/main.cpp",
+              "-o",
+              "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a/obj/main.o"
+            ],
+            "ide": {
+              "role": "non-module"
+            },
+            "local-arguments": [
+              "@${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a/modmap/app-33d32db8.modmap"
+            ],
+            "object": "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a/obj/main.o",
+            "private": false,
+            "provides": {},
+            "requires": [
+              "std",
+              "both",
+              "app.greet"
+            ],
+            "source": "${root}/src/main.cpp",
+            "work-directory": "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/x86_64-linux-gnu/b6e3a56e57139d1a"
+          }
+        ],
+        "visible-sets": [
+          "mcpplibs.both",
+          "mcpp:std"
+        ]
+      },
+      {
+        "baseline-arguments": [
+          "-std=c++23",
+          "-Wno-reserved-module-identifier",
+          "--no-default-config",
+          "-nostdinc++",
+          "-stdlib=libc++",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1",
+          "-nostdlibinc",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-glibc/2.44.3/include",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-linux-headers/5.11.1/include",
+          "--precompile",
+          "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/share/libc++/v1/std.cppm",
+          "-o",
+          "pcm.cache/std.pcm"
+        ],
+        "family-name": "mcpp:std",
+        "ide": {
+          "configuration": "dev",
+          "kind": "library",
+          "toolchain": "llvm-22.1.8-x86_64-unknown-linux-gnu"
+        },
+        "name": "mcpp:std",
+        "translation-units": [
+          {
+            "arguments": [
+              "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++",
+              "-std=c++23",
+              "-Wno-reserved-module-identifier",
+              "--no-default-config",
+              "-nostdinc++",
+              "-stdlib=libc++",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1",
+              "-nostdlibinc",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-glibc/2.44.3/include",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-linux-headers/5.11.1/include",
+              "--precompile",
+              "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/share/libc++/v1/std.cppm",
+              "-o",
+              "pcm.cache/std.pcm"
+            ],
+            "ide": {
+              "role": "module-interface"
+            },
+            "local-arguments": [],
+            "object": "${env:HOME}/.mcpp/build-cache/v1/std/a443bc8c43c26ef1/std.o",
+            "private": false,
+            "provides": {
+              "std": "${env:HOME}/.mcpp/build-cache/v1/std/a443bc8c43c26ef1/pcm.cache/std.pcm"
+            },
+            "requires": [],
+            "source": "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/share/libc++/v1/std.cppm",
+            "work-directory": "${env:HOME}/.mcpp/build-cache/v1/std/a443bc8c43c26ef1"
+          }
+        ],
+        "visible-sets": [
+          "mcpplibs.both",
+          "app"
+        ]
+      },
+      {
+        "baseline-arguments": [
+          "-std=c++23",
+          "-fmodule-file=std=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/pcm.cache/std.pcm",
+          "-fprebuilt-module-path=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/pcm.cache",
+          "-O0",
+          "-fPIC",
+          "--no-default-config",
+          "-nostdinc++",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1",
+          "-nostdlibinc",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-glibc/2.44.3/include",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-linux-headers/5.11.1/include",
+          "-D__MCPP_TARGET_LINUX__=1",
+          "-x",
+          "c++-module"
+        ],
+        "family-name": "mcpplibs.gen",
+        "ide": {
+          "configuration": "build-program",
+          "kind": "library",
+          "toolchain": "llvm-22.1.8-x86_64-unknown-linux-gnu-build-machine"
+        },
+        "name": "mcpplibs.gen:host",
+        "translation-units": [
+          {
+            "arguments": [
+              "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++",
+              "-std=c++23",
+              "-fmodule-file=std=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/pcm.cache/std.pcm",
+              "-fprebuilt-module-path=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/pcm.cache",
+              "-O0",
+              "-fPIC",
+              "--no-default-config",
+              "-nostdinc++",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1",
+              "-nostdlibinc",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-glibc/2.44.3/include",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-linux-headers/5.11.1/include",
+              "-D__MCPP_TARGET_LINUX__=1",
+              "-x",
+              "c++-module",
+              "-c",
+              "${root}/deps/gen/src/gen.cppm",
+              "-o",
+              "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/obj/mcpplibs_gen/src/gen.m.o"
+            ],
+            "ide": {
+              "role": "module-interface"
+            },
+            "local-arguments": [],
+            "object": "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/obj/mcpplibs_gen/src/gen.m.o",
+            "private": false,
+            "provides": {
+              "gen": ""
+            },
+            "requires": [
+              "std"
+            ],
+            "source": "${root}/deps/gen/src/gen.cppm",
+            "work-directory": "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4"
+          }
+        ],
+        "visible-sets": [
+          "mcpplibs.both:host",
+          "mcpp:core",
+          "app:build",
+          "mcpp:std:host"
+        ]
+      },
+      {
+        "baseline-arguments": [
+          "-std=c++23",
+          "-fmodule-file=std=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/pcm.cache/std.pcm",
+          "-fprebuilt-module-path=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/pcm.cache",
+          "-O0",
+          "-fPIC",
+          "--no-default-config",
+          "-nostdinc++",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1",
+          "-nostdlibinc",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-glibc/2.44.3/include",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-linux-headers/5.11.1/include",
+          "-D__MCPP_TARGET_LINUX__=1",
+          "-x",
+          "c++-module"
+        ],
+        "family-name": "mcpplibs.both",
+        "ide": {
+          "configuration": "build-program",
+          "kind": "library",
+          "toolchain": "llvm-22.1.8-x86_64-unknown-linux-gnu-build-machine"
+        },
+        "name": "mcpplibs.both:host",
+        "translation-units": [
+          {
+            "arguments": [
+              "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++",
+              "-std=c++23",
+              "-fmodule-file=std=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/pcm.cache/std.pcm",
+              "-fprebuilt-module-path=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/pcm.cache",
+              "-O0",
+              "-fPIC",
+              "--no-default-config",
+              "-nostdinc++",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1",
+              "-nostdlibinc",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-glibc/2.44.3/include",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-linux-headers/5.11.1/include",
+              "-D__MCPP_TARGET_LINUX__=1",
+              "-x",
+              "c++-module",
+              "-c",
+              "${root}/deps/both/src/both.cppm",
+              "-o",
+              "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/obj/mcpplibs_both/src/both.m.o"
+            ],
+            "ide": {
+              "role": "module-interface"
+            },
+            "local-arguments": [],
+            "object": "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/obj/mcpplibs_both/src/both.m.o",
+            "private": false,
+            "provides": {
+              "both": ""
+            },
+            "requires": [],
+            "source": "${root}/deps/both/src/both.cppm",
+            "work-directory": "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4"
+          }
+        ],
+        "visible-sets": [
+          "mcpplibs.gen:host",
+          "mcpp:core",
+          "app:build",
+          "mcpp:std:host"
+        ]
+      },
+      {
+        "baseline-arguments": [
+          "-std=c++23",
+          "-fmodule-file=std=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/pcm.cache/std.pcm",
+          "-fprebuilt-module-path=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/pcm.cache",
+          "-O0",
+          "-fPIC",
+          "--no-default-config",
+          "-nostdinc++",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1",
+          "-nostdlibinc",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-glibc/2.44.3/include",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-linux-headers/5.11.1/include",
+          "-D__MCPP_TARGET_LINUX__=1"
+        ],
+        "family-name": "mcpp.core",
+        "ide": {
+          "configuration": "build-program",
+          "kind": "library",
+          "toolchain": "llvm-22.1.8-x86_64-unknown-linux-gnu-build-machine"
+        },
+        "name": "mcpp:core",
+        "translation-units": [
+          {
+            "arguments": [
+              "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++",
+              "-std=c++23",
+              "-fmodule-file=std=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/pcm.cache/std.pcm",
+              "-fprebuilt-module-path=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/pcm.cache",
+              "-O0",
+              "-fPIC",
+              "--no-default-config",
+              "-nostdinc++",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1",
+              "-nostdlibinc",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-glibc/2.44.3/include",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-linux-headers/5.11.1/include",
+              "-D__MCPP_TARGET_LINUX__=1",
+              "-x",
+              "c++-module",
+              "-c",
+              "${root}/engine/modules/mcpp.cppm",
+              "-o",
+              "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/obj/mcpp_core/mcpp.m.o"
+            ],
+            "ide": {
+              "role": "module-interface"
+            },
+            "local-arguments": [
+              "-x",
+              "c++-module"
+            ],
+            "object": "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/obj/mcpp_core/mcpp.m.o",
+            "private": false,
+            "provides": {
+              "mcpp": ""
+            },
+            "requires": [],
+            "source": "${root}/engine/modules/mcpp.cppm",
+            "work-directory": "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4"
+          },
+          {
+            "arguments": [
+              "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++",
+              "-std=c++23",
+              "-fmodule-file=std=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/pcm.cache/std.pcm",
+              "-fprebuilt-module-path=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/pcm.cache",
+              "-O0",
+              "-fPIC",
+              "--no-default-config",
+              "-nostdinc++",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1",
+              "-nostdlibinc",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-glibc/2.44.3/include",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-linux-headers/5.11.1/include",
+              "-D__MCPP_TARGET_LINUX__=1",
+              "@${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/modmap/mcpp.core-541b33a3.modmap",
+              "-x",
+              "c++-module",
+              "-c",
+              "${root}/engine/modules/mcpp_core.cppm",
+              "-o",
+              "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/obj/mcpp_core/mcpp_core.m.o"
+            ],
+            "ide": {
+              "role": "module-interface"
+            },
+            "local-arguments": [
+              "@${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/modmap/mcpp.core-541b33a3.modmap",
+              "-x",
+              "c++-module"
+            ],
+            "object": "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/obj/mcpp_core/mcpp_core.m.o",
+            "private": false,
+            "provides": {
+              "mcpp.core": ""
+            },
+            "requires": [
+              "mcpp"
+            ],
+            "source": "${root}/engine/modules/mcpp_core.cppm",
+            "work-directory": "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4"
+          }
+        ],
+        "visible-sets": [
+          "mcpplibs.gen:host",
+          "mcpplibs.both:host",
+          "app:build",
+          "mcpp:std:host"
+        ]
+      },
+      {
+        "baseline-arguments": [
+          "-std=c++23",
+          "-fmodule-file=std=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/pcm.cache/std.pcm",
+          "-fprebuilt-module-path=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/pcm.cache",
+          "-O0",
+          "-fPIC",
+          "--no-default-config",
+          "-nostdinc++",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1",
+          "-nostdlibinc",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-glibc/2.44.3/include",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-linux-headers/5.11.1/include",
+          "-D__MCPP_TARGET_LINUX__=1",
+          "@${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/modmap/app-eec2fa-163e2975.modmap",
+          "-x",
+          "c++"
+        ],
+        "family-name": "app",
+        "ide": {
+          "configuration": "build-program",
+          "kind": "executable",
+          "toolchain": "llvm-22.1.8-x86_64-unknown-linux-gnu-build-machine"
+        },
+        "name": "app:build",
+        "translation-units": [
+          {
+            "arguments": [
+              "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++",
+              "-std=c++23",
+              "-fmodule-file=std=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/pcm.cache/std.pcm",
+              "-fprebuilt-module-path=${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/pcm.cache",
+              "-O0",
+              "-fPIC",
+              "--no-default-config",
+              "-nostdinc++",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1",
+              "-nostdlibinc",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-glibc/2.44.3/include",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-linux-headers/5.11.1/include",
+              "-D__MCPP_TARGET_LINUX__=1",
+              "@${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/modmap/app-eec2fa-163e2975.modmap",
+              "-x",
+              "c++",
+              "-c",
+              "${root}/build.mcpp",
+              "-o",
+              "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/obj/app-eec2fa/__ext/eec2fa71/build.mcpp.o"
+            ],
+            "ide": {
+              "role": "non-module"
+            },
+            "local-arguments": [],
+            "object": "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4/obj/app-eec2fa/__ext/eec2fa71/build.mcpp.o",
+            "private": false,
+            "provides": {},
+            "requires": [
+              "std",
+              "mcpp",
+              "gen",
+              "both"
+            ],
+            "source": "${root}/build.mcpp",
+            "work-directory": "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/target/x86_64-linux-gnu/20372b3b7dad2cf4"
+          }
+        ],
+        "visible-sets": [
+          "mcpplibs.gen:host",
+          "mcpplibs.both:host",
+          "mcpp:core",
+          "mcpp:std:host"
+        ]
+      },
+      {
+        "baseline-arguments": [
+          "-std=c++23",
+          "-Wno-reserved-module-identifier",
+          "--no-default-config",
+          "-nostdinc++",
+          "-stdlib=libc++",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1",
+          "-nostdlibinc",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-glibc/2.44.3/include",
+          "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-linux-headers/5.11.1/include",
+          "--precompile",
+          "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/share/libc++/v1/std.cppm",
+          "-o",
+          "pcm.cache/std.pcm"
+        ],
+        "family-name": "mcpp:std",
+        "ide": {
+          "configuration": "build-program",
+          "kind": "library",
+          "toolchain": "llvm-22.1.8-x86_64-unknown-linux-gnu-build-machine"
+        },
+        "name": "mcpp:std:host",
+        "translation-units": [
+          {
+            "arguments": [
+              "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++",
+              "-std=c++23",
+              "-Wno-reserved-module-identifier",
+              "--no-default-config",
+              "-nostdinc++",
+              "-stdlib=libc++",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/c++/v1",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/include/x86_64-unknown-linux-gnu/c++/v1",
+              "-nostdlibinc",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-glibc/2.44.3/include",
+              "-isystem${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-linux-headers/5.11.1/include",
+              "--precompile",
+              "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/share/libc++/v1/std.cppm",
+              "-o",
+              "pcm.cache/std.pcm"
+            ],
+            "ide": {
+              "role": "module-interface"
+            },
+            "local-arguments": [],
+            "object": "${env:HOME}/.mcpp/build-cache/v1/std/a443bc8c43c26ef1/std.o",
+            "private": false,
+            "provides": {
+              "std": "${env:HOME}/.mcpp/build-cache/v1/std/a443bc8c43c26ef1/pcm.cache/std.pcm"
+            },
+            "requires": [],
+            "source": "${env:HOME}/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/share/libc++/v1/std.cppm",
+            "work-directory": "${env:HOME}/.mcpp/build-cache/v1/std/a443bc8c43c26ef1"
+          }
+        ],
+        "visible-sets": [
+          "mcpplibs.gen:host",
+          "mcpplibs.both:host",
+          "mcpp:core",
+          "app:build"
+        ]
+      }
+    ],
+    "version": 1
+  },
+  "watch": [
+    "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/mcpp.lock",
+    "${env:HOME}/.mcpp/cache/build-database/ae4d259c7716e5e2/target/.build-mcpp/host/8e2543cba42b/mcpp.toml",
+    "${env:HOME}/.mcpp/config.toml",
+    "build.mcpp",
+    "deps/both/mcpp.toml",
+    "deps/both/src/**/*.S",
+    "deps/both/src/**/*.asm",
+    "deps/both/src/**/*.c",
+    "deps/both/src/**/*.cc",
+    "deps/both/src/**/*.cpp",
+    "deps/both/src/**/*.cppm",
+    "deps/both/src/**/*.s",
+    "deps/gen/mcpp.toml",
+    "deps/gen/src/**/*.S",
+    "deps/gen/src/**/*.asm",
+    "deps/gen/src/**/*.c",
+    "deps/gen/src/**/*.cc",
+    "deps/gen/src/**/*.cpp",
+    "deps/gen/src/**/*.cppm",
+    "deps/gen/src/**/*.s",
+    "mcpp.lock",
+    "mcpp.toml",
+    "src/**/*.S",
+    "src/**/*.asm",
+    "src/**/*.c",
+    "src/**/*.cc",
+    "src/**/*.cpp",
+    "src/**/*.cppm",
+    "src/**/*.s",
+    "tests/**/*.cpp"
+  ]
+}

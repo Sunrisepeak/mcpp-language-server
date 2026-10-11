@@ -771,6 +771,10 @@ public:
         }
         std::set<std::string> newExcluded;
         for (const auto& file : plan->excludedFiles) newExcluded.insert(base::path_key(file));
+        // Files the plan's context does not read (mcpp-community/mcpp#797): a build program another context reads, or
+        // one no set describes. clangd would read them with a command of its own guessing.
+        for (const auto& [file, set] : plan->otherContextSources) newExcluded.insert(base::path_key(file));
+        for (const auto& file : plan->unreadSources) newExcluded.insert(base::path_key(file));
         std::map<std::string, std::string, std::less<>> newModuleSources;
         std::map<std::string, std::string, std::less<>> newModuleCommands;
         for (const auto& entry : plan->entries) {
@@ -3528,7 +3532,7 @@ private:
     bool ready_for_engine_(std::string_view path, const std::string& key, const HeldFile& held, Clock::time_point now) const {
         if (const auto joined = joinedAt_.find(key); joined != joinedAt_.end()) return now >= joined->second + DATABASE_REREAD;
         if (writtenArguments_.contains(key) || writtenDatabase_.empty()) return true;
-        if (!project::is_cxx_source_name(path) || !base::is_within(path, host_->root_directory())) return true;
+        if (!(project::is_cxx_source_name(path) || project::is_build_program_source(path)) || !base::is_within(path, host_->root_directory())) return true;
         return held.planned || now >= held.since + PLAN_PATIENCE;
     }
 

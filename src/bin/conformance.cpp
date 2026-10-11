@@ -517,6 +517,7 @@ public:
         Json result { nullptr };
         bool timedOut { false };
         bool isError { false };
+        Json error { nullptr };   // the error answer, when isError
     };
 
     RequestOutcome request_full(std::string_view method, Json params, std::chrono::seconds timeout) {
@@ -530,7 +531,7 @@ public:
                 unanswered_ = 0;
                 if (message->contains("error")) {
                     if (verbose_) say("  error response to {}: {}", method, lsp::dump((*message)["error"]));
-                    return { Json(nullptr), false, true };
+                    return { Json(nullptr), false, true, (*message)["error"] };
                 }
                 return { message->value("result", Json {}), false, false };
             }
@@ -3986,6 +3987,20 @@ public:
             // "subset": no line outside `lines` (a clangd that reports fewer is not wrong; one that reports more is).
             const bool held { check.value("subset", false) ? std::ranges::includes(expected, lines) : lines == expected };
             return { published && held, published ? std::format("{} on lines {}", code.dump(), lines) : std::string { "no diagnostics were published" } };
+        }
+        if (kind == "request") {
+            // mcpp-community/mcpp#797: one request about `file` -- `method`, at `at` when given, with `params` added -- and
+            // its answer: `expect`, the result exactly, or `expect-error`, the code of the error it is refused with.
+            open(file);
+            Json params { { "textDocument", Json { { "uri", uri(file) } } } };
+            if (check.contains("at")) params["position"] = position(check.at("at"));
+            for (const auto& item : check.value("params", Json::object()).items()) params[item.key()] = item.value();
+            const auto outcome = client_.request_full(check.value("method", std::string {}), std::move(params), timeout_);
+            if (outcome.timedOut) return { false, "no answer" };
+            if (const auto code = check.find("expect-error"); code != check.end()) {
+                return { outcome.isError && outcome.error.value("code", 0) == code->get<int>(), lsp::dump(outcome.isError ? outcome.error : outcome.result) };
+            }
+            return { !outcome.isError && outcome.result == check.value("expect", Json {}), lsp::dump(outcome.isError ? outcome.error : outcome.result) };
         }
         if (kind == "diagnostic-code") {
             open(file);

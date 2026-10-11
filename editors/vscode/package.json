@@ -73,7 +73,8 @@
           ".ixx",
           ".mpp",
           ".cxxm",
-          ".ccm"
+          ".ccm",
+          ".mcpp"
         ]
       }
     ],
@@ -87,6 +88,9 @@
       }
     ],
     "configurationDefaults": {
+      "files.readonlyInclude": {
+        "**/.mcpp/engine/*/modules/**": true
+      },
       "[cpp]": {
         "editor.quickSuggestions": {
           "other": "on",

@@ -62,13 +62,30 @@ bool compiled_as_c(std::span<const std::string> arguments, std::string_view sour
     return stated.value_or(base::extension(source) == ".c");
 }
 
-// The arguments without `-x c++-module`, for a unit that is not a module interface.
+// The arguments without the language the plan stated for the unit they were planned for (`-x c++-module`, `-x c++`),
+// for another unit, whose own language is stated again.
 std::vector<std::string> without_module_mode(std::vector<std::string> arguments) {
     for (std::size_t k { 0 }; k + 1 < arguments.size();) {
-        if (arguments[k] == "-x" && arguments[k + 1] == "c++-module") arguments.erase(arguments.begin() + static_cast<std::ptrdiff_t>(k), arguments.begin() + static_cast<std::ptrdiff_t>(k + 2));
-        else ++k;
+        if (arguments[k] == "-x" && (arguments[k + 1] == "c++-module" || arguments[k + 1] == "c++")) {
+            arguments.erase(arguments.begin() + static_cast<std::ptrdiff_t>(k), arguments.begin() + static_cast<std::ptrdiff_t>(k + 2));
+        } else {
+            ++k;
+        }
     }
     return arguments;
+}
+
+// The language of a C++ unit, stated after its arguments: a module interface is read as one, and a unit whose name tells
+// the Clang driver no language -- an mcpp build program, `build.mcpp` (mcpp-community/mcpp#797) -- is C++ because the
+// build's command said `-x c++`, which the translations drop with the build's other spellings of the language.
+void state_language(std::vector<std::string>& arguments, std::string_view source, bool importable) {
+    if (importable) {
+        arguments.emplace_back("-x");
+        arguments.emplace_back("c++-module");
+    } else if (!project::clang_names_language(source)) {
+        arguments.emplace_back("-x");
+        arguments.emplace_back("c++");
+    }
 }
 
 // Whether `source` belongs to a project nested inside the one `borrowedFrom` belongs to (real-project
@@ -111,10 +128,24 @@ std::string c_driver_beside(std::string_view driver) {
     return base::join_path(base::parent_path(driver), std::string { ENGINE_CLANG_C_DRIVER } + std::string { suffix });
 }
 
+// The sets a context reads. A named context is the set and its visible sets. The default context is every set, the
+// targets' first: a unit two sets compile -- a package in both `[dependencies]` and `[build-dependencies]` -- is read as
+// the targets build it, the first occurrence of a source winning. Build programs (mcpp-community/mcpp#797) join it
+// when they are compiled with a toolchain the targets use; a toolchain of their own, the build machine's in a cross
+// build, would read them against the targets' standard library, and they are read in their own context instead.
 std::vector<std::size_t> context_sets(const spec::Database& database, std::string_view contextSet) {
     std::vector<std::size_t> indices;
     if (contextSet.empty()) {
-        for (std::size_t i { 0 }; i < database.sets.size(); ++i) indices.push_back(i);
+        std::set<std::string, std::less<>> targetToolchains;
+        for (std::size_t i { 0 }; i < database.sets.size(); ++i) {
+            if (spec::is_build_program_set(database.sets[i])) continue;
+            indices.push_back(i);
+            targetToolchains.insert(database.sets[i].toolchain);
+        }
+        for (std::size_t i { 0 }; i < database.sets.size(); ++i) {
+            const spec::Set& set { database.sets[i] };
+            if (spec::is_build_program_set(set) && (indices.empty() || targetToolchains.contains(set.toolchain))) indices.push_back(i);
+        }
         return indices;
     }
     const auto selected = spec::find_set(database, contextSet);
@@ -270,7 +301,7 @@ std::vector<std::string> std_unit_arguments(std::span<const std::string> represe
     std::vector<std::string> out;
     for (std::size_t i { 0 }; i < representative.size(); ++i) {
         const std::string& argument { representative[i] };
-        if (argument == "-x" && i + 1 < representative.size() && representative[i + 1] == "c++-module") {
+        if (argument == "-x" && i + 1 < representative.size() && (representative[i + 1] == "c++-module" || representative[i + 1] == "c++")) {
             ++i;
             continue;
         }
@@ -322,7 +353,8 @@ EnginePlan plan_engine(const PlanInput& input) {
     // 1. Candidates: every unit of the context, first occurrence of a source wins.
     std::vector<Candidate> candidates;
     std::set<std::string> seenSources;
-    for (const std::size_t setIndex : context_sets(database, input.contextSet)) {
+    const std::vector<std::size_t> contextIndices { context_sets(database, input.contextSet) };
+    for (const std::size_t setIndex : contextIndices) {
         const spec::Set& set { database.sets[setIndex] };
         const toolchain::ToolchainFacts* facts { facts_for(input, set) };
         for (const auto& unit : set.units) {
@@ -405,10 +437,7 @@ EnginePlan plan_engine(const PlanInput& input) {
                 for (auto& argument : semantic_subset(arguments)) {
                     if (!argument.starts_with("-std=")) candidate.arguments.push_back(std::move(argument));
                 }
-                if (importable) {
-                    candidate.arguments.emplace_back("-x");
-                    candidate.arguments.emplace_back("c++-module");
-                }
+                if (!candidate.c) state_language(candidate.arguments, candidate.source, importable);
                 candidate.driver = candidate.c ? clangCDriver : clangDriver;
             } else {
                 PlanIssue issue { "toolchain-not-found", std::format("no usable compiler or semantic kit for {}", base::file_name(candidate.source)),
@@ -417,7 +446,22 @@ EnginePlan plan_engine(const PlanInput& input) {
                 plan.issues.push_back(std::move(issue));
                 continue;
             }
+            // The translations state a module interface's language themselves.
+            if (!candidate.usesKit && !candidate.c && !importable) state_language(candidate.arguments, candidate.source, false);
             candidates.push_back(std::move(candidate));
+        }
+    }
+
+    // 1a. Build programs the context does not read (mcpp-community/mcpp#797): the context of their own set does.
+    std::set<std::string> elsewhereSources;
+    for (std::size_t i { 0 }; i < database.sets.size(); ++i) {
+        const spec::Set& set { database.sets[i] };
+        if (!spec::is_build_program_set(set) || std::ranges::find(contextIndices, i) != contextIndices.end()) continue;
+        for (const auto& unit : set.units) {
+            const std::string source { spec::absolute_source(unit) };
+            const std::string key { base::path_key(source) };
+            if (seenSources.contains(key) || standardSources.contains(key) || !elsewhereSources.insert(key).second) continue;
+            plan.otherContextSources.emplace_back(source, set.name);
         }
     }
 
@@ -428,7 +472,7 @@ EnginePlan plan_engine(const PlanInput& input) {
     for (const auto& openSource : input.openSources) {
         const std::string source { base::normalize_path(openSource) };
         const std::string key { base::path_key(source) };
-        if (standardSources.contains(key) || seenSources.contains(key)) continue;
+        if (standardSources.contains(key) || seenSources.contains(key) || elsewhereSources.contains(key)) continue;
         std::optional<std::size_t> nearest;
         std::size_t best { 0 };
         const std::string directory { base::parent_path(base::path_key(source)) };
@@ -458,10 +502,7 @@ EnginePlan plan_engine(const PlanInput& input) {
         drop_invalid_module_names(candidate.required, candidate.source);
         candidate.module = scanned.declaration ? scanned.declaration->module : std::string {};
         candidate.arguments = without_module_mode(std::move(candidate.arguments));
-        if (spec::is_importable(candidate.role)) {
-            candidate.arguments.emplace_back("-x");
-            candidate.arguments.emplace_back("c++-module");
-        }
+        state_language(candidate.arguments, candidate.source, spec::is_importable(candidate.role));
         candidates.push_back(std::move(candidate));
         plan.openSources.push_back(source);
     }
@@ -517,11 +558,22 @@ EnginePlan plan_engine(const PlanInput& input) {
     std::set<std::string, std::less<>> stubbed;              // modules that get a stand-in
     std::set<std::string, std::less<>> unusableProviders;    // modules whose planned providers clangd cannot find
     std::vector<bool> excluded(candidates.size(), false);
+    std::vector<bool> elsewhere(candidates.size(), false);   // read in the context of its own configuration
+    const auto builds_programs = [&](std::size_t i) { return spec::is_build_program_set(*candidates[i].set); };
     for (auto& [name, indices] : providers) {
         if (indices.size() < 2) continue;
-        for (std::size_t k { 1 }; k < indices.size(); ++k) excluded[indices[k]] = true;
-        plan.issues.push_back(PlanIssue { "ambiguous-module", std::format("module {} has {} providers; using {}", name, indices.size(),
-            base::file_name(candidates[indices.front()].source)), candidates[indices[1]].source, name });
+        // A module the targets provide is the targets' in a context that reads both configurations; a build program's
+        // own instance of it, another version of the package, is read in the build program's context (mcpp#797). The
+        // two configurations never see each other, so the pair is no ambiguity of the build.
+        std::vector<std::size_t> rivals;
+        for (std::size_t k { 1 }; k < indices.size(); ++k) {
+            excluded[indices[k]] = true;
+            if (!builds_programs(indices.front()) && builds_programs(indices[k])) elsewhere[indices[k]] = true;
+            else rivals.push_back(indices[k]);
+        }
+        if (rivals.empty()) continue;
+        plan.issues.push_back(PlanIssue { "ambiguous-module", std::format("module {} has {} providers; using {}", name, rivals.size() + 1,
+            base::file_name(candidates[indices.front()].source)), candidates[rivals.front()].source, name });
     }
     // usable plan W5.4: a semantic kit that requires the macOS SDK cannot build std without
     // one. Rather than send such a unit to clangd and wait out a request that never answers
@@ -639,6 +691,10 @@ EnginePlan plan_engine(const PlanInput& input) {
     // 4. Entries.
     for (std::size_t i { 0 }; i < candidates.size(); ++i) {
         const auto& candidate = candidates[i];
+        if (elsewhere[i]) {
+            plan.otherContextSources.emplace_back(candidate.source, candidate.set->name);
+            continue;
+        }
         if (excluded[i]) {
             plan.excludedFiles.push_back(candidate.source);
             continue;

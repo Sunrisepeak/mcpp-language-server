@@ -76,6 +76,25 @@ identity, and the server checks both before it trusts what the engine declares.
   taken as unchanged, as clang does for a module's inputs. A hit on the standard library module's
   scan used to read and hash each libc++ header.
 
+### mcpp's build programs
+
+- **`build.mcpp` has the features of target code (#51).** From mcpp 2026.10.11.1 the build database
+  describes the build programs: `build.mcpp`, the libraries of `[build-dependencies]` and mcpp's
+  engine interface (`import mcpp;`), in sets of the `build-program` configuration. `build.mcpp` is
+  read as C++ with the arguments mcpp compiles it with, so navigation, hover, completion and
+  diagnostics reach its libraries and the engine interface. Every editor integration treats `.mcpp`
+  files as C++.
+- **The targets and the build programs stay apart.** The default context reads a package in both
+  `[dependencies]` and `[build-dependencies]` as the targets build it, and the context
+  `<package>:build` reads the build programs as mcpp compiles them; build programs with a toolchain
+  of their own, as in a cross build, are read there and say so. A target that imports `mcpp` or a
+  library of `[build-dependencies]`, and a `build.mcpp` that imports a module of the targets, get an
+  error at the import, as mcpp refuses them.
+- **The engine interface is read-only.** Formatting, code actions and renames never edit
+  `<MCPP_HOME>/engine/<version>/modules`, and VS Code opens it read-only.
+- With an mcpp older than 2026.10.11.1, `build.mcpp` is not read, and a note in it names the mcpp
+  that describes it.
+
 ### Editing
 
 - **Formatting has an mcpp fallback.** `mcppls.format.fallbackStyle` (default `auto`): a project

@@ -109,23 +109,36 @@ void ModuleIndex::structure_changed_() {
 
 const std::vector<ModuleIndex::Candidate>& ModuleIndex::candidates_now_() const {
     if (candidates_) return *candidates_;
-    std::map<std::string, std::string, std::less<>> byName;   // sorted by name, like module_names
+    std::map<std::string, std::pair<std::string, unsigned>, std::less<>> byName;   // sorted by name, like module_names
     for (const auto& [key, entry] : files_) {
         const auto& scan = entry.second;
         if (!scan.declaration) continue;
         const spec::Role role { project::role_of(scan) };
         if (role == spec::Role::module_implementation) continue;
-        byName.try_emplace(declared_name(*scan.declaration), role_label(role));   // the first provider's role, like providers().front()
+        auto& [detail, configurations] = byName.try_emplace(declared_name(*scan.declaration), std::string { role_label(role) }, 0U).first->second;
+        // the first provider's role, like providers().front(); the configurations of all of them
+        if (const auto it = configurations_.find(key); it != configurations_.end()) configurations |= it->second;
     }
-    for (const auto& module : external_) byName.try_emplace(module.name, "module");
+    for (const auto& module : external_) byName.try_emplace(module.name, "module", 0U);
     std::vector<Candidate> built;
     built.reserve(byName.size());
-    for (auto& [name, detail] : byName) built.push_back(Candidate { name, std::move(detail) });
+    for (auto& [name, described] : byName) built.push_back(Candidate { name, std::move(described.first), described.second });
     candidates_ = std::move(built);
     return *candidates_;
 }
 
 void ModuleIndex::set_profile_label(std::string label) { profileLabel_ = std::move(label); }
+
+void ModuleIndex::set_configurations(std::map<std::string, unsigned, std::less<>> byPathKey, std::set<std::string, std::less<>> engineInterface) {
+    configurations_ = std::move(byPathKey);
+    engineInterface_ = std::move(engineInterface);
+    structure_changed_();
+}
+
+unsigned ModuleIndex::configuration_of(std::string_view path) const {
+    const auto it = configurations_.find(base::path_key(path));
+    return it == configurations_.end() ? 0U : it->second;
+}
 
 bool ModuleIndex::contains(std::string_view path) const { return files_.contains(base::path_key(path)); }
 
@@ -151,6 +164,17 @@ std::vector<ModuleUnit> ModuleIndex::providers(std::string_view name) const {
         result.push_back(ModuleUnit { entry.first, std::string { name }, role, scan.declaration->nameRange });
     }
     return result;
+}
+
+std::vector<ModuleUnit> ModuleIndex::providers_for(std::string_view importer, std::string_view name) const {
+    auto units = providers(name);
+    const unsigned mine { configuration_of(importer) };
+    if (mine == TARGETS || mine == BUILD_PROGRAMS) {
+        auto seen = units;
+        std::erase_if(seen, [&](const ModuleUnit& unit) { return (configuration_of(unit.path) & mine) == 0; });
+        if (!seen.empty()) return seen;
+    }
+    return units;
 }
 
 const ExternalModule* ModuleIndex::external(std::string_view name) const {
@@ -197,7 +221,7 @@ Json ModuleIndex::definition(std::string_view path, base::Position position) con
             return locations;
         }
     }
-    for (const auto& unit : providers(target)) locations.push_back(make_location(unit.path, unit.declaration));
+    for (const auto& unit : providers_for(path, target)) locations.push_back(make_location(unit.path, unit.declaration));
     if (locations.empty()) {
         if (const auto* module = external(target)) locations.push_back(make_location(module->path, base::Range {}));
     }
@@ -208,7 +232,7 @@ Json ModuleIndex::hover(std::string_view path, base::Position position) const {
     const auto hit = module_at(path, position);
     if (!hit) return nullptr;
     std::string value { std::format("```cpp\nmodule {}\n```\n", hit->name) };
-    const auto units = providers(hit->name);
+    const auto units = providers_for(path, hit->name);
     if (!units.empty()) {
         for (const auto& unit : units) {
             value += std::format("\nProvided by `{}` ({}).\n", base::file_name(unit.path), role_label(unit.role));
@@ -267,13 +291,42 @@ Json ModuleIndex::completion(std::string_view path, std::string_view text, base:
         }
     } else {
         const std::string self { scan != nullptr && scan->declaration ? declared_name(*scan->declaration) : std::string {} };
+        const unsigned mine { configuration_of(path) };
+        const bool sees_one { mine == TARGETS || mine == BUILD_PROGRAMS };
         for (const auto& candidate : candidates_now_()) {
             if (candidate.name.find(':') != std::string::npos || candidate.name == self) continue;
+            if (sees_one && candidate.configurations != 0 && (candidate.configurations & mine) == 0) continue;
             if (!candidate.name.starts_with(partial)) continue;
             add(candidate.name, candidate.detail);
         }
     }
     return Json { { "isIncomplete", false }, { "items", items } };
+}
+
+std::optional<std::pair<std::string_view, std::string>> ModuleIndex::across_configurations(std::string_view importer, std::string_view name,
+                                                                                            std::span<const ModuleUnit> units) const {
+    const unsigned mine { configuration_of(importer) };
+    if (units.empty() || (mine != TARGETS && mine != BUILD_PROGRAMS)) return std::nullopt;
+    unsigned theirs { 0 };
+    bool engine { false };
+    for (const auto& unit : units) {
+        theirs |= configuration_of(unit.path);
+        engine = engine || engineInterface_.contains(base::path_key(unit.path));
+    }
+    if (theirs == 0 || (theirs & mine) != 0) return std::nullopt;
+    if (mine == BUILD_PROGRAMS) {
+        return std::pair { std::string_view { "target-module" },
+                           std::format("module '{}' is provided to the targets only: a build program imports mcpp's engine interface and the "
+                                       "packages of [build-dependencies]", name) };
+    }
+    if (engine) {
+        return std::pair { std::string_view { "build-program-module" },
+                           std::format("module '{}' is mcpp's engine interface: build.mcpp and build plugins import it, a target does not "
+                                       "(mcpp SPEC-007 P1)", name) };
+    }
+    return std::pair { std::string_view { "build-program-module" },
+                       std::format("module '{}' is provided to build programs only: its package is in [build-dependencies], and a target "
+                                   "imports the packages of [dependencies]", name) };
 }
 
 Json ModuleIndex::diagnostics(std::string_view path) const {
@@ -288,9 +341,11 @@ Json ModuleIndex::diagnostics(std::string_view path) const {
             continue;
         }
         const std::string name { project::imported_name(*scan, import) };
-        const auto units = providers(name);
+        const auto units = providers_for(path, name);
         if (units.empty() && external(name) == nullptr) {
             result.push_back(diagnostic(import.nameRange, SEVERITY_ERROR, "unresolved-module", std::format("module '{}' not found", name)));
+        } else if (auto across = across_configurations(path, name, units)) {
+            result.push_back(diagnostic(import.nameRange, SEVERITY_ERROR, across->first, std::move(across->second)));
         } else if (units.size() > 1) {
             std::string list;
             for (const auto& unit : units) list += (list.empty() ? "" : ", ") + std::string { base::file_name(unit.path) };
