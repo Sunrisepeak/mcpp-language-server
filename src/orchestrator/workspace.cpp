@@ -217,6 +217,7 @@ struct Workspace::Impl final : engine::Host {
     std::string staleModelReason;
 
     Json clientParams;
+    std::string startedAtUtc;   // when this root started serving (about_json)
     bool conflictAdviceSent { false };    // the one-engine-per-file note goes out at most once
     std::string progressToken;           // non-empty while a $/progress is open
     std::string lastProgressMessage;
@@ -2159,6 +2160,46 @@ struct Workspace::Impl final : engine::Host {
         client.notify("textDocument/publishDiagnostics", Json { { "uri", std::string { uri } }, { "diagnostics", std::move(merged) } });
     }
 
+    // 0.0.13 W7: which mcppls, engine and mcpp are running, in one place: the status, the report and the
+    // overview read it, and the log's first lines say the same. No paths (it is copied into issues), and
+    // nothing that changes with each request, so carrying it in every status costs no extra notification.
+    std::string extension_version() const {
+        const Json* version { lsp::find_path(clientParams, { "initializationOptions", "extensionVersion" }) };
+        return version != nullptr && version->is_string() ? version->get<std::string>() : std::string {};
+    }
+
+    // An editor package that started a server other than its own (an older payload left on PATH, an
+    // MCPPLS_SERVER from another install): a report then describes a version nobody thinks is running.
+    std::string version_mismatch() const {
+        const std::string extension { extension_version() };
+        if (extension.empty() || extension == base::VERSION) return {};
+        return std::format("the editor extension is {} but the server it started is mcppls {}; reinstall the extension or remove the other server",
+                           extension, base::VERSION);
+    }
+
+    Json about_json() const {
+        Json about { { "server", std::string { base::VERSION } }, { "platform", std::string { mcppls::os::PLATFORM } }, { "startedAt", startedAtUtc } };
+        if (const std::string extension { extension_version() }; !extension.empty()) about["extension"] = extension;
+        if (const Json* info = lsp::find(clientParams, "clientInfo"); info != nullptr && info->is_object()) {
+            about["editor"] = Json { { "name", info->value("name", std::string {}) }, { "version", info->value("version", std::string {}) } };
+        }
+        if (coreEngine != nullptr) {
+            const engine::EngineStatus core { coreEngine->status() };
+            Json engineAbout { { "name", core.name }, { "version", core.version }, { "restarts", core.restarts } };
+            if (payload.engineIdentity && payload.identityProblem.empty()) {
+                engineAbout["build"] = payload.engineIdentity->version;
+                engineAbout["features"] = payload.engineIdentity->features.size();
+            }
+            about["engine"] = std::move(engineAbout);
+        } else {
+            about["engine"] = Json { { "name", "none" } };
+        }
+        if (kit) about["kit"] = kit->name;
+        if (detectedSource == project::SourceKind::mcpp) about["mcpp"] = producerVersion;
+        if (const std::string mismatch { version_mismatch() }; !mismatch.empty()) about["mismatch"] = mismatch;
+        return about;
+    }
+
     Json profile_json() const {
         Json profile = Json::object();
         if (model) {
@@ -2427,6 +2468,7 @@ struct Workspace::Impl final : engine::Host {
             for (const auto& notice : model->notices) notices.push_back(Json { { "code", notice.code }, { "message", notice.message } });
         }
         if (!payload.kitNotice.empty()) notices.push_back(Json { { "code", "kit-version-mismatch" }, { "message", payload.kitNotice } });
+        if (const std::string mismatch { version_mismatch() }; !mismatch.empty()) notices.push_back(Json { { "code", "version-mismatch" }, { "message", mismatch } });
         if (lease && lease->shared()) {
             notices.push_back(Json { { "code", "shared-workspace" },
                                      { "message", "another mcppls instance serves this workspace; this one keeps a private cache and starts cold" } });
@@ -2453,6 +2495,7 @@ struct Workspace::Impl final : engine::Host {
             { "engine", core ? Json { { "name", core->name }, { "version", core->version } } : Json { { "name", "none" }, { "version", "" } } },
             { "engines", std::move(engineList) },
             { "issues", issues },
+            { "about", about_json() },
         };
         if (!notices.empty()) params["notices"] = std::move(notices);
         if (!onlineRun.is_null()) params["onlineRun"] = onlineRun;   // D-5, S3-4-26
@@ -2611,7 +2654,17 @@ void Workspace::start(Json clientParams, bool clientSupportsStatus, bool usePoll
     impl_->vscodeLike = completion::vscode_like(impl_->clientParams);
     impl_->dynamicWatch = !usePolling;
     if (usePolling) impl_->start_watch_polling();
-    log::info("mcppls {} ({}) root {}", base::VERSION, mcppls::os::FAMILY_NAME, root_);
+    impl_->startedAtUtc = std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
+    log::info("mcppls {} ({}) root {}", base::VERSION, mcppls::os::PLATFORM, root_);
+    {
+        // 0.0.13 W7: the versions in the log's first lines, so a log read alone says what ran.
+        const Json about { impl_->about_json() };
+        std::string editor;
+        if (about.contains("editor")) editor = std::format(" · editor {} {}", about["editor"].value("name", std::string {}), about["editor"].value("version", std::string {}));
+        log::info("versions ({}): server {}{}{}", root_, base::VERSION,
+                  about.contains("extension") ? std::format(" · extension {}", about["extension"].get<std::string>()) : std::string {}, editor);
+        if (about.contains("mismatch")) log::warning("version mismatch ({}): {}", root_, about["mismatch"].get<std::string>());
+    }
     if (!impl_->payloadCorrupt && impl_->kitEnabled && !impl_->payload.kit.empty()) {
         if (auto kit = spec::load_kit(impl_->payload.kit)) {
             impl_->kit = std::move(*kit);
@@ -2963,7 +3016,7 @@ Json Workspace::report() const {
                                                      { "maxMicros", impl.spaceTrigger.maxMicros }, { "totalMicros", impl.spaceTrigger.totalMicros } } },
                            { "keywordsWithoutEngine", impl.keywordsWithoutEngine }, { "wordsWithoutCore", impl.wordsWithoutCore },
                            { "late", Json { { "arrived", impl.lateCompletionsArrived }, { "served", impl.lateCompletionsServed } } } };
-    return Json { { "root", root_ }, { "key", key_ }, { "cacheDirectory", impl.cacheDirectory },
+    return Json { { "root", root_ }, { "key", key_ }, { "about", impl.about_json() }, { "cacheDirectory", impl.cacheDirectory },
                   { "trusted", impl.options.trusted }, { "state", std::string { to_string(impl.compute_state()) } }, { "project", std::move(project) },
                   { "toolEnvironment", std::move(environment) }, { "toolRuns", std::move(toolRuns) },
                   { "plan", std::move(plan) }, { "engines", std::move(engines) }, { "requests", std::move(requests) },

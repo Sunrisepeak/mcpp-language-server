@@ -10,12 +10,13 @@ import { advertisesCacheReset, freedText, parseCacheResetResult, RESET_CACHE_COM
 import { forgetCacheDetail, OPEN_CACHE_HUB_COMMAND, REVEAL_CACHE_DIRECTORY_COMMAND, rememberCacheDetail, SERVER_SWEEP_CACHE_COMMAND, SWEEP_WORKSPACE_CACHE_COMMAND, parseSweepResult, sweepResultText } from './cacheSweep';
 import { CacheDetail } from './cacheSegment';
 import { openCacheHub } from './cacheHubView';
+import { COPY_ABOUT_COMMAND } from './cacheHub';
 import { REPOSITORY, feedbackIssueUrl, IssueContext } from './issueUrl';
 import { turnOffInWorkspace, turnOnInWorkspace } from './enable';
 import { sourceOf } from './quickSuggestions';
 import { RENAMED_SETTINGS, resolveRenamed, workersSetting } from './settingsRead';
 import { redactJson, Who } from './redact';
-import { describeProfile, SemanticProfile } from './status';
+import { CxxModulesStatus, describeProfile, SemanticProfile } from './status';
 import { t } from './strings';
 
 export const COPY_REPOSITORY_URL_COMMAND = 'mcppls.copyRepositoryUrl';
@@ -28,6 +29,8 @@ export interface ServerAccess {
     log(line: string): void;
     // The extension's own latest log lines, oldest first (the server keeps its own log in a file).
     recentLog(): string[];
+    // The latest cxxModules/status, for the overview's versions and running state (0.0.13 W7).
+    lastStatus?(): CxxModulesStatus | undefined;
 }
 
 function whoAmI(): Who {
@@ -539,7 +542,7 @@ async function fetchCacheDetail(access: ServerAccess): Promise<CacheDetail | und
 
 export async function openCachePanel(access: ServerAccess): Promise<void> {
     // The hub fetches its own detail; the status bar carries the coarse numbers on its side.
-    await openCacheHub({ client: access.runningClient(), coarse: undefined });
+    await openCacheHub({ client: access.runningClient(), coarse: undefined, status: access.lastStatus?.() });
 }
 
 export async function sweepWorkspaceCache(access: ServerAccess): Promise<unknown> {
@@ -663,6 +666,13 @@ export function registerCommands(context: vscode.ExtensionContext, access: Serve
         vscode.commands.registerCommand('mcppls.showModuleGraph', () => showModuleGraph(access)),
         vscode.commands.registerCommand('mcppls.restartServer', () => access.restart()),
         vscode.commands.registerCommand('mcppls.showLogs', () => access.showLogs()),
+        // 0.0.13 W7: the overview's versions line, copied for an issue or a chat (no paths in it).
+        vscode.commands.registerCommand(COPY_ABOUT_COMMAND, async (text?: string) => {
+            const about = typeof text === 'string' && text.length > 0 ? text : undefined;
+            if (!about) return;
+            await vscode.env.clipboard.writeText(about);
+            void vscode.window.setStatusBarMessage(t('Versions copied'), 3000);
+        }),
         vscode.commands.registerCommand('mcppls.collectReport', () => collectReport(access)),
         vscode.commands.registerCommand('mcppls.exportDiagnosticBundle', () => exportDiagnosticBundle(access)),
         vscode.commands.registerCommand('mcppls.restartClangd', () => restartClangd(access)),

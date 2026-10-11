@@ -118,6 +118,10 @@ public:
     void sent(std::string_view uri, std::size_t textHash, GuardClock::time_point now);
     // A request about `uri` was sent to clangd: it waits on the file's build too.
     void asked(std::string_view uri, GuardClock::time_point now);
+    // clangd's log says it began building `version` of `uri` (0.0.13 W4): a build of another version than the one being
+    // timed is a new build, although clangd's status said "parsing main file" all along. A build that never ends prints
+    // no such line, so it is still found.
+    void began(std::string_view uri, std::int64_t version, GuardClock::time_point now);
     void forget(std::string_view uri);
     // A new clangd builds nothing yet; what earlier builds took stays.
     void restarted();
@@ -130,6 +134,7 @@ public:
 private:
     struct File {
         std::optional<GuardClock::time_point> buildingSince;
+        std::optional<std::int64_t> buildingVersion;   // the version clangd's log said it began, when it said one
         std::size_t buildingHash { 0 };
         std::optional<GuardClock::time_point> buildingSentAt;   // when the version being built was sent
         std::optional<GuardClock::time_point> lastSentAt;

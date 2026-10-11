@@ -392,6 +392,7 @@ private:
     std::jthread cpuReading_;          // the thread taking it; joined when the engine goes, at most the ps(1) bound later   // a stuck clangd was found at the restart cap, and that was said
     // robustness design O1, O3: for a report of a problem.
     std::deque<std::pair<std::string, std::string>> restartHistory_;   // (UTC time, reason), the latest 20
+    std::size_t restartTotal_ { 0 };                                     // every restart of this session, past the 20 kept
     std::size_t linesLeftOut_ { 0 };                                   // clangd log lines the limiter left out
     ProcessConfig lastConfig_;
     std::map<std::string, Clock::time_point, std::less<>> touchedAt_;   // path key -> when the document was last opened or changed
@@ -525,6 +526,7 @@ public:
         status.failed = options_.payloadCorrupt || incompatible_;
         if (preparingBusy) std::tie(status.prepared, status.toPrepare) = primer_.progress();
         status.issues = issues_;
+        status.restarts = restartTotal_;
         if (stalled && doomedModules_.empty()) {
             status.issues.push_back(Issue { "preparation-stalled",
                 std::format("module preparation made no progress for a minute ({}/{} done)", status.prepared, status.toPrepare), "mcppls.showLogs" });
@@ -1285,6 +1287,15 @@ public:
             note_scan_failure_(event.value("file", std::string {}), event.value("reason", std::string {}), event.value("driver", false));
         } else if (kind == "module-lock-wait") {
             handle_module_lock_wait_(event.value("path", std::string {}));
+        } else if (kind == "ast-build") {
+            // 0.0.13 W4 (#53): clangd began building another version of a file. A file typed in without a pause is rebuilt
+            // version after version while its status says "parsing main file" throughout; each build is timed on its own.
+            const std::string key { base::path_key(event.value("file", std::string {})) };
+            for (const auto& document : host_->documents()) {
+                if (!document.path.empty() && base::path_key(document.path) == key) {
+                    spin_.began(document.uri, event.value("version", std::int64_t { 0 }), Clock::now());
+                }
+            }
         }
     }
 
@@ -1707,12 +1718,17 @@ private:
         const std::string root { host_->root_directory() };
         // robustness design C7: clangd's errors are forwarded without flooding the log; failures are read from every line.
         // A verbose log is asked for to see everything, so it is not limited.
+        // 0.0.13 W6: clangd's own problems (E[..]) and the lines that say what a build cost are limited apart from its
+        // chatter, so a burst of chatter never leaves them out; each limit says how many lines it left out.
         struct LimitedLog {
-            explicit LimitedLog(std::size_t burst) : limiter { burst, std::chrono::seconds { 10 } } {}
+            LimitedLog(std::size_t burst, std::size_t tellingBurst)
+                : limiter { burst, std::chrono::seconds { 10 } }, telling { tellingBurst, std::chrono::seconds { 10 } } {}
             std::mutex mutex;
             LineLimiter limiter;
+            LineLimiter telling;
         };
-        auto limited = std::make_shared<LimitedLog>(options_.verboseLog ? std::numeric_limits<std::size_t>::max() : std::size_t { 40 });
+        auto limited = options_.verboseLog ? std::make_shared<LimitedLog>(std::numeric_limits<std::size_t>::max(), std::numeric_limits<std::size_t>::max())
+                                           : std::make_shared<LimitedLog>(40, 200);
         auto reader = std::make_shared<LogReader>();   // only ever used on the thread reading clangd's standard error
         auto ring = logRing_;
         auto buildTimes = buildTimes_;
@@ -1732,16 +1748,20 @@ private:
                 // D[..]), which stays at debug instead of crowding the default log at info, and does not
                 // count against the limit either. A crash context, a failed scan and a module that did not
                 // build are never left out (fix plan F6).
+                if (read.astBuild) {
+                    sink(Json { { "kind", "ast-build" }, { "generation", generation }, { "file", read.astBuild->file }, { "version", read.astBuild->version } });
+                }
                 if (read.important || parse_module_failure(line)) {
                     if (level == log::Level::warning) log::warning("clangd ({}): {}", root, line);
                     else log::info("clangd ({}): {}", root, line);
-                } else if (level == log::Level::debug) {
+                } else if (read.echo || (level == log::Level::debug && !read.telling)) {
                     log::debug("clangd ({}): {}", root, line);
                 } else {
+                    const bool telling { read.telling || level == log::Level::warning };
                     LineLimiter::Decision decision;
                     {
                         const std::lock_guard lock { limited->mutex };
-                        decision = limited->limiter.admit(GuardClock::now());
+                        decision = (telling ? limited->telling : limited->limiter).admit(GuardClock::now());
                     }
                     if (decision.suppressedBefore > 0) {
                         log::info("clangd ({}): {} more lines left out of this log", root, decision.suppressedBefore);
@@ -1809,6 +1829,7 @@ private:
         settle_exit_();   // the verdict on the last exit comes first, whatever brings the restart forward
         log::info("restarting clangd ({}): {} ({})", host_->root_directory(), reason, to_string(cause));
         restartGate_.record(Clock::now(), cause);
+        ++restartTotal_;
         restartHistory_.emplace_back(std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now())), std::string { reason });
         if (restartHistory_.size() > 20) restartHistory_.pop_front();
         host_->record_event("engine-restart", Json { { "reason", std::string { reason } }, { "cause", std::string { to_string(cause) } } });

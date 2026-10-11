@@ -68,7 +68,7 @@
   "Restart the engine": "重启引擎",
   "Restart the server": "重启服务端",
   "reveal in the file manager": "在文件管理器中显示",
-  "Running": "运行中",
+  "Running": "运行状态",
   "Starting": "启动中",
   "Sweep failed: {0}": "清理失败：{0}",
   "Sweep the cache (no restart, no rebuild)": "清理缓存（不重启、不重编）",
@@ -91,5 +91,14 @@
   "Open logs": "打开日志",
   "Copy agent prompt": "复制 Agent 提示词",
   "Logs": "日志",
-  "Total": "合计"
+  "Total": "合计",
+  "up {0} min": "已运行 {0} 分钟",
+  "up {0} h {1} min": "已运行 {0} 小时 {1} 分钟",
+  "(version unknown)": "（版本未知）",
+  "Version mismatch": "版本不一致",
+  "click to copy": "点击复制",
+  "modules {0}/{1}": "模块 {0}/{1}",
+  "restarts {0}": "重启 {0} 次",
+  "{0} issues": "{0} 个问题",
+  "Versions copied": "版本信息已复制"
 }

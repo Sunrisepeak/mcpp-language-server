@@ -1305,6 +1305,59 @@ int main() {
         expect(heavy.check(t0 + 10h).empty());
     };
 
+    "a file typed in without a pause is rebuilt version after version, and no build of them is a spin (0.0.13 W4, #53)"_test = [] {
+        // #53: clangd's status said "parsing includes, parsing main file" for 21 s while it built six versions, 2-4 s each.
+        using namespace std::chrono_literals;
+        const auto t0 = cld::GuardClock::now();
+        const std::string uri { "file:///p/src/main.cpp" };
+        cld::SpinWatch typing;
+        typing.sent(uri, 1, t0);
+        typing.began(uri, 1, t0);
+        typing.state(uri, "parsing includes, parsing main file", t0);
+        typing.state(uri, "idle", t0 + 3s);   // history: 3 s, a 20 s budget
+        auto at { t0 + 4s };
+        typing.state(uri, "parsing includes, parsing main file", at);
+        for (std::int64_t version { 2 }; version <= 12; ++version) {
+            typing.sent(uri, static_cast<std::size_t>(version), at);
+            typing.began(uri, version, at);
+            typing.asked(uri, at + 100ms);
+            expect(typing.check(at + 3s).empty()) << "version " << version << " built in 3 s is no spin, 3 s x " << version << " in";
+            at += 3s;
+        }
+        // The status never left "parsing main file" in those 33 s; each version was timed on its own.
+        expect(typing.next_due() == at - 3s + 20s) << "the budget runs from the last version's start";
+        // The same version going on past its budget, with the editor waiting, is still a spin.
+        typing.sent(uri, 99, at);
+        typing.asked(uri, at + 1s);
+        const auto spins = typing.check(at - 3s + 20s);
+        expect(fatal(spins.size() == 1u));
+        expect(spins[0].building == 20s);
+
+        // A build that never ends prints no new header: found as before, whatever is typed meanwhile.
+        cld::SpinWatch stuck;
+        stuck.sent(uri, 1, t0);
+        stuck.began(uri, 1, t0);
+        stuck.state(uri, "parsing main file", t0);
+        stuck.state(uri, "idle", t0 + 1s);
+        stuck.sent(uri, 2, t0 + 2s);
+        stuck.began(uri, 2, t0 + 2s);
+        stuck.state(uri, "parsing main file", t0 + 2s);
+        for (int i { 0 }; i < 10; ++i) stuck.sent(uri, static_cast<std::size_t>(3 + i), t0 + 3s + std::chrono::seconds { i });
+        expect(stuck.check(t0 + 22s).size() == 1u) << "version 2 never finished";
+
+        // The same version built again (clangd rebuilds a version for a request) is the same build.
+        cld::SpinWatch again;
+        again.sent(uri, 1, t0);
+        again.began(uri, 1, t0);
+        again.state(uri, "parsing main file", t0);
+        again.state(uri, "idle", t0 + 1s);
+        again.began(uri, 5, t0 + 2s);
+        again.state(uri, "parsing main file", t0 + 2s);
+        again.began(uri, 5, t0 + 10s);
+        again.asked(uri, t0 + 11s);
+        expect(again.check(t0 + 22s).size() == 1u);
+    };
+
     "implementation units are built for clangd's index, relevant ones first, again when they change on disk (N-7)"_test = [] {
         namespace fs = mcppls::platform::fs;
         using mcppls::base::join_path;
@@ -1802,6 +1855,28 @@ int main() {
         expect(cld::clangd_log_level("V[10:31:02.123] <-- textDocument/didOpen") == mcppls::base::log::Level::debug);
         expect(cld::clangd_log_level("D[10:31:02.123] some debug detail") == mcppls::base::log::Level::debug);
         expect(cld::clangd_log_level("a continuation line with no prefix at all") == mcppls::base::log::Level::info);
+    };
+
+    "an AST build's echoed command is chatter, and what a build cost is told (0.0.13 W6)"_test = [] {
+        cld::LogReader reader;
+        // #53's log: the header, then the directory and the command, which were most of a default log at info.
+        const auto header = reader.read("I[00:56:02.557] ASTWorker building file D:\\src\\app\\src\\main.cpp version 16 with command ");
+        expect(fatal(header.astBuild.has_value()));
+        expect(header.astBuild->file == "D:\\src\\app\\src\\main.cpp" && header.astBuild->version == 16);
+        expect(!header.echo && !header.telling);
+        expect(reader.read("[~\\.mcpp\\cache\\build-database\\f5d2ad6a5891224d]").echo);
+        expect(reader.read("\"clang++.exe\" --driver-mode=g++ -I~\\include -std=c++23 -c D:\\src\\app\\src\\main.cpp").echo);
+        expect(!reader.read("a third line with no severity is not the echo").echo);
+        expect(reader.read("I[00:55:21.304] Built prerequisite modules for file /p/main.cpp in 8.75 seconds").telling);
+        expect(reader.read("I[00:56:20.713] Built preamble of size 274032 for file /p/math2.cppm version 1 in 0.02 seconds").telling);
+        expect(reader.read("I[00:56:20.790] Built module math to /c/math.pcm").telling);
+        expect(reader.read("I[00:56:20.790] Rebuilding module math: input changed /p/math.cppm").telling);
+        expect(!reader.read("I[00:56:04.692] Code complete: 3802 results from Sema").telling);
+        // A header without a command (another clangd's spelling) still marks the build, and echoes nothing.
+        const auto bare = reader.read("I[01:00:00.000] ASTWorker building file /p/a.cpp version 3");
+        expect(bare.astBuild.has_value() && bare.astBuild->version == 3);
+        expect(!reader.read("next line").echo);
+        expect(!cld::parse_ast_build("ASTWorker building file /p/a.cpp version x").has_value());
     };
 
     "the clangd traits table is keyed by version"_test = [] {

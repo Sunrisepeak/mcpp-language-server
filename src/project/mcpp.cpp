@@ -183,28 +183,33 @@ std::string explanation(const platform::RunResult& result) {
     return text;
 }
 
-// The mcpp executables and roots whose mcpp said it produces build databases. Asking starts a process
-// (0.3 s through the xlings launcher) on every reload a watched input causes, so a yes is kept until
-// emit build-database fails. A no is not kept: the upgrade that producer-writes-project asks for would
-// go unnoticed until the server restarted.
+// The mcpp executables and roots whose mcpp said it produces build databases, with the version it said
+// it is. Asking starts a process (0.3 s through the xlings launcher) on every reload a watched input
+// causes, so a yes is kept until emit build-database fails. A no is not kept: the upgrade that
+// producer-writes-project asks for would go unnoticed until the server restarted. The version is kept
+// with the yes (0.0.13 W7): without it every describe after the first reported no version, and a report,
+// or the hint that names the mcpp a build.mcpp needs, could not say which mcpp was in use.
 class ProducerAnswers {
 public:
-    bool known(const std::string& key) {
+    // The version remembered for `key`, when a yes is.
+    std::optional<std::string> known(const std::string& key) {
         std::lock_guard lock { mutex_ };
-        return keys_.contains(key);
+        const auto it = answers_.find(key);
+        if (it == answers_.end()) return std::nullopt;
+        return it->second;
     }
-    void remember(std::string key) {
+    void remember(std::string key, std::string version) {
         std::lock_guard lock { mutex_ };
-        keys_.insert(std::move(key));
+        answers_.insert_or_assign(std::move(key), std::move(version));
     }
     void forget(const std::string& key) {
         std::lock_guard lock { mutex_ };
-        keys_.erase(key);
+        answers_.erase(key);
     }
 
 private:
     std::mutex mutex_;
-    std::set<std::string, std::less<>> keys_;
+    std::map<std::string, std::string, std::less<>> answers_;
 };
 
 ProducerAnswers& producer_answers() {
@@ -268,11 +273,12 @@ bool produces_build_databases(const std::string& mcpp, const Detection& detectio
 std::optional<base::Result<InferredDatabase>> emit_build_database(const std::string& mcpp, const Detection& detection, const ProviderContext& context,
                                                                   std::string& version, bool* reachable = nullptr) {
     const std::string key { std::format("{}\n{}", mcpp, detection.root) };
-    if (!producer_answers().known(key)) {
+    if (const auto remembered = producer_answers().known(key)) {
+        version = *remembered;
+        if (reachable != nullptr) *reachable = true;   // a "yes" was already remembered: it answered, or this key would not be known
+    } else {
         if (!produces_build_databases(mcpp, detection, context, version, reachable)) return std::nullopt;
-        producer_answers().remember(key);
-    } else if (reachable != nullptr) {
-        *reachable = true;   // a "yes" was already remembered: it answered, or this key would not be known
+        producer_answers().remember(key, version);
     }
     const std::vector<std::string> command { mcpp, "emit", "build-database", "--format", "json" };
     const spec::RunContext how {

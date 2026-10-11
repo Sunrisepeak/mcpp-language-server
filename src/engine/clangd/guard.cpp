@@ -166,7 +166,21 @@ void SpinWatch::state(std::string_view uri, std::string_view state, GuardClock::
     } else if (!building && file.buildingSince) {
         file.lastBuild = now - *file.buildingSince;
         file.buildingSince.reset();
+        file.buildingVersion.reset();
     }
+}
+
+void SpinWatch::began(std::string_view uri, std::int64_t version, GuardClock::time_point now) {
+    auto& file = files_[std::string { uri }];
+    if (file.buildingSince && file.buildingVersion && *file.buildingVersion != version) {
+        // The last version's build ended with this one's start: what it took is history, and the clock starts again.
+        file.lastBuild = now - *file.buildingSince;
+        file.buildingSince = now;
+        file.buildingHash = file.lastHash;
+        file.buildingSentAt = file.lastSentAt;
+        file.reported = false;
+    }
+    file.buildingVersion = version;
 }
 
 void SpinWatch::sent(std::string_view uri, std::size_t textHash, GuardClock::time_point now) {
@@ -188,6 +202,7 @@ void SpinWatch::forget(std::string_view uri) {
 void SpinWatch::restarted() {
     for (auto& [uri, file] : files_) {
         file.buildingSince.reset();
+        file.buildingVersion.reset();
         file.reported = false;
     }
 }

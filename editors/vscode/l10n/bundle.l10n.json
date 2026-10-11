@@ -91,5 +91,14 @@
   "Open logs": "Open logs",
   "Copy agent prompt": "Copy agent prompt",
   "Logs": "Logs",
-  "Total": "Total"
+  "Total": "Total",
+  "up {0} min": "up {0} min",
+  "up {0} h {1} min": "up {0} h {1} min",
+  "(version unknown)": "(version unknown)",
+  "Version mismatch": "Version mismatch",
+  "click to copy": "click to copy",
+  "modules {0}/{1}": "modules {0}/{1}",
+  "restarts {0}": "restarts {0}",
+  "{0} issues": "{0} issues",
+  "Versions copied": "Versions copied"
 }

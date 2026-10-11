@@ -69,6 +69,7 @@ struct EngineStatus {
     bool failed { false };   // only syntax-level features remain: a corrupt payload, repeated crashes
     std::size_t prepared { 0 };
     std::size_t toPrepare { 0 };
+    std::size_t restarts { 0 };   // engine processes started after the first (0.0.13 W7: the overview shows it)
     std::vector<Issue> issues;
     std::vector<Issue> notices;
 };
