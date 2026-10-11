@@ -1684,7 +1684,8 @@ private:
         // process per module, costs many times an in-process build; there it compiles in clangd, as upstream
         // does. Only a verified maintained engine has the option (an external clangd would refuse to start).
         config.inProcessModuleBuilds = !options_.verifiedFeatures.empty() && !platform::sandbox().empty();
-        if (!options_.verifiedFeatures.empty()) config.ownedCachePayloadMiB = options_.ownedCachePayloadMiB;
+        // Its owned module cache bounds isolated workers, which it has on Linux only; elsewhere a bound fails every build.
+        if (!options_.verifiedFeatures.empty() && mcppls::os::FAMILY == mcppls::os::Family::linux) config.ownedCachePayloadMiB = options_.ownedCachePayloadMiB;
         if (base::to_lower_ascii(options_.formatFallbackStyle) == "mcpp" && !options_.mcppFormatStyle)
             add_issue_(Issue { "format-style-unavailable", "the selected engine does not declare the mcpp formatting style", "mcppls.showLogs", "environment" });
         config.modulesSupport = modulesSupport_;   // WA-CLANGD-009
