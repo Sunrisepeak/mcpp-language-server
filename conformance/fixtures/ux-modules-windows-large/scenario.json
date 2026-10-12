@@ -1,12 +1,8 @@
 {
   "name": "ux-modules-windows-large",
-  "description": "0.0.14 Windows plan, phase 0: a Windows program the size where module checks cost -- thirty module units whose global module fragments include <windows.h>, in chains four deep, and a main.cpp that includes <windows.h> and imports twenty-five of them -- built by CMake with MSVC (cl.exe) and Ninja. generate.py writes it. Run cold and then warm with the same cache directory (the release checks' performance job): first navigation, idle latency, completion asked as a word is typed, and on the warm run the module files reused. Budgets are the first measurements' with room; they hold what the plan's work must not undo.",
+  "description": "0.0.14 Windows plan, phase 0: a Windows program the size where module checks cost -- thirty module units whose global module fragments include <windows.h>, in chains four deep, and a main.cpp that includes <windows.h> and imports twenty-five of them -- built by CMake with MSVC (cl.exe) and Ninja. Run cold and then warm with the same cache directory (the release checks' performance job): first navigation, idle latency, completion asked as a word is typed, and on the warm run the module files reused. Budgets are the first measurements' with room; they hold what the plan's work must not undo.",
   "prepare-environment": "msvc",
   "prepare": [
-    [
-      "python",
-      "generate.py"
-    ],
     [
       "cmake",
       "-S",

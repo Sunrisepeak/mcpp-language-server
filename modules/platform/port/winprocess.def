@@ -1,6 +1,7 @@
-; The three Win32 names the process identity needs that openkal-windows' own
-; list does not carry (X-6, plan 2026-10-03): GetProcessTimes, OpenProcess,
-; GetCurrentProcessId. Generated into an import library by build.mcpp; the
+; The Win32 names this package calls that openkal-windows' own list does not
+; carry: GetProcessTimes, OpenProcess, GetCurrentProcessId for the process
+; identity (X-6, plan 2026-10-03); GlobalMemoryStatusEx and DeviceIoControl for
+; what the machine is (system.cpp, 0.0.14). Generated into an import library by build.mcpp; the
 ; library is named `winprocess` -- NOT `kernel32` -- so it cannot shadow
 ; openkal-windows' generated kernel32 (its -L is searched first, and a second
 ; libkernel32.a there would hide the forty-five names it lists).
@@ -9,6 +10,8 @@
 ; ours to choose, the DLL its entries bind is a property of the names.
 LIBRARY KERNEL32.dll
 EXPORTS
+DeviceIoControl
 GetCurrentProcessId
 GetProcessTimes
+GlobalMemoryStatusEx
 OpenProcess
