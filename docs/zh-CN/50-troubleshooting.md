@@ -37,6 +37,11 @@
 | `clangd (<root>): I[…] Rebuilding module <M>: <原因>` | mcppls-clangd 0.0.13：一个模块为什么重建而不是复用——这个命令和这些前置模块下没有 BMI（以及有几份是用别的命令构建的），或者是哪个输入变了 |
 | `clangd (<root>): I[…] Prerequisites of <file>: <n> modules, <n> reused, <n> built, <n> failed, in <s> (reuse checks <s>, builds <s>, …)` | 一个文件的前置模块花了多少 |
 | `clangd (<root>): I[…] Preamble of <file> is not compatible: <原因>` | 一个文件的 preamble 为什么重建 |
+| `clangd (<root>): I[…] Completion in <file>: <ms> ms (module input checks <ms>: <n> one by one, <n> by <n> package checks, <n> system already checked; waited <ms> for modules)` | mcppls-clangd 0.0.15：模块导入方里一次 200 ms 以上的补全，时间花在了哪里。mcpp 或 xlings 包版本里的输入按该版本的标记核对，系统头每次会话核对一次，项目文件逐个核对 |
+| `clangd (<root>): I[…] Module memos: <n> BMI verdicts and <n> scans kept from the last session …` | mcppls-clangd 0.0.15，启动时：上次会话留下了多少条可以核对而不必重做的结果（每条使用前都会再核对） |
+| `clangd (<root>): I[…] Module inputs: <n> managed package store(s) checked by their markers` | 引擎按版本核对的包仓库（mcpp 的、xlings 的）有几个 |
+| `the last files in use (<root>): <n> of them, opened in clangd ahead of the editor once it takes files` | 启动时：上次在编辑的文件会在编辑器请求之前就在 clangd 里打开；`<file> was ready in clangd <ms> ms before the editor opened it` 说明提前准备起了作用，两分钟内编辑器没打开的会再关掉 |
+| `the cache <dir> is not on a Dev Drive: …` | 只在 Windows 上，只说一次：见 [Windows：缓存放在 Dev Drive 上](#windows缓存放在-dev-drive-上) |
 | `restarting clangd (<root>): <原因> (<cause>)` | 每次重启，以及是否计入 clangd 的重启预算 |
 | `the timers of <root> took <ms> ms, <ms> ms of them in <part>` | 是什么占住了事件循环 |
 
@@ -132,6 +137,20 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 **“The bundled clangd cannot run on this system”。** clangd 根本没有启动起来：系统的程序加载器拒绝了它，加载器的原话在状态和日志里（例如 ``version `GLIBCXX_3.4.30' not found``）。重启改变不了这一点，所以不会再重启；这期间由 mcppls 自己的引擎应答模块跳转、`import` 补全和模块诊断。在 Linux arm64 上，内置的 clangd 需要 glibc 2.34 和 GCC 12 的 libstdc++——它能运行的系统列在[安装指南](00-install.md)里。其他平台上出现这个提示，通常是 musl 系统（Alpine），或者 payload 损坏了。由编辑器自己启动 `mcppls` 的，可以用 `--clangd PATH` 换成你自己的 clangd（23.1 或更新）。
 
 **在 Termux 或 PRoot 里。** `mcppls report` 把服务端运行所在的沙箱显示为 `server.sandbox`（比如 `proot`）。引擎在那里起不来时，状态里是 `engine-start-failed` 并写明原因；见 [Android 上的 Termux](00-install.md#android-上的-termux)。
+
+## Windows：缓存放在 Dev Drive 上
+
+在 Windows 上，确认一个模块或 preamble 是否仍然可用，每一步都是要打开文件的文件操作；Microsoft Defender 还会在 clangd
+读写缓存里的每个文件时实时扫描。缓存不在 [Dev Drive](https://learn.microsoft.com/windows/dev-drive/) 上时（Dev Drive 上
+Defender 异步扫描），服务端会在日志里说一次，编辑器的概览里也会显示。下面两种做法都有帮助，由你决定；mcppls 不会修改任何
+安全设置：
+
+- 把缓存放到 Dev Drive 上：把环境变量 `MCPPLS_CACHE_DIR` 设成 Dev Drive 上的一个文件夹。
+- 或者在 Windows 安全中心里把缓存文件夹排除在实时扫描之外。
+
+Windows 上补全还慢在哪里、这一版做了什么，看日志里的 `Completion in … ms (…)` 行：它们说明一次补全有多少时间花在核对模块
+输入上。clangd 一次给出完整的列表（最多 1000 项，`MCPPLS_ENGINE_ARGUMENTS="--limit-results=100"` 恢复 clangd 自己的上限），
+编辑器在你打字时自己过滤；每键都请求的客户端，用这个词的完整列表直接作答（`MCPPLS_COMPLETION_REFILTER=off` 关闭）。
 
 ## 重置工作区缓存
 

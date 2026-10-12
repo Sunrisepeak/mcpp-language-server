@@ -2,7 +2,7 @@
   "name": "mcpp-language-server",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "publisher": "sunrisepeak",
   "license": "Apache-2.0",
   "icon": "icon.png",

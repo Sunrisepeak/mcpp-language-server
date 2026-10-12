@@ -508,7 +508,7 @@
   "S1-11.2-7": [
     {
       "script": "editors/vscode/src/status.ts",
-      "contains": "status.project.source} \u00b7 L${tier}"
+      "contains": "status.project.source} · L${tier}"
     },
     {
       "check": "mcpp-emit/S1"
@@ -2235,6 +2235,16 @@
     },
     {
       "check": "build-program-manual/S2-held"
+    }
+  ],
+  "S3-4-34": [
+    {
+      "script": "src/orchestrator/workspace.cpp",
+      "contains": "if (cacheOnDevDrive) about[\"cacheDevDrive\"] = *cacheOnDevDrive;"
+    },
+    {
+      "script": "editors/vscode/src/cacheHub.ts",
+      "contains": "about?.cacheDevDrive === false"
     }
   ]
 }

@@ -7,6 +7,47 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.14] — 2026-10-12
+
+The bundled engine is [mcppls-clangd 0.0.15](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.15)
+(`23.1.0-mcppls.3`): 31 patches, two of them new. This release is about Windows: opening a project again and completion
+as you type, where every check that a module is still good is a file operation that opens the file.
+
+### Completion as you type
+
+- **A completion list comes whole.** clangd gives up to 1000 items instead of 100, so a list whose matches fit is
+  complete and the editor filters it as you type instead of asking again at every key. A client that asks at every key
+  anyway is answered from the word's complete list at once. In a file whose modules include Qt, the requests while a
+  word is typed went down by about two fifths.
+- **Checking a module costs less where its headers come from a package or the system.** A header of an mcpp or xlings
+  package version -- the toolchain's own, such as llvm-mingw's `<windows.h>`, or a library's -- is checked by the
+  version's install markers instead of one by one; system headers, the Windows SDK's and Visual Studio's included, once
+  per session, as clang itself skips them. Your project's files are checked at every request, as before.
+- **On Windows, preambles are kept in memory** with 16 GiB or more, instead of being written to the temporary
+  directory and scanned there. New setting `mcppls.engine.preambleStorage` (`auto`, `disk`, `memory`).
+
+### Opening a project again
+
+- **What the last session learned is kept.** Which BMIs were up to date and what each module unit imports are written to
+  the workspace cache and read back by the next session, each checked again before it is used, so a second opening
+  checks instead of hashing every input and preprocessing every module unit again.
+- **The files you last worked in are ready first.** The five files last opened or edited are opened in clangd as soon as
+  it starts, before the editor asks; the editor takes them over as they are. With 16 GiB or more, six ASTs of files you
+  switch between are kept instead of three.
+
+### Seeing what happens
+
+- A slow completion (200 ms or more) in a module importer says in the log where its time went; the log says what the
+  last session left and which package stores are checked by their markers. On Windows, a cache that is not on a Dev
+  Drive is said once, in the log and the overview (`about.cacheDevDrive`); see "Windows: a cache on a Dev Drive" in the
+  troubleshooting guide. mcppls changes no security setting.
+
+### Fixes
+
+- A cache sweep asked for by category (`mcppls.sweepCache` with `categories`) ran none of them.
+- A completion clangd answered late was not let go of when its word was given up.
+- Two test programs never reported their failures; they do now.
+
 ## [0.0.13] — 2026-10-12
 
 The bundled engine is [mcppls-clangd 0.0.14](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.14)

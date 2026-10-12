@@ -443,3 +443,26 @@ D3（磁盘模块源按前缀扫描）、D5（后台索引延后）、G2（BMI �
 | 一致性 | 新日志行沿用 "Prerequisites of" 的格式；report 字段写进 S3 规范与 traceability；中英文文档同步 |
 | 无感升级 | 用户不需要做任何事；持久化文件计入缓存预算，"重置缓存"会清掉 |
 
+
+## 11. 实施状态与实施中的修正
+
+交付：产品 0.0.14（本 PR）、引擎 mcppls-clangd 0.0.15（补丁 0030 UP-35、0031 UP-36，`23.1.0-mcppls.3`）。
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| E0 cost 行 | 完成 | `Completion in <file>: <ms> ms (module input checks … one by one, … by … package checks, … system already checked; waited …)`，200 ms 以上才打；`Module memos:`、`Module inputs:` 进入默认日志 |
+| B1 | 完成（缩小） | 只做锁外 stat。两次 stat 保留：`IsModuleFileUpToDate` 的调用点不全是不带 stat 缓存的文件系统 |
+| B2a、B2b | 完成（扩大） | 分层判定：包仓库 → 显式系统目录 → 用户目录（`-I`、`-iquote`、命令目录、源文件目录）→ 工具链根（项目在其中时不算）→ Windows SDK 与 Visual Studio 的头（路径含 `Windows Kits`、`Microsoft Visual Studio`）、`INCLUDE`/`EXTERNAL_INCLUDE` → 其余为项目。最后两类是实施中补上的：编辑器启动服务端时没有开发环境，MSVC 的头由驱动自己找到，既不在命令行也不在环境变量里。工具链根一开始包含了项目所在目录（Ubuntu 20.04 floor 检查里项目就在 clang 的构建目录下），由此改成分层 |
+| B3、B4 | 不做 | LLVM 23 在 Windows 上的 UniqueID 是规范 NT 路径（`GetFinalPathNameByHandleW`）的哈希，不是文件索引：不开句柄就算不出同一个 ID，快速路径与句柄路径的 ID 会不一致，而 clang 依赖它判断是不是同一个文件。按目录批量也一样 |
+| D1、D2 | 完成 | `--module-memo-dir`；读回只是候选，判定照样核对、扫描照样重放；扫描的持久化键用只含驱动会读的环境变量的摘要（完整环境每个会话都不同） |
+| C1、C2 | 完成 | `mcppls.engine.preambleStorage`；`--max-retained-asts=6`（16 GiB 以上）。物理内存原先只在 Linux 上读得到，Windows 上补上了 |
+| A2、A1 | 完成 | `--limit-results=1000`；同一个词的再次请求，在上次回答完整且词外文本完全相同时本地作答。`ux-modules-qt` U17 本地实测：一个词的请求 127 → 79 次（-38%），其中因列表不完整的只有 13 → 10，减少的主要是"上一次还没回来又请求"，因为请求少了、回答更快 |
+| E1 | 完成 | Dev Drive 探测（`FSCTL_QUERY_PERSISTENT_VOLUME_STATE`），日志、`about.cacheDevDrive`（S3-4-34）、概览；CI 上的 Dev Drive A/B 没有做（要引入第三方 action 创建 VHD），只作为文档里的建议 |
+| G1 | 完成 | 最近 5 个文件；后台预打开，编辑器打开时接管（同文本沿用诊断，不同文本发一次全文更新），两分钟未用即关闭 |
+| 阶段 0 度量 | 完成 | conformance 的 `reask`（VS Code 与"每键都请求"两种客户端），U17（Qt、`<windows.h>`），`ux-modules-windows-large`（生成，MSVC 构建）在发布检查的性能 job 里冷、暖各一次，每轮的检查、cost 行与日志分文件 |
+| D3、D5、G2、C3 | 延后 | 等 cost 行与大 fixture 的 Windows 数据说明它们值得做 |
+
+实施中顺带发现并修正的问题：
+
+- nlohmann `Json x { y }` 在本项目使用的编译器（clang 22，CWG 2137）下会构造只含一个元素的数组。除了 G1 接管时把诊断包成 `[[…]]` 导致服务端异常退出之外，又找出三处既有问题：C-2 用 `[id]` 去放开或取消超时的补全请求、`mcppls.sweepCache` 按类别清理时一个类别都不会执行、缓存报告里实例的 `at` 成了数组。全部改为 `=` 初始化。
+- `test_workarounds`、`test_engineidentity` 的 `main` 没有 `return report();`，断言失败从不让测试失败；补上后修正了那条把打包引擎版本写死的断言。

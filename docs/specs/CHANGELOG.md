@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-12 — S3: whether a Windows cache is on a Dev Drive
+
+`about` may carry `cacheDevDrive` on Windows (S3-4-34): whether the server's cache directory is on a Dev Drive, where
+Microsoft Defender scans the files an engine writes and reads asynchronously. A client may show `false` as a fact, never
+changes a security setting for the person. Additive: protocol version stays 1.
+
 ## 2026-10-12 — S3: what runs, and a build program that does not compile
 
 `cxxModules/status` may carry `about` (S3-4-31): the server, the editor package, the engine (and how often it was restarted),

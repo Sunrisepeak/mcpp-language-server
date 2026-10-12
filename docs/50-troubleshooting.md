@@ -38,6 +38,11 @@ lines have a fixed shape; the report's `events` carry the same facts.
 | `clangd (<root>): I[…] Rebuilding module <M>: <why>` | mcppls-clangd 0.0.13: why a module was built rather than reused — none for this command and prerequisites (and how many were built with others), or the input that changed |
 | `clangd (<root>): I[…] Prerequisites of <file>: <n> modules, <n> reused, <n> built, <n> failed, in <s> (reuse checks <s>, builds <s>, the rest scanning and planning)` | What one file's modules cost |
 | `clangd (<root>): I[…] Preamble of <file> is not compatible: <why>` | Why a file's preamble was built again |
+| `clangd (<root>): I[…] Completion in <file>: <ms> ms (module input checks <ms>: <n> one by one, <n> by <n> package checks, <n> system already checked; waited <ms> for modules)` | mcppls-clangd 0.0.15: where a completion of 200 ms or more in a module importer spent its time. Inputs under an mcpp or xlings package version are checked by the version's markers, system headers once per session, the project's files one by one |
+| `clangd (<root>): I[…] Module memos: <n> BMI verdicts and <n> scans kept from the last session …` | mcppls-clangd 0.0.15, at start: what the last session left to check instead of redoing it (each is checked before it is used) |
+| `clangd (<root>): I[…] Module inputs: <n> managed package store(s) checked by their markers` | Which package stores (mcpp's, xlings') the engine checks by version |
+| `the last files in use (<root>): <n> of them, opened in clangd ahead of the editor once it takes files` | At start: the files last worked in are opened in clangd before the editor asks; `<file> was ready in clangd <ms> ms before the editor opened it` says it paid off, and one the editor did not open within two minutes is closed again |
+| `the cache <dir> is not on a Dev Drive: …` | Windows only, once: see [Windows](#windows-a-cache-on-a-dev-drive) |
 | `restarting clangd (<root>): <reason> (<cause>)` | Every restart, and whether it counts against clangd |
 | `the timers of <root> took <ms> ms, <ms> ms of them in <part>` | What held the event loop |
 
@@ -338,6 +343,23 @@ payload. An editor that starts `mcppls` itself can give it a clangd of your own,
 **On Termux or PRoot.** `mcppls report` shows the sandbox the server runs in as `server.sandbox`
 (`proot`, say). An engine that cannot be started there is the status issue `engine-start-failed`, with
 what went wrong; see [Android, under Termux](00-install.md#android-under-termux).
+
+## Windows: a cache on a Dev Drive
+
+On Windows every check that a module or a preamble is still good is a file operation that opens the
+file, and Microsoft Defender scans each file clangd writes and reads in its cache as it happens. The
+server says once in the log, and the overview of the editor says too, when its cache is not on a
+[Dev Drive](https://learn.microsoft.com/windows/dev-drive/), where Defender scans asynchronously.
+Two ways help, both yours to choose; mcppls changes no security setting:
+
+- Put the cache on a Dev Drive: set the environment variable `MCPPLS_CACHE_DIR` to a folder on it.
+- Or exclude the cache folder from real-time scanning in Windows Security.
+
+What else makes completion slow on Windows, and what this version does about it, is in the log's
+`Completion in … ms (…)` lines: they say how much of a completion went to checking module inputs.
+Lists come whole from clangd (up to 1000 items, `MCPPLS_ENGINE_ARGUMENTS="--limit-results=100"` puts
+clangd's own limit back) so the editor filters them as you type; a client that asks again at every key
+is answered from the word's complete list (`MCPPLS_COMPLETION_REFILTER=off` turns that off).
 
 ## Resetting a workspace's cache
 
