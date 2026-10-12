@@ -2696,6 +2696,10 @@ public:
         const long fromWord { fromWordOf(after) - fromWordOf(before) };
         enforce_max(check, "askedAsTypedPerWord",
                     words > 0 ? static_cast<double>(askedAsTyped) / static_cast<double>(words) : 0.0, "completions asked per typed word", "", failures);
+        // What complete lists (A2) remove: asking again because the answer was cut short. The rest of the asks are the
+        // editor asking again while an answer is on its way, which the engine's latency decides.
+        enforce_max(check, "incompletePerWord",
+                    words > 0 ? static_cast<double>(askedForIncomplete) / static_cast<double>(words) : 0.0, "completions asked again per word for an incomplete answer", "", failures);
         Json summary { { "seconds", typingSeconds }, { "hz", hz }, { "autosaveMs", autosaveEvery.count() }, { "autosaveIdleMs", autosaveIdle.count() }, { "completions", completions.size() },
                        { "reask", reask }, { "askedAsTyped", askedAsTyped }, { "askedWhilePending", askedWhilePending },
                        { "askedForIncomplete", askedForIncomplete }, { "typedWords", words }, { "fromWord", fromWord },

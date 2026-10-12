@@ -166,6 +166,36 @@
       }
     },
     {
+      "id": "U17-words-as-typed",
+      "kind": "typing",
+      "file": "src/main.cpp",
+      "seconds": 45,
+      "hz": 10,
+      "completion-every-ms": 0,
+      "reask": "incomplete",
+      "description": "0.0.14 A1, A2: completion asked as VS Code asks it while a word is typed in a file whose module units include Qt headers: the word's first character asks, the next ones only while the answer is incomplete. With clangd's lists complete (--limit-results), a word costs one or two requests, and each answers in time.",
+      "scripts": [
+        {
+          "line": 12,
+          "text": "QStringList names = inventory.itemNames(); QString joined = names.join(QStringLiteral(\",\")); window.setWindowTitle(joined);"
+        },
+        {
+          "line": 12,
+          "text": "QTimer timer; timer.setInterval(100); QObject::connect(&timer, &QTimer::timeout, &app, [&] { window.showCount(inventory.rowCount()); });"
+        }
+      ],
+      "budget": {
+        "firstOpenSeconds": 120,
+        "p95": 1.0,
+        "max": 3.0,
+        "timeouts": 0,
+        "restarts": 0,
+        "filesSetAside": 0,
+        "askedAsTypedPerWord": 3.0,
+        "incompletePerWord": 0.6
+      }
+    },
+    {
       "id": "U16-module-autosave",
       "kind": "typing",
       "file": "src/model.cppm",

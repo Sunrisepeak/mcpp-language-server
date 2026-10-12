@@ -1971,6 +1971,10 @@ int main() {
         expect(reader.read("I[00:56:20.713] Built preamble of size 274032 for file /p/math2.cppm version 1 in 0.02 seconds").telling);
         expect(reader.read("I[00:56:20.790] Built module math to /c/math.pcm").telling);
         expect(reader.read("I[00:56:20.790] Rebuilding module math: input changed /p/math.cppm").telling);
+        expect(reader.read("I[00:56:21.000] Completion in /p/main.cpp: 412 ms (module input checks 280 ms: 12 one by one, 900 by 3 package checks, 40 system already checked; waited 0 ms for modules)").telling)
+            << "0.0.15: what a slow completion cost";
+        expect(reader.read("I[00:56:21.000] Module memos: 25 BMI verdicts and 31 scans kept from the last session (0 unreadable), read in 12 ms; each is checked again before it is used").telling);
+        expect(reader.read("I[00:56:21.000] Module inputs: 2 managed package store(s) checked by their markers").telling);
         expect(reader.read("I[00:57:01.000] Prerequisites of /p/main.cpp: 25 modules, 25 reused, 0 built, 0 failed, in 3.10 s").telling);
         expect(reader.read("I[00:57:02.000] Preamble of /p/main.cpp is not compatible: the compile command changed").telling);
         expect(reader.read("I[00:57:03.000] Completion in /p/main.cpp answered before its first preamble").telling);

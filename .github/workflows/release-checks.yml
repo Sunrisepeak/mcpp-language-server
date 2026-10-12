@@ -184,6 +184,37 @@ jobs:
           done
           "stage/mcppls-devtools${{ matrix.exe }}" measure summary "$results" --max-cold 12 --max-warm 5 \
               | tee "$results/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      # 0.0.14 Windows plan, phase 0: a project the size where module checks cost (thirty module units with
+      # <windows.h>, built by MSVC), opened cold and then warm with the same cache. Each run's measures and the
+      # server's log are files of their own, and the step summary says what the two runs measured.
+      - name: The MSVC developer environment, for the large fixture's own build
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          Set-Content -Path "$env:RUNNER_TEMP\capture-msvc.cmd" -Value "@call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul`r`n@set"
+          cmd /d /c "$env:RUNNER_TEMP\capture-msvc.cmd" | Out-File -Encoding utf8 "$env:RUNNER_TEMP\msvc.env"
+      - name: A large module project, cold and warm
+        if: runner.os == 'Windows'
+        run: |
+          set -euo pipefail
+          large="$RUNNER_TEMP/timing/large"
+          mkdir -p "$large"
+          for start in cold warm; do
+            warm=(); [ "$start" = warm ] && warm=(--expect-warm)
+            status=0
+            "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls${{ matrix.exe }}" --payload payload \
+                --fixture conformance/fixtures/ux-modules-windows-large --msvc-env "$RUNNER_TEMP/msvc.env" \
+                --workspace-dir "$RUNNER_TEMP/large/workspace" --cache-dir "$RUNNER_TEMP/large/cache" \
+                --timeout 900 --measure "$large/$start.json" --verbose ${warm[@]+"${warm[@]}"} > "$large/$start.log" 2>&1 || status=$?
+            grep -E '^(PASS|FAIL) |failure\(s\)' "$large/$start.log" > "$large/$start-checks.txt" || true
+            grep -E "Prerequisites of |Completion in .*: [0-9]+ ms|Module memos: |Module inputs: |ahead of the editor|ready in clangd|startup \(" "$large/$start.log" \
+                | sed -E 's/^.*\[(info|warning)\] //' > "$large/$start-costs.txt" || true
+            { echo "### Large module project, $start"; echo; echo '```'; cat "$large/$start-checks.txt"; echo '```'; } >> "$large/summary.md"
+            [ "$status" = 0 ] || echo "::warning::the large fixture's $start run failed: see prerelease-timing-${{ matrix.platform }}/large/$start-checks.txt"
+          done
+          cat "$large/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          ! grep -q '^FAIL ' "$large/cold-checks.txt" "$large/warm-checks.txt"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
