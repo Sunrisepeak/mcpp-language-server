@@ -188,7 +188,7 @@
       },
       "budget": {
         "firstOpenSeconds": 120,
-        "p95": 1.1,
+        "p95": 1.0,
         "max": 3.0,
         "timeouts": 0,
         "restarts": 0,
