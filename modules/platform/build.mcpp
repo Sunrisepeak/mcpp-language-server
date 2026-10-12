@@ -1,16 +1,16 @@
 import mcpp;
 import std;
 
-// THE PROCESS IDENTITY'S THREE NAMES, AS AN IMPORT LIBRARY OF THEIR OWN (X-6).
+// THE WIN32 NAMES OPENKAL-WINDOWS DOES NOT CARRY, AS AN IMPORT LIBRARY OF THEIR OWN (X-6).
 //
-// process.cpp declares GetProcessTimes, OpenProcess and GetCurrentProcessId
+// process.cpp declares GetProcessTimes, OpenProcess and GetCurrentProcessId, system.cpp GlobalMemoryStatusEx and DeviceIoControl,
 // itself -- this build's windows target has no vendor SDK to include, and
 // openkal-windows' win32.h showed the way. The LINK then needs import entries
 // for them, and the only kernel32 import library on this link line is
 // openkal-windows' own generated one, which lists exactly the forty-five names
 // it calls and deliberately no more (its build.mcpp says why, and what a
 // consumer that calls a forty-sixth is told). So this package carries its own
-// port/winprocess.def -- three names, still bound to KERNEL32.dll -- and turns
+// port/winprocess.def -- the names it needs, still bound to KERNEL32.dll -- and turns
 // it into libwinprocess.a the same way openkal-windows turns its .def files:
 // llvm-dlltool under clang, into this package's out directory, which
 // mcpp::link_search puts on the link line. A name of its own cannot shadow

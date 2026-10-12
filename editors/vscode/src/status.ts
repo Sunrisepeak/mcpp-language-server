@@ -82,6 +82,8 @@ export interface CxxAbout {
     mcpp?: string;
     // Set when the editor package started a server other than its own.
     mismatch?: string;
+    // Windows only (0.0.14 E1): whether the cache is on a Dev Drive.
+    cacheDevDrive?: boolean;
 }
 
 // What the status bar shows for each state.

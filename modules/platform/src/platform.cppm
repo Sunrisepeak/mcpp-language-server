@@ -11,6 +11,7 @@ export import mcppls.platform.preopen;
 export import mcppls.platform.process;
 export import mcppls.platform.sandbox;
 export import mcppls.platform.stdio;
+export import mcppls.platform.system;
 export import mcppls.platform.task;
 export import mcppls.platform.toolenv;
 export import mcppls.platform.toolrun;

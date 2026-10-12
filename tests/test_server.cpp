@@ -157,12 +157,16 @@ public:
         std::mutex mutex;
         std::vector<Json> sent;
         LogHandler log;   // what the running process writes to stderr, for a test to say something as clangd
+        bool diagnose { false };   // each opened file comes back with one warning, not none
+        std::set<std::string> building;   // URIs whose build goes on until finish() is called for them
+        std::function<void(const std::string&)> finish;
     };
     explicit BuildingProcess(std::shared_ptr<Shared> shared) : shared_ { std::move(shared) } {}
 
     mcppls::base::Result<void> start(const cld::ProcessConfig&, MessageHandler onMessage, ClosedHandler, LogHandler onLog) override {
         onMessage_ = std::move(onMessage);
         shared_->log = std::move(onLog);
+        shared_->finish = [this](const std::string& uri) { publish_(uri); };
         running_ = true;
         return {};
     }
@@ -176,8 +180,7 @@ public:
             onMessage_(Json { { "jsonrpc", "2.0" }, { "id", message["id"] }, { "result", Json { { "capabilities", Json::object() } } } });
         } else if (method == "textDocument/didOpen") {
             const std::string uri { message["params"]["textDocument"]["uri"].get<std::string>() };
-            onMessage_(Json { { "jsonrpc", "2.0" }, { "method", "textDocument/publishDiagnostics" },
-                              { "params", Json { { "uri", uri }, { "diagnostics", Json::array() } } } });
+            if (!shared_->building.contains(uri)) publish_(uri);
         }
         return {};
     }
@@ -196,6 +199,16 @@ public:
     }
 
 private:
+    void publish_(const std::string& uri) {
+        Json diagnostics = Json::array();
+        if (shared_->diagnose) {
+            diagnostics.push_back(Json { { "range", Json { { "start", Json { { "line", 0 }, { "character", 0 } } }, { "end", Json { { "line", 0 }, { "character", 3 } } } } },
+                                         { "severity", 2 }, { "message", "unused variable" }, { "source", "clang" } });
+        }
+        onMessage_(Json { { "jsonrpc", "2.0" }, { "method", "textDocument/publishDiagnostics" },
+                          { "params", Json { { "uri", uri }, { "diagnostics", std::move(diagnostics) } } } });
+    }
+
     std::shared_ptr<Shared> shared_;
     MessageHandler onMessage_;
     bool running_ { false };
@@ -256,6 +269,23 @@ private:
     std::string root_;
     std::string cache_;
     Json params_ = Json::object();
+};
+
+// A host whose editor has documents open, and which keeps what the engine publishes for them (0.0.14 G1).
+class EditorHost : public RecordingHost {
+public:
+    using RecordingHost::RecordingHost;
+    std::vector<eng::DocumentView> open;
+    std::vector<std::pair<std::string, std::optional<std::int64_t>>> published;   // uri, version
+    std::map<std::string, Json> diagnostics;                                       // uri -> the last list published
+    std::vector<eng::DocumentView> documents() const override { return open; }
+    bool has_document(std::string_view uri) const override {
+        return std::ranges::any_of(open, [&](const eng::DocumentView& document) { return document.uri == uri; });
+    }
+    void publish_engine_diagnostics(std::string_view, const std::string& uri, Json list, std::optional<std::int64_t> version) override {
+        published.emplace_back(uri, version);
+        diagnostics[uri] = std::move(list);
+    }
 };
 
 idx::ModuleIndex fixture_index() {
@@ -1457,6 +1487,102 @@ int main() {
         fs::remove_all(root);
     };
 
+    "the files of the last session are opened ahead of the editor, which adopts them (0.0.14 G1)"_test = [] {
+        namespace fs = mcppls::platform::fs;
+        using mcppls::base::join_path;
+        const std::string root { join_path(mcppls::platform::dirs::temp_directory(),
+            std::format("mcppls-test-warm-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+        (void)fs::create_directories(join_path(root, "src"));
+        const std::string executable { join_path(root, "clangd") };
+        (void)fs::write_file(executable, "pretend-clangd");
+        // A project with modules: one without would have clangd restarted without their support first (WA-CLANGD-009).
+        const std::string mainText { "import hello.greet;\nint main() { return hello::add(1, 2); }\n" };
+        const std::string otherText { "int other() { return 1; }\n" };
+        const std::string slowText { "int slow() { return 2; }\n" };
+        const std::string main { join_path(root, "src/main.cpp") };
+        const std::string other { join_path(root, "src/other.cpp") };
+        const std::string slow { join_path(root, "src/slow.cpp") };
+        const std::string interface { join_path(root, "src/greet.cppm") };
+        (void)fs::write_file(main, mainText);
+        (void)fs::write_file(other, otherText);
+        (void)fs::write_file(slow, slowText);
+        (void)fs::write_file(interface, "export module hello.greet;\nexport namespace hello { int add(int a, int b); }\n");
+
+        auto shared = std::make_shared<BuildingProcess::Shared>();
+        shared->diagnose = true;   // what is handed to the editor is a real list, rewritten as any other
+        shared->building.insert(mcppls::base::path_to_uri(slow));   // still being built when the editor opens it
+        cld::Options options;
+        options.executable = executable;
+        options.version = "23.1.0";
+        options.processFactory = [shared] { return std::make_unique<BuildingProcess>(shared); };
+        EditorHost host { root };
+        auto engine = cld::make_engine(std::move(options));
+        engine->start(host);
+        host.pump(*engine);
+        const std::vector<std::string> recent { main, other, slow, join_path(root, "src/gone.cpp") };
+        engine->warm(recent);
+
+        mcppls::normalize::EnginePlan plan;
+        plan.entries.push_back(mcppls::normalize::EngineEntry { root, main, { "clang++", "-std=c++23", "-c", main }, "", "", { "hello.greet" }, {} });
+        plan.entries.push_back(mcppls::normalize::EngineEntry { root, interface, { "clang++", "-std=c++23", "-c", interface }, "hello.greet", "hello.greet", {}, {} });
+        plan.entries.push_back(mcppls::normalize::EngineEntry { root, other, { "clang++", "-std=c++23", "-c", other }, "", "", {}, {} });
+        plan.entries.push_back(mcppls::normalize::EngineEntry { root, slow, { "clang++", "-std=c++23", "-c", slow }, "", "", {}, {} });
+        engine->apply(&plan);
+        host.pump(*engine);
+        engine->handle_timers();
+        for (int turn { 0 }; turn < 3; ++turn) host.pump(*engine);
+        auto count = [&](std::string_view method, const std::string& path) {
+            return std::ranges::count(BuildingProcess::files(*shared, method), path);
+        };
+        expect(count("textDocument/didOpen", main) == 1 && count("textDocument/didOpen", other) == 1)
+            << "both are opened before the editor asks: it was the last session's";
+
+        // The editor opens main.cpp with the text clangd has: adopted, with what clangd built and published for it.
+        const eng::DocumentView mainView { mcppls::base::path_to_uri(main), main, "cpp", 1, mainText };
+        host.open.push_back(mainView);
+        engine->document(eng::DocumentEvent { eng::DocumentChange::opened, mainView });
+        host.pump(*engine);
+        expect(count("textDocument/didOpen", main) == 1) << "not opened a second time";
+        expect(count("textDocument/didClose", main) == 0) << "nor closed first";
+        expect(std::ranges::any_of(host.published, [&](const auto& entry) { return entry.first == mainView.uri; }))
+            << "the diagnostics clangd published for it reach the editor";
+        const Json& handed { host.diagnostics[mainView.uri] };
+        expect(handed.is_array() && handed.size() == 1u && handed[0].is_object() && handed[0].value("message", std::string {}) == "unused variable")
+            << "as the list clangd published: " << handed.dump();
+
+        // other.cpp comes with an edit the editor restored: clangd takes it as a change of the file it has.
+        const eng::DocumentView otherView { mcppls::base::path_to_uri(other), other, "cpp", 3, otherText + "// restored edit\n" };
+        host.open.push_back(otherView);
+        engine->document(eng::DocumentEvent { eng::DocumentChange::opened, otherView });
+        host.pump(*engine);
+        expect(count("textDocument/didOpen", other) == 1 && count("textDocument/didClose", other) == 0);
+        bool changed { false };
+        {
+            const std::lock_guard lock { shared->mutex };
+            for (const auto& message : shared->sent) {
+                if (message.value("method", std::string {}) != "textDocument/didChange") continue;
+                changed |= message["params"]["textDocument"]["uri"] == otherView.uri && message["params"]["textDocument"]["version"] == 3;
+            }
+        }
+        expect(changed) << "the editor's text and version, as a change";
+
+        // slow.cpp is opened with the text and version clangd is still building: nothing is sent again, and what that
+        // build publishes is the editor's.
+        const eng::DocumentView slowView { mcppls::base::path_to_uri(slow), slow, "cpp", 1, slowText };
+        host.open.push_back(slowView);
+        engine->document(eng::DocumentEvent { eng::DocumentChange::opened, slowView });
+        host.pump(*engine);
+        expect(count("textDocument/didOpen", slow) == 1 && count("textDocument/didClose", slow) == 0 && count("textDocument/didChange", slow) == 0)
+            << "the build under way is not started over";
+        expect(!host.diagnostics.contains(slowView.uri)) << "nothing published before clangd finishes";
+        shared->finish(slowView.uri);
+        host.pump(*engine);
+        const Json& built { host.diagnostics[slowView.uri] };
+        expect(built.is_array() && built.size() == 1u && built[0].is_object()) << "clangd's list reaches the editor: " << built.dump();
+        engine->shut_down();
+        fs::remove_all(root);
+    };
+
     "what clangd could not find under the provisional model is not carried into the build tool's plan"_test = [] {
         namespace fs = mcppls::platform::fs;
         using mcppls::base::join_path;
@@ -1871,6 +1997,10 @@ int main() {
         expect(reader.read("I[00:56:20.713] Built preamble of size 274032 for file /p/math2.cppm version 1 in 0.02 seconds").telling);
         expect(reader.read("I[00:56:20.790] Built module math to /c/math.pcm").telling);
         expect(reader.read("I[00:56:20.790] Rebuilding module math: input changed /p/math.cppm").telling);
+        expect(reader.read("I[00:56:21.000] Completion in /p/main.cpp: 412 ms (module input checks 280 ms: 12 one by one, 900 by 3 package checks, 40 system already checked; waited 0 ms for modules)").telling)
+            << "0.0.15: what a slow completion cost";
+        expect(reader.read("I[00:56:21.000] Module memos: 25 BMI verdicts and 31 scans kept from the last session (0 unreadable), read in 12 ms; each is checked again before it is used").telling);
+        expect(reader.read("I[00:56:21.000] Module inputs: 2 managed package store(s) checked by their markers").telling);
         expect(reader.read("I[00:57:01.000] Prerequisites of /p/main.cpp: 25 modules, 25 reused, 0 built, 0 failed, in 3.10 s").telling);
         expect(reader.read("I[00:57:02.000] Preamble of /p/main.cpp is not compatible: the compile command changed").telling);
         expect(reader.read("I[00:57:03.000] Completion in /p/main.cpp answered before its first preamble").telling);

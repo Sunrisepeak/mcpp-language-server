@@ -379,7 +379,7 @@ Json report(std::string_view workspaceDirectory, const Budget& budget, std::chro
             instanceList.push_back(Json { { "token", described ? described->token : std::string { base::file_name(entry) } },
                                           { "version", described ? described->version : std::string {} },
                                           { "root", described ? described->root : std::string {} },
-                                          { "at", Json { described ? described->at : std::int64_t { 0 } } },
+                                          { "at", Json(described ? described->at : std::int64_t { 0 }) },
                                           { "bytes", bytes },
                                           { "shared", described ? described->shared : true },
                                           { "alive", instance_alive(described, now) },

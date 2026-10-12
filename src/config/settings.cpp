@@ -150,6 +150,18 @@ const std::vector<Setting>& shipped_registry() {
             .clientConfigurable = true,
         },
         Setting {
+            .key = "engine.preambleStorage", .kind = Kind::enumeration, .values = { "auto", "disk", "memory" }, .defaultValue = "auto",
+            .commandLine = "--engine-preamble-storage", .surface = Surface::server, .applies = Applies::restart, .category = "engines",
+            .since = "0.0.14",
+            .summary = "Where clangd keeps the preambles of the files you edit (its `--pch-storage`). `auto`: in memory on Windows with "
+                       "16 GiB or more, where a preamble written to the temporary directory is scanned when written and when read; "
+                       "on disk elsewhere. `memory` costs about one preamble per open file (tens of MB with `<windows.h>`).",
+            .summaryZh = "clangd 把你正在编辑的文件的 preamble 放在哪里（它的 `--pch-storage`）。`auto`：Windows 上物理内存不少于 16 GiB "
+                         "时放内存——那里写进临时目录的 preamble 在写入和读出时都会被扫描；其他情况放磁盘。`memory` 的代价大约是每个打开的"
+                         "文件一份 preamble（带 `<windows.h>` 时几十 MB）。",
+            .clientConfigurable = true,
+        },
+        Setting {
             .key = "compiler", .kind = Kind::string, .defaultValue = "", .commandLine = "--compiler", .surface = Surface::server,
             .applies = Applies::reload, .category = "engines", .since = "0.0.1",
             .summary = "Use this compiler for module semantics instead of what was detected: an absolute path, a name on `PATH`, or "

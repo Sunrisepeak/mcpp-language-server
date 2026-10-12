@@ -52,6 +52,7 @@ struct SessionOptions {
     std::chrono::milliseconds requestTimeout { std::chrono::seconds { 60 } };
     std::string formatFallbackStyle { "auto" };
     std::string engineWorkers { "auto" };   // mcppls.engine.workers (R-2): "auto" or a number
+    std::string preambleStorage { "auto" }; // mcppls.engine.preambleStorage (0.0.14 C1): auto, disk or memory
     // Registered workarounds turned off (import-hang plan §9): to see whether one is still needed.
     std::vector<std::string> disabledWorkarounds;
     // initializationOptions.semanticTokens (design doc 2026-09-25 K/§7, contract T0): native
@@ -130,7 +131,7 @@ std::map<std::string, platform::fs::FileStamp> watched_files_snapshot(std::strin
 struct SweepStart {
     bool started { false };
     bool dryRun { false };
-    Json immediate { Json::object() };
+    Json immediate = Json::object();   // `=`: braces make an array holding it
     // Valid when started; every path and limit the walks need, with no Workspace state in it.
     bool copies { true }, instances { true }, trash { true }, staleCommands { false }, budget { true };
     bool engineLive { false };             // S3 5.8: staleCommands only with no live engine

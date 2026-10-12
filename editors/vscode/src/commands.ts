@@ -14,7 +14,7 @@ import { COPY_ABOUT_COMMAND } from './cacheHub';
 import { REPOSITORY, feedbackIssueUrl, IssueContext } from './issueUrl';
 import { turnOffInWorkspace, turnOnInWorkspace } from './enable';
 import { sourceOf } from './quickSuggestions';
-import { RENAMED_SETTINGS, resolveRenamed, workersSetting } from './settingsRead';
+import { preambleStorageSetting, RENAMED_SETTINGS, resolveRenamed, workersSetting } from './settingsRead';
 import { redactJson, Who } from './redact';
 import { CxxModulesStatus, describeProfile, SemanticProfile } from './status';
 import { t } from './strings';
@@ -247,6 +247,7 @@ function mcpplsSettings(): Record<string, unknown> {
         'engine.name': resolveRenamed(settings, RENAMED_SETTINGS[0], 'clangd'),
         'format.fallbackStyle': settings.get<string>('format.fallbackStyle') || 'auto',
         'engine.workers': workersSetting(settings.get<string>('engine.workers')),
+        'engine.preambleStorage': preambleStorageSetting(settings.get<string>('engine.preambleStorage')),
         'buildDiscovery.mode': resolveRenamed(settings, RENAMED_SETTINGS[1], 'auto'),
         buildTool: settings.get('buildTool'),
         toolEnvironment: settings.get('toolEnvironment'),

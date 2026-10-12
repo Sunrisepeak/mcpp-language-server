@@ -1,10 +1,12 @@
 import std;
 import mcppls.testing;
+import mcppls.base.version;
 import mcppls.engine;
 import mcppls.engine.clangd;
 import mcppls.engine.clangd.workarounds;
 import mcppls.normalize.plan;
 import mcppls.engine.clangd.process;
+import mcppls.engine.clangd.guard;
 import mcppls.engine.payload;
 import mcppls.orchestrator.workspace;
 import mcppls.cli.options;
@@ -46,7 +48,7 @@ int main() {
     "the traits are the registry's"_test = [] {
         const auto pinned = cld::traits_for_version("23.1.0");
         expect(pinned.tested && pinned.hangsOnTrailingDotModuleName && pinned.hangsOnUnresolvedImports);
-        const auto bundled = cld::traits_for_version("23.1.0-mcppls.0");
+        const auto bundled = cld::traits_for_version(mcppls::base::CLANGD_VERSION);
         expect(bundled.tested && bundled.kitStdlibVersion == "23.1.0") << "the bundled maintained engine is the tested one, its kit the LLVM base";
         expect(!cld::traits_for_version("23.1.0-mcppls.7").tested) << "another maintained build is not";
         expect(pinned.needsModulePreparation && pinned.needsModuleHints && pinned.msvcStlNeedsNoAlignedAllocation);
@@ -272,4 +274,38 @@ int main() {
         expect(std::ranges::find(arguments, std::string { "--experimental-modules-support" }) == arguments.end());
         expect(std::ranges::find(arguments, std::string { "--background-index" }) != arguments.end()) << "the rest stays";
     };
+
+    "the Windows plan's arguments are given unless the person's own name them (0.0.14 A2, B2b, C1, C2, D1)"_test = [] {
+        const auto has = [](const std::vector<std::string>& arguments, std::string_view argument) {
+            return std::ranges::find(arguments, std::string { argument }) != arguments.end();
+        };
+        cld::ProcessConfig config;
+        expect(!has(cld::clangd_arguments(config), "--limit-results=1000")) << "nothing unless asked";
+        config.resultLimit = 1000;
+        config.preambleStorage = "memory";
+        config.managedInputRoots = { "/stores/mcpp", "/stores/xlings" };
+        config.moduleMemoDirectory = "/cache/clangd-memos";
+        config.maxRetainedAsts = 6;
+        auto arguments = cld::clangd_arguments(config);
+        for (const auto argument : { "--limit-results=1000", "--pch-storage=memory", "--managed-input-root=/stores/mcpp",
+                                     "--managed-input-root=/stores/xlings", "--module-memo-dir=/cache/clangd-memos", "--max-retained-asts=6" }) {
+            expect(has(arguments, argument)) << argument;
+        }
+        config.extraArguments = { "--limit-results=100", "-pch-storage=disk" };
+        arguments = cld::clangd_arguments(config);
+        expect(!has(arguments, "--limit-results=1000") && has(arguments, "--limit-results=100")) << "the person's limit wins";
+        expect(!has(arguments, "--pch-storage=memory") && has(arguments, "-pch-storage=disk")) << "a single dash names it too";
+
+        constexpr std::uint64_t GIB { std::uint64_t { 1 } << 30 };
+        expect(cld::preamble_storage("auto", true, 32 * GIB) == "memory") << "Windows with enough memory";
+        expect(cld::preamble_storage("auto", true, 16 * GIB) == "memory") << "the threshold included";
+        expect(cld::preamble_storage("auto", true, 8 * GIB).empty()) << "too little memory: clangd's own";
+        expect(cld::preamble_storage("auto", true, std::nullopt).empty()) << "unknown memory: clangd's own";
+        expect(cld::preamble_storage("auto", false, 64 * GIB).empty()) << "elsewhere: clangd's own";
+        expect(cld::preamble_storage("disk", true, 64 * GIB) == "disk" && cld::preamble_storage("memory", false, std::nullopt) == "memory");
+        expect(cld::retained_asts(32 * GIB) == std::optional<std::size_t> { 6 });
+        expect(cld::retained_asts(8 * GIB) == std::nullopt && cld::retained_asts(std::nullopt) == std::nullopt);
+    };
+
+    return report();
 }

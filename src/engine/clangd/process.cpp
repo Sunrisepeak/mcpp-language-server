@@ -65,6 +65,21 @@ std::vector<std::string> clangd_arguments(const ProcessConfig& config) {
     } else if (config.ownedCachePayloadMiB && !payloadGiven) {
         arguments.push_back(std::format("--modules-builder-owned-cache-payload-mib={}", *config.ownedCachePayloadMiB));
     }
+    // The rest are given unless the person's own arguments name them.
+    const auto given = [&](std::string_view option) {
+        return std::ranges::any_of(config.extraArguments, [&](const std::string& argument) {
+            const std::string_view word { argument };
+            return word == option || word == option.substr(1) || word.starts_with(std::string { option } + "=")
+                   || word.starts_with(std::string { option.substr(1) } + "=");
+        });
+    };
+    if (config.resultLimit && !given("--limit-results")) arguments.push_back(std::format("--limit-results={}", *config.resultLimit));
+    if (!config.preambleStorage.empty() && !given("--pch-storage")) arguments.push_back("--pch-storage=" + config.preambleStorage);
+    if (!given("--managed-input-root")) {
+        for (const auto& root : config.managedInputRoots) arguments.push_back("--managed-input-root=" + root);
+    }
+    if (!config.moduleMemoDirectory.empty() && !given("--module-memo-dir")) arguments.push_back("--module-memo-dir=" + config.moduleMemoDirectory);
+    if (config.maxRetainedAsts && !given("--max-retained-asts")) arguments.push_back(std::format("--max-retained-asts={}", *config.maxRetainedAsts));
     arguments.insert(arguments.end(), config.extraArguments.begin(), config.extraArguments.end());
     return arguments;
 }
@@ -390,11 +405,13 @@ std::optional<LogReader::AstBuild> parse_ast_build(std::string_view message) {
 bool telling_message(std::string_view message) {
     // mcppls-clangd 0.0.13 says why a module is rebuilt ("Rebuilding module M: ..."), what a file's prerequisites cost
     // ("Prerequisites of F: ..."), why a preamble is not reused ("Preamble of F is not compatible: ...") and when
-    // completion answers before its modules ("Completion in F answer..."); the rest are clangd's own.
-    static constexpr std::array<std::string_view, 10> PREFIXES {
+    // completion answers before its modules ("Completion in F answer..."); 0.0.15 what a slow completion cost
+    // ("Completion in F: N ms (...)"), what was kept from the last session ("Module memos: ...") and which package
+    // stores are checked by their markers ("Module inputs: ..."); the rest are clangd's own.
+    static constexpr std::array<std::string_view, 12> PREFIXES {
         "Built prerequisite modules for file", "Building first preamble for", "Rebuilding invalidated preamble",
         "Built preamble of size", "Built module ", "Rebuilding module ", "Prerequisites of ", "Preamble of ",
-        "Completion in ", "Failed to build",
+        "Completion in ", "Failed to build", "Module memos: ", "Module inputs: ",
     };
     return std::ranges::any_of(PREFIXES, [&](std::string_view prefix) { return message.starts_with(prefix); });
 }

@@ -164,6 +164,39 @@
       }
     },
     {
+      "id": "U17-words-as-typed",
+      "kind": "typing",
+      "file": "src/main.cpp",
+      "seconds": 45,
+      "hz": 10,
+      "completion-every-ms": 0,
+      "reask": "incomplete",
+      "description": "0.0.14 A1, A2: completion asked as VS Code asks it while a word is typed in a file whose module units include <windows.h>: the word's first character asks; the keys typed while that answer is on its way wait for it, and once it is in the next key asks again only when it was marked incomplete. With clangd's lists complete (--limit-results), a word costs one or two requests, and each answers in time.",
+      "scripts": [
+        {
+          "line": 11,
+          "text": "HANDLE handle = CreateFileW(nullptr, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);"
+        },
+        {
+          "line": 11,
+          "text": "DWORD written = 0; WriteConsoleW(GetStdHandle(STD_OUTPUT_HANDLE), L\"x\", 1, &written, nullptr); CloseHandle(handle);"
+        },
+        {
+          "line": 11,
+          "text": "SYSTEMTIME now {}; GetLocalTime(&now); OutputDebugStringW(std::to_wstring(now.wHour).c_str());"
+        }
+      ],
+      "budget": {
+        "firstOpenSeconds": 120,
+        "p95": 1.1,
+        "max": 3.0,
+        "timeouts": 0,
+        "restarts": 0,
+        "filesSetAside": 0,
+        "askedAsTypedPerWord": 2.0
+      }
+    },
+    {
       "id": "U16-module-autosave",
       "kind": "typing",
       "file": "src/process.cppm",

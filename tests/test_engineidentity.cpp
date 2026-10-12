@@ -43,4 +43,6 @@ int main() {
         changed["features"] = Json::array({ 42 });
         expect(!base::decode_engine_identity(changed));
     };
+
+    return report();
 }

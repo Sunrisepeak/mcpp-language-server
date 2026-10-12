@@ -1,0 +1,131 @@
+{
+  "name": "ux-modules-windows-large",
+  "description": "0.0.14 Windows plan, phase 0: a Windows program the size where module checks cost -- thirty module units whose global module fragments include <windows.h>, in chains four deep, and a main.cpp that includes <windows.h> and imports twenty-five of them -- built by CMake with MSVC (cl.exe) and Ninja. Run cold and then warm with the same cache directory (the release checks' performance job): first navigation, idle latency, completion asked as a word is typed, and on the warm run the module files reused. Budgets are the first measurements' with room; they hold what the plan's work must not undo.",
+  "prepare-environment": "msvc",
+  "prepare": [
+    [
+      "cmake",
+      "-S",
+      ".",
+      "-B",
+      "build",
+      "-G",
+      "Ninja",
+      "-DCMAKE_CXX_COMPILER=cl",
+      "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+    ],
+    [
+      "cmake",
+      "--build",
+      "build"
+    ]
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "cmake",
+      "profile-kind": "build-toolchain",
+      "state": "ready",
+      "timeout": 600
+    },
+    {
+      "id": "C1",
+      "kind": "diagnostics-empty",
+      "file": "src/main.cpp",
+      "timeout": 900
+    },
+    {
+      "id": "T1-definition-into-module",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        29,
+        24
+      ],
+      "expect": "src/m29.cppm",
+      "timeout": 120
+    },
+    {
+      "id": "W1-modules-reused",
+      "kind": "module-cache-reused",
+      "module": "big.m29"
+    },
+    {
+      "id": "U3-idle",
+      "kind": "latency",
+      "phase": "idle",
+      "rounds": 20,
+      "requests": [
+        {
+          "kind": "completion",
+          "name": "module-member",
+          "file": "src/main.cpp",
+          "at": [
+            29,
+            23
+          ]
+        },
+        {
+          "kind": "completion",
+          "name": "windows-api",
+          "file": "src/main.cpp",
+          "at": [
+            32,
+            6
+          ]
+        },
+        {
+          "kind": "hover",
+          "file": "src/main.cpp",
+          "at": [
+            29,
+            24
+          ]
+        },
+        {
+          "kind": "definition",
+          "file": "src/main.cpp",
+          "at": [
+            29,
+            24
+          ],
+          "expect": "src/m29.cppm"
+        }
+      ],
+      "budget": {
+        "completion.p95": 3.0,
+        "hover.p95": 1.5,
+        "definition.p95": 2.0,
+        "engineShare": 0.8
+      }
+    },
+    {
+      "id": "U17-words-as-typed",
+      "kind": "typing",
+      "file": "src/main.cpp",
+      "seconds": 45,
+      "hz": 10,
+      "completion-every-ms": 0,
+      "reask": "incomplete",
+      "scripts": [
+        {
+          "line": 33,
+          "text": "HANDLE handle = CreateFileW(nullptr, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);"
+        },
+        {
+          "line": 33,
+          "text": "total += m28::value() + m27::value(); m26::Window26 other; if (other.visible()) total += m25::ticks() % 3;"
+        }
+      ],
+      "budget": {
+        "firstOpenSeconds": 300,
+        "p95": 2.0,
+        "max": 5.0,
+        "timeouts": 0,
+        "restarts": 0,
+        "filesSetAside": 0
+      }
+    }
+  ]
+}

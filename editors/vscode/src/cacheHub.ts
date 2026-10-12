@@ -102,6 +102,12 @@ export function runningEntries(status: CxxModulesStatus | undefined, now: number
     const problems = (status.issues ?? []).length;
     if (problems > 0) state.push(t('{0} issues', problems));
     entries.push({ icon: '$(pulse)', label: t('Running'), description: state.join(' · '), behavior: 'command', action: { command: 'mcppls.showLogs' } });
+    // 0.0.14 E1: on Windows, a cache off a Dev Drive is scanned by Microsoft Defender as clangd writes and reads it.
+    if (about?.cacheDevDrive === false) {
+        entries.push({ icon: '$(shield)', label: t('Cache is not on a Dev Drive'),
+                       description: t('Defender scans module files as they are written and read; the log says what helps'),
+                       behavior: 'command', action: { command: 'mcppls.showLogs' } });
+    }
     return entries;
 }
 

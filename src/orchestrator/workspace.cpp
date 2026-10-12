@@ -13,8 +13,10 @@ import mcppls.base.version;
 import mcppls.orchestrator.cache;
 import mcppls.engine.clangd.process;
 import mcppls.platform.dirs;
+import mcppls.platform.env;
 import mcppls.platform.fs;
 import mcppls.platform.process;
+import mcppls.platform.system;
 import mcppls.platform.toolenv;
 import mcppls.platform.toolrun;
 import mcppls.platform.task;
@@ -183,6 +185,54 @@ struct Workspace::Impl final : engine::Host {
     bool kitEnabled { true };
 
     std::string cacheDirectory;
+    std::optional<bool> cacheOnDevDrive;   // Windows only (0.0.14 E1)
+    // 0.0.14 G1: the files last worked in, most recent first, kept in the cache directory: the next session has the core
+    // engine get them ready before the editor opens them again.
+    static constexpr std::size_t RECENT_FILES { 5 };
+    static constexpr std::chrono::seconds RECENT_FILES_WRITTEN { 15 };
+    std::deque<std::string> recentFiles;
+    bool recentFilesChanged { false };
+    std::optional<Clock::time_point> recentFilesWrittenAt;
+
+    void note_recent_file(const std::string& path) {
+        if (path.empty() || !base::is_within(path, root) || !project::is_cxx_source_name(path)) return;
+        if (!recentFiles.empty() && base::same_path(recentFiles.front(), path)) return;
+        std::erase_if(recentFiles, [&](const std::string& recent) { return base::same_path(recent, path); });
+        recentFiles.push_front(path);
+        while (recentFiles.size() > RECENT_FILES) recentFiles.pop_back();
+        recentFilesChanged = true;
+    }
+
+    // A file the person closed is not among the next session's: an editor that quits closes nothing, so what it
+    // restores stays, and what was put away goes.
+    void forget_recent_file(const std::string& path) {
+        if (std::erase_if(recentFiles, [&](const std::string& recent) { return base::same_path(recent, path); }) > 0) recentFilesChanged = true;
+    }
+
+    void save_recent_files(bool now) {
+        if (!recentFilesChanged) return;
+        if (!now && recentFilesWrittenAt && Clock::now() - *recentFilesWrittenAt < RECENT_FILES_WRITTEN) return;
+        Json list = Json::array();
+        for (const auto& path : recentFiles) list.push_back(path);
+        (void)platform::fs::write_file_atomic(base::join_path(cacheDirectory, "recent-files.json"), list.dump());
+        recentFilesChanged = false;
+        recentFilesWrittenAt = Clock::now();
+    }
+
+    std::vector<std::string> read_recent_files() {
+        std::vector<std::string> paths;
+        const auto text = platform::fs::read_file(base::join_path(cacheDirectory, "recent-files.json"));
+        if (!text) return paths;
+        const Json list = Json::parse(*text, nullptr, false);
+        if (!list.is_array()) return paths;
+        for (const auto& item : list) {
+            if (!item.is_string() || paths.size() >= RECENT_FILES) continue;
+            const std::string path { item.get<std::string>() };
+            if (base::is_within(path, root) && platform::fs::is_regular_file(path)) paths.push_back(path);
+        }
+        recentFiles.assign(paths.begin(), paths.end());
+        return paths;
+    }
     // overall design 6.3: the lease on <cache>/workspaces/<key>; a second instance works in a private directory.
     std::optional<WorkspaceLease> lease;
     // ---- the cache mcppls owns (0.0.10 plan C-7, C-8, C-9, C-13.1) ----------------------
@@ -360,6 +410,20 @@ struct Workspace::Impl final : engine::Host {
     // elsewhere), so it serves the next requests of that word and not a return to it minutes later.
     static constexpr std::chrono::seconds LATE_ANSWER_KEPT { 5 };
     std::map<std::string, LateAnswer, std::less<>> lateAnswers;   // document URI -> the last late answer, for its word
+    // 0.0.14 A1: the core engine's last complete answer in a word, with the document outside the word as it was then. A
+    // client that asks again as the word is typed on (some ask at every key, whatever the list says) is given it at once:
+    // the engine's candidates for the word are the same while nothing outside it changed. Only a complete list: one the
+    // engine cut short may lack what the longer word matches. MCPPLS_COMPLETION_REFILTER=off turns it off.
+    struct WordAnswer {
+        completion::WordKey key;
+        std::uint64_t outside { 0 };
+        Json result;
+        Clock::time_point at;
+    };
+    static constexpr std::chrono::seconds WORD_ANSWER_KEPT { 30 };
+    std::map<std::string, WordAnswer, std::less<>> wordAnswers;   // document URI -> its last complete core answer
+    const bool wordAnswersOn { platform::env::get("MCPPLS_COMPLETION_REFILTER").value_or("") != "off" };
+    std::size_t completionsFromWord { 0 };
 
     // Project model and plan.
     std::shared_ptr<project::ProjectModel> model;
@@ -509,6 +573,13 @@ struct Workspace::Impl final : engine::Host {
         // and the database live here, and clangd answers for them under the name it was given.
         (void)platform::fs::create_directories(cacheDirectory);
         cacheDirectory = platform::fs::canonical_path(cacheDirectory);
+        // 0.0.14 E1: on Windows, a cache off a Dev Drive has every file clangd writes and reads there scanned by
+        // Microsoft Defender as it happens. Said once, in the log and the overview; nothing is changed for the person.
+        cacheOnDevDrive = platform::system::on_dev_drive(cacheDirectory);
+        if (cacheOnDevDrive == false) {
+            log::info("the cache {} is not on a Dev Drive: Microsoft Defender scans the module and preamble files clangd writes and reads "
+                      "there as it does; a Dev Drive scans them asynchronously (docs/50-troubleshooting.md, \"Windows\")", cacheDirectory);
+        }
         // usable plan W9.3: taken now, before this root is even started, so the client cannot
         // possibly have created or changed a watched file yet (see start_watch_polling below).
         watchBaseline = watched_files_snapshot(root);
@@ -932,6 +1003,7 @@ struct Workspace::Impl final : engine::Host {
                 if (const auto position = position_of(job.params)) {
                     job.keywords = index::keyword_completion(job.text, *position, index.scan_of(job.path),
                                                              index::KeywordOptions { .suggestModulesAfterImport = vscodeLike });
+                    if (answered_from_word(jobId, uri, *position)) return;
                     if (answered_late(jobId, uri, *position)) return;
                 }
             }
@@ -1098,7 +1170,7 @@ struct Workspace::Impl final : engine::Host {
     // timeouts and watchdogs still see the request until clangd lets go of it.
     void answer_without_core(std::uint64_t jobId) {
         Job& job = jobs.at(jobId);
-        const Json clientId { job.clientId };
+        const Json clientId = job.clientId;   // `=`: braces make an array holding it (CWG 2137)
         if (job.keywords.is_array() && !job.keywords.empty()) ++keywordsWithoutEngine;
         job.answeredBy = "mcppls";
         Json result;
@@ -1121,6 +1193,42 @@ struct Workspace::Impl final : engine::Host {
             if (keepCore && engine.get() == coreEngine) engine->detach(clientId);
             else engine->cancel(clientId);
         }
+    }
+
+    // 0.0.14 A1: a complete core answer, kept for its word.
+    void note_word_answer(const Job& job, const Json& result) {
+        if (!wordAnswersOn || !completion::is_complete(result) || completion::is_empty(result)) return;
+        const auto position = position_of(job.params);
+        if (!position) return;
+        const std::string uri { uri_of_params(job.params) };
+        auto key = completion::word_key(job.text, *position);
+        const auto outside = completion::outside_word(job.text, *position);
+        if (!key || !outside) {
+            wordAnswers.erase(uri);
+            return;
+        }
+        wordAnswers[uri] = WordAnswer { std::move(*key), *outside, result, Clock::now() };
+    }
+
+    // 0.0.14 A1: a request typed on in the word of a complete core answer, with the document outside the word as it
+    // was, is given that answer for its position.
+    bool answered_from_word(std::uint64_t jobId, const std::string& uri, base::Position position) {
+        if (!wordAnswersOn || coreEngine == nullptr) return false;
+        const auto answer = wordAnswers.find(uri);
+        if (answer == wordAnswers.end()) return false;
+        Job& job = jobs.at(jobId);
+        const auto key = completion::word_key(job.text, position);
+        const auto outside = completion::outside_word(job.text, position);
+        if (!key || !outside || !completion::typed_on(answer->second.key, *key) || *outside != answer->second.outside
+            || Clock::now() - answer->second.at > WORD_ANSWER_KEPT) {
+            wordAnswers.erase(answer);
+            return false;
+        }
+        job.coreAnswered = true;
+        job.answeredBy = std::string { coreEngine->id() };
+        ++completionsFromWord;
+        finish_job(jobId, completion::retarget(answer->second.result, position));
+        return true;
     }
 
     // C-2: a completion in a word the core engine answered late is given that answer, at once; one in a word the core
@@ -1204,6 +1312,7 @@ struct Workspace::Impl final : engine::Host {
                     const bool typing { current->second.method == lsp::method::TEXT_DOCUMENT_COMPLETION
                                         || current->second.method == lsp::method::TEXT_DOCUMENT_SIGNATURE_HELP };
                     if (typing) note_core_completion(current->second.path, current->second.started);
+                    if (current->second.method == lsp::method::TEXT_DOCUMENT_COMPLETION) note_word_answer(current->second, answer.value);
                 }
                 if (!answer.value.is_null()) {
                     current->second.engineRepliedAt = Clock::now();
@@ -2386,6 +2495,7 @@ struct Workspace::Impl final : engine::Host {
         if (kit) about["kit"] = kit->name;
         if (detectedSource == project::SourceKind::mcpp) about["mcpp"] = producerVersion;
         if (const std::string mismatch { version_mismatch() }; !mismatch.empty()) about["mismatch"] = mismatch;
+        if (cacheOnDevDrive) about["cacheDevDrive"] = *cacheOnDevDrive;
         return about;
     }
 
@@ -2891,6 +3001,7 @@ struct Workspace::Impl final : engine::Host {
     }
 
     void handle_timers() {
+        save_recent_files(false);
         // 0.0.13 W10 (#52-8): a turn of the timers that holds the loop says which part held it; one once took 15 minutes
         // and the log could say only "its timers".
         const auto timersBegan = Clock::now();
@@ -3064,6 +3175,13 @@ void Workspace::start(Json clientParams, bool clientSupportsStatus, bool usePoll
                   about.contains("extension") ? std::format(" · extension {}", about["extension"].get<std::string>()) : std::string {}, editor);
         if (about.contains("mismatch")) log::warning("version mismatch ({}): {}", root_, about["mismatch"].get<std::string>());
     }
+    // 0.0.14 G1: the files of the last session, ready before the editor opens them again.
+    if (impl_->coreEngine != nullptr) {
+        if (const auto recent = impl_->read_recent_files(); !recent.empty()) {
+            log::info("the last files in use ({}): {} of them, opened in clangd ahead of the editor once it takes files", root_, recent.size());
+            impl_->coreEngine->warm(recent);
+        }
+    }
     if (!impl_->payloadCorrupt && impl_->kitEnabled && !impl_->payload.kit.empty()) {
         if (auto kit = spec::load_kit(impl_->payload.kit)) {
             impl_->kit = std::move(*kit);
@@ -3108,6 +3226,7 @@ void Workspace::allow_status_notifications() {
 }
 
 void Workspace::shut_down() {
+    impl_->save_recent_files(true);
     if (impl_->reviewProcess) impl_->reviewProcess->kill();
     for (const auto& engine : impl_->engines) engine->shut_down();
     if (impl_->lease) impl_->lease->release();
@@ -3122,6 +3241,7 @@ void Workspace::did_open(const Json& params) {
     const Document& document = impl_->documents_.open(uri, path, item->value("languageId", std::string { "cpp" }),
                                                       item->value("version", std::int64_t { 0 }), item->value("text", std::string {}));
     if (!path.empty()) {
+        impl_->note_recent_file(path);
         impl_->index.update(path, document.text);
         impl_->note_structure_change(path);
         impl_->note_opened(path);
@@ -3141,6 +3261,7 @@ void Workspace::did_change(const Json& message, const Json& params) {
     const Document* document { impl_->documents_.find(uri) };
     if (!document->path.empty()) {
         impl_->editedAt[base::path_key(document->path)] = Clock::now();
+        impl_->note_recent_file(document->path);
         impl_->index.update(document->path, document->text);
         impl_->note_structure_change(document->path, true);
     }
@@ -3155,6 +3276,7 @@ void Workspace::did_close(const Json& message, const Json& params) {
     const Document document { *found };
     impl_->documents_.close(uri);
     if (!document.path.empty()) {
+        impl_->forget_recent_file(document.path);
         impl_->editedAt.erase(base::path_key(document.path));
         impl_->completionPace_.erase(document.path);   // the file's pace says how its engine answered while it was open
     }
@@ -3432,7 +3554,8 @@ Json Workspace::report() const {
     Json completionCosts { { "spaceTrigger", Json { { "count", impl.spaceTrigger.count }, { "passed", impl.spaceTrigger.passed },
                                                      { "maxMicros", impl.spaceTrigger.maxMicros }, { "totalMicros", impl.spaceTrigger.totalMicros } } },
                            { "keywordsWithoutEngine", impl.keywordsWithoutEngine }, { "wordsWithoutCore", impl.wordsWithoutCore },
-                           { "late", Json { { "arrived", impl.lateCompletionsArrived }, { "served", impl.lateCompletionsServed } } } };
+                           { "late", Json { { "arrived", impl.lateCompletionsArrived }, { "served", impl.lateCompletionsServed } } },
+                           { "fromWord", impl.completionsFromWord } };
     Json startups = Json::array();
     if (auto text = platform::fs::read_file(base::join_path(impl.cacheDirectory, "startups.json"))) {
         startups = Json::parse(*text, nullptr, false);
@@ -3589,7 +3712,8 @@ Json Workspace::cache_report() const {
 SweepStart Workspace::prepare_sweep(const Json& params) {
     auto& impl = *impl_;
     SweepStart start;
-    const Json given { params.value("categories", Json::array()) };
+    // `=`: braces would make an array holding the list, and no category would ever be found in it.
+    const Json given = params.value("categories", Json::array());
     const auto wants = [&](std::string_view category, bool byDefault) {
         if (!given.is_array() || given.empty()) return byDefault;
         return std::ranges::find(given, Json(std::string { category })) != given.end();

@@ -3,6 +3,7 @@ module mcppls.engine.clangd.guard;
 import std;
 import mcppls.base.text;
 import mcppls.platform.fs;
+import mcppls.platform.system;
 
 namespace mcppls::engine::clangd {
 
@@ -335,18 +336,16 @@ std::size_t preparation_limit(std::size_t workers, bool waitingOnPreparation) {
     return waitingOnPreparation ? background : std::max<std::size_t>(1, background / 2);
 }
 
-std::optional<std::uint64_t> total_memory_bytes() {
-    const auto info = platform::fs::read_file("/proc/meminfo");
-    if (!info) return std::nullopt;
-    for (const auto line : base::split_lines(*info)) {
-        if (!line.starts_with("MemTotal:")) continue;
-        std::uint64_t kib { 0 };
-        const auto digits = base::trim(line.substr(9));
-        const auto end = digits.find(' ');
-        const auto number = digits.substr(0, end);
-        if (std::from_chars(number.data(), number.data() + number.size(), kib).ec != std::errc {}) return std::nullopt;
-        return kib * 1024;
-    }
+std::optional<std::uint64_t> total_memory_bytes() { return platform::system::physical_memory_bytes(); }
+
+std::string preamble_storage(std::string_view setting, bool windows, std::optional<std::uint64_t> memoryBytes) {
+    if (setting == "memory" || setting == "disk") return std::string { setting };
+    if (windows && memoryBytes && *memoryBytes >= PREAMBLES_IN_MEMORY_FROM) return "memory";
+    return {};
+}
+
+std::optional<std::size_t> retained_asts(std::optional<std::uint64_t> memoryBytes) {
+    if (memoryBytes && *memoryBytes >= PREAMBLES_IN_MEMORY_FROM) return 6;
     return std::nullopt;
 }
 

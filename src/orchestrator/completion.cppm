@@ -83,6 +83,13 @@ std::optional<WordKey> word_key(std::string_view text, base::Position position);
 // filters it by what was typed since. A word typed back (a backspace), or another word, is not.
 bool typed_on(const WordKey& earlier, const WordKey& later);
 
+// 0.0.14 A1: the document outside the word at `position` -- all of it before the word's start, all of it after the
+// cursor -- as one value. A complete answer for a word still holds for a later request in it while this is the same:
+// what the engine answered from is unchanged but for the word, which the client filters by.
+std::optional<std::uint64_t> outside_word(std::string_view text, base::Position position);
+// A completion result the client filters by itself as the person types: a list not marked incomplete.
+bool is_complete(const Json& result);
+
 // C-2: a completion answered for an earlier position in the same word, for `position`: each item's edit that replaced
 // the word up to the old cursor replaces it up to this one (a client drops an item whose range does not contain the
 // position it asked at). Items without an edit are kept as they are; an edit on another line or starting after

@@ -298,6 +298,22 @@ int main() {
         expect(completion::retarget(Json(nullptr), Position { 1, 19 })["items"].empty());
     };
 
+    "a complete answer holds for its word while the document outside the word is the same (0.0.14 A1)"_test = [] {
+        const std::string text { "int main() {\n    auto v = obj.s\n}\n" };
+        const std::string typedOn { "int main() {\n    auto v = obj.si\n}\n" };
+        const std::string elsewhere { "int main() {\n    auto v = obj.si\n    int w;\n}\n" };
+        const auto at = completion::outside_word(text, Position { 1, 18 });
+        expect(at.has_value());
+        expect(completion::outside_word(typedOn, Position { 1, 19 }) == at) << "the word typed on: the same outside it";
+        expect(completion::outside_word(elsewhere, Position { 1, 19 }) != at) << "a line added after the word";
+        expect(completion::outside_word("int x;\n" + typedOn, Position { 2, 19 }) != at) << "a line added before it";
+        expect(completion::outside_word(text, Position { 9, 0 }) == std::nullopt);
+        expect(completion::is_complete(Json { { "isIncomplete", false }, { "items", Json::array() } }));
+        expect(!completion::is_complete(Json { { "isIncomplete", true }, { "items", Json::array() } }));
+        expect(completion::is_complete(Json::array())) << "a bare array is complete";
+        expect(!completion::is_complete(Json(nullptr)));
+    };
+
     "module names for completion are kept until a declaration changes"_test = [] {
         idx::ModuleIndex index;
         index.update("/p/a.cppm", "export module a;\n");

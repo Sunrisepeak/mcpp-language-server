@@ -25,6 +25,15 @@ struct ProcessConfig {
     // --experimental-modules-support. WA-CLANGD-009: off for a project that uses no modules, where it only costs every
     // request a scan of the file's module dependencies.
     bool modulesSupport { true };
+    // 0.0.14 (Windows plan A2): completions clangd gives at most (--limit-results). Above its 100, a list whose
+    // matches fit is complete, and the editor filters it as the person types instead of asking again per key.
+    std::optional<std::size_t> resultLimit;
+    std::string preambleStorage;     // "memory" or "disk" (--pch-storage); empty: clangd's own (disk)
+    // mcppls-clangd 0.0.15, by declared feature: package stores checked by their markers (managed-input-roots),
+    // where module memos are kept across sessions (persistent-module-memos), ASTs kept (retained-asts-option).
+    std::vector<std::string> managedInputRoots;
+    std::string moduleMemoDirectory;
+    std::optional<std::size_t> maxRetainedAsts;
 };
 
 class Process {

@@ -75,5 +75,9 @@
   "command.mcppls.applyBuildProgram.title": "应用 build.mcpp",
   "config.mcppls.buildProgram.apply.description": "修改后的 mcpp 构建程序（build.mcpp）何时生效。生效会运行 mcpp 重新描述项目，即编译并运行构建程序。无论哪种方式，构建程序编译不过时，项目都保留上一份完整的描述。",
   "config.mcppls.buildProgram.apply.enum.0": "保存后两秒内没有再改动、且编辑器里它没有错误时生效。",
-  "config.mcppls.buildProgram.apply.enum.1": "只在执行命令 C++ Modules: Apply build.mcpp 时生效。"
+  "config.mcppls.buildProgram.apply.enum.1": "只在执行命令 C++ Modules: Apply build.mcpp 时生效。",
+  "config.mcppls.engine.preambleStorage.description": "clangd 把你正在编辑的文件的 preamble 放在哪里。修改后服务端会重启。",
+  "config.mcppls.engine.preambleStorage.enum.0": "Windows 上物理内存不少于 16 GiB 时放内存（那里写进临时目录的 preamble 在写入和读出时都会被扫描）；其他情况放磁盘。",
+  "config.mcppls.engine.preambleStorage.enum.1": "放磁盘，在临时目录里（clangd 的默认值）。",
+  "config.mcppls.engine.preambleStorage.enum.2": "放内存：大约每个打开的文件一份 preamble，带 <windows.h> 时几十 MB。"
 }

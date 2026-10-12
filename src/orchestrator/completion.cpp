@@ -191,6 +191,21 @@ std::optional<WordKey> word_key(std::string_view text, base::Position position) 
     return WordKey { position.line, std::string { text.substr(lineStart, start - lineStart) }, std::string { text.substr(start, *offset - start) } };
 }
 
+std::optional<std::uint64_t> outside_word(std::string_view text, base::Position position) {
+    const auto offset = base::offset_at(text, position);
+    if (!offset) return std::nullopt;
+    std::size_t start { *offset };
+    while (start > 0 && base::is_identifier_char(text[start - 1])) --start;
+    const std::uint64_t before { std::hash<std::string_view> {}(text.substr(0, start)) };
+    const std::uint64_t after { std::hash<std::string_view> {}(text.substr(*offset)) };
+    return before ^ (after + 0x9E3779B97F4A7C15ull + (before << 6) + (before >> 2));
+}
+
+bool is_complete(const Json& result) {
+    if (result.is_array()) return true;
+    return result.is_object() && result.contains("items") && !result.value("isIncomplete", false);
+}
+
 bool typed_on(const WordKey& earlier, const WordKey& later) {
     return earlier.line == later.line && earlier.before == later.before && later.typed.starts_with(earlier.typed);
 }

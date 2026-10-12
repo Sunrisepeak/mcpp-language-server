@@ -85,6 +85,11 @@ export const BUILD_DISCOVERY_PROVIDERS = ['mcpp', 'cmake', 'xmake', 'meson', 'co
 
 const WORKERS = /^(auto|[1-9][0-9]?)?$/;
 
+/** `engine.preambleStorage` as the server takes it: `auto`, `disk` or `memory`; anything else is `auto`. */
+export function preambleStorageSetting(value: string | undefined): 'auto' | 'disk' | 'memory' {
+    return value === 'disk' || value === 'memory' ? value : 'auto';
+}
+
 /** `engine.workers` as the server takes it: `auto` or a whole number from 1 to 99; empty means `auto`. */
 export function workersSetting(value: string | undefined): string {
     const trimmed = (value ?? '').trim();
@@ -105,6 +110,8 @@ export function buildInitializationOptions(configuration: SettingsReader, compil
         'engine.name': resolveRenamed(configuration, RENAMED_SETTINGS[0], 'clangd') === 'none' ? 'none' : 'clangd',
         // S-2 (plan 0.0.9): how many files clangd builds at once; a change restarts the server.
         'engine.workers': workersSetting(configuration.get<string>('engine.workers')),
+        // 0.0.14 C1: where clangd keeps preambles; a change restarts the server.
+        'engine.preambleStorage': preambleStorageSetting(configuration.get<string>('engine.preambleStorage')),
         // The formatting fallback without a project .clang-format; a change restarts the server.
         'format.fallbackStyle': configuration.get<string>('format.fallbackStyle') || 'auto',
         // build description design 4.4: how the user's build tool may be run.
