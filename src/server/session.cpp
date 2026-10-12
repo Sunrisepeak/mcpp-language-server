@@ -463,6 +463,7 @@ private:
         options_.requestTimeout = std::chrono::duration_cast<std::chrono::milliseconds>(settings.seconds_value("requestTimeout"));
         options_.formatFallbackStyle = settings.string_value("format.fallbackStyle");
         options_.engineWorkers = settings.string_value("engine.workers");
+        options_.preambleStorage = settings.string_value("engine.preambleStorage");
         options_.disabledWorkarounds = settings.list_value("disableWorkaround");
         options_.semanticTokensModules = settings.bool_value("semanticTokens.modules");
         options_.semanticTokensModuleType = settings.bool_value("semanticTokens.moduleType");

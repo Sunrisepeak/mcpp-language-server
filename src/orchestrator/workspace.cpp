@@ -13,6 +13,7 @@ import mcppls.base.version;
 import mcppls.orchestrator.cache;
 import mcppls.engine.clangd.process;
 import mcppls.platform.dirs;
+import mcppls.platform.env;
 import mcppls.platform.fs;
 import mcppls.platform.process;
 import mcppls.platform.toolenv;
@@ -360,6 +361,20 @@ struct Workspace::Impl final : engine::Host {
     // elsewhere), so it serves the next requests of that word and not a return to it minutes later.
     static constexpr std::chrono::seconds LATE_ANSWER_KEPT { 5 };
     std::map<std::string, LateAnswer, std::less<>> lateAnswers;   // document URI -> the last late answer, for its word
+    // 0.0.14 A1: the core engine's last complete answer in a word, with the document outside the word as it was then. A
+    // client that asks again as the word is typed on (some ask at every key, whatever the list says) is given it at once:
+    // the engine's candidates for the word are the same while nothing outside it changed. Only a complete list: one the
+    // engine cut short may lack what the longer word matches. MCPPLS_COMPLETION_REFILTER=off turns it off.
+    struct WordAnswer {
+        completion::WordKey key;
+        std::uint64_t outside { 0 };
+        Json result;
+        Clock::time_point at;
+    };
+    static constexpr std::chrono::seconds WORD_ANSWER_KEPT { 30 };
+    std::map<std::string, WordAnswer, std::less<>> wordAnswers;   // document URI -> its last complete core answer
+    const bool wordAnswersOn { platform::env::get("MCPPLS_COMPLETION_REFILTER").value_or("") != "off" };
+    std::size_t completionsFromWord { 0 };
 
     // Project model and plan.
     std::shared_ptr<project::ProjectModel> model;
@@ -932,6 +947,7 @@ struct Workspace::Impl final : engine::Host {
                 if (const auto position = position_of(job.params)) {
                     job.keywords = index::keyword_completion(job.text, *position, index.scan_of(job.path),
                                                              index::KeywordOptions { .suggestModulesAfterImport = vscodeLike });
+                    if (answered_from_word(jobId, uri, *position)) return;
                     if (answered_late(jobId, uri, *position)) return;
                 }
             }
@@ -1123,6 +1139,42 @@ struct Workspace::Impl final : engine::Host {
         }
     }
 
+    // 0.0.14 A1: a complete core answer, kept for its word.
+    void note_word_answer(const Job& job, const Json& result) {
+        if (!wordAnswersOn || !completion::is_complete(result) || completion::is_empty(result)) return;
+        const auto position = position_of(job.params);
+        if (!position) return;
+        const std::string uri { uri_of_params(job.params) };
+        auto key = completion::word_key(job.text, *position);
+        const auto outside = completion::outside_word(job.text, *position);
+        if (!key || !outside) {
+            wordAnswers.erase(uri);
+            return;
+        }
+        wordAnswers[uri] = WordAnswer { std::move(*key), *outside, result, Clock::now() };
+    }
+
+    // 0.0.14 A1: a request typed on in the word of a complete core answer, with the document outside the word as it
+    // was, is given that answer for its position.
+    bool answered_from_word(std::uint64_t jobId, const std::string& uri, base::Position position) {
+        if (!wordAnswersOn || coreEngine == nullptr) return false;
+        const auto answer = wordAnswers.find(uri);
+        if (answer == wordAnswers.end()) return false;
+        Job& job = jobs.at(jobId);
+        const auto key = completion::word_key(job.text, position);
+        const auto outside = completion::outside_word(job.text, position);
+        if (!key || !outside || !completion::typed_on(answer->second.key, *key) || *outside != answer->second.outside
+            || Clock::now() - answer->second.at > WORD_ANSWER_KEPT) {
+            wordAnswers.erase(answer);
+            return false;
+        }
+        job.coreAnswered = true;
+        job.answeredBy = std::string { coreEngine->id() };
+        ++completionsFromWord;
+        finish_job(jobId, completion::retarget(answer->second.result, position));
+        return true;
+    }
+
     // C-2: a completion in a word the core engine answered late is given that answer, at once; one in a word the core
     // engine is still working on waits for it, within its own budget. A completion in another word ends the core
     // engine's work on the one before: nobody is typing it any more. An import directive's module names are mcppls's own.
@@ -1204,6 +1256,7 @@ struct Workspace::Impl final : engine::Host {
                     const bool typing { current->second.method == lsp::method::TEXT_DOCUMENT_COMPLETION
                                         || current->second.method == lsp::method::TEXT_DOCUMENT_SIGNATURE_HELP };
                     if (typing) note_core_completion(current->second.path, current->second.started);
+                    if (current->second.method == lsp::method::TEXT_DOCUMENT_COMPLETION) note_word_answer(current->second, answer.value);
                 }
                 if (!answer.value.is_null()) {
                     current->second.engineRepliedAt = Clock::now();
@@ -3432,7 +3485,8 @@ Json Workspace::report() const {
     Json completionCosts { { "spaceTrigger", Json { { "count", impl.spaceTrigger.count }, { "passed", impl.spaceTrigger.passed },
                                                      { "maxMicros", impl.spaceTrigger.maxMicros }, { "totalMicros", impl.spaceTrigger.totalMicros } } },
                            { "keywordsWithoutEngine", impl.keywordsWithoutEngine }, { "wordsWithoutCore", impl.wordsWithoutCore },
-                           { "late", Json { { "arrived", impl.lateCompletionsArrived }, { "served", impl.lateCompletionsServed } } } };
+                           { "late", Json { { "arrived", impl.lateCompletionsArrived }, { "served", impl.lateCompletionsServed } } },
+                           { "fromWord", impl.completionsFromWord } };
     Json startups = Json::array();
     if (auto text = platform::fs::read_file(base::join_path(impl.cacheDirectory, "startups.json"))) {
         startups = Json::parse(*text, nullptr, false);

@@ -49,6 +49,7 @@ VS Code 扩展已经会这样做）；`重新加载模型` 只重新加载项目
 |---|---|---|---|---|---|
 | `mcppls.engine.name` | `clangd`, `none` | `clangd` | `--engine` | 重启 | 核心引擎。无论如何，mcppls 自己的模块引擎都会运行；`none` 表示只提供模块相关功能。 |
 | `mcppls.engine.workers` | 字符串 | `auto` | `--engine-workers` | 重启 | clangd 同时构建的文件数（它的 `-j`），由模块预建、索引和你正在编辑的文件共用；总会留一个给你正在等的东西。`auto`：硬件线程数减一，介于二到八之间，且不超过内存 GB 数的一半。写数字则按数字。 |
+| `mcppls.engine.preambleStorage` | `auto`, `disk`, `memory` | `auto` | `--engine-preamble-storage` | 重启 | clangd 把你正在编辑的文件的 preamble 放在哪里（它的 `--pch-storage`）。`auto`：Windows 上物理内存不少于 16 GiB 时放内存——那里写进临时目录的 preamble 在写入和读出时都会被扫描；其他情况放磁盘。`memory` 的代价大约是每个打开的文件一份 preamble（带 `<windows.h>` 时几十 MB）。 |
 | `mcppls.compiler` | 字符串 | （空） | `--compiler` | 重新加载模型 | 为模块语义使用这个编译器，而不是检测到的那个：可以是绝对路径、`PATH` 上的名字，或 `kit`（强制使用内置的语义工具包）。空表示自动检测。 |
 | `mcppls.semanticKit` | `auto`, `off` | `auto` | `--semantic-kit` | 重新加载模型 | 内置的标准库工具包是否可以被使用：`auto` 在没有找到编译器时使用；`off` 从不使用（没有编译器时只剩模块相关功能）。 |
 | `mcppls.requestTimeout` | 非负整数（秒） | `60` | `--request-timeout` | 重启 | 一个引擎请求最多等待多久，超时后不经该引擎就给出答复。用户在等的请求（悬停、跳转、补全等）总共最多等 30 秒，clangd 启动或准备模块期间也算在内，之后由 mcppls 自己的引擎答复。 |

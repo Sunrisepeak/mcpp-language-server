@@ -10,6 +10,7 @@ import mcppls.base.sha256;
 import mcppls.base.text;
 import mcppls.base.uri;
 import mcppls.base.version;
+import mcppls.platform.dirs;
 import mcppls.platform.env;
 import mcppls.platform.fs;
 import mcppls.platform.process;
@@ -46,6 +47,24 @@ bool fixed_by_verified_features(std::string_view id, std::span<const std::string
         if (id == workaround) return std::ranges::find(features, feature) != features.end();
     }
     return false;
+}
+
+// 0.0.14 Windows plan B2b: the package stores mcpp and xlings install into, <store>/<package>/<version>/, each version
+// with its markers. A header there -- a toolchain's (<windows.h> of llvm-mingw), a library's -- is checked by its
+// version's markers rather than one by one (mcppls-clangd --managed-input-root). Only the stores that exist.
+std::vector<std::string> managed_package_stores() {
+    const std::string home { platform::dirs::home_directory() };
+    const auto under = [&](std::string_view variable, std::string_view fallback, std::string_view store) {
+        const auto set = platform::env::get(variable);
+        const std::string base { set && !set->empty() ? *set : base::join_path(home, fallback) };
+        return base::join_path(base, store);
+    };
+    std::vector<std::string> stores;
+    for (auto store : { under("MCPP_HOME", ".mcpp", "registry/data/xpkgs"), under("XLINGS_HOME", ".xlings", "data/xpkgs") }) {
+        if (home.empty() && !base::is_absolute_path(store)) continue;
+        if (platform::fs::is_directory(store) && std::ranges::find(stores, store) == stores.end()) stores.push_back(std::move(store));
+    }
+    return stores;
 }
 } // namespace
 
@@ -1719,6 +1738,14 @@ private:
         if (base::to_lower_ascii(options_.formatFallbackStyle) == "mcpp" && !options_.mcppFormatStyle)
             add_issue_(Issue { "format-style-unavailable", "the selected engine does not declare the mcpp formatting style", "mcppls.showLogs", "environment" });
         config.modulesSupport = modulesSupport_;   // WA-CLANGD-009
+        // 0.0.14 Windows plan. A2: lists complete in one answer; C1: preambles in memory where that is the cheaper store.
+        if (options_.completionResultLimit > 0) config.resultLimit = options_.completionResultLimit;
+        config.preambleStorage = preamble_storage(options_.preambleStorage, mcppls::os::FAMILY == mcppls::os::Family::windows, total_memory_bytes());
+        // By the features the verified engine declares (an external clangd is given none of these).
+        const auto declares = [&](std::string_view feature) { return std::ranges::find(options_.verifiedFeatures, feature) != options_.verifiedFeatures.end(); };
+        if (declares("managed-input-roots")) config.managedInputRoots = managed_package_stores();
+        if (declares("persistent-module-memos")) config.moduleMemoDirectory = base::join_path(host_->cache_directory(), "clangd-memos");
+        if (declares("retained-asts-option")) config.maxRetainedAsts = retained_asts(total_memory_bytes());
         config.extraArguments = options_.extraArguments;
         // Extra engine arguments for troubleshooting, e.g. MCPPLS_ENGINE_ARGUMENTS="-j=8 --background-index-priority=background".
         if (auto extra = platform::env::get("MCPPLS_ENGINE_ARGUMENTS")) {

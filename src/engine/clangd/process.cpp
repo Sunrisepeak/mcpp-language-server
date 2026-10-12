@@ -65,6 +65,21 @@ std::vector<std::string> clangd_arguments(const ProcessConfig& config) {
     } else if (config.ownedCachePayloadMiB && !payloadGiven) {
         arguments.push_back(std::format("--modules-builder-owned-cache-payload-mib={}", *config.ownedCachePayloadMiB));
     }
+    // The rest are given unless the person's own arguments name them.
+    const auto given = [&](std::string_view option) {
+        return std::ranges::any_of(config.extraArguments, [&](const std::string& argument) {
+            const std::string_view word { argument };
+            return word == option || word == option.substr(1) || word.starts_with(std::string { option } + "=")
+                   || word.starts_with(std::string { option.substr(1) } + "=");
+        });
+    };
+    if (config.resultLimit && !given("--limit-results")) arguments.push_back(std::format("--limit-results={}", *config.resultLimit));
+    if (!config.preambleStorage.empty() && !given("--pch-storage")) arguments.push_back("--pch-storage=" + config.preambleStorage);
+    if (!given("--managed-input-root")) {
+        for (const auto& root : config.managedInputRoots) arguments.push_back("--managed-input-root=" + root);
+    }
+    if (!config.moduleMemoDirectory.empty() && !given("--module-memo-dir")) arguments.push_back("--module-memo-dir=" + config.moduleMemoDirectory);
+    if (config.maxRetainedAsts && !given("--max-retained-asts")) arguments.push_back(std::format("--max-retained-asts={}", *config.maxRetainedAsts));
     arguments.insert(arguments.end(), config.extraArguments.begin(), config.extraArguments.end());
     return arguments;
 }

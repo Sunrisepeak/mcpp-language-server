@@ -233,7 +233,15 @@ std::size_t engine_workers(std::size_t hardwareThreads, std::optional<std::uint6
 // is waiting on. `waitingOnPreparation`: a file someone waits for needs modules that are not ready -- then preparation
 // is what they are waiting for and takes every worker but that one; otherwise it takes half of them.
 std::size_t preparation_limit(std::size_t workers, bool waitingOnPreparation);
-// The machine's memory in bytes, where it can be read cheaply (Linux /proc/meminfo); nullopt elsewhere.
+// The machine's memory in bytes, where it can be read cheaply (Linux, Windows); nullopt elsewhere.
 std::optional<std::uint64_t> total_memory_bytes();
+// 0.0.14 Windows plan C1, C2: the memory from which preambles are kept in memory and more ASTs are retained.
+inline constexpr std::uint64_t PREAMBLES_IN_MEMORY_FROM { std::uint64_t { 16 } << 30 };
+// clangd's --pch-storage for mcppls.engine.preambleStorage: "memory" or "disk" as asked; for "auto", memory on
+// Windows with PREAMBLES_IN_MEMORY_FROM or more -- a preamble written to the temporary directory there is scanned on
+// write and on read -- and clangd's own (empty) elsewhere.
+std::string preamble_storage(std::string_view setting, bool windows, std::optional<std::uint64_t> memoryBytes);
+// mcppls-clangd's --max-retained-asts (retained-asts-option): 6 with PREAMBLES_IN_MEMORY_FROM or more, else clangd's own.
+std::optional<std::size_t> retained_asts(std::optional<std::uint64_t> memoryBytes);
 
 } // namespace mcppls::engine::clangd

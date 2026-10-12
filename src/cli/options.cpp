@@ -56,6 +56,7 @@ orchestrator::EngineFactories engine_factories(const orchestrator::SessionOption
             else base::log::warning("mcppls.engine.workers is '{}', neither auto nor a number; using auto", options.engineWorkers);
         }
         clangd.disabledWorkarounds = options.disabledWorkarounds;
+        clangd.preambleStorage = options.preambleStorage;
         clangd.primeImplementationUnits = options.primeImplementationUnits != "off";
         return engine::clangd::make_engine(std::move(clangd));
     };
@@ -98,6 +99,7 @@ orchestrator::SessionOptions session_options(const cmdline::ParsedArgs& args) {
     options.requestTimeout = std::chrono::duration_cast<std::chrono::milliseconds>(settings.seconds_value("requestTimeout"));
     options.formatFallbackStyle = settings.string_value("format.fallbackStyle");
     options.engineWorkers = settings.string_value("engine.workers");
+    options.preambleStorage = settings.string_value("engine.preambleStorage");
     // This very program, for the reviews an editor asks for: named as the process started it, else found on PATH.
     if (const auto arguments = platform::env::arguments(); !arguments.empty()) {
         const std::string started { arguments.front() };

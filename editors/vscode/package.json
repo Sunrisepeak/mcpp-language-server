@@ -295,6 +295,21 @@
           "patternErrorMessage": "%config.mcppls.engine.workers.patternErrorMessage%",
           "description": "%config.mcppls.engine.workers.description%"
         },
+        "mcppls.engine.preambleStorage": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "disk",
+            "memory"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "%config.mcppls.engine.preambleStorage.enum.0%",
+            "%config.mcppls.engine.preambleStorage.enum.1%",
+            "%config.mcppls.engine.preambleStorage.enum.2%"
+          ],
+          "description": "%config.mcppls.engine.preambleStorage.description%"
+        },
         "mcppls.engine.name": {
           "type": "string",
           "enum": [

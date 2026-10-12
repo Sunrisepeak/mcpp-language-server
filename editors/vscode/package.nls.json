@@ -75,5 +75,9 @@
   "command.mcppls.applyBuildProgram.title": "Apply build.mcpp",
   "config.mcppls.buildProgram.apply.description": "When a changed mcpp build program (build.mcpp) is applied. Applying runs mcpp to describe the project again, which compiles and runs the build program. Either way a build program that does not compile leaves the project its last complete description.",
   "config.mcppls.buildProgram.apply.enum.0": "Once it is saved and left alone for two seconds, and not while the editor shows errors in it.",
-  "config.mcppls.buildProgram.apply.enum.1": "Only with the command C++ Modules: Apply build.mcpp."
+  "config.mcppls.buildProgram.apply.enum.1": "Only with the command C++ Modules: Apply build.mcpp.",
+  "config.mcppls.engine.preambleStorage.description": "Where clangd keeps the preambles of the files you edit. A change restarts the server.",
+  "config.mcppls.engine.preambleStorage.enum.0": "In memory on Windows with 16 GiB or more, where a preamble written to the temporary directory is scanned when written and when read; on disk elsewhere.",
+  "config.mcppls.engine.preambleStorage.enum.1": "On disk, in the temporary directory (clangd's default).",
+  "config.mcppls.engine.preambleStorage.enum.2": "In memory: about one preamble per open file, tens of MB with <windows.h>."
 }
