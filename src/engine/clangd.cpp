@@ -491,6 +491,7 @@ private:
         std::size_t textHash { 0 };   // of the text clangd was given
         Json diagnostics;             // what clangd last published for it, for the editor that adopts it
     };
+    static constexpr std::int64_t BACKGROUND_VERSION { 1 };   // a unit opened without the editor is at this version in clangd
     static constexpr std::size_t WARM_FILES { 5 };
     static constexpr std::chrono::seconds WARM_WAIT { 60 };      // for the database to have them
     static constexpr std::chrono::seconds WARM_UNUSED { 120 };   // closed when the editor has not opened them by then
@@ -4197,8 +4198,9 @@ private:
     }
 
     // The editor opens a file clangd has open ahead of it: it is the editor's now, with what clangd built for it. The
-    // same text keeps clangd's build and its diagnostics; another (an unsaved edit the editor restored) is sent as a
-    // change, which reuses the preamble clangd built.
+    // same text keeps clangd's build and its diagnostics, or the build still under way when clangd has the editor's
+    // version too; another text (an unsaved edit the editor restored) or version is sent as a change, which reuses the
+    // preamble clangd built.
     bool adopt_warm_(const DocumentView& document, Clock::time_point now) {
         const std::string key { base::path_key(document.path) };
         const auto found = background_.find(key);
@@ -4209,26 +4211,34 @@ private:
         spin_.sent(document.uri, text_hash_(text), now);
         note_database_read_();
         const auto ahead = std::chrono::duration_cast<std::chrono::milliseconds>(now - unit.openedAt).count();
-        if (text_hash_(text) == unit.textHash && unit.built && unit.diagnostics.is_array()) {
+        const bool sameText { text_hash_(text) == unit.textHash };
+        const auto awaitDiagnostics = [&] {
+            if (diagnosed_.contains(document.uri)) return;
+            awaitingDiagnostics_.insert(document.uri);
+            awaitingSince_[document.uri] = now;
+            schedule_stuck_check_(now + GENERAL_PATIENCE);
+        };
+        if (sameText && unit.built && unit.diagnostics.is_array()) {
             diagnosed_.insert(document.uri);
             Json diagnostics = unit.diagnostics;   // `=`: braces would make an array holding it
             rewrite_diagnostics_(document.uri, diagnostics);
             host_->publish_engine_diagnostics(ENGINE_ID, document.uri, std::move(diagnostics), document.version);
             lastDiagnosticsAt_ = now;
             log::info("{} was ready in clangd {} ms before the editor opened it ({})", document.path, ahead, host_->root_directory());
+        } else if (sameText && !unit.built && document.version == BACKGROUND_VERSION) {
+            // clangd is building this very text and version: sending it again would only start that build over.
+            awaitDiagnostics();
+            log::info("{} was opened in clangd {} ms before the editor and is still being built there; the editor takes it as it is ({})",
+                      document.path, ahead, host_->root_directory());
         } else {
             Json params { { "textDocument", Json { { "uri", document.uri }, { "version", document.version } } },
                           { "contentChanges", Json::array({ Json { { "text", text } } }) } };
             if (!send_(lsp::make_notification("textDocument/didChange", std::move(params)))) return false;
-            if (!diagnosed_.contains(document.uri)) {
-                awaitingDiagnostics_.insert(document.uri);
-                awaitingSince_[document.uri] = now;
-                schedule_stuck_check_(now + GENERAL_PATIENCE);
-            }
-            log::info("{} was opened in clangd {} ms before the editor, which has other text; clangd takes it as a change ({})",
-                      document.path, ahead, host_->root_directory());
+            awaitDiagnostics();
+            log::info("{} was opened in clangd {} ms before the editor, which has {}; clangd takes it as a change ({})", document.path,
+                      ahead, sameText ? "another version of the same text" : "other text", host_->root_directory());
         }
-        host_->record_event("warm-adopted", Json { { "file", document.path }, { "aheadMs", ahead }, { "sameText", text_hash_(text) == unit.textHash } });
+        host_->record_event("warm-adopted", Json { { "file", document.path }, { "aheadMs", ahead }, { "sameText", sameText }, { "built", unit.built } });
         return true;
     }
 
@@ -4265,7 +4275,7 @@ private:
             if (auto sanitized = sanitize_module_names(*text); sanitized.changed()) *text = std::move(sanitized.text);
         }
         const std::size_t textHash { text_hash_(*text) };   // before the text moves into the message
-        Json params { { "textDocument", Json { { "uri", uri }, { "languageId", "cpp" }, { "version", 1 }, { "text", std::move(*text) } } } };
+        Json params { { "textDocument", Json { { "uri", uri }, { "languageId", "cpp" }, { "version", BACKGROUND_VERSION }, { "text", std::move(*text) } } } };
         if (!send_(lsp::make_notification("textDocument/didOpen", std::move(params)))) return false;
         note_database_read_();
         closedBackground_.erase(key);

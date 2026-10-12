@@ -158,12 +158,15 @@ public:
         std::vector<Json> sent;
         LogHandler log;   // what the running process writes to stderr, for a test to say something as clangd
         bool diagnose { false };   // each opened file comes back with one warning, not none
+        std::set<std::string> building;   // URIs whose build goes on until finish() is called for them
+        std::function<void(const std::string&)> finish;
     };
     explicit BuildingProcess(std::shared_ptr<Shared> shared) : shared_ { std::move(shared) } {}
 
     mcppls::base::Result<void> start(const cld::ProcessConfig&, MessageHandler onMessage, ClosedHandler, LogHandler onLog) override {
         onMessage_ = std::move(onMessage);
         shared_->log = std::move(onLog);
+        shared_->finish = [this](const std::string& uri) { publish_(uri); };
         running_ = true;
         return {};
     }
@@ -177,13 +180,7 @@ public:
             onMessage_(Json { { "jsonrpc", "2.0" }, { "id", message["id"] }, { "result", Json { { "capabilities", Json::object() } } } });
         } else if (method == "textDocument/didOpen") {
             const std::string uri { message["params"]["textDocument"]["uri"].get<std::string>() };
-            Json diagnostics = Json::array();
-            if (shared_->diagnose) {
-                diagnostics.push_back(Json { { "range", Json { { "start", Json { { "line", 0 }, { "character", 0 } } }, { "end", Json { { "line", 0 }, { "character", 3 } } } } },
-                                             { "severity", 2 }, { "message", "unused variable" }, { "source", "clang" } });
-            }
-            onMessage_(Json { { "jsonrpc", "2.0" }, { "method", "textDocument/publishDiagnostics" },
-                              { "params", Json { { "uri", uri }, { "diagnostics", std::move(diagnostics) } } } });
+            if (!shared_->building.contains(uri)) publish_(uri);
         }
         return {};
     }
@@ -202,6 +199,16 @@ public:
     }
 
 private:
+    void publish_(const std::string& uri) {
+        Json diagnostics = Json::array();
+        if (shared_->diagnose) {
+            diagnostics.push_back(Json { { "range", Json { { "start", Json { { "line", 0 }, { "character", 0 } } }, { "end", Json { { "line", 0 }, { "character", 3 } } } } },
+                                         { "severity", 2 }, { "message", "unused variable" }, { "source", "clang" } });
+        }
+        onMessage_(Json { { "jsonrpc", "2.0" }, { "method", "textDocument/publishDiagnostics" },
+                          { "params", Json { { "uri", uri }, { "diagnostics", std::move(diagnostics) } } } });
+    }
+
     std::shared_ptr<Shared> shared_;
     MessageHandler onMessage_;
     bool running_ { false };
@@ -1491,15 +1498,19 @@ int main() {
         // A project with modules: one without would have clangd restarted without their support first (WA-CLANGD-009).
         const std::string mainText { "import hello.greet;\nint main() { return hello::add(1, 2); }\n" };
         const std::string otherText { "int other() { return 1; }\n" };
+        const std::string slowText { "int slow() { return 2; }\n" };
         const std::string main { join_path(root, "src/main.cpp") };
         const std::string other { join_path(root, "src/other.cpp") };
+        const std::string slow { join_path(root, "src/slow.cpp") };
         const std::string interface { join_path(root, "src/greet.cppm") };
         (void)fs::write_file(main, mainText);
         (void)fs::write_file(other, otherText);
+        (void)fs::write_file(slow, slowText);
         (void)fs::write_file(interface, "export module hello.greet;\nexport namespace hello { int add(int a, int b); }\n");
 
         auto shared = std::make_shared<BuildingProcess::Shared>();
         shared->diagnose = true;   // what is handed to the editor is a real list, rewritten as any other
+        shared->building.insert(mcppls::base::path_to_uri(slow));   // still being built when the editor opens it
         cld::Options options;
         options.executable = executable;
         options.version = "23.1.0";
@@ -1508,13 +1519,14 @@ int main() {
         auto engine = cld::make_engine(std::move(options));
         engine->start(host);
         host.pump(*engine);
-        const std::vector<std::string> recent { main, other, join_path(root, "src/gone.cpp") };
+        const std::vector<std::string> recent { main, other, slow, join_path(root, "src/gone.cpp") };
         engine->warm(recent);
 
         mcppls::normalize::EnginePlan plan;
         plan.entries.push_back(mcppls::normalize::EngineEntry { root, main, { "clang++", "-std=c++23", "-c", main }, "", "", { "hello.greet" }, {} });
         plan.entries.push_back(mcppls::normalize::EngineEntry { root, interface, { "clang++", "-std=c++23", "-c", interface }, "hello.greet", "hello.greet", {}, {} });
         plan.entries.push_back(mcppls::normalize::EngineEntry { root, other, { "clang++", "-std=c++23", "-c", other }, "", "", {}, {} });
+        plan.entries.push_back(mcppls::normalize::EngineEntry { root, slow, { "clang++", "-std=c++23", "-c", slow }, "", "", {}, {} });
         engine->apply(&plan);
         host.pump(*engine);
         engine->handle_timers();
@@ -1553,6 +1565,20 @@ int main() {
             }
         }
         expect(changed) << "the editor's text and version, as a change";
+
+        // slow.cpp is opened with the text and version clangd is still building: nothing is sent again, and what that
+        // build publishes is the editor's.
+        const eng::DocumentView slowView { mcppls::base::path_to_uri(slow), slow, "cpp", 1, slowText };
+        host.open.push_back(slowView);
+        engine->document(eng::DocumentEvent { eng::DocumentChange::opened, slowView });
+        host.pump(*engine);
+        expect(count("textDocument/didOpen", slow) == 1 && count("textDocument/didClose", slow) == 0 && count("textDocument/didChange", slow) == 0)
+            << "the build under way is not started over";
+        expect(!host.diagnostics.contains(slowView.uri)) << "nothing published before clangd finishes";
+        shared->finish(slowView.uri);
+        host.pump(*engine);
+        const Json& built { host.diagnostics[slowView.uri] };
+        expect(built.is_array() && built.size() == 1u && built[0].is_object()) << "clangd's list reaches the editor: " << built.dump();
         engine->shut_down();
         fs::remove_all(root);
     };

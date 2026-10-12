@@ -40,7 +40,7 @@
 | `clangd (<root>): I[…] Completion in <file>: <ms> ms (module input checks <ms>: <n> one by one, <n> by <n> package checks, <n> system already checked; waited <ms> for modules)` | mcppls-clangd 0.0.15：模块导入方里一次 200 ms 以上的补全，时间花在了哪里。mcpp 或 xlings 包版本里的输入按该版本的标记核对，系统头每次会话核对一次，项目文件逐个核对 |
 | `clangd (<root>): I[…] Module memos: <n> BMI verdicts and <n> scans kept from the last session …` | mcppls-clangd 0.0.15，启动时：上次会话留下了多少条可以核对而不必重做的结果（每条使用前都会再核对） |
 | `clangd (<root>): I[…] Module inputs: <n> managed package store(s) checked by their markers` | 引擎按版本核对的包仓库（mcpp 的、xlings 的）有几个 |
-| `the last files in use (<root>): <n> of them, opened in clangd ahead of the editor once it takes files` | 启动时：上次在编辑的文件会在编辑器请求之前就在 clangd 里打开；`<file> was ready in clangd <ms> ms before the editor opened it` 说明提前准备起了作用，两分钟内编辑器没打开的会再关掉 |
+| `the last files in use (<root>): <n> of them, opened in clangd ahead of the editor once it takes files` | 启动时：上次在编辑的文件会在编辑器请求之前就在 clangd 里打开；`<file> was ready in clangd <ms> ms before the editor opened it` 说明提前准备起了作用，`... is still being built there; the editor takes it as it is` 说明编辑器打开时 clangd 还在构建它、直接接着用，两分钟内编辑器没打开的会再关掉 |
 | `the cache <dir> is not on a Dev Drive: …` | 只在 Windows 上，只说一次：见 [Windows：缓存放在 Dev Drive 上](#windows缓存放在-dev-drive-上) |
 | `restarting clangd (<root>): <原因> (<cause>)` | 每次重启，以及是否计入 clangd 的重启预算 |
 | `the timers of <root> took <ms> ms, <ms> ms of them in <part>` | 是什么占住了事件循环 |

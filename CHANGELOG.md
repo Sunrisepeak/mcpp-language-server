@@ -7,14 +7,19 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
-## [0.0.14] — 2026-10-12
+## [0.0.14] — 2026-10-13
 
 The bundled engine is [mcppls-clangd 0.0.15](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.15)
-(`23.1.0-mcppls.3`): 31 patches, two of them new. This release is about Windows: opening a project again and completion
+(`23.1.0-mcppls.3`): 32 patches, three of them new. This release is about Windows: opening a project again and completion
 as you type, where every check that a module is still good is a file operation that opens the file.
 
 ### Completion as you type
 
+- **A module that includes `<windows.h>` no longer carries all of it.** A module's BMI kept every declaration of an
+  `extern "C"` block its global module fragment includes, used or not, and nearly all of `<windows.h>` -- and of a C
+  library's headers -- is in such blocks. The engine leaves the unused ones out, as it already did for a namespace's: a
+  module unit that includes `<windows.h>` builds a BMI of kilobytes instead of megabytes, and a completion in a file
+  that imports many of them reads only what they use (`::` in a file importing 25 of them: 2.2 s before, 0.3 s now).
 - **A completion list comes whole.** clangd gives up to 1000 items instead of 100, so a list whose matches fit is
   complete and the editor filters it as you type instead of asking again at every key. A client that asks at every key
   anyway is answered from the word's complete list at once. In a file whose modules include Qt, the requests while a
