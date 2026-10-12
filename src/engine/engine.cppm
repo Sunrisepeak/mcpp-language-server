@@ -200,6 +200,9 @@ public:
     virtual void document(const DocumentEvent& event) = 0;
     virtual void notify(const Json& message) = 0;   // any other client notification
     virtual void sources_changed() = 0;             // sources or build descriptions changed on disk
+    // 0.0.14 G1: the files the person last worked in, most recent first, to get ready before the editor opens them
+    // again. An engine without such work ignores it.
+    virtual void warm(std::span<const std::string> paths) { (void)paths; }
 
     virtual bool claims(const RequestView& request) const = 0;
     // Answers the client's request `message`; `reply` is called exactly once, on the event loop.

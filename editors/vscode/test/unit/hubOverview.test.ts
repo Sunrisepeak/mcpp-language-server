@@ -53,6 +53,16 @@ suite('hub overview: versions and running state (0.0.13 W7)', () => {
         assert.ok(entries[0].description?.includes('0.0.11'));
     });
 
+    test('a cache off a Dev Drive is said once, after the running state; on one, or unknown, nothing is said', () => {
+        const off: CxxModulesStatus = { ...status, about: { ...status.about!, cacheDevDrive: false } };
+        const entries = runningEntries(off);
+        assert.strictEqual(entries[entries.length - 1].icon, '$(shield)');
+        assert.strictEqual(entries[entries.length - 1].label, 'Cache is not on a Dev Drive');
+        const on: CxxModulesStatus = { ...status, about: { ...status.about!, cacheDevDrive: true } };
+        assert.ok(!runningEntries(on).some((entry) => entry.icon === '$(shield)'));
+        assert.ok(!runningEntries(status).some((entry) => entry.icon === '$(shield)'));
+    });
+
     test('an older server without `about` still shows what the status has; no status shows nothing', () => {
         const old: CxxModulesStatus = { ...status, about: undefined };
         assert.strictEqual(aboutText(old), 'mcppls · clangd 23.1.0-mcppls.1');

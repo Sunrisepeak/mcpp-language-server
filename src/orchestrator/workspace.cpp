@@ -16,6 +16,7 @@ import mcppls.platform.dirs;
 import mcppls.platform.env;
 import mcppls.platform.fs;
 import mcppls.platform.process;
+import mcppls.platform.system;
 import mcppls.platform.toolenv;
 import mcppls.platform.toolrun;
 import mcppls.platform.task;
@@ -184,6 +185,48 @@ struct Workspace::Impl final : engine::Host {
     bool kitEnabled { true };
 
     std::string cacheDirectory;
+    std::optional<bool> cacheOnDevDrive;   // Windows only (0.0.14 E1)
+    // 0.0.14 G1: the files last worked in, most recent first, kept in the cache directory: the next session has the core
+    // engine get them ready before the editor opens them again.
+    static constexpr std::size_t RECENT_FILES { 5 };
+    static constexpr std::chrono::seconds RECENT_FILES_WRITTEN { 15 };
+    std::deque<std::string> recentFiles;
+    bool recentFilesChanged { false };
+    std::optional<Clock::time_point> recentFilesWrittenAt;
+
+    void note_recent_file(const std::string& path) {
+        if (path.empty() || !base::is_within(path, root) || !project::is_cxx_source_name(path)) return;
+        if (!recentFiles.empty() && base::same_path(recentFiles.front(), path)) return;
+        std::erase_if(recentFiles, [&](const std::string& recent) { return base::same_path(recent, path); });
+        recentFiles.push_front(path);
+        while (recentFiles.size() > RECENT_FILES) recentFiles.pop_back();
+        recentFilesChanged = true;
+    }
+
+    void save_recent_files(bool now) {
+        if (!recentFilesChanged) return;
+        if (!now && recentFilesWrittenAt && Clock::now() - *recentFilesWrittenAt < RECENT_FILES_WRITTEN) return;
+        Json list = Json::array();
+        for (const auto& path : recentFiles) list.push_back(path);
+        (void)platform::fs::write_file_atomic(base::join_path(cacheDirectory, "recent-files.json"), list.dump());
+        recentFilesChanged = false;
+        recentFilesWrittenAt = Clock::now();
+    }
+
+    std::vector<std::string> read_recent_files() {
+        std::vector<std::string> paths;
+        const auto text = platform::fs::read_file(base::join_path(cacheDirectory, "recent-files.json"));
+        if (!text) return paths;
+        const Json list = Json::parse(*text, nullptr, false);
+        if (!list.is_array()) return paths;
+        for (const auto& item : list) {
+            if (!item.is_string() || paths.size() >= RECENT_FILES) continue;
+            const std::string path { item.get<std::string>() };
+            if (base::is_within(path, root) && platform::fs::is_regular_file(path)) paths.push_back(path);
+        }
+        recentFiles.assign(paths.begin(), paths.end());
+        return paths;
+    }
     // overall design 6.3: the lease on <cache>/workspaces/<key>; a second instance works in a private directory.
     std::optional<WorkspaceLease> lease;
     // ---- the cache mcppls owns (0.0.10 plan C-7, C-8, C-9, C-13.1) ----------------------
@@ -524,6 +567,13 @@ struct Workspace::Impl final : engine::Host {
         // and the database live here, and clangd answers for them under the name it was given.
         (void)platform::fs::create_directories(cacheDirectory);
         cacheDirectory = platform::fs::canonical_path(cacheDirectory);
+        // 0.0.14 E1: on Windows, a cache off a Dev Drive has every file clangd writes and reads there scanned by
+        // Microsoft Defender as it happens. Said once, in the log and the overview; nothing is changed for the person.
+        cacheOnDevDrive = platform::system::on_dev_drive(cacheDirectory);
+        if (cacheOnDevDrive == false) {
+            log::info("the cache {} is not on a Dev Drive: Microsoft Defender scans the module and preamble files clangd writes and reads "
+                      "there as it does; a Dev Drive scans them asynchronously (docs/50-troubleshooting.md, \"Windows\")", cacheDirectory);
+        }
         // usable plan W9.3: taken now, before this root is even started, so the client cannot
         // possibly have created or changed a watched file yet (see start_watch_polling below).
         watchBaseline = watched_files_snapshot(root);
@@ -2439,6 +2489,7 @@ struct Workspace::Impl final : engine::Host {
         if (kit) about["kit"] = kit->name;
         if (detectedSource == project::SourceKind::mcpp) about["mcpp"] = producerVersion;
         if (const std::string mismatch { version_mismatch() }; !mismatch.empty()) about["mismatch"] = mismatch;
+        if (cacheOnDevDrive) about["cacheDevDrive"] = *cacheOnDevDrive;
         return about;
     }
 
@@ -2944,6 +2995,7 @@ struct Workspace::Impl final : engine::Host {
     }
 
     void handle_timers() {
+        save_recent_files(false);
         // 0.0.13 W10 (#52-8): a turn of the timers that holds the loop says which part held it; one once took 15 minutes
         // and the log could say only "its timers".
         const auto timersBegan = Clock::now();
@@ -3117,6 +3169,13 @@ void Workspace::start(Json clientParams, bool clientSupportsStatus, bool usePoll
                   about.contains("extension") ? std::format(" · extension {}", about["extension"].get<std::string>()) : std::string {}, editor);
         if (about.contains("mismatch")) log::warning("version mismatch ({}): {}", root_, about["mismatch"].get<std::string>());
     }
+    // 0.0.14 G1: the files of the last session, ready before the editor opens them again.
+    if (impl_->coreEngine != nullptr) {
+        if (const auto recent = impl_->read_recent_files(); !recent.empty()) {
+            log::info("the last files in use ({}): {} of them, opened in clangd ahead of the editor once it takes files", root_, recent.size());
+            impl_->coreEngine->warm(recent);
+        }
+    }
     if (!impl_->payloadCorrupt && impl_->kitEnabled && !impl_->payload.kit.empty()) {
         if (auto kit = spec::load_kit(impl_->payload.kit)) {
             impl_->kit = std::move(*kit);
@@ -3161,6 +3220,7 @@ void Workspace::allow_status_notifications() {
 }
 
 void Workspace::shut_down() {
+    impl_->save_recent_files(true);
     if (impl_->reviewProcess) impl_->reviewProcess->kill();
     for (const auto& engine : impl_->engines) engine->shut_down();
     if (impl_->lease) impl_->lease->release();
@@ -3175,6 +3235,7 @@ void Workspace::did_open(const Json& params) {
     const Document& document = impl_->documents_.open(uri, path, item->value("languageId", std::string { "cpp" }),
                                                       item->value("version", std::int64_t { 0 }), item->value("text", std::string {}));
     if (!path.empty()) {
+        impl_->note_recent_file(path);
         impl_->index.update(path, document.text);
         impl_->note_structure_change(path);
         impl_->note_opened(path);
@@ -3194,6 +3255,7 @@ void Workspace::did_change(const Json& message, const Json& params) {
     const Document* document { impl_->documents_.find(uri) };
     if (!document->path.empty()) {
         impl_->editedAt[base::path_key(document->path)] = Clock::now();
+        impl_->note_recent_file(document->path);
         impl_->index.update(document->path, document->text);
         impl_->note_structure_change(document->path, true);
     }

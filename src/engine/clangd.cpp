@@ -486,7 +486,17 @@ private:
         bool built { false };
         std::string state;   // clangd's last fileStatus state for it
         bool priming { false };   // opened to put its definitions in clangd's index (N-7), not for a waiting request
+        // 0.0.14 G1: opened ahead of the editor, for a file the person last worked in; the editor's open adopts it.
+        bool warm { false };
+        std::size_t textHash { 0 };   // of the text clangd was given
+        Json diagnostics;             // what clangd last published for it, for the editor that adopts it
     };
+    static constexpr std::size_t WARM_FILES { 5 };
+    static constexpr std::chrono::seconds WARM_WAIT { 60 };      // for the database to have them
+    static constexpr std::chrono::seconds WARM_UNUSED { 120 };   // closed when the editor has not opened them by then
+    std::vector<std::string> warmPending_;
+    std::optional<Clock::time_point> warmPumpAt_;
+    Clock::time_point warmGiveUpAt_ {};
     std::map<std::string, BackgroundUnit, std::less<>> background_;           // path key
     std::set<std::string, std::less<>> closedBackground_;                     // path keys whose closing diagnostics are still to come
     std::map<std::string, std::optional<platform::fs::FileStamp>, std::less<>> backgroundRefused_;   // units that did not build in time, as they were
@@ -979,6 +989,7 @@ public:
             accept_traffic_if_ready_();
             open_held_files_(appliedAt);
             prepare_modules_();
+            if (accepting_) warm_now_();   // the plan may have given clangd more of them (G1)
         }
         if (unresolvedForgot || doomForgot) host_->request_replan();
     }
@@ -993,22 +1004,36 @@ public:
             note_edit_during_preparation_(document.path);
         }
         switch (event.change) {
-        case DocumentChange::opened:
+        case DocumentChange::opened: {
             touch_(document.path);
-            // clangd has it open without the editor: it is opened again as the editor's, so its diagnostics come again.
-            if (!document.path.empty()) close_background_(base::path_key(document.path));
-            if (const std::string key { document.path.empty() ? std::string {} : base::path_key(document.path) }; !key.empty()) {
-                if (const auto doom = doomedFiles_.find(key); doom != doomedFiles_.end()) {
+            // clangd has it open without the editor: it is opened again as the editor's, so its diagnostics come again --
+            // unless it was opened ahead of the editor (G1), which then adopts it below.
+            const std::string openedKey { document.path.empty() ? std::string {} : base::path_key(document.path) };
+            const bool warmUnit { !openedKey.empty() && warm_unit_(openedKey) };
+            if (!openedKey.empty() && !warmUnit) close_background_(openedKey);
+            const auto closeWarm = [&] { if (warmUnit) close_background_(openedKey); };
+            if (!openedKey.empty()) {
+                if (const auto doom = doomedFiles_.find(openedKey); doom != doomedFiles_.end()) {
+                    closeWarm();
                     // Never sent to clangd: it does not know it, so there is nothing to close there.
                     publish_doom_diagnostic_(document, doom->second);
                     break;
                 }
             }
-            if (excluded_path_(document.path) || quarantined_(document.path)) break;
+            if (excluded_path_(document.path) || quarantined_(document.path)) {
+                closeWarm();
+                break;
+            }
             // Fix plan F16: what is on disk is what clangd reads the file's imports from.
-            if (check_disk_(document.path, &document)) break;
+            if (check_disk_(document.path, &document)) {
+                closeWarm();
+                break;
+            }
             if (accepting_) {
-                open_or_hold_(document, false);
+                if (!(warmUnit && adopt_warm_(document, Clock::now()))) {
+                    closeWarm();
+                    open_or_hold_(document, false);
+                }
                 prepare_imports_of_(document);
                 queue_implementations_of_(document.path);
                 pump_implementations_(Clock::now());
@@ -1019,6 +1044,7 @@ public:
                 held_.try_emplace(base::path_key(document.path), HeldFile { Clock::now(), false });
             }
             break;
+        }
         case DocumentChange::changed:
             touch_(document.path);
             // clangd is given the whole text when it is given the file.
@@ -1414,6 +1440,10 @@ public:
         consider(restartAt_);
         consider(stuckCheckAt_);
         consider(doomRetryAt_);
+        consider(warmPumpAt_);
+        for (const auto& [key, unit] : background_) {
+            if (unit.warm) consider(unit.openedAt + WARM_UNUSED);
+        }
         if (accepting_) consider(spinSampleAt_);
         if (pendingExit_) consider(pendingExit_->at + EXIT_CONTEXT_WAIT);
         if (upSince_) consider(*upSince_ + RECOVERED_AFTER);
@@ -1459,6 +1489,7 @@ public:
         }
         if (implementationRestAt_ && *implementationRestAt_ <= now) queue_rest_of_implementations_(now);
         else if (!implementationQueue_.empty() && !primer_.busy()) pump_implementations_(now);   // preparation ended another way
+        pump_warm_(now);
         if (pendingExit_ && now >= pendingExit_->at + EXIT_CONTEXT_WAIT) settle_exit_();
         if (!closingAfterBuild_.empty()) settle_disk_builds_(now);
         if (diskRecheckAt_ && *diskRecheckAt_ <= now) recheck_disk_(now);
@@ -2377,6 +2408,7 @@ private:
         }
         prepare_modules_();
         pump_implementations_(Clock::now());
+        warm_now_();
         host_->status_changed();
     }
 
@@ -2479,11 +2511,13 @@ private:
             if (!diagnosedKey.empty() && doomedFiles_.contains(diagnosedKey)) return;
             // A unit opened without the editor: its diagnostics are nobody's.
             if (const auto unit = background_.find(diagnosedKey); unit != background_.end() && !host_->has_document(uri)) {
+                if (unit->second.warm) unit->second.diagnostics = params.value("diagnostics", Json::array());
                 if (!unit->second.built) {
                     unit->second.built = true;
                     lastBackgroundBuiltAt_ = Clock::now();
                     const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - unit->second.openedAt).count();
                     if (unit->second.priming) log::debug("{} built in clangd in {} ms for its index ({})", unit->second.path, took, host_->root_directory());
+                    else if (unit->second.warm) log::info("{} built in clangd in {} ms ahead of the editor ({})", unit->second.path, took, host_->root_directory());
                     else log::info("{} built in clangd in {} ms to find definitions ({})", unit->second.path, took, host_->root_directory());
                 }
                 // Every unit built here, for a search or for the index, is now in clangd's index (N-7).
@@ -4111,6 +4145,93 @@ private:
         return std::nullopt;
     }
 
+    // ---- files the person last worked in, ready before the editor opens them (0.0.14 G1) ----------------
+
+    void warm(std::span<const std::string> paths) override {
+        warmPending_.clear();
+        for (const auto& path : paths) {
+            if (warmPending_.size() >= WARM_FILES) break;
+            if (!path.empty() && project::is_cxx_source_name(path)) warmPending_.push_back(path);
+        }
+        if (warmPending_.empty()) return;
+        warmGiveUpAt_ = Clock::now() + WARM_WAIT;
+        warmPumpAt_ = Clock::now();
+    }
+
+    // As soon as clangd takes files, and whenever a plan may have given it more of the pending ones.
+    void warm_now_() {
+        if (warmPending_.empty()) return;
+        warmPumpAt_ = Clock::now();
+        pump_warm_(Clock::now());
+    }
+
+    // Opens the pending ones the database has, once clangd takes files; closes those the editor never opened.
+    void pump_warm_(Clock::time_point now) {
+        if (warmPumpAt_ && *warmPumpAt_ <= now) {
+            warmPumpAt_.reset();
+            if (accepting_) {
+                std::erase_if(warmPending_, [&](const std::string& path) {
+                    const std::string key { base::path_key(path) };
+                    if (host_->has_document(base::path_to_uri(path)) || background_.contains(key) || doomed_path_(path)) return true;
+                    if (!writtenArguments_.contains(key)) return false;   // not in the database (yet)
+                    if (open_in_background_(path, {}, now)) background_[key].warm = true;
+                    return true;
+                });
+            }
+            if (now >= warmGiveUpAt_) warmPending_.clear();
+            if (!warmPending_.empty()) warmPumpAt_ = now + std::chrono::seconds { 1 };
+        }
+        std::vector<std::string> unused;
+        for (const auto& [key, unit] : background_) {
+            if (unit.warm && now - unit.openedAt >= WARM_UNUSED && !host_->has_document(unit.uri)) unused.push_back(key);
+        }
+        for (const auto& key : unused) {
+            log::info("closing {} in clangd: the editor did not open it ({})", background_.at(key).path, host_->root_directory());
+            close_background_(key);
+        }
+    }
+
+    // The editor opens a file clangd has open ahead of it: it is the editor's now, with what clangd built for it. The
+    // same text keeps clangd's build and its diagnostics; another (an unsaved edit the editor restored) is sent as a
+    // change, which reuses the preamble clangd built.
+    bool adopt_warm_(const DocumentView& document, Clock::time_point now) {
+        const std::string key { base::path_key(document.path) };
+        const auto found = background_.find(key);
+        if (found == background_.end() || !found->second.warm || !accepting_) return false;
+        const BackgroundUnit unit { std::move(found->second) };
+        background_.erase(found);
+        const std::string text { engine_text_(document.uri, document.text) };
+        spin_.sent(document.uri, text_hash_(text), now);
+        note_database_read_();
+        const auto ahead = std::chrono::duration_cast<std::chrono::milliseconds>(now - unit.openedAt).count();
+        if (text_hash_(text) == unit.textHash && unit.built && unit.diagnostics.is_array()) {
+            diagnosed_.insert(document.uri);
+            Json diagnostics { unit.diagnostics };
+            rewrite_diagnostics_(document.uri, diagnostics);
+            host_->publish_engine_diagnostics(ENGINE_ID, document.uri, std::move(diagnostics), document.version);
+            lastDiagnosticsAt_ = now;
+            log::info("{} was ready in clangd {} ms before the editor opened it ({})", document.path, ahead, host_->root_directory());
+        } else {
+            Json params { { "textDocument", Json { { "uri", document.uri }, { "version", document.version } } },
+                          { "contentChanges", Json::array({ Json { { "text", text } } }) } };
+            if (!send_(lsp::make_notification("textDocument/didChange", std::move(params)))) return false;
+            if (!diagnosed_.contains(document.uri)) {
+                awaitingDiagnostics_.insert(document.uri);
+                awaitingSince_[document.uri] = now;
+                schedule_stuck_check_(now + GENERAL_PATIENCE);
+            }
+            log::info("{} was opened in clangd {} ms before the editor, which has other text; clangd takes it as a change ({})",
+                      document.path, ahead, host_->root_directory());
+        }
+        host_->record_event("warm-adopted", Json { { "file", document.path }, { "aheadMs", ahead }, { "sameText", text_hash_(text) == unit.textHash } });
+        return true;
+    }
+
+    bool warm_unit_(std::string_view key) const {
+        const auto found = background_.find(key);
+        return found != background_.end() && found->second.warm;
+    }
+
     bool open_in_background_(const std::string& path, std::string_view module, Clock::time_point now, bool priming = false) {
         const std::string key { base::path_key(path) };
         if (const auto refused = backgroundRefused_.find(key); refused != backgroundRefused_.end()) {
@@ -4138,12 +4259,15 @@ private:
         if (traits_.hangsOnTrailingDotModuleName) {
             if (auto sanitized = sanitize_module_names(*text); sanitized.changed()) *text = std::move(sanitized.text);
         }
+        const std::size_t textHash { text_hash_(*text) };   // before the text moves into the message
         Json params { { "textDocument", Json { { "uri", uri }, { "languageId", "cpp" }, { "version", 1 }, { "text", std::move(*text) } } } };
         if (!send_(lsp::make_notification("textDocument/didOpen", std::move(params)))) return false;
         note_database_read_();
         closedBackground_.erase(key);
         background_[key] = BackgroundUnit { path, uri, now, now, false, {}, priming };
+        background_[key].textHash = textHash;
         if (priming) log::debug("opening {} in clangd to index its definitions (module {}, {})", path, module, host_->root_directory());
+        else if (module.empty()) log::info("opening {} in clangd ahead of the editor: it was among the last files in use ({})", path, host_->root_directory());
         else log::info("opening {} in clangd to find definitions in module {} ({})", path, module, host_->root_directory());
         return true;
     }
