@@ -193,8 +193,7 @@
         "timeouts": 0,
         "restarts": 0,
         "filesSetAside": 0,
-        "askedAsTypedPerWord": 2.0,
-        "incompletePerWord": 0.6
+        "askedAsTypedPerWord": 2.0
       }
     },
     {
