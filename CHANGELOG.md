@@ -9,8 +9,8 @@ product version unchanged.
 
 ## [0.0.13] — 2026-10-12
 
-The bundled engine is [mcppls-clangd 0.0.13](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.13)
-(`23.1.0-mcppls.1`): 28 patches, three of them new. This release is about seeing what happens, opening a project
+The bundled engine is [mcppls-clangd 0.0.14](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.14)
+(`23.1.0-mcppls.2`): 29 patches, four of them new. This release is about seeing what happens, opening a project
 again quickly, and editing without one failure taking the rest down.
 
 ### Completion and modules
@@ -24,6 +24,10 @@ again quickly, and editing without one failure taking the rest down.
   module, `std` included; the import of the failed module says `module M did not compile: <its first error>`,
   and the error is in the default log too. The module is tried again once its source changes. With an older
   engine, its importers are answered by mcppls's own engine as before (`WA-CLANGD-014`).
+- **Typing in a module unit keeps completion fast.** clangd scanned a module unit whole on every keystroke and
+  every completion, its global module fragment's headers (`<windows.h>`, Qt) preprocessed again each time; it
+  now keeps the scan while the body is typed in. On Windows, completion in a module unit being typed into, with a
+  file importing it open, had come up to mcppls's one-second deadline.
 - **A file typed into without a pause is not taken for one clangd will not finish** (#53). clangd builds such a
   file version after version under one "parsing" status; each version is now timed on its own, and a build that
   really never ends is still found.
