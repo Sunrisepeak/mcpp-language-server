@@ -1164,7 +1164,7 @@ struct Workspace::Impl final : engine::Host {
     // timeouts and watchdogs still see the request until clangd lets go of it.
     void answer_without_core(std::uint64_t jobId) {
         Job& job = jobs.at(jobId);
-        const Json clientId { job.clientId };
+        const Json clientId = job.clientId;   // `=`: braces make an array holding it (CWG 2137)
         if (job.keywords.is_array() && !job.keywords.empty()) ++keywordsWithoutEngine;
         job.answeredBy = "mcppls";
         Json result;
@@ -3705,7 +3705,8 @@ Json Workspace::cache_report() const {
 SweepStart Workspace::prepare_sweep(const Json& params) {
     auto& impl = *impl_;
     SweepStart start;
-    const Json given { params.value("categories", Json::array()) };
+    // `=`: braces would make an array holding the list, and no category would ever be found in it.
+    const Json given = params.value("categories", Json::array());
     const auto wants = [&](std::string_view category, bool byDefault) {
         if (!given.is_array() || given.empty()) return byDefault;
         return std::ranges::find(given, Json(std::string { category })) != given.end();

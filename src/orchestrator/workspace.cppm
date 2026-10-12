@@ -131,7 +131,7 @@ std::map<std::string, platform::fs::FileStamp> watched_files_snapshot(std::strin
 struct SweepStart {
     bool started { false };
     bool dryRun { false };
-    Json immediate { Json::object() };
+    Json immediate = Json::object();   // `=`: braces make an array holding it
     // Valid when started; every path and limit the walks need, with no Workspace state in it.
     bool copies { true }, instances { true }, trash { true }, staleCommands { false }, budget { true };
     bool engineLive { false };             // S3 5.8: staleCommands only with no live engine

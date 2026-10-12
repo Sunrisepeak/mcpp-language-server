@@ -4206,7 +4206,7 @@ private:
         const auto ahead = std::chrono::duration_cast<std::chrono::milliseconds>(now - unit.openedAt).count();
         if (text_hash_(text) == unit.textHash && unit.built && unit.diagnostics.is_array()) {
             diagnosed_.insert(document.uri);
-            Json diagnostics { unit.diagnostics };
+            Json diagnostics = unit.diagnostics;   // `=`: braces would make an array holding it
             rewrite_diagnostics_(document.uri, diagnostics);
             host_->publish_engine_diagnostics(ENGINE_ID, document.uri, std::move(diagnostics), document.version);
             lastDiagnosticsAt_ = now;

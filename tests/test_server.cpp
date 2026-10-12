@@ -157,6 +157,7 @@ public:
         std::mutex mutex;
         std::vector<Json> sent;
         LogHandler log;   // what the running process writes to stderr, for a test to say something as clangd
+        bool diagnose { false };   // each opened file comes back with one warning, not none
     };
     explicit BuildingProcess(std::shared_ptr<Shared> shared) : shared_ { std::move(shared) } {}
 
@@ -176,8 +177,13 @@ public:
             onMessage_(Json { { "jsonrpc", "2.0" }, { "id", message["id"] }, { "result", Json { { "capabilities", Json::object() } } } });
         } else if (method == "textDocument/didOpen") {
             const std::string uri { message["params"]["textDocument"]["uri"].get<std::string>() };
+            Json diagnostics = Json::array();
+            if (shared_->diagnose) {
+                diagnostics.push_back(Json { { "range", Json { { "start", Json { { "line", 0 }, { "character", 0 } } }, { "end", Json { { "line", 0 }, { "character", 3 } } } } },
+                                             { "severity", 2 }, { "message", "unused variable" }, { "source", "clang" } });
+            }
             onMessage_(Json { { "jsonrpc", "2.0" }, { "method", "textDocument/publishDiagnostics" },
-                              { "params", Json { { "uri", uri }, { "diagnostics", Json::array() } } } });
+                              { "params", Json { { "uri", uri }, { "diagnostics", std::move(diagnostics) } } } });
         }
         return {};
     }
@@ -264,12 +270,14 @@ public:
     using RecordingHost::RecordingHost;
     std::vector<eng::DocumentView> open;
     std::vector<std::pair<std::string, std::optional<std::int64_t>>> published;   // uri, version
+    std::map<std::string, Json> diagnostics;                                       // uri -> the last list published
     std::vector<eng::DocumentView> documents() const override { return open; }
     bool has_document(std::string_view uri) const override {
         return std::ranges::any_of(open, [&](const eng::DocumentView& document) { return document.uri == uri; });
     }
-    void publish_engine_diagnostics(std::string_view, const std::string& uri, Json, std::optional<std::int64_t> version) override {
+    void publish_engine_diagnostics(std::string_view, const std::string& uri, Json list, std::optional<std::int64_t> version) override {
         published.emplace_back(uri, version);
+        diagnostics[uri] = std::move(list);
     }
 };
 
@@ -1491,6 +1499,7 @@ int main() {
         (void)fs::write_file(interface, "export module hello.greet;\nexport namespace hello { int add(int a, int b); }\n");
 
         auto shared = std::make_shared<BuildingProcess::Shared>();
+        shared->diagnose = true;   // what is handed to the editor is a real list, rewritten as any other
         cld::Options options;
         options.executable = executable;
         options.version = "23.1.0";
@@ -1525,6 +1534,9 @@ int main() {
         expect(count("textDocument/didClose", main) == 0) << "nor closed first";
         expect(std::ranges::any_of(host.published, [&](const auto& entry) { return entry.first == mainView.uri; }))
             << "the diagnostics clangd published for it reach the editor";
+        const Json& handed { host.diagnostics[mainView.uri] };
+        expect(handed.is_array() && handed.size() == 1u && handed[0].is_object() && handed[0].value("message", std::string {}) == "unused variable")
+            << "as the list clangd published: " << handed.dump();
 
         // other.cpp comes with an edit the editor restored: clangd takes it as a change of the file it has.
         const eng::DocumentView otherView { mcppls::base::path_to_uri(other), other, "cpp", 3, otherText + "// restored edit\n" };
