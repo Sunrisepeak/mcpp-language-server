@@ -203,6 +203,12 @@ struct Workspace::Impl final : engine::Host {
         recentFilesChanged = true;
     }
 
+    // A file the person closed is not among the next session's: an editor that quits closes nothing, so what it
+    // restores stays, and what was put away goes.
+    void forget_recent_file(const std::string& path) {
+        if (std::erase_if(recentFiles, [&](const std::string& recent) { return base::same_path(recent, path); }) > 0) recentFilesChanged = true;
+    }
+
     void save_recent_files(bool now) {
         if (!recentFilesChanged) return;
         if (!now && recentFilesWrittenAt && Clock::now() - *recentFilesWrittenAt < RECENT_FILES_WRITTEN) return;
@@ -3270,6 +3276,7 @@ void Workspace::did_close(const Json& message, const Json& params) {
     const Document document { *found };
     impl_->documents_.close(uri);
     if (!document.path.empty()) {
+        impl_->forget_recent_file(document.path);
         impl_->editedAt.erase(base::path_key(document.path));
         impl_->completionPace_.erase(document.path);   // the file's pace says how its engine answered while it was open
     }
