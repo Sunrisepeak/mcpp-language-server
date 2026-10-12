@@ -4170,9 +4170,14 @@ private:
         if (warmPumpAt_ && *warmPumpAt_ <= now) {
             warmPumpAt_.reset();
             if (accepting_) {
+                // By path: the editor's URI for a file may be spelled otherwise (Windows: a drive letter's case, an escaped ':').
+                std::set<std::string, std::less<>> openInEditor;
+                for (const auto& document : host_->documents()) {
+                    if (!document.path.empty()) openInEditor.insert(base::path_key(document.path));
+                }
                 std::erase_if(warmPending_, [&](const std::string& path) {
                     const std::string key { base::path_key(path) };
-                    if (host_->has_document(base::path_to_uri(path)) || background_.contains(key) || doomed_path_(path)) return true;
+                    if (openInEditor.contains(key) || background_.contains(key) || doomed_path_(path)) return true;
                     if (!writtenArguments_.contains(key)) return false;   // not in the database (yet)
                     if (open_in_background_(path, {}, now)) background_[key].warm = true;
                     return true;
@@ -4183,7 +4188,7 @@ private:
         }
         std::vector<std::string> unused;
         for (const auto& [key, unit] : background_) {
-            if (unit.warm && now - unit.openedAt >= WARM_UNUSED && !host_->has_document(unit.uri)) unused.push_back(key);
+            if (unit.warm && now - unit.openedAt >= WARM_UNUSED) unused.push_back(key);   // one the editor opened was adopted, and is no longer here
         }
         for (const auto& key : unused) {
             log::info("closing {} in clangd: the editor did not open it ({})", background_.at(key).path, host_->root_directory());
