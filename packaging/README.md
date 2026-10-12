@@ -55,7 +55,7 @@ and the kit installed by xlings.
 
 | Entry | What | Used by |
 |---|---|---|
-| `mcppls-clangd-<platform>` | the maintained engine, mcppls-clangd 0.0.14's `clangd-23.1.0-mcppls.2-<platform>.tar.gz`: clangd, its builtin headers, licenses and `engine.json` (source and binary identity), taken byte for byte | `mcppls.pack.clangd` |
+| `mcppls-clangd-<platform>` | the maintained engine, mcppls-clangd 0.0.15's `clangd-23.1.0-mcppls.3-<platform>.tar.gz`: clangd, its builtin headers, licenses and `engine.json` (source and binary identity), taken byte for byte | `mcppls.pack.clangd` |
 | `llvm-project-src` | llvm-project 23.1.0 source archive | `mcppls.pack.kit`, recipe `libcxx-source` |
 | `llvm-mingw` | llvm-mingw 20260826 (LLVM 23.1.0), UCRT, Linux x86_64 host | `mcppls.pack.kit`, recipe `llvm-mingw` |
 

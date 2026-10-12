@@ -11,7 +11,7 @@ export namespace mcppls::base {
 // the S1 profile version is spec::PROFILE_VERSION, the kit manifest version is spec::KIT_VERSION.
 inline constexpr std::string_view VERSION { "0.0.14" };
 // The clangd the payload ships (mcppls-clangd). Checked against packaging/payload.lock.json by the same command.
-inline constexpr std::string_view CLANGD_VERSION { "23.1.0-mcppls.2" };
+inline constexpr std::string_view CLANGD_VERSION { "23.1.0-mcppls.3" };
 // Maintained-engine identity stays intact in logs and caches. Its LLVM base
 // decides libc++ kit compatibility; unknown vendor suffixes remain unchanged.
 inline std::string_view llvm_base_version(std::string_view engineVersion) {
