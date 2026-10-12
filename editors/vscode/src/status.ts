@@ -67,6 +67,21 @@ export interface CxxModulesStatus {
     // 0.0.10 plan C-13.1 (S3-4-29): the cache's coarse numbers, present when the client declared
     // `status: true`; the detail lives behind `cxxModules/cache`.
     cache?: CxxCacheStatus;
+    // 0.0.13 W7 (S3-4-31): which server, engine and mcpp are running; no paths.
+    about?: CxxAbout;
+}
+
+export interface CxxAbout {
+    server: string;
+    platform: string;
+    startedAt?: string;
+    extension?: string;
+    editor?: { name: string; version: string };
+    engine?: { name: string; version?: string; build?: string; features?: number; restarts?: number };
+    kit?: string;
+    mcpp?: string;
+    // Set when the editor package started a server other than its own.
+    mismatch?: string;
 }
 
 // What the status bar shows for each state.

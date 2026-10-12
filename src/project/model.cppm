@@ -15,6 +15,7 @@ export namespace mcppls::project {
 struct ModelIssue {
     std::string code;
     std::string message;
+    std::string path {};   // the file it concerns, relative to the root, when the producer named one (build-program-failed)
 };
 
 struct SemanticProfile {
@@ -36,6 +37,7 @@ struct ProjectModel {
     std::vector<std::string> watch;           // glob patterns relative to the root
     std::vector<ModelIssue> issues;
     std::vector<ModelIssue> notices;          // informational: no feature is reduced
+    std::vector<std::string> generatedMissing;   // files a build generates that do not exist yet (0.0.13 W3(d))
     SemanticProfile profile;
     std::string producer;                     // the program that described the build, when one did
     std::string producerVersion;

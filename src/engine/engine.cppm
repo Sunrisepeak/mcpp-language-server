@@ -45,6 +45,7 @@ struct EngineTraits {
     bool readsImportsFromDisk { false };              // an import only in an unsaved buffer is "not found"; told as information
     bool scansModulesOnEveryRequest { false };        // modules support costs every request a scan; off for a project with no modules
     bool flagsNonConstViewsConst { false };           // misc-const-correctness wants a filter view const; the diagnostic is dropped
+    bool losesAllModulesOnOneFailure { false };       // an importer of a failed module gets none; it is served by mcppls's engine
     std::string kitStdlibVersion;                     // the libc++ version a semantic kit must have for it (S4-4-5); empty: any
     bool tested { false };                            // a version this server's conformance suite runs against
 };
@@ -69,6 +70,11 @@ struct EngineStatus {
     bool failed { false };   // only syntax-level features remain: a corrupt payload, repeated crashes
     std::size_t prepared { 0 };
     std::size_t toPrepare { 0 };
+    std::size_t restarts { 0 };   // engine processes started after the first (0.0.13 W7: the overview shows it)
+    // 0.0.13 W6: modules the engine built rather than reused, by why (mcppls-clangd says it; empty for another clangd):
+    // no-bmi (none for this command and prerequisites), command (built before with others), input (a file changed),
+    // invalid (a BMI that did not validate), other.
+    std::map<std::string, std::size_t, std::less<>> rebuilds;
     std::vector<Issue> issues;
     std::vector<Issue> notices;
 };

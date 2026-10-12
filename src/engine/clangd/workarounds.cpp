@@ -7,7 +7,7 @@ namespace mcppls::engine::clangd {
 
 namespace {
 
-constexpr std::array<Workaround, 13> REGISTRY { {
+constexpr std::array<Workaround, 14> REGISTRY { {
     {
         .id = TRAILING_DOT_MODULE_NAME,
         .title = "a module name ending in '.' at the end of its line spins clangd forever; clangd is given the line with ';' after the dot",
@@ -150,6 +150,17 @@ constexpr std::array<Workaround, 13> REGISTRY { {
         .removeWhen = "clangd reports an import nothing provides and keeps answering the file; retired per payload only when its verified identity includes unresolved-import-recovery. The stand-ins a module unit's importers build with (WA-CLANGD-002) stay: they keep the features of a module whose import does not resolve",
         .canary = "",
         .premise = "clangd builds a unit with an import nothing provides only once that import has a unit in the database, real or a stand-in",
+    },
+    {
+        .id = FAILED_MODULE_IMPORTERS,
+        .title = "one module that does not compile leaves clangd 23.1's importers of it with no module at all, not even std; they are answered by mcppls's own engine until the module's source changes",
+        .fixedIn = "",
+        .upstream = "unfiled (UP-30 in issue #24; issue #47)",
+        .evidence = "issue #47 (hello.test); fix plan 0.0.8 M-1, M-2; conformance fixture module-faults; mcppls-clangd ci/module_resilience_canary.py",
+        .added = "0.0.8",
+        .removeWhen = "clangd builds and uses the prerequisite modules that do compile when one does not, and diagnoses the failed import where it is; retired per payload only when its verified identity includes partial-prerequisite-modules",
+        .canary = "",
+        .premise = "an importer of a module that failed gets no prerequisite module from clangd",
     },
 } };
 

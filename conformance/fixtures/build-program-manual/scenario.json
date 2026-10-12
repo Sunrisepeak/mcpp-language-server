@@ -1,0 +1,58 @@
+{
+  "name": "build-program-manual",
+  "description": "0.0.13 W3(a): with buildProgram.apply = manual, a changed build program (build.mcpp) is applied only by the command mcppls.applyBuildProgram (C++ Modules: Apply build.mcpp); meanwhile the status says it is waiting. Simulated by mcppls-mock-mcpp.",
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}",
+    "--build-program-apply",
+    "manual"
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "mcpp",
+      "level": 3,
+      "state": "ready"
+    },
+    {
+      "id": "W1-not-applied",
+      "kind": "write-file",
+      "file": "build.mcpp",
+      "content": "import mcpp;\nint main() { mcpp::info(\"x\"); }\n",
+      "expect-reload": false,
+      "settle": 5
+    },
+    {
+      "id": "S2-held",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "notice-code": "build-program-held",
+      "timeout": 10
+    },
+    {
+      "id": "X1-apply",
+      "kind": "execute-command",
+      "command": "mcppls.applyBuildProgram"
+    },
+    {
+      "id": "R1-applied",
+      "kind": "report",
+      "timeout": 15,
+      "expect": [
+        {
+          "path": "/roots/0/toolRuns/*/purpose",
+          "equals": "producer",
+          "min-matches": 2,
+          "max-matches": 2
+        },
+        {
+          "path": "/roots/0/events/*/kind",
+          "equals": "build-program-applied",
+          "min-matches": 1
+        }
+      ]
+    }
+  ]
+}

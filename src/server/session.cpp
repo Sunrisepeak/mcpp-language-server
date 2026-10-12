@@ -273,6 +273,11 @@ private:
             reply_(id, Json { { "started", started } });
             return;
         }
+        if (method == lsp::method::WORKSPACE_EXECUTE_COMMAND && params.value("command", std::string {}) == "mcppls.applyBuildProgram") {
+            for (auto& root : roots_) root->apply_build_program();
+            reply_(id, nullptr);
+            return;
+        }
         if (method == lsp::method::WORKSPACE_EXECUTE_COMMAND && params.value("command", std::string {}) == "mcppls.reloadBuildDescription") {
             for (auto& root : roots_) root->reload_build_description();
             reply_(id, nullptr);
@@ -449,6 +454,7 @@ private:
         const auto& settings = options_.settings;
         options_.engine = settings.string_value("engine.name");
         options_.buildTool = settings.string_value("buildTool");
+        options_.buildProgramApply = settings.string_value("buildProgram.apply");
         options_.toolEnvironment = settings.string_value("toolEnvironment");
         options_.discoverCompilers = settings.bool_value("discoverCompilers");
         options_.database = settings.string_value("database");

@@ -9,6 +9,7 @@ import mcppls.base.log;
 import mcppls.platform.fs;
 import mcppls.platform.dirs;
 import mcppls.spec.database;
+import mcppls.spec.discovery;
 import mcppls.spec.kit;
 import mcppls.spec.options;
 import mcppls.toolchain.probe;
@@ -162,7 +163,16 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
             model.source = kind;
             for (const auto& problem : loaded->problems) model.issues.push_back(ModelIssue { "toolchain-not-found", problem });
             for (const auto& [code, message] : loaded->notices) model.notices.push_back(ModelIssue { code, message });
-            for (const auto& [code, message] : loaded->issues) model.issues.push_back(ModelIssue { code, message });
+            for (const auto& [code, message] : loaded->issues) {
+                if (code == spec::BUILD_PROGRAM_FAILED_ISSUE) {
+                    // mcpp.cpp puts the file it is about on the first line.
+                    const auto newline = message.find('\n');
+                    model.issues.push_back(ModelIssue { code, newline == std::string::npos ? message : message.substr(newline + 1),
+                                                        newline == std::string::npos ? std::string {} : message.substr(0, newline) });
+                    continue;
+                }
+                model.issues.push_back(ModelIssue { code, message });
+            }
         } else {
             model.issues.push_back(ModelIssue { result.error().code, result.error().message });
         }
@@ -310,6 +320,7 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
                 std::format("{} generated {} the build description names in its planning directory {} read from the project's own build output",
                             generated.relocated.size(), generated.relocated.size() == 1 ? "path" : "paths", generated.relocated.size() == 1 ? "is" : "are") });
         }
+        model.generatedMissing = generated.missing;
         if (!generated.missing.empty()) {
             std::vector<std::string> names;
             for (const auto& path : generated.missing) names.push_back(std::string { base::file_name(path) });

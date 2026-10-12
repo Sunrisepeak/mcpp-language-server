@@ -72,6 +72,8 @@ constexpr std::array<std::string_view, 10> BUILD_FILES { "mcpp.toml", "mcpp.lock
 constexpr std::array<std::string_view, 7> WATCH_POLL_SKIP_DIRECTORIES { "target", "build", "node_modules", "out",
                                                                         "_build", "cmake-build-debug", "cmake-build-release" };
 
+// A turn of a root's timers past this says which part of it took the time (0.0.13 W10).
+constexpr std::chrono::milliseconds TIMERS_SLOW { 1000 };
 // Changes to cxxModules/status that keep its state are sent at most this often (S3 4).
 constexpr std::chrono::milliseconds STATUS_COALESCE { 250 };
 // import-hang plan §6: a change from a working state to degraded goes out only once it has lasted this
@@ -217,6 +219,7 @@ struct Workspace::Impl final : engine::Host {
     std::string staleModelReason;
 
     Json clientParams;
+    std::string startedAtUtc;   // when this root started serving (about_json)
     bool conflictAdviceSent { false };    // the one-engine-per-file note goes out at most once
     std::string progressToken;           // non-empty while a $/progress is open
     std::string lastProgressMessage;
@@ -406,6 +409,34 @@ struct Workspace::Impl final : engine::Host {
     std::string firstModelOrigin;                        // where the model this session started with came from
     std::string producerPath;                            // for the fingerprint of the next save
     std::string producerVersion;
+    std::string staleCacheWhy;   // which input made the cached model stale (0.0.13 W6)
+    // 0.0.13 W6: this start's timeline, said in one line when the root is first ready and kept, with the last few starts,
+    // in the report and in <cache>/startups.json: a warm start and a cold one are compared from those lines alone.
+    struct Startup {
+        Clock::time_point began { Clock::now() };
+        std::string beganUtc;
+        std::optional<double> model, engine, firstDiagnostics, firstCompletion, ready;
+        std::string origin;
+        std::string state;   // what it settled at: ready or degraded
+        bool said { false };
+    };
+    Startup startup;
+    std::optional<Clock::time_point> healthAt;
+    std::size_t healthRequestsSeen { 0 };
+    std::string keptModelNotice;   // why a newer answer was not taken in place of this model (0.0.13 W3)
+    // 0.0.13 W3(a): a build program (build.mcpp) changed and the project is not described again yet. Describing it
+    // compiles and runs the build program, so a change is applied once it has been saved and left alone for a moment,
+    // and not while clangd says it does not compile; `buildProgramHeld` says why it waits.
+    std::string buildProgramPending;
+    std::string buildProgramHeld;
+    std::optional<Clock::time_point> buildProgramChangedAt;
+    std::optional<Clock::time_point> buildProgramCheckAt;
+    std::string modelAdoptedAtUtc;   // when the model in hand was taken, for that notice
+    struct ProducerDiagnostics {
+        std::string path;   // as the root spells it, for its URI
+        Json diagnostics;
+    };
+    std::map<std::string, ProducerDiagnostics, std::less<>> producerDiagnostics;   // path key -> mcpp's diagnostics on a build program
     std::string needsDownload;                           // the producer, run offline, cannot go on without a download
     // D-2 (plan 0.0.9): that load was offline (an online one that fails says producer-install-failed instead), so a client may
     // offer to fetch what is missing; and what the load that failed with the network allowed said, named in the status.
@@ -521,8 +552,17 @@ struct Workspace::Impl final : engine::Host {
 
     void publish_engine_diagnostics(std::string_view engineId, const std::string& uri, Json diagnostics, std::optional<std::int64_t> version) override {
         engineDiagnostics[std::string { engineId }][uri] = std::move(diagnostics);
-        if (coreEngine != nullptr && engineId == coreEngine->id()) coreDiagnosticsVersions[uri] = version.value_or(-1);
+        if (coreEngine != nullptr && engineId == coreEngine->id()) {
+            coreDiagnosticsVersions[uri] = version.value_or(-1);
+            if (!startup.firstDiagnostics) startup.firstDiagnostics = since_start_();
+        }
         publish_diagnostics(uri, true);
+        // A build program waiting on clangd's verdict gets it now.
+        if (!buildProgramPending.empty() && coreEngine != nullptr && engineId == coreEngine->id() && !buildProgramCheckAt) {
+            if (const Document* document = documents_.find(uri); document != nullptr && base::same_path(document->path, buildProgramPending)) {
+                buildProgramCheckAt = Clock::now();
+            }
+        }
     }
 
     void forget_engine_diagnostics(std::string_view engineId) override {
@@ -532,6 +572,7 @@ struct Workspace::Impl final : engine::Host {
 
     void engine_settled(std::string_view engineId, const Json& serverCapabilities) override {
         if (coreEngine != nullptr && engineId != coreEngine->id()) return;
+        if (!startup.engine) startup.engine = since_start_();
         if (coreEngine != nullptr) coreCapabilities = serverCapabilities;
         // Rebuilt from the very capabilities merge_capabilities is about to see (or already saw,
         // for the first root), so a request's core-engine tokens are always remapped by the same
@@ -790,6 +831,8 @@ struct Workspace::Impl final : engine::Host {
             if (at && (!deadline || *at < *deadline)) deadline = at;
         };
         consider(reloadAt);
+        consider(buildProgramCheckAt);
+        consider(healthAt);
         consider(replanAt);
         if (!coreWaitOver) consider(coreWaitUntil);
         consider(loadGiveUpAt);
@@ -1218,6 +1261,10 @@ struct Workspace::Impl final : engine::Host {
         if (stats.recentMs.size() > 256) stats.recentMs.pop_front();
         stats.maxMs = std::max(stats.maxMs, ms);
         if (!job.answeredBy.empty()) ++stats.answeredBy[job.answeredBy];
+        if (!startup.firstCompletion && job.method == "textDocument/completion" && outcome == "result" && coreEngine != nullptr
+            && job.answeredBy == coreEngine->id()) {
+            startup.firstCompletion = since_start_();
+        }
         if (job.engineSentAt && job.engineRepliedAt && outcome == "result") {
             const double engineMs { std::chrono::duration<double, std::milli>(*job.engineRepliedAt - *job.engineSentAt).count() };
             stats.recentEngineMs.emplace_back(engineMs, std::max(0.0, ms - engineMs));
@@ -1420,8 +1467,22 @@ struct Workspace::Impl final : engine::Host {
             adopt_model(std::make_shared<project::ProjectModel>(std::move(cached->model)), "cache-fresh");
             return;
         }
-        log::info("the cached {} model for {} is older than its inputs; the producer has three seconds before it is used anyway",
-                  project::to_string(detection.kind), root);
+        // 0.0.13 W5, W6: which input moved, and whether only its time did. A checkout or a branch switch rewrites files with
+        // the bytes they had; the model they describe is the cached one, and the cache is fresh.
+        std::string staleWhy { "an input changed (this cache predates the record of which)" };
+        if (!cached->inputs.empty()) {
+            const auto verdict = project::compare_inputs(cached->inputs, project::input_stamps(root, cached->model.watch, detection.manifest, cached->producer));
+            if (verdict.unchanged) {
+                log::info("the cached {} model for {} matches its inputs ({} rewritten with the same content); planning with it while the producer confirms it",
+                          project::to_string(detection.kind), root, verdict.touched);
+                adopt_model(std::make_shared<project::ProjectModel>(std::move(cached->model)), "cache-fresh");
+                return;
+            }
+            staleWhy = verdict.changed;
+        }
+        staleCacheWhy = staleWhy;
+        log::info("the cached {} model for {} is older than its inputs ({}); the producer has three seconds before it is used anyway",
+                  project::to_string(detection.kind), root, staleWhy);
         staleCache = std::move(cached);
         loadGiveUpAt = Clock::now() + std::chrono::seconds { 3 };
     }
@@ -1432,8 +1493,8 @@ struct Workspace::Impl final : engine::Host {
         if (staleCache) {
             auto cached = std::move(*staleCache);
             staleCache.reset();
-            staleModelReason = std::format("{} has not answered yet; the model from the last session is in use and may be stale",
-                                           project::to_string(cached.model.source));
+            staleModelReason = std::format("{} has not answered yet; the model from the last session is in use and may be stale ({})",
+                                           project::to_string(cached.model.source), staleCacheWhy);
             adopt_model(std::make_shared<project::ProjectModel>(std::move(cached.model)), "cache-stale");
             return;
         }
@@ -1557,6 +1618,7 @@ struct Workspace::Impl final : engine::Host {
         cached.producerVersion = producerVersion;
         cached.producerMs = lastProducerMs;
         cached.fingerprint = project::inputs_fingerprint(root, model->watch, detectedManifest, producerPath, producerVersion);
+        cached.inputs = project::input_stamps(root, model->watch, detectedManifest, producerPath);
         cached.savedAtMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
         if (auto saved = project::save_model(cacheDirectory, cached); !saved) {
@@ -1564,7 +1626,13 @@ struct Workspace::Impl final : engine::Host {
         }
     }
 
+    double since_start_() const { return std::chrono::duration<double>(Clock::now() - startup.began).count(); }
+
     void note_model_source(std::string origin) {
+        if (!startup.model) {
+            startup.model = since_start_();
+            startup.origin = origin;
+        }
         modelOrigin = std::move(origin);
         if (firstModelOrigin.empty()) firstModelOrigin = modelOrigin;
         staleCache.reset();   // whatever it was waiting to be used instead of, that has happened
@@ -1801,8 +1869,99 @@ struct Workspace::Impl final : engine::Host {
             update_status();
             return;
         }
+        // 0.0.13 W3: a build program (build.mcpp) that did not compile or run leaves out of the answer what it gives the
+        // targets -- their flags, the units its rules generate. A complete model in hand is kept: targets keep their Qt
+        // headers while build.mcpp is being typed, and clangd is not restarted twice per half-typed save. mcpp's errors go
+        // onto the build program either way; the next complete answer replaces the model.
+        note_build_program_failures(*loadedModel);
+        if (model && model->source == loadedModel->source && build_program_failed(*loadedModel) && !build_program_failed(*model)
+            && std::ranges::none_of(model->issues, [](const project::ModelIssue& issue) { return issue.code == "producer-partial"; })) {
+            const auto failed = std::ranges::find_if(loadedModel->issues, [](const project::ModelIssue& issue) { return issue.code == spec::BUILD_PROGRAM_FAILED_ISSUE; });
+            keptModelNotice = std::format("{} does not compile; the project keeps the description it had at {}", failed->path.empty() ? std::string { "a build program" } : failed->path,
+                                          modelAdoptedAtUtc.empty() ? std::string { "start" } : modelAdoptedAtUtc);
+            log::warning("model reload ({}): {}", root, keptModelNotice);
+            journal.add("model-kept", Json { { "reason", keptModelNotice }, { "why", std::string { spec::BUILD_PROGRAM_FAILED_ISSUE } } });
+            if (reloadAfterLoad) {
+                reloadAfterLoad = false;
+                start_model_load();
+            }
+            update_status();
+            return;
+        }
+        keptModelNotice.clear();
         staleModelReason.clear();
         adopt_model(std::move(loadedModel), "producer");
+    }
+
+    static bool build_program_failed(const project::ProjectModel& candidate) {
+        return std::ranges::any_of(candidate.issues, [](const project::ModelIssue& issue) { return issue.code == spec::BUILD_PROGRAM_FAILED_ISSUE; });
+    }
+
+    // mcpp's own words about a build program that failed, on that file: the compiler's "file:line:col: error: ..." lines
+    // where they name it, else the message at its first line. The files that had some and have none now are cleared.
+    void note_build_program_failures(const project::ProjectModel& loaded) {
+        std::map<std::string, ProducerDiagnostics, std::less<>> next;
+        for (const auto& issue : loaded.issues) {
+            if (issue.code != spec::BUILD_PROGRAM_FAILED_ISSUE || issue.path.empty()) continue;
+            const std::string file { base::is_absolute_path(issue.path) ? issue.path : base::join_path(root, issue.path) };
+            next[base::path_key(file)] = ProducerDiagnostics { file, build_program_diagnostics(file, issue.message) };
+        }
+        std::vector<std::string> touched;   // the paths whose diagnostics change, as the root spells them
+        for (const auto& [key, entry] : producerDiagnostics) {
+            if (!next.contains(key)) touched.push_back(entry.path);
+        }
+        for (const auto& [key, entry] : next) touched.push_back(entry.path);
+        producerDiagnostics = std::move(next);
+        for (const auto& path : touched) {
+            const Document* document { documents_.find_by_path(path) };
+            if (document != nullptr) {
+                publish_diagnostics(document->uri);
+                continue;
+            }
+            const auto found = producerDiagnostics.find(base::path_key(path));
+            client.notify("textDocument/publishDiagnostics",
+                          Json { { "uri", base::path_to_uri(path) }, { "diagnostics", found == producerDiagnostics.end() ? Json::array() : found->second.diagnostics } });
+        }
+    }
+
+    static Json build_program_diagnostics(std::string_view file, std::string_view message) {
+        Json diagnostics = Json::array();
+        const std::string_view name { base::file_name(file) };
+        std::string first;
+        for (const auto rawLine : base::split(message, '\n')) {
+            const std::string_view line { base::trim(rawLine) };
+            if (line.empty()) continue;
+            if (first.empty()) first = std::string { line };
+            // "<path>:<line>:<column>: error: <text>" (GCC, Clang; MSVC's "<path>(<line>): error" has no column and is left as text)
+            const std::size_t error { line.find(": error: ") };
+            const std::size_t fatal { line.find(": fatal error: ") };
+            const std::size_t at { fatal != std::string_view::npos ? fatal : error };
+            if (at == std::string_view::npos) continue;
+            const std::string_view where { line.substr(0, at) };
+            const auto parts = base::split(where, ':');
+            if (parts.size() < 3) continue;
+            const std::string_view columnText { parts[parts.size() - 1] };
+            const std::string_view lineText { parts[parts.size() - 2] };
+            std::string_view path { where.substr(0, where.size() - columnText.size() - lineText.size() - 2) };
+            int lineNumber { 0 };
+            int column { 0 };
+            if (std::from_chars(lineText.data(), lineText.data() + lineText.size(), lineNumber).ec != std::errc {}
+                || std::from_chars(columnText.data(), columnText.data() + columnText.size(), column).ec != std::errc {})
+                continue;
+            if (base::file_name(path) != name) continue;
+            const std::string text { line.substr(at + (fatal != std::string_view::npos ? 15 : 9)) };
+            const Json position { { "line", std::max(0, lineNumber - 1) }, { "character", std::max(0, column - 1) } };
+            diagnostics.push_back(Json { { "range", Json { { "start", position }, { "end", position } } }, { "severity", 1 }, { "source", "mcpp" },
+                                         { "code", std::string { spec::BUILD_PROGRAM_FAILED_ISSUE } }, { "message", text } });
+            if (diagnostics.size() >= 20) break;
+        }
+        if (diagnostics.empty()) {
+            const Json position { { "line", 0 }, { "character", 0 } };
+            diagnostics.push_back(Json { { "range", Json { { "start", position }, { "end", position } } }, { "severity", 1 }, { "source", "mcpp" },
+                                         { "code", std::string { spec::BUILD_PROGRAM_FAILED_ISSUE } },
+                                         { "message", std::format("mcpp could not build this build program: {}", first.empty() ? std::string { "no reason given" } : first) } });
+        }
+        return diagnostics;
     }
 
     // Everything that makes a model this workspace's model: the watch registration, the index, the
@@ -1848,6 +2007,7 @@ struct Workspace::Impl final : engine::Host {
         }
         note_model_source(std::move(origin));
         modelDescription = std::move(description);
+        modelAdoptedAtUtc = std::format("{:%H:%M}", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
         log::info("project model ({}): source {}, level {}, {} sets, profile {} {} {}", root, project::to_string(model->source), model->level,
                   model->database.sets.size(), model->profile.kind, model->profile.compiler, model->profile.stdlib);
         for (const auto& issue : model->issues) log::info("model issue [{}] {}", issue.code, issue.message);
@@ -2133,6 +2293,9 @@ struct Workspace::Impl final : engine::Host {
             return;
         }
         Json moduleDiagnostics = document->path.empty() ? Json::array() : index.diagnostics(document->path);
+        if (const auto produced = producerDiagnostics.find(base::path_key(document->path)); produced != producerDiagnostics.end()) {
+            for (const auto& diagnostic : produced->second.diagnostics) moduleDiagnostics.push_back(diagnostic);
+        }
         if (auto said = configuration_diagnostic(document->path)) {
             // A build program no set describes is not read at all: what it imports is not judged either.
             if (std::ranges::any_of(plan.unreadSources, [&](const std::string& file) { return base::same_path(file, document->path); })) {
@@ -2146,6 +2309,33 @@ struct Workspace::Impl final : engine::Host {
             if (entry == byUri.end() || !entry->second.is_array()) continue;
             for (const auto& diagnostic : entry->second) fromEngines.push_back(diagnostic);
         }
+        // 0.0.13 W3(d): an include of a file the build generates and has not generated yet says so, and what to do,
+        // where clangd says only that the file is not found.
+        // 0.0.13 W3(d): an include the build has not generated yet says so, and what to do, where clangd says only that the file
+        // is not found. A missing generated file is matched by its name; a missing generated directory (a rule's output
+        // directory) by any include not found in a file of the project.
+        if (model && !model->generatedMissing.empty()) {
+            for (auto& diagnostic : fromEngines) {
+                if (!diagnostic.is_object() || diagnostic.value("code", std::string {}) != "pp_file_not_found") continue;
+                const std::string message { diagnostic.value("message", std::string {}) };
+                const std::size_t open { message.find('\'') };
+                const std::size_t close { open == std::string::npos ? std::string::npos : message.find('\'', open + 1) };
+                if (close == std::string::npos) continue;
+                const std::string included { message.substr(open + 1, close - open - 1) };
+                for (const auto& missing : model->generatedMissing) {
+                    const std::string_view name { base::file_name(missing) };
+                    const bool directory { base::extension(missing).empty() };
+                    if (!directory && name != base::file_name(included)) continue;
+                    diagnostic["message"] = directory
+                        ? std::format("'{}' is not found, and the build has not generated {} yet; build the project once (C++ Modules: Build in Terminal) "
+                                      "if the build makes it", included, name)
+                        : std::format("'{}' is generated by the build and does not exist yet; build the project once (C++ Modules: Build in Terminal) "
+                                      "and this file has its semantics", included);
+                    diagnostic["code"] = "generated-file-missing";
+                    break;
+                }
+            }
+        }
         std::string label;
         if (model) label = model->profile.kind == "semantic-kit" ? model->profile.stdlib + " kit" : model->profile.compiler;
         Json merged = merge_diagnostics(fromEngines, moduleDiagnostics, label);
@@ -2157,6 +2347,46 @@ struct Workspace::Impl final : engine::Host {
         if (!force && previous == serialized) return;
         previous = std::move(serialized);
         client.notify("textDocument/publishDiagnostics", Json { { "uri", std::string { uri } }, { "diagnostics", std::move(merged) } });
+    }
+
+    // 0.0.13 W7: which mcppls, engine and mcpp are running, in one place: the status, the report and the
+    // overview read it, and the log's first lines say the same. No paths (it is copied into issues), and
+    // nothing that changes with each request, so carrying it in every status costs no extra notification.
+    std::string extension_version() const {
+        const Json* version { lsp::find_path(clientParams, { "initializationOptions", "extensionVersion" }) };
+        return version != nullptr && version->is_string() ? version->get<std::string>() : std::string {};
+    }
+
+    // An editor package that started a server other than its own (an older payload left on PATH, an
+    // MCPPLS_SERVER from another install): a report then describes a version nobody thinks is running.
+    std::string version_mismatch() const {
+        const std::string extension { extension_version() };
+        if (extension.empty() || extension == base::VERSION) return {};
+        return std::format("the editor extension is {} but the server it started is mcppls {}; reinstall the extension or remove the other server",
+                           extension, base::VERSION);
+    }
+
+    Json about_json() const {
+        Json about { { "server", std::string { base::VERSION } }, { "platform", std::string { mcppls::os::PLATFORM } }, { "startedAt", startedAtUtc } };
+        if (const std::string extension { extension_version() }; !extension.empty()) about["extension"] = extension;
+        if (const Json* info = lsp::find(clientParams, "clientInfo"); info != nullptr && info->is_object()) {
+            about["editor"] = Json { { "name", info->value("name", std::string {}) }, { "version", info->value("version", std::string {}) } };
+        }
+        if (coreEngine != nullptr) {
+            const engine::EngineStatus core { coreEngine->status() };
+            Json engineAbout { { "name", core.name }, { "version", core.version }, { "restarts", core.restarts } };
+            if (payload.engineIdentity && payload.identityProblem.empty()) {
+                engineAbout["build"] = payload.engineIdentity->version;
+                engineAbout["features"] = payload.engineIdentity->features.size();
+            }
+            about["engine"] = std::move(engineAbout);
+        } else {
+            about["engine"] = Json { { "name", "none" } };
+        }
+        if (kit) about["kit"] = kit->name;
+        if (detectedSource == project::SourceKind::mcpp) about["mcpp"] = producerVersion;
+        if (const std::string mismatch { version_mismatch() }; !mismatch.empty()) about["mismatch"] = mismatch;
+        return about;
     }
 
     Json profile_json() const {
@@ -2346,6 +2576,8 @@ struct Workspace::Impl final : engine::Host {
         // sending progress after the gate sends it to the only client that already had it.
         update_progress(state, coreEngine != nullptr ? std::optional { coreEngine->status() } : std::nullopt);
         if (state == State::ready || state == State::degraded) say_one_engine_per_file_once();
+        // A start that ends degraded is the one most worth reading: it is said too, with the state it reached.
+        if ((state == State::ready || state == State::degraded) && !startup.said) say_startup_(state);
         if (!clientSupportsStatus) return;
         Json issues = Json::array();
         auto add = [&](std::string_view code, std::string_view message, std::string_view command, std::string_view title = "Fix",
@@ -2427,6 +2659,9 @@ struct Workspace::Impl final : engine::Host {
             for (const auto& notice : model->notices) notices.push_back(Json { { "code", notice.code }, { "message", notice.message } });
         }
         if (!payload.kitNotice.empty()) notices.push_back(Json { { "code", "kit-version-mismatch" }, { "message", payload.kitNotice } });
+        if (const std::string mismatch { version_mismatch() }; !mismatch.empty()) notices.push_back(Json { { "code", "version-mismatch" }, { "message", mismatch } });
+        if (!keptModelNotice.empty()) notices.push_back(Json { { "code", std::string { spec::BUILD_PROGRAM_FAILED_ISSUE } }, { "message", keptModelNotice } });
+        if (!buildProgramHeld.empty()) notices.push_back(Json { { "code", "build-program-held" }, { "message", buildProgramHeld } });
         if (lease && lease->shared()) {
             notices.push_back(Json { { "code", "shared-workspace" },
                                      { "message", "another mcppls instance serves this workspace; this one keeps a private cache and starts cold" } });
@@ -2453,6 +2688,7 @@ struct Workspace::Impl final : engine::Host {
             { "engine", core ? Json { { "name", core->name }, { "version", core->version } } : Json { { "name", "none" }, { "version", "" } } },
             { "engines", std::move(engineList) },
             { "issues", issues },
+            { "about", about_json() },
         };
         if (!notices.empty()) params["notices"] = std::move(notices);
         if (!onlineRun.is_null()) params["onlineRun"] = onlineRun;   // D-5, S3-4-26
@@ -2480,7 +2716,201 @@ struct Workspace::Impl final : engine::Host {
 
     // ---- timers -----------------------------------------------------------------------
 
+    static std::string seconds_text_(const std::optional<double>& value) {
+        return value ? std::format("{:.1f} s", *value) : std::string { "-" };
+    }
+
+    Json startup_json_() const {
+        Json json { { "began", startup.beganUtc }, { "origin", startup.origin }, { "state", startup.state } };
+        const auto put = [&](std::string_view key, const std::optional<double>& value) {
+            if (value) json[std::string { key }] = std::round(*value * 100) / 100;
+        };
+        put("modelSeconds", startup.model);
+        put("engineSeconds", startup.engine);
+        put("firstDiagnosticsSeconds", startup.firstDiagnostics);
+        put("firstCompletionSeconds", startup.firstCompletion);
+        put("readySeconds", startup.ready);
+        if (coreEngine != nullptr) {
+            const engine::EngineStatus core { coreEngine->status() };
+            std::size_t built { 0 };
+            for (const auto& [why, count] : core.rebuilds) built += count;
+            json["modulesBuilt"] = built;
+            json["rebuilds"] = Json(core.rebuilds);
+            json["restarts"] = core.restarts;
+        }
+        return json;
+    }
+
+    void say_startup_(State state) {
+        startup.said = true;
+        startup.ready = since_start_();
+        startup.state = std::string { to_string(state) };
+        const Json json = startup_json_();
+        std::string rebuilt { "?" };
+        if (json.contains("modulesBuilt")) {
+            rebuilt = std::to_string(json["modulesBuilt"].get<std::size_t>());
+            std::string reasons;
+            for (const auto& entry : json["rebuilds"].items()) {
+                reasons += std::format("{}{} {}", reasons.empty() ? "" : ", ", entry.value().get<std::size_t>(), entry.key());
+            }
+            if (!reasons.empty()) rebuilt += std::format(" ({})", reasons);
+        }
+        log::info("startup ({}): model {} {} · engine {} · first diagnostics {} · first completion {} · modules built {} · restarts {} · {} {}", root,
+                  startup.origin.empty() ? std::string { "none" } : startup.origin, seconds_text_(startup.model), seconds_text_(startup.engine),
+                  seconds_text_(startup.firstDiagnostics), seconds_text_(startup.firstCompletion), rebuilt,
+                  json.value("restarts", std::size_t { 0 }), startup.state, seconds_text_(startup.ready));
+        journal.add("startup", json);
+        // The last five starts of this workspace, newest last.
+        const std::string path { base::join_path(cacheDirectory, "startups.json") };
+        Json history = Json::array();
+        if (auto text = platform::fs::read_file(path)) {
+            history = Json::parse(*text, nullptr, false);
+            if (!history.is_array()) history = Json::array();
+        }
+        history.push_back(json);
+        while (history.size() > 5) history.erase(history.begin());
+        (void)platform::fs::write_file_atomic(path, history.dump());
+        healthAt = Clock::now() + HEALTH_EVERY;
+    }
+
+    static constexpr std::chrono::minutes HEALTH_EVERY { 10 };
+
+    // 0.0.13 W6: one line every ten minutes of use: how requests fared and what the engine did meanwhile.
+    void say_health_() {
+        healthAt = Clock::now() + HEALTH_EVERY;
+        std::size_t requests { 0 };
+        for (const auto& [method, stats] : requestStats) requests += stats.count;
+        if (requests == healthRequestsSeen) return;   // nothing was asked: nothing to say
+        healthRequestsSeen = requests;
+        std::string methods;
+        for (const std::string_view method : { "textDocument/completion", "textDocument/hover", "textDocument/definition" }) {
+            const auto found = requestStats.find(method);
+            if (found == requestStats.end() || found->second.recentMs.empty()) continue;
+            std::vector<double> sorted { found->second.recentMs.begin(), found->second.recentMs.end() };
+            std::ranges::sort(sorted);
+            const auto at = [&](double p) { return sorted[std::min(sorted.size() - 1, static_cast<std::size_t>(p * static_cast<double>(sorted.size())))]; };
+            std::size_t byCore { 0 };
+            if (coreEngine != nullptr) {
+                if (const auto by = found->second.answeredBy.find(coreEngine->id()); by != found->second.answeredBy.end()) byCore = by->second;
+            }
+            methods += std::format("{}{} {} p50 {:.0f} ms p95 {:.0f} ms, {}% by the core engine", methods.empty() ? "" : " · ", method.substr(method.find('/') + 1),
+                                   found->second.count, at(0.5), at(0.95), found->second.count == 0 ? 0 : byCore * 100 / found->second.count);
+        }
+        std::string engineText;
+        if (coreEngine != nullptr) {
+            const engine::EngineStatus core { coreEngine->status() };
+            std::size_t built { 0 };
+            for (const auto& [why, count] : core.rebuilds) built += count;
+            engineText = std::format(" · engine {} ({} restarts, {} modules built)", core.state, core.restarts, built);
+        }
+        log::info("health ({}): {}{}", root, methods.empty() ? std::string { "no timed requests" } : methods, engineText);
+    }
+
+    static constexpr std::chrono::milliseconds BUILD_PROGRAM_QUIET { 2000 };
+    static constexpr std::chrono::seconds BUILD_PROGRAM_VERDICT_WAIT { 10 };
+
+    void note_build_program_changed(const std::string& path) {
+        const auto now = Clock::now();
+        buildProgramPending = path;
+        buildProgramChangedAt = now;
+        if (options.buildProgramApply == "manual") {
+            buildProgramCheckAt.reset();
+            buildProgramHeld = std::format("{} changed; it is applied when you ask (C++ Modules: Apply build.mcpp, mcppls.applyBuildProgram)",
+                                           base::file_name(path));
+            update_status();
+            return;
+        }
+        buildProgramCheckAt = now + BUILD_PROGRAM_QUIET;   // each change starts the quiet period again
+    }
+
+    // Whether the build program can be applied now: saved as the editor has it, and not a file clangd says does not
+    // compile. clangd reads it with its own set's arguments (mcpp 2026.10.11.1 and later); with an older mcpp, or a
+    // file not open, or no verdict within BUILD_PROGRAM_VERDICT_WAIT, mcpp decides, and a failure keeps the model (W3(b)).
+    void check_build_program() {
+        buildProgramCheckAt.reset();
+        if (buildProgramPending.empty()) return;
+        const auto now = Clock::now();
+        if (const Document* document = documents_.find_by_path(buildProgramPending)) {
+            if (auto disk = platform::fs::read_file(buildProgramPending)) {
+                std::string_view saved { *disk };
+                if (saved.starts_with("\xEF\xBB\xBF")) saved.remove_prefix(3);   // the editor's text has no BOM
+                if (saved != document->text) {
+                    // What mcpp would read is not what is being edited: wait for the next save, but not for ever -- after a
+                    // while the saved text is applied (it is what the person saved; clangd's verdict is on the edits since).
+                    if (buildProgramChangedAt && now - *buildProgramChangedAt < BUILD_PROGRAM_VERDICT_WAIT) {
+                        buildProgramCheckAt = now + BUILD_PROGRAM_QUIET;
+                        return;
+                    }
+                    apply_build_program("saved; the editor has edits since");
+                    return;
+                }
+            }
+            // Only a file clangd is given has a verdict to wait for: an older mcpp describes no build program.
+            const bool engineReads { std::ranges::any_of(plan.entries, [&](const auto& entry) { return base::same_path(entry.file, document->path); }) };
+            if (coreEngine != nullptr && engineReads) {
+                const auto version = coreDiagnosticsVersions.find(document->uri);
+                const bool current { version != coreDiagnosticsVersions.end() && version->second == document->version };
+                if (!current && buildProgramChangedAt && now - *buildProgramChangedAt < BUILD_PROGRAM_VERDICT_WAIT) {
+                    buildProgramCheckAt = now + std::chrono::milliseconds { 500 };
+                    return;
+                }
+                std::size_t errors { 0 };
+                if (current) {
+                    if (const auto byEngine = engineDiagnostics.find(std::string { coreEngine->id() }); byEngine != engineDiagnostics.end()) {
+                        if (const auto entry = byEngine->second.find(document->uri); entry != byEngine->second.end() && entry->second.is_array()) {
+                            for (const auto& diagnostic : entry->second) errors += diagnostic.value("severity", 1) == 1 ? 1 : 0;
+                        }
+                    }
+                }
+                if (errors > 0) {
+                    const std::string held { std::format("{} has {} error{} in the editor; the project is described again once it compiles",
+                                                         base::file_name(buildProgramPending), errors, errors == 1 ? "" : "s") };
+                    if (held != buildProgramHeld) {
+                        buildProgramHeld = held;
+                        log::info("not describing {} yet: {}", root, buildProgramHeld);
+                        journal.add("build-program-held", Json { { "file", buildProgramPending }, { "errors", errors } });
+                        update_status();
+                    }
+                    return;   // the next diagnostics of the file check again
+                }
+            }
+        }
+        apply_build_program("it was saved and is quiet");
+    }
+
+    void apply_build_program(std::string_view why) {
+        if (buildProgramPending.empty() && buildProgramHeld.empty()) return;
+        log::info("applying {} ({}): describing {} again", buildProgramPending.empty() ? std::string { "the build programs" } : base::file_name(buildProgramPending), why, root);
+        journal.add("build-program-applied", Json { { "file", buildProgramPending }, { "why", std::string { why } } });
+        buildProgramPending.clear();
+        buildProgramHeld.clear();
+        buildProgramCheckAt.reset();
+        for (const auto& engine : engines) engine->sources_changed();
+        start_model_load();
+        update_status();
+    }
+
     void handle_timers() {
+        // 0.0.13 W10 (#52-8): a turn of the timers that holds the loop says which part held it; one once took 15 minutes
+        // and the log could say only "its timers".
+        const auto timersBegan = Clock::now();
+        auto phaseStart = timersBegan;
+        std::string slowestPhase;
+        Clock::duration slowestTook {};
+        const auto phase = [&](std::string_view name) {
+            const auto at = Clock::now();
+            if (at - phaseStart > slowestTook) {
+                slowestTook = at - phaseStart;
+                slowestPhase = std::string { name };
+            }
+            phaseStart = at;
+        };
+        const auto sayPhases = [&] {
+            const auto took = Clock::now() - timersBegan;
+            if (took < TIMERS_SLOW) return;
+            log::warning("the timers of {} took {} ms, {} ms of them in {}", root, std::chrono::duration_cast<std::chrono::milliseconds>(took).count(),
+                         std::chrono::duration_cast<std::chrono::milliseconds>(slowestTook).count(), slowestPhase);
+        };
         for (const auto& engine : engines) {
             const auto before = Clock::now();
             engine->handle_timers();
@@ -2489,6 +2919,7 @@ struct Workspace::Impl final : engine::Host {
                 journal.add("timers-slow", Json { { "engine", std::string { engine->id() } },
                                                   { "ms", std::chrono::duration_cast<std::chrono::milliseconds>(took).count() } });
             }
+            phase(std::format("the {} engine's timers", engine->id()));
         }
         const auto now = Clock::now();
         {
@@ -2508,6 +2939,7 @@ struct Workspace::Impl final : engine::Host {
                 it = lateCompletions.erase(it);
             }
         }
+        phase("answers past their budget");
         if (leaseRenewAt && *leaseRenewAt <= now) {
             lease->renew(std::chrono::system_clock::now());
             // C-9: the tick's cheap part -- stat the few `instance.json` files and rename the dead
@@ -2518,6 +2950,7 @@ struct Workspace::Impl final : engine::Host {
             if (cache::rename_dead_instances(workspaceDirectory_, heartbeat, ownToken_, cache_grace()) > 0) start_cache_task_("tick", platform::fs::modified_now());
             leaseRenewAt = now + LEASE_RENEWAL;
         }
+        phase("the workspace lease and dead instances");
         if (reloadAt && *reloadAt <= now) {
             reloadAt.reset();
             start_model_load();
@@ -2527,7 +2960,11 @@ struct Workspace::Impl final : engine::Host {
             log::info("asking {} again, offline, whether it can describe {} now", project::to_string(detectedSource), root);
             start_model_load();
         }
+        phase("starting a model load");
         if (replanAt && *replanAt <= now) replan();
+        if (buildProgramCheckAt && *buildProgramCheckAt <= now) check_build_program();
+        if (healthAt && *healthAt <= now) say_health_();
+        phase("a replan");
         if (coreWaitUntil && !coreWaitOver && *coreWaitUntil <= now) {
             coreWaitOver = true;
             if (modelOrigin == "inferred" && model) {
@@ -2541,6 +2978,7 @@ struct Workspace::Impl final : engine::Host {
             statusFlushAt.reset();
             update_status();
         }
+        phase("the engine wait and the status");
         if (tokensRefreshAt && *tokensRefreshAt <= now) {
             tokensRefreshAt.reset();
             // A request, not a notification (LSP 3.16): its answer carries nothing, and an id the session cannot
@@ -2582,6 +3020,8 @@ struct Workspace::Impl final : engine::Host {
                 for (const auto& engine : engines) engine->apply(nullptr);
             }
         }
+        phase("the rest");
+        sayPhases();
     }
 };
 
@@ -2611,7 +3051,19 @@ void Workspace::start(Json clientParams, bool clientSupportsStatus, bool usePoll
     impl_->vscodeLike = completion::vscode_like(impl_->clientParams);
     impl_->dynamicWatch = !usePolling;
     if (usePolling) impl_->start_watch_polling();
-    log::info("mcppls {} ({}) root {}", base::VERSION, mcppls::os::FAMILY_NAME, root_);
+    impl_->startedAtUtc = std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
+    impl_->startup = Impl::Startup {};
+    impl_->startup.beganUtc = impl_->startedAtUtc;
+    log::info("mcppls {} ({}) root {}", base::VERSION, mcppls::os::PLATFORM, root_);
+    {
+        // 0.0.13 W7: the versions in the log's first lines, so a log read alone says what ran.
+        const Json about = impl_->about_json();
+        std::string editor;
+        if (about.contains("editor")) editor = std::format(" · editor {} {}", about["editor"].value("name", std::string {}), about["editor"].value("version", std::string {}));
+        log::info("versions ({}): server {}{}{}", root_, base::VERSION,
+                  about.contains("extension") ? std::format(" · extension {}", about["extension"].get<std::string>()) : std::string {}, editor);
+        if (about.contains("mismatch")) log::warning("version mismatch ({}): {}", root_, about["mismatch"].get<std::string>());
+    }
     if (!impl_->payloadCorrupt && impl_->kitEnabled && !impl_->payload.kit.empty()) {
         if (auto kit = spec::load_kit(impl_->payload.kit)) {
             impl_->kit = std::move(*kit);
@@ -2717,6 +3169,12 @@ void Workspace::did_close(const Json& message, const Json& params) {
     for (auto& [engineId, byUri] : impl_->engineDiagnostics) byUri.erase(uri);
     impl_->client.notify("textDocument/publishDiagnostics", Json { { "uri", uri }, { "diagnostics", Json::array() } });
     if (impl_->reviewDiagnostics.contains(uri)) impl_->publish_diagnostics(uri);
+    // A build program held on the editor's errors has no editor left to wait on: mcpp decides (0.0.13 W3).
+    // (In manual mode it waits for the command whatever the editor has.)
+    if (!impl_->buildProgramPending.empty() && !impl_->buildProgramHeld.empty() && impl_->options.buildProgramApply != "manual"
+        && base::same_path(document.path, impl_->buildProgramPending)) {
+        impl_->buildProgramCheckAt = Clock::now();
+    }
     impl_->update_status();
 }
 
@@ -2759,6 +3217,10 @@ void Workspace::handle_watched_files(const Json& changes) {
             reload = describedAgain = true;
             continue;
         }
+        if (producerInput && project::is_build_program_source(path) && impl_->detectedSource == project::SourceKind::mcpp) {
+            impl_->note_build_program_changed(path);   // applied once it is quiet and compiles (0.0.13 W3(a))
+            continue;
+        }
         if (!project::is_cxx_source_name(path)) {
             if (producerInput) reload = describedAgain = true;   // an input the producer named that is not a source: what it reads changed
             continue;
@@ -2788,8 +3250,16 @@ void Workspace::handle_watched_files(const Json& changes) {
     }
     if (reload) impl_->schedule_reload(!describedAgain);
     else if (replan) impl_->schedule_replan();
-    const Json message = lsp::make_notification("workspace/didChangeWatchedFiles", Json { { "changes", changes } });
-    for (const auto& engine : impl_->engines) engine->notify(message);
+    // 0.0.13 W10 (#53): clangd refuses the whole notification for one change that is not a file ("clangd only supports
+    // 'file' URI scheme for workspace files"), and the files beside it went unseen; only file: URIs go on.
+    Json forwarded = Json::array();
+    for (const auto& change : changes) {
+        if (change.is_object() && change.value("uri", std::string {}).starts_with("file:")) forwarded.push_back(change);
+    }
+    if (!forwarded.empty()) {
+        const Json message = lsp::make_notification("workspace/didChangeWatchedFiles", Json { { "changes", std::move(forwarded) } });
+        for (const auto& engine : impl_->engines) engine->notify(message);
+    }
     for (const Document* document : impl_->documents_.all()) impl_->publish_diagnostics(document->uri);
 }
 
@@ -2963,7 +3433,12 @@ Json Workspace::report() const {
                                                      { "maxMicros", impl.spaceTrigger.maxMicros }, { "totalMicros", impl.spaceTrigger.totalMicros } } },
                            { "keywordsWithoutEngine", impl.keywordsWithoutEngine }, { "wordsWithoutCore", impl.wordsWithoutCore },
                            { "late", Json { { "arrived", impl.lateCompletionsArrived }, { "served", impl.lateCompletionsServed } } } };
-    return Json { { "root", root_ }, { "key", key_ }, { "cacheDirectory", impl.cacheDirectory },
+    Json startups = Json::array();
+    if (auto text = platform::fs::read_file(base::join_path(impl.cacheDirectory, "startups.json"))) {
+        startups = Json::parse(*text, nullptr, false);
+        if (!startups.is_array()) startups = Json::array();
+    }
+    return Json { { "root", root_ }, { "key", key_ }, { "about", impl.about_json() }, { "startup", impl.startup_json_() }, { "startups", std::move(startups) }, { "cacheDirectory", impl.cacheDirectory },
                   { "trusted", impl.options.trusted }, { "state", std::string { to_string(impl.compute_state()) } }, { "project", std::move(project) },
                   { "toolEnvironment", std::move(environment) }, { "toolRuns", std::move(toolRuns) },
                   { "plan", std::move(plan) }, { "engines", std::move(engines) }, { "requests", std::move(requests) },
@@ -3337,6 +3812,16 @@ bool Workspace::describe_online() {
     return true;
 }
 
+void Workspace::apply_build_program() {
+    // Asked for: the project is described again whether or not a change is waiting.
+    if (impl_->buildProgramPending.empty() && impl_->buildProgramHeld.empty()) {
+        log::info("describing {} again (asked for)", root_);
+        impl_->start_model_load();
+        return;
+    }
+    impl_->apply_build_program("asked for");
+}
+
 void Workspace::reload_build_description() {
     // Only when something is actually waiting on it. A window regaining focus is not news, and a
     // build tool run for every focus change is exactly the implicit work this design removed.
@@ -3351,6 +3836,7 @@ void Workspace::reload_build_description() {
 
 void Workspace::reload_with_options(const SessionOptions& options, const std::string& compilerOverride, bool kitEnabled) {
     impl_->options.buildTool = options.buildTool;
+    impl_->options.buildProgramApply = options.buildProgramApply;
     impl_->options.discoverCompilers = options.discoverCompilers;
     impl_->options.database = options.database;
     impl_->options.mcpp = options.mcpp;

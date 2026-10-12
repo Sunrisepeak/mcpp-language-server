@@ -1,0 +1,82 @@
+{
+  "name": "build-program-gated",
+  "description": "0.0.13 W3(a): a build program (build.mcpp) saved four times in a row is applied once, when it has been left alone: describing the project compiles and runs it, and a save that is about to be followed by another is not worth that. Simulated by mcppls-mock-mcpp.",
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}"
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "mcpp",
+      "level": 3,
+      "state": "ready"
+    },
+    {
+      "id": "R0-one-describe",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/toolRuns/*/purpose",
+          "equals": "producer",
+          "min-matches": 1,
+          "max-matches": 1
+        }
+      ]
+    },
+    {
+      "id": "W1",
+      "kind": "write-file",
+      "file": "build.mcpp",
+      "content": "import mcpp;\nint main() { mcpp::info(\"a\"); }\n"
+    },
+    {
+      "id": "W2",
+      "kind": "write-file",
+      "file": "build.mcpp",
+      "content": "import mcpp;\nint main() { mcpp::info(\"ab\"); }\n"
+    },
+    {
+      "id": "W3",
+      "kind": "write-file",
+      "file": "build.mcpp",
+      "content": "import mcpp;\nint main() { mcpp::info(\"abc\"); }\n"
+    },
+    {
+      "id": "W4-applied-once",
+      "kind": "write-file",
+      "file": "build.mcpp",
+      "content": "import mcpp;\nint main() { mcpp::info(\"abcd\"); }\n",
+      "expect-reload": true,
+      "timeout": 30
+    },
+    {
+      "id": "S2",
+      "kind": "status",
+      "source": "mcpp",
+      "level": 3,
+      "state": "ready",
+      "timeout": 30
+    },
+    {
+      "id": "R1-two-describes",
+      "kind": "report",
+      "timeout": 10,
+      "expect": [
+        {
+          "path": "/roots/0/toolRuns/*/purpose",
+          "equals": "producer",
+          "min-matches": 2,
+          "max-matches": 2
+        },
+        {
+          "path": "/roots/0/events/*/kind",
+          "equals": "build-program-applied",
+          "min-matches": 1,
+          "max-matches": 1
+        }
+      ]
+    }
+  ]
+}

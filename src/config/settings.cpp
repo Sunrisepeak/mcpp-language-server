@@ -65,6 +65,18 @@ const std::vector<Setting>& shipped_registry() {
             .clientConfigurable = true,
         },
         Setting {
+            .key = "buildProgram.apply", .kind = Kind::enumeration, .values = { "auto", "manual" }, .defaultValue = "auto",
+            .commandLine = "--build-program-apply", .surface = Surface::server, .applies = Applies::reload, .category = "build", .since = "0.0.13",
+            .summary = "When a changed mcpp build program (`build.mcpp`) is applied, which runs mcpp to describe the project again "
+                       "(compiling and running the build program). `auto`: once it is saved and has been left alone for two seconds, "
+                       "and not while the editor shows errors in it. `manual`: only with the command C++ Modules: Apply build.mcpp. "
+                       "Either way a build program that does not compile leaves the project its last complete description.",
+            .summaryZh = "修改后的 mcpp 构建程序（`build.mcpp`）何时生效。生效意味着运行 mcpp 重新描述项目（会编译并运行构建程序）。"
+                         "`auto`：保存后两秒内没有再改动、且编辑器里它没有错误时生效。`manual`：只在执行命令 C++ Modules: Apply build.mcpp 时生效。"
+                         "无论哪种方式，构建程序编译不过时，项目都保留上一份完整的描述。",
+            .clientConfigurable = true,
+        },
+        Setting {
             .key = "producerTimeout", .kind = Kind::seconds, .defaultValue = "0", .commandLine = "--producer-timeout",
             .surface = Surface::server, .applies = Applies::reload, .category = "build", .since = "0.0.1",
             .summary = "How long a build tool may take to describe the project. `0`, the default, uses the design's own bound: offline, "

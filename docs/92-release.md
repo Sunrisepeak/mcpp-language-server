@@ -133,8 +133,9 @@ releases has already passed this repository's CI with it, and the release brings
    ```
 
    CI's `payload` jobs then assemble every payload from that run's parts instead of the lock's
-   archives, and every later job tests them. Fix what it finds in either PR, and point the file
-   at the new run, until both are green.
+   archives (`payload --clangd <part> --candidate`: a fork version other than the lock's is taken
+   for the same LLVM base, its identity still checked), and every later job tests them. Fix what it
+   finds in either PR, and point the file at the new run, until both are green.
 3. **Merge and release the engine**, then switch the lock to the released archives (their size and
    SHA-256, each checked against two downloads and the published `.sha256`) and **delete the
    candidate file** in the same commit. CI runs once more on the released bytes.

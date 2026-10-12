@@ -5,7 +5,11 @@
 // draws this.
 import { CacheDetail, sizeText } from './cacheSegment';
 import { COPY_AGENT_PROMPT_COMMAND, REVEAL_CACHE_DIRECTORY_COMMAND, SWEEP_WORKSPACE_CACHE_COMMAND } from './cacheSweep';
+import type { CxxModulesStatus } from './status';
 import { t } from './strings';
+
+/** The command an overview entry runs to copy the versions (0.0.13 W7). */
+export const COPY_ABOUT_COMMAND = 'mcppls.copyAbout';
 
 /** What accepting an entry does. `sweep` runs the sweep flow; `detail` swaps in a drill-down list. */
 export type HubBehavior = 'sweep' | 'command' | 'detail' | 'refresh';
@@ -54,10 +58,58 @@ function percentOf(detail: CacheDetail): number {
     return detail.limits.perWorkspace > 0 ? Math.round((detail.bytes / detail.limits.perWorkspace) * 100) : 0;
 }
 
-/** All entries of the hub, in display order. Engine names never appear (D17). */
-export function hubItems(detail: CacheDetail, caps: HubCapabilities, receipt?: string): HubItem[] {
+function uptimeText(startedAt: string | undefined, now: number): string | undefined {
+    const started = startedAt ? Date.parse(startedAt) : NaN;
+    if (Number.isNaN(started)) return undefined;
+    const minutes = Math.max(0, Math.round((now - started) / 60000));
+    return minutes < 60 ? t('up {0} min', minutes) : t('up {0} h {1} min', Math.floor(minutes / 60), minutes % 60);
+}
+
+/** The versions as one line of text, for an issue or a chat: no paths. */
+export function aboutText(status: CxxModulesStatus): string {
+    const about = status.about;
+    if (!about) return `mcppls · ${status.engine.name} ${status.engine.version}`;
+    const parts = [`mcppls ${about.server}`];
+    if (about.engine && about.engine.name !== 'none') {
+        parts.push(`engine ${about.engine.name} ${about.engine.version ?? ''}${about.engine.build && about.engine.build !== about.engine.version ? ` (${about.engine.build})` : ''}`.trim());
+    }
+    if (about.mcpp !== undefined) parts.push(`mcpp ${about.mcpp || t('(version unknown)')}`);
+    if (about.extension) parts.push(`extension ${about.extension}`);
+    if (about.editor) parts.push(`${about.editor.name} ${about.editor.version}`);
+    parts.push(about.platform);
+    return parts.join(' · ');
+}
+
+/**
+ * The overview's first lines (0.0.13 W7): what is running and how it is doing, so a person can
+ * confirm the version and the state without opening a log. A version mismatch comes first.
+ */
+export function runningEntries(status: CxxModulesStatus | undefined, now: number = Date.now()): HubEntry[] {
+    if (!status) return [];
+    const entries: HubEntry[] = [];
+    const about = status.about;
+    if (about?.mismatch) {
+        entries.push({ icon: '$(warning)', label: t('Version mismatch'), description: about.mismatch, behavior: 'command',
+                       action: { command: COPY_ABOUT_COMMAND, arguments: [aboutText(status)] } });
+    }
+    entries.push({ icon: '$(versions)', label: aboutText(status), description: t('click to copy'), behavior: 'command',
+                   action: { command: COPY_ABOUT_COMMAND, arguments: [aboutText(status)] } });
+    const state: string[] = [status.state];
+    if (status.progress && status.progress.total > 0) state.push(t('modules {0}/{1}', status.progress.done, status.progress.total));
+    const uptime = uptimeText(about?.startedAt, now);
+    if (uptime) state.push(uptime);
+    if (about?.engine?.restarts !== undefined) state.push(t('restarts {0}', about.engine.restarts));
+    const problems = (status.issues ?? []).length;
+    if (problems > 0) state.push(t('{0} issues', problems));
+    entries.push({ icon: '$(pulse)', label: t('Running'), description: state.join(' · '), behavior: 'command', action: { command: 'mcppls.showLogs' } });
+    return entries;
+}
+
+/** All entries of the hub, in display order. Engine names never appear (D17), except in the versions line. */
+export function hubItems(detail: CacheDetail, caps: HubCapabilities, receipt?: string, status?: CxxModulesStatus): HubItem[] {
     const items: HubItem[] = [];
     items.push({ kind: 'separator', label: t('Overview') });
+    for (const entry of runningEntries(status)) items.push({ kind: 'entry', ...entry });
     items.push({
         kind: 'entry',
         icon: '$(database)',

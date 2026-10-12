@@ -41,6 +41,7 @@ inline constexpr std::string_view CONST_CORRECTNESS_VIEWS { "WA-CLANGD-010" };
 inline constexpr std::string_view LEFT_BEHIND_MODULE_COPIES { "WA-CLANGD-011" };
 inline constexpr std::string_view MODULE_IMPORTER_COMPLETION_BUDGET { "WA-CLANGD-012" };
 inline constexpr std::string_view IMPORTER_STAND_INS { "WA-CLANGD-013" };
+inline constexpr std::string_view FAILED_MODULE_IMPORTERS { "WA-CLANGD-014" };
 
 std::span<const Workaround> workarounds();
 const Workaround* find_workaround(std::string_view id);

@@ -5,7 +5,8 @@
 // active entry; the eye button is the dry run; a drill-down has a back button and Esc still closes.
 import * as vscode from 'vscode';
 import { CacheDetail, CxxCacheStatus } from './cacheSegment';
-import { directoryItems, drillDownItems, entryLabel, hubItems, hubTitle, HubEntry, HubItem } from './cacheHub';
+import type { CxxModulesStatus } from './status';
+import { directoryItems, drillDownItems, entryLabel, hubItems, hubTitle, HubEntry, HubItem, runningEntries } from './cacheHub';
 import { parseSweepResult, rememberCacheDetail, SERVER_SWEEP_CACHE_COMMAND, sweepResultText } from './cacheSweep';
 import { t } from './strings';
 
@@ -18,6 +19,8 @@ export interface HubContext {
     client: ClientLike | undefined;
     /** The coarse numbers the last status notification carried (the fallback when the detail request fails). */
     coarse: CxxCacheStatus | undefined;
+    /** The latest status, for the overview's versions and running state (0.0.13 W7). */
+    status?: CxxModulesStatus;
 }
 
 /** One `cxxModules/cache` round trip: `{ roots: [...] }`, one report per root (S3 5.7). */
@@ -73,7 +76,7 @@ export async function openCacheHub(context: HubContext): Promise<void> {
         pick.title = hubTitle(current);
         pick.items = toPickItems(hubItems(current, {
             canSweep: context.client?.initializeResult?.capabilities?.executeCommandProvider?.commands?.includes(SERVER_SWEEP_CACHE_COMMAND) === true,
-        }, receipt));
+        }, receipt, context.status));
     };
     const drawDrillDown = (which: 'modules' | 'directories', current: CacheDetail): void => {
         drilling = which;
@@ -85,7 +88,8 @@ export async function openCacheHub(context: HubContext): Promise<void> {
     } else {
         pick.title = t('C++ Modules — cache');
         pick.buttons = [eye];
-        pick.items = [];
+        // The detail did not come (an older server, or a busy one): what is running is still shown.
+        pick.items = toPickItems(runningEntries(context.status).map((entry) => ({ kind: 'entry' as const, ...entry })));
     }
 
     async function sweep(dryRun: boolean): Promise<void> {

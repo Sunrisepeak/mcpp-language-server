@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-12 — S3: what runs, and a build program that does not compile
+
+`cxxModules/status` may carry `about` (S3-4-31): the server, the editor package, the engine (and how often it was restarted),
+the kit and the mcpp that describes the project, with no path, so a client can show and copy it. An editor package that
+started a server other than its own is said in `about.mismatch` and a `version-mismatch` notice (S3-4-32). Two notices
+concern mcpp's build programs (S3-4-33): `build-program-failed` (the root keeps its last complete description) and
+`build-program-held` (a changed `build.mcpp` waits to be applied). A new command `mcppls.applyBuildProgram` applies it at
+once. All additive: protocol version stays 1.
+
 ## 2026-10-11 — S1: the programs a build runs are a configuration of their own
 
 Section 7 describes a build that compiles programs it runs itself, on the machine doing the build — mcpp's build

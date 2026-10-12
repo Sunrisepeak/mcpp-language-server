@@ -86,10 +86,24 @@ struct ScanFailure {
 // One per clangd process; not thread-safe, like the stream it reads.
 class LogReader {
 public:
+    // clangd began building a version of a file's AST ("ASTWorker building file F version V with command"): the start of
+    // one build, which SpinWatch times (0.0.13 W4), whatever clangd's file status keeps saying meanwhile.
+    struct AstBuild {
+        std::string file;
+        std::int64_t version { 0 };
+    };
     struct Read {
         std::optional<CrashContext> crash;        // a crash context, as soon as its file is known, and again with the exception code
         std::optional<ScanFailure> scanFailure;   // a finished scan failure
+        std::optional<AstBuild> astBuild;
         bool important { false };                 // a line the log never leaves out, whatever the limiter says
+        // 0.0.13 W6: the two lines clangd echoes after every AST build's header (the directory, the command) are
+        // chatter, kept at debug; before, at info, they were most of a default log, and the limiter left out the rest.
+        bool echo { false };
+        // 0.0.13 W6: what a build cost and why it ran -- a preamble or a file's modules built, a module built or rebuilt
+        // and why, a preamble found stale -- said at info although clangd says it at its own I level: these are the
+        // lines that answer "why is it slow" from a default log.
+        bool telling { false };
     };
     Read read(std::string_view line);
     // The stream ended: a scan failure whose closing line never came.
@@ -101,7 +115,13 @@ private:
     bool inCrash_ { false };
     std::optional<ScanFailure> scan_;
     bool scanHasError_ { false };
+    int echoLines_ { 0 };   // lines still to come of the command an AST build header echoes
 };
+
+// The AST build a clangd log message announces ("ASTWorker building file F version V with command"), if it is one.
+std::optional<LogReader::AstBuild> parse_ast_build(std::string_view message);
+// Whether a clangd log message is one LogReader calls telling (W6).
+bool telling_message(std::string_view message);
 
 // The latest lines clangd wrote (fix plan F17.1), kept in memory only, and written out with an incident.
 // Thread-safe: clangd's standard error is read on a thread of its own.

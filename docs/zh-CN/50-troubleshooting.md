@@ -17,10 +17,30 @@
 | `plan` | 交给引擎的内容：条目、占位单元、被省略了什么以及原因 |
 | `engines` | clangd 的状态、重启次数、被搁置的文件，以及 `workarounds`：本服务端针对这个 clangd 版本规避的 clangd 缺陷 |
 | `requests`、`completion`、`documents` | 每种请求来了多少次、答得多快、由哪个引擎作答、最后一次是什么时候（`lastAt`）；补全有多少次用文件里的词作答；编辑了多少次、最后一次在什么时候——编辑一直在继续，而 `requests["textDocument/completion"].lastAt` 停住不动，说明是编辑器不再来要补全 |
+| `about` | 正在运行的 mcppls、编辑器扩展、引擎（及其重启次数）、kit 和 mcpp 的版本，不含任何路径；编辑器扩展启动的不是自带的 server 时有 `about.mismatch`。VS Code 在快捷命令面板“概览”的最上方显示它（点击即复制） |
+| `startup`、`startups` | 本次启动花了什么：模型及其来源、引擎、首次诊断、首次补全、按原因统计的模块构建、重启、ready；以及这个工作区最近五次启动，用来对比暖启动和冷启动 |
 | `events` | 本次会话的事件日志 |
 | `logTail` | 日志的末尾部分 |
 
 日志文件不会随编辑器关闭而消失：报告里写明路径，日志按时间戳保存在缓存目录下。
+
+### 日志里写了什么
+
+默认（`info`）级别的日志不开 `debug` 就能回答“为什么慢”“为什么这样做”。下面这些行格式固定，报告的 `events` 里有同样的事实。
+
+| 行 | 说明 |
+|---|---|
+| `versions (<root>): server … · extension … · editor …` | 正在运行什么；编辑器扩展启动了别的 server 时，随后有一条 `version mismatch` 警告 |
+| `startup (<root>): model <来源> <s> · engine <s> · first diagnostics <s> · first completion <s> · modules built <n> (<n> <原因>, …) · restarts <n> · <ready 或 degraded> <s>` | 每次启动一行，在工作区第一次稳定时写 |
+| `health (<root>): completion <n> p50 … p95 …, <n>% by the core engine · … · engine <状态> (<n> restarts, <n> modules built)` | 使用期间每十分钟一行 |
+| `the cached <kind> model for <root> is older than its inputs (<哪个输入、怎么变的>)` | 暖启动为什么不能立即使用缓存的模型；只是用原内容重写的输入（例如 checkout）不算变化 |
+| `clangd (<root>): I[…] Rebuilding module <M>: <原因>` | mcppls-clangd 0.0.13：一个模块为什么重建而不是复用——这个命令和这些前置模块下没有 BMI（以及有几份是用别的命令构建的），或者是哪个输入变了 |
+| `clangd (<root>): I[…] Prerequisites of <file>: <n> modules, <n> reused, <n> built, <n> failed, in <s> (reuse checks <s>, builds <s>, …)` | 一个文件的前置模块花了多少 |
+| `clangd (<root>): I[…] Preamble of <file> is not compatible: <原因>` | 一个文件的 preamble 为什么重建 |
+| `restarting clangd (<root>): <原因> (<cause>)` | 每次重启，以及是否计入 clangd 的重启预算 |
+| `the timers of <root> took <ms> ms, <ms> ms of them in <part>` | 是什么占住了事件循环 |
+
+clangd 每次构建文件后回显的命令降为 `debug`；clangd 自身的错误和上面这些行与它的日常输出分开限流，前者不会被后者挤掉。
 
 报告本来就是为了给别人看的：其中你的主目录写作 `~`，用户名和主机名写作 `<user>`、`<host>`，看起来像密钥的内容（token、密码、API key、邮箱）写作 `<redacted>`。工程自己的路径保留——看报告要的正是它们。
 
@@ -60,6 +80,12 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 **状态说明什么，不说明什么。** 代码里的错误（少了 `;`、import 了没有任何单元提供的模块、某个模块编译不过）以诊断的形式出现在出错的位置，也就是 Problems 列表里；状态保持 *ready*。*degraded* 表示服务端丢了本来能给你的功能，并说明丢了什么、在哪里：“clangd stopped responding on main.cpp”、“the workspace is not trusted”、“the macOS SDK was not found”。每个状态 issue 都带有 `category`（`code`、`engine`、`environment`、`project`），说明这是谁的问题；只有 `code` 以外的类别会让状态变成 *degraded*，而且要持续三秒才会显示，所以自己很快就会消失的情况不会出现在状态栏上。工作区进入 *ready* 之后，因编辑而重建模块（比如保存了一个项目里大部分模块都导入的模块）要持续 30 秒以上才会重新显示 *preparing*（0.0.8）；回到 *ready* 从不延迟。
 
 **输入 `import` 时编辑器卡死（0.0.3 及更早版本）。** clangd 23.1 遇到模块名以 `.` 结尾、而且 `.` 就在行尾的文件（`import hello.`、`export module a.`）时永远处理不完，这个文件之后的所有版本都排在它后面等待；而输入任何带点的模块名都会经过这个状态。mcppls 0.0.4 改为把这一行在点后补上 `;` 再交给 clangd，clangd 会立即报告这个错误（规避措施 `WA-CLANGD-001`）；报告里的 `engines[].details.workarounds` 会列出它。
+
+**刚打开一个 import 模块的文件，补全先只有单词，过一会儿才有名字。** 使用 mcppls-clangd 0.0.13 时，补全最多等文件的首个 preamble 600 ms、等新 import 的模块 250 ms；超时就先用已有的内容作答并标记为不完整，编辑器会在你继续输入时重新请求，模块构建完后就有导入的名字。
+
+**一个模块编译不过，import 它的文件什么都没了。** 使用 mcppls-clangd 0.0.13 时，这些文件保留其他所有模块：失败模块的 import 处写着 `module M did not compile: <第一条错误>`，文件其余部分照常。较旧的引擎下，这些文件改由 mcppls 自己的引擎应答，直到那个模块改变（`WA-CLANGD-014`）。
+
+**改 `build.mcpp` 时 clangd 重启了，或者目标代码丢了编译参数。** 修改后的 `build.mcpp` 在保存后两秒内没有再改动、且编辑器里没有错误时才生效（mcpp 重新描述项目，会编译并运行它），等待期间状态显示 `build-program-held`。如果它仍然编译不过，项目保留上一份完整的描述：状态显示 `build-program-failed`，mcpp 的错误显示在 `build.mcpp` 上，不会重启。`mcppls.buildProgram.apply = manual` 时只在执行 **C++ Modules: Apply build.mcpp** 时生效。
 
 **开着自动保存输入 import 时，这个文件有几秒钟不走 clangd。** clangd 从磁盘上的文本读取一个文件的 import，而不是从编辑器里读（0.0.4 及更早版本会就此永久卡住：`import hello.` 被自动保存后，这个文件的所有请求都得不到应答）。一次保存把 clangd 会卡住的内容写到磁盘上时——以 `.` 结尾的模块名，或者 import 了项目里（还）没有的模块——这个文件改由 mcppls 自己的引擎应答，直到再次保存；状态里以 `file-unsafe-on-disk`（类别 `code`）列出它并说明原因，状态仍是 *ready*。没有任何单元提供的模块会在保存后一秒内得到替身单元，等 clangd 读到带替身的数据库（大约六秒后），文件就交还给 clangd。随附的 mcppls-clangd（0.0.12）不会出现这两种情况：它立即处理完 `import hello.`，并报告 import 了项目里没有的模块，文件一直留在 clangd；只有模块单元自身的这种 import 会得到替身，而且要等这个单元几秒内没再被编辑（引擎声明了修复时，`WA-CLANGD-001` 和 `WA-CLANGD-013` 退役）。
 

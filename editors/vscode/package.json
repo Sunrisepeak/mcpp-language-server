@@ -2,7 +2,7 @@
   "name": "mcpp-language-server",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "publisher": "sunrisepeak",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -146,6 +146,11 @@
       {
         "command": "mcppls.restartServer",
         "title": "%command.mcppls.restartServer.title%",
+        "category": "C++ Modules"
+      },
+      {
+        "command": "mcppls.applyBuildProgram",
+        "title": "%command.mcppls.applyBuildProgram.title%",
         "category": "C++ Modules"
       },
       {
@@ -381,6 +386,19 @@
             "%config.mcppls.buildTool.enum.2%"
           ],
           "description": "%config.mcppls.buildTool.description%"
+        },
+        "mcppls.buildProgram.apply": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "manual"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "%config.mcppls.buildProgram.apply.enum.0%",
+            "%config.mcppls.buildProgram.apply.enum.1%"
+          ],
+          "description": "%config.mcppls.buildProgram.apply.description%"
         },
         "mcppls.toolEnvironment": {
           "type": "string",

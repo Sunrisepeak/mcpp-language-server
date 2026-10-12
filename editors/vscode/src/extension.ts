@@ -344,7 +344,11 @@ class ServerHost implements vscode.Disposable {
                     });
                 },
             },
-            initializationOptions: buildInitializationOptions(configuration, compiler),
+            initializationOptions: {
+                ...buildInitializationOptions(configuration, compiler),
+                // 0.0.13 W7: the server says when the editor package started a server other than its own.
+                extensionVersion: String(this.context.extension.packageJSON.version ?? ''),
+            },
             middleware: {
                 // Fix plan 2026-09-26 F9 (D4 layer 1): of the completions a typed space asks for, only
                 // the one after `import` or `export import` is sent; every other is answered here, with
@@ -677,6 +681,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
         showLogs: () => host.output().show(true),
         log: (line: string) => host.log(line),
         recentLog: () => host.recentLog(),
+        lastStatus: () => status.lastStatus(),
     };
     registerCommands(context, serverAccess);
     // The hover card's table needs the `cxxModules/cache` detail; this makes it arrive without the

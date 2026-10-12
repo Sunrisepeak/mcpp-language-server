@@ -1,35 +1,35 @@
 {
   "lock-version": 1,
   "comment": "Every upstream input of the bundled payload, and the one table of platforms. Change versions here only; CI fetches, verifies and assembles. Each sha256 was checked against two independent downloads and against the digest the release publishes beside the asset. The server version is read from mcpp.toml. A platform is named <os>-<arch> as VS Code names extension targets; the VS Code extension, the release manifest and CI's matrices list the same platforms, which `mcppls-devtools check platforms` holds them to.",
-  "clangd-version": "23.1.0-mcppls.0",
+  "clangd-version": "23.1.0-mcppls.1",
   "libcxx-version": "23.1.0",
   "entries": {
     "mcppls-clangd-linux-x64": {
-      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.12/clangd-23.1.0-mcppls.0-linux-x64.tar.gz",
-      "file": "clangd-23.1.0-mcppls.0-linux-x64.tar.gz",
-      "size": 20903483,
-      "sha256": "073e77270c281a5605ce7b4abbf13ee42b3d7174b92d4d8fc097ab845ee0f266",
+      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.13/clangd-23.1.0-mcppls.1-linux-x64.tar.gz",
+      "file": "clangd-23.1.0-mcppls.1-linux-x64.tar.gz",
+      "size": 20909988,
+      "sha256": "adef719fe31e95ec3c8972d4f1f6a95db4e49287088feea82a73f0e2789f79f4",
       "license": "Apache-2.0 WITH LLVM-exception"
     },
     "mcppls-clangd-linux-arm64": {
-      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.12/clangd-23.1.0-mcppls.0-linux-arm64.tar.gz",
-      "file": "clangd-23.1.0-mcppls.0-linux-arm64.tar.gz",
-      "size": 19857354,
-      "sha256": "1902a8268e5c538f6db800931a71d9309ad59f89cfdc93e9be7601c17a64125f",
+      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.13/clangd-23.1.0-mcppls.1-linux-arm64.tar.gz",
+      "file": "clangd-23.1.0-mcppls.1-linux-arm64.tar.gz",
+      "size": 19870339,
+      "sha256": "17e4294ba59288c78ab1197426cadf34b85005074dac96da4a55fc0b1ca1add9",
       "license": "Apache-2.0 WITH LLVM-exception"
     },
     "mcppls-clangd-darwin-arm64": {
-      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.12/clangd-23.1.0-mcppls.0-darwin-arm64.tar.gz",
-      "file": "clangd-23.1.0-mcppls.0-darwin-arm64.tar.gz",
-      "size": 19812929,
-      "sha256": "61231d843b67a6574fa51bb2f46922407c78f4d61a3400c6f9bbec3348e2454f",
+      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.13/clangd-23.1.0-mcppls.1-darwin-arm64.tar.gz",
+      "file": "clangd-23.1.0-mcppls.1-darwin-arm64.tar.gz",
+      "size": 19819132,
+      "sha256": "26c63abbde15d2fc1cdef516cf933e59feebd971ffa9ba6eb82baa997e017162",
       "license": "Apache-2.0 WITH LLVM-exception"
     },
     "mcppls-clangd-win32-x64": {
-      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.12/clangd-23.1.0-mcppls.0-win32-x64.tar.gz",
-      "file": "clangd-23.1.0-mcppls.0-win32-x64.tar.gz",
-      "size": 20193295,
-      "sha256": "da1dc94fc3525286a22920687c4d5cf8259783ee2f8b5f3c14c20cca7a948ccc",
+      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.13/clangd-23.1.0-mcppls.1-win32-x64.tar.gz",
+      "file": "clangd-23.1.0-mcppls.1-win32-x64.tar.gz",
+      "size": 20204381,
+      "sha256": "5ddf75d75c4b950cc3c0ec5368c134eb6984c1946585df9776c1207eb12888c8",
       "license": "Apache-2.0 WITH LLVM-exception"
     },
     "llvm-project-src": {

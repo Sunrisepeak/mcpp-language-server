@@ -59,6 +59,10 @@ struct DatabaseDocument {
 // The diagnostic code mcpp 2026.9.16.1 answers with when planning offline needs a download
 // (mcpp-community/mcpp#648 A1). Older mcpp has only the message text, which is matched instead.
 inline constexpr std::string_view OFFLINE_DOWNLOAD_REQUIRED { "MCPP_OFFLINE_DOWNLOAD_REQUIRED" };
+// mcpp 2026.10.8.1 and later: a build program (build.mcpp) did not compile or run while the project was described.
+inline constexpr std::string_view BUILD_PROGRAM_FAILED { "MCPP_BUILD_DATABASE_PROGRAM_FAILED" };
+// The model issue it becomes (0.0.13 W3): the workspace keeps a complete model in place of an answer that has one.
+inline constexpr std::string_view BUILD_PROGRAM_FAILED_ISSUE { "build-program-failed" };
 // The error code this server fails with when that happened: the model stays, the user gets an action.
 inline constexpr std::string_view NEEDS_DOWNLOAD { "producer-needs-download" };
 // D-2 (plan 0.0.9): the same packages with the network allowed: the install was tried and failed, so a download is not what is

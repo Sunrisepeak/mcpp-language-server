@@ -922,6 +922,48 @@ version = "1"
         fs::remove_all(root);
     };
 
+    "a cached model says which input changed, and one rewritten with its own bytes is unchanged (0.0.13 W5, W6)"_test = [] {
+        const std::string root { make_root("input-stamps") };
+        const std::string manifest { b::join_path(root, "mcpp.toml") };
+        const std::string build { b::join_path(root, "build.mcpp") };
+        const std::string text { "[package]\nname = \"x\"\n" };
+        expect(fatal(fs::write_file(manifest, text).has_value()));
+        expect(fatal(fs::write_file(build, "int main() {}\n").has_value()));
+        const std::vector<std::string> watch { "mcpp.toml", "build.mcpp", "src/**/*.cppm" };
+        const auto saved = p::input_stamps(root, watch, manifest, "");
+        expect(saved.size() == 3u) << "the manifest once, build.mcpp, and the glob as text";
+        expect(p::compare_inputs(saved, saved).unchanged);
+
+        // A checkout rewrites the file with the bytes it had: only its time moved.
+        std::this_thread::sleep_for(std::chrono::milliseconds { 20 });
+        expect(fatal(fs::write_file(manifest, text).has_value()));
+        const auto touched = p::compare_inputs(saved, p::input_stamps(root, watch, manifest, ""));
+        expect(touched.unchanged && touched.touched == 1u) << touched.changed;
+        expect(p::inputs_fingerprint(root, watch, manifest, "", "") != p::inputs_fingerprint(root, watch, manifest, "", "x"));
+
+        // An edit is named, with what changed.
+        expect(fatal(fs::write_file(build, "int main() { return 1; }\n").has_value()));
+        const auto edited = p::compare_inputs(saved, p::input_stamps(root, watch, manifest, ""));
+        expect(!edited.unchanged);
+        expect(edited.changed.find("build.mcpp changed (14 -> 25 bytes)") != std::string::npos) << edited.changed;
+
+        fs::remove_all(build);
+        const auto removed = p::compare_inputs(saved, p::input_stamps(root, watch, manifest, ""));
+        expect(removed.changed.find("build.mcpp was removed") != std::string::npos) << removed.changed;
+
+        // A cache written by an older server has no stamps; the round trip keeps them for a new one.
+        p::CachedModel cached;
+        cached.model.source = p::SourceKind::mcpp;
+        cached.inputs = saved;
+        const std::string directory { b::join_path(root, "cache") };
+        (void)fs::create_directories(directory);
+        expect(fatal(p::save_model(directory, cached).has_value()));
+        const auto read = p::load_model(directory, p::SourceKind::mcpp);
+        expect(fatal(read.has_value()));
+        expect(read->inputs == saved);
+        fs::remove_all(root);
+    };
+
     // The incident: mcppls's own project.level (S1's document-conformance number) and the README's
     // L1..L4 (which *kind* of source it is) share a range and are not the same question -- "mcpp
     // L3" and "inferred L2" both sounded like the good and bad case respectively, which is not what

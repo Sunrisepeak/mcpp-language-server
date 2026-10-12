@@ -373,6 +373,32 @@ std::optional<ErrorPart> error_part(std::string_view line) {
 
 } // namespace
 
+std::optional<LogReader::AstBuild> parse_ast_build(std::string_view message) {
+    static constexpr std::string_view HEADER { "ASTWorker building file " };
+    static constexpr std::string_view VERSION { " version " };
+    if (!message.starts_with(HEADER)) return std::nullopt;
+    const std::string_view rest { message.substr(HEADER.size()) };
+    const std::size_t at { rest.rfind(VERSION) };
+    if (at == std::string_view::npos) return std::nullopt;
+    std::string_view number { rest.substr(at + VERSION.size()) };
+    number = number.substr(0, number.find(' '));
+    std::int64_t version { 0 };
+    if (std::from_chars(number.data(), number.data() + number.size(), version).ec != std::errc {}) return std::nullopt;
+    return LogReader::AstBuild { std::string { rest.substr(0, at) }, version };
+}
+
+bool telling_message(std::string_view message) {
+    // mcppls-clangd 0.0.13 says why a module is rebuilt ("Rebuilding module M: ..."), what a file's prerequisites cost
+    // ("Prerequisites of F: ..."), why a preamble is not reused ("Preamble of F is not compatible: ...") and when
+    // completion answers before its modules ("Completion in F answer..."); the rest are clangd's own.
+    static constexpr std::array<std::string_view, 10> PREFIXES {
+        "Built prerequisite modules for file", "Building first preamble for", "Rebuilding invalidated preamble",
+        "Built preamble of size", "Built module ", "Rebuilding module ", "Prerequisites of ", "Preamble of ",
+        "Completion in ", "Failed to build",
+    };
+    return std::ranges::any_of(PREFIXES, [&](std::string_view prefix) { return message.starts_with(prefix); });
+}
+
 LogReader::Read LogReader::read(std::string_view line) {
     Read read;
     const std::string_view trimmed { base::trim(line) };
@@ -433,6 +459,14 @@ LogReader::Read LogReader::read(std::string_view line) {
     static constexpr std::string_view FAILED { " failed: " };
     if (has_severity(line)) {
         const std::string_view message { message_of(line) };
+        echoLines_ = 0;
+        if (auto build = parse_ast_build(message)) {
+            read.astBuild = std::move(build);
+            // The header's own line ends in "with command"; clangd prints the directory and the command on the two
+            // lines after it, with no severity of their own.
+            if (message.ends_with("with command") || message.ends_with("with command ")) echoLines_ = 2;
+        }
+        read.telling = telling_message(message);
         if (message.starts_with("The command line the scanning tool use is:")) {
             read.important = scan_.has_value();
             read.scanFailure = std::move(scan_);
@@ -452,6 +486,11 @@ LogReader::Read LogReader::read(std::string_view line) {
                 read.important = true;
             }
         }
+        return read;
+    }
+    if (echoLines_ > 0 && !scan_) {
+        --echoLines_;
+        read.echo = true;
         return read;
     }
     if (scan_) {
