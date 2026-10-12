@@ -2378,13 +2378,14 @@ public:
         const std::chrono::seconds duration { check.value("seconds", 120) };
         const std::chrono::milliseconds completionEvery { check.value("completion-every-ms", 1000) };
         // 0.0.14: completions asked as an editor asks them while a word is typed, besides the periodic ones. "incomplete"
-        // is VS Code: the word's first character asks, and the next ones ask again only while the last answer is marked
-        // incomplete (or has not come); "always" is a client that asks at every key whatever the list says.
+        // is VS Code: the word's first character asks; while that answer is on its way, the keys typed meanwhile wait for
+        // it (the editor filters it by them when it comes), and once it is in, the next key asks again only when it was
+        // marked incomplete. "always" is a client that asks at every key whatever the list says.
         const std::string reask { check.value("reask", std::string {}) };
         if (!reask.empty() && reask != "incomplete" && reask != "always") return { false, std::format("unknown reask '{}'", reask) };
         std::optional<std::int64_t> wordRequest;   // the last completion asked in the word being typed
         std::size_t askedAsTyped { 0 };
-        std::size_t askedWhilePending { 0 };    // the last one had not been answered yet: an editor asks again
+        std::size_t waitedForPending { 0 };     // keys typed while the word's answer was on its way
         std::size_t askedForIncomplete { 0 };   // the last one was answered incomplete
         std::size_t words { 0 };
         const auto identifier_char = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_'; };
@@ -2548,8 +2549,7 @@ public:
                         if (!ask) {
                             const auto& last { client_.asyncRequests[*wordRequest] };
                             if (!last.answered) {
-                                ask = true;
-                                ++askedWhilePending;
+                                ++waitedForPending;   // VS Code waits for it, and filters it by what was typed since
                             } else if (last.result.is_object() && last.result.value("isIncomplete", false)) {
                                 ask = true;
                                 ++askedForIncomplete;
@@ -2701,7 +2701,7 @@ public:
         enforce_max(check, "incompletePerWord",
                     words > 0 ? static_cast<double>(askedForIncomplete) / static_cast<double>(words) : 0.0, "completions asked again per word for an incomplete answer", "", failures);
         Json summary { { "seconds", typingSeconds }, { "hz", hz }, { "autosaveMs", autosaveEvery.count() }, { "autosaveIdleMs", autosaveIdle.count() }, { "completions", completions.size() },
-                       { "reask", reask }, { "askedAsTyped", askedAsTyped }, { "askedWhilePending", askedWhilePending },
+                       { "reask", reask }, { "askedAsTyped", askedAsTyped }, { "keysWhilePending", waitedForPending },
                        { "askedForIncomplete", askedForIncomplete }, { "typedWords", words }, { "fromWord", fromWord },
                        { "answered", answered.size() }, { "clientTimeouts", timeouts }, { "serverTimeouts", serverTimeouts }, { "errors", errors },
                        { "completion", latency }, { "engineShare", share ? Json(*share) : Json(nullptr) }, { "answeredBy", detail },
@@ -2719,8 +2719,8 @@ public:
                               std::format("{}{:.0f} s at {:.0f} Hz, {} completions p95 {:.2f}s max {:.2f}s{}{}, {} restart(s), {} set aside, {} doomed, {} module-failed diagnostic(s), {} stalled sample(s), {} timeout(s), diagnostics after {}",
                                           firstOpen ? std::format("first clangd answer {:.1f}s after opening; then ", *firstOpen) : std::string {},
                                           typingSeconds, hz, completions.size(), latency["p95"].get<double>(), latency["max"].get<double>(),
-                                          reask.empty() ? std::string {} : std::format(" ({} asked as {} words were typed: {} again while the last was unanswered, {} for an incomplete one; {} answered from a word's complete list)",
-                                                                                      askedAsTyped, words, askedWhilePending, askedForIncomplete, fromWord),
+                                          reask.empty() ? std::string {} : std::format(" ({} asked as {} words were typed, {} again for an incomplete answer; {} keys typed while an answer was on its way; {} answered from a word's complete list)",
+                                                                                      askedAsTyped, words, askedForIncomplete, waitedForPending, fromWord),
                                           importerBrief, restarts, setAside, doomed,
                                           moduleFailedDiagnostics, stalledSamples, allTimeouts, refresh ? std::format("{:.1f}s", *refresh) : std::string { "never" }));
     }

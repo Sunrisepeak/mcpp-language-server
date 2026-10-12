@@ -173,7 +173,7 @@
       "hz": 10,
       "completion-every-ms": 0,
       "reask": "incomplete",
-      "description": "0.0.14 A1, A2: completion asked as VS Code asks it while a word is typed in a file whose module units include Qt headers: the word's first character asks, the next ones only while the answer is incomplete. With clangd's lists complete (--limit-results), a word costs one or two requests, and each answers in time.",
+      "description": "0.0.14 A1, A2: completion asked as VS Code asks it while a word is typed in a file whose module units include Qt headers: the word's first character asks; the keys typed while that answer is on its way wait for it, and once it is in the next key asks again only when it was marked incomplete. With clangd's lists complete (--limit-results), a word costs one or two requests, and each answers in time.",
       "scripts": [
         {
           "line": 12,
@@ -191,7 +191,7 @@
         "timeouts": 0,
         "restarts": 0,
         "filesSetAside": 0,
-        "askedAsTypedPerWord": 3.0,
+        "askedAsTypedPerWord": 2.0,
         "incompletePerWord": 0.6
       }
     },
