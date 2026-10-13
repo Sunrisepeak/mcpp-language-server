@@ -383,6 +383,7 @@ struct Workspace::Impl final : engine::Host {
         std::optional<answering::Asked> asked;
         std::optional<answering::Found> found;
         bool agent { false };
+        bool withoutCore { false };   // answered by mcppls itself because the core engine did not answer in time
         // M-1 (plan 0.0.9): when the request went to the engine whose answer went out, and when that engine replied.
         // The difference is the engine's share of the request's time; the rest is mcppls's own.
         std::optional<Clock::time_point> engineSentAt;
@@ -1477,6 +1478,7 @@ struct Workspace::Impl final : engine::Host {
         const Json clientId = job.clientId;   // `=`: braces make an array holding it (CWG 2137)
         if (job.keywords.is_array() && !job.keywords.empty()) ++keywordsWithoutEngine;
         job.answeredBy = "mcppls";
+        job.withoutCore = true;
         Json result;
         bool keepCore { false };
         if (job.method == lsp::method::TEXT_DOCUMENT_COMPLETION) {
@@ -1778,20 +1780,19 @@ struct Workspace::Impl final : engine::Host {
         note_request(it->second, result.is_null() ? "empty" : "result");
         const Json id = it->second.clientId;
         const bool agent { it->second.agent };
-        const std::string answeredBy { it->second.answeredBy };
+        const bool withoutCore { it->second.withoutCore };
+        const bool layered { answer::kind_of(it->second.method).has_value() };
         jobs.erase(it);
-        if (!agent) {
+        // An agent (the MCP tools) is told where an answer came from (answer-layer design 6.2): one the answer layer
+        // could have given, and one mcppls gave itself because the core engine did not answer in time.
+        if (!agent || (!provenance && !layered && !withoutCore)) {
             client.reply(id, std::move(result));
             return;
         }
-        // An agent (the MCP tools) is told where the answer came from, whatever it was (answer-layer design 6.2).
         if (!provenance) {
-            const bool engineAnswer { coreEngine != nullptr && answeredBy == coreEngine->id() };
-            provenance = answer::Provenance { engineAnswer || answeredBy.empty() ? answer::Source::engine : answer::Source::native,
-                                              engineAnswer || answeredBy.empty() ? answer::Certainty::authoritative : answer::Certainty::uncertain, 0, false, false, {} };
-            if (provenance->certainty != answer::Certainty::authoritative) {
-                provenance->note = "The compiler did not answer in time; this comes from mcppls's own reading of the files.";
-            }
+            provenance = answer::Provenance { withoutCore ? answer::Source::native : answer::Source::engine,
+                                              withoutCore ? answer::Certainty::uncertain : answer::Certainty::authoritative, 0, false, false, {} };
+            if (withoutCore) provenance->note = "The compiler did not answer in time; this comes from mcppls's own reading of the files.";
         }
         Json message = lsp::make_result(id, std::move(result));
         message["provenance"] = answer::to_json(*provenance);

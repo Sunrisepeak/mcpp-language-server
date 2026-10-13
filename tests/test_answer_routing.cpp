@@ -373,6 +373,22 @@ int main() {
         expect(!f.sink.response(editor)->contains("provenance"));
     };
 
+    "an agent is told when mcppls answered without the compiler, and nothing for other requests"_test = [] {
+        Fixture f;
+        f.open("a.cpp", A);
+        const Json hover = f.ask("textDocument/hover", "a.cpp", 2, 9, "k:");
+        f.tick(2100ms);   // hover's budget: nothing kept, the engine has not answered
+        const auto answered = f.sink.response(hover);
+        expect(fatal(answered.has_value()));
+        expect((*answered)["provenance"]["authoritative"] == false && (*answered)["provenance"]["source"] == "native") << answered->dump();
+        const Json symbols = f.ask("textDocument/documentSymbol", "a.cpp", 0, 0, "k:");
+        expect(f.answer(symbols, Json::array()));
+        f.tick(10ms);
+        const auto outline = f.sink.response(symbols);
+        expect(fatal(outline.has_value()));
+        expect(!outline->contains("provenance")) << outline->dump();
+    };
+
     "with mcppls.answer.agent authoritative, an agent always waits for the engine"_test = [] {
         Fixture f { canonical_root(), "on", true, "authoritative" };
         f.open("a.cpp", A);
