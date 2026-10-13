@@ -19,8 +19,10 @@ clangd stays the one source of correctness, and mcppls decides what an earlier c
   keep clangd's answers under the place they were for, the type of what is before the `.` (learned from clangd in the
   background), and the name before the `::` with its aliases spelled out -- so `std::` asked in one file is answered in
   another, and a list typed away and asked for again is there at once. When clangd is slower than
-  `mcppls.answer.budget` (450 ms), the kept answer goes out, marked incomplete, and clangd's own replaces it as you type
-  on; a request you cancel goes on in the background and is kept for the next time. Kept answers survive a restart
+  `mcppls.answer.budget` (450 ms), the kept answer goes out, and clangd's own replaces it as you type on; where clangd
+  has lately answered a file within its usual budget, mcppls waits just past clangd's pace instead, so clangd's complete
+  list is what goes out. A kept list goes out complete only when nothing it depends on changed; a request you cancel
+  goes on in the background and is kept for the next time. Kept answers survive a restart
   (`mcppls.answer.cache`: `on`, `memory`, `off`). While clangd is idle, mcppls asks it in advance for the places after
   a `.`, `->` or `::` near the cursor that have no answer yet (`mcppls.answer.prefetch`).
 - **You do not see it.** A list given so looks like clangd's own. Only an item mcppls doubts -- a member of a class

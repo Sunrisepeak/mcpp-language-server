@@ -1124,16 +1124,33 @@ struct Workspace::Impl final : engine::Host {
             && std::ranges::find(job.answerers, coreEngine) != job.answerers.end()) {
             job.budgetAt = job.started + *budget;
         }
-        // A kept answer goes out at the answer budget (a jump's only when it is certain: one that may have moved waits).
+        // A kept answer goes out at the answer budget (a jump's only when it is certain: one that may have moved waits),
+        // or just after the engine's own if it has been answering this file within its regular budget: a kept list that
+        // goes out a moment before the engine's complete one has the editor ask again at every key (ux-modules-windows).
         if (job.found && coreEngine != nullptr && std::ranges::find(job.answerers, coreEngine) != job.answerers.end()
             && (!answer::is_jump(job.asked->kind) || job.found->certainty == answer::Certainty::certain)) {
-            const auto at = job.started + answers_->settings().budget;
+            const auto at = job.started + kept_answer_wait(job);
             job.budgetAt = job.budgetAt ? std::min(*job.budgetAt, at) : at;
         }
         ask_next(jobId);
     }
 
     // ---- the answer layer -----------------------------------------------------------------------------------------
+
+    // How long a request with a kept answer waits for the core engine (answer-layer design 4.6): the answer budget,
+    // unless the engine has lately answered this file's completions within their regular budget -- then a little past
+    // the slowest of those, so its complete list is what goes out.
+    std::chrono::milliseconds kept_answer_wait(const Job& job) const {
+        const std::chrono::milliseconds budget { answers_->settings().budget };
+        if (job.method != lsp::method::TEXT_DOCUMENT_COMPLETION && job.method != lsp::method::TEXT_DOCUMENT_SIGNATURE_HELP) return budget;
+        const auto pace = completionPace_.find(job.path);
+        const auto regular = request_budget(job);
+        if (pace == completionPace_.end() || !regular) return budget;
+        const auto usual = pace->second.usual(Clock::now());
+        if (!usual || *usual + KEPT_ANSWER_MARGIN > *regular) return budget;
+        return std::max(budget, *usual + KEPT_ANSWER_MARGIN);
+    }
+    static constexpr std::chrono::milliseconds KEPT_ANSWER_MARGIN { 150 };
 
     // A file's visibility fingerprint (answer-layer design 4.3): the engine and the profile, the plan's command for it,
     // what it imports, and its preamble.

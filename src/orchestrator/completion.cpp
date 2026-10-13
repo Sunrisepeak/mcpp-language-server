@@ -265,4 +265,17 @@ std::chrono::milliseconds EnginePace::budget(std::chrono::steady_clock::time_poi
     return std::min(cap, slowest + MARGIN);
 }
 
+std::optional<std::chrono::milliseconds> EnginePace::usual(std::chrono::steady_clock::time_point now) const {
+    const auto window { std::chrono::duration_cast<std::chrono::steady_clock::duration>(WINDOW) };
+    std::size_t fresh { 0 };
+    std::chrono::milliseconds slowest { 0 };
+    for (const auto& answer : recent_) {
+        if (now - answer.at > window) continue;
+        ++fresh;
+        slowest = std::max(slowest, answer.latency);
+    }
+    if (fresh < 2) return std::nullopt;
+    return slowest;
+}
+
 } // namespace mcppls::orchestrator::completion

@@ -350,6 +350,30 @@ int main() {
         expect(labels_of(*served) == std::vector<std::string> { "size", "swap", "push_back" }) << "the engine's list; the editor filters it";
     };
 
+    "where the engine answers within its budget, a kept list waits for it a little past its pace"_test = [] {
+        Fixture f;
+        f.open("a.cpp", A);
+        const auto complete = [](std::initializer_list<std::string_view> labels) {
+            Json list = items(labels);
+            list["isIncomplete"] = false;
+            return list;
+        };
+        for (const auto& [line, character] : { std::pair { 2, 8 }, std::pair { 3, 9 } }) {   // the engine's pace: 0.6 s
+            const Json asked = f.ask("textDocument/completion", "a.cpp", line, character);
+            f.tick(600ms);
+            expect(f.answer(asked, complete({ "push_back", "size" })));
+            f.tick(10ms);
+        }
+        const Json again = f.ask("textDocument/completion", "a.cpp", 2, 8);
+        f.tick(500ms);
+        expect(!f.sink.response(again).has_value()) << "the kept list waits: the engine is about to answer";
+        f.tick(150ms);
+        expect(f.answer(again, complete({ "push_back", "size", "empty" })));
+        const auto served = f.sink.response(again);
+        expect(fatal(served.has_value()));
+        expect(labels_of(*served) == std::vector<std::string> { "push_back", "size", "empty" }) << "the engine's own";
+    };
+
     "a request the person cancelled keeps its answer for the next time"_test = [] {
         Fixture f;
         f.open("a.cpp", A);
@@ -440,9 +464,9 @@ int main() {
         expect(!f.sink.response(again).has_value()) << "no kept answer stands in";
         expect(f.answer(again, items({ "push_back", "size" })));
         expect((*f.sink.response(again))["provenance"]["authoritative"] == true);
-        // The editor is served as before.
+        // The editor is served as before (a little past the engine's pace here: its answers took up to 0.5 s).
         const Json editor = f.ask("textDocument/completion", "a.cpp", 2, 8);
-        f.tick(500ms);
+        f.tick(700ms);
         expect(f.sink.response(editor).has_value());
     };
 
