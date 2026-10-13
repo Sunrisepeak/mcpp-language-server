@@ -1982,7 +1982,9 @@ private:
         forget_scan_failures_();
         spin_.restarted();
         // The new process is given each open file whole, with its diagnostics wanted.
-        for (std::vector<std::string> uris { std::from_range, typing_ | std::views::keys }; const auto& uri : uris) forget_typing_(uri);
+        std::vector<std::string> typed;
+        for (const auto& [uri, typing] : typing_) typed.push_back(uri);
+        for (const auto& uri : typed) forget_typing_(uri);
         // Requests to the old process are answered by the other engines.
         auto old = std::move(pending_);
         pending_.clear();
@@ -2174,8 +2176,6 @@ private:
         return std::string { text };
     }
 
-    // A change goes to clangd as the client sent it, unless clangd's text is, or was until now, a rewrite of
-    // the document's: then clangd gets the whole text as engine_text_ makes it.
     // A4: the methods that make clangd build the file's latest version, whatever was asked of didChange.
     static bool builds_main_file_(std::string_view method) {
         return method == "textDocument/semanticTokens/full" || method == "textDocument/semanticTokens/full/delta"
@@ -2233,6 +2233,8 @@ private:
         typing_.erase(found);
     }
 
+    // A change goes to clangd as the client sent it, unless clangd's text is, or was until now, a rewrite of
+    // the document's: then clangd gets the whole text as engine_text_ makes it. A4: while typing, without its diagnostics.
     void send_change_(const DocumentView& document, const Json& message) {
         const auto now = Clock::now();
         const std::size_t hash { text_hash_(document.text) };

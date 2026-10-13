@@ -266,6 +266,15 @@ mcpp-community/mcpp#807："emit build-database rewrites the build program's host
 
 mcpp-community/mcpp-vscode#18，已合入。B1–B3 按方案实现；VS Code 1.132 中的本地验证：`build.mcpp` 的 languageId 为 `cpp`，诊断只来自 mcppls 与规则检查，没有 `mcpp-build` 来源；有 clangd 扩展时「其他 C++ 语言服务」一行为警告图标且可点击，关闭后为暗色的通过图标、不可点击。
 
+### 11.2b PR-C：mcpp-plugins 0.19.1
+
+mcpp-community/mcpp-plugins#47，已合入并发布 v0.19.1；mcpp-index（mcpplibs/mcpp-index#530）已收录，`latest` 指向 0.19.1。
+
+- C1：`json::value` 按 §6 修改；clang 22 + libstdc++ 16 的 `import std` 下旧代码报错、新代码通过。
+- C2：CI 三条线全部通过。llvm 线 12 个 fixture（完整构建并运行的 8 个，确认以 `-stdlib=libc++` 链接；Qt 的 4 个用 `--configure-only`）；editor 线覆盖全部 37 个带 `build.mcpp` 的 fixture——在 origin/main 的代码上 34 个报错，修复后 0 个。
+- 约束写在 `docs/plugin-development.md` §4（三种组合的表、MSVC 作为第四种、四条已知的坑），README 的 "Adding a member" 链接到它。
+- 本地：qt-demo 副本把插件升级到 0.19.1 后从索引解析、gcc 16 构建通过，`mcppls diagnostics build.mcpp` 0 个错误。
+
 ### 11.3 与方案不同之处
 
 | 项 | 方案 | 实际 | 原因 |
@@ -273,7 +282,12 @@ mcpp-community/mcpp-vscode#18，已合入。B1–B3 按方案实现；VS Code 1.
 | A1 | created（type 1）不做哈希比较 | 已知内容相同的 created 也忽略 | 经重命名写入（原子写）的文件会被报告为 created；轮询兜底下首次出现的 lock 也是 created。从未见过的文件仍按新文件处理 |
 | A2 | 前置模块失败的文件不预取 | 不单独判断 | 否定缓存已把每个位置限制为每次变化一次；判断 doomed 需要引擎新增接口，收益不抵复杂度 |
 | A4 | 只暂缓 semanticTokens 等五类 | 另加 foldingRange、documentLink、codeLens | 三者同样要求最新 AST |
+| A4 | pull diagnostics、MCP / CLI 的 diagnostics、verify 到达时立即补发 | 只有 `textDocument/diagnostic` 立即结束静止 | CLI 的 `diagnostics` 是新打开文件（首次打开不节流）；MCP 读取已发布的诊断，至多晚一个静止期（≤ 1 s）；verify 等待 clangd 自己的回答，不受影响 |
 | A4 | 只豁免构建程序 | 另豁免模块单元，以及文本未变的 `didChange` | `typing-import`、`typing-autosave` 回归：编辑器重发的同文本 `didChange` 被延后到静止时才到 clangd，恰逢另一个模块单元正输入到一半，导入者的 preamble 以文本方式导入该模块重建，之后 10 s 的输入检查保持期内不再更新。模块单元在每个版本上构建，导入者才能随之更新 |
 | B1 | 删除 `mcpp-build` 语言 | 另把 `build.mcpp` 声明为 `cpp` 语言的文件名 | mcppls 被禁用时 `build.mcpp` 仍按 C++ 打开 |
 | B2 | 诊断 owner 保持 | 改名为 `mcpp-build-script` | 与已删除的语言 id 区分 |
 | B3 | 一个 forward 能力 | 拆为关闭、恢复两个能力 | 旧的单一能力在关闭命令缺失时会退而执行恢复 |
+| C2 | editor 线用 CI 统一的 mcpp | editor 线固定自己的 mcpp 2026.10.11.1，并在读取前 `mcpp build --configure-only` | 较旧的 mcpp 不描述构建程序，mcppls 不读 `build.mcpp`，0 个错误会是静默通过；新 runner 上未装好的工具链与 SDK 会报 `module 'mcpp' not found`。该线也在文件未读、读取不完整或没有报告时失败 |
+| C2 | llvm 线覆盖全部工具链中立的 fixture | 12 个；cuda、hip、sycl、multi-rule 与 deps 的 libc++ 行已在 consumers 中用 llvm 构建，不重复 | 避免重复 |
+| C2 | 约束写进 CONTRIBUTING | 写在 `docs/plugin-development.md` §4 | 仓库已有插件开发文档，没有 CONTRIBUTING |
+| C1 | 视发布策略回补 0.15.x | 只发 0.19.1 | 当前线为 0.19；固定 0.15.2 的项目（如 qt-demo）需升级到 0.19.1，已验证 0.15.2 → 0.19.1 构建与读取都正常 |

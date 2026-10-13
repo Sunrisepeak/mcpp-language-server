@@ -2173,17 +2173,17 @@ struct Workspace::Impl final : engine::Host {
     // was loaded again, the run rewrote it again -- the producer ran every two seconds of an idle session.
     // A change event whose file holds what it held is no change -- nor is a "created" one (a write through a rename is
     // reported so) for a file known to hold those bytes; a file never seen before is new whatever it holds.
-    std::map<std::string, std::string> describedInputs;
+    std::map<std::string, std::string> describedInputs;   // path key -> SHA-256 of the content
 
     // Whether `path` holds what it held when last seen; remembers what it holds now.
     bool input_unchanged(const std::string& path) {
         const auto text = platform::fs::read_file(path);
         if (!text) {
-            describedInputs.erase(path);
+            describedInputs.erase(base::path_key(path));
             return false;
         }
         std::string digest { base::sha256_hex(*text) };
-        const auto [at, inserted] = describedInputs.try_emplace(path, digest);
+        const auto [at, inserted] = describedInputs.try_emplace(base::path_key(path), digest);
         if (inserted) return false;
         const bool same { at->second == digest };
         at->second = std::move(digest);
@@ -2209,8 +2209,8 @@ struct Workspace::Impl final : engine::Host {
     void remember_described_inputs(bool overwrite) {
         for (const auto& file : described_files()) {
             if (overwrite) input_unchanged(file);
-            else if (!describedInputs.contains(file)) {
-                if (const auto text = platform::fs::read_file(file)) describedInputs.emplace(file, base::sha256_hex(*text));
+            else if (!describedInputs.contains(base::path_key(file))) {
+                if (const auto text = platform::fs::read_file(file)) describedInputs.emplace(base::path_key(file), base::sha256_hex(*text));
             }
         }
     }
@@ -3808,7 +3808,7 @@ void Workspace::handle_watched_files(const Json& changes) {
         // S2 5: an input the producer named changes what it would answer, so the model is loaded again.
         const bool producerInput { impl_->model && impl_->model->source != project::SourceKind::inferred && name != "compile_commands.json"
                                    && matches_watch_entries(impl_->model->watch, impl_->root, path) };
-        if (type == 3) impl_->describedInputs.erase(path);
+        if (type == 3) impl_->describedInputs.erase(base::path_key(path));
         if (is_build_file(name)) {
             // mcpp rewrites its own compile_commands.json while the model loads.
             if (name == "compile_commands.json" && impl_->model && impl_->model->source == project::SourceKind::mcpp) continue;
