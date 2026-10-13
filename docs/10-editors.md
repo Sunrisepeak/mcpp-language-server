@@ -32,6 +32,11 @@ and both are worth having:
 | **mcpp** | Building, toolchains, project operations |
 | **C++ Modules** (this one) | C++ module semantics, driving its own pinned clangd |
 
+`build.mcpp` is C++ to both: mcppls reads it as a build program (its imports, completion, errors), and mcpp adds the
+rule checks of its build-script specification. mcpp's "Other C++ language services" row in its sidebar reads which
+other C++ language services are active from this extension (`otherCppFeatures()` in its API) and turns them off with
+the command below.
+
 **Alongside other C++ extensions.** Microsoft's C/C++ extension and the official clangd extension
 both want to be the language server for the same files. On first run mcppls offers, once, to turn
 their language features off for this workspace; `mcppls.detectConflicts` controls that offer. Any

@@ -70,6 +70,21 @@ suite('conflicting C++ extensions', function () {
         assert.strictEqual(api.promptShownCount('conflict'), 1);
     });
 
+    // A6 (plan 2026-10-14): what a companion extension reads -- the same decision as the question's.
+    test('otherCppFeatures says what is active and whether anything can be restored', () => {
+        const features = api.otherCppFeatures();
+        if (answer === DISABLE) {
+            assert.deepStrictEqual(features.active, []);
+            assert.strictEqual(features.canRestore, true);
+        } else {
+            assert.deepStrictEqual(
+                features.active.map((feature) => [feature.extensionId, feature.settable]).sort(),
+                [['llvm-vs-code-extensions.vscode-clangd', true], ['ms-vscode.cpptools', true]],
+            );
+            assert.strictEqual(features.canRestore, false);
+        }
+    });
+
     if (answer === DISABLE) {
         test('disabling writes exactly the two settings and nothing else', () => {
             assert.deepStrictEqual(readWorkspaceSettings(), {
@@ -114,6 +129,10 @@ suite('conflicting C++ extensions', function () {
         test('mcppls.restoreOtherCppFeatures puts back the value from right before the last turn-off', async () => {
             await vscode.commands.executeCommand('mcppls.restoreOtherCppFeatures');
             assert.deepStrictEqual(readWorkspaceSettings(), { 'clangd.enable': true });
+            const features = api.otherCppFeatures();
+            // cpptools's override is gone, so its IntelliSense is at its default -- on -- again, as clangd is.
+            assert.deepStrictEqual(features.active.map((feature) => feature.extensionId).sort(), ['llvm-vs-code-extensions.vscode-clangd', 'ms-vscode.cpptools']);
+            assert.strictEqual(features.canRestore, false);
         });
     } else {
         test('keeping both changes no settings', () => {

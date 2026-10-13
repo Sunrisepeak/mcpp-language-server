@@ -49,6 +49,9 @@ struct Options {
     std::vector<std::string> disabledWorkarounds;   // registered workarounds turned off (import-hang plan §9)
     // mcppls.engine.preambleStorage (0.0.14 C1): auto (memory on Windows with 16 GiB or more), disk or memory.
     std::string preambleStorage { "auto" };
+    // mcppls.engine.diagnosticsWhileTyping (A4, plan 2026-10-14): `auto` has clangd build a file you are typing in once you
+    // pause rather than at every key; `always` gives every version to clangd as it comes (0.0.15 and before).
+    bool diagnosticsWhileTyping { false };
     // 0.0.14 A2: clangd's --limit-results; 0 leaves clangd's own (100).
     std::size_t completionResultLimit { 1000 };
     // mcppls.index.primeImplementationUnits (plan 2026-09-27 N-7): implementation units are built through clangd's

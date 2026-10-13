@@ -1,0 +1,9 @@
+{
+  "name": "module-fails-in-import",
+  "description": "Plan 2026-10-14 A3: a module (middle) does not compile because of an error located in a module it imports (base's template, instantiated by middle). clang begins that error with \"In module 'base' imported from <middle's unit>:<line>:\", and the file named first is the unit that failed -- not the file the error is in. The importer of middle is told that middle did not compile and why, where 0.0.15 took the module the error is in for the source, found no module for it, and said only that a BMI was not found.",
+  "server-arguments": ["--no-discover"],
+  "checks": [
+    { "id": "S1", "kind": "status", "source": "inferred", "engine-name": "clangd" },
+    { "id": "F1-importer-told-why", "kind": "diagnostic-code", "file": "src/main.cpp", "expect": "module-failed", "timeout": 60 }
+  ]
+}

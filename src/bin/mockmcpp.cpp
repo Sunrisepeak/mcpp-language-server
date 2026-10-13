@@ -197,6 +197,15 @@ int emit_build_database(std::span<const std::string> arguments) {
         std::println("{}", envelope("mcpp.build-database", nullptr, recorded.value("diagnostics", Json::array()), Json::array({ "read-project" })).dump(2));
         return 1;
     }
+    // {"rewriteEachRun": ["<file>", ...]} (plan 2026-10-14 A1, mcpp-community/mcpp#807): files every run writes again with
+    // the same bytes, as mcpp does the lock of a build program's synthesised package -- named in "watch", they change
+    // their mtime under a watcher and nothing else.
+    for (const auto& rewritten : recorded.value("rewriteEachRun", Json::array())) {
+        if (!rewritten.is_string()) continue;
+        const std::string path { base::join_path(root, rewritten.get<std::string>()) };
+        (void)fs::create_directories(base::parent_path(path));
+        (void)fs::write_file(path, "# written by every run, the same each time\n");
+    }
     Json data = Json::object();
     data["database"] = recorded["database"];
     data["watch"] = recorded.value("watch", Json::array({ "mcpp.toml", "mcpp.lock", "src/**/*.cppm", "src/**/*.cpp" }));

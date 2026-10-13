@@ -1,10 +1,11 @@
 {
   "name": "mcpp-emit-watch",
-  "description": "mcpp-emit with inputs the producer names in watch (S2 5). A change to a named input loads the model again, whether the client reports it (dynamic registration) or the server's own polling notices it (run as mcpp-emit-watch@polling, with --no-dynamic-watch). When the producer then fails, the last model is kept and the status says it may be stale; when it answers again, the status is ready.",
+  "description": "mcpp-emit with inputs the producer names in watch (S2 5). A change to a named input loads the model again, whether the client reports it (dynamic registration) or the server's own polling notices it (run as mcpp-emit-watch@polling, with --no-dynamic-watch). A named input written again with the same bytes -- as every run of the producer does to host/mcpp.lock here, the way mcpp does to a build program's lock (mcpp#807) -- is no change: the model is not loaded again, so the run does not start itself over (plan 2026-10-14 A1). When the producer then fails, the last model is kept and the status says it may be stale; when it answers again, the status is ready.",
   "server-arguments": ["--mcpp", "{runner-dir}/mcppls-mock-mcpp{exe}"],
   "checks": [
     {"id": "S1", "kind": "status", "source": "mcpp", "profile-kind": "build-toolchain", "profile-compiler": "clang", "level": 3, "state": "ready"},
     {"id": "C2", "kind": "definition", "file": "src/main.cpp", "at": [4, 31], "expect": "src/greet/greet.cppm"},
+    {"id": "W0-same-bytes", "kind": "write-file", "file": "host/mcpp.lock", "content": "# written by every run, the same each time\n", "expect-reload": false, "settle": 15},
     {"id": "W1-named-input", "kind": "write-file", "file": "inputs/configuration.txt", "content": "configuration changed\n", "expect-reload": true, "timeout": 30},
     {"id": "S2-reloaded", "kind": "status", "source": "mcpp", "state": "ready", "level": 3},
     {"id": "W2-producer-fails", "kind": "write-file", "file": "mcpp-mock.json", "content": "{\"diagnostics\": [{\"code\": \"MCPP_BROKEN\", \"severity\": \"error\", \"message\": \"the build description is broken\"}]}\n", "expect-reload": true, "timeout": 30},

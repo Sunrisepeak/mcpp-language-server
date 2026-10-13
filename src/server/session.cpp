@@ -464,6 +464,7 @@ private:
         options_.formatFallbackStyle = settings.string_value("format.fallbackStyle");
         options_.engineWorkers = settings.string_value("engine.workers");
         options_.preambleStorage = settings.string_value("engine.preambleStorage");
+        options_.diagnosticsWhileTyping = settings.string_value("engine.diagnosticsWhileTyping");
         options_.answerCache = settings.string_value("answer.cache");
         options_.answerBudget = std::chrono::milliseconds { std::clamp(std::atoi(settings.string_value("answer.budget").c_str()), 100, 2000) };
         options_.answerPrefetch = settings.bool_value("answer.prefetch");

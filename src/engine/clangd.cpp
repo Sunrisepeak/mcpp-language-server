@@ -157,6 +157,9 @@ private:
     std::string modulesVerdict_;   // what modules_verdict_path_ holds, as last written
     std::string primeDirectory_;
     std::string moduleHintDirectory_;
+    // A3 (plan 2026-10-14): importer (path key) -> why a module it imports could not be built, when the unit that failed
+    // is none the plan names; until the sources change.
+    std::map<std::string, std::string> unplacedFailures_;
     std::string stubDirectory_;       // stand-ins for modules nothing usable provides (robustness design C2)
 
     // Plan.
@@ -266,6 +269,19 @@ private:
     // one arriving before clangd accepts traffic waits in deferred_ (real-project plan RP1.1: a
     // transient reason is never a reason to answer as though clangd had already given up).
     std::map<std::string, std::vector<Waiting>, std::less<>> heldRequests_;
+    // A4 (plan 2026-10-14): while a person types, clangd is given each version without wanting its diagnostics, so it does
+    // not build the file at every key (its own debounce follows its build time, which is about a person's pace between
+    // keys); once they pause for `quiet`, the latest version is asked for again with diagnostics. The requests that
+    // build the file whatever it is asked to (semantic tokens, highlights, code actions, hints, symbols, folding) wait
+    // for the pause as well, the latest of each kind; one replaced by a later one is answered "content modified".
+    struct Typing {
+        std::string path;
+        std::int64_t version { 0 };
+        Clock::time_point due;
+        std::map<std::string, Waiting> waiting;   // method -> the latest request of it
+    };
+    std::map<std::string, Typing> typing_;   // client URI -> its pause pending
+    std::map<std::string, std::size_t> sentHashes_;   // client URI -> the hash of the text clangd was last given
     std::set<std::string> diagnosed_;                // client URIs clangd published diagnostics for
     std::set<std::string> awaitingDiagnostics_;      // client URIs
     std::size_t workers_ { 2 };   // clangd's -j for the running process (R-2)
@@ -1084,6 +1100,8 @@ public:
             closingAfterBuild_.erase(document.uri);
             rewritten_.erase(document.uri);
             spin_.forget(document.uri);
+            forget_typing_(document.uri);
+            sentHashes_.erase(document.uri);
             if (accepting_ && !wasExcluded && event.message != nullptr) (void)send_(*event.message);
             break;
         }
@@ -1153,6 +1171,7 @@ public:
     void sources_changed() override {
         lastSourceChangeAt_ = Clock::now();
         modulesFailedAt_.clear();   // a module that still does not compile is reported again
+        unplacedFailures_.clear();
         // A unit set aside because its module did not compile goes back to clangd: the module may compile now.
         std::vector<std::string> released;
         for (auto it = aside_.begin(); it != aside_.end();) {
@@ -1218,6 +1237,19 @@ public:
             heldRequests_[base::path_key(view.path)].push_back(Waiting { message, std::move(reply), limit });
             return;
         }
+        if (const Json* uri { lsp::find_path(message, { "params", "textDocument", "uri" }) }; uri != nullptr && uri->is_string()) {
+            if (const auto typing = typing_.find(host_->client_uri(uri->get<std::string>())); typing != typing_.end()) {
+                if (method == "textDocument/diagnostic") {
+                    end_typing_(typing->first);   // asked for the diagnostics now: the pause is now
+                } else if (builds_main_file_(method)) {
+                    Reply replaced;
+                    if (const auto slot = typing->second.waiting.find(method); slot != typing->second.waiting.end()) replaced = std::move(slot->second.reply);
+                    typing->second.waiting.insert_or_assign(method, Waiting { message, std::move(reply), limit });
+                    if (replaced) replaced(Answer { Answer::Kind::error, Json { { "code", lsp::CONTENT_MODIFIED }, { "message", "the file changed again" } } });
+                    return;
+                }
+            }
+        }
         request_now_(message, std::move(reply), limit);
     }
 
@@ -1280,6 +1312,15 @@ public:
         if (take(deferred_)) return;
         for (auto& [key, requests] : heldRequests_) {
             if (take(requests)) return;
+        }
+        for (auto& [uri, typing] : typing_) {
+            for (auto it = typing.waiting.begin(); it != typing.waiting.end(); ++it) {
+                if (it->second.message["id"] != clientRequestId) continue;
+                Reply reply { std::move(it->second.reply) };
+                typing.waiting.erase(it);
+                if (reply) reply(Answer { Answer::Kind::cancelled, nullptr });
+                return;
+            }
         }
         for (const auto& [engineId, request] : pending_) {
             if (request.purpose == Purpose::client && request.clientId == clientRequestId) {
@@ -1471,6 +1512,7 @@ public:
         for (const auto& [key, requests] : heldRequests_) {
             for (const auto& waiting : requests) consider(waiting.limit);
         }
+        for (const auto& [uri, typing] : typing_) consider(typing.due);
         for (const auto& [key, unit] : background_) consider(unit.built ? unit.usedAt + BACKGROUND_IDLE : unit.openedAt + BACKGROUND_BUILD_LIMIT);
         consider(implementationRestAt_);
         if (const auto quietAt = implementation_quiet_at_(); quietAt && *quietAt > Clock::now()) consider(quietAt);
@@ -1479,6 +1521,11 @@ public:
 
     void handle_timers() override {
         const auto now = Clock::now();
+        std::vector<std::string> paused;
+        for (const auto& [uri, typing] : typing_) {
+            if (typing.due <= now) paused.push_back(uri);
+        }
+        for (const auto& uri : paused) end_typing_(uri);
         if (upSince_ && now - *upSince_ >= RECOVERED_AFTER) {
             upSince_.reset();
             const auto before = issues_.size();
@@ -1698,6 +1745,10 @@ private:
             for (auto& request : requests) toFlush.push_back(std::move(request));
         }
         heldRequests_.clear();
+        for (auto& [uri, typing] : typing_) {
+            for (auto& [method, waiting] : typing.waiting) toFlush.push_back(std::move(waiting));
+        }
+        typing_.clear();
         for (auto& waiting : toFlush) {
             if (waiting.reply) waiting.reply(Answer {});
         }
@@ -1874,7 +1925,8 @@ private:
                 }
                 if (auto failure = parse_module_failure(line)) {
                     sink(Json { { "kind", "module-failed" }, { "generation", generation },
-                                { "failure", Json { { "module", failure->module }, { "reason", failure->reason }, { "source", failure->failedSource } } } });
+                                { "failure", Json { { "module", failure->module }, { "reason", failure->reason }, { "source", failure->failedSource },
+                                                    { "importer", failure->importer } } } });
                 }
             });
         if (!started) {
@@ -1929,6 +1981,10 @@ private:
         std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-restart-capped"; });
         forget_scan_failures_();
         spin_.restarted();
+        // The new process is given each open file whole, with its diagnostics wanted.
+        std::vector<std::string> typed;
+        for (const auto& [uri, typing] : typing_) typed.push_back(uri);
+        for (const auto& uri : typed) forget_typing_(uri);
         // Requests to the old process are answered by the other engines.
         auto old = std::move(pending_);
         pending_.clear();
@@ -2120,19 +2176,97 @@ private:
         return std::string { text };
     }
 
+    // A4: the methods that make clangd build the file's latest version, whatever was asked of didChange.
+    static bool builds_main_file_(std::string_view method) {
+        return method == "textDocument/semanticTokens/full" || method == "textDocument/semanticTokens/full/delta"
+               || method == "textDocument/semanticTokens/range" || method == "textDocument/documentHighlight"
+               || method == "textDocument/codeAction" || method == "textDocument/inlayHint" || method == "textDocument/documentSymbol"
+               || method == "textDocument/foldingRange" || method == "textDocument/documentLink" || method == "textDocument/codeLens";
+    }
+
+    // A4: how long a pause in typing is: a little longer than the file's last build, so a build started at the pause is
+    // not one the next key makes useless; between 300 ms and a second.
+    std::chrono::milliseconds typing_quiet_(const std::string& uri) const {
+        using namespace std::chrono_literals;
+        const auto built = spin_.last_build(uri);
+        const auto measured = built ? std::chrono::duration_cast<std::chrono::milliseconds>(*built) * 6 / 5 : 400ms;
+        return std::clamp<std::chrono::milliseconds>(measured, 300ms, 1000ms);
+    }
+
+    // A4: whether a change to `document` waits for a pause before clangd builds it. A build program is checked as it is
+    // edited (0.0.13 W3), and a module unit is built at every version: what it declares is what its importers read, and
+    // clangd brings them up to date from those builds (the typing-import fixture), so neither waits.
+    bool waits_for_pause_(const DocumentView& document) const {
+        return !options_.diagnosticsWhileTyping && !document.path.empty() && !project::is_build_program_source(document.path)
+               && !project::scan_source(document.text).declaration;
+    }
+
+    // A4: the pause came (or something needs the diagnostics now): clangd is asked for the latest version with them, and
+    // the requests that waited go on to it.
+    void end_typing_(const std::string& uri) {
+        const auto found = typing_.find(uri);
+        if (found == typing_.end()) return;
+        Typing typing { std::move(found->second) };
+        typing_.erase(found);
+        // A file taken from clangd meanwhile (set aside, held, doomed) is not clangd's to build; what waited goes on and
+        // is answered as such a file's requests are.
+        const bool given { accepting_ && !excluded_path_(typing.path) && !quarantined_(typing.path) && !held_path_(typing.path)
+                           && !doomed_path_(typing.path) };
+        if (given) {
+            (void)send_(lsp::make_notification("textDocument/didChange",
+                                               Json { { "textDocument", Json { { "uri", uri }, { "version", typing.version } } },
+                                                      { "contentChanges", Json::array() }, { "wantDiagnostics", true } }));
+        }
+        for (auto& [method, waiting] : typing.waiting) {
+            if (given) request_now_(waiting.message, std::move(waiting.reply), waiting.limit);
+            else if (waiting.reply) waiting.reply(Answer {});
+        }
+    }
+
+    // A4: a file left (closed, set aside, clangd restarted): nothing to ask again; what waited is answered by the next engine.
+    void forget_typing_(const std::string& uri) {
+        const auto found = typing_.find(uri);
+        if (found == typing_.end()) return;
+        for (auto& [method, waiting] : found->second.waiting) {
+            if (waiting.reply) waiting.reply(Answer {});
+        }
+        typing_.erase(found);
+    }
+
     // A change goes to clangd as the client sent it, unless clangd's text is, or was until now, a rewrite of
-    // the document's: then clangd gets the whole text as engine_text_ makes it.
+    // the document's: then clangd gets the whole text as engine_text_ makes it. A4: while typing, without its diagnostics.
     void send_change_(const DocumentView& document, const Json& message) {
-        spin_.sent(document.uri, text_hash_(document.text), Clock::now());
+        const auto now = Clock::now();
+        const std::size_t hash { text_hash_(document.text) };
+        spin_.sent(document.uri, hash, now);
+        // A change that leaves the text as it was is no key typed (an editor re-sending the buffer): it goes as it came. Held
+        // for a pause, it reached clangd later, perhaps while a module the file imports was half typed elsewhere.
+        const auto previous = sentHashes_.find(document.uri);
+        const bool sameText { previous != sentHashes_.end() && previous->second == hash };
+        sentHashes_[document.uri] = hash;
+        const bool quiet { waits_for_pause_(document) && !sameText };
+        if (quiet) {
+            Typing& typing { typing_[document.uri] };
+            typing.path = document.path;
+            typing.version = document.version;
+            typing.due = now + typing_quiet_(document.uri);
+        }
         const bool wasRewritten { rewritten_.contains(document.uri) };
         std::string text { engine_text_(document.uri, document.text) };
         if (!wasRewritten && !rewritten_.contains(document.uri)) {
-            (void)send_(message);
+            if (!quiet) {
+                (void)send_(message);
+                return;
+            }
+            Json quietMessage = message;
+            quietMessage["params"]["wantDiagnostics"] = false;
+            (void)send_(quietMessage);
             return;
         }
-        (void)send_(lsp::make_notification("textDocument/didChange",
-                                           Json { { "textDocument", Json { { "uri", document.uri }, { "version", document.version } } },
-                                                  { "contentChanges", Json::array({ Json { { "text", std::move(text) } } }) } }));
+        Json params { { "textDocument", Json { { "uri", document.uri }, { "version", document.version } } },
+                      { "contentChanges", Json::array({ Json { { "text", std::move(text) } } }) } };
+        if (quiet) params["wantDiagnostics"] = false;
+        (void)send_(lsp::make_notification("textDocument/didChange", std::move(params)));
     }
 
     static void map_out_of_rewrite_(std::span<const Insertion> insertions, Json& diagnostics) {
@@ -2213,6 +2347,20 @@ private:
                 diagnostic["code"] = "module-failed";
                 continue;
             }
+            if (code == "ast_file_not_found") {
+                // A3: a BMI this server named for clangd (WA-CLANGD-004) that was never built is not the person's file
+                // missing: what failed, where it is known, else where to look.
+                const auto unplaced = document->path.empty() ? unplacedFailures_.end()
+                                                             : unplacedFailures_.find(base::path_key(base::normalize_path(document->path)));
+                if (unplaced != unplacedFailures_.end()) {
+                    diagnostic["message"] = std::format("module {} could not be built: {}", *name, unplaced->second);
+                    diagnostic["code"] = "module-failed";
+                } else {
+                    diagnostic["message"] = std::format("clangd built no BMI for module {}; the log (mcppls: Show Logs) says why", *name);
+                    diagnostic["code"] = "module-not-built";
+                }
+                continue;
+            }
             if (!traits_.readsImportsFromDisk || code != "module_not_found") continue;
             const auto provider = moduleSources_.find(*name);
             if (provider == moduleSources_.end() || generated_path_(provider->second) || document->path.empty()) continue;
@@ -2256,6 +2404,7 @@ private:
 
     void open_in_engine_(const DocumentView& document) {
         spin_.sent(document.uri, text_hash_(document.text), Clock::now());
+        sentHashes_[document.uri] = text_hash_(document.text);
         Json params { { "textDocument", Json { { "uri", document.uri }, { "languageId", document.languageId },
                                                { "version", document.version }, { "text", engine_text_(document.uri, document.text) } } } };
         if (send_(lsp::make_notification("textDocument/didOpen", std::move(params)))) {
@@ -2741,7 +2890,8 @@ private:
     }
 
     void handle_module_failure_(const Json& failure) {
-        ModuleFailure parsed { failure.value("module", std::string {}), failure.value("reason", std::string {}), failure.value("source", std::string {}), {} };
+        ModuleFailure parsed { failure.value("module", std::string {}), failure.value("reason", std::string {}), failure.value("source", std::string {}),
+                               failure.value("importer", std::string {}) };
         // mcppls-clangd names the importer and the unit that failed to compile, not the module: it is
         // the one the plan gave that unit.
         if (parsed.module.empty() && !parsed.failedSource.empty()) {
@@ -2752,7 +2902,18 @@ private:
                 }
             }
         }
-        if (parsed.module.empty()) return;
+        if (parsed.module.empty()) {
+            // A3 (plan 2026-10-14): a unit the plan does not name (a header, or a unit of a package it does not
+            // give) failed. Nothing is doomed by it, but the importer's "module file ... not found" says why.
+            if (!parsed.importer.empty() && !parsed.reason.empty()) {
+                const std::string importer { base::path_key(base::normalize_path(parsed.importer)) };
+                if (unplacedFailures_.insert_or_assign(importer, parsed.reason).second) {
+                    log::warning("clangd could not build a module {} imports ({}): {}", parsed.importer, host_->root_directory(), parsed.reason);
+                    host_->record_event("module-failed-unplaced", Json { { "importer", parsed.importer }, { "reason", parsed.reason } });
+                }
+            }
+            return;
+        }
         const FailureKind kind { failure_kind(parsed) };
         // The standard library, which nearly every unit imports: a failure there is how this server built it,
         // not the project, and it would take nearly every module with it. The semantic kit brings its own
@@ -3909,6 +4070,7 @@ private:
         doomRoots_.clear();
         doomedModules_.clear();
         doomedFiles_.clear();
+        unplacedFailures_.clear();
         reportedFailures_.clear();
         modulesFailedAt_.clear();
         stdFromKit_ = false;

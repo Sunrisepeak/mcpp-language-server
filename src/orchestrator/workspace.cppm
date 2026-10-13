@@ -53,6 +53,7 @@ struct SessionOptions {
     std::string formatFallbackStyle { "auto" };
     std::string engineWorkers { "auto" };   // mcppls.engine.workers (R-2): "auto" or a number
     std::string preambleStorage { "auto" }; // mcppls.engine.preambleStorage (0.0.14 C1): auto, disk or memory
+    std::string diagnosticsWhileTyping { "auto" };   // mcppls.engine.diagnosticsWhileTyping (A4, plan 2026-10-14): auto or always
     // The answer layer (answer-layer design 2026-10-13): mcppls.answer.cache, .budget, .prefetch, .agent, and
     // mcppls.completion.provenance.
     std::string answerCache { "on" };

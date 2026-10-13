@@ -7,6 +7,52 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.16] — 2026-10-14
+
+The bundled engine is unchanged: [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.16)
+(`23.1.0-mcppls.4`). This release is about what clangd does while you type and while nothing happens at all, and about
+`build.mcpp` beside the mcpp extension.
+
+### Typing
+
+- **clangd checks the file you are typing in once you pause, not at every key.** Each version still goes to clangd
+  (completion and signature help are answered as before), but without its diagnostics wanted; once the keys stop for a
+  little longer than the file takes to build (0.3-1 s), the latest version is asked for with them. The semantic colours,
+  highlights, code actions, hints, symbols and folding of the file -- which make clangd build the latest version
+  whatever it is asked -- wait for the same pause, the latest of each; one a later key replaced is answered "content
+  modified", which VS Code drops silently. Typing `std::vec`, deleting it, `arr`, `fin` in a file with Qt headers and
+  `import std`: clangd builds the file 3 times instead of 16, and spends about 43% less CPU. The errors of half-typed
+  text no longer flicker; they appear once you pause. `build.mcpp` and module units (what their importers read) are
+  checked at every key, as before.
+  `mcppls.engine.diagnosticsWhileTyping`: `auto` (the default) or `always` (0.0.15's behaviour).
+
+### Idle
+
+- **A build input written again with the same bytes is no change.** mcpp rewrites the lock of a build program's
+  synthesised package on every run and names it among the inputs to watch (mcpp-community/mcpp#807): with a
+  `build.mcpp`, the project was described again every two seconds of an idle session. A changed or created build file
+  or producer input whose content is what the last description read is now ignored, whether the editor's watcher or
+  mcppls's own polling reports it.
+- **A place clangd answered with nothing is not asked again** until a file or the plan changes. While clangd was idle,
+  mcppls asked it every half second, without end, for a completion that came back empty (a place in a file whose
+  imports did not compile).
+
+### build.mcpp and failed modules
+
+- **A module that failed because of an error in something it imports is named.** clang begins such an error with
+  `In module 'std' imported from <unit>:<line>:` or `In file included from <unit>:<line>:`; mcppls took the file the error
+  is in for the unit that failed, found no module for it, and dropped the failure, so an importer said only
+  "Module file '.../module-hints/M.pcm' not found". The importer now says which module did not compile and why. Where
+  the failed unit is none the plan names, the importer still says what failed; where nothing is known, it says clangd
+  built no BMI for the module and that the log says why.
+- **`.mcpp` files are this extension's whatever language another extension gives them.** A companion extension that
+  names `build.mcpp` a language of its own (mcpp-vscode up to 0.6.0) kept the file from mcppls, since VS Code matches a
+  file name before an extension; the client now selects `**/*.mcpp` as well, and the server treats such a file as C++.
+- **A companion extension can show which other C++ language services are active.** The extension's API has
+  `otherCppFeatures()`: the active services (C/C++ IntelliSense, clangd, ccls), whether each has a setting to turn off,
+  and whether `mcppls.restoreOtherCppFeatures` has anything to put back. mcpp-vscode 0.7.0 shows it as a row with a
+  button.
+
 ## [0.0.15] — 2026-10-13
 
 The bundled engine is [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.16)

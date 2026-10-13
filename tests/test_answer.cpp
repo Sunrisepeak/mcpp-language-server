@@ -327,6 +327,25 @@ int main() {
         expect(!layer.prefetch_place("file:///b.cpp", heads, mcppls::base::Position { 0, 0 }, "fp").has_value());
     };
 
+    "a place prefetched to an empty answer is not asked again until something changes (plan 2026-10-14 A2)"_test = [] {
+        mcppls::orchestrator::answering::Layer layer { mcppls::orchestrator::answering::Settings {}, "", "", [](std::string_view) { return std::optional<std::string> {}; } };
+        const std::string text { "void f() {\n    doc.dump();\n    cfg.load();\n}\n" };
+        const auto first = layer.prefetch_place("file:///a.cpp", text, mcppls::base::Position { 1, 0 }, "fp");
+        expect(fatal(first.has_value()));
+        expect(first->line == 1 && first->character == 8) << first->line << ":" << first->character;
+        const Json params { { "textDocument", Json { { "uri", "file:///a.cpp" } } }, { "position", Json { { "line", 1 }, { "character", 8 } } } };
+        const auto asked = layer.read("textDocument/completion", "file:///a.cpp", "/a.cpp", text, params, "fp");
+        expect(fatal(asked.has_value()));
+        layer.prefetch_came_back_empty(*asked);
+        const auto next = layer.prefetch_place("file:///a.cpp", text, mcppls::base::Position { 1, 0 }, "fp");
+        expect(fatal(next.has_value()));
+        expect(next->line == 2 && next->character == 8) << next->line << ":" << next->character;   // `cfg.`, not `doc.` again
+        layer.changed("/a.cpp");
+        const auto again = layer.prefetch_place("file:///a.cpp", text, mcppls::base::Position { 1, 0 }, "fp");
+        expect(fatal(again.has_value()));
+        expect(again->line == 1) << again->line;   // a change asks it again
+    };
+
     "a class's members, read from its body"_test = [] {
         const std::string text {
             "template <class T>\n"

@@ -87,6 +87,9 @@ public:
     // A place in `text` -- after a `.`, `->` or `::` that the file already has -- whose answer is not kept yet, nearest
     // `near` first; nullopt when there is none.
     std::optional<base::Position> prefetch_place(std::string_view uri, std::string_view text, base::Position near, std::string_view fingerprint);
+    // A2 (plan 2026-10-14): a prefetch that came back with nothing (or failed). Its place is not asked again until a
+    // file or the plan changes -- empty answers are not kept, so without this the same place was asked every 500 ms.
+    void prefetch_came_back_empty(const Asked& asked);
 
     // ---- kept between sessions --------------------------------------------------------------------------------------
     void load();
@@ -124,6 +127,7 @@ private:
     std::unordered_map<std::string, Type> placeTypes_;
     std::unordered_map<std::string, Type> spelledTypes_;
     std::set<std::string> namesLoaded_;   // fingerprints whose shared names were read
+    std::unordered_map<std::string, std::string> fruitless_;   // K1 -> the state it came back empty in (A2)
     std::uint64_t savedAt_ { ~std::uint64_t { 0 } };
     std::optional<Clock::time_point> lastSave_;
 

@@ -258,3 +258,22 @@ export function watchForNewConflicts(context: vscode.ExtensionContext, log: (lin
         vscode.workspace.onDidChangeConfiguration(recheck),
     );
 }
+
+// What a companion extension (mcpp-vscode's language-service view, A6 of plan 2026-10-14) reads to
+// show whether another C++ language service is serving the same files: the same decision the
+// question and the commands above use, so the two extensions cannot disagree about it. Read-only;
+// acting on it is the two commands, which ask for the scope themselves.
+export interface OtherCppFeatures {
+    readonly active: readonly { readonly extensionId: string; readonly displayName: string; readonly settable: boolean }[];
+    readonly canRestore: boolean;
+}
+
+export function otherCppFeatures(context: vscode.ExtensionContext): OtherCppFeatures {
+    const active = [
+        ...activeSettableConflicts(isInstalled, currentValue).map(({ extensionId, displayName }) => ({ extensionId, displayName, settable: true })),
+        ...activeUnsettableConflicts(isInstalled).map(({ extensionId, displayName }) => ({ extensionId, displayName, settable: false })),
+    ];
+    const canRestore = (['workspace', 'global'] as const)
+        .some((scope) => (storeFor(context, scope).get<StoredConflictValue[]>(STORAGE_KEY) ?? []).length > 0);
+    return { active, canRestore };
+}

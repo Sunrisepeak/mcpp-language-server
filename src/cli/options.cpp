@@ -57,6 +57,7 @@ orchestrator::EngineFactories engine_factories(const orchestrator::SessionOption
         }
         clangd.disabledWorkarounds = options.disabledWorkarounds;
         clangd.preambleStorage = options.preambleStorage;
+        clangd.diagnosticsWhileTyping = options.diagnosticsWhileTyping == "always";
         clangd.primeImplementationUnits = options.primeImplementationUnits != "off";
         return engine::clangd::make_engine(std::move(clangd));
     };
@@ -100,6 +101,7 @@ orchestrator::SessionOptions session_options(const cmdline::ParsedArgs& args) {
     options.formatFallbackStyle = settings.string_value("format.fallbackStyle");
     options.engineWorkers = settings.string_value("engine.workers");
     options.preambleStorage = settings.string_value("engine.preambleStorage");
+    options.diagnosticsWhileTyping = settings.string_value("engine.diagnosticsWhileTyping");
     options.answerCache = settings.string_value("answer.cache");
     options.answerBudget = std::chrono::milliseconds { std::clamp(std::atoi(settings.string_value("answer.budget").c_str()), 100, 2000) };
     options.answerPrefetch = settings.bool_value("answer.prefetch");

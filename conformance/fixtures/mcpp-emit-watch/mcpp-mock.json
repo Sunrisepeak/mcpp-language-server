@@ -270,7 +270,11 @@
     "src/**/*.s",
     "tests/**/*.cpp",
     "mcpp-mock.json",
-    "inputs/*.txt"
+    "inputs/*.txt",
+    "host/mcpp.lock"
   ],
-  "requireOffline": true
+  "requireOffline": true,
+  "rewriteEachRun": [
+    "host/mcpp.lock"
+  ]
 }

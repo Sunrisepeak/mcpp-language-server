@@ -593,6 +593,31 @@ int main() {
             R"(E[03:15:19.435] Failed to build module prerequisites for C:\p\main.cpp; due to module worker failed: C:\p\a b\e.cppm:12:3: fatal error: 'x.h' file not found)");
         expect(fatal(windows.has_value()));
         expect(windows->failedSource == R"(C:\p\a b\e.cppm)") << windows->failedSource;
+        // A3 (plan 2026-10-14): an error inside the standard library a unit imports names the unit after
+        // "imported from"; the header the error is in is no unit of anyone's.
+        const auto inStd = cld::parse_module_failure(
+            "E[03:58:59.913] Failed to build module prerequisites for /w/build.mcpp; due to module worker failed: "
+            "In module 'std' imported from /r/plugins-0.15.2/src/plugins.cppm:25: "
+            "/gcc/include/c++/16.1.0/type_traits:1539:30: error: incomplete type 'std::pair<std::string, value>' used in type trait expression");
+        expect(fatal(inStd.has_value()));
+        expect(inStd->importer == "/w/build.mcpp") << inStd->importer;
+        expect(inStd->failedSource == "/r/plugins-0.15.2/src/plugins.cppm") << inStd->failedSource;
+        expect(inStd->reason == "Failed to compile /r/plugins-0.15.2/src/plugins.cppm: incomplete type 'std::pair<std::string, value>' used in type trait expression")
+            << inStd->reason;
+        expect(cld::failure_kind(*inStd) == cld::FailureKind::compile) << inStd->reason;
+        const auto nested = cld::parse_module_failure(
+            R"(E[03:58:59.913] Failed to build module prerequisites for C:\w\main.cpp; due to module worker failed: )"
+            R"(In module 'a' imported from C:\w\b.cppm:3: In module 'std' imported from C:\w\a.cppm:1: C:\vs\include\xutility:10:2: error: boom)");
+        expect(fatal(nested.has_value()));
+        expect(nested->failedSource == R"(C:\w\b.cppm)") << nested->failedSource;
+        expect(nested->reason == R"(Failed to compile C:\w\b.cppm: boom)") << nested->reason;
+        const auto included = cld::parse_module_failure(
+            "E[03:58:59.913] Failed to build module prerequisites for /p/main.cpp; due to module worker failed: "
+            "In file included from /p/src/middle.cppm:2: /p/src/base.cppm:5:35: error: member reference base type 'int' is not a structure or union"
+            "     5 | int twice(T value) { return value.no_such_member() * 2; }");
+        expect(fatal(included.has_value()));
+        expect(included->failedSource == "/p/src/middle.cppm") << included->failedSource;
+        expect(included->reason == "Failed to compile /p/src/middle.cppm: member reference base type 'int' is not a structure or union") << included->reason;
         const auto inProcess = cld::parse_module_failure(
             "E[03:15:19.435] Failed to build module prerequisites for /p/main.cpp; due to Failed to compile /p/e.cppm. Use '--log=verbose' to view detailed failure reasons.");
         expect(fatal(inProcess.has_value()));

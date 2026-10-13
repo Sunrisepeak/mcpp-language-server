@@ -32,7 +32,7 @@ import { DownloadPromptController } from './downloadPrompt';
 import { declaresModules, editorEnvironment, exportDiagnosticBundle, extensionEnvironment, registerCommands, reloadBuildDescription } from './commands';
 import { fetchCacheReport } from './cacheHubView';
 import { CompletionReady, completionStillWanted, sendTriggeredCompletion } from './completionGate';
-import { checkConflicts, ConflictCheck, watchForNewConflicts } from './conflicts';
+import { checkConflicts, ConflictCheck, otherCppFeatures, OtherCppFeatures, watchForNewConflicts } from './conflicts';
 import { CrashCounter } from './crashCounter';
 import { serverEnabled } from './enable';
 import { transition } from './enableSwitch';
@@ -68,6 +68,9 @@ export interface TestApi {
     showTextDocumentCount(): number;
     languageStatusItemCount(): number;
     conflictCheck(): Promise<ConflictCheck>;
+    // Public to companion extensions (mcpp-vscode), not only tests: which other C++ language
+    // services are active and whether `mcppls.restoreOtherCppFeatures` has anything to put back.
+    otherCppFeatures(): OtherCppFeatures;
     // Test-mode substitution for the two prompts the extension can show (see
     // src/prompt.ts). Safe to call at any time relative to when the
     // extension's own logic triggers that prompt.
@@ -320,6 +323,10 @@ class ServerHost implements vscode.Disposable {
             documentSelector: [
                 { scheme: 'file', language: 'cpp' },
                 { scheme: 'file', language: 'c' },
+                // A6 (plan 2026-10-14): a `.mcpp` file (build.mcpp) is this server's whatever language id
+                // another extension gave it -- VS Code matches a file name before an extension, so a
+                // companion that names `build.mcpp` a language of its own would otherwise keep it from here.
+                { scheme: 'file', pattern: '**/*.mcpp' },
             ],
             outputChannel: this.output(),
             revealOutputChannelOn: RevealOutputChannelOn.Never,
@@ -722,7 +729,8 @@ export function activate(context: vscode.ExtensionContext): TestApi {
                 // names a hand edit may touch; the new ones are named so the list says what it restarts for.
                 || event.affectsConfiguration('mcppls.engine') || event.affectsConfiguration('mcppls.engine.name')
                 || event.affectsConfiguration('mcppls.format.fallbackStyle') || event.affectsConfiguration('mcppls.engine.workers')
-                || event.affectsConfiguration('mcppls.engine.preambleStorage') || event.affectsConfiguration('mcppls.buildTool')
+                || event.affectsConfiguration('mcppls.engine.preambleStorage')
+                || event.affectsConfiguration('mcppls.engine.diagnosticsWhileTyping') || event.affectsConfiguration('mcppls.buildTool')
                 || event.affectsConfiguration('mcppls.toolEnvironment') || event.affectsConfiguration('mcppls.semanticTokens.modules')
                 || event.affectsConfiguration('mcppls.completion.triggerOnSpace')
                 // 0.0.6 plan §3.7 B-7, §2.6/§9 T5: new settings, same treatment as the ones above.
@@ -760,6 +768,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
         showTextDocumentCount: () => showTextDocumentAtActivation,
         languageStatusItemCount: () => ui?.languageStatusItemCount() ?? 0,
         conflictCheck: () => latestConflictCheck,
+        otherCppFeatures: () => otherCppFeatures(context),
         setPromptAnswer: (kind, answer) => promptTestHarness?.setAnswer(kind, answer),
         promptShownCount: (kind) => promptTestHarness?.shownCount(kind) ?? 0,
         commandLineToolsInstallCount: () => commandLineTools.installInvocationCount(),
