@@ -202,6 +202,34 @@ int main() {
         expect(answer::certainty_of(entry, answer::Source::k2, now) == answer::Certainty::uncertain);
     };
 
+    "a kept completion is complete only when certain, complete, and asked for a word the one typed now extends"_test = [] {
+        const auto [text, at] = cursor("void f() {\n    doc.pu|\n}\n");
+        const auto context = answer::context_at(text, at, Kind::completion);
+        expect(fatal(context.has_value()));
+        answer::Entry entry = completion_entry({ "push_back", "pop_back", "size" });
+        entry.complete = true;
+        entry.word = "p";
+        const auto compose = [&](const answer::Entry& e, answer::Certainty certainty) {
+            return answer::compose_completion(e, answer::Source::k1, certainty, *context, text, at, answer::Marks::subtle, std::nullopt, false).result;
+        };
+        expect(compose(entry, answer::Certainty::certain)["isIncomplete"] == false) << "as the engine gave it: the editor filters it";
+        expect(compose(entry, answer::Certainty::uncertain)["isIncomplete"] == true) << "something changed: the engine's answer replaces it";
+        answer::Entry narrower = entry;
+        narrower.word = "pop";   // filtered for `pop`: `pu` is not within it
+        expect(compose(narrower, answer::Certainty::certain)["isIncomplete"] == true);
+        answer::Entry incomplete = entry;
+        incomplete.complete = false;
+        expect(compose(incomplete, answer::Certainty::certain)["isIncomplete"] == true);
+        // Kept between sessions as it was.
+        answer::Store store;
+        store.put("1|k", entry);
+        answer::Store again;
+        expect(again.adopt(store.to_json()));
+        const answer::Entry* read { again.find("1|k") };
+        expect(fatal(read != nullptr));
+        expect(read->complete && read->word == "p");
+    };
+
     "a kept completion is filtered by the word, placed on it, and incomplete"_test = [] {
         const auto [text, at] = cursor("void f() {\n    doc.pu|\n}\n");
         const auto context = answer::context_at(text, at, Kind::completion);

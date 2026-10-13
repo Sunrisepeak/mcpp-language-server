@@ -310,6 +310,46 @@ int main() {
         expect(f.sink.notifications("cxxModules/completionReady") == 0u) << "the document is not the one asked about";
     };
 
+    "a complete list nothing changed under is given complete, so the editor filters it"_test = [] {
+        Fixture f;
+        f.open("a.cpp", A);
+        const auto complete = [](std::initializer_list<std::string_view> labels) {
+            Json list = items(labels);
+            list["isIncomplete"] = false;
+            return list;
+        };
+        const Json first = f.ask("textDocument/completion", "a.cpp", 2, 8);
+        expect(f.answer(first, complete({ "push_back", "size" })));
+        f.tick(10ms);
+        const Json elsewhere = f.ask("textDocument/completion", "a.cpp", 3, 9);   // the word's own reuse (A1) now holds this one
+        expect(f.answer(elsewhere, complete({ "vector", "string" })));
+        f.tick(10ms);
+        const Json again = f.ask("textDocument/completion", "a.cpp", 2, 8);
+        f.tick(500ms);
+        const auto served = f.sink.response(again);
+        expect(fatal(served.has_value()));
+        expect(labels_of(*served) == std::vector<std::string> { "push_back", "size" }) << served->dump();
+        expect((*served)["result"]["isIncomplete"] == false) << served->dump();
+    };
+
+    "an answer that came in the background gives the word's next letter its complete list at once"_test = [] {
+        Fixture f;
+        f.open("a.cpp", "#include <x>\nvoid f() {\n    doc.\n}\n");
+        const Json first = f.ask("textDocument/completion", "a.cpp", 2, 8);
+        f.tick(1100ms);   // the file's words went out; the engine's request goes on
+        expect(fatal(f.sink.response(first).has_value()));
+        Json list = items({ "size", "swap", "push_back" });
+        list["isIncomplete"] = false;
+        expect(f.answer(first, list));
+        f.tick(10ms);
+        f.change("a.cpp", "#include <x>\nvoid f() {\n    doc.s\n}\n");
+        const Json next = f.ask("textDocument/completion", "a.cpp", 2, 9);
+        const auto served = f.sink.response(next);
+        expect(fatal(served.has_value())) << "answered without waiting";
+        expect((*served)["result"]["isIncomplete"] == false) << served->dump();
+        expect(labels_of(*served) == std::vector<std::string> { "size", "swap", "push_back" }) << "the engine's list; the editor filters it";
+    };
+
     "a request the person cancelled keeps its answer for the next time"_test = [] {
         Fixture f;
         f.open("a.cpp", A);

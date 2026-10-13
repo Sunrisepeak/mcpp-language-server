@@ -258,6 +258,10 @@ void Layer::keep(const Asked& asked, const Json& result, const std::optional<Ser
     entry.others = now.others;
     entry.localHash = asked.context.localHash;
     entry.asked = asked.uri;
+    if (asked.kind == answer::Kind::completion) {
+        entry.word = asked.context.word;
+        entry.complete = result.is_array() || (result.is_object() && !result.value("isIncomplete", false));   // CompletionItem[] is complete
+    }
     entry.keptAt = now_ms();
     const Type* type { nullptr };
     if (const auto it = placeTypes_.find(asked.k1); it != placeTypes_.end()) type = &it->second;

@@ -592,6 +592,8 @@ Json Store::to_json(bool onlyNames) const {
                                  { "providerLine", entry.providerLine },
                                  { "providerGeneration", std::format("{:x}", entry.providerGeneration) },
                                  { "asked", entry.asked },
+                                 { "word", entry.word },
+                                 { "complete", entry.complete },
                                  { "keptAt", entry.keptAt },
                                  { "hits", entry.hits } });
     }
@@ -630,6 +632,8 @@ bool Store::adopt(const Json& persisted) {
         entry.providerLine = one.value("providerLine", -1);
         entry.providerGeneration = hex(one.value("providerGeneration", Json()));
         entry.asked = one.value("asked", std::string {});
+        entry.word = one.value("word", std::string {});
+        entry.complete = one.value("complete", false);
         entry.keptAt = one.value("keptAt", std::int64_t { 0 });
         entry.hits = one.value("hits", std::uint32_t { 0 });
         entry.others = ~std::uint64_t { 0 };   // the counts of another session: never this one's
@@ -728,7 +732,15 @@ Composed compose_completion(const Entry& entry, Source source, Certainty certain
         }
     }
     for (Json& item : gone) items.push_back(std::move(item));
-    composed.result = Json { { "isIncomplete", true }, { "items", std::move(items) } };
+    // A list nothing it depends on changed under, that the engine gave complete for a word the one typed now extends,
+    // is as complete as the engine's own would be: the editor filters it as the person types (0.0.14 A2). Anything
+    // else is incomplete, so the editor asks again and the engine's answer replaces it (S3-6.3-1).
+    const bool extends { context.word.size() >= entry.word.size()
+                         && std::ranges::equal(entry.word, context.word.substr(0, entry.word.size()), [](char a, char b) {
+                                return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+                            }) };
+    const bool complete { certainty == Certainty::certain && entry.complete && extends && composed.doubted == 0 };
+    composed.result = Json { { "isIncomplete", !complete }, { "items", std::move(items) } };
     return composed;
 }
 

@@ -77,6 +77,8 @@ struct Entry {
     int providerLine { -1 };             // where in it (0-based), when known
     std::uint64_t providerGeneration { 0 };
     std::string asked;                   // the document it was asked in
+    std::string word;                    // a completion's: the word typed when it was asked (the engine filtered by it)
+    bool complete { false };             // a completion's: the engine said the list was complete
     std::int64_t keptAt { 0 };           // system clock, ms
     std::uint32_t hits { 0 };
 };

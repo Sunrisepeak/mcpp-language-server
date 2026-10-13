@@ -2278,6 +2278,12 @@
     },
     {
       "test": "tests/test_answer_routing.cpp: a slow engine's answer is kept, and given at the answer budget the next time"
+    },
+    {
+      "test": "tests/test_answer.cpp: a kept completion is complete only when certain, complete, and asked for a word the one typed now extends"
+    },
+    {
+      "test": "tests/test_answer_routing.cpp: a complete list nothing changed under is given complete, so the editor filters it"
     }
   ],
   "S3-6.3-2": [

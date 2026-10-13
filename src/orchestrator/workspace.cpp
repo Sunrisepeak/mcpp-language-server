@@ -1209,6 +1209,9 @@ struct Workspace::Impl final : engine::Host {
         answers_->keep(background.asked, answer.value, background.served, took);
         answers_->count_engine(background.asked, took);
         answers_->count_background("answered");
+        if (background.asked.kind == answer::Kind::completion) {
+            note_word_answer_at(background.asked.uri, background.asked.text, background.asked.position, answer.value);
+        }
         learn_receiver_type(background.asked);
         // R3 (S3-5.9-1): the person was given (almost) nothing after a trigger and has not moved: the list appears now,
         // for a client that said it asks again on this; others ask again as the person types.
@@ -1512,12 +1515,15 @@ struct Workspace::Impl final : engine::Host {
 
     // 0.0.14 A1: a complete core answer, kept for its word.
     void note_word_answer(const Job& job, const Json& result) {
+        if (const auto position = position_of(job.params)) note_word_answer_at(uri_of_params(job.params), job.text, *position, result);
+    }
+
+    // The same for a completion asked of `text` at `position` (also one answered in the background: the next letter of the
+    // word is given the engine's complete list, as a late answer was in 0.0.14).
+    void note_word_answer_at(const std::string& uri, std::string_view text, base::Position position, const Json& result) {
         if (!wordAnswersOn || !completion::is_complete(result) || completion::is_empty(result)) return;
-        const auto position = position_of(job.params);
-        if (!position) return;
-        const std::string uri { uri_of_params(job.params) };
-        auto key = completion::word_key(job.text, *position);
-        const auto outside = completion::outside_word(job.text, *position);
+        auto key = completion::word_key(text, position);
+        const auto outside = completion::outside_word(text, position);
         if (!key || !outside) {
             wordAnswers.erase(uri);
             return;
