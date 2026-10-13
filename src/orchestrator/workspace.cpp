@@ -1120,7 +1120,11 @@ struct Workspace::Impl final : engine::Host {
             return;
         }
         job.answerers = std::move(selection.answerers);
-        if (const auto budget = request_budget(job); budget && coreEngine != nullptr
+        // An agent that asked for the engine's own answers (S5-2.6-2: `fresh`, or mcppls.answer.agent: authoritative)
+        // waits for the engine up to its own deadline: neither a kept answer nor mcppls's own stands in.
+        const bool engineOnly { job.agent && job.clientId.is_string()
+                                && (job.clientId.get_ref<const std::string&>().starts_with("ka:") || (answers_ && answers_->settings().agentAuthoritative)) };
+        if (const auto budget = request_budget(job); budget && !engineOnly && coreEngine != nullptr
             && std::ranges::find(job.answerers, coreEngine) != job.answerers.end()) {
             job.budgetAt = job.started + *budget;
         }

@@ -453,6 +453,18 @@ int main() {
         expect(!outline->contains("provenance")) << outline->dump();
     };
 
+    "an agent that asked for the engine's own answer gets neither a kept answer nor mcppls's own"_test = [] {
+        Fixture f;
+        f.open("a.cpp", A);
+        const Json hover = f.ask("textDocument/hover", "a.cpp", 2, 9, "ka:");
+        f.tick(2100ms);   // past hover's budget
+        expect(!f.sink.response(hover).has_value()) << "it waits for the engine, up to the agent's own deadline";
+        expect(f.answer(hover, Json { { "contents", Json { { "kind", "markdown" }, { "value", "size_t size()" } } } }));
+        const auto answered = f.sink.response(hover);
+        expect(fatal(answered.has_value()));
+        expect((*answered)["provenance"]["authoritative"] == true) << answered->dump();
+    };
+
     "with mcppls.answer.agent authoritative, an agent always waits for the engine"_test = [] {
         Fixture f { canonical_root(), "on", true, "authoritative" };
         f.open("a.cpp", A);
