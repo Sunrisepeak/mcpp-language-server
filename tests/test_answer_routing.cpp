@@ -188,10 +188,10 @@ struct Fixture {
 
     std::string uri(std::string_view name) const { return mcppls::base::path_to_uri(mcppls::base::join_path(root, name)); }
 
-    void open(std::string_view name, const std::string& text) {
+    void open(std::string_view name, std::string_view text) {
         (void)fs::write_file(mcppls::base::join_path(root, name), text);
         versions[std::string { name }] = 1;
-        workspace->did_open(Json { { "textDocument", { { "uri", uri(name) }, { "languageId", "cpp" }, { "version", 1 }, { "text", text } } } });
+        workspace->did_open(Json { { "textDocument", { { "uri", uri(name) }, { "languageId", "cpp" }, { "version", 1 }, { "text", std::string { text } } } } });
     }
 
     // A request at line/character; its id.
@@ -228,7 +228,8 @@ struct Fixture {
     }
 };
 
-const std::string A { "#include <x>\nvoid f() {\n    doc.size();\n    std::vector<int> v;\n}\n" };   // `doc.` at 2:8, `std::` at 3:9
+// A constant, not a std::string: nothing is allocated before main (the platform runtime is set up there).
+constexpr std::string_view A { "#include <x>\nvoid f() {\n    doc.size();\n    std::vector<int> v;\n}\n" };   // `doc.` at 2:8, `std::` at 3:9
 
 } // namespace
 
@@ -258,7 +259,6 @@ int main() {
         std::print(std::cerr, "{}", result->error);
         return result->timedOut ? 1 : result->exitCode;
     }
-
     "a slow engine's answer is kept, and given at the answer budget the next time"_test = [] {
         Fixture f;
         f.open("a.cpp", A);
