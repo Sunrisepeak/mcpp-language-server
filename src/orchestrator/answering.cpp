@@ -310,6 +310,20 @@ bool Layer::knows_type(const Asked& asked) const {
     return placeTypes_.contains(asked.k1) || (asked.declaredType && spelledTypes_.contains(*asked.declaredType));
 }
 
+namespace {
+
+// Whether a completion context is inside a function's body: its innermost named declaration is a function, not a
+// namespace, class or enum (answer::enclosing_of names those by their keyword).
+bool in_function_body(const answer::Context& context) {
+    if (context.enclosing.empty()) return false;
+    for (std::string_view key : { "namespace ", "class ", "struct ", "union ", "enum " }) {
+        if (context.enclosing.starts_with(key)) return false;
+    }
+    return true;
+}
+
+} // namespace
+
 std::optional<base::Position> Layer::prefetch_place(std::string_view uri, std::string_view text, base::Position near, std::string_view fingerprint) {
     // The triggers the file has, nearest first, within a screenful or two of where the person is.
     struct Candidate {
@@ -340,6 +354,14 @@ std::optional<base::Position> Layer::prefetch_place(std::string_view uri, std::s
         const base::Position position { base::position_at(text, candidate.offset) };
         const auto context = answer::context_at(text, position, answer::Kind::completion);
         if (!context || context->place == answer::Context::Place::other || context->place == answer::Context::Place::unqualified) continue;
+        // Only in a function's body, where a person types `.`, `->` and `::`: a qualified name in a declaration's head
+        // (`namespace a::b {`, a base class, a return type) is asked of the engine by nobody, and is where its parser is
+        // least tried.
+        if (!in_function_body(*context)) continue;
+        const std::size_t newline { candidate.offset == 0 ? std::string_view::npos : text.rfind('\n', candidate.offset - 1) };
+        const std::size_t lineStart { newline == std::string_view::npos ? 0 : newline + 1 };
+        const std::string_view lineText { base::trim(text.substr(lineStart, candidate.offset - lineStart)) };
+        if (lineText.starts_with('#') || lineText.starts_with("//") || lineText.starts_with('*') || lineText.starts_with("/*")) continue;
         if (store_.contains(answer::k1(uri, answer::Kind::completion, *context))) continue;
         (void)fingerprint;
         return position;

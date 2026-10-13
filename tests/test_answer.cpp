@@ -7,6 +7,7 @@ import nlohmann.json;
 import mcppls.testing;
 import mcppls.base.text;
 import mcppls.orchestrator.answer;
+import mcppls.orchestrator.answering;
 import mcppls.orchestrator.outline;
 
 using Json = nlohmann::json;
@@ -312,6 +313,18 @@ int main() {
         const Json value = answer::to_json(kept);
         expect(value["authoritative"] == false && value["source"] == "cache:K3" && value["providerChanged"] == true);
         expect(value["note"].get<std::string>().find("3 min ago") != std::string::npos) << value.dump();
+    };
+
+    "prefetch asks only in a function's body, never in a declaration's head, a directive or a comment"_test = [] {
+        namespace answering = mcppls::orchestrator::answering;
+        answering::Layer layer { answering::Settings {}, "", "", [](std::string_view) { return std::optional<std::string> {}; } };
+        const std::string text { "#include <a::b>\nnamespace app::detail {\nstruct S : base::Thing {};\n// see doc.dump\n"
+                                 "void f() {\n    doc.dump();\n}\n}\n" };
+        const auto place = layer.prefetch_place("file:///a.cpp", text, mcppls::base::Position { 1, 0 }, "fp");
+        expect(fatal(place.has_value()));
+        expect(place->line == 5 && place->character == 8) << place->line << ":" << place->character;   // `doc.` in f()
+        const std::string heads { "namespace app::detail {\nstruct S : base::Thing {};\n}\n" };
+        expect(!layer.prefetch_place("file:///b.cpp", heads, mcppls::base::Position { 0, 0 }, "fp").has_value());
     };
 
     "a class's members, read from its body"_test = [] {

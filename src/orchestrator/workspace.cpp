@@ -459,6 +459,8 @@ struct Workspace::Impl final : engine::Host {
     std::optional<Clock::time_point> prefetchAt_;
     std::optional<Clock::time_point> prefetchExhaustedFor_;      // the request after which nothing near was left to ask
     bool prefetchInFlight_ { false };
+    std::optional<std::size_t> prefetchRestartsAt_;               // the core engine's restarts when prefetching began
+    bool prefetchStopped_ { false };
     std::deque<Clock::time_point> prefetched_;                    // the last minute's, at most PREFETCH_PER_MINUTE
     static constexpr std::size_t PREFETCH_PER_MINUTE { 30 };
     std::optional<Clock::time_point> answersSaveAt_;
@@ -1300,7 +1302,7 @@ struct Workspace::Impl final : engine::Host {
     // whose answer is not kept yet.
     void prefetch_due(Clock::time_point now) {
         prefetchAt_.reset();
-        if (!answers_ || !answers_->enabled() || !answers_->settings().prefetch || coreEngine == nullptr || prefetchInFlight_) return;
+        if (!answers_ || !answers_->enabled() || !answers_->settings().prefetch || coreEngine == nullptr || prefetchInFlight_ || prefetchStopped_) return;
         if (!lastClientRequestAt_ || lastAskedUri_.empty()) return;
         if (now - *lastClientRequestAt_ < std::chrono::seconds { 2 } || !jobs.empty() || !background_.empty() || learning_ > 0) {
             prefetchAt_ = now + std::chrono::seconds { 2 };
@@ -1312,6 +1314,14 @@ struct Workspace::Impl final : engine::Host {
             return;
         }
         const engine::EngineStatus status { coreEngine->status() };
+        // A core engine that restarted since prefetching began may have stopped on a question nobody else asks: none
+        // more this session (the person's own requests still keep and give answers).
+        if (!prefetchRestartsAt_) prefetchRestartsAt_ = status.restarts;
+        if (status.restarts != *prefetchRestartsAt_) {
+            log::info("answers: no more prefetching in {} this session: clangd restarted since it began", root);
+            prefetchStopped_ = true;
+            return;
+        }
         if (status.state != "ready" || status.preparing) {
             prefetchAt_ = now + std::chrono::seconds { 5 };
             return;
@@ -3410,7 +3420,7 @@ struct Workspace::Impl final : engine::Host {
                 it = background_.erase(it);
             }
             if (answers_ && answers_->enabled()) {
-                if (!prefetchAt_ && lastClientRequestAt_ && answers_->settings().prefetch && lastClientRequestAt_ != prefetchExhaustedFor_) {
+                if (!prefetchAt_ && !prefetchStopped_ && lastClientRequestAt_ && answers_->settings().prefetch && lastClientRequestAt_ != prefetchExhaustedFor_) {
                     prefetchAt_ = now + std::chrono::seconds { 2 };
                 }
                 if (prefetchAt_ && *prefetchAt_ <= now) prefetch_due(now);
