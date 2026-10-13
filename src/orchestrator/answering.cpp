@@ -362,11 +362,18 @@ std::optional<base::Position> Layer::prefetch_place(std::string_view uri, std::s
         const std::size_t lineStart { newline == std::string_view::npos ? 0 : newline + 1 };
         const std::string_view lineText { base::trim(text.substr(lineStart, candidate.offset - lineStart)) };
         if (lineText.starts_with('#') || lineText.starts_with("//") || lineText.starts_with('*') || lineText.starts_with("/*")) continue;
-        if (store_.contains(answer::k1(uri, answer::Kind::completion, *context))) continue;
-        (void)fingerprint;
+        const std::string key { answer::k1(uri, answer::Kind::completion, *context) };
+        if (store_.contains(key)) continue;
+        if (const auto empty = fruitless_.find(key); empty != fruitless_.end() && empty->second == std::format("{}|{}", fingerprint, total_)) continue;
         return position;
     }
     return std::nullopt;
+}
+
+void Layer::prefetch_came_back_empty(const Asked& asked) {
+    // Any change since (`total_` counts every file's, and a new plan) asks it again.
+    if (fruitless_.size() > 4096) fruitless_.clear();
+    fruitless_[asked.k1] = std::format("{}|{}", asked.fingerprint, total_);
 }
 
 void Layer::load() {

@@ -248,6 +248,7 @@ function mcpplsSettings(): Record<string, unknown> {
         'format.fallbackStyle': settings.get<string>('format.fallbackStyle') || 'auto',
         'engine.workers': workersSetting(settings.get<string>('engine.workers')),
         'engine.preambleStorage': preambleStorageSetting(settings.get<string>('engine.preambleStorage')),
+        'engine.diagnosticsWhileTyping': settings.get<string>('engine.diagnosticsWhileTyping'),
         'buildDiscovery.mode': resolveRenamed(settings, RENAMED_SETTINGS[1], 'auto'),
         buildTool: settings.get('buildTool'),
         toolEnvironment: settings.get('toolEnvironment'),

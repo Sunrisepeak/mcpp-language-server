@@ -270,6 +270,10 @@
     "src/**/*.s",
     "tests/**/*.cpp",
     "mcpp-mock.json",
-    "inputs/*.txt"
+    "inputs/*.txt",
+    "host/mcpp.lock"
+  ],
+  "rewriteEachRun": [
+    "host/mcpp.lock"
   ]
 }

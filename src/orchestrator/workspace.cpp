@@ -7,6 +7,7 @@ import mcppls.base.error;
 import mcppls.base.glob;
 import mcppls.base.log;
 import mcppls.base.path;
+import mcppls.base.sha256;
 import mcppls.base.text;
 import mcppls.base.uri;
 import mcppls.base.version;
@@ -1365,7 +1366,11 @@ struct Workspace::Impl final : engine::Host {
         ask_core_internally("textDocument/completion", params, document->path, document->text, [this, asked = std::move(*asked)](std::optional<Json> result) {
             prefetchInFlight_ = false;
             prefetchAt_ = Clock::now() + std::chrono::milliseconds { 500 };
-            if (!result || !keepable()) return;
+            if (!result || !answer::trim(answer::Kind::completion, *result)) {
+                answers_->prefetch_came_back_empty(asked);
+                return;
+            }
+            if (!keepable()) return;
             answers_->keep(asked, *result, std::nullopt, std::chrono::milliseconds { 0 });
             learn_receiver_type(asked);
         });
@@ -2162,12 +2167,61 @@ struct Workspace::Impl final : engine::Host {
         client.send(lsp::make_request(std::format("w:{}:r{}", key, watchRegistration), "client/registerCapability", std::move(registrations)));
     }
 
+    // A1 (plan 2026-10-14): what each build file and each named input of the producer held when it was last
+    // described, by content. mcpp rewrites a file it lists as an input on every run with the same bytes (the
+    // lock of a build program's synthesised package, mcpp#807); the watcher reports the new mtime, the model
+    // was loaded again, the run rewrote it again -- the producer ran every two seconds of an idle session.
+    // A change event whose file holds what it held is no change -- nor is a "created" one (a write through a rename is
+    // reported so) for a file known to hold those bytes; a file never seen before is new whatever it holds.
+    std::map<std::string, std::string> describedInputs;
+
+    // Whether `path` holds what it held when last seen; remembers what it holds now.
+    bool input_unchanged(const std::string& path) {
+        const auto text = platform::fs::read_file(path);
+        if (!text) {
+            describedInputs.erase(path);
+            return false;
+        }
+        std::string digest { base::sha256_hex(*text) };
+        const auto [at, inserted] = describedInputs.try_emplace(path, digest);
+        if (inserted) return false;
+        const bool same { at->second == digest };
+        at->second = std::move(digest);
+        return same;
+    }
+
+    // The files a description reads that are named outright (no glob): the build files at the root and the
+    // model's concrete watch entries. Sources go through the index and the structure check instead (G-5).
+    std::vector<std::string> described_files() const {
+        std::vector<std::string> files;
+        for (const auto name : BUILD_FILES) files.push_back(base::join_path(root, name));
+        if (model && model->source != project::SourceKind::inferred) {
+            for (const auto& entry : model->watch) {
+                if (entry.find_first_of("*?[{") != std::string::npos) continue;
+                files.push_back(base::is_absolute_path(entry) ? base::normalize_path(entry) : base::join_path(root, entry));
+            }
+        }
+        return files;
+    }
+
+    // Before a run: what the producer is about to read. An edit made while it runs then differs from this, and is
+    // seen. After a model is adopted, only files not yet known are added, for the same reason.
+    void remember_described_inputs(bool overwrite) {
+        for (const auto& file : described_files()) {
+            if (overwrite) input_unchanged(file);
+            else if (!describedInputs.contains(file)) {
+                if (const auto text = platform::fs::read_file(file)) describedInputs.emplace(file, base::sha256_hex(*text));
+            }
+        }
+    }
+
     void start_model_load() {
         if (loading) {
             reloadAfterLoad = true;
             return;
         }
         loading = true;
+        remember_described_inputs(true);
         const int generation { ++modelGeneration };
         project::LoadOptions load;
         load.trusted = options.trusted;
@@ -2461,6 +2515,7 @@ struct Workspace::Impl final : engine::Host {
         std::string description { describe_model(*loadedModel) };
         const bool unchanged { model && description == modelDescription };
         model = std::move(loadedModel);
+        remember_described_inputs(false);
         if (watchChanged) {
             {
                 const std::lock_guard lock { watchPatterns->mutex };
@@ -3650,7 +3705,11 @@ void Workspace::did_open(const Json& params) {
     const std::string uri { item->value("uri", std::string {}) };
     const std::string path { impl_->path_of_uri(uri) };
     ++impl_->snapshotGeneration;
-    const Document& document = impl_->documents_.open(uri, path, item->value("languageId", std::string { "cpp" }),
+    // A6 (plan 2026-10-14): a `.mcpp` file is C++ to clangd whatever language id the editor gave
+    // it -- a companion extension may name build.mcpp a language of its own.
+    std::string languageId { item->value("languageId", std::string { "cpp" }) };
+    if (std::string_view { uri }.ends_with(".mcpp")) languageId = "cpp";
+    const Document& document = impl_->documents_.open(uri, path, std::move(languageId),
                                                       item->value("version", std::int64_t { 0 }), item->value("text", std::string {}));
     if (!path.empty()) {
         impl_->note_recent_file(path);
@@ -3749,9 +3808,11 @@ void Workspace::handle_watched_files(const Json& changes) {
         // S2 5: an input the producer named changes what it would answer, so the model is loaded again.
         const bool producerInput { impl_->model && impl_->model->source != project::SourceKind::inferred && name != "compile_commands.json"
                                    && matches_watch_entries(impl_->model->watch, impl_->root, path) };
+        if (type == 3) impl_->describedInputs.erase(path);
         if (is_build_file(name)) {
             // mcpp rewrites its own compile_commands.json while the model loads.
             if (name == "compile_commands.json" && impl_->model && impl_->model->source == project::SourceKind::mcpp) continue;
+            if (type != 3 && impl_->input_unchanged(path)) continue;   // A1: written again with the same bytes
             reload = describedAgain = true;
             continue;
         }
@@ -3760,7 +3821,8 @@ void Workspace::handle_watched_files(const Json& changes) {
             continue;
         }
         if (!project::is_cxx_source_name(path)) {
-            if (producerInput) reload = describedAgain = true;   // an input the producer named that is not a source: what it reads changed
+            // An input the producer named that is not a source: what it reads changed, unless only its mtime did (A1).
+            if (producerInput && !(type != 3 && impl_->input_unchanged(path))) reload = describedAgain = true;
             continue;
         }
         const bool open { impl_->documents_.find_by_path(path) != nullptr };

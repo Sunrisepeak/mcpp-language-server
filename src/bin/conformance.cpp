@@ -393,6 +393,7 @@ public:
     std::vector<std::string> serverCommand; // actual executable and argv, for timing evidence
     std::map<std::string, Json> diagnostics;     // uri -> latest diagnostics
     std::map<std::string, int> diagnosticsCount; // uri -> publishes received
+    std::map<std::string, std::int64_t> diagnosticsVersion; // uri -> the version the latest publication named
     std::map<std::string, int> moduleFailedCount; // uri -> publishes received that carried a diagnostic with code "module-failed"
     std::vector<std::string> progressKinds;      // $/progress kinds in order: begin, report…, end
     Json status;                                 // the latest cxxModules/status, whichever root sent it
@@ -476,6 +477,7 @@ public:
         unanswered_ = 0;
         diagnostics.clear();
         diagnosticsCount.clear();
+        diagnosticsVersion.clear();
         moduleFailedCount.clear();
         diagnosticsAt.clear();
         status = Json {};
@@ -637,6 +639,9 @@ public:
                 diagnostics[uri] = message["params"].value("diagnostics", Json::array());
                 diagnosticsAt[uri] = Clock::now();
                 ++diagnosticsCount[uri];
+                if (const Json* version { lsp::find(message["params"], "version") }; version != nullptr && version->is_number_integer()) {
+                    diagnosticsVersion[uri] = version->get<std::int64_t>();
+                }
                 if (std::ranges::any_of(diagnostics[uri], [](const Json& one) { const auto code = one.find("code"); return code != one.end() && code->is_string() && code->get<std::string>() == "module-failed"; })) {
                     ++moduleFailedCount[uri];
                 }
@@ -2367,6 +2372,61 @@ public:
         const auto it = client_.diagnostics.find(documentUri);
         if (it == client_.diagnostics.end()) return false;
         return std::ranges::any_of(it->second, [&](const Json& diagnostic) { return diagnostic.value("message", std::string {}).contains(needle); });
+    }
+
+    // A4 (plan 2026-10-14): keys typed in a burst, each followed by the semantic tokens request an editor sends after an
+    // edit. The file is diagnosed once the typing pauses, not at every key ("max-during" publications while typing), the
+    // latest version within "within-seconds" of the last key ("type" is what is typed, at "line" and "character"); every token request is answered, the superseded ones
+    // possibly "content modified", the last with tokens.
+    std::pair<bool, std::string> run_typing_diagnostics(const Json& check, const std::string& file) {
+        open(file);
+        const std::string documentUri { uri(file) };
+        if (!client_.wait_for([&] { return client_.diagnosticsCount[documentUri] > 0; }, timeout_)) return { false, "no diagnostics before typing" };
+        client_.drain(std::chrono::milliseconds { 1500 });
+        const std::string original { text_of(file) };
+        std::vector<std::string> lines;
+        for (const auto line : base::split_lines(original)) lines.emplace_back(line);
+        const std::string eol { line_ending_of(original) };
+        const auto row = static_cast<std::size_t>(std::max(0, check.value("line", 0)));
+        if (row >= lines.size()) return { false, std::format("{} has no line {} (it has {})", file, row, lines.size()) };
+        std::size_t column { std::min(static_cast<std::size_t>(std::max(0, check.value("character", 0))), lines[row].size()) };
+        const std::string typed { check.value("type", std::string {}) };
+        const std::chrono::milliseconds gap { check.value("gap-ms", 120) };
+        const int before { client_.diagnosticsCount[documentUri] };
+        std::vector<std::int64_t> tokens;
+        for (const char c : typed) {
+            lines[row].insert(column++, 1, c);
+            std::string text;
+            for (const auto& line : lines) (text += line) += eol;
+            change(file, text);
+            tokens.push_back(client_.send_async("textDocument/semanticTokens/full", Json { { "textDocument", Json { { "uri", documentUri } } } }));
+            client_.pump_until(Clock::now() + gap);
+        }
+        const int during { client_.diagnosticsCount[documentUri] - before };
+        // The latest text's diagnostics: a publication after the last key, naming the version where the server says one,
+        // and what only the whole of the typed text gives ("expect").
+        const std::int64_t last { open_[file].second };
+        const std::string expect { check.value("expect", std::string {}) };
+        const bool diagnosed { client_.wait_for([&] {
+            const auto version = client_.diagnosticsVersion.find(documentUri);
+            return client_.diagnosticsCount[documentUri] > before + during && (version == client_.diagnosticsVersion.end() || version->second == last)
+                   && (expect.empty() || diagnostic_mentions(documentUri, expect));
+        }, std::chrono::seconds { check.value("within-seconds", 5) }) };
+        const bool mentions { expect.empty() || diagnostic_mentions(documentUri, expect) };
+        const bool answered { client_.wait_for([&] {
+            return std::ranges::all_of(tokens, [&](std::int64_t id) { return client_.asyncRequests[id].answered.has_value(); });
+        }, std::chrono::seconds { 30 }) };
+        const std::size_t modified { static_cast<std::size_t>(std::ranges::count_if(tokens, [&](std::int64_t id) { return client_.asyncRequests[id].isError; })) };
+        const auto& lastTokens = client_.asyncRequests[tokens.back()];
+        const bool lastHasTokens { !lastTokens.isError && lastTokens.result.is_object() && lastTokens.result.contains("data") };
+        change(file, original);
+        client_.drain(std::chrono::milliseconds { 500 });
+        const int maxDuring { check.value("max-during", 0) };
+        const std::string detail { std::format("{} keys: {} publication(s) while typing (at most {}), the last version {}diagnosed{}; token requests {} "
+                                               "answered, {} superseded, the last {}", typed.size(), during, maxDuring, diagnosed ? "" : "not ",
+                                               expect.empty() ? "" : mentions ? std::format(" with '{}'", expect) : std::format(" without '{}'", expect),
+                                               answered ? "all" : "not all", modified, lastHasTokens ? "with tokens" : "without tokens") };
+        return { during <= maxDuring && diagnosed && mentions && answered && lastHasTokens, detail };
     }
 
     std::pair<bool, std::string> run_typing(const Json& check, const std::string& file) {
@@ -4403,6 +4463,7 @@ public:
         if (kind == "completion-baseline") return run_completion_baseline(check, file);
         if (kind == "latency") return run_latency(check);
         if (kind == "typing") return run_typing(check, file);
+        if (kind == "typing-diagnostics") return run_typing_diagnostics(check, file);
         if (kind == "edit-save") return run_edit_save(check);
         if (kind == "fault") return run_fault(check);
         if (kind == "timeline") return run_timeline(check);

@@ -163,8 +163,42 @@ std::optional<ModuleFailure> parse_module_failure(std::string_view line) {
             failure.module = std::string { base::trim(name.substr(0, name.find(':'))) };
             failure.reason = std::string { reason };
         } else if (reason.starts_with(WORKER)) {
-            failure.failedSource = diagnostic_source(reason.substr(WORKER.size()));
-            failure.reason = failure.failedSource.empty() ? std::string { reason } : std::format("Failed to compile {}", failure.failedSource);
+            std::string_view error { reason.substr(WORKER.size()) };
+            // A3 (plan 2026-10-14): an error inside a module or a file the unit brings in comes after clang's
+            //   In module 'std' imported from <unit>:<line>: <header>:<line>:<column>: error: ...
+            //   In file included from <unit>:<line>: <file>:<line>:<column>: error: ...
+            // (once per level). The unit being compiled is the first <unit>; the file the error is in is not a unit of anyone's.
+            static constexpr std::string_view IN_MODULE { "In module '" };
+            static constexpr std::string_view IMPORTED { "' imported from " };
+            static constexpr std::string_view INCLUDED { "In file included from " };
+            while (error.starts_with(IN_MODULE) || error.starts_with(INCLUDED)) {
+                const std::size_t imported { error.starts_with(INCLUDED) ? 0 : error.find(IMPORTED) };
+                if (imported == std::string_view::npos) break;
+                const std::string_view from { error.substr(error.starts_with(INCLUDED) ? INCLUDED.size() : imported + IMPORTED.size()) };
+                std::size_t end { std::string_view::npos };
+                for (std::size_t colon { from.find(':') }; colon != std::string_view::npos; colon = from.find(':', colon + 1)) {
+                    std::size_t at { colon + 1 };
+                    while (at < from.size() && from[at] >= '0' && from[at] <= '9') ++at;
+                    if (at > colon + 1 && at < from.size() && from[at] == ':') {
+                        if (failure.failedSource.empty()) failure.failedSource = std::string { base::trim(from.substr(0, colon)) };
+                        end = at + 1;
+                        break;
+                    }
+                }
+                if (end == std::string_view::npos) break;
+                error = base::trim(from.substr(end));
+            }
+            if (failure.failedSource.empty()) failure.failedSource = diagnostic_source(error);
+            std::string message;
+            if (const std::size_t said { error.find("error: ") }; said != std::string_view::npos) {
+                std::string_view told { error.substr(said + 7) };
+                // The log line goes on with clang's excerpt of the source ("     5 | int twice(..."), after a run of spaces.
+                if (const std::size_t excerpt { told.find("   ") }; excerpt != std::string_view::npos) told = told.substr(0, excerpt);
+                message = std::string { base::trim(told.substr(0, std::min<std::size_t>(told.size(), 240))) };
+            }
+            failure.reason = failure.failedSource.empty() ? std::string { reason }
+                             : message.empty()            ? std::format("Failed to compile {}", failure.failedSource)
+                                                          : std::format("Failed to compile {}: {}", failure.failedSource, message);
         } else if (reason.starts_with(COMPILE)) {
             if (const std::size_t hint { reason.find(" Use '--log=verbose'") }; hint != std::string_view::npos) reason = reason.substr(0, hint);
             reason = base::trim(reason);

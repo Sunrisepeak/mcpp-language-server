@@ -124,6 +124,8 @@ export function buildInitializationOptions(configuration: SettingsReader, compil
         'engine.workers': workersSetting(configuration.get<string>('engine.workers')),
         // 0.0.14 C1: where clangd keeps preambles; a change restarts the server.
         'engine.preambleStorage': preambleStorageSetting(configuration.get<string>('engine.preambleStorage')),
+        // A4 (plan 2026-10-14): whether clangd checks a file at every key or once typing pauses; a change restarts the server.
+        'engine.diagnosticsWhileTyping': oneOf(configuration.get<string>('engine.diagnosticsWhileTyping'), ['auto', 'always']),
         // The formatting fallback without a project .clang-format; a change restarts the server.
         'format.fallbackStyle': configuration.get<string>('format.fallbackStyle') || 'auto',
         // build description design 4.4: how the user's build tool may be run.

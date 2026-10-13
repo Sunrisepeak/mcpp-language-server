@@ -2,7 +2,7 @@
   "name": "mcpp-language-server",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "0.0.15",
+  "version": "0.0.16",
   "publisher": "sunrisepeak",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -309,6 +309,19 @@
             "%config.mcppls.engine.preambleStorage.enum.2%"
           ],
           "description": "%config.mcppls.engine.preambleStorage.description%"
+        },
+        "mcppls.engine.diagnosticsWhileTyping": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "always"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "%config.mcppls.engine.diagnosticsWhileTyping.enum.0%",
+            "%config.mcppls.engine.diagnosticsWhileTyping.enum.1%"
+          ],
+          "description": "%config.mcppls.engine.diagnosticsWhileTyping.description%"
         },
         "mcppls.engine.name": {
           "type": "string",

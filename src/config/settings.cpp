@@ -162,6 +162,19 @@ const std::vector<Setting>& shipped_registry() {
             .clientConfigurable = true,
         },
         Setting {
+            .key = "engine.diagnosticsWhileTyping", .kind = Kind::enumeration, .values = { "auto", "always" }, .defaultValue = "auto",
+            .commandLine = "--engine-diagnostics-while-typing", .surface = Surface::server, .applies = Applies::restart,
+            .category = "engines", .since = "0.0.16",
+            .summary = "When clangd checks a file you are typing in. `auto`: once you pause (a little longer than the file takes to "
+                       "build, between 0.3 and 1 s), with the semantic colours, highlights and hints that need the same build; "
+                       "completion and signature help are not held. `always`: at every key, as clangd does by itself -- a core "
+                       "busy while you type in a file with heavy headers or imports.",
+            .summaryZh = "clangd 何时检查你正在输入的文件。`auto`：在你停顿之后（比该文件一次构建稍长，0.3 到 1 秒之间），需要同一次"
+                         "构建的语义着色、高亮和提示也随之一起；补全和参数提示不受影响。`always`：每个键都检查，即 clangd 自己的做法——"
+                         "在包含或导入很重的文件里输入时，会占满一个核心。",
+            .clientConfigurable = true,
+        },
+        Setting {
             .key = "compiler", .kind = Kind::string, .defaultValue = "", .commandLine = "--compiler", .surface = Surface::server,
             .applies = Applies::reload, .category = "engines", .since = "0.0.1",
             .summary = "Use this compiler for module semantics instead of what was detected: an absolute path, a name on `PATH`, or "

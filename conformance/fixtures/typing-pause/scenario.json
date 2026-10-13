@@ -1,0 +1,11 @@
+{
+  "name": "typing-pause",
+  "description": "Plan 2026-10-14 A4: keys typed in a burst, each followed by the semantic tokens request an editor sends after an edit. clangd is given every version without wanting its diagnostics, and builds the file once the typing pauses: no diagnostics are published while the keys come, the latest version's arrive within a few seconds of the last one, and the token requests are answered once, for the latest text -- the ones a later key replaced as content modified.",
+  "server-arguments": ["--no-discover"],
+  "checks": [
+    { "id": "S1", "kind": "status", "source": "inferred", "state": "ready", "engine-name": "clangd" },
+    { "id": "C1", "kind": "diagnostics-empty", "file": "src/main.cpp" },
+    { "id": "T1-burst", "kind": "typing-diagnostics", "file": "src/main.cpp", "line": 5, "character": 0, "type": "int a = missing_name;", "gap-ms": 120, "max-during": 0, "within-seconds": 5, "expect": "missing_name" },
+    { "id": "C2-after", "kind": "definition", "file": "src/main.cpp", "at": [4, 31], "expect": "src/greet/greet.cppm" }
+  ]
+}
