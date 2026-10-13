@@ -65,11 +65,19 @@ public:
     void settle_index(Clock::time_point deadline);
     // The result of an LSP request: null for an error response, nullopt when the deadline passed.
     std::optional<Json> request(std::string_view method, Json params, Clock::time_point deadline);
+    // Answer-layer design 6.2: requests ask for the engine's own answers only (a tool's `fresh: true`, or a tool whose
+    // conclusion rests on them); and where the answers since the last take came from, as one summary --
+    // `authoritative` false when any was not the engine's own -- or null when no request was made.
+    void require_authoritative(bool authoritative) { authoritative_ = authoritative; }
+    bool requires_authoritative() const { return authoritative_; }
+    Json take_provenance();
     void open(std::string_view path);
     bool has_core_engine() const;
 
 private:
     orchestrator::Kernel& kernel_;
+    bool authoritative_ { false };
+    std::vector<Json> provenance_;
 };
 
 // LSP SymbolKind as S5 names it.

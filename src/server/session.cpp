@@ -464,6 +464,11 @@ private:
         options_.formatFallbackStyle = settings.string_value("format.fallbackStyle");
         options_.engineWorkers = settings.string_value("engine.workers");
         options_.preambleStorage = settings.string_value("engine.preambleStorage");
+        options_.answerCache = settings.string_value("answer.cache");
+        options_.answerBudget = std::chrono::milliseconds { std::clamp(std::atoi(settings.string_value("answer.budget").c_str()), 100, 2000) };
+        options_.answerPrefetch = settings.bool_value("answer.prefetch");
+        options_.answerAgent = settings.string_value("answer.agent");
+        options_.completionProvenance = settings.string_value("completion.provenance");
         options_.disabledWorkarounds = settings.list_value("disableWorkaround");
         options_.semanticTokensModules = settings.bool_value("semanticTokens.modules");
         options_.semanticTokensModuleType = settings.bool_value("semanticTokens.moduleType");

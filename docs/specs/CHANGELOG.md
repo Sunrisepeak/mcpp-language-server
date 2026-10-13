@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-10-13 — S3 and S5: answers given before the engine's, and where they came from
+
+S3 6.3 describes answers a server gives from what its engine answered before -- a completion, a hover, signature help,
+a jump -- when the engine is slow to answer: a completion list given so is `isIncomplete` (S3-6.3-1), a jump only while
+the file it lands in is as it was or its declaration is found there again exactly once (S3-6.3-2), nothing is kept from
+an engine that was failing (S3-6.3-3), and only the items a server doubts carry a small mark (S3-6.3-4). A new
+notification `cxxModules/completionReady` (5.9), for a client that declared `completionReady`, says once that a
+completion that went out nearly empty has its answer now (S3-5.9-1 to S3-5.9-4). S5 2.6 adds `provenance` to results
+that rest on such answers (S5-2.6-1), `fresh` / `--fresh` for the engine's own answers only (S5-2.6-2), and holds
+verification, impact and review to the engine's own answers (S5-2.6-3). All additive: protocol version stays 1.
+
 ## 2026-10-12 — S3: whether a Windows cache is on a Dev Drive
 
 `about` may carry `cacheDevDrive` on Windows (S3-4-34): whether the server's cache directory is on a Dev Drive, where

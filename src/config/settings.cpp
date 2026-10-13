@@ -28,7 +28,7 @@ constexpr std::array<CategoryHeading, 6> CATEGORIES { {
     { "engines", "Engines", "引擎" },
     { "editor", "Editor experience", "编辑器体验" },
     { "diagnostics", "Diagnostics and logging", "诊断与日志" },
-    { "ai", "AI review", "AI 评审" },
+    { "ai", "AI review and agents", "AI 评审与 agent" },
     { "paths", "Paths", "路径" },
 } };
 
@@ -223,6 +223,50 @@ const std::vector<Setting>& shipped_registry() {
             .summaryZh = "在 `import` 或 `export import` 后输入空格时立即弹出模块列表；其他位置的空格不会发给服务端。什么都不说的客户端"
                          "只有在自证是 VS Code 或其分支时才会得到这个行为；其他客户端需要用 "
                          "`initializationOptions.completion.triggerOnSpace: true` 主动开启。",
+            .clientConfigurable = true,
+        },
+        Setting {
+            .key = "answer.cache", .kind = Kind::enumeration, .values = { "on", "memory", "off" }, .defaultValue = "on",
+            .commandLine = "--answer-cache", .surface = Surface::server, .applies = Applies::restart, .category = "editor", .since = "0.0.15",
+            .summary = "Keep the engine's answers to completion, signature help, hover and the jumps, and give a kept one at once when the engine is "
+                       "slower than `answer.budget`; the engine's own answer replaces it when it comes. `on` also keeps them between sessions, "
+                       "`memory` only while mcppls runs, `off` answers as 0.0.14 did.",
+            .summaryZh = "保留引擎对补全、签名帮助、悬停和跳转的答复；引擎慢于 `answer.budget` 时立即给出保留的答复，引擎自己的答复到达后再替换。"
+                         "`on` 还会跨会话保留，`memory` 只在 mcppls 运行期间保留，`off` 与 0.0.14 的行为相同。",
+            .clientConfigurable = true,
+        },
+        Setting {
+            .key = "answer.budget", .kind = Kind::count, .defaultValue = "450", .commandLine = "--answer-budget", .surface = Surface::server,
+            .applies = Applies::restart, .category = "editor", .since = "0.0.15",
+            .summary = "Milliseconds (100-2000) a completion, signature help or hover waits for the engine before a kept answer is given instead. Only "
+                       "where one is kept; otherwise the request waits as before.",
+            .summaryZh = "补全、签名帮助或悬停等待引擎多少毫秒（100-2000），之后改给保留的答复。只在有保留答复时生效，否则照旧等待。",
+            .clientConfigurable = true,
+        },
+        Setting {
+            .key = "answer.prefetch", .kind = Kind::boolean, .defaultValue = "true", .surface = Surface::server, .applies = Applies::restart,
+            .category = "editor", .since = "0.0.15",
+            .summary = "While the engine is idle, ask it for the completions after the `.`, `->` and `::` the open file already has, so the next one is "
+                       "kept before it is typed. One at a time, and never while a person types.",
+            .summaryZh = "引擎空闲时，向它询问当前文件里已有的 `.`、`->`、`::` 之后的补全，让下次输入时已有保留的答复。一次只问一个，有人输入时不问。",
+            .clientConfigurable = true,
+        },
+        Setting {
+            .key = "answer.agent", .kind = Kind::enumeration, .values = { "cached", "authoritative" }, .defaultValue = "cached",
+            .surface = Surface::server, .applies = Applies::restart, .category = "ai", .since = "0.0.15",
+            .summary = "What the MCP tools may answer with: `cached` lets a kept answer stand in when the engine is slower, and says so in the result's "
+                       "`provenance` (`authoritative: false`); `authoritative` waits for the engine. A tool call's own `fresh: true` waits either way.",
+            .summaryZh = "MCP 工具可以用什么作答：`cached` 允许在引擎较慢时用保留的答复代替，并在结果的 `provenance` 中注明（`authoritative: false`）；"
+                         "`authoritative` 等待引擎。单次调用传 `fresh: true` 时，两种设置下都等待。",
+            .clientConfigurable = true,
+        },
+        Setting {
+            .key = "completion.provenance", .kind = Kind::enumeration, .values = { "subtle", "off", "verbose" }, .defaultValue = "subtle",
+            .surface = Surface::server, .applies = Applies::restart, .category = "editor", .since = "0.0.15",
+            .summary = "How an answer given from what was kept shows it: `subtle` puts a faint `·` after the items that are in doubt (a member added or "
+                       "removed since) and nothing else; `off` shows nothing; `verbose` says where every item and hover came from, for a report.",
+            .summaryZh = "用保留答复作答时如何显示：`subtle` 只在有疑问的项（此后新增或删除的成员）后加一个浅色 `·`，其余不显示；`off` 什么都不显示；"
+                         "`verbose` 写出每一项和悬停的来源，用于报告问题。",
             .clientConfigurable = true,
         },
         Setting {

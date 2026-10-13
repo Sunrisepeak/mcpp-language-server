@@ -62,6 +62,10 @@ VS Code 扩展已经会这样做）；`重新加载模型` 只重新加载项目
 | `mcppls.semanticTokens.modules` | `true`, `false` | `true` | — | 重启 | 用服务端的语义 token 给 `import`、`module`、`export` 和模块名上色。关闭后只用语法文件的颜色。 |
 | `mcppls.semanticTokens.moduleType` | `true`, `false` | `false` | — | 重启 | 客户端声明自己认得自定义的 `module` 语义 token 类型和 `partition` 修饰符；除本仓库的 VS Code 扩展外都关闭，因为没有别的客户端会声明它。不是 package.json 里的设置：VS Code 扩展自己贡献了这个 token 类型，因此固定声明为开。 |
 | `mcppls.completion.triggerOnSpace` | `true`, `false` | `true` | — | 重启 | 在 `import` 或 `export import` 后输入空格时立即弹出模块列表；其他位置的空格不会发给服务端。什么都不说的客户端只有在自证是 VS Code 或其分支时才会得到这个行为；其他客户端需要用 `initializationOptions.completion.triggerOnSpace: true` 主动开启。 |
+| `mcppls.answer.cache` | `on`, `memory`, `off` | `on` | `--answer-cache` | 重启 | 保留引擎对补全、签名帮助、悬停和跳转的答复；引擎慢于 `answer.budget` 时立即给出保留的答复，引擎自己的答复到达后再替换。`on` 还会跨会话保留，`memory` 只在 mcppls 运行期间保留，`off` 与 0.0.14 的行为相同。 |
+| `mcppls.answer.budget` | ? | ? | `--answer-budget` | 重启 | 补全、签名帮助或悬停等待引擎多少毫秒（100-2000），之后改给保留的答复。只在有保留答复时生效，否则照旧等待。 |
+| `mcppls.answer.prefetch` | `true`, `false` | `true` | — | 重启 | 引擎空闲时，向它询问当前文件里已有的 `.`、`->`、`::` 之后的补全，让下次输入时已有保留的答复。一次只问一个，有人输入时不问。 |
+| `mcppls.completion.provenance` | `subtle`, `off`, `verbose` | `subtle` | — | 重启 | 用保留答复作答时如何显示：`subtle` 只在有疑问的项（此后新增或删除的成员）后加一个浅色 `·`，其余不显示；`off` 什么都不显示；`verbose` 写出每一项和悬停的来源，用于报告问题。 |
 | `mcppls.format.fallbackStyle` | 字符串 | `auto` | `--format-fallback-style` | 重启 | 没有项目 .clang-format 时使用的格式样式。auto 在引擎支持时为 mcpp 项目使用固定的 mcpp 样式，其他情况沿用 clangd 默认。命名样式覆盖 auto；mcpp 可让其他项目主动启用，但要求引擎支持。项目 .clang-format 始终优先。 |
 | `mcppls.index.primeImplementationUnits` | `auto`, `off` | `auto` | `--prime-implementation-units` | 重启 | 在后台让 clangd 逐个构建模块的实现单元（每次少量），这样即使实现文件从没打开过，跳到定义也能到达只在实现单元里的定义。clangd 自己的后台索引看不到模块单元的导入（WA-CLANGD-008）。`off`：只有一次跳转请求所搜索的单元和你打开的文件会为此被索引。 |
 | `mcppls.enable` | `true`, `false` | `true` | — | 立即生效 | 为此工作区启动 mcppls。在某个工作区的设置里设为 `false`，扩展在那里保持安装但不启动——用于它暂时还服务不了的项目，而不必卸载；状态栏上的条目可以重新打开它。 |
@@ -76,10 +80,11 @@ VS Code 扩展已经会这样做）；`重新加载模型` 只重新加载项目
 | `mcppls.trace.server` | `off`, `messages`, `verbose` | `off` | — | 立即生效 | 把 LSP 通信记录到 C++ Modules 输出通道（Trace 级别）；`verbose` 还会打开服务端的 debug 日志（通过附加 `--log-level debug`，Debug 级别）。要看到它们，需把该输出通道的日志级别调到对应级别。 |
 | `MCPPLS_LOG_LEVEL` | `debug`, `info`, `warning`, `error` | （空） | — | 重启 | 覆盖 VS Code 扩展启动服务端时使用的日志级别，优先于 `trace.server`。 |
 
-### AI 评审
+### AI 评审与 agent
 
 | 设置 | 取值 | 默认值 | 命令行 | 生效方式 | 作用 |
 |---|---|---|---|---|---|
+| `mcppls.answer.agent` | `cached`, `authoritative` | `cached` | — | 重启 | MCP 工具可以用什么作答：`cached` 允许在引擎较慢时用保留的答复代替，并在结果的 `provenance` 中注明（`authoritative: false`）；`authoritative` 等待引擎。单次调用传 `fresh: true` 时，两种设置下都等待。 |
 | `mcppls.ai.enabled` | `true`, `false` | `false` | — | 立即生效 | 显示 AI 时代的功能：Review Changes 用 mcppls 的规则对照 `HEAD` 审查工作区的变更，并把发现连同证据以问题的形式展示。除非这里开启并且另行配置了模型来源，否则不会向任何模型发送内容。 |
 
 ### 路径

@@ -138,13 +138,30 @@ void View::settle_index(Clock::time_point deadline) {
 
 std::optional<Json> View::request(std::string_view method, Json params, Clock::time_point deadline) {
     const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now());
-    auto response = kernel_.request(method, std::move(params), std::max(remaining, std::chrono::milliseconds { 1 }));
+    auto response = kernel_.request(method, std::move(params), std::max(remaining, std::chrono::milliseconds { 1 }), authoritative_);
     if (!response) return std::nullopt;
+    if (const auto provenance = response->find("provenance"); provenance != response->end() && provenance->is_object()) {
+        if (provenance_.size() < 256) provenance_.push_back(*provenance);
+    }
     if (response->contains("error")) return Json(nullptr);
     return response->value("result", Json {});
 }
 
 void View::open(std::string_view path) { kernel_.open(path); }
+
+Json View::take_provenance() {
+    if (provenance_.empty()) return Json();
+    Json summary { { "authoritative", true }, { "answers", provenance_.size() } };
+    Json kept = Json::array();
+    for (const Json& one : provenance_) {
+        if (one.value("authoritative", true)) continue;
+        summary["authoritative"] = false;
+        if (kept.size() < 8) kept.push_back(one);
+    }
+    if (!kept.empty()) summary["notAuthoritative"] = std::move(kept);
+    provenance_.clear();
+    return summary;
+}
 
 bool View::has_core_engine() const { return kernel_.workspace().core_engine_status().has_value(); }
 

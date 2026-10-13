@@ -292,9 +292,9 @@ Workspace& Kernel::workspace() { return *impl_->workspace; }
 
 const std::string& Kernel::root() const { return impl_->root; }
 
-std::optional<Json> Kernel::request(std::string_view method, Json params, std::chrono::milliseconds timeout) {
+std::optional<Json> Kernel::request(std::string_view method, Json params, std::chrono::milliseconds timeout, bool authoritative) {
     Impl& impl = *impl_;
-    const std::string id { std::format("k:{}", impl.nextRequest++) };
+    const std::string id { std::format("{}:{}", authoritative ? "ka" : "k", impl.nextRequest++) };
     Json message = lsp::make_request(id, method, std::move(params));
     impl.workspace->route_client_request(message);
     const auto until = Clock::now() + timeout;

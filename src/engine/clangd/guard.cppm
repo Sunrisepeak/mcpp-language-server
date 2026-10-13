@@ -237,6 +237,9 @@ std::size_t preparation_limit(std::size_t workers, bool waitingOnPreparation);
 std::optional<std::uint64_t> total_memory_bytes();
 // 0.0.14 Windows plan C1, C2: the memory from which preambles are kept in memory and more ASTs are retained.
 inline constexpr std::uint64_t PREAMBLES_IN_MEMORY_FROM { std::uint64_t { 16 } << 30 };
+// mcppls-clangd 0.0.16: a check of module inputs holds this long between reported changes; completion's own slots.
+inline constexpr int MODULE_INPUT_RECHECK_SECONDS { 10 };
+inline constexpr int INTERACTIVE_ACTIONS { 2 };
 // clangd's --pch-storage for mcppls.engine.preambleStorage: "memory" or "disk" as asked; for "auto", memory on
 // Windows with PREAMBLES_IN_MEMORY_FROM or more -- a preamble written to the temporary directory there is scanned on
 // write and on read -- and clangd's own (empty) elsewhere.

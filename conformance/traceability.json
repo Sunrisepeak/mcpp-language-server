@@ -2246,5 +2246,90 @@
       "script": "editors/vscode/src/cacheHub.ts",
       "contains": "about?.cacheDevDrive === false"
     }
+  ],
+  "S3-5.9-1": [
+    {
+      "test": "tests/test_answer_routing.cpp: a client that did not declare completionReady is not sent it"
+    }
+  ],
+  "S3-5.9-2": [
+    {
+      "test": "tests/test_answer_routing.cpp: a slow engine's answer is kept, and given at the answer budget the next time"
+    },
+    {
+      "test": "tests/test_answer_routing.cpp: once the person typed on, an answer is not called up again"
+    }
+  ],
+  "S3-5.9-3": [
+    {
+      "script": "editors/vscode/src/completionGate.ts",
+      "contains": "export function completionStillWanted("
+    }
+  ],
+  "S3-5.9-4": [
+    {
+      "script": "editors/vscode/src/extension.ts",
+      "contains": "void vscode.commands.executeCommand('editor.action.triggerSuggest');"
+    }
+  ],
+  "S3-6.3-1": [
+    {
+      "test": "tests/test_answer.cpp: a kept completion is filtered by the word, placed on it, and incomplete"
+    },
+    {
+      "test": "tests/test_answer_routing.cpp: a slow engine's answer is kept, and given at the answer budget the next time"
+    }
+  ],
+  "S3-6.3-2": [
+    {
+      "test": "tests/test_answer.cpp: hover is placed on the word; signature help on the argument; jumps only when certain"
+    },
+    {
+      "test": "tests/test_answer_routing.cpp: a hover and a jump are kept; a jump only while the file it lands in is as it was"
+    }
+  ],
+  "S3-6.3-3": [
+    {
+      "script": "src/orchestrator/workspace.cpp",
+      "contains": "return !status.failed && status.state != \"unavailable\";"
+    }
+  ],
+  "S3-6.3-4": [
+    {
+      "test": "tests/test_answer.cpp: a class that changed: members added and removed by its outline, marked; only those"
+    }
+  ],
+  "S5-2.6-1": [
+    {
+      "test": "tests/test_answer_routing.cpp: an agent is told where every answer came from"
+    },
+    {
+      "script": "src/ai/mcp/tools.cpp",
+      "contains": "result.value[\"provenance\"] = std::move(provenance);"
+    }
+  ],
+  "S5-2.6-2": [
+    {
+      "test": "tests/test_answer_routing.cpp: an agent is told where every answer came from"
+    },
+    {
+      "script": "src/cli/query.cpp",
+      "contains": "view.require_authoritative(args.is_flag_set(\"fresh\"));"
+    }
+  ],
+  "S5-2.6-3": [
+    {
+      "script": "src/ai/mcp/tools.cpp",
+      "contains": "name == \"cxx_review\" || name == \"cxx_verify\" || name == \"cxx_impact\""
+    },
+    {
+      "script": "src/cli/query.cpp",
+      "contains": "view.require_authoritative(true);"
+    }
+  ],
+  "S5-2.6-4": [
+    {
+      "test": "tests/test_answer_routing.cpp: with mcppls.answer.agent authoritative, an agent always waits for the engine"
+    }
   ]
 }

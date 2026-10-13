@@ -31,7 +31,7 @@ import { CommandLineToolsController, withInstallCommandFallback } from './comman
 import { DownloadPromptController } from './downloadPrompt';
 import { declaresModules, editorEnvironment, exportDiagnosticBundle, extensionEnvironment, registerCommands, reloadBuildDescription } from './commands';
 import { fetchCacheReport } from './cacheHubView';
-import { sendTriggeredCompletion } from './completionGate';
+import { CompletionReady, completionStillWanted, sendTriggeredCompletion } from './completionGate';
 import { checkConflicts, ConflictCheck, watchForNewConflicts } from './conflicts';
 import { CrashCounter } from './crashCounter';
 import { serverEnabled } from './enable';
@@ -103,7 +103,8 @@ export interface TestApi {
 class CxxModulesFeature implements StaticFeature {
     fillClientCapabilities(capabilities: ClientCapabilities): void {
         const experimental = (capabilities.experimental ?? {}) as Record<string, unknown>;
-        experimental.cxxModules = { version: 1, status: true, graph: true, contexts: true };
+        // completionReady: S3 5.9, the list asked for again when a completion that went out empty has its answer.
+        experimental.cxxModules = { version: 1, status: true, graph: true, contexts: true, completionReady: true };
         capabilities.experimental = experimental;
     }
 
@@ -377,6 +378,17 @@ class ServerHost implements vscode.Disposable {
             this.commandLineTools.onStatus(params);
             this.status.update(withInstallCommandFallback(params));
             this.hooks.onIssues(params.issues);
+        });
+        // Answer-layer design 6.1 (R3): a completion that went out (almost) empty after `.`, `->` or `::` has the
+        // engine's answer now. The list is asked for once more, if the person is still where they asked; otherwise
+        // nothing happens, and the next request gets the answer.
+        client.onNotification('cxxModules/completionReady', (params: CompletionReady) => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor || !completionStillWanted(params, client.code2ProtocolConverter.asUri(editor.document.uri), editor.document.version,
+                editor.selection.active)) {
+                return;
+            }
+            void vscode.commands.executeCommand('editor.action.triggerSuggest');
         });
         // Messages from the server go to the log, never to notifications.
         client.onNotification(ShowMessageNotification.type, (params) => {

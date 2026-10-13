@@ -42,6 +42,8 @@ import mcppls.engine.payload;
 import mcppls.engine.native.index;
 import mcppls.engine.native.keywords;
 import mcppls.orchestrator.completion;
+import mcppls.orchestrator.answer;
+import mcppls.orchestrator.answering;
 import mcppls.orchestrator.incidents;
 import mcppls.orchestrator.journal;
 import mcppls.orchestrator.client;
@@ -377,6 +379,10 @@ struct Workspace::Impl final : engine::Host {
         bool coreAnswered { false };
         // C-2 (plan 0.0.8 part 2): the job asked nothing of its own and waits for a late completion of the same word.
         bool waitsForLate { false };
+        // The answer layer: the request read, the best kept answer for it, and whether an agent asked (MCP tools).
+        std::optional<answering::Asked> asked;
+        std::optional<answering::Found> found;
+        bool agent { false };
         // M-1 (plan 0.0.9): when the request went to the engine whose answer went out, and when that engine replied.
         // The difference is the engine's share of the request's time; the rest is mcppls's own.
         std::optional<Clock::time_point> engineSentAt;
@@ -424,6 +430,37 @@ struct Workspace::Impl final : engine::Host {
     std::map<std::string, WordAnswer, std::less<>> wordAnswers;   // document URI -> its last complete core answer
     const bool wordAnswersOn { platform::env::get("MCPPLS_COMPLETION_REFILTER").value_or("") != "off" };
     std::size_t completionsFromWord { 0 };
+
+    // The answer layer (answer-layer design 2026-10-13): what the core engine answered, kept by what it depends on, and
+    // given at once the next time the same is asked while the engine is slower than the answer budget. The engine's
+    // request goes on in the background and its answer replaces what was kept; a request the client cancels does too.
+    std::unique_ptr<answering::Layer> answers_;
+    std::unordered_map<std::string, std::uint64_t> answerInflight_;   // a place (K1) -> the job asking the core engine about it
+    struct Background {
+        answering::Asked asked;
+        std::optional<answering::Served> served;   // what went out instead of the engine's answer, if anything did
+        Json clientId;
+        Clock::time_point started;
+        Clock::time_point until;
+        std::int64_t version { 0 };                 // the document's when it was asked
+        bool sparse { false };                      // what went out had (almost) nothing after a `.`, `->` or `::` (R3)
+    };
+    std::map<std::uint64_t, Background> background_;
+    static constexpr std::size_t BACKGROUND_LIMIT { 2 };
+    static constexpr std::chrono::seconds BACKGROUND_KEEP { 30 };
+    static constexpr std::chrono::seconds READY_NOTICE_WITHIN { 5 };
+    std::unordered_map<std::string, std::string> planCommands_;   // path key -> the plan's command for it, as one string
+    std::uint64_t internalRequests_ { 0 };
+    std::size_t learning_ { 0 };                                  // typeDefinition requests in flight
+    std::optional<Clock::time_point> lastClientRequestAt_;
+    std::string lastAskedUri_;
+    base::Position lastAskedPosition_ {};
+    std::optional<Clock::time_point> prefetchAt_;
+    std::optional<Clock::time_point> prefetchExhaustedFor_;      // the request after which nothing near was left to ask
+    bool prefetchInFlight_ { false };
+    std::deque<Clock::time_point> prefetched_;                    // the last minute's, at most PREFETCH_PER_MINUTE
+    static constexpr std::size_t PREFETCH_PER_MINUTE { 30 };
+    std::optional<Clock::time_point> answersSaveAt_;
 
     // Project model and plan.
     std::shared_ptr<project::ProjectModel> model;
@@ -579,6 +616,17 @@ struct Workspace::Impl final : engine::Host {
         if (cacheOnDevDrive == false) {
             log::info("the cache {} is not on a Dev Drive: Microsoft Defender scans the module and preamble files clangd writes and reads "
                       "there as it does; a Dev Drive scans them asynchronously (docs/50-troubleshooting.md, \"Windows\")", cacheDirectory);
+        }
+        {
+            answering::Settings settings { options.answerCache, options.answerBudget, options.answerPrefetch,
+                                           answer::marks_of(options.completionProvenance).value_or(answer::Marks::subtle), options.answerAgent == "authoritative" };
+            if (!wordAnswersOn) settings.cache = "off";   // MCPPLS_COMPLETION_REFILTER=off: as 0.0.14 with A1 off
+            answers_ = std::make_unique<answering::Layer>(
+                std::move(settings), base::join_path(workspaceDirectory_, "answers"), base::join_path(platform::dirs::cache_directory(), "answers"),
+                [this](std::string_view path) -> std::optional<std::string> {
+                    if (const Document* document = documents_.find_by_path(path)) return document->text;
+                    return std::nullopt;
+                });
         }
         // usable plan W9.3: taken now, before this root is even started, so the client cannot
         // possibly have created or changed a watched file yet (see start_watch_polling below).
@@ -916,6 +964,9 @@ struct Workspace::Impl final : engine::Host {
         consider(tokensRefreshAt);
         for (const auto& [id, job] : jobs) consider(job.budgetAt);
         for (const auto& [id, late] : lateCompletions) consider(late.until);
+        for (const auto& [id, background] : background_) consider(background.until);
+        consider(prefetchAt_);
+        consider(answersSaveAt_);
         for (const auto& engine : engines) consider(engine->next_deadline());
         return deadline;
     }
@@ -993,6 +1044,11 @@ struct Workspace::Impl final : engine::Host {
         const Document* document { uri.empty() ? nullptr : documents_.find(uri) };
         if (document != nullptr) job.text = document->text;
         job.view = engine::RequestView { job.method, &job.params, job.path, job.text };
+        // The MCP tools ask through the kernel, under ids of their own: their answers say where they came from.
+        if (job.clientId.is_string()) {
+            const std::string& id { job.clientId.get_ref<const std::string&>() };
+            job.agent = id.starts_with("k:") || id.starts_with("ka:");
+        }
         if (!job.path.empty() && readOnlySources.contains(base::path_key(job.path)) && refuse_edit(jobId)) return;
         if (job.method == lsp::method::TEXT_DOCUMENT_COMPLETION) {
             if (completion::is_space_trigger(job.params)) {
@@ -1006,6 +1062,23 @@ struct Workspace::Impl final : engine::Host {
                     if (answered_from_word(jobId, uri, *position)) return;
                     if (answered_late(jobId, uri, *position)) return;
                 }
+            }
+        }
+        if (answers_ && answers_->enabled() && coreEngine != nullptr && document != nullptr && !job.path.empty() && answer::kind_of(job.method)) {
+            const std::string id { job.clientId.is_string() ? job.clientId.get<std::string>() : std::string {} };
+            if (!job.agent) {
+                lastClientRequestAt_ = Clock::now();
+                lastAskedUri_ = uri;
+                if (const auto position = position_of(job.params)) lastAskedPosition_ = *position;
+            }
+            // An agent that asked for the engine's own answer (fresh, or mcppls.answer.agent: authoritative) waits for it.
+            const bool authoritativeOnly { job.agent && (id.starts_with("ka:") || answers_->settings().agentAuthoritative) };
+            if (auto asked = answers_->read(job.method, uri, job.path, job.text, job.params, answer_fingerprint(job.path, job.text))) {
+                job.asked = std::move(*asked);
+                if (!authoritativeOnly) job.found = answers_->lookup(*job.asked);
+                // The same place is being asked of the core engine already: what is kept goes out now, and the engine's
+                // answer, when it comes, is kept for the next one.
+                if (job.found && answerInflight_.contains(job.asked->k1) && serve_kept(jobId)) return;
             }
         }
 
@@ -1048,7 +1121,237 @@ struct Workspace::Impl final : engine::Host {
             && std::ranges::find(job.answerers, coreEngine) != job.answerers.end()) {
             job.budgetAt = job.started + *budget;
         }
+        // A kept answer goes out at the answer budget (a jump's only when it is certain: one that may have moved waits).
+        if (job.found && coreEngine != nullptr && std::ranges::find(job.answerers, coreEngine) != job.answerers.end()
+            && (!answer::is_jump(job.asked->kind) || job.found->certainty == answer::Certainty::certain)) {
+            const auto at = job.started + answers_->settings().budget;
+            job.budgetAt = job.budgetAt ? std::min(*job.budgetAt, at) : at;
+        }
         ask_next(jobId);
+    }
+
+    // ---- the answer layer -----------------------------------------------------------------------------------------
+
+    // A file's visibility fingerprint (answer-layer design 4.3): the engine and the profile, the plan's command for it,
+    // what it imports, and its preamble.
+    std::string answer_fingerprint(const std::string& path, std::string_view text) const {
+        const std::string toolchain { std::format("{}|{}", payload.clangdVersion, profile_json().dump()) };
+        std::vector<std::string> command;
+        if (const auto it = planCommands_.find(base::path_key(path)); it != planCommands_.end()) command.push_back(it->second);
+        return answering::fingerprint(toolchain, command, imports_of(path), text);
+    }
+
+    // The job's kept answer, composed and sent, with the core engine's request (if one was sent) going on in the
+    // background. False when there is nothing to send (a jump that is not certain and was not found again).
+    bool serve_kept(std::uint64_t jobId) {
+        Job& job = jobs.at(jobId);
+        if (!job.asked || !job.found) return false;
+        auto served = answers_->serve(*job.asked, *job.found);
+        if (!served) return false;
+        const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - job.started);
+        answers_->count_served(*job.asked, *served, took);
+        const std::string line { answering::Layer::log_line(*job.asked, *served, took) };
+        if (served->provenance.certainty == answer::Certainty::uncertain || served->doubted > 0) log::info("{}", line);
+        else log::debug("{}", line);
+        const bool coreAsked { !job.waitsForLate && job.next > 0 && job.answerers[job.next - 1] == coreEngine };
+        if (coreAsked) {
+            keep_in_background(jobId, *job.asked, *served, job.clientId);
+            coreEngine->detach(job.clientId);
+            for (const auto& engine : engines) {
+                if (engine.get() != coreEngine) engine->cancel(job.clientId);
+            }
+        }
+        job.answeredBy = "cache";
+        job.coreAnswered = true;   // the file's words are not added to a kept answer
+        finish_job(jobId, std::move(served->result), served->provenance);
+        return true;
+    }
+
+    // The core engine's request for `jobId` goes on after the client has its answer (or cancelled): its answer is kept.
+    void keep_in_background(std::uint64_t jobId, const answering::Asked& asked, std::optional<answering::Served> served, const Json& clientId) {
+        while (background_.size() >= BACKGROUND_LIMIT) {
+            const auto oldest = std::ranges::min_element(background_, {}, [](const auto& entry) { return entry.second.started; });
+            if (coreEngine != nullptr && !lateCompletions.contains(oldest->first)) coreEngine->cancel(oldest->second.clientId);
+            if (const auto inflight = answerInflight_.find(oldest->second.asked.k1); inflight != answerInflight_.end() && inflight->second == oldest->first) {
+                answerInflight_.erase(inflight);
+            }
+            answers_->count_background("dropped");
+            background_.erase(oldest);
+        }
+        const Document* document { documents_.find(asked.uri) };
+        const bool trigger { asked.context.place == answer::Context::Place::member || asked.context.place == answer::Context::Place::arrow
+                             || asked.context.place == answer::Context::Place::qualified };
+        const std::size_t items { served && served->result.is_object() && served->result.contains("items") && served->result["items"].is_array()
+                                      ? served->result["items"].size() : 0 };
+        // (Almost) nothing went out: no kept answer, only the file's words, and fewer than three of them.
+        const bool sparse { asked.kind == answer::Kind::completion && trigger && items < 3 && (!served || served->provenance.source == answer::Source::native) };
+        background_[jobId] = Background { asked, std::move(served), clientId, Clock::now(), Clock::now() + BACKGROUND_KEEP,
+                                          document != nullptr ? document->version : 0, sparse };
+        answerInflight_[asked.k1] = jobId;
+        answers_->count_background("detached");
+    }
+
+    // The core engine answered a request that went on in the background.
+    void background_answered(std::uint64_t jobId, const engine::Answer& answer) {
+        const auto it = background_.find(jobId);
+        if (it == background_.end()) return;
+        Background background { std::move(it->second) };
+        background_.erase(it);
+        if (const auto inflight = answerInflight_.find(background.asked.k1); inflight != answerInflight_.end() && inflight->second == jobId) {
+            answerInflight_.erase(inflight);
+        }
+        if (answer.kind != engine::Answer::Kind::result || !keepable()) {
+            answers_->count_background("dropped");
+            return;
+        }
+        const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - background.started);
+        answers_->keep(background.asked, answer.value, background.served, took);
+        answers_->count_engine(background.asked, took);
+        answers_->count_background("answered");
+        learn_receiver_type(background.asked);
+        // R3 (S3-5.9-1): the person was given (almost) nothing after a trigger and has not moved: the list appears now,
+        // for a client that said it asks again on this; others ask again as the person types.
+        const Document* document { documents_.find(background.asked.uri) };
+        const Json* ready { lsp::find_path(clientParams, { "capabilities", "experimental", "cxxModules", "completionReady" }) };
+        if (background.sparse && ready != nullptr && ready->is_boolean() && ready->get<bool>() && document != nullptr && document->version == background.version
+            && !completion::is_empty(answer.value) && Clock::now() - background.started <= READY_NOTICE_WITHIN) {
+            client.notify("cxxModules/completionReady", Json { { "uri", background.asked.uri }, { "version", background.version },
+                                                            { "position", Json { { "line", background.asked.position.line },
+                                                                                 { "character", background.asked.position.character } } } });
+        }
+    }
+
+    // Whether an answer the core engine gives now is one to keep (design 4.10): not while it cannot serve as it should.
+    bool keepable() const {
+        if (coreEngine == nullptr) return false;
+        const engine::EngineStatus status { coreEngine->status() };
+        return !status.failed && status.state != "unavailable";
+    }
+
+    // The engine answered a request a person waits for: what it said is kept.
+    void keep_answer(const Job& job, const Json& result) {
+        if (!job.asked || !keepable()) return;
+        const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - job.started);
+        answers_->keep(*job.asked, result, std::nullopt, took);
+        answers_->count_engine(*job.asked, took);
+        learn_receiver_type(*job.asked);
+    }
+
+    // A request mcppls makes of the core engine itself (learning, prefetching): its answer goes to `done`, never to a client.
+    void ask_core_internally(std::string method, Json params, const std::string& path, const std::string& text,
+                             std::function<void(std::optional<Json>)> done) {
+        if (coreEngine == nullptr) {
+            done(std::nullopt);
+            return;
+        }
+        const Json message = lsp::make_request(std::format("mcppls:answer:{}", ++internalRequests_), method, std::move(params));
+        const engine::RequestView view { method, &message["params"], path, text };
+        coreEngine->request(view, message, [done = std::move(done)](engine::Answer answer) {
+            done(answer.kind == engine::Answer::Kind::result ? std::optional<Json> { std::move(answer.value) } : std::nullopt);
+        });
+    }
+
+    // After a completion at `receiver.`: what type the receiver has, asked of the engine once, so the answer is kept for
+    // the type and every file that has a receiver of it gets it (design 4.2, K2).
+    void learn_receiver_type(const answering::Asked& asked) {
+        if (asked.kind != answer::Kind::completion || learning_ >= 2) return;
+        if (asked.context.place != answer::Context::Place::member && asked.context.place != answer::Context::Place::arrow) return;
+        if (answers_->knows_type(asked)) return;
+        // The receiver's last character, before the `.` or `->`.
+        std::size_t at { asked.context.wordStart };
+        while (at > 0 && (asked.text[at - 1] == ' ' || asked.text[at - 1] == '\t')) --at;
+        if (at == 0) return;
+        at -= asked.context.place == answer::Context::Place::arrow ? 2 : 1;
+        while (at > 0 && (asked.text[at - 1] == ' ' || asked.text[at - 1] == '\t')) --at;
+        if (at == 0 || !base::is_identifier_char(asked.text[at - 1])) return;   // `f().`, `a[0].`: no name to ask about
+        const base::Position position { base::position_at(asked.text, at - 1) };
+        ++learning_;
+        ask_core_internally("textDocument/typeDefinition",
+                            Json { { "textDocument", Json { { "uri", asked.uri } } }, { "position", Json { { "line", position.line }, { "character", position.character } } } },
+                            asked.path, asked.text, [this, asked](std::optional<Json> result) {
+                                --learning_;
+                                if (!result) return;
+                                const Json* location { result->is_array() ? (result->empty() ? nullptr : &(*result)[0]) : result->is_object() ? &*result : nullptr };
+                                if (location == nullptr) return;
+                                const std::string uri { location->contains("targetUri") ? location->value("targetUri", std::string {}) : location->value("uri", std::string {}) };
+                                const Json* range { location->contains("targetSelectionRange") ? &(*location)["targetSelectionRange"]
+                                                                                              : location->contains("range") ? &(*location)["range"] : nullptr };
+                                if (uri.empty() || range == nullptr || !range->contains("start")) return;
+                                const std::string path { path_of_uri(uri) };
+                                if (path.empty()) return;
+                                std::string text;
+                                if (const Document* open = documents_.find_by_path(path)) text = open->text;
+                                else if (auto disk = platform::fs::read_file(path)) text = std::move(*disk);
+                                const base::Position start { (*range)["start"].value("line", 0), (*range)["start"].value("character", 0) };
+                                const auto offset = base::offset_at(text, start);
+                                if (!offset) return;
+                                std::size_t end { *offset };
+                                while (end < text.size() && base::is_identifier_char(text[end])) ++end;
+                                if (end == *offset) return;
+                                answers_->learn_type(asked, std::string_view { text }.substr(*offset, end - *offset), path, start.line);
+                            });
+    }
+
+    // While the engine is idle (design 4.8): the completion at one of the `.`, `->`, `::` the file being edited has,
+    // whose answer is not kept yet.
+    void prefetch_due(Clock::time_point now) {
+        prefetchAt_.reset();
+        if (!answers_ || !answers_->enabled() || !answers_->settings().prefetch || coreEngine == nullptr || prefetchInFlight_) return;
+        if (!lastClientRequestAt_ || lastAskedUri_.empty()) return;
+        if (now - *lastClientRequestAt_ < std::chrono::seconds { 2 } || !jobs.empty() || !background_.empty() || learning_ > 0) {
+            prefetchAt_ = now + std::chrono::seconds { 2 };
+            return;
+        }
+        while (!prefetched_.empty() && now - prefetched_.front() > std::chrono::minutes { 1 }) prefetched_.pop_front();
+        if (prefetched_.size() >= PREFETCH_PER_MINUTE) {
+            prefetchAt_ = prefetched_.front() + std::chrono::minutes { 1 };
+            return;
+        }
+        const engine::EngineStatus status { coreEngine->status() };
+        if (status.state != "ready" || status.preparing) {
+            prefetchAt_ = now + std::chrono::seconds { 5 };
+            return;
+        }
+        const Document* document { documents_.find(lastAskedUri_) };
+        if (document == nullptr || document->path.empty()) return;
+        const std::string fingerprint { answer_fingerprint(document->path, document->text) };
+        const auto place = answers_->prefetch_place(document->uri, document->text, lastAskedPosition_, fingerprint);
+        if (!place) {
+            prefetchExhaustedFor_ = lastClientRequestAt_;   // everything near is kept: nothing more until the person asks again
+            return;
+        }
+        const Json params { { "textDocument", Json { { "uri", document->uri } } }, { "position", Json { { "line", place->line }, { "character", place->character } } },
+                            { "context", Json { { "triggerKind", 1 } } } };
+        auto asked = answers_->read("textDocument/completion", document->uri, document->path, document->text, params, fingerprint);
+        if (!asked) return;
+        prefetchInFlight_ = true;
+        prefetched_.push_back(now);
+        answers_->count_background("prefetched");
+        ask_core_internally("textDocument/completion", params, document->path, document->text, [this, asked = std::move(*asked)](std::optional<Json> result) {
+            prefetchInFlight_ = false;
+            prefetchAt_ = Clock::now() + std::chrono::milliseconds { 500 };
+            if (!result || !keepable()) return;
+            answers_->keep(asked, *result, std::nullopt, std::chrono::milliseconds { 0 });
+            learn_receiver_type(asked);
+        });
+    }
+
+    // A client's $/cancelRequest for a request the answer layer can still use: the client is answered `cancelled`, and
+    // the core engine's request goes on so its answer is kept ("typed, then deleted": the next time, at once).
+    bool cancel_into_background(const Json& clientId) {
+        if (!answers_ || !answers_->enabled() || coreEngine == nullptr) return false;
+        for (auto& [jobId, job] : jobs) {
+            if (job.clientId != clientId) continue;
+            if (!job.asked || job.merging || job.waitsForLate || job.next == 0 || job.answerers[job.next - 1] != coreEngine) return false;
+            keep_in_background(jobId, *job.asked, std::nullopt, clientId);
+            coreEngine->detach(clientId);
+            for (const auto& engine : engines) {
+                if (engine.get() != coreEngine) engine->cancel(clientId);
+            }
+            finish_job_cancelled(jobId);
+            return true;
+        }
+        return false;
     }
 
     // mcpp-community/mcpp#797: mcpp's engine interface is written by mcpp, once for each of its versions; a request
@@ -1169,6 +1472,7 @@ struct Workspace::Impl final : engine::Host {
     // finished first, so the engines' answers to the cancellation find nothing to finish. The core engine's own
     // timeouts and watchdogs still see the request until clangd lets go of it.
     void answer_without_core(std::uint64_t jobId) {
+        if (jobs.at(jobId).found && serve_kept(jobId)) return;
         Job& job = jobs.at(jobId);
         const Json clientId = job.clientId;   // `=`: braces make an array holding it (CWG 2137)
         if (job.keywords.is_array() && !job.keywords.empty()) ++keywordsWithoutEngine;
@@ -1187,6 +1491,15 @@ struct Workspace::Impl final : engine::Host {
                     keepCore = true;
                 }
             }
+        }
+        // The answer layer: the engine's answer, late, is kept for the next request of the same place, whatever it was.
+        const bool coreAsked { !job.waitsForLate && job.next > 0 && job.answerers[job.next - 1] == coreEngine };
+        if (job.asked && coreAsked) {
+            answering::Served words;
+            words.result = result;
+            words.provenance = answer::Provenance { answer::Source::native, answer::Certainty::uncertain, 0, false, true, {} };
+            keep_in_background(jobId, *job.asked, std::move(words), clientId);
+            keepCore = true;
         }
         finish_job(jobId, std::move(result));
         for (const auto& engine : engines) {
@@ -1259,7 +1572,7 @@ struct Workspace::Impl final : engine::Host {
                 if (const auto budget = request_budget(job)) job.budgetAt = job.started + *budget;
                 return true;
             } else {
-                coreEngine->cancel(it->second.clientId);
+                if (!background_.contains(it->first)) coreEngine->cancel(it->second.clientId);
                 it = lateCompletions.erase(it);
             }
         }
@@ -1299,11 +1612,18 @@ struct Workspace::Impl final : engine::Host {
         }
         engine::Engine* answerer { job.answerers[job.next++] };
         job.engineSentAt = Clock::now();
+        if (answerer == coreEngine && job.asked) answerInflight_.try_emplace(job.asked->k1, jobId);
         answerer->request(job.view, job.message, [this, jobId, engineId = std::string { answerer->id() }](engine::Answer answer) {
             auto current = jobs.find(jobId);
             if (current == jobs.end()) {
                 late_completion_answered(jobId, answer);
+                background_answered(jobId, answer);
                 return;
+            }
+            if (current->second.asked) {
+                if (const auto inflight = answerInflight_.find(current->second.asked->k1); inflight != answerInflight_.end() && inflight->second == jobId) {
+                    answerInflight_.erase(inflight);
+                }
             }
             switch (answer.kind) {
             case engine::Answer::Kind::result:
@@ -1313,6 +1633,7 @@ struct Workspace::Impl final : engine::Host {
                                         || current->second.method == lsp::method::TEXT_DOCUMENT_SIGNATURE_HELP };
                     if (typing) note_core_completion(current->second.path, current->second.started);
                     if (current->second.method == lsp::method::TEXT_DOCUMENT_COMPLETION) note_word_answer(current->second, answer.value);
+                    keep_answer(current->second, answer.value);
                 }
                 if (!answer.value.is_null()) {
                     current->second.engineRepliedAt = Clock::now();
@@ -1423,7 +1744,7 @@ struct Workspace::Impl final : engine::Host {
         return Json { { "contents", Json { { "kind", "markdown" }, { "value", value } } } };
     }
 
-    void finish_job(std::uint64_t jobId, Json result) {
+    void finish_job(std::uint64_t jobId, Json result, std::optional<answer::Provenance> provenance = std::nullopt) {
         auto it = jobs.find(jobId);
         if (it == jobs.end()) return;
         // M-2 (plan 0.0.8): a completion the core engine did not answer -- not asked, because the file is set
@@ -1456,8 +1777,25 @@ struct Workspace::Impl final : engine::Host {
         }
         note_request(it->second, result.is_null() ? "empty" : "result");
         const Json id = it->second.clientId;
+        const bool agent { it->second.agent };
+        const std::string answeredBy { it->second.answeredBy };
         jobs.erase(it);
-        client.reply(id, std::move(result));
+        if (!agent) {
+            client.reply(id, std::move(result));
+            return;
+        }
+        // An agent (the MCP tools) is told where the answer came from, whatever it was (answer-layer design 6.2).
+        if (!provenance) {
+            const bool engineAnswer { coreEngine != nullptr && answeredBy == coreEngine->id() };
+            provenance = answer::Provenance { engineAnswer || answeredBy.empty() ? answer::Source::engine : answer::Source::native,
+                                              engineAnswer || answeredBy.empty() ? answer::Certainty::authoritative : answer::Certainty::uncertain, 0, false, false, {} };
+            if (provenance->certainty != answer::Certainty::authoritative) {
+                provenance->note = "The compiler did not answer in time; this comes from mcppls's own reading of the files.";
+            }
+        }
+        Json message = lsp::make_result(id, std::move(result));
+        message["provenance"] = answer::to_json(*provenance);
+        client.send(message);
     }
 
     void finish_job_with_error(std::uint64_t jobId, Json error) {
@@ -2225,6 +2563,17 @@ struct Workspace::Impl final : engine::Host {
         openedOutsideModel = { plan.openSources.begin(), plan.openSources.end() };
         plannedFiles.clear();
         for (const auto& entry : plan.entries) plannedFiles.insert(base::path_key(entry.file));
+        // The answer layer's fingerprint of a file: its command, but for the file itself (the last argument). A plan
+        // whose commands changed can change what any file sees (another unit's flags, a provider moved): every answer
+        // kept before is uncertain from now on.
+        std::unordered_map<std::string, std::string> commands;
+        for (const auto& entry : plan.entries) {
+            std::string command;
+            for (std::size_t i { 0 }; i + 1 < entry.arguments.size(); ++i) command += entry.arguments[i] + '\n';
+            commands[base::path_key(entry.file)] = std::move(command);
+        }
+        if (answers_ && !planCommands_.empty() && commands != planCommands_) answers_->everything_changed();
+        planCommands_ = std::move(commands);
         for (const auto& file : plan.excludedFiles) plannedFiles.insert(base::path_key(file));
         structures.clear();
         for (const auto& path : index.files()) {
@@ -3041,12 +3390,35 @@ struct Workspace::Impl final : engine::Host {
             for (const auto id : due) {
                 if (jobs.contains(id)) answer_without_core(id);
             }
+            for (auto it = background_.begin(); it != background_.end();) {
+                if (it->second.until > now) {
+                    ++it;
+                    continue;
+                }
+                if (coreEngine != nullptr && !lateCompletions.contains(it->first)) coreEngine->cancel(it->second.clientId);
+                if (const auto inflight = answerInflight_.find(it->second.asked.k1); inflight != answerInflight_.end() && inflight->second == it->first) {
+                    answerInflight_.erase(inflight);
+                }
+                answers_->count_background("dropped");
+                it = background_.erase(it);
+            }
+            if (answers_ && answers_->enabled()) {
+                if (!prefetchAt_ && lastClientRequestAt_ && answers_->settings().prefetch && lastClientRequestAt_ != prefetchExhaustedFor_) {
+                    prefetchAt_ = now + std::chrono::seconds { 2 };
+                }
+                if (prefetchAt_ && *prefetchAt_ <= now) prefetch_due(now);
+                if (!answersSaveAt_) answersSaveAt_ = now + std::chrono::minutes { 1 };
+                if (*answersSaveAt_ <= now) {
+                    answers_->save();
+                    answersSaveAt_ = now + std::chrono::minutes { 1 };
+                }
+            }
             for (auto it = lateCompletions.begin(); it != lateCompletions.end();) {
                 if (it->second.until > now) {
                     ++it;
                     continue;
                 }
-                if (coreEngine != nullptr) coreEngine->cancel(it->second.clientId);
+                if (coreEngine != nullptr && !background_.contains(it->first)) coreEngine->cancel(it->second.clientId);
                 it = lateCompletions.erase(it);
             }
         }
@@ -3196,6 +3568,7 @@ void Workspace::start(Json clientParams, bool clientSupportsStatus, bool usePoll
             log::warning("semantic kit unusable ({}): {}", root_, kit.error().message);
         }
     }
+    if (impl_->coreEngine != nullptr && impl_->answers_) impl_->answers_->load();
     for (const auto& engine : impl_->engines) engine->start(*impl_);
     // Without a core engine nothing else settles initialize.
     if (impl_->coreEngine == nullptr) impl_->engine_settled("", Json::object());
@@ -3227,6 +3600,7 @@ void Workspace::allow_status_notifications() {
 
 void Workspace::shut_down() {
     impl_->save_recent_files(true);
+    if (impl_->answers_) impl_->answers_->save(true);
     if (impl_->reviewProcess) impl_->reviewProcess->kill();
     for (const auto& engine : impl_->engines) engine->shut_down();
     if (impl_->lease) impl_->lease->release();
@@ -3260,6 +3634,7 @@ void Workspace::did_change(const Json& message, const Json& params) {
     impl_->lastDocumentChangeAt = std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now()));
     const Document* document { impl_->documents_.find(uri) };
     if (!document->path.empty()) {
+        if (impl_->answers_) impl_->answers_->changed(document->path);
         impl_->editedAt[base::path_key(document->path)] = Clock::now();
         impl_->note_recent_file(document->path);
         impl_->index.update(document->path, document->text);
@@ -3276,6 +3651,7 @@ void Workspace::did_close(const Json& message, const Json& params) {
     const Document document { *found };
     impl_->documents_.close(uri);
     if (!document.path.empty()) {
+        if (impl_->answers_) impl_->answers_->changed(document.path);   // what it has is the disk's again
         impl_->forget_recent_file(document.path);
         impl_->editedAt.erase(base::path_key(document.path));
         impl_->completionPace_.erase(document.path);   // the file's pace says how its engine answered while it was open
@@ -3310,6 +3686,7 @@ void Workspace::did_save(const Json& message, const Json& params) {
         saved.uri = uri;
         saved.path = path;
     }
+    if (!saved.path.empty() && impl_->answers_) impl_->answers_->changed(saved.path);
     impl_->document_event(engine::DocumentChange::saved, saved, &message);
     // Fix plan F13: an import of a file being edited that the save just put on disk gets its stand-in now, not once the
     // file is quiet (clangd builds with what is on disk).
@@ -3328,6 +3705,7 @@ void Workspace::handle_watched_files(const Json& changes) {
     for (const auto& change : changes) {
         const std::string path { impl_->path_of_uri(change.value("uri", std::string {})) };
         if (path.empty()) continue;
+        if (impl_->answers_) impl_->answers_->changed(path);
         const std::string_view name { base::file_name(path) };
         const int type { change.value("type", 2) };
         // S2 5: an input the producer named changes what it would answer, so the model is loaded again.
@@ -3386,6 +3764,7 @@ void Workspace::handle_watched_files(const Json& changes) {
 }
 
 void Workspace::cancel(const Json& id) {
+    if (impl_->cancel_into_background(id)) return;
     for (const auto& engine : impl_->engines) engine->cancel(id);
 }
 
@@ -3565,6 +3944,7 @@ Json Workspace::report() const {
                   { "trusted", impl.options.trusted }, { "state", std::string { to_string(impl.compute_state()) } }, { "project", std::move(project) },
                   { "toolEnvironment", std::move(environment) }, { "toolRuns", std::move(toolRuns) },
                   { "plan", std::move(plan) }, { "engines", std::move(engines) }, { "requests", std::move(requests) },
+                  { "answers", impl.answers_ ? impl.answers_->report() : Json() },
                   { "slowestFiles", std::move(slowestFiles) },
                   { "completion", std::move(completionCosts) },
                   { "documents", Json { { "changes", impl.documentChanges }, { "lastChangeAt", impl.lastDocumentChangeAt } } },

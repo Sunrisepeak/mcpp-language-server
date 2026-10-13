@@ -286,9 +286,12 @@ int main() {
         config.managedInputRoots = { "/stores/mcpp", "/stores/xlings" };
         config.moduleMemoDirectory = "/cache/clangd-memos";
         config.maxRetainedAsts = 6;
+        config.moduleInputRecheck = 10;
+        config.interactiveActions = 2;
         auto arguments = cld::clangd_arguments(config);
         for (const auto argument : { "--limit-results=1000", "--pch-storage=memory", "--managed-input-root=/stores/mcpp",
-                                     "--managed-input-root=/stores/xlings", "--module-memo-dir=/cache/clangd-memos", "--max-retained-asts=6" }) {
+                                     "--managed-input-root=/stores/xlings", "--module-memo-dir=/cache/clangd-memos", "--max-retained-asts=6",
+                                     "--module-input-recheck=10", "--interactive-actions=2" }) {
             expect(has(arguments, argument)) << argument;
         }
         config.extraArguments = { "--limit-results=100", "-pch-storage=disk" };
@@ -303,7 +306,8 @@ int main() {
         expect(cld::preamble_storage("auto", true, std::nullopt).empty()) << "unknown memory: clangd's own";
         expect(cld::preamble_storage("auto", false, 64 * GIB).empty()) << "elsewhere: clangd's own";
         expect(cld::preamble_storage("disk", true, 64 * GIB) == "disk" && cld::preamble_storage("memory", false, std::nullopt) == "memory");
-        expect(cld::retained_asts(32 * GIB) == std::optional<std::size_t> { 6 });
+        expect(cld::retained_asts(32 * GIB) == std::optional<std::size_t> { 12 });
+        expect(cld::retained_asts(16 * GIB) == std::optional<std::size_t> { 8 } && cld::retained_asts(15 * GIB + (GIB / 2)) == std::optional<std::size_t> { 8 });
         expect(cld::retained_asts(8 * GIB) == std::nullopt && cld::retained_asts(std::nullopt) == std::nullopt);
     };
 

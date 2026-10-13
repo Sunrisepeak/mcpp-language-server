@@ -96,6 +96,12 @@ compiler's own view of the workspace:
 
 Every tool is read-only. Lines and columns start at 1.
 
+While the compiler is slow to answer, `cxx_symbol` and `cxx_references` may rest on answers it gave
+earlier for the same question, and say so: `provenance.authoritative` is `false`, and
+`provenance.notAuthoritative` says which answers, how old, and whether the file that declares them
+changed since. Pass `fresh: true` to wait for the compiler's own; `cxx_verify`, `cxx_impact` and
+`cxx_review` always do, and `mcppls.answer.agent: authoritative` makes every tool do so.
+
 **Claude Code**: the `mcppls-lsp` plugin above also registers the MCP server (`.mcp.json`).
 Without the plugin, add it to a project's `.mcp.json`:
 
@@ -126,7 +132,7 @@ The same queries are commands, for scripts, CI and agent hooks; each prints S5 J
 
 ```
 mcppls query symbol hello::greet
-mcppls query refs hello::greet
+mcppls query refs hello::greet --fresh      # the compiler's own answers only (S5 2.6)
 mcppls diagnostics src/main.cpp
 mcppls verify --changed                  # after an edit: the changed files and their importers
 mcppls review --base origin/main --format sarif --output review.sarif

@@ -2,7 +2,7 @@
 // Code, same reason test/unit/serverLog.test.ts is. The cases are the server's own
 // (tests/test_completion.cpp), so the two gates cannot drift apart unnoticed.
 import * as assert from 'assert';
-import { isImportLinePrefix, sendTriggeredCompletion } from '../../src/completionGate';
+import { completionStillWanted, isImportLinePrefix, sendTriggeredCompletion } from '../../src/completionGate';
 
 suite('space-triggered completion', () => {
     test('an import directive keyword and one blank passes', () => {
@@ -23,5 +23,13 @@ suite('space-triggered completion', () => {
         assert.strictEqual(sendTriggeredCompletion(' ', 'import hello;', 7), true, 'the line before the cursor is what counts');
         assert.strictEqual(sendTriggeredCompletion('.', 'import hello.', 13), true);
         assert.strictEqual(sendTriggeredCompletion(undefined, 'int x = ', 8), true, 'typed or invoked completion always goes');
+    });
+
+    test('a ready completion is asked for again only where it was asked', () => {
+        const ready = { uri: 'file:///a.cpp', version: 3, position: { line: 2, character: 8 } };
+        assert.strictEqual(completionStillWanted(ready, 'file:///a.cpp', 3, { line: 2, character: 8 }), true);
+        assert.strictEqual(completionStillWanted(ready, 'file:///a.cpp', 4, { line: 2, character: 8 }), false, 'a key typed since');
+        assert.strictEqual(completionStillWanted(ready, 'file:///a.cpp', 3, { line: 2, character: 9 }), false, 'the cursor moved');
+        assert.strictEqual(completionStillWanted(ready, 'file:///b.cpp', 3, { line: 2, character: 8 }), false, 'another file');
     });
 });

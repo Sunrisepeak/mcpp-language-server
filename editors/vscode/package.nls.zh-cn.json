@@ -79,5 +79,19 @@
   "config.mcppls.engine.preambleStorage.description": "clangd 把你正在编辑的文件的 preamble 放在哪里。修改后服务端会重启。",
   "config.mcppls.engine.preambleStorage.enum.0": "Windows 上物理内存不少于 16 GiB 时放内存（那里写进临时目录的 preamble 在写入和读出时都会被扫描）；其他情况放磁盘。",
   "config.mcppls.engine.preambleStorage.enum.1": "放磁盘，在临时目录里（clangd 的默认值）。",
-  "config.mcppls.engine.preambleStorage.enum.2": "放内存：大约每个打开的文件一份 preamble，带 <windows.h> 时几十 MB。"
+  "config.mcppls.engine.preambleStorage.enum.2": "放内存：大约每个打开的文件一份 preamble，带 <windows.h> 时几十 MB。",
+  "config.mcppls.completion.provenance.description": "用保留的答复作答时如何显示。修改后服务端会重启。",
+  "config.mcppls.completion.provenance.enum.0": "只在有疑问的项（此后新增或删除的成员）后加一个浅色 ·，其余不显示。",
+  "config.mcppls.completion.provenance.enum.1": "什么都不显示。",
+  "config.mcppls.completion.provenance.enum.2": "写出每一项和悬停的来源，用于报告问题。",
+  "config.mcppls.answer.cache.description": "保留引擎对补全、签名帮助、悬停和跳转的答复；引擎较慢时立即给出保留的答复，引擎自己的答复到达后再替换。修改后服务端会重启。",
+  "config.mcppls.answer.cache.enum.0": "保留，并跨会话保留。",
+  "config.mcppls.answer.cache.enum.1": "只在 mcppls 运行期间保留。",
+  "config.mcppls.answer.cache.enum.2": "不保留：与 0.0.14 相同。",
+  "config.mcppls.answer.budget.description": "补全、签名帮助或悬停等待引擎多少毫秒后改给保留的答复（100-2000）。修改后服务端会重启。",
+  "config.mcppls.answer.budget.patternErrorMessage": "100 到 2000 之间的毫秒数。",
+  "config.mcppls.answer.prefetch.description": "引擎空闲时，向它询问当前文件里已有的 .、->、:: 之后的补全，让下次输入时已有保留的答复。修改后服务端会重启。",
+  "config.mcppls.answer.agent.description": "MCP 工具可以用什么作答。修改后服务端会重启。",
+  "config.mcppls.answer.agent.enum.0": "引擎较慢时可以用保留的答复代替，结果的 provenance 会注明（authoritative: false）。",
+  "config.mcppls.answer.agent.enum.1": "只用引擎自己的答复。"
 }

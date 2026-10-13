@@ -79,5 +79,19 @@
   "config.mcppls.engine.preambleStorage.description": "Where clangd keeps the preambles of the files you edit. A change restarts the server.",
   "config.mcppls.engine.preambleStorage.enum.0": "In memory on Windows with 16 GiB or more, where a preamble written to the temporary directory is scanned when written and when read; on disk elsewhere.",
   "config.mcppls.engine.preambleStorage.enum.1": "On disk, in the temporary directory (clangd's default).",
-  "config.mcppls.engine.preambleStorage.enum.2": "In memory: about one preamble per open file, tens of MB with <windows.h>."
+  "config.mcppls.engine.preambleStorage.enum.2": "In memory: about one preamble per open file, tens of MB with <windows.h>.",
+  "config.mcppls.completion.provenance.description": "How an answer given from what was kept shows it. A change restarts the server.",
+  "config.mcppls.completion.provenance.enum.0": "A faint · after the items that are in doubt (a member added or removed since), nothing else.",
+  "config.mcppls.completion.provenance.enum.1": "Nothing.",
+  "config.mcppls.completion.provenance.enum.2": "Where every item and hover came from, for a report.",
+  "config.mcppls.answer.cache.description": "Keep the engine's answers to completion, signature help, hover and the jumps, and give a kept one at once when the engine is slower; the engine's own answer replaces it when it comes. A change restarts the server.",
+  "config.mcppls.answer.cache.enum.0": "Kept, and between sessions too.",
+  "config.mcppls.answer.cache.enum.1": "Kept only while mcppls runs.",
+  "config.mcppls.answer.cache.enum.2": "Not kept: as 0.0.14.",
+  "config.mcppls.answer.budget.description": "Milliseconds a completion, signature help or hover waits for the engine before a kept answer is given instead (100-2000). A change restarts the server.",
+  "config.mcppls.answer.budget.patternErrorMessage": "A number of milliseconds from 100 to 2000.",
+  "config.mcppls.answer.prefetch.description": "While the engine is idle, ask it for the completions after the . -> and :: the open file already has, so the next one is kept before it is typed. A change restarts the server.",
+  "config.mcppls.answer.agent.description": "What the MCP tools may answer with. A change restarts the server.",
+  "config.mcppls.answer.agent.enum.0": "A kept answer may stand in when the engine is slower; the result's provenance says so (authoritative: false).",
+  "config.mcppls.answer.agent.enum.1": "The engine's own answers only."
 }

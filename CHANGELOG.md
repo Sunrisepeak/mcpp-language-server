@@ -7,6 +7,58 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.15] — 2026-10-13
+
+The bundled engine is [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.16)
+(`23.1.0-mcppls.4`): 35 patches, three of them new. This release is about answering at once what was answered before:
+clangd stays the one source of correctness, and mcppls decides what an earlier correct answer is worth now.
+
+### Answers in under half a second
+
+- **What clangd answered before stands in while it is slow.** Completion, hover, signature help and go-to-definition
+  keep clangd's answers under the place they were for, the type of what is before the `.` (learned from clangd in the
+  background), and the name before the `::` with its aliases spelled out -- so `std::` asked in one file is answered in
+  another, and a list typed away and asked for again is there at once. When clangd is slower than
+  `mcppls.answer.budget` (450 ms), the kept answer goes out, marked incomplete, and clangd's own replaces it as you type
+  on; a request you cancel goes on in the background and is kept for the next time. Kept answers survive a restart
+  (`mcppls.answer.cache`: `on`, `memory`, `off`). While clangd is idle, mcppls asks it in advance for the places after
+  a `.`, `->` or `::` near the cursor that have no answer yet (`mcppls.answer.prefetch`).
+- **You do not see it.** A list given so looks like clangd's own. Only an item mcppls doubts -- a member of a class
+  whose text changed since -- carries a small `·` after its description, and the members the class's text added or
+  removed are corrected in the list (`mcppls.completion.provenance`: `subtle`, `off`, `verbose`). A jump is given from
+  an earlier answer only while the file it lands in is as it was, or the declaration is found there again exactly once.
+- **A list that came up empty comes back by itself.** When a completion after `.`, `->` or `::` had almost nothing in
+  time and clangd's answer arrives while you are still at the same place, VS Code shows the list without a keystroke
+  (`cxxModules/completionReady`, S3 5.9).
+- **Agents and the command line are told which answers are which.** A symbol or references result that rests on a
+  kept answer says so in `provenance` (`authoritative`, the source, how old, whether the file that declares it
+  changed). `fresh: true` (MCP) and `--fresh` (`mcppls query symbol|refs|calls`) wait for clangd's own answers;
+  verify, impact and review always do; `mcppls.answer.agent: authoritative` makes every query wait.
+
+### The engine
+
+- **A check that found a module's inputs as they were holds for 10 s** while no file change is reported
+  (`--module-input-recheck`): an importer of 25 modules no longer re-checks every input at every completion, which cost
+  0.7-1.0 s on Windows. A save, a change on disk the editor reports or an edit with dirty headers checks again at once.
+- **A file that imports no module completes as without module support.** Sema no longer loads the preamble's
+  declarations the index already has (a header-heavy file: 0.6-0.7 s per completion to about 0.4 s); an import typed
+  since, or brought in by a header, is still loaded.
+- **Completion and signature help have two slots of their own** (`--interactive-actions`), instead of queueing behind
+  other files' builds while modules are prepared.
+- With 15 GiB or more, eight ASTs of files you switch between are kept; with 31 GiB or more, twelve.
+
+### Seeing what happens
+
+- The log says, at `info`, only the answers worth reading: one given from an earlier answer while something it depends
+  on changed, and clangd's answer when it differed from what went out (`diff=-<n>/+<n>`). The report's `answers` counts
+  how often, how fast and how often clangd's answer differed. See the troubleshooting guide.
+
+### Documentation
+
+- A new guide, [Laying out a module project](docs/25-module-projects.md): wrapper modules for heavy headers, each header
+  in one place, `import std` without standard `#include`s, a minimal global module fragment, bodies in implementation
+  units, no re-export chains, and why each makes a large mixed project faster to build and to complete in.
+
 ## [0.0.14] — 2026-10-13
 
 The bundled engine is [mcppls-clangd 0.0.15](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.15)

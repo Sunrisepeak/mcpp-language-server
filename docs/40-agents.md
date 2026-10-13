@@ -26,6 +26,22 @@ Two things make these worth using over grepping:
 - **They answer from the same model the editor uses**, so an agent and the human are looking at the
   same build.
 
+**Fast answers, and which ones they are.** A symbol lookup or a references search rests on the
+compiler's answers (hovers, jumps). While the compiler is slow to give one, an answer it gave
+earlier for the same question may stand in, so a lookup does not wait seconds. A result that rests on
+such an answer says so in `provenance`:
+
+```json
+"provenance": { "authoritative": false, "answers": 3,
+                "notAuthoritative": [ { "source": "cache:K1", "certainty": "uncertain", "ageMs": 41000,
+                                        "note": "The location comes from an answer kept 41 s ago; files changed since, so it may be out of date." } ] }
+```
+
+`authoritative: true` means every answer was the compiler's own, for this question. Pass `fresh: true`
+(MCP) or `--fresh` (command line) to wait for the compiler's own answers; `cxx_verify`,
+`cxx_impact` and `cxx_review` always do. To make every query wait, set `mcppls.answer.agent` to
+`authoritative` ([30-settings.md](30-settings.md)).
+
 **Model-backed review** is optional and off by default. With it off, review runs deterministic
 rules only and the server makes no network calls at all. Wiring, and the shared workspace daemon,
 are in [editors/agents/README.md](../editors/agents/README.md).

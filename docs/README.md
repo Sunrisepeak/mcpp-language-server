@@ -7,6 +7,7 @@
 | [00-install.md](00-install.md) | Getting it, and what a payload is |
 | [10-editors.md](10-editors.md) | VS Code, Claude Code, Copilot CLI, any other LSP or MCP client |
 | [20-projects.md](20-projects.md) | What happens for mcpp, CMake, `compile_commands.json`, and for none of those |
+| [25-module-projects.md](25-module-projects.md) | Laying out a module project: wrapper modules, one place per header, `import std` alone, and why |
 | [30-settings.md](30-settings.md) | Every setting, command and command-line option |
 | [40-agents.md](40-agents.md) | The semantic queries, verification and review for agents and CI |
 | [50-troubleshooting.md](50-troubleshooting.md) | The diagnostic report, and what each symptom usually means |

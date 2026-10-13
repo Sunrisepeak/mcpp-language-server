@@ -15,7 +15,7 @@ This specification defines the messages a C++ language server and an editor exch
 ## 1. Conventions
 
 - The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**, **SHOULD**, **SHOULD NOT**, **RECOMMENDED**, **MAY** and **OPTIONAL** are to be interpreted as described in BCP 14 (RFC 2119, RFC 8174) when, and only when, they appear in all capitals.
-- Structures are written as TypeScript interfaces, as in the LSP specification. `DocumentUri`, `Range`, `Command`, `TextDocumentIdentifier` and `TextDocumentPositionParams` are the LSP 3.18 types of those names.
+- Structures are written as TypeScript interfaces, as in the LSP specification. `DocumentUri`, `Position`, `Range`, `Command`, `TextDocumentIdentifier` and `TextDocumentPositionParams` are the LSP 3.18 types of those names.
 - "Set", "context" and "role" have the meanings of [S1](s1-build-database.md). A context is the set the server uses for a file; it determines the file's options and the modules visible to it.
 
 ## 2. Principles
@@ -35,6 +35,7 @@ interface ClientCxxModulesCapabilities {
     status?: boolean;     // the client presents cxxModules/status
     graph?: boolean;      // the client can present a module graph
     contexts?: boolean;   // the client offers a context selection
+    completionReady?: boolean; // the client asks for completion again on cxxModules/completionReady (5.9)
   };
 }
 
@@ -356,6 +357,20 @@ interface SweepCacheResult {
 
 A server that advertises the command **MUST NOT** stop, restart or interrupt any engine for a sweep's sake. <a id="S3-5.8-1"></a><sup>S3-5.8-1</sup> A sweep **MUST NOT** let a request any engine owed fail. <a id="S3-5.8-2"></a><sup>S3-5.8-2</sup> A server **MUST NOT** remove a published BMI -- a `<module>.pcm` whose name is not the versioned copy shape. <a id="S3-5.8-3"></a><sup>S3-5.8-3</sup> A server **MUST NOT** remove a file a live engine generation could hold mapped: a copy is swept only when its mtime is older than the start of the oldest live generation of the engines using that cache, or when no engine uses the cache at all. <a id="S3-5.8-4"></a><sup>S3-5.8-4</sup> A server **MUST NOT** sweep a workspace's cache that another instance has open: an instance directory whose own heartbeat is fresh belongs to a live instance, whatever the workspace's lease says. <a id="S3-5.8-5"></a><sup>S3-5.8-5</sup> The `staleCommands` category -- the command directories older units' BMIs occupy -- is the engine start path's own work (C-2), so a server **MUST** skip it unless the client asked for it by name and no engine is live in that root. <a id="S3-5.8-6"></a><sup>S3-5.8-6</sup> A server **MUST** run one sweep at a time, and answer a sweep that arrives while one runs with `alreadyRunning: true` and nothing removed by it. <a id="S3-5.8-7"></a><sup>S3-5.8-7</sup> With `dryRun: true` a server **MUST** compute the answer over exactly the set it would have removed, so what a client reports as "would free" is what a sweep would free. <a id="S3-5.8-8"></a><sup>S3-5.8-8</sup> What a sweep counts freed is what left the disk: an entry a removal could not take is counted in `failed`, never in `freedBytes`. <a id="S3-5.8-9"></a><sup>S3-5.8-9</sup> A server **MUST NOT** run the removals on the loop that serves requests and renews leases: the sweep of a grown cache is minutes of filesystem work, the reply arrives when the work is done, and nothing a client asked before it -- the lease's own renewal included -- waits behind it. <a id="S3-5.8-10"></a><sup>S3-5.8-10</sup> With more than one root swept, the numbers are the sum over those roots and `roots` says how many there were; `alreadyRunning` appears only when every swept root had a sweep in flight. <a id="S3-5.8-11"></a><sup>S3-5.8-11</sup> A `dryRun` sweep also changes nothing the server remembers: no `lastSweep`, no recomputed report -- a preview a client showed must not later read as a sweep that happened. <a id="S3-5.8-12"></a><sup>S3-5.8-12</sup>
 
+### 5.9 `cxxModules/completionReady` notification
+
+Direction: server → client. A completion asked after a `.`, `->` or `::` while the semantic engine is still preparing a file's modules can get nothing in time; the engine's answer arrives a moment later, when the person is still looking at the same place. This notification says so, once, so a client that wants to can bring the list up without a keystroke.
+
+```ts
+interface CompletionReadyParams {
+  uri: DocumentUri;
+  version: number;      // the document version the completion was asked at
+  position: Position;   // where it was asked
+}
+```
+
+A server **MUST NOT** send `cxxModules/completionReady` to a client that did not declare `completionReady: true`. <a id="S3-5.9-1"></a><sup>S3-5.9-1</sup> A server **MUST** send it at most once per completion request, and only when what it answered that request with was nearly empty -- no earlier answer, or the file's own words only -- the engine's answer that arrived since is not empty, the document is still at `version`, and the request was asked at most 5 seconds before. <a id="S3-5.9-2"></a><sup>S3-5.9-2</sup> A client **MUST** treat it as a hint: it asks for completion again only when the document is still at `version` and the cursor is still at `position`, and otherwise drops it. <a id="S3-5.9-3"></a><sup>S3-5.9-3</sup> A client **MUST NOT** insert or change text on its account. <a id="S3-5.9-4"></a><sup>S3-5.9-4</sup>
+
 ## 6. Module features through standard LSP
 
 | Feature | Standard message | Answered by |
@@ -403,6 +418,12 @@ interface CxxModulesInitializationOptions {
 ```
 
 A semantic engine may offer some module-syntax keywords, not their combined forms, and nothing while it cannot answer for a file. Where a module declaration or an import declaration can begin, a server **SHOULD** offer the keywords that can appear there — `import`; `export import` in a module interface unit; `module;` before anything else in the file; `export module` and `module` in a file with no module declaration; `module :private;` in a primary module interface unit without one — merged with the semantic engine's result without duplicate labels, and **SHOULD** still offer them when the semantic engine gives no result in time. <a id="S3-6.2-4"></a><a id="S3-6.2-5"></a><sup>S3-6.2-4, S3-6.2-5</sup> No module name is offered after `export module`: the name is being declared, not referred to.
+
+### 6.3 Answers given before the engine's
+
+A semantic engine can take seconds to answer while it prepares what a file imports, and most of what is asked has been asked before: the same members after the same `.`, the same names after the same `std::`. A server **MAY** answer `textDocument/completion`, `textDocument/hover`, `textDocument/signatureHelp` and the jumps (`definition`, `declaration`, `typeDefinition`, `implementation`) from an answer its engine gave earlier, when the engine has not answered within a short budget, and keep the engine's own answer, when it arrives, in its place.
+
+A server that answers a completion from an earlier answer **MUST** mark the list `isIncomplete: true`, so that the client asks again as the person types and the engine's own answer replaces it. <a id="S3-6.3-1"></a><sup>S3-6.3-1</sup> A server **MUST NOT** answer a jump from an earlier answer unless the file it lands in is as it was when that answer was given, or the declaration it named is found again, exactly once, in that file's current text. <a id="S3-6.3-2"></a><sup>S3-6.3-2</sup> A server **MUST NOT** keep an answer its engine gave while the engine was failing or unavailable. <a id="S3-6.3-3"></a><sup>S3-6.3-3</sup> In a list given from an earlier answer, an item the server doubts -- a member of a class whose text changed since -- **SHOULD** be told by a small mark only (`·` at the end of `labelDetails.description`) and a line in its documentation, with nothing on the items it does not doubt, so that the list looks as the engine's own does. <a id="S3-6.3-4"></a><sup>S3-6.3-4</sup> To a client that asks on behalf of an agent (S5 2.6) the server says where each answer came from instead.
 
 ## 7. Versioning
 

@@ -100,6 +100,11 @@ orchestrator::SessionOptions session_options(const cmdline::ParsedArgs& args) {
     options.formatFallbackStyle = settings.string_value("format.fallbackStyle");
     options.engineWorkers = settings.string_value("engine.workers");
     options.preambleStorage = settings.string_value("engine.preambleStorage");
+    options.answerCache = settings.string_value("answer.cache");
+    options.answerBudget = std::chrono::milliseconds { std::clamp(std::atoi(settings.string_value("answer.budget").c_str()), 100, 2000) };
+    options.answerPrefetch = settings.bool_value("answer.prefetch");
+    options.answerAgent = settings.string_value("answer.agent");
+    options.completionProvenance = settings.string_value("completion.provenance");
     // This very program, for the reviews an editor asks for: named as the process started it, else found on PATH.
     if (const auto arguments = platform::env::arguments(); !arguments.empty()) {
         const std::string started { arguments.front() };
