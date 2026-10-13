@@ -130,7 +130,8 @@ suite('conflicting C++ extensions', function () {
             await vscode.commands.executeCommand('mcppls.restoreOtherCppFeatures');
             assert.deepStrictEqual(readWorkspaceSettings(), { 'clangd.enable': true });
             const features = api.otherCppFeatures();
-            assert.deepStrictEqual(features.active.map((feature) => feature.extensionId), ['llvm-vs-code-extensions.vscode-clangd']);
+            // cpptools's override is gone, so its IntelliSense is at its default -- on -- again, as clangd is.
+            assert.deepStrictEqual(features.active.map((feature) => feature.extensionId).sort(), ['llvm-vs-code-extensions.vscode-clangd', 'ms-vscode.cpptools']);
             assert.strictEqual(features.canRestore, false);
         });
     } else {
