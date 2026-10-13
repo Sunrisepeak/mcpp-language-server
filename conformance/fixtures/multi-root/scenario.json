@@ -82,7 +82,7 @@
       "kind": "write-file",
       "folder": "mcpp-llvm",
       "file": "mcpp-llvm/mcpp.toml",
-      "content-from": "mcpp-llvm/mcpp.toml",
+      "replace": { "from": "[package]", "with": "# edited: a comment changes the bytes, not the package (an unchanged write is no change since 0.0.16)\n[package]" },
       "expect-reload": true,
       "timeout": 60
     },
