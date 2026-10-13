@@ -29,6 +29,13 @@ editor / coding agent / CI
   words of the file nearest the cursor, as an incomplete list so the editor asks again; for hover
   while modules are prepared, a line saying so — and cancels clangd's request. The report counts,
   per method, which engine answered (`requests.<method>.answeredBy`).
+- **What clangd answered before stands in while it is slow.** Completion, hover, signature help and
+  jumps keep clangd's answers under the place, the type and the name they were for. When clangd is
+  slower than `mcppls.answer.budget` (450 ms) the kept answer goes out, and clangd's own replaces it
+  as you type on; nothing in the list says so except a small `·` on an item mcppls doubts. A jump is
+  given so only while the file it lands in is as it was. Agents and the command line are told which
+  answers were not clangd's own, and can wait for them ([40-agents.md](40-agents.md)). clangd stays
+  the one source of correctness.
 - **Background work happens in idle time.** Implementation units are built for clangd's index one at
   a time, and only after 10 s without typing, opening a file or a request; a restart clangd needs for
   a changed build description waits until typing has paused for 3 s (at most 60 s). A crash or a

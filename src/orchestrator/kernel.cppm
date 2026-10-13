@@ -29,7 +29,9 @@ public:
 
     // An LSP request through the workspace's routing: the whole response message (with "result" or
     // "error"), or nullopt when none arrived within `timeout`.
-    std::optional<Json> request(std::string_view method, Json params, std::chrono::milliseconds timeout);
+    // `authoritative`: the engine's own answer, never one the answer layer kept (answer-layer design 6.2). The response
+    // carries `provenance`: where its result came from.
+    std::optional<Json> request(std::string_view method, Json params, std::chrono::milliseconds timeout, bool authoritative = false);
 
     // Documents, by path (absolute, or relative to the root). open reads the file unless it is open;
     // at most MAX_OPEN_DOCUMENTS stay open, the least recently used closed first.

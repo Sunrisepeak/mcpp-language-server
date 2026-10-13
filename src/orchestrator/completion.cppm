@@ -114,6 +114,9 @@ public:
     // (`cap` at most). The window outlives a think pause; a longer pause relearns with the answers C-2 already keeps.
     std::chrono::milliseconds budget(std::chrono::steady_clock::time_point now, std::chrono::milliseconds base,
                                      std::chrono::milliseconds cap) const;
+    // How long the engine takes for this file now: the slowest of the recent window's answers, when there are at least
+    // two of them.
+    std::optional<std::chrono::milliseconds> usual(std::chrono::steady_clock::time_point now) const;
 
 private:
     struct Answer {

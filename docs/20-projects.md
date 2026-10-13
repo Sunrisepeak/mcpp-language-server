@@ -225,3 +225,6 @@ else. The semantic kit provides the semantics and the status says why.
 | "needs a download" | Planning offline stopped at something not on the machine; the project is served from its sources meanwhile, and there are actions to fix it (or build in your terminal: it upgrades by itself) |
 | "files the build generates … do not exist yet" | A rule's output (a Qt form's header, say) is not built yet; build once and the files that include it get their semantics |
 | "implementation unit(s) cannot be read" | An implementation unit does not build (a missing header, usually), so go-to-definition cannot reach the definitions in it |
+
+How to lay out a module project so it builds and completes fast — wrapper modules, each header in
+one place, `import std` without standard `#include`s — is in [25-module-projects.md](25-module-projects.md).

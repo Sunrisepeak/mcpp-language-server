@@ -42,6 +42,10 @@ lines have a fixed shape; the report's `events` carry the same facts.
 | `clangd (<root>): I[…] Module memos: <n> BMI verdicts and <n> scans kept from the last session …` | mcppls-clangd 0.0.15, at start: what the last session left to check instead of redoing it (each is checked before it is used) |
 | `clangd (<root>): I[…] Module inputs: <n> managed package store(s) checked by their markers` | Which package stores (mcpp's, xlings') the engine checks by version |
 | `the last files in use (<root>): <n> of them, opened in clangd ahead of the editor once it takes files` | At start: the files last worked in are opened in clangd before the editor asks; `<file> was ready in clangd <ms> ms before the editor opened it` says it paid off, `... is still being built there; the editor takes it as it is` that the editor came while clangd was at it, and one the editor did not open within two minutes is closed again |
+| `clangd (<root>): I[…] Module inputs: a check holds for <s> s while no file change is reported` | mcppls-clangd 0.0.16, at start: a check of a module's inputs holds that long while no file change is reported; `<n> checks still holding` in the completion line counts the checks it saved |
+| `answer <kind> <file>:<line>:<column> <place> source=<cache:K1\|cache:K2\|cache:K3\|outline> certainty=uncertain age=<s> took=<ms> engine=pending` | 0.0.15: an answer given from an earlier one while clangd was slower than `mcppls.answer.budget`, and something it depends on changed since; the ones nothing changed under are at `debug` |
+| `answer <kind> <file>:<line>:<column> <place> source=engine certainty=authoritative took=<ms> replaced=<source> diff=-<n>/+<n>` | clangd's own answer came after one was given, and differed by that many items (it replaces it on the next keystroke); none is written when they were the same |
+| `answers: <n> kept from the last session (<n> KB), read in <ms> ms` | At start: what the answer layer read back |
 | `the cache <dir> is not on a Dev Drive: …` | Windows only, once: see [Windows](#windows-a-cache-on-a-dev-drive) |
 | `restarting clangd (<root>): <reason> (<cause>)` | Every restart, and whether it counts against clangd |
 | `the timers of <root> took <ms> ms, <ms> ms of them in <part>` | What held the event loop |
@@ -127,6 +131,16 @@ with autosave, what is on disk mid-edit does not compile as a rule. This is a pr
 in the code, so it is told where it is, as diagnostics: the status stays *ready* (listing
 `modules-doomed`, category `code`) and is never *preparing* for good. The engine's `doomedModules`
 and `filesRoutedToOwnEngine` in the report list them.
+
+**A completion list shows at once, then changes a little; an item ends in a small `·`.** From 0.0.15,
+when clangd is slower than `mcppls.answer.budget` (450 ms), mcppls gives the answer clangd gave
+before for the same place or the same name, and clangd's own answer replaces it as you type on. A
+`·` after an item's description marks one mcppls doubts: a member of a class whose text changed
+since. `answers` in the report says how often it happened (`answers`), how fast (`fromCache`,
+`fromEngine`) and how often clangd's answer differed (`replaced`). To see where every answer came
+from, set `mcppls.completion.provenance` to `verbose`; to keep nothing, set `mcppls.answer.cache`
+to `off` (or `memory` to keep nothing on disk). A jump is given from an earlier answer only while the
+file it lands in is as it was, or the declaration is found there again exactly once.
 
 **What the status says, and what it does not.** A mistake in your code (a missing `;`, an import
 of a module nothing provides, a module that does not compile) is a diagnostic where it is, in the

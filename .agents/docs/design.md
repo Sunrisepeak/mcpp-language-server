@@ -52,6 +52,13 @@ editor / coding agent / CI
   — module-name navigation, `import` completion, the module graph, unresolved / ambiguous /
   cross-module-partition diagnostics — from a syntax index it owns. clangd answers C++ semantics from
   a database mcppls writes for it. A clice engine was considered and is not implemented.
+- **An answer layer in front of clangd** (`src/orchestrator/answer`, `answering`): what clangd answered for a
+  completion, a hover, signature help or a jump is kept under the place, the receiver's learned type and the
+  qualifier's spelled-out name, with a certainty (the file's visibility fingerprint, the enclosing text, the other
+  files' changes, the provider's generation). When clangd is slower than `mcppls.answer.budget` a kept answer goes
+  out -- marked incomplete, doubted items with a small mark only -- and clangd's own answer replaces it; for agents
+  every response says where it came from (`provenance`). clangd stays the one source of correctness; the layer only
+  decides what an earlier correct answer is worth now.
 - **One process shape per client**: `mcppls serve` (LSP over stdio), `mcppls mcp` (MCP over stdio, or
   `--daemon` to share one workspace between several agents), and one-shot commands (`mcppls check`,
   `report`, `cache`, `symbol`, `review`, ...).
@@ -394,6 +401,12 @@ provisional model · P-1 stand-ins together · K-6 the settled-preparing hold ·
 close at once · C-2 late completions reach their word · C-4 slow files and build times in the report · X-1..X-7 xmake
 followed without touching the project · X-3 the build compiler's own standard · X-4 a standard library unit that does
 not scan · I-1 include cleaner stays on · CL-1..CL-4 CLion 2026.2.3, one engine per file · Z-1..Z-3 Zed in CI.
+
+**"answer-layer design" — [2026-10-13-answer-cache-layer-design.md](2026-10-13-answer-cache-layer-design.md).** 4 the
+keys K1–K3, certainty (4.3 the visibility fingerprint), the budget, dedup and background (4.8 prefetch, 4.10 nothing
+kept from a failing engine) · 6.1 marks in the editor · 6.2 provenance for agents and the command line · 6.4 logs · 7
+the engine side (E1 module input rechecks, E2 the preamble load, E4 interactive slots, E5 retained ASTs) · R3 the
+`cxxModules/completionReady` notification.
 
 **"tooling architecture".** 3.2 the workspace layout · 5.1 what mcpp, mcppls and devtools each do ·
 5.5 how devtools finds the server it just built · M0–M6 its migration steps.

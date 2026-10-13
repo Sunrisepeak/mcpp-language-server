@@ -41,6 +41,10 @@
 | `clangd (<root>): I[…] Module memos: <n> BMI verdicts and <n> scans kept from the last session …` | mcppls-clangd 0.0.15，启动时：上次会话留下了多少条可以核对而不必重做的结果（每条使用前都会再核对） |
 | `clangd (<root>): I[…] Module inputs: <n> managed package store(s) checked by their markers` | 引擎按版本核对的包仓库（mcpp 的、xlings 的）有几个 |
 | `the last files in use (<root>): <n> of them, opened in clangd ahead of the editor once it takes files` | 启动时：上次在编辑的文件会在编辑器请求之前就在 clangd 里打开；`<file> was ready in clangd <ms> ms before the editor opened it` 说明提前准备起了作用，`... is still being built there; the editor takes it as it is` 说明编辑器打开时 clangd 还在构建它、直接接着用，两分钟内编辑器没打开的会再关掉 |
+| `clangd (<root>): I[…] Module inputs: a check holds for <s> s while no file change is reported` | mcppls-clangd 0.0.16，启动时：一次模块输入核对在这段时间内、且没有文件变化报告时一直有效；补全耗时那一行里的 `<n> checks still holding` 是因此省下的核对 |
+| `answer <kind> <file>:<line>:<column> <place> source=<cache:K1\|cache:K2\|cache:K3\|outline> certainty=uncertain age=<s> took=<ms> engine=pending` | 0.0.15：clangd 慢于 `mcppls.answer.budget` 时，用之前的答案先作答，而它依赖的东西之后有变化；没有变化的那些只记在 `debug` |
+| `answer <kind> <file>:<line>:<column> <place> source=engine certainty=authoritative took=<ms> replaced=<来源> diff=-<n>/+<n>` | 先给出答案之后 clangd 自己的答案到了，差了这么多项（下一次按键就替换掉）；完全相同时不写 |
+| `answers: <n> kept from the last session (<n> KB), read in <ms> ms` | 启动时：答案层读回了多少 |
 | `the cache <dir> is not on a Dev Drive: …` | 只在 Windows 上，只说一次：见 [Windows：缓存放在 Dev Drive 上](#windows缓存放在-dev-drive-上) |
 | `restarting clangd (<root>): <原因> (<cause>)` | 每次重启，以及是否计入 clangd 的重启预算 |
 | `the timers of <root> took <ms> ms, <ms> ms of them in <part>` | 是什么占住了事件循环 |
@@ -109,6 +113,8 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 **每次启动都很慢。** 第二次会话应该很快：模型连同构建工具所读一切内容的指纹一起被缓存，与之匹配的会话会立即套用计划，并在后台确认；已经构建好的模块会复用，不会重建（0.0.6 及更早版本在热启动时会把每个模块都重建一遍，issue #30）。`project.firstOrigin` 会说明发生了哪种情况。如果它一直是 `producer`，说明指纹没有匹配上——该看报告里的 `project.producerRun` 和构建文件的时间戳。
 
 **补全只有文件里的词，或悬停提示说正在准备模块。** 每种请求给 clangd 的都有预算——补全和签名帮助 1 秒，若某文件的补全 clangd 总是刚好超过 1 秒才回答（clangd 23.1 的模块导入方，上游缺陷 UP-25），预算最多放宽到 2.5 秒，让这些答案不会正好在预算线上被取消——悬停 2 秒，跳转到定义 10 秒——超过之后 mcppls 用手上有的东西作答。补全这时给出的是文件里离光标最近的那些词，是一份不完整的列表，所以你继续输入时编辑器会再问一次；悬停在模块准备期间给出的是一行说明。这是 clangd 正忙着处理模块，不是故障。从 0.0.8 起，clangd 迟到的补全不再丢弃：它最多再算 10 秒，你在同一个词里继续输入时发出的请求都等它，一到就交给它们，所以在 clangd 重建得慢的文件里，列表仍会在你打完这个词之前出现。报告里的 `requests.<method>.answeredBy` 按方法统计了各由哪个引擎作答；`engineP50Ms`、`engineP95Ms` 是引擎作答的那些请求在引擎里花的时间，`overheadP50Ms`、`overheadP95Ms` 是 mcppls 在其外加的时间，由此看出一次慢的补全慢在谁；`completion.late` 统计 clangd 迟到的答案和用上它们的请求；`slowestFiles` 列出最慢的十个文件，以及每个文件有多少次补全只拿到了词；`engines[].details.buildTimes` 说明 clangd 构建每个文件花在哪里（preamble、导入的模块、AST 构建次数）。
+
+**补全列表立刻出现，过一会儿又小有变化；某一项末尾有个小小的 `·`。** 从 0.0.15 起，clangd 慢于 `mcppls.answer.budget`（450 ms）时，mcppls 先给出 clangd 之前在同一位置或对同一名字给过的答案，你继续输入时 clangd 自己的答案替换它。某一项描述后面的 `·` 表示 mcppls 对它存疑：它是一个之后文本有改动的类的成员。报告里的 `answers` 说明这种情况发生了多少次（`answers`）、有多快（`fromCache`、`fromEngine`）、clangd 的答案有多少次不一样（`replaced`）。想看每个答案从哪里来，把 `mcppls.completion.provenance` 设为 `verbose`；什么都不保留，把 `mcppls.answer.cache` 设为 `off`（`memory` 则不写磁盘）。跳转只在它落到的文件没变、或者能在那个文件里唯一地重新找到这个声明时，才用之前的答案。
 
 **模块单元里出现"未使用的头文件"警告。** 这是 clangd 的 include cleaner，默认开启，mcppls 不关它：在模块接口的全局模块片段、实现单元和导入方里，它和在普通文件里一样，只报没有任何东西用到的头文件（有一个 conformance fixture 在 clangd 升级时守着这一点）。要关掉，在项目的 `.clangd` 或你的 clangd `config.yaml` 里写 `Diagnostics: { UnusedIncludes: None }`；mcppls 启动的 clangd 两处都会读。
 

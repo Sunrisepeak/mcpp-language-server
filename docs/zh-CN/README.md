@@ -7,6 +7,7 @@
 | [安装](00-install.md) | 获取方式，以及 payload 是什么 |
 | [编辑器与 Agent](10-editors.md) | VS Code、Claude Code、Copilot CLI，以及其他任意 LSP 或 MCP 客户端 |
 | [工程类型](20-projects.md) | mcpp、CMake、`compile_commands.json` 工程，以及三者都没有时，分别怎么处理 |
+| [模块工程组织](25-module-projects.md) | 模块工程怎么组织：包装模块、头文件收敛到一处、`import std` 不混用，以及原因 |
 | [设置与命令行](30-settings.md) | 所有设置项、命令和命令行选项 |
 | [Agent 与 CI](40-agents.md) | 面向 Agent 和 CI 的语义查询、验证与审查 |
 | [出问题时](50-troubleshooting.md) | 诊断报告，以及各种症状通常意味着什么 |

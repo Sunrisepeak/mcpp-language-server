@@ -53,6 +53,13 @@ struct SessionOptions {
     std::string formatFallbackStyle { "auto" };
     std::string engineWorkers { "auto" };   // mcppls.engine.workers (R-2): "auto" or a number
     std::string preambleStorage { "auto" }; // mcppls.engine.preambleStorage (0.0.14 C1): auto, disk or memory
+    // The answer layer (answer-layer design 2026-10-13): mcppls.answer.cache, .budget, .prefetch, .agent, and
+    // mcppls.completion.provenance.
+    std::string answerCache { "on" };
+    std::chrono::milliseconds answerBudget { 450 };
+    bool answerPrefetch { true };
+    std::string answerAgent { "cached" };
+    std::string completionProvenance { "subtle" };
     // Registered workarounds turned off (import-hang plan §9): to see whether one is still needed.
     std::vector<std::string> disabledWorkarounds;
     // initializationOptions.semanticTokens (design doc 2026-09-25 K/§7, contract T0): native

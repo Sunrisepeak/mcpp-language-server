@@ -116,12 +116,15 @@ Json tool_list() {
     Json symbol = target_properties();
     symbol["kind"] = property("string", "Only this kind: function, method, class, struct, namespace, variable, field, enum, module");
     symbol["module"] = property("string", "Only symbols declared in this module");
+    symbol["fresh"] = property("boolean", "Wait for the compiler's own answers (default false: answers kept from before may stand in when it is slower, "
+                                          "and the result's provenance says so)");
     tools.push_back(tool("cxx_symbol", "C++ symbol",
                          "Find C++ symbols by name, id or position: declaration and definition locations, signature, type, documentation and module.",
                          std::move(symbol)));
     Json references = target_properties();
     references["direction"] = Json { { "type", "string" }, { "enum", Json::array({ "references", "callers", "callees" }) }, { "description", "Default references" } };
     references["includeDeclaration"] = property("boolean", "Include the declaration itself (default true)");
+    references["fresh"] = property("boolean", "Wait for the compiler's own answers (default false)");
     tools.push_back(tool("cxx_references", "C++ references",
                          "References to a C++ symbol grouped by module and file, or its callers or callees. Searches the symbol's module and every unit that imports it.",
                          std::move(references)));
@@ -194,10 +197,19 @@ ToolResult call_tool(query::View& view, std::string_view name, const Json& value
         if (auto wrong = arguments.check(key, type)) return failure(*wrong);
     }
 
+    // Answer-layer design 6.2: what the engines answered may be a kept answer, said in `provenance`; a call that asks for
+    // `fresh` results, and the tools whose conclusions rest on them, wait for the engine's own.
+    (void)view.take_provenance();
+    view.require_authoritative(arguments.boolean("fresh", false) || name == "cxx_review" || name == "cxx_verify" || name == "cxx_impact");
+    const auto with_provenance = [&](ToolResult result) {
+        if (Json provenance = view.take_provenance(); !provenance.is_null() && result.value.is_object()) result.value["provenance"] = std::move(provenance);
+        return result;
+    };
+
     if (name == "cxx_symbol") {
         auto found = context::locate_symbols(view, target_of(arguments), query::Limit { limit_of(arguments, 20) }, true, deadline);
         if (found && found->symbols.empty()) return failure(query::not_found(std::format("no symbol named {}", arguments.string("name"))));
-        return result_of(found);
+        return with_provenance(result_of(found));
     }
     if (name == "cxx_references") {
         const std::string direction { arguments.string("direction") };
@@ -206,8 +218,8 @@ ToolResult call_tool(query::View& view, std::string_view name, const Json& value
                                                query::Limit { limit_of(arguments, 100) }, deadline));
         }
         if (!direction.empty() && direction != "references") return failure(query::invalid_arguments("direction is references, callers or callees"));
-        return result_of(query::find_references(view, target_of(arguments), arguments.boolean("includeDeclaration", true), query::Limit { limit_of(arguments, 200) },
-                                                deadline));
+        return with_provenance(result_of(query::find_references(view, target_of(arguments), arguments.boolean("includeDeclaration", true), query::Limit { limit_of(arguments, 200) },
+                                                deadline)));
     }
     if (name == "cxx_outline") {
         if (arguments.string("file").empty()) return failure(query::invalid_arguments("file is required"));

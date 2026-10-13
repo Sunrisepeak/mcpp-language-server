@@ -5,7 +5,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-    buildInitializationOptions, InspectedValue, legacyNamesInUse, RENAMED_SETTINGS, resolveRenamed, SettingsReader, workersSetting,
+    answerBudgetSetting, buildInitializationOptions, InspectedValue, legacyNamesInUse, RENAMED_SETTINGS, resolveRenamed, SettingsReader, workersSetting,
 } from '../../src/settingsRead';
 
 /** A configuration with the given user values: `global` for the user's settings, `workspace` for the folder's. */
@@ -59,6 +59,20 @@ suite('S-2: what the server is sent', () => {
         }
         assert.strictEqual(workersSetting(''), 'auto');
         assert.strictEqual(workersSetting(undefined), 'auto');
+    });
+
+    test('the answer settings are sent, and only values the server takes', () => {
+        const defaults = buildInitializationOptions(reader(), '');
+        assert.deepStrictEqual([defaults['answer.cache'], defaults['answer.budget'], defaults['answer.prefetch'], defaults['answer.agent']],
+            ['on', '450', true, 'cached']);
+        assert.strictEqual((defaults.completion as { provenance: string }).provenance, 'subtle');
+        const set = buildInitializationOptions(reader({ 'answer.cache': 'memory', 'answer.budget': '300', 'answer.agent': 'authoritative',
+            'completion.provenance': 'verbose' }), '');
+        assert.deepStrictEqual([set['answer.cache'], set['answer.budget'], set['answer.agent']], ['memory', '300', 'authoritative']);
+        assert.strictEqual((set.completion as { provenance: string }).provenance, 'verbose');
+        assert.strictEqual(buildInitializationOptions(reader({ 'answer.cache': 'sometimes' }), '')['answer.cache'], 'on');
+        for (const bad of ['99', '2001', 'fast', '', '45O']) assert.strictEqual(answerBudgetSetting(bad), '450', bad);
+        assert.strictEqual(answerBudgetSetting(' 2000 '), '2000');
     });
 
     test('the renamed settings are sent under their new names, whichever name a person used', () => {

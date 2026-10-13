@@ -80,6 +80,8 @@ std::vector<std::string> clangd_arguments(const ProcessConfig& config) {
     }
     if (!config.moduleMemoDirectory.empty() && !given("--module-memo-dir")) arguments.push_back("--module-memo-dir=" + config.moduleMemoDirectory);
     if (config.maxRetainedAsts && !given("--max-retained-asts")) arguments.push_back(std::format("--max-retained-asts={}", *config.maxRetainedAsts));
+    if (config.moduleInputRecheck && !given("--module-input-recheck")) arguments.push_back(std::format("--module-input-recheck={}", *config.moduleInputRecheck));
+    if (config.interactiveActions && !given("--interactive-actions")) arguments.push_back(std::format("--interactive-actions={}", *config.interactiveActions));
     arguments.insert(arguments.end(), config.extraArguments.begin(), config.extraArguments.end());
     return arguments;
 }

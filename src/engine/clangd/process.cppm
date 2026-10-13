@@ -34,6 +34,10 @@ struct ProcessConfig {
     std::vector<std::string> managedInputRoots;
     std::string moduleMemoDirectory;
     std::optional<std::size_t> maxRetainedAsts;
+    // mcppls-clangd 0.0.16, by declared feature: how long a check of module inputs holds while mcppls reports no file
+    // change (module-input-recheck, seconds), and completion's own slots (interactive-actions).
+    std::optional<int> moduleInputRecheck;
+    std::optional<int> interactiveActions;
 };
 
 class Process {

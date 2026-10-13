@@ -1778,6 +1778,10 @@ private:
         if (declares("managed-input-roots")) config.managedInputRoots = managed_package_stores();
         if (declares("persistent-module-memos")) config.moduleMemoDirectory = base::join_path(host_->cache_directory(), "clangd-memos");
         if (declares("retained-asts-option")) config.maxRetainedAsts = retained_asts(total_memory_bytes());
+        // mcppls reports every file change it sees (didSave, didChangeWatchedFiles): a check of module inputs holds 10 s
+        // between them, so a completion does not re-stat them all; and completions do not queue behind other files' builds.
+        if (declares("module-input-recheck")) config.moduleInputRecheck = MODULE_INPUT_RECHECK_SECONDS;
+        if (declares("interactive-actions")) config.interactiveActions = INTERACTIVE_ACTIONS;
         config.extraArguments = options_.extraArguments;
         // Extra engine arguments for troubleshooting, e.g. MCPPLS_ENGINE_ARGUMENTS="-j=8 --background-index-priority=background".
         if (auto extra = platform::env::get("MCPPLS_ENGINE_ARGUMENTS")) {

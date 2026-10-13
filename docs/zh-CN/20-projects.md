@@ -96,3 +96,5 @@ C++26 能用到什么，取决于 clangd 23.1：包索引（pack indexing）、`
 | "needs a download" | 离线规划需要本机没有的依赖；这期间工程按源码提供服务，并提供解决的操作（或者在终端里构建：它会自己升级） |
 | "files the build generates … do not exist yet" | 规则的输出（比如 Qt 表单的头文件）还没构建出来；构建一次，包含它的文件就有语义 |
 | "implementation unit(s) cannot be read" | 某个实现单元编译不了（通常是缺头文件），所以跳到定义到不了其中的定义 |
+
+模块工程怎么组织才能构建快、补全快——包装模块、每个头文件只出现在一处、`import std` 不与标准库 `#include` 混用——见[模块工程组织](25-module-projects.md)。

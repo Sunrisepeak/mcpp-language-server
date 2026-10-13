@@ -78,6 +78,33 @@ interface Failure {
 - A query that names more than one symbol where one is needed **MUST** fail with `ambiguous` and list the candidates with their identifiers. <a id="S5-2.5-1"></a><sup>S5-2.5-1</sup>
 - A query that needs the core engine in a workspace without one **MUST** fail with `unavailable`, not return an empty result. <a id="S5-2.5-2"></a><sup>S5-2.5-2</sup>
 
+### 2.6 Provenance
+
+A server may answer what the core engine is slow to answer -- a hover, a jump -- from an answer the engine gave before (S3 6.3). A result built from such answers says so:
+
+```ts
+interface Provenance {
+  authoritative: boolean;           // every answer it rests on was the core engine's own, given for this request
+  answers: number;                  // how many engine answers the result rests on
+  notAuthoritative?: Answer[];      // those that were not, at most 8
+}
+interface Answer {
+  authoritative: false;
+  source: "cache:K1" | "cache:K2" | "cache:K3" | "outline" | "native";
+                                    // kept for this place; for this type; for this name; read from the text; the server's own
+  certainty: "certain" | "uncertain";   // certain: nothing the answer depends on changed since it was given
+  ageMs: number;                    // how long ago the engine gave it
+  providerChanged: boolean;         // the file that declares what it is about changed since
+  enginePending: boolean;           // the engine's own answer was still being computed
+  note?: string;                    // the same, in a sentence
+}
+```
+
+- A result that rests on an answer that was not the core engine's own **MUST** carry `provenance` with `authoritative: false`; one that rests only on the engine's own answers **MAY** carry it with `authoritative: true`. <a id="S5-2.6-1"></a><sup>S5-2.6-1</sup>
+- A query given `fresh: true` (MCP) or `--fresh` (command line) **MUST** rest only on the core engine's own answers. <a id="S5-2.6-2"></a><sup>S5-2.6-2</sup>
+- Verification, impact and review (3.7, 5.2) **MUST** rest only on the core engine's own answers, whatever they are given. <a id="S5-2.6-3"></a><sup>S5-2.6-3</sup>
+- A server **SHOULD** let a person require the engine's own answers for every query (`mcppls.answer.agent`: `authoritative`). <a id="S5-2.6-4"></a><sup>S5-2.6-4</sup>
+
 ## 3. Queries
 
 ### 3.1 Symbols
@@ -406,8 +433,8 @@ A server runs as an MCP server over standard input and output (`mcppls mcp`): on
 
 | Tool | Query |
 |---|---|
-| `cxx_symbol` | 3.1 |
-| `cxx_references` | 3.2, and 3.3 with `direction` |
+| `cxx_symbol` | 3.1; `fresh: true` for the engine's own answers only (2.6) |
+| `cxx_references` | 3.2, and 3.3 with `direction`; `fresh` as `cxx_symbol` |
 | `cxx_outline` | 3.4 |
 | `cxx_module` | 3.5 with 4.2 as `interface` (unless `interface: false`); `graph: true` for the graph |
 | `cxx_build_context` | 4.1 |
@@ -436,9 +463,9 @@ One process per workspace can serve every MCP connection to it from one session 
 
 | Command | Query |
 |---|---|
-| `mcppls query symbol <name> [--at FILE:LINE:COLUMN] [--id ID] [--kind K] [--module M]` | 3.1 |
-| `mcppls query refs <name> [--no-declaration]` | 3.2 |
-| `mcppls query calls <name> [--callees]` | 3.3 |
+| `mcppls query symbol <name> [--at FILE:LINE:COLUMN] [--id ID] [--kind K] [--module M] [--fresh]` | 3.1 |
+| `mcppls query refs <name> [--no-declaration] [--fresh]` | 3.2 |
+| `mcppls query calls <name> [--callees] [--fresh]` | 3.3 |
 | `mcppls query outline <file>` | 3.4 |
 | `mcppls query module <name> [--file F] [--graph]` | 3.5 |
 | `mcppls diagnostics <file>... [--no-fresh]` | 3.6 |

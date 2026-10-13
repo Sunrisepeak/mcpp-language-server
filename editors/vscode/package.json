@@ -2,7 +2,7 @@
   "name": "mcpp-language-server",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "0.0.14",
+  "version": "0.0.15",
   "publisher": "sunrisepeak",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -371,6 +371,61 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "%config.mcppls.completion.triggerOnSpace.markdownDescription%"
+        },
+        "mcppls.completion.provenance": {
+          "type": "string",
+          "enum": [
+            "subtle",
+            "off",
+            "verbose"
+          ],
+          "default": "subtle",
+          "enumDescriptions": [
+            "%config.mcppls.completion.provenance.enum.0%",
+            "%config.mcppls.completion.provenance.enum.1%",
+            "%config.mcppls.completion.provenance.enum.2%"
+          ],
+          "description": "%config.mcppls.completion.provenance.description%"
+        },
+        "mcppls.answer.cache": {
+          "type": "string",
+          "enum": [
+            "on",
+            "memory",
+            "off"
+          ],
+          "default": "on",
+          "enumDescriptions": [
+            "%config.mcppls.answer.cache.enum.0%",
+            "%config.mcppls.answer.cache.enum.1%",
+            "%config.mcppls.answer.cache.enum.2%"
+          ],
+          "description": "%config.mcppls.answer.cache.description%"
+        },
+        "mcppls.answer.budget": {
+          "type": "string",
+          "default": "450",
+          "pattern": "^(1[0-9]{2}|[2-9][0-9]{2}|1[0-9]{3}|2000)$",
+          "patternErrorMessage": "%config.mcppls.answer.budget.patternErrorMessage%",
+          "description": "%config.mcppls.answer.budget.description%"
+        },
+        "mcppls.answer.prefetch": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.mcppls.answer.prefetch.description%"
+        },
+        "mcppls.answer.agent": {
+          "type": "string",
+          "enum": [
+            "cached",
+            "authoritative"
+          ],
+          "default": "cached",
+          "enumDescriptions": [
+            "%config.mcppls.answer.agent.enum.0%",
+            "%config.mcppls.answer.agent.enum.1%"
+          ],
+          "description": "%config.mcppls.answer.agent.description%"
         },
         "mcppls.trace.server": {
           "type": "string",

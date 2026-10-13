@@ -344,8 +344,13 @@ std::string preamble_storage(std::string_view setting, bool windows, std::option
     return {};
 }
 
+// Answer-layer design 7, E5: ASTs of files not being edited, by memory -- an editor with more files open than ASTs kept
+// rebuilds one for every hover and jump that lands in another (seconds, in a file importing many modules). A machine
+// sold as 16 or 32 GB reports a little less than that many GiB.
 std::optional<std::size_t> retained_asts(std::optional<std::uint64_t> memoryBytes) {
-    if (memoryBytes && *memoryBytes >= PREAMBLES_IN_MEMORY_FROM) return 6;
+    constexpr std::uint64_t GIB { std::uint64_t { 1 } << 30 };
+    if (memoryBytes && *memoryBytes >= 31 * GIB) return 12;
+    if (memoryBytes && *memoryBytes >= 15 * GIB) return 8;
     return std::nullopt;
 }
 

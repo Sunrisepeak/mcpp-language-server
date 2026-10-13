@@ -90,6 +90,18 @@ export function preambleStorageSetting(value: string | undefined): 'auto' | 'dis
     return value === 'disk' || value === 'memory' ? value : 'auto';
 }
 
+/** One of `values` (the first is the default): anything else is the default. */
+export function oneOf<T extends string>(value: string | undefined, values: readonly [T, ...T[]]): T {
+    return values.find((candidate) => candidate === value) ?? values[0];
+}
+
+/** `answer.budget` as the server takes it: milliseconds from 100 to 2000; anything else is 450. */
+export function answerBudgetSetting(value: string | undefined): string {
+    const trimmed = (value ?? '').trim();
+    const milliseconds = /^[0-9]{3,4}$/.test(trimmed) ? Number(trimmed) : NaN;
+    return milliseconds >= 100 && milliseconds <= 2000 ? trimmed : '450';
+}
+
 /** `engine.workers` as the server takes it: `auto` or a whole number from 1 to 99; empty means `auto`. */
 export function workersSetting(value: string | undefined): string {
     const trimmed = (value ?? '').trim();
@@ -137,7 +149,15 @@ export function buildInitializationOptions(configuration: SettingsReader, compil
         // advertises the space as a trigger character to this client unless this is off.
         completion: {
             triggerOnSpace: get('completion.triggerOnSpace', true),
+            // Answer-layer design 6.1: a mark on items from an earlier answer that mcppls doubts.
+            provenance: oneOf(configuration.get<string>('completion.provenance'), ['subtle', 'off', 'verbose'] as const),
         },
+        // Answer-layer design 4 and 6.2: what the engine answered before stands in while it is slow; every one
+        // restarts the server.
+        'answer.cache': oneOf(configuration.get<string>('answer.cache'), ['on', 'memory', 'off'] as const),
+        'answer.budget': answerBudgetSetting(configuration.get<string>('answer.budget')),
+        'answer.prefetch': get('answer.prefetch', true),
+        'answer.agent': oneOf(configuration.get<string>('answer.agent'), ['cached', 'authoritative'] as const),
         // 0.0.6 plan section 3.7 B-7: whether the project's build system is detected at all, which
         // providers may be used, and whether a needed download is ever offered.
         'buildDiscovery.mode': resolveRenamed(configuration, RENAMED_SETTINGS[1], 'auto') === 'off' ? 'off' : 'auto',

@@ -182,9 +182,20 @@ int run_in_session(const cmdline::ParsedArgs& args, std::string_view file, const
     const orchestrator::KernelOptions options { session_options(args), root_of(args, file) };
     auto kernel = orchestrator::Kernel::start(options);
     query::View view { *kernel };
+    // Answer-layer design 6.2: the engine's own answers, unless the query is one that says where its answers came from
+    // (symbol, refs, calls: their `ask` lets kept answers stand in, without --fresh).
+    view.require_authoritative(true);
     const auto deadline = Clock::now() + seconds_option(args, "timeout", std::chrono::seconds { 180 });
     auto result = ask(view, deadline);
     kernel->shut_down();
+    const bool sayProvenance { !view.requires_authoritative() || args.is_flag_set("fresh") };
+    if (Json provenance = view.take_provenance(); sayProvenance && result && !provenance.is_null() && result->is_object()) {
+        if (!provenance.value("authoritative", true) && format == "text") {
+            std::println(std::cerr, "note: {} of {} answers were kept from before and are being checked; --fresh waits for the compiler's own",
+                         provenance.value("notAuthoritative", Json::array()).size(), provenance.value("answers", 0));
+        }
+        (*result)["provenance"] = std::move(provenance);
+    }
     if (!result) {
         const Json error { { "error", query::to_json(result.error()) } };
         if (format == "json") std::println("{}", error.dump(2));
@@ -234,6 +245,7 @@ void add_target_options(cmdline::App& command) {
     (void)command.option("at").takes_value().help("FILE:LINE:COLUMN of the symbol instead of a name (lines and columns from 1)");
     (void)command.option("id").takes_value().help("The symbol's id from an earlier result");
     (void)command.option("max").takes_value().help("At most this many results");
+    (void)command.option("fresh").help("Wait for the compiler's own answers (default: answers kept from before may stand in, said in `provenance`)");
 }
 
 } // namespace
@@ -269,6 +281,7 @@ cmdline::App query_command(bool& handled, int& status) {
         handled = true;
         const auto target = symbol_target(args);
         status = run_in_session(args, target.file, [&](query::View& view, Clock::time_point deadline) -> query::Outcome<Json> {
+            view.require_authoritative(args.is_flag_set("fresh"));
             auto found = ai::context::locate_symbols(view, target, query::Limit { max_results(args, 20) }, true, deadline);
             if (!found) return std::unexpected { found.error() };
             if (found->symbols.empty()) return std::unexpected { query::not_found(std::format("no symbol named {}", target.name)) };
@@ -286,6 +299,7 @@ cmdline::App query_command(bool& handled, int& status) {
         handled = true;
         const auto target = symbol_target(args);
         status = run_in_session(args, target.file, [&](query::View& view, Clock::time_point deadline) -> query::Outcome<Json> {
+            view.require_authoritative(args.is_flag_set("fresh"));
             auto found = query::find_references(view, target, !args.is_flag_set("no-declaration"), query::Limit { max_results(args, 200) }, deadline);
             if (!found) return std::unexpected { found.error() };
             return query::to_json(*found);
@@ -302,6 +316,7 @@ cmdline::App query_command(bool& handled, int& status) {
         handled = true;
         const auto target = symbol_target(args);
         status = run_in_session(args, target.file, [&](query::View& view, Clock::time_point deadline) -> query::Outcome<Json> {
+            view.require_authoritative(args.is_flag_set("fresh"));
             auto found = query::find_calls(view, target, args.is_flag_set("callees") ? query::CallDirection::outgoing : query::CallDirection::incoming,
                                            query::Limit { max_results(args, 100) }, deadline);
             if (!found) return std::unexpected { found.error() };

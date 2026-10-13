@@ -17,3 +17,17 @@ export function isImportLinePrefix(prefix: string): boolean {
 export function sendTriggeredCompletion(triggerCharacter: string | undefined, lineText: string, character: number): boolean {
     return triggerCharacter !== ' ' || isImportLinePrefix(lineText.slice(0, character));
 }
+
+// Answer-layer design 6.1 (R3): the server says a completion that went out (almost) empty now has the engine's
+// answer. The list is asked for again only if the person is still exactly where they asked: the same document, at the
+// same version, with the cursor at the same place. Anything else -- a key typed, the cursor moved, another file --
+// and nothing happens: the next request gets the answer anyway.
+export interface CompletionReady {
+    uri: string;
+    version: number;
+    position: { line: number; character: number };
+}
+
+export function completionStillWanted(ready: CompletionReady, uri: string, version: number, cursor: { line: number; character: number }): boolean {
+    return ready.uri === uri && ready.version === version && ready.position.line === cursor.line && ready.position.character === cursor.character;
+}

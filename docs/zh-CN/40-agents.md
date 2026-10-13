@@ -24,4 +24,14 @@
 - **它们按模块来，不是按文件来。**"谁调用了它"的搜索范围是所有导入了其声明模块的模块，而不是恰好出现该名称的文件。
 - **它们从编辑器所用的同一个模型给出答案**，这样 Agent 和人看到的是同一份构建。
 
+**答得快，也说清楚是哪一种答案。** 查符号、查引用依赖编译器的答案（悬停、跳转）。编译器一时答得慢时，它之前对同一问题给过的答案可以先顶上，查询不必等上几秒。凡是用到这类答案的结果，都会在 `provenance` 里写明：
+
+```json
+"provenance": { "authoritative": false, "answers": 3,
+                "notAuthoritative": [ { "source": "cache:K1", "certainty": "uncertain", "ageMs": 41000,
+                                        "note": "The location comes from an answer kept 41 s ago; files changed since, so it may be out of date." } ] }
+```
+
+`authoritative: true` 表示每个答案都是编译器针对这次问题给出的。传 `fresh: true`（MCP）或 `--fresh`（命令行）可等编译器自己的答案；`cxx_verify`、`cxx_impact`、`cxx_review` 总是这样做。要让所有查询都等，把 `mcppls.answer.agent` 设为 `authoritative`（见[设置](30-settings.md)）。
+
 **依赖模型的审查**是可选的，默认关闭。关闭时，审查只运行确定性规则，服务端完全不发起网络调用。接入方式，以及共享工作区守护进程，见 [editors/agents/README.md](../../editors/agents/README.md)。
