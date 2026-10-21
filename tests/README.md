@@ -13,9 +13,17 @@ the server's modules and `mcppls-testing` (`testing/README.md`), runs it, and a
 test passes when the program exits zero.
 
 The one thing to expect: several tests (`test_process.cpp`, `test_env.cpp`,
-`test_model.cpp`, `test_spec.cpp`) start copies of *themselves* as the child
+`test_model.cpp`, `test_spec.cpp`, `test_conformance.cpp`) start copies of *themselves* as the child
 process under test, branching on an early command-line argument before the test
 framework ever runs. That is deliberate, not an accident of copy-paste: it lets
 process, environment and pipe behavior be exercised on every platform without
 depending on a shell or a system utility (`sh`, `cat`, `sleep`, ...) being present
 or behaving the same way everywhere.
+
+Build the tools with `mcpp build` before running `mcpp test` to exercise the
+process integration tests against `mcppls-mock-model` and `mcppls-conformance`.
+The latter drives a native fake LSP server and verifies UTF-8 measurement JSON,
+malformed external output, and nonzero failures when artifacts cannot be written.
+Those tests print a note when the corresponding tool build is unavailable. When
+several tool builds coexist, `MCPPLS_CONFORMANCE=/absolute/path/to/mcppls-conformance`
+selects the exact runner build for the UTF-8 regression.

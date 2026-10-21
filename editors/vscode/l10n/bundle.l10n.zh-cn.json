@@ -102,5 +102,11 @@
   "{0} issues": "{0} 个问题",
   "Versions copied": "版本信息已复制",
   "Cache is not on a Dev Drive": "缓存不在 Dev Drive 上",
-  "Defender scans module files as they are written and read; the log says what helps": "Defender 会在写入和读出时扫描模块文件；日志里写了怎么改善"
+  "Defender scans module files as they are written and read; the log says what helps": "Defender 会在写入和读出时扫描模块文件；日志里写了怎么改善",
+  "workspace setting": "工作区设置",
+  "existing compile database": "现有编译数据库",
+  "mcpp defaults": "mcpp 默认规则",
+  "Target source: {0}": "目标来源：{0}",
+  "Target not applied: {0}": "目标尚未应用：{0}",
+  "Target selection not applied": "目标选择尚未应用"
 }

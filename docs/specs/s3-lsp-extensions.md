@@ -71,6 +71,7 @@ interface CxxModulesStatusParams {
                                    // write), 4 sources only
   };
   profile: SemanticProfile;        // semantic profile of the default context
+  targetSelection?: TargetSelection; // mcpp target request, separate from the adopted profile (S3-4-35)
   engine: { name: string; version: string };   // the core semantic engine, e.g. "clangd"; "none" when there is none
   engines?: EngineStatus[];        // every engine serving the root (overall design 5)
   progress?: { done: number; total: number };
@@ -116,6 +117,15 @@ interface EngineStatus {
   state: "starting" | "ready" | "preparing" | "unavailable" | string;
 }
 
+interface TargetSelection {
+  mode: "auto" | "project" | "explicit";
+  requestedTarget: string;         // empty: mcpp resolves its own default target
+  source: "configuration" | "compile-commands" | "project";
+  reason: string;                  // explanation, not a machine-readable enum
+  evidencePath?: string;           // CDB used for the decision, if any
+  pending: boolean;               // selection has not been applied to the adopted model
+}
+
 interface SemanticProfile {
   kind: "build-toolchain" | "semantic-kit";
   compiler?: string;               // e.g. "gcc 16.1.0"; absent for a semantic kit
@@ -154,6 +164,13 @@ interface CxxModulesIssue {
 }
 ```
 
+`preparation-stalled` describes a lack of completed work, including module builds inside a
+preparation closure. A completed BMI for a wanted module is progress even when its enclosing
+preparation unit has not finished and `progress.done` has not advanced. CPU usage, repeated
+file-status messages, reuse of an existing BMI, and unrelated background builds alone do not
+establish preparation progress. Completed preparation units and module-build activity remain
+separate counters; a server does not advance `progress.done` merely to keep the status active.
+
 States:
 
 | State | Meaning |
@@ -182,6 +199,8 @@ A server that described a root with the network because a client asked (`mcppls.
 An issue the server cannot recover from without the person — an engine that keeps exiting, cannot be started or cannot run on the machine, a corrupt installation, preparation that stopped making progress — is what a bug report is written about, and what it needs is gone once the editor is restarted. For such an issue a server **SHOULD** write a diagnostic bundle by itself when the issue first appears, and name it in `bundle`. <a id="S3-4-22"></a><sup>S3-4-22</sup> The bundle **MUST** be redacted as a report is (S3-5.5-3), and stay on the machine it was written on: neither the server nor the client sends it anywhere. <a id="S3-4-23"></a><sup>S3-4-23</sup> A server **SHOULD** keep only the few newest bundles it wrote by itself. <a id="S3-4-24"></a><sup>S3-4-24</sup> A client that presents `bundle` **SHOULD** offer, once per issue and without blocking anything, to report the problem with the file attached by the person, to restart and to leave the server off for the workspace. <a id="S3-4-25"></a><sup>S3-4-25</sup> A client that does not know `bundle` sees the issue as before.
 
 A server whose semantic capabilities come from more than one engine **SHOULD** list each in `engines` with its role and state, and **MUST** name the engine that provides the core C++ semantics in `engine`, or `"none"` when the root has none. A client **MUST** accept engine names other than `"clangd"`. <a id="S3-4-5"></a><a id="S3-4-6"></a><a id="S3-4-7"></a><sup>S3-4-5, S3-4-6, S3-4-7</sup>
+
+For an mcpp root, the optional `targetSelection` describes the requested analysis target and its source; `profile.target` continues to describe the adopted model. A server that sends `targetSelection` **MUST** keep `pending` true while that selection has not been applied, including when a previous model remains available or the build tool is disabled; a client **MUST NOT** present `requestedTarget` as the adopted target while it is pending. <a id="S3-4-35"></a><a id="S3-4-36"></a><sup>S3-4-35, S3-4-36</sup> `auto` follows an explicit unique target in the existing root compilation database, otherwise mcpp defaults; `project` always uses mcpp defaults; `explicit` requests the configured target. An invalid explicit setting remains an unapplied explicit selection with an explanatory reason. Target selection follows the published compilation configuration, not proof of a successful build, and selects no profile, features or toolchain. The same object appears at `project.targetSelection` in `cxxModules/report`. Clients that do not know the field continue using `profile.target`; protocol version stays 1. The [field schema](schema/s3-target-selection.schema.json) and [example](examples/s3-target-selection.json) describe this object alone, not the complete status or report.
 
 ## 5. Requests
 

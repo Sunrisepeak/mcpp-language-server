@@ -1,0 +1,78 @@
+{
+  "checks": [
+    {
+      "detail": "clangd's CPU while nobody asked, in cores, 0.07 is over the budget 0.01; clangd's memory growth 0.68 is over the budget 0.10; idle 600 s: clangd 0.067 core(s), memory +67.8% peak RSS 1831 MB",
+      "id": "U13-idle-10min",
+      "kind": "resources",
+      "measure": {
+        "idleCpuCores": 0.06655634457421448,
+        "idleSeconds": 600,
+        "load": 4.26,
+        "peakRssMB": 1830.76171875,
+        "rssAfterMB": 1061.3203125,
+        "rssBeforeMB": 632.61328125,
+        "rssGrowth": 0.6776763055035845
+      },
+      "ok": false,
+      "seconds": 725.572990639,
+      "since-start": 725.735180635
+    },
+    {
+      "detail": "HEAD~20: 177 file(s), replanned 3.9s, 1 restart(s); 84572b0cc8502a16afaa4ae00867aef17f18c2c2: 177 file(s), replanned 3.8s, 1 restart(s)",
+      "id": "U12-git-checkout",
+      "kind": "fault",
+      "measure": {
+        "legs": [
+          {
+            "answerSeconds": null,
+            "filesChanged": 177,
+            "replanSeconds": 3.936348567,
+            "restarts": 1,
+            "rev": "HEAD~20",
+            "settled": true
+          },
+          {
+            "answerSeconds": 3.802240668,
+            "filesChanged": 177,
+            "replanSeconds": 3.758460691,
+            "restarts": 1,
+            "rev": "84572b0cc8502a16afaa4ae00867aef17f18c2c2",
+            "settled": true
+          }
+        ],
+        "load": 3.6
+      },
+      "ok": true,
+      "seconds": 86.857374126,
+      "since-start": 812.592846366
+    },
+    {
+      "detail": "longest stall 3.1s, 7 state changes (4 in the busiest minute), 0 error, clangd restarts 2, first ready 5.5s, prepared 5.5s",
+      "id": "U15-long",
+      "kind": "timeline",
+      "measure": {
+        "busiestMinuteChanges": 4,
+        "clangdRestarts": 2,
+        "errorStates": 0,
+        "firstReadySeconds": 5.452724722,
+        "load": 3.6,
+        "longestStallSeconds": 3.052546668,
+        "preparedSeconds": 5.452724722,
+        "serverRestarts": 0,
+        "stateChanges": 7,
+        "statuses": 97
+      },
+      "ok": true,
+      "seconds": 0.127969037,
+      "since-start": 812.720994384
+    }
+  ],
+  "failures": 1,
+  "first-diagnostics": 725.76686596,
+  "first-navigation": null,
+  "fixture": "ux-xlings",
+  "initialize": 0.161477453,
+  "ready": 2.399394702,
+  "reused-workspace": false,
+  "seconds": 814.206278248
+}

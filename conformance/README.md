@@ -42,6 +42,18 @@ checks fail at once with that reason instead of each waiting out its timeout.
 | `mcpp-partition-definition` | Plan 2026-09-27 N-7 (WA-CLANGD-008): a module split into partitions, functions and members declared in a partition with class-type parameters and defined in other units of the module. clangd's background index builds no module a unit imports, so these definitions stayed on their declarations (0.0.5 fails N1-N5); the server builds the module's implementation units through clangd's foreground, and go-to-definition reaches them with only the callers open |
 | `mcpp-all-cppm` | The shape of a project whose module units are all `.cppm`, implementations written inside the interfaces: a primary interface re-exporting two partitions and a second module; navigation into partitions and through the re-exports, completion through the re-exported module, edits propagated to importers |
 | `mcpp-watch` | S2 5 with mcpp itself: a new module interface, a broken `mcpp.toml` and its repair are inputs mcpp names in `watch`; the broken manifest keeps the last model, `degraded` with `model-stale` and mcpp's own `MCPP_BUILD_DATABASE_PLAN_FAILED` (S2-5-9). CI also runs it as `mcpp-watch@polling` on Linux |
+| `mcpp-target-selection` | A host build-program context listed first cannot replace the project's i686 profile. Root CDB target switches, deletion and recreation reach producer argv and the engine; same-target rewrites do not invoke the producer |
+| `mcpp-target-windows` | Windows i686/x64 target switching, including conditional module declarations reporting 32-bit semantics, without an SDK or standard-library dependency; runs on every host |
+| `mcpp-target-explicit`, `mcpp-target-project` | Explicit workspace target overrides the root CDB; project mode delegates to mcpp defaults; subsequent CDB changes do not invoke either producer again |
+| `mcpp-target-invalid` | An invalid explicit setting produces a configuration issue before any protocol query or producer invocation |
+| `mcpp-target-build-tool-off` | A disabled producer keeps the existing i686 CDB and reports the explicit x64 request as pending; no mcpp command runs |
+| `mcpp-target-provider-excluded`, `mcpp-target-discovery-off` | Provider selection and discovery disabling retain their meaning when a target setting exists; no mcpp command runs |
+| `mcpp-target-auto-fallback` | Conflicting targets and unresolved response files fall back with distinct reasons; a reason change alone does not run the producer; unique targets recover |
+| `mcpp-producer-identity` | An upgraded producer behind the same launcher reports its actual envelope version while protocol capabilities are cached; a changed launcher pin is watched by the provider and re-queries protocol. Also run with polling on Linux |
+| `mcpp-polling-watch-inputs@polling` | Watch registration retains existing non-source glob baselines, while external concrete inputs and explicitly declared files under ignored target/ directories still trigger reloads |
+| `mcpp-target-fallback-mismatch`, `mcpp-target-fallback-preserve` | Existing-CDB fallback validates the requested target; a disabled producer preserves usable cold CDB data but cannot replace a valid model with mismatched commands |
+| `mcpp-producer-file-identity` | A copied native producer replaced at the same path triggers the stat-only executable timer and re-queries identity, without a build/source event |
+| `mcpp-producer-relative-path` | A configured relative producer path resolves against the project root and records the actual absolute invocation |
 | `mcpp-emit` | mcpp's `emit build-database --format json` (mcpp-community/mcpp#636), simulated by `mcppls-mock-mcpp` from `mcpp-mock.json`, which records what mcpp 2026.9.15.1 prints for the project (paths as `${root}` and `${env:HOME}`): a level 2 document without `ide.options`, one set per package plus `hello:test` and `mcpp:std`, each seeing every other set. The S1 library completes it to a level 3 model; a test imports the package's module across sets, and the workspace stays unchanged. The package's `build.mcpp`, which an mcpp of that age does not describe, is not read, and its diagnostic names the mcpp that describes it. The simulated fixtures cover what a real mcpp cannot be made to do on demand |
 | `mcpp-emit-package-std` | The same with `std` and `std.compat` provided by translation units of `mcpp:std` from a dependency package instead of by the toolchain's manifest, built in an mcpp std cache directory that does not exist yet |
 | `mcpp-emit-broken` | The same mcpp answering with an error: the status carries mcpp's own diagnostic, sources are scanned meanwhile, and nothing is configured in its place (the mock's `build` would leave a `compile_commands.json` that `workspace-unchanged` sees) |
@@ -51,6 +63,10 @@ checks fail at once with that reason instead of each waiting out its timeout.
 | `mcpp-emit-unavailable` | A project whose `.xlings.json` asks for an mcpp that is not installed: xlings answers every mcpp command in its place and runs nothing, and the status carries xlings's explanation (`mcpp-no-database`) while sources are scanned |
 | `mcpp-emit-needs-download` | The producer, run offline, needs a download: the status says what is missing, offers the terminal and lets a client offer to fetch it (`askOnline`, S3-4-16); `mcppls.describeOnline` then describes the project once with the network (the mock's `online` answer) and the model is mcpp's; nothing is written into the project |
 | `mcpp-emit-provisioned` | Plan 2026-09-27 §9.2 rule 4: the offline description needs a download and nobody answers the offer; the person builds in their own terminal instead (the check writes `mcpp.lock`), and the server, seeing a watched build input change, asks the producer again offline and upgrades from scanned sources to mcpp's model by itself (the mock's `provisionedWhen`) |
+| `mcpp-target-live` | The standard `workspace/didChangeConfiguration` notification switches a running server from auto to an explicit platform, project defaults and back to auto, without changing the root CDB |
+| `mcpp-target-race` | A requested i686 target takes eight seconds to describe; the person returns to x64 before it answers. The old response never appears as an adopted model in the event journal, the actual profile stays x64, and producer work stays bounded |
+| `mcpp-target-mismatch` | A real x64 model is cached, its recorded request is deliberately changed to i686, then the server restarts. The contradictory cache is rejected before a delayed producer supplies the real i686 model |
+| `mcpp-target-mismatch-cold` | The producer ignores an i686 request and answers with a consistently x64 database. The inferred model remains available, the status says the requested target was not applied, and no targetless retry conceals the failure |
 | `mcpp-emit-watch` | The inputs mcpp names in `watch` (S2 5, S2-5-1): writing one loads the model again, and an unchanged answer is recognized without rebuilding the index; when mcpp then fails the last model is kept, `degraded` with `model-stale` (S2-5-9), until it answers again. CI also runs it as `mcpp-emit-watch@polling`, with `--no-dynamic-watch` |
 | `build-program-broken` | 0.0.13 W3: `build.mcpp` does not compile while it is edited. mcpp answers with what it could describe and `MCPP_BUILD_DATABASE_PROGRAM_FAILED` naming it; the model in hand is kept (such an answer lacks what the build program gives the targets), the state stays `ready` with a `build-program-failed` notice, mcpp's compile error is a diagnostic on `build.mcpp` at its line, clangd is not restarted, and the next complete answer is taken. Simulated by `mcppls-mock-mcpp` |
 | `build-program-gated` | 0.0.13 W3(a): `build.mcpp` saved four times in a row is applied once, when it has been left alone for two seconds (describing the project compiles and runs it); only one more producer run, one `build-program-applied` event. Simulated by `mcppls-mock-mcpp` |
@@ -197,6 +213,10 @@ always has been.
   { "id": "S1", "kind": "status", "folder": "mcpp-llvm", "state": "ready" } ] }
 ```
 
+A `status` check normally waits for a settled state (`ready`, `degraded` or `error`). Set
+`"allow-unsettled": true` to test a transient loading/preparation status, such as the separation
+between an adopted target and a pending request while a producer is still running.
+
 | Kind | Passes when |
 |---|---|
 | `status` | `cxxModules/status` reaches `ready`, `degraded` or `error` and matches `source`, `profile-kind`, `state`, `level`, `tier` (`project.tier`, the README's L1..L4, real-project plan RP3.2), `issue-code` (with `issue-command`, that issue's command; with `issue-message`, a part of its message; with `issue-category`, its S3 category: `code`, `engine`, `environment` or `project`), `notice-code` and `engine-name`/`engines-include` when given, and a `profile-compiler` prefix (a settled status that does not match yet is looked at again for up to three seconds, since a server coalesces changes that keep its state); `"folder"` picks one root's own status in a multi-root fixture (usable plan W9.1), absent picks whichever root's arrived most recently |
@@ -221,6 +241,8 @@ always has been.
 | `module-graph-contains` | `cxxModules/graph` lists module `expect`; retries within the check's own timeout, so it doubles as "a change reaches the graph within N seconds" (usable plan W9.3's `watch-polling`) |
 | `request` | one request about the file: `"method"`, at `"at"` when given, with the fields of `"params"` added to the text document and position; the answer is `"expect"` exactly, or an error whose code is `"expect-error"` (mcpp-community/mcpp#797: no edit reaches mcpp's engine interface) |
 | `set-context` | sends `cxxModules/setContext` with `"context"` (usable plan W9.2), then a hover at `"at"` contains `expect`, retried the same way as `hover-contains` |
+| `restart-server` | stops the server and starts it again with the same workspace, cache, initialization and open buffers; subsequent checks decide which model was adopted |
+| `rewrite-cached-target` | a cache-adoption regression primitive: reads the workspace cache path from its report, stops the server, and rewrites only its cached mcpp target request (`"requested-target"`), retaining the effective model; optional `"cdb-content"` also replaces the root CDB, then `restart-server` tests the inconsistent persisted input |
 | `write-file` | writes `"content"` (default: a fresh `export module <module>;`; `"content-from"` copies another workspace file) to `"file"` directly, the way a file system watcher — or, without one, the server's own polling fallback — would notice it, without the runner opening it as a document (usable plan W9.3); with `"expect-reload": true`, also waits for the status to pass through `loading` again (S2-5-1); `"replace": {"from", "with"}` rewrites part of the file as it is, and a later `"restore": true` writes back what it was (a run puts back every file it changed when it ends); `"notify": true` reports the write to the server even when it registered no watcher for it, as an editor's own watcher of build files does (an inferred model, kept while a build tool cannot answer, registers none) |
 | `second-instance` | a second server on the same workspace and cache reports the notice `notice-code` (default `shared-workspace`) in its status (overall design 6.3) |
 | `mcp` | S5 section 6: `mcppls mcp`, started once per fixture with the fixture's server arguments beside the language server, answers the tool call `"tool"` with `"arguments"` (or, with `"method"` and `"params"`, another request) with a result meeting `"expect"`; `"is-error": true` expects a tool error instead; the call is repeated until the expectations hold or the check's time is up, unless `"retry": false`; with `"via": "daemon"`, through `mcppls mcp --daemon` and the workspace daemon it starts (S5 6.1) |
@@ -302,7 +324,40 @@ platform that cannot cause a fault reports it as skipped in the check's detail. 
 | `graph-edit` | A build-graph change and how the server follows: `add` a module interface (`file`, `module`) or `remove` it (times until `cxxModules/graph` lists or drops `module`, and counts the clangd restarts within `quiet-seconds`, 10); `config` rewrites part of a build input (`replace`: `{"from", "with"}`) and, once settled, undoes it, timing how soon the project is described again each time and how many module files the undoing built (`revertNewBmi`). Budget: `graphSeconds`, `restarts`, `changeSeconds`, `revertSeconds`, `revertNewBmi` |
 | `timeline` | The whole run's `cxxModules/status` history (across the server restarts a fault caused): the longest time not `ready` while `loading`, `preparing` or `preparation-stalled` without `progress.done` advancing, the state changes in the busiest minute, the times the state was `error`, clangd's restarts, the seconds until the first `ready` that held (a `ready` under a second and a half long, which 0.0.6 says before `preparing` when nothing is built, is not one) and until the last one after a preparation (a project whose model is replaced is prepared twice). `observe-seconds` first watches that long. Budget: `maxStallSeconds`, `maxChangesPerMinute`, `errorStates`, `restarts`, `firstReadySeconds`, `preparedSeconds` |
 | `bmi-reuse` | The module files under the cache directory built since the server started (new, or with another size or time: clangd's timestamped copies are not builds) and the `Built module` lines its own output logged (from the server's log files, which needs the fixture's `--log-level debug`; a log without clangd's output is not counted as zero). Passes on a cold start unless `--expect-warm`, like `module-cache-reused` (which checks one module). Budget: `newBmi`, `builtLines` |
-| `resources` | clangd's peak resident memory over the run (`/proc`, Linux) and, with `idle-seconds`, its CPU in cores while nobody asked and the growth of its memory over that time (the window starts once the project settled and `warmup-seconds`, 60, more have passed). Budget: `rssMB`, `idleCpuCores`, `rssGrowth` |
+| `resources` | clangd's peak resident memory over the run (`/proc`, Linux) and, with `idle-seconds`, its CPU in cores and memory growth while nobody asks. After settling and the minimum `warmup-seconds` (60), explicit preparation, implementation and index work must finish within `background-work-seconds` (900); missing state or unfinished work fails the check. Scheduled work is measured separately, without choosing the idle baseline by CPU/RSS values. Budget: `rssMB`, `idleCpuCores`, `rssGrowth` |
+
+
+For #59 performance diagnosis, measurements retain the original budgets and add work evidence.
+`timeline` reports `longestStallFromSeconds`, `longestStallToSeconds`,
+`longestStallCpuCores` (null without sufficient Linux samples), `longestStallActivity`,
+`longestEngineInactivitySeconds`, and `activityAtEnd`. The interval still measures completed preparation nodes; a module build inside
+that interval is evidence of real work, without advancing `progress.done` artificially.
+`longestEngineInactivitySeconds` additionally splits those intervals at actual module build
+completions. Its optional `maxEngineInactivitySeconds` budget falls back to the original node
+gap when engine logs or retained history cannot establish the finer measurement; an unknown
+measurement cannot silently pass that gate. `maxStallSeconds` continues to enforce the original
+node-completion gap when requested. U15 gates `maxEngineInactivitySeconds` at the same 60 seconds
+and `preparationStalledSamples` at zero; the raw node gap remains in every measurement. This
+corrects the meaning of progress after #59 showed finite closures completing many BMIs while
+no enclosing prime node completed, rather than increasing a performance threshold.
+`resources` records `activityBefore` and `activityAfter` outside the idle timing window, plus
+`engineActivity` observed within it. After the existing minimum warm-up, it waits at most
+`background-work-seconds` (900 by default) for actual scheduled work to finish: module
+preparation, implementation queues and running units, the delayed implementation sweep,
+background-index progress, and pending requests/diagnostics. Eligibility does not depend on CPU
+being below the budget. The finite-work phase is recorded separately as `scheduledWorkSeconds`,
+`scheduledWorkCpuCores`, `scheduledWorkRssBeforeMB`, `scheduledWorkRssAfterMB`, and
+`scheduledEngineActivity`; the subsequent idle CPU/RSS window keeps its configured duration and
+budgets. A missing work-state report or a task that never finishes fails within the bound and
+retains `activityAtTimeout`, rather than waiting indefinitely or calling work idle. `graph-edit` configuration changes record
+`activityBeforeChange`, `activityBeforeRevert`, `activityAfterRevert`, and `revertEngineActivity`.
+Activity snapshots contain engine preparation tasks, implementation indexing, rebuild reasons
+and request counters, allowing a scheduled background pass to be distinguished from quiet idle.
+Log evidence needs `--log-level debug`: it retains at most 4096 recent work lines, outputs at most
+64 matching lines per interval, and marks `historyTruncated` when its history bound is reached.
+Log event times are observation times with the tailer's 500 ms sampling granularity. Missing or
+truncated evidence does not prove inactivity. These fields add evidence, without relaxing any
+performance gate.
 
 Any check may carry `"not-before-since-start": SECONDS` (the runner keeps serving the server until that long after `initialize` before it runs the check, to look at it in a window,
 0.0.8) and `"within-since-start": SECONDS` (the check holds that soon after `initialize`; a retried check ends when it

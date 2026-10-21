@@ -1,0 +1,2 @@
+// Host build-program context precedes the cross-target project context.
+int host_tool() { return sizeof(void*) * 8; }

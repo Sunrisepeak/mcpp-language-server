@@ -9,6 +9,7 @@ import mcppls.base.sha256;
 import mcppls.platform.fs;
 import mcppls.spec.database;
 import mcppls.toolchain.probe;
+import mcppls.project.target;
 
 namespace mcppls::project {
 
@@ -106,6 +107,8 @@ Json model_to_json(const ProjectModel& model) {
         { "notices", issues_to_json(model.notices) },
         { "profile", Json { { "kind", model.profile.kind }, { "compiler", model.profile.compiler },
                             { "stdlib", model.profile.stdlib }, { "target", model.profile.target } } },
+        { "targetSelection", Json { { "mode", model.targetSelection.mode }, { "requestedTarget", model.targetSelection.requestedTarget },
+            { "source", model.targetSelection.source }, { "reason", model.targetSelection.reason }, { "evidencePath", model.targetSelection.evidencePath } } },
         { "facts", std::move(facts) },
         { "database", Json::parse(spec::to_json(model.database).dump()) },
         { "optionsDerived", derived_options_to_json(model.database) },
@@ -134,6 +137,14 @@ base::Result<ProjectModel> model_from_json(const Json& value) {
         for (const auto& entry : *watch) {
             if (entry.is_string()) model.watch.push_back(entry.get<std::string>());
         }
+    }
+    model.targetSelection.mode.clear(); // old envelopes cannot prove a target selection identity
+    if (const auto selection = value.find("targetSelection"); selection != value.end() && selection->is_object()) {
+        model.targetSelection.mode = selection->value("mode", std::string {});
+        model.targetSelection.requestedTarget = selection->value("requestedTarget", std::string {});
+        model.targetSelection.source = selection->value("source", std::string {});
+        model.targetSelection.reason = selection->value("reason", std::string {});
+        model.targetSelection.evidencePath = selection->value("evidencePath", std::string {});
     }
     model.issues = issues_from_json(value.value("issues", Json::array()));
     model.notices = issues_from_json(value.value("notices", Json::array()));

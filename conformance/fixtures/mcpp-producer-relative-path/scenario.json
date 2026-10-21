@@ -1,0 +1,63 @@
+{
+  "name": "mcpp-producer-relative-path",
+  "description": "A configured relative mcpp executable resolves against the project root and records that actual absolute invocation for identity tracking.",
+  "prepare": [
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--write-target-cdb",
+      "i686-unknown-linux-gnu"
+    ],
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--copy-self",
+      "producer/mcpp.exe"
+    ]
+  ],
+  "server-arguments": [
+    "--mcpp",
+    "producer/mcpp.exe",
+    "--mcpp-target",
+    "project"
+  ],
+  "checks": [
+    {
+      "id": "TARGET-STATUS",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "profile-target": "x86_64-unknown-linux-gnu",
+      "target-mode": "project",
+      "target-requested": "",
+      "target-source": "project",
+      "target-pending": false,
+      "producer-version": "2026.10.22.1",
+      "timeout": 60
+    },
+    {
+      "id": "FIRST-EMIT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 1,
+      "version": "2026.10.22.1"
+    },
+    {
+      "id": "FIRST-PROTOCOL",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "--protocol-version",
+      "count": 1,
+      "version": "2026.10.22.1"
+    },
+    {
+      "id": "ABSOLUTE-RESOLVED-PRODUCER",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/project/producer",
+          "contains": "/producer/mcpp.exe"
+        }
+      ]
+    }
+  ]
+}

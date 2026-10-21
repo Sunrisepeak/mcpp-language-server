@@ -33,6 +33,11 @@ it returns that setting to its default.
 (`{"semanticTokens": {"modules": false}}`) or a dotted key (`{"semanticTokens.modules": false}`),
 either wrapped in a top-level `mcppls` object or not.
 
+**Analysis target scope.** In VS Code, `mcppls.buildDiscovery.mcppTarget` applies to the whole
+workspace window; separate folder overrides in a multi-root window are not supported. `auto`
+still follows each root's own CDB independently. A target-only change reloads the model without
+restarting the server. See [Project kinds](20-projects.md#following-an-mcpp-build-target).
+
 <!-- settings:begin -->
 ### Project and build tools
 
@@ -46,6 +51,7 @@ either wrapped in a top-level `mcppls` object or not.
 | `mcppls.discoverCompilers` | `true`, `false` | `true` | `--no-discover` | reload | Look for a compiler on the machine for a source the build description does not cover. Off: such a source uses the semantic kit instead. |
 | `mcppls.buildDiscovery.mode` | `auto`, `off` | `auto` | `--build-discovery` | reload | Whether the project's build system is detected at all. `off`: nothing is read or run implicitly -- only an explicitly configured `database`, else sources are scanned. `buildTool` still governs whether a detected build tool may be *run*; this governs whether it is looked for in the first place. |
 | `mcppls.buildDiscovery.providers` | `mcpp`, `cmake`, `xmake`, `meson`, `compile-commands` (comma-separated) | `mcpp`, `cmake`, `xmake`, `meson`, `compile-commands` | `--build-discovery-providers` | reload | Which build system providers `buildDiscovery.mode` may use; leave one out to stop mcppls from detecting it (for example, to use only a CMake build directory that already exists and never let xmake run). |
+| `mcppls.buildDiscovery.mcppTarget` | a string | `auto` | `--mcpp-target` | reload | The platform mcpp describes: auto follows the explicit, unique target of project sources in the root compile_commands.json; project uses mcpp's own defaults; a target triple fixes the analysis platform. This selects the target only, not the CDB's other flags. |
 | `mcppls.buildDiscovery.askBeforeDownload` | `true`, `false` | `true` | — | immediately | When the build tool needs a download to finish describing the project, a client may offer to fetch it. Off: the status says a download is needed, and nothing asks. |
 
 ### Engines

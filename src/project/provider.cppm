@@ -9,6 +9,7 @@ import std;
 import mcppls.base.error;
 import mcppls.toolchain.probe;
 import mcppls.project.infer;
+import mcppls.project.target;
 
 export namespace mcppls::project {
 
@@ -41,6 +42,7 @@ struct ProviderContext {
     // workspace, per provider, under the workspace's cache directory. Read-only steps (`existing`)
     // need no private directory of their own; they read what the project's own build already wrote.
     std::string privateDirectory;
+    TargetSelection targetSelection;
 };
 
 // The first executable found on PATH or at one of the fallback absolute paths.

@@ -33,6 +33,8 @@ import mcppls.base.text;
 import mcppls.platform.env;
 import mcppls.platform.fs;
 import mcppls.platform.process;
+import mcppls.platform.dirs;
+import mcppls.os;
 
 namespace base = mcppls::base;
 namespace fs = mcppls::platform::fs;
@@ -41,6 +43,9 @@ using Json = nlohmann::ordered_json;
 namespace {
 
 constexpr std::string_view VERSION { "0.0.0-mock" };
+std::string producerVersion { VERSION };
+std::string requestedTarget;
+std::string defaultTarget { "x86_64-unknown-linux-gnu" };
 
 std::string expand(std::string_view text, const std::string& root) {
     std::string out;
@@ -51,6 +56,24 @@ std::string expand(std::string_view text, const std::string& root) {
                 const std::string_view name { text.substr(i + 2, close - i - 2) };
                 if (name == "root") {
                     out += root;
+                } else if (name == "target") {
+                    out += requestedTarget.empty() ? defaultTarget : requestedTarget;
+                } else if (name == "compiler") {
+                    const auto configured = mcppls::platform::env::get("CONFORMANCE_CLANGXX");
+                    std::string compiler { configured && !configured->empty() ? *configured : std::string {} };
+                    if (compiler.empty()) {
+                        const std::string home { mcppls::platform::dirs::home_directory() };
+                        for (std::string_view store : { ".mcpp/registry/data/xpkgs/xim-x-llvm", ".xlings/data/xpkgs/xim-x-llvm" }) {
+                            auto versions = fs::list_directory(base::join_path(home, store));
+                            std::ranges::sort(versions, std::greater {});
+                            for (const auto& version : versions) {
+                                const std::string candidate { base::join_path(version, "bin/clang++") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+                                if (fs::is_regular_file(candidate)) { compiler = candidate; break; }
+                            }
+                            if (!compiler.empty()) break;
+                        }
+                    }
+                    out += compiler.empty() ? std::string { "clang++" } : compiler;
                 } else if (name.starts_with("env:")) {
                     std::string_view variable { name.substr(4) };
                     std::string fallback;
@@ -103,7 +126,7 @@ Json envelope(std::string_view kind, Json data, Json diagnostics, Json effects) 
     document["kind"] = kind;
     document["kindVersion"] = 1;
     document["effects"] = std::move(effects);
-    document["mcpp"] = Json { { "version", VERSION }, { "protocol", Json { { "min", 1 }, { "max", 1 } } } };
+    document["mcpp"] = Json { { "version", producerVersion }, { "protocol", Json { { "min", 1 }, { "max", 1 } } } };
     if (!data.is_null()) document["data"] = std::move(data);
     document["diagnostics"] = std::move(diagnostics);
     return document;
@@ -141,7 +164,7 @@ int protocol_version(bool oldProtocol) {
     document["commands"] = oldProtocol ? Json::object()
                                        : Json { { "emit build-database", Json { { "effects", Json::array({ "init-mcpp-home", "read-project", "network",
                                                                                                             "write-global-cache", "exec-build-script" }) } } } };
-    document["mcpp"] = Json { { "version", oldProtocol ? std::string { "2026.8.8.4" } : std::string { VERSION } } };
+    document["mcpp"] = Json { { "version", oldProtocol ? std::string { "2026.8.8.4" } : producerVersion } };
     std::println("{}", document.dump(2));
     return 0;
 }
@@ -191,6 +214,11 @@ int emit_build_database(std::span<const std::string> arguments) {
                                                                              && recorded.contains("online") && recorded["online"].is_object()) {
         Json online = recorded["online"];
         recorded = std::move(online);
+    }
+    // Delay after reading this invocation's immutable recording; a newer target can arrive meanwhile.
+    const auto delay { recorded.value("delayMs", 0) };
+    if (delay > 0 && (!recorded.contains("delayTarget") || recorded.value("delayTarget", std::string {}) == requestedTarget)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds { std::min(delay, 30000) });
     }
     expand_all(recorded, root);
     if (!recorded.contains("database")) {
@@ -246,11 +274,43 @@ int main(int argc, char* argv[]) {
         std::this_thread::sleep_for(std::chrono::seconds { std::max(1, std::stoi(arguments[1])) });
         return 0;
     }
+    for (std::size_t i { 0 }; i < arguments.size(); ++i) {
+        if (arguments[i] == "--target" && i + 1 < arguments.size()) requestedTarget = arguments[++i];
+        else if (arguments[i].starts_with("--target=")) requestedTarget = arguments[i].substr(9);
+    }
+    if (arguments.size() == 2 && arguments[0] == "--copy-self") {
+        const auto ownArguments = mcppls::platform::env::arguments();
+        if (ownArguments.empty()) return 1;
+        const std::string source { base::is_absolute_path(ownArguments.front()) ? ownArguments.front()
+            : base::join_path(fs::current_directory(), ownArguments.front()) };
+        const std::string destination { base::join_path(fs::current_directory(), arguments[1]) };
+        const auto content = fs::read_file(source);
+        if (!content || !fs::create_directories(base::parent_path(destination))) return 1;
+        if (!fs::write_file_atomic(destination, *content)) return 1;
+        return fs::make_executable(std::vector<std::string> {destination}).has_value() ? 0 : 1;
+    }
+    if (arguments.size() == 2 && arguments[0] == "--write-target-cdb") {
+        const std::string root { fs::current_directory() };
+        const std::string compiler { expand("${compiler}", root) };
+        const Json commands = Json::array({ Json { { "directory", root }, { "file", "src/main.cpp" },
+            { "arguments", Json::array({ compiler, "--target=" + arguments[1], "-std=c++23", "-c", "src/main.cpp" }) } } });
+        (void)fs::write_file(base::join_path(root, "mcpp-calls.jsonl"), "");
+        return fs::write_file(base::join_path(root, "compile_commands.json"), commands.dump(2)).has_value() ? 0 : 1;
+    }
     bool oldProtocol { false };
     // {"unavailable": "<text>"}: a project whose .xlings.json asks for an mcpp that is not installed.
     // xlings then answers every command in mcpp's place, with <text> on standard error, and runs nothing.
     if (auto text = fs::read_file(mock_config_path())) {
         const Json recorded = Json::parse(*text, nullptr, false);
+        if (recorded.is_object()) {
+            producerVersion = recorded.value("version", std::string { VERSION });
+            defaultTarget = recorded.value("defaultTarget", defaultTarget);
+            if (const std::string calls { recorded.value("callLog", std::string {}) }; !calls.empty()) {
+                const std::string path { base::join_path(fs::current_directory(), calls) };
+                const std::string line { Json { { "arguments", arguments }, { "version", producerVersion } }.dump() + "\n" };
+                (void)fs::write_file(path, fs::read_file(path).value_or("") + line);
+            }
+        }
         if (recorded.is_object() && recorded.contains("unavailable") && recorded["unavailable"].is_string()) {
             std::print(std::cerr, "{}", recorded["unavailable"].get<std::string>());
             return 1;
@@ -276,7 +336,7 @@ int main(int argc, char* argv[]) {
         return emit_build_database(std::span<const std::string> { arguments }.subspan(2));
     }
     if (!arguments.empty() && arguments[0] == "--version") {
-        std::println("mcpp {}", VERSION);
+        std::println("mcpp {}", producerVersion);
         return 0;
     }
     // `mcpp build --configure-only`: the server's L2 fallback once mcpp advertises no

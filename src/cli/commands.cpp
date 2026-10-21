@@ -60,21 +60,33 @@ std::string root_for(std::string_view file) { return project::enclosing_project_
 
 Loaded load(std::string_view root, const cmdline::ParsedArgs& args, bool trusted) {
     Loaded loaded;
-    loaded.payload = engine::resolve_payload(engine::PayloadRequest { args.value("payload").value_or(""), args.value("clangd").value_or(""), args.value("kit").value_or("") });
-    if (!loaded.payload.kit.empty()) {
+    const auto session = session_options(args);
+    loaded.payload = engine::resolve_payload(engine::PayloadRequest { session.payloadDirectory, session.clangd, session.kit });
+    if (session.semanticKit != "off" && !loaded.payload.kit.empty()) {
         if (auto kit = spec::load_kit(loaded.payload.kit)) loaded.kit = std::move(*kit);
         else base::log::warning("semantic kit unusable: {}", kit.error().message);
     }
     toolchain::ProbeCache cache { base::join_path(platform::dirs::cache_directory(), "toolchains/probe.json") };
     project::LoadOptions options;
-    options.trusted = trusted;
+    options.trusted = trusted && session.trusted;
     options.cacheDirectory = base::join_path(platform::dirs::cache_directory(), base::join_path("workspaces", project::workspace_key(root)));
     options.kit = loaded.kit ? &*loaded.kit : nullptr;
     options.runner = toolchain::process_runner(std::chrono::seconds { 20 });
     options.probeCache = &cache;
-    options.discoverCompilers = !args.is_flag_set("no-discover");
-    options.mcppExecutable = args.value("mcpp").value_or("");
-    options.configuredDatabase = args.value("database").value_or("");
+    options.discoverCompilers = session.discoverCompilers;
+    options.compilerOverride = session.compiler;
+    options.mcppExecutable = session.mcpp;
+    options.mcppTarget = session.mcppTarget;
+    options.configuredDatabase = session.database;
+    options.buildDiscovery = session.buildDiscovery != "off";
+    options.providers = session.buildDiscoveryProviders;
+    options.runBuildTool = session.buildTool != "off";
+    options.offline = session.buildTool != "online";
+    options.producerHard = session.producerTimeout.count() > 0 ? std::chrono::milliseconds { session.producerTimeout }
+        : std::chrono::milliseconds { options.offline ? std::chrono::minutes { 5 } : std::chrono::minutes { 10 } };
+    platform::toolenv::configure(platform::toolenv::parse_mode(session.toolEnvironment).value_or(platform::toolenv::Mode::automatic), session.serverExecutable);
+    if (options.trusted) platform::toolenv::begin();
+    options.environmentWait = options.trusted ? std::chrono::seconds { 10 } : std::chrono::seconds { 0 };
     loaded.model = project::load_project(root, options);
 
     normalize::PlanInput input;

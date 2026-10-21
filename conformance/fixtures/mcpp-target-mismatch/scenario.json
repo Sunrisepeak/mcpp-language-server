@@ -1,0 +1,84 @@
+{
+  "name": "mcpp-target-mismatch",
+  "prepare": [
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--write-target-cdb",
+      "x86_64-unknown-linux-gnu"
+    ]
+  ],
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}"
+  ],
+  "checks": [
+    {
+      "id": "S1-prime-x64-cache",
+      "kind": "status",
+      "source": "mcpp",
+      "profile-target": "x86_64-unknown-linux-gnu",
+      "target-mode": "auto",
+      "target-requested": "x86_64-unknown-linux-gnu",
+      "target-source": "compile-commands",
+      "target-pending": false,
+      "timeout": 60,
+      "state": "ready"
+    },
+    {
+      "id": "C1-inject-known-target-mismatch",
+      "kind": "rewrite-cached-target",
+      "requested-target": "i686-unknown-linux-gnu",
+      "cdb-content": "[{\"directory\": \"{workspace}\", \"file\": \"src/main.cpp\", \"arguments\": [\"clang++\", \"--target=i686-unknown-linux-gnu\", \"-std=c++23\", \"-c\", \"src/main.cpp\"]}]"
+    },
+    {
+      "id": "C2-restart-with-inconsistent-cache",
+      "kind": "restart-server"
+    },
+    {
+      "id": "C3-rejected-cache-origin",
+      "kind": "model-origin",
+      "cold": "inferred",
+      "warm": "inferred",
+      "timeout": 15
+    },
+    {
+      "id": "S2-real-i686-result",
+      "kind": "status",
+      "source": "mcpp",
+      "profile-target": "i686-unknown-linux-gnu",
+      "target-mode": "auto",
+      "target-requested": "i686-unknown-linux-gnu",
+      "target-source": "compile-commands",
+      "target-pending": false,
+      "timeout": 60,
+      "state": "ready"
+    },
+    {
+      "id": "A1-real-producer-executed",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 2,
+      "arguments-contains": [
+        "--target",
+        "i686-unknown-linux-gnu"
+      ]
+    },
+    {
+      "id": "R1-cached-target-never-confirmed",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/events/*/detail/origin",
+          "equals": "cache-pending",
+          "max-matches": 0
+        },
+        {
+          "path": "/roots/0/project/firstOrigin",
+          "equals": "inferred"
+        }
+      ]
+    }
+  ],
+  "description": "A cache whose requested i686 identity contradicts its effective x64 profile is rejected at warm startup. The real delayed producer must supply the i686 model; the cache cannot label x64 as applied i686."
+}

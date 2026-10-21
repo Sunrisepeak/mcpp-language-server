@@ -268,11 +268,13 @@
       "kind": "timeline",
       "stage": "cold",
       "budget": {
-        "maxStallSeconds": 60,
         "maxChangesPerMinute": 6,
         "errorStates": 0,
-        "preparedSeconds": 200
-      }
+        "preparedSeconds": 200,
+        "maxEngineInactivitySeconds": 60,
+        "preparationStalledSamples": 0
+      },
+      "budget-why": "Issue #59: a real module closure completes BMIs while its prime-node counter stays unchanged (local two-logical-CPU replay: 123.64 s between nodes, 25.42 s without a module/node completion). Keep the raw node gap in measurements; gate actual inactivity at the same 60 s and require no preparation-stalled status. Missing work evidence falls back to the original node gap."
     },
     {
       "id": "U2-jump",
@@ -561,10 +563,12 @@
       "kind": "timeline",
       "stage": "edits",
       "budget": {
-        "maxStallSeconds": 60,
         "errorStates": 0,
-        "maxChangesPerMinute": 12
-      }
+        "maxChangesPerMinute": 12,
+        "maxEngineInactivitySeconds": 60,
+        "preparationStalledSamples": 0
+      },
+      "budget-why": "Issue #59: a real module closure completes BMIs while its prime-node counter stays unchanged (local two-logical-CPU replay: 123.64 s between nodes, 25.42 s without a module/node completion). Keep the raw node gap in measurements; gate actual inactivity at the same 60 s and require no preparation-stalled status. Missing work evidence falls back to the original node gap."
     },
     {
       "id": "U9-kill-clangd",
@@ -725,10 +729,12 @@
       "kind": "timeline",
       "stage": "faults",
       "budget": {
-        "maxStallSeconds": 60,
         "errorStates": 0,
-        "maxChangesPerMinute": 12
-      }
+        "maxChangesPerMinute": 12,
+        "maxEngineInactivitySeconds": 60,
+        "preparationStalledSamples": 0
+      },
+      "budget-why": "Issue #59: a real module closure completes BMIs while its prime-node counter stays unchanged (local two-logical-CPU replay: 123.64 s between nodes, 25.42 s without a module/node completion). Keep the raw node gap in measurements; gate actual inactivity at the same 60 s and require no preparation-stalled status. Missing work evidence falls back to the original node gap."
     },
     {
       "id": "U13-idle-10min",
@@ -771,10 +777,12 @@
       "kind": "timeline",
       "stage": "long",
       "budget": {
-        "maxStallSeconds": 60,
         "errorStates": 0,
-        "maxChangesPerMinute": 6
-      }
+        "maxChangesPerMinute": 6,
+        "maxEngineInactivitySeconds": 60,
+        "preparationStalledSamples": 0
+      },
+      "budget-why": "Issue #59: a real module closure completes BMIs while its prime-node counter stays unchanged (local two-logical-CPU replay: 123.64 s between nodes, 25.42 s without a module/node completion). Keep the raw node gap in measurements; gate actual inactivity at the same 60 s and require no preparation-stalled status. Missing work evidence falls back to the original node gap."
     }
   ]
 }

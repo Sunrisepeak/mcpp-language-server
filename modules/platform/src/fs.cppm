@@ -19,6 +19,8 @@ bool is_regular_file(std::string_view path);
 std::optional<FileStamp> stamp(std::string_view path);
 
 base::Result<std::string> read_file(std::string_view path);
+// Reads at most maxBytes plus one overflow-detection byte, including when the file grows after stat.
+base::Result<std::string> read_file(std::string_view path, std::size_t maxBytes);
 base::Result<void> write_file(std::string_view path, std::string_view content);
 // Writes a sibling temporary file and renames it over `path`.
 base::Result<void> write_file_atomic(std::string_view path, std::string_view content);

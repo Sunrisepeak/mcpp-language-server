@@ -1,0 +1,882 @@
+[
+  {
+    "module": "std",
+    "completedUTC": "2026-10-21T17:43:13.416Z",
+    "buildSeconds": 3.709
+  },
+  {
+    "module": "mcpp.libs.json",
+    "completedUTC": "2026-10-21T17:43:16.102Z",
+    "buildSeconds": 2.558
+  },
+  {
+    "module": "mcpp.platform.capacity",
+    "completedUTC": "2026-10-21T17:43:16.242Z",
+    "buildSeconds": 0.053
+  },
+  {
+    "module": "mcpp.pm.dep_spec",
+    "completedUTC": "2026-10-21T17:43:16.320Z",
+    "buildSeconds": 0.058
+  },
+  {
+    "module": "mcpplibs.cmdline:options",
+    "completedUTC": "2026-10-21T17:43:16.413Z",
+    "buildSeconds": 0.083
+  },
+  {
+    "module": "mcpp.pm.index_spec",
+    "completedUTC": "2026-10-21T17:43:16.599Z",
+    "buildSeconds": 0.106
+  },
+  {
+    "module": "mcpplibs.cmdline:parse",
+    "completedUTC": "2026-10-21T17:43:16.875Z",
+    "buildSeconds": 0.206
+  },
+  {
+    "module": "mcpp.platform.common",
+    "completedUTC": "2026-10-21T17:43:17.024Z",
+    "buildSeconds": 0.088
+  },
+  {
+    "module": "mcpp.platform.shell",
+    "completedUTC": "2026-10-21T17:43:17.177Z",
+    "buildSeconds": 0.086
+  },
+  {
+    "module": "mcpp.platform.env",
+    "completedUTC": "2026-10-21T17:43:17.346Z",
+    "buildSeconds": 0.142
+  },
+  {
+    "module": "mcpp.platform.unix.bounded_process",
+    "completedUTC": "2026-10-21T17:43:17.599Z",
+    "buildSeconds": 0.224
+  },
+  {
+    "module": "mcpp.platform.windows.bounded_process",
+    "completedUTC": "2026-10-21T17:43:17.826Z",
+    "buildSeconds": 0.138
+  },
+  {
+    "module": "mcpp.platform.macos",
+    "completedUTC": "2026-10-21T17:43:18.096Z",
+    "buildSeconds": 0.186
+  },
+  {
+    "module": "mcpp.platform.windows",
+    "completedUTC": "2026-10-21T17:43:18.303Z",
+    "buildSeconds": 0.129
+  },
+  {
+    "module": "mcpp.platform.terminal",
+    "completedUTC": "2026-10-21T17:43:18.532Z",
+    "buildSeconds": 0.154
+  },
+  {
+    "module": "mcpp.manifest.flag_words",
+    "completedUTC": "2026-10-21T17:43:18.767Z",
+    "buildSeconds": 0.163
+  },
+  {
+    "module": "mcpp.targetside",
+    "completedUTC": "2026-10-21T17:43:19.365Z",
+    "buildSeconds": 0.517
+  },
+  {
+    "module": "mcpp.source_kind",
+    "completedUTC": "2026-10-21T17:43:19.747Z",
+    "buildSeconds": 0.305
+  },
+  {
+    "module": "mcpp.libs.toml",
+    "completedUTC": "2026-10-21T17:43:20.185Z",
+    "buildSeconds": 0.373
+  },
+  {
+    "module": "mcpp.version_req",
+    "completedUTC": "2026-10-21T17:43:20.440Z",
+    "buildSeconds": 0.228
+  },
+  {
+    "module": "mcpp.pm.mangle",
+    "completedUTC": "2026-10-21T17:43:20.650Z",
+    "buildSeconds": 0.188
+  },
+  {
+    "module": "mcpp.modgraph.glob",
+    "completedUTC": "2026-10-21T17:43:20.816Z",
+    "buildSeconds": 0.147
+  },
+  {
+    "module": "mcpp.version",
+    "completedUTC": "2026-10-21T17:43:20.873Z",
+    "buildSeconds": 0.04
+  },
+  {
+    "module": "mcpp.build.program_protocol",
+    "completedUTC": "2026-10-21T17:43:20.994Z",
+    "buildSeconds": 0.103
+  },
+  {
+    "module": "mcpp.log",
+    "completedUTC": "2026-10-21T17:43:21.193Z",
+    "buildSeconds": 0.18
+  },
+  {
+    "module": "mcpp.build.refusal",
+    "completedUTC": "2026-10-21T17:43:21.247Z",
+    "buildSeconds": 0.036
+  },
+  {
+    "module": "mcpp.build.version_floor",
+    "completedUTC": "2026-10-21T17:43:21.422Z",
+    "buildSeconds": 0.11
+  },
+  {
+    "module": "mcpp.toolchain.predefines",
+    "completedUTC": "2026-10-21T17:43:21.565Z",
+    "buildSeconds": 0.126
+  },
+  {
+    "module": "mcpp.fallback.config_migration",
+    "completedUTC": "2026-10-21T17:43:21.659Z",
+    "buildSeconds": 0.076
+  },
+  {
+    "module": "mcpp.fallback.legacy_dirs",
+    "completedUTC": "2026-10-21T17:43:21.807Z",
+    "buildSeconds": 0.129
+  },
+  {
+    "module": "mcpp.build.linkage_form",
+    "completedUTC": "2026-10-21T17:43:22.038Z",
+    "buildSeconds": 0.208
+  },
+  {
+    "module": "mcpp.build.graph_shape",
+    "completedUTC": "2026-10-21T17:43:22.194Z",
+    "buildSeconds": 0.127
+  },
+  {
+    "module": "mcpp.platform.runtime_env_contract",
+    "completedUTC": "2026-10-21T17:43:22.253Z",
+    "buildSeconds": 0.037
+  },
+  {
+    "module": "mcpp.platform.runtime_search",
+    "completedUTC": "2026-10-21T17:43:22.490Z",
+    "buildSeconds": 0.225
+  },
+  {
+    "module": "mcpp.pack.stage_tree",
+    "completedUTC": "2026-10-21T17:43:22.866Z",
+    "buildSeconds": 0.353
+  },
+  {
+    "module": "mcpp.build.dep_graph",
+    "completedUTC": "2026-10-21T17:43:22.990Z",
+    "buildSeconds": 0.108
+  },
+  {
+    "module": "mcpp.build.link_line",
+    "completedUTC": "2026-10-21T17:43:23.054Z",
+    "buildSeconds": 0.047
+  },
+  {
+    "module": "mcpp.build.cmdlimits",
+    "completedUTC": "2026-10-21T17:43:23.186Z",
+    "buildSeconds": 0.116
+  },
+  {
+    "module": "mcpp.dyndep",
+    "completedUTC": "2026-10-21T17:43:23.463Z",
+    "buildSeconds": 0.256
+  },
+  {
+    "module": "mcpp.pack.binfmt",
+    "completedUTC": "2026-10-21T17:43:24.187Z",
+    "buildSeconds": 0.704
+  },
+  {
+    "module": "mcpp.pack.zip",
+    "completedUTC": "2026-10-21T17:43:24.411Z",
+    "buildSeconds": 0.164
+  },
+  {
+    "module": "mcpp.freestanding.runner",
+    "completedUTC": "2026-10-21T17:43:24.562Z",
+    "buildSeconds": 0.136
+  },
+  {
+    "module": "mcpp.pm.compat.legacy",
+    "completedUTC": "2026-10-21T17:43:24.623Z",
+    "buildSeconds": 0.044
+  },
+  {
+    "module": "mcpp.platform.process",
+    "completedUTC": "2026-10-21T17:43:24.906Z",
+    "buildSeconds": 0.264
+  },
+  {
+    "module": "mcpp.build.stage",
+    "completedUTC": "2026-10-21T17:43:25.240Z",
+    "buildSeconds": 0.317
+  },
+  {
+    "module": "mcpp.platform.fs",
+    "completedUTC": "2026-10-21T17:43:25.377Z",
+    "buildSeconds": 0.118
+  },
+  {
+    "module": "mcpp.build.coff_exports",
+    "completedUTC": "2026-10-21T17:43:25.719Z",
+    "buildSeconds": 0.318
+  },
+  {
+    "module": "mcpp.platform.linux",
+    "completedUTC": "2026-10-21T17:43:25.874Z",
+    "buildSeconds": 0.131
+  },
+  {
+    "module": "mcpp.platform.scaffold_fs",
+    "completedUTC": "2026-10-21T17:43:26.011Z",
+    "buildSeconds": 0.118
+  },
+  {
+    "module": "mcpp.pm.dependency_selector",
+    "completedUTC": "2026-10-21T17:43:26.186Z",
+    "buildSeconds": 0.164
+  },
+  {
+    "module": "mcpp.platform.project_name",
+    "completedUTC": "2026-10-21T17:43:26.258Z",
+    "buildSeconds": 0.055
+  },
+  {
+    "module": "mcpp.modgraph.graph",
+    "completedUTC": "2026-10-21T17:43:26.392Z",
+    "buildSeconds": 0.118
+  },
+  {
+    "module": "mcpp.pack.manifest_emit",
+    "completedUTC": "2026-10-21T17:43:26.589Z",
+    "buildSeconds": 0.178
+  },
+  {
+    "module": "mcpp.toolchain.cenv",
+    "completedUTC": "2026-10-21T17:43:26.724Z",
+    "buildSeconds": 0.117
+  },
+  {
+    "module": "mcpplibs.cmdline",
+    "completedUTC": "2026-10-21T17:43:27.176Z",
+    "buildSeconds": 0.433
+  },
+  {
+    "module": "mcpp.fallback.install_integrity",
+    "completedUTC": "2026-10-21T17:43:27.342Z",
+    "buildSeconds": 0.134
+  },
+  {
+    "module": "mcpp.fallback.xpkg_copy",
+    "completedUTC": "2026-10-21T17:43:27.491Z",
+    "buildSeconds": 0.131
+  },
+  {
+    "module": "mcpp.build.provisions",
+    "completedUTC": "2026-10-21T17:43:27.912Z",
+    "buildSeconds": 0.405
+  },
+  {
+    "module": "mcpp.pack.relocate",
+    "completedUTC": "2026-10-21T17:43:28.158Z",
+    "buildSeconds": 0.223
+  },
+  {
+    "module": "mcpp.pm.compat",
+    "completedUTC": "2026-10-21T17:43:28.319Z",
+    "buildSeconds": 0.144
+  },
+  {
+    "module": "mcpp.platform",
+    "completedUTC": "2026-10-21T17:43:28.382Z",
+    "buildSeconds": 0.042
+  },
+  {
+    "module": "mcpp.pm.index_contract",
+    "completedUTC": "2026-10-21T17:43:28.557Z",
+    "buildSeconds": 0.159
+  },
+  {
+    "module": "mcpp.manifest.types",
+    "completedUTC": "2026-10-21T17:43:29.100Z",
+    "buildSeconds": 0.52
+  },
+  {
+    "module": "mcpp.platform.axis",
+    "completedUTC": "2026-10-21T17:43:29.201Z",
+    "buildSeconds": 0.072
+  },
+  {
+    "module": "mcpp.toolchain.triple",
+    "completedUTC": "2026-10-21T17:43:29.392Z",
+    "buildSeconds": 0.177
+  },
+  {
+    "module": "mcpp.build.schedule.detach_codegen",
+    "completedUTC": "2026-10-21T17:43:29.607Z",
+    "buildSeconds": 0.198
+  },
+  {
+    "module": "mcpp.pm.index_snapshot",
+    "completedUTC": "2026-10-21T17:43:29.895Z",
+    "buildSeconds": 0.267
+  },
+  {
+    "module": "mcpp.home",
+    "completedUTC": "2026-10-21T17:43:29.994Z",
+    "buildSeconds": 0.08
+  },
+  {
+    "module": "mcpp.toolchain.llvm",
+    "completedUTC": "2026-10-21T17:43:30.100Z",
+    "buildSeconds": 0.084
+  },
+  {
+    "module": "mcpp.ui",
+    "completedUTC": "2026-10-21T17:43:30.427Z",
+    "buildSeconds": 0.307
+  },
+  {
+    "module": "mcpp.scaffold.project_name",
+    "completedUTC": "2026-10-21T17:43:30.533Z",
+    "buildSeconds": 0.088
+  },
+  {
+    "module": "mcpp.fallback.xlings_binary",
+    "completedUTC": "2026-10-21T17:43:30.768Z",
+    "buildSeconds": 0.22
+  },
+  {
+    "module": "mcpp.pack.interface",
+    "completedUTC": "2026-10-21T17:43:30.995Z",
+    "buildSeconds": 0.209
+  },
+  {
+    "module": "mcpp.xlings.subos_info",
+    "completedUTC": "2026-10-21T17:43:31.811Z",
+    "buildSeconds": 0.792
+  },
+  {
+    "module": "mcpp.wire",
+    "completedUTC": "2026-10-21T17:43:32.465Z",
+    "buildSeconds": 0.632
+  },
+  {
+    "module": "mcpp.build.runner_lookup",
+    "completedUTC": "2026-10-21T17:43:32.733Z",
+    "buildSeconds": 0.239
+  },
+  {
+    "module": "mcpp.bmi_cache",
+    "completedUTC": "2026-10-21T17:43:33.677Z",
+    "buildSeconds": 0.922
+  },
+  {
+    "module": "mcpp.pack.strip",
+    "completedUTC": "2026-10-21T17:43:33.889Z",
+    "buildSeconds": 0.179
+  },
+  {
+    "module": "mcpp.manifest.toml",
+    "completedUTC": "2026-10-21T17:43:35.401Z",
+    "buildSeconds": 1.486
+  },
+  {
+    "module": "mcpp.manifest.xpkg",
+    "completedUTC": "2026-10-21T17:43:36.207Z",
+    "buildSeconds": 0.777
+  },
+  {
+    "module": "mcpp.toolchain.model",
+    "completedUTC": "2026-10-21T17:43:36.372Z",
+    "buildSeconds": 0.139
+  },
+  {
+    "module": "mcpp.xlings",
+    "completedUTC": "2026-10-21T17:43:37.074Z",
+    "buildSeconds": 0.676
+  },
+  {
+    "module": "mcpp.toolchain.compat",
+    "completedUTC": "2026-10-21T17:43:37.247Z",
+    "buildSeconds": 0.147
+  },
+  {
+    "module": "mcpp.diag",
+    "completedUTC": "2026-10-21T17:43:37.411Z",
+    "buildSeconds": 0.147
+  },
+  {
+    "module": "mcpp.freestanding.target",
+    "completedUTC": "2026-10-21T17:43:37.599Z",
+    "buildSeconds": 0.161
+  },
+  {
+    "module": "mcpp.build.distribution",
+    "completedUTC": "2026-10-21T17:43:37.771Z",
+    "buildSeconds": 0.153
+  },
+  {
+    "module": "mcpp.bmi_cache.maintenance",
+    "completedUTC": "2026-10-21T17:43:38.813Z",
+    "buildSeconds": 1.026
+  },
+  {
+    "module": "mcpp.manifest",
+    "completedUTC": "2026-10-21T17:43:38.887Z",
+    "buildSeconds": 0.044
+  },
+  {
+    "module": "mcpp.toolchain.dialect",
+    "completedUTC": "2026-10-21T17:43:39.092Z",
+    "buildSeconds": 0.182
+  },
+  {
+    "module": "mcpp.toolchain.fingerprint",
+    "completedUTC": "2026-10-21T17:43:39.234Z",
+    "buildSeconds": 0.12
+  },
+  {
+    "module": "mcpp.toolchain.linkmodel",
+    "completedUTC": "2026-10-21T17:43:39.418Z",
+    "buildSeconds": 0.161
+  },
+  {
+    "module": "mcpp.fallback.sysroot_complete",
+    "completedUTC": "2026-10-21T17:43:39.493Z",
+    "buildSeconds": 0.058
+  },
+  {
+    "module": "mcpp.fallback.probe_sysroot",
+    "completedUTC": "2026-10-21T17:43:39.610Z",
+    "buildSeconds": 0.097
+  },
+  {
+    "module": "mcpp.config",
+    "completedUTC": "2026-10-21T17:43:40.804Z",
+    "buildSeconds": 1.172
+  },
+  {
+    "module": "mcpp.freestanding.linkline",
+    "completedUTC": "2026-10-21T17:43:41.033Z",
+    "buildSeconds": 0.154
+  },
+  {
+    "module": "mcpp.toolchain.abi",
+    "completedUTC": "2026-10-21T17:43:41.157Z",
+    "buildSeconds": 0.1
+  },
+  {
+    "module": "mcpp.pack.abi_tag",
+    "completedUTC": "2026-10-21T17:43:41.366Z",
+    "buildSeconds": 0.19
+  },
+  {
+    "module": "mcpp.toolchain.provider",
+    "completedUTC": "2026-10-21T17:43:41.440Z",
+    "buildSeconds": 0.047
+  },
+  {
+    "module": "mcpp.toolchain.cppfly",
+    "completedUTC": "2026-10-21T17:43:41.634Z",
+    "buildSeconds": 0.172
+  },
+  {
+    "module": "mcpp.build.directives",
+    "completedUTC": "2026-10-21T17:43:42.240Z",
+    "buildSeconds": 0.582
+  },
+  {
+    "module": "mcpp.toolchain.probe",
+    "completedUTC": "2026-10-21T17:43:42.444Z",
+    "buildSeconds": 0.185
+  },
+  {
+    "module": "mcpp.xlings.address_set",
+    "completedUTC": "2026-10-21T17:43:42.671Z",
+    "buildSeconds": 0.205
+  },
+  {
+    "module": "mcpp.toolchain.cenv_probe",
+    "completedUTC": "2026-10-21T17:43:42.961Z",
+    "buildSeconds": 0.266
+  },
+  {
+    "module": "mcpp.pm.refresh_policy",
+    "completedUTC": "2026-10-21T17:43:43.174Z",
+    "buildSeconds": 0.192
+  },
+  {
+    "module": "mcpp.xlings.runtime_selection",
+    "completedUTC": "2026-10-21T17:43:43.515Z",
+    "buildSeconds": 0.23
+  },
+  {
+    "module": "mcpp.pack.digest",
+    "completedUTC": "2026-10-21T17:43:44.077Z",
+    "buildSeconds": 0.425
+  },
+  {
+    "module": "mcpp.cli.cmd_cache",
+    "completedUTC": "2026-10-21T17:43:44.322Z",
+    "buildSeconds": 0.152
+  },
+  {
+    "module": "mcpp.build.schedule.policy",
+    "completedUTC": "2026-10-21T17:43:44.594Z",
+    "buildSeconds": 0.199
+  },
+  {
+    "module": "mcpp.build.tool_store",
+    "completedUTC": "2026-10-21T17:43:45.834Z",
+    "buildSeconds": 1.114
+  },
+  {
+    "module": "mcpp.build.hermetic",
+    "completedUTC": "2026-10-21T17:43:46.378Z",
+    "buildSeconds": 0.267
+  },
+  {
+    "module": "mcpp.pm.lock_io",
+    "completedUTC": "2026-10-21T17:43:46.767Z",
+    "buildSeconds": 0.303
+  },
+  {
+    "module": "mcpp.project",
+    "completedUTC": "2026-10-21T17:43:47.036Z",
+    "buildSeconds": 0.218
+  },
+  {
+    "module": "mcpp.pack.host_requirements",
+    "completedUTC": "2026-10-21T17:43:47.462Z",
+    "buildSeconds": 0.383
+  },
+  {
+    "module": "mcpp.toolchain.msvc",
+    "completedUTC": "2026-10-21T17:43:47.834Z",
+    "buildSeconds": 0.329
+  },
+  {
+    "module": "mcpp.toolchain.gcc",
+    "completedUTC": "2026-10-21T17:43:48.029Z",
+    "buildSeconds": 0.153
+  },
+  {
+    "module": "mcpp.pm.package_fetcher",
+    "completedUTC": "2026-10-21T17:43:48.640Z",
+    "buildSeconds": 0.559
+  },
+  {
+    "module": "mcpp.runtime.binding",
+    "completedUTC": "2026-10-21T17:43:49.802Z",
+    "buildSeconds": 1.113
+  },
+  {
+    "module": "mcpp.pack.prebuilt",
+    "completedUTC": "2026-10-21T17:43:50.083Z",
+    "buildSeconds": 0.23
+  },
+  {
+    "module": "mcpp.lockfile",
+    "completedUTC": "2026-10-21T17:43:50.186Z",
+    "buildSeconds": 0.072
+  },
+  {
+    "module": "mcpp.toolchain.clang",
+    "completedUTC": "2026-10-21T17:43:50.435Z",
+    "buildSeconds": 0.215
+  },
+  {
+    "module": "mcpp.fetcher",
+    "completedUTC": "2026-10-21T17:43:50.554Z",
+    "buildSeconds": 0.071
+  },
+  {
+    "module": "mcpp.runtime.elf",
+    "completedUTC": "2026-10-21T17:43:51.861Z",
+    "buildSeconds": 1.249
+  },
+  {
+    "module": "mcpp.hooks",
+    "completedUTC": "2026-10-21T17:43:52.115Z",
+    "buildSeconds": 0.204
+  },
+  {
+    "module": "mcpp.toolchain.registry",
+    "completedUTC": "2026-10-21T17:43:52.663Z",
+    "buildSeconds": 0.483
+  },
+  {
+    "module": "mcpp.scaffold",
+    "completedUTC": "2026-10-21T17:43:53.163Z",
+    "buildSeconds": 0.466
+  },
+  {
+    "module": "mcpp.toolchain.detect",
+    "completedUTC": "2026-10-21T17:43:53.383Z",
+    "buildSeconds": 0.186
+  },
+  {
+    "module": "mcpp.cli.cmd_xpkg",
+    "completedUTC": "2026-10-21T17:43:53.809Z",
+    "buildSeconds": 0.391
+  },
+  {
+    "module": "mcpp.fetcher.progress",
+    "completedUTC": "2026-10-21T17:43:54.228Z",
+    "buildSeconds": 0.371
+  },
+  {
+    "module": "mcpp.build.loader_contract",
+    "completedUTC": "2026-10-21T17:43:54.443Z",
+    "buildSeconds": 0.166
+  },
+  {
+    "module": "mcpp.build.symbol_provision",
+    "completedUTC": "2026-10-21T17:43:55.020Z",
+    "buildSeconds": 0.538
+  },
+  {
+    "module": "mcpp.pm.index_route",
+    "completedUTC": "2026-10-21T17:43:55.338Z",
+    "buildSeconds": 0.27
+  },
+  {
+    "module": "mcpp.toolchain.hostflags",
+    "completedUTC": "2026-10-21T17:43:55.522Z",
+    "buildSeconds": 0.136
+  },
+  {
+    "module": "mcpp.modgraph.p1689",
+    "completedUTC": "2026-10-21T17:43:55.780Z",
+    "buildSeconds": 0.222
+  },
+  {
+    "module": "mcpp.toolchain.post_install",
+    "completedUTC": "2026-10-21T17:43:56.479Z",
+    "buildSeconds": 0.664
+  },
+  {
+    "module": "mcpp.pack.library",
+    "completedUTC": "2026-10-21T17:43:57.072Z",
+    "buildSeconds": 0.558
+  },
+  {
+    "module": "mcpp.build.resources",
+    "completedUTC": "2026-10-21T17:43:57.323Z",
+    "buildSeconds": 0.218
+  },
+  {
+    "module": "mcpp.pack.route",
+    "completedUTC": "2026-10-21T17:43:57.522Z",
+    "buildSeconds": 0.162
+  },
+  {
+    "module": "mcpp.pm.resolver",
+    "completedUTC": "2026-10-21T17:43:57.816Z",
+    "buildSeconds": 0.262
+  },
+  {
+    "module": "mcpp.pack",
+    "completedUTC": "2026-10-21T17:43:58.965Z",
+    "buildSeconds": 1.115
+  },
+  {
+    "module": "mcpp.build.hostprogram",
+    "completedUTC": "2026-10-21T17:43:59.387Z",
+    "buildSeconds": 0.355
+  },
+  {
+    "module": "mcpp.toolchain.stdmod",
+    "completedUTC": "2026-10-21T17:44:00.283Z",
+    "buildSeconds": 0.849
+  },
+  {
+    "module": "mcpp.cli.cmd_sbom",
+    "completedUTC": "2026-10-21T17:44:00.528Z",
+    "buildSeconds": 0.211
+  },
+  {
+    "module": "mcpp.modgraph.scanner",
+    "completedUTC": "2026-10-21T17:44:01.161Z",
+    "buildSeconds": 0.603
+  },
+  {
+    "module": "mcpp.toolchain.lifecycle",
+    "completedUTC": "2026-10-21T17:44:01.940Z",
+    "buildSeconds": 0.735
+  },
+  {
+    "module": "mcpp.pm.index_refresh",
+    "completedUTC": "2026-10-21T17:44:02.136Z",
+    "buildSeconds": 0.155
+  },
+  {
+    "module": "mcpp.build.build_program",
+    "completedUTC": "2026-10-21T17:44:02.906Z",
+    "buildSeconds": 0.728
+  },
+  {
+    "module": "mcpp.build.prepare_inputs",
+    "completedUTC": "2026-10-21T17:44:03.288Z",
+    "buildSeconds": 0.338
+  },
+  {
+    "module": "mcpp.modgraph.validate",
+    "completedUTC": "2026-10-21T17:44:03.594Z",
+    "buildSeconds": 0.262
+  },
+  {
+    "module": "mcpp.build.plan",
+    "completedUTC": "2026-10-21T17:44:04.975Z",
+    "buildSeconds": 1.335
+  },
+  {
+    "module": "mcpp.build.cache_key",
+    "completedUTC": "2026-10-21T17:44:05.877Z",
+    "buildSeconds": 0.849
+  },
+  {
+    "module": "mcpp.build.test_targets",
+    "completedUTC": "2026-10-21T17:44:06.267Z",
+    "buildSeconds": 0.34
+  },
+  {
+    "module": "mcpp.build.flags",
+    "completedUTC": "2026-10-21T17:44:07.068Z",
+    "buildSeconds": 0.754
+  },
+  {
+    "module": "mcpp.build.runtime_validation",
+    "completedUTC": "2026-10-21T17:44:08.744Z",
+    "buildSeconds": 1.637
+  },
+  {
+    "module": "mcpp.build.backend",
+    "completedUTC": "2026-10-21T17:44:09.114Z",
+    "buildSeconds": 0.315
+  },
+  {
+    "module": "mcpp.build.compile_commands",
+    "completedUTC": "2026-10-21T17:44:09.657Z",
+    "buildSeconds": 0.502
+  },
+  {
+    "module": "mcpp.pm.index_management",
+    "completedUTC": "2026-10-21T17:44:10.057Z",
+    "buildSeconds": 0.356
+  },
+  {
+    "module": "mcpp.build.ninja",
+    "completedUTC": "2026-10-21T17:44:11.110Z",
+    "buildSeconds": 1.021
+  },
+  {
+    "module": "mcpp.build.prepare",
+    "completedUTC": "2026-10-21T17:44:15.511Z",
+    "buildSeconds": 4.349
+  },
+  {
+    "module": "mcpp.pack.pipeline",
+    "completedUTC": "2026-10-21T17:44:16.197Z",
+    "buildSeconds": 0.634
+  },
+  {
+    "module": "mcpp.scaffold.create",
+    "completedUTC": "2026-10-21T17:44:17.038Z",
+    "buildSeconds": 0.744
+  },
+  {
+    "module": "mcpp.cli.cmd_registry",
+    "completedUTC": "2026-10-21T17:44:17.333Z",
+    "buildSeconds": 0.26
+  },
+  {
+    "module": "mcpp.cli.cmd_new",
+    "completedUTC": "2026-10-21T17:44:17.771Z",
+    "buildSeconds": 0.314
+  },
+  {
+    "module": "mcpp.cli.cmd_toolchain",
+    "completedUTC": "2026-10-21T17:44:18.180Z",
+    "buildSeconds": 0.363
+  },
+  {
+    "module": "mcpp.pm.commands",
+    "completedUTC": "2026-10-21T17:44:18.955Z",
+    "buildSeconds": 0.731
+  },
+  {
+    "module": "mcpp.pm.publisher",
+    "completedUTC": "2026-10-21T17:44:19.387Z",
+    "buildSeconds": 0.3
+  },
+  {
+    "module": "mcpp.publish.xpkg_emit",
+    "completedUTC": "2026-10-21T17:44:19.508Z",
+    "buildSeconds": 0.074
+  },
+  {
+    "module": "mcpp.publish.pipeline",
+    "completedUTC": "2026-10-21T17:44:19.812Z",
+    "buildSeconds": 0.253
+  },
+  {
+    "module": "mcpp.build.build_database",
+    "completedUTC": "2026-10-21T17:44:20.706Z",
+    "buildSeconds": 0.805
+  },
+  {
+    "module": "mcpp.pack.library_pipeline",
+    "completedUTC": "2026-10-21T17:44:21.354Z",
+    "buildSeconds": 0.609
+  },
+  {
+    "module": "mcpp.doctor",
+    "completedUTC": "2026-10-21T17:44:22.529Z",
+    "buildSeconds": 1.139
+  },
+  {
+    "module": "mcpp.build.execute",
+    "completedUTC": "2026-10-21T17:44:24.023Z",
+    "buildSeconds": 1.459
+  },
+  {
+    "module": "mcpp.cli.cmd_publish",
+    "completedUTC": "2026-10-21T17:44:24.706Z",
+    "buildSeconds": 0.626
+  },
+  {
+    "module": "mcpp.cli.cmd_self",
+    "completedUTC": "2026-10-21T17:44:25.097Z",
+    "buildSeconds": 0.355
+  },
+  {
+    "module": "mcpp.build.configure",
+    "completedUTC": "2026-10-21T17:44:25.695Z",
+    "buildSeconds": 0.562
+  },
+  {
+    "module": "mcpp.cli.cmd_build",
+    "completedUTC": "2026-10-21T17:44:27.584Z",
+    "buildSeconds": 1.846
+  },
+  {
+    "module": "mcpp.cli",
+    "completedUTC": "2026-10-21T17:44:28.470Z",
+    "buildSeconds": 0.848
+  }
+]

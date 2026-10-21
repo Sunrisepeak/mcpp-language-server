@@ -43,7 +43,7 @@ import { promptTestHarness, PromptKind, ShownPrompt } from './prompt';
 import { CxxModulesStatus, ModuleIssue, ModuleState, StatusController } from './status';
 import { describeActiveWorkarounds } from './workarounds';
 import { overriddenByLanguageDefault } from './quickSuggestions';
-import { buildInitializationOptions } from './settingsRead';
+import { buildDiscoveryChange, buildDiscoveryOptions, buildInitializationOptions } from './settingsRead';
 import { offerSettingsMigration } from './settingsMigration';
 import { setLocalizer } from './strings';
 
@@ -251,6 +251,19 @@ class ServerHost implements vscode.Disposable {
 
     stop(): Promise<void> {
         return this.enqueue(() => this.stopNow());
+    }
+
+    updateMcppTarget(): Promise<void> {
+        // A setting changed during startup waits for that client to finish initialization.
+        // Read the latest value when the queued operation runs, so rapid changes converge.
+        return this.enqueue(async () => {
+            const client = this.runningClient();
+            if (!client) return;
+            const options = buildDiscoveryOptions(vscode.workspace.getConfiguration('mcppls'));
+            await client.sendNotification('workspace/didChangeConfiguration', {
+                settings: { mcppls: { 'buildDiscovery.mcppTarget': options['buildDiscovery.mcppTarget'] } },
+            });
+        });
     }
 
     restart(): Promise<void> {
@@ -710,6 +723,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     // The per-workspace off switch: while it is off nothing is started, and turning it on or off at
     // runtime starts or stops the server.
     let wasEnabled = serverEnabled();
+    let discoveryOptions = buildDiscoveryOptions(vscode.workspace.getConfiguration('mcppls'));
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((event) => {
             if (event.affectsConfiguration('mcppls.enable')) {
@@ -724,6 +738,9 @@ export function activate(context: vscode.ExtensionContext): TestApi {
                     void host.stop().then(() => status.showOff());
                 }
             }
+            const nextDiscovery = buildDiscoveryOptions(vscode.workspace.getConfiguration('mcppls'));
+            const discoveryChange = buildDiscoveryChange(discoveryOptions, nextDiscovery);
+            discoveryOptions = nextDiscovery;
             if (event.affectsConfiguration('mcppls.compiler') || event.affectsConfiguration('mcppls.semanticKit')
                 // S-1, S-2 (plan 0.0.9): `mcppls.engine` and `mcppls.buildDiscovery` still match, as the old
                 // names a hand edit may touch; the new ones are named so the list says what it restarts for.
@@ -734,11 +751,11 @@ export function activate(context: vscode.ExtensionContext): TestApi {
                 || event.affectsConfiguration('mcppls.toolEnvironment') || event.affectsConfiguration('mcppls.semanticTokens.modules')
                 || event.affectsConfiguration('mcppls.completion.triggerOnSpace')
                 // 0.0.6 plan §3.7 B-7, §2.6/§9 T5: new settings, same treatment as the ones above.
-                || event.affectsConfiguration('mcppls.buildDiscovery') || event.affectsConfiguration('mcppls.buildDiscovery.mode')
-                || event.affectsConfiguration('mcppls.buildDiscovery.providers')
-                || event.affectsConfiguration('mcppls.buildDiscovery.askBeforeDownload')
+                || discoveryChange === 'restart'
                 || event.affectsConfiguration('mcppls.index.primeImplementationUnits')) {
                 void host.restart();
+            } else if (discoveryChange === 'reload') {
+                void host.updateMcppTarget().catch((error: unknown) => host.log(`Cannot update the analysis target: ${String(error)}`));
             }
         }),
         // Build description design 4.4: the user was told the build description needs a download,

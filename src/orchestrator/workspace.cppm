@@ -81,6 +81,7 @@ struct SessionOptions {
     // this plumbing are T1's).
     std::string buildDiscovery { "auto" };
     std::vector<std::string> buildDiscoveryProviders { "mcpp", "cmake", "xmake", "meson", "compile-commands" };
+    std::string mcppTarget { "auto" };     // auto follows the root CDB's explicit target; project leaves mcpp's defaults
     bool buildDiscoveryAskBeforeDownload { true };
     // mcppls.index.primeImplementationUnits (0.0.6 plan §2.6, §9 T5): whether implementation units
     // are opened in the background so go-to-definition reaches them (T5's work; T1 only carries it).
@@ -107,7 +108,7 @@ struct SessionOptions {
 // `deferred_answer` carries the reply of a request whose heavy half ran off the loop (the sweep
 // command, 0.0.10 review): a thread posts it, the loop answers the client, so the loop itself is
 // never held by the work -- the same shape as `bundle_written`, for a request reply.
-enum class EventKind { client_message, client_closed, engine_event, model_loaded, external, review_finished, tool_run, bundle_written, cache_swept, deferred_answer };
+enum class EventKind { client_message, client_closed, engine_event, model_loaded, target_selected, external, review_finished, tool_run, bundle_written, cache_swept, deferred_answer };
 
 struct Event {
     EventKind kind { EventKind::client_message };
@@ -261,6 +262,7 @@ public:
     // ---- background events ------------------------------------------------------------
     void handle_engine_event(std::string_view engineId, const Json& event);
     void handle_model_loaded(int generation, std::shared_ptr<project::ProjectModel> model, bool fromProducer = true);
+    void handle_target_selected(int generation, const Json& message, std::shared_ptr<project::ProjectModel> selected);
 
     // ---- timers -----------------------------------------------------------------------
     std::optional<Clock::time_point> next_deadline() const;

@@ -1,0 +1,155 @@
+{
+  "name": "mcpp-producer-identity",
+  "description": "A stable launcher can emit a newer mcpp within protocol-cache TTL: envelope identity updates status and cache while protocol remains cached. A later project pin change is watched by the provider itself and re-queries protocol.",
+  "prepare": [
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--write-target-cdb",
+      "i686-unknown-linux-gnu"
+    ]
+  ],
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}"
+  ],
+  "checks": [
+    {
+      "id": "S1-first",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "profile-target": "i686-unknown-linux-gnu",
+      "target-mode": "auto",
+      "target-requested": "i686-unknown-linux-gnu",
+      "target-source": "compile-commands",
+      "target-pending": false,
+      "timeout": 60
+    },
+    {
+      "id": "A1-first-version",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "arguments-contains": [
+        "--target",
+        "i686-unknown-linux-gnu"
+      ],
+      "count": 1,
+      "version": "2026.10.22.1"
+    },
+    {
+      "id": "A1-first-version-protocol",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "--protocol-version",
+      "count": 1,
+      "version": "2026.10.22.1"
+    },
+    {
+      "id": "W1-global-upgrade",
+      "kind": "write-file",
+      "file": "mcpp-mock.json",
+      "replace": {
+        "from": "2026.10.22.1",
+        "with": "2026.10.22.2"
+      },
+      "notify": false,
+      "expect-reload": false,
+      "settle": 1
+    },
+    {
+      "id": "W2-refresh-without-identity-stamp-change",
+      "kind": "write-file",
+      "file": "inputs/producer-refresh.txt",
+      "content": "describe again\n",
+      "expect-reload": true,
+      "timeout": 60
+    },
+    {
+      "id": "S2-upgraded",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "profile-target": "i686-unknown-linux-gnu",
+      "target-mode": "auto",
+      "target-requested": "i686-unknown-linux-gnu",
+      "target-source": "compile-commands",
+      "target-pending": false,
+      "timeout": 60,
+      "producer-version": "2026.10.22.2"
+    },
+    {
+      "id": "A2-new-envelope-version",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 2,
+      "version": "2026.10.22.2",
+      "arguments-contains": [
+        "--target",
+        "i686-unknown-linux-gnu"
+      ]
+    },
+    {
+      "id": "A2-protocol-still-cached",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "--protocol-version",
+      "count": 1,
+      "version": "2026.10.22.1"
+    },
+    {
+      "id": "W3-next-version",
+      "kind": "write-file",
+      "file": "mcpp-mock.json",
+      "replace": {
+        "from": "2026.10.22.2",
+        "with": "2026.10.22.3"
+      },
+      "notify": false,
+      "expect-reload": false,
+      "settle": 1
+    },
+    {
+      "id": "W4-provider-watches-launcher-pin",
+      "kind": "write-file",
+      "file": ".xlings.json",
+      "content": "{\"mcpp\":\"2026.10.22.3\"}\n",
+      "expect-reload": true,
+      "timeout": 60
+    },
+    {
+      "id": "S3-pin-upgraded",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "profile-target": "i686-unknown-linux-gnu",
+      "target-mode": "auto",
+      "target-requested": "i686-unknown-linux-gnu",
+      "target-source": "compile-commands",
+      "target-pending": false,
+      "timeout": 60,
+      "producer-version": "2026.10.22.3"
+    },
+    {
+      "id": "A3-pin-producer",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 3,
+      "version": "2026.10.22.3",
+      "arguments-contains": [
+        "--target",
+        "i686-unknown-linux-gnu"
+      ]
+    },
+    {
+      "id": "A3-pin-protocol-refreshed",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "--protocol-version",
+      "count": 2,
+      "version": "2026.10.22.3"
+    }
+  ]
+}

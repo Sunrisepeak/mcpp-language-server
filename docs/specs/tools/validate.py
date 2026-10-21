@@ -58,6 +58,19 @@ ex = root / "examples"
 # 2. examples validate
 for name in ["s1-level3-gcc.json", "s1-level2-clang-two-sets.json"]:
     validate(f"S1 example validates: {name}", s1, load(ex / name))
+s3_target = schemas["s3-target-selection.schema.json"]
+s3_selection = load(ex / "s3-target-selection.json")
+validate("S3 target selection example validates", s3_target, s3_selection)
+for label, mutate in [
+    ("invalid mode", lambda d: d.update(mode="guess")),
+    ("invalid source", lambda d: d.update(source="directory-mtime")),
+    ("nonboolean pending", lambda d: d.update(pending="true")),
+    ("missing requested target", lambda d: d.pop("requestedTarget")),
+]:
+    selection = copy.deepcopy(s3_selection); mutate(selection)
+    validate(f"S3 target selection rejects {label}", s3_target, selection, expect_valid=False)
+selection = copy.deepcopy(s3_selection); selection["future-field"] = True
+validate("S3 target selection accepts unknown additive fields", s3_target, selection)
 validate("S2 request validates", s2, load(ex / "s2-request.json"))
 envelope = load(ex / "s2-envelope.json")
 validate("S2 single-document envelope validates", s2, envelope)

@@ -1,0 +1,118 @@
+{
+  "name": "mcpp-target-race",
+  "prepare": [
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--write-target-cdb",
+      "x86_64-unknown-linux-gnu"
+    ]
+  ],
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}"
+  ],
+  "checks": [
+    {
+      "id": "S1-x64",
+      "kind": "status",
+      "source": "mcpp",
+      "profile-target": "x86_64-unknown-linux-gnu",
+      "target-mode": "auto",
+      "target-requested": "x86_64-unknown-linux-gnu",
+      "target-source": "compile-commands",
+      "target-pending": false,
+      "timeout": 60,
+      "state": "ready"
+    },
+    {
+      "id": "W1-i686-started",
+      "kind": "write-file",
+      "file": "compile_commands.json",
+      "content": "[{\"directory\": \"{workspace}\", \"file\": \"src/main.cpp\", \"arguments\": [\"clang++\", \"--target=i686-unknown-linux-gnu\", \"-std=c++23\", \"-c\", \"src/main.cpp\"]}]",
+      "expect-reload": true,
+      "timeout": 30
+    },
+    {
+      "id": "A1-i686-in-flight",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 2,
+      "arguments-contains": [
+        "--target",
+        "i686-unknown-linux-gnu"
+      ],
+      "settle": 1
+    },
+    {
+      "id": "S2-request-is-separate",
+      "kind": "status",
+      "source": "mcpp",
+      "profile-target": "x86_64-unknown-linux-gnu",
+      "target-requested": "i686-unknown-linux-gnu",
+      "target-pending": true,
+      "timeout": 5,
+      "allow-unsettled": true
+    },
+    {
+      "id": "W2-revert-before-result",
+      "kind": "write-file",
+      "file": "compile_commands.json",
+      "content": "[{\"directory\": \"{workspace}\", \"file\": \"src/main.cpp\", \"arguments\": [\"clang++\", \"--target=x86_64-unknown-linux-gnu\", \"-std=c++23\", \"-c\", \"src/main.cpp\"]}]"
+    },
+    {
+      "id": "A2-bounded-producer-work",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "settle": 20,
+      "expect": [
+        {
+          "path": "",
+          "min-items": 2
+        },
+        {
+          "path": "",
+          "max-items": 3
+        }
+      ]
+    },
+    {
+      "id": "S3-x64-stays-current",
+      "kind": "status",
+      "source": "mcpp",
+      "profile-target": "x86_64-unknown-linux-gnu",
+      "target-mode": "auto",
+      "target-requested": "x86_64-unknown-linux-gnu",
+      "target-source": "compile-commands",
+      "target-pending": false,
+      "timeout": 60,
+      "state": "ready"
+    },
+    {
+      "id": "R1-late-i686-never-adopted",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/events/*/detail/profile/target",
+          "equals": "i686-unknown-linux-gnu",
+          "max-matches": 0
+        },
+        {
+          "path": "/roots/0/project/targetSelection/pending",
+          "equals": false
+        }
+      ]
+    },
+    {
+      "id": "E1-x64-command",
+      "kind": "engine-command",
+      "file": "src/main.cpp",
+      "contains": [
+        "--target=x86_64-unknown-linux-gnu"
+      ],
+      "timeout": 30
+    }
+  ],
+  "description": "A delayed i686 producer response arriving after the root CDB returns to x64 is never adopted, even briefly; the original x64 profile remains visible while the requested target is pending."
+}

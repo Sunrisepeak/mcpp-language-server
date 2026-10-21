@@ -2337,5 +2337,26 @@
     {
       "test": "tests/test_answer_routing.cpp: with mcppls.answer.agent authoritative, an agent always waits for the engine"
     }
+  ],
+  "S3-4-35": [
+    {
+      "validate": "S3 target selection"
+    },
+    {
+      "check": "mcpp-target-selection/TARGET-STATUS"
+    },
+    {
+      "check": "mcpp-target-live/S2-live-explicit"
+    }
+  ],
+  "S3-4-36": [
+    {
+      "script": "editors/vscode/src/profileText.ts",
+      "contains": "selection.pending"
+    },
+    {
+      "script": "editors/vscode/test/unit/profileText.test.ts",
+      "contains": "a pending requested target does not rename the adopted profile"
+    }
   ]
 }

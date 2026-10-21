@@ -83,6 +83,25 @@ function buildToolSetting(value: string | undefined): string {
 /** mcppls.buildDiscovery.providers' own default (config registry, settings section 9 T1): every provider. */
 export const BUILD_DISCOVERY_PROVIDERS = ['mcpp', 'cmake', 'xmake', 'meson', 'compile-commands'];
 
+/** Build discovery settings shared by initialization and live configuration updates. */
+export function buildDiscoveryOptions(configuration: SettingsReader): Record<string, unknown> {
+    return {
+        'buildDiscovery.mode': resolveRenamed(configuration, RENAMED_SETTINGS[1], 'auto') === 'off' ? 'off' : 'auto',
+        'buildDiscovery.providers': configuration.get('buildDiscovery.providers', BUILD_DISCOVERY_PROVIDERS) ?? BUILD_DISCOVERY_PROVIDERS,
+        'buildDiscovery.askBeforeDownload': configuration.get('buildDiscovery.askBeforeDownload', true) ?? true,
+        // Preserve invalid explicit strings so the server can explain them instead of silently selecting the host.
+        'buildDiscovery.mcppTarget': configuration.get('buildDiscovery.mcppTarget', 'auto') ?? 'auto',
+    };
+}
+
+/** The target is reloadable; the older discovery settings retain their existing restart behavior. */
+export function buildDiscoveryChange(previous: Record<string, unknown>, next: Record<string, unknown>): 'none' | 'reload' | 'restart' {
+    for (const key of ['buildDiscovery.mode', 'buildDiscovery.providers', 'buildDiscovery.askBeforeDownload']) {
+        if (JSON.stringify(previous[key]) !== JSON.stringify(next[key])) return 'restart';
+    }
+    return previous['buildDiscovery.mcppTarget'] === next['buildDiscovery.mcppTarget'] ? 'none' : 'reload';
+}
+
 const WORKERS = /^(auto|[1-9][0-9]?)?$/;
 
 /** `engine.preambleStorage` as the server takes it: `auto`, `disk` or `memory`; anything else is `auto`. */
@@ -162,9 +181,7 @@ export function buildInitializationOptions(configuration: SettingsReader, compil
         'answer.agent': oneOf(configuration.get<string>('answer.agent'), ['cached', 'authoritative'] as const),
         // 0.0.6 plan section 3.7 B-7: whether the project's build system is detected at all, which
         // providers may be used, and whether a needed download is ever offered.
-        'buildDiscovery.mode': resolveRenamed(configuration, RENAMED_SETTINGS[1], 'auto') === 'off' ? 'off' : 'auto',
-        'buildDiscovery.providers': get('buildDiscovery.providers', BUILD_DISCOVERY_PROVIDERS),
-        'buildDiscovery.askBeforeDownload': get('buildDiscovery.askBeforeDownload', true),
+        ...buildDiscoveryOptions(configuration),
         // 0.0.6 plan section 2.6, 9 T5: implementation units opened in the background.
         'index.primeImplementationUnits': configuration.get<string>('index.primeImplementationUnits') === 'off' ? 'off' : 'auto',
     };

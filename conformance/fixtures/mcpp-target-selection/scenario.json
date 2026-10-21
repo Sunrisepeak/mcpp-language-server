@@ -1,0 +1,199 @@
+{
+  "name": "mcpp-target-selection",
+  "description": "The root CDB selects a unique explicit target; switching, deletion and creation apply one immutable producer target, and same-target rewrites do not re-run the producer.",
+  "prepare": [
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--write-target-cdb",
+      "i686-unknown-linux-gnu"
+    ]
+  ],
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}"
+  ],
+  "checks": [
+    {
+      "id": "TARGET-STATUS",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "profile-target": "i686-unknown-linux-gnu",
+      "target-mode": "auto",
+      "target-requested": "i686-unknown-linux-gnu",
+      "target-source": "compile-commands",
+      "target-pending": false,
+      "timeout": 60
+    },
+    {
+      "id": "A1-i686-argv",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "arguments-contains": [
+        "--target",
+        "i686-unknown-linux-gnu"
+      ],
+      "count": 1
+    },
+    {
+      "id": "A1-i686-argv-protocol",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "--protocol-version",
+      "count": 1
+    },
+    {
+      "id": "E1-actual-engine-target",
+      "kind": "engine-command",
+      "file": "src/main.cpp",
+      "contains": [
+        "--target=i686-unknown-linux-gnu"
+      ],
+      "timeout": 30
+    },
+    {
+      "id": "W1-same-target",
+      "kind": "write-file",
+      "file": "compile_commands.json",
+      "content": "[{\"directory\": \"{workspace}\", \"file\": \"src/main.cpp\", \"arguments\": [\"clang++\", \"--target=i686-unknown-linux-gnu\", \"-std=c++23\", \"-c\", \"src/main.cpp\"]}]",
+      "expect-reload": false,
+      "timeout": 60,
+      "settle": 3
+    },
+    {
+      "id": "A2-no-emit",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "arguments-contains": [
+        "--target",
+        "i686-unknown-linux-gnu"
+      ],
+      "count": 1
+    },
+    {
+      "id": "A2-no-emit-protocol",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "--protocol-version",
+      "count": 1
+    },
+    {
+      "id": "W2-switch-x64",
+      "kind": "write-file",
+      "file": "compile_commands.json",
+      "content": "[{\"directory\": \"{workspace}\", \"file\": \"src/main.cpp\", \"arguments\": [\"clang++\", \"--target=x86_64-unknown-linux-gnu\", \"-std=c++23\", \"-c\", \"src/main.cpp\"]}]",
+      "expect-reload": true,
+      "timeout": 60,
+      "settle": 3
+    },
+    {
+      "id": "S2-auto-x64",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "profile-target": "x86_64-unknown-linux-gnu",
+      "target-mode": "auto",
+      "target-requested": "x86_64-unknown-linux-gnu",
+      "target-source": "compile-commands",
+      "target-pending": false,
+      "timeout": 60
+    },
+    {
+      "id": "A3-x64-argv",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "arguments-contains": [
+        "--target",
+        "x86_64-unknown-linux-gnu"
+      ],
+      "count": 2
+    },
+    {
+      "id": "A3-x64-argv-protocol",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "--protocol-version",
+      "count": 2
+    },
+    {
+      "id": "W3-delete-cdb",
+      "kind": "delete-file",
+      "file": "compile_commands.json",
+      "expect-reload": true,
+      "timeout": 60
+    },
+    {
+      "id": "S3-mcpp-default",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "profile-target": "x86_64-unknown-linux-gnu",
+      "target-mode": "auto",
+      "target-requested": "",
+      "target-source": "project",
+      "target-pending": false,
+      "timeout": 60
+    },
+    {
+      "id": "A4-no-target-argv",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "arguments-absent": [
+        "--target"
+      ],
+      "count": 3
+    },
+    {
+      "id": "A4-no-target-argv-protocol",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "--protocol-version",
+      "count": 3
+    },
+    {
+      "id": "W4-create-cdb",
+      "kind": "write-file",
+      "file": "compile_commands.json",
+      "content": "[{\"directory\": \"{workspace}\", \"file\": \"src/main.cpp\", \"arguments\": [\"clang++\", \"--target=i686-unknown-linux-gnu\", \"-std=c++23\", \"-c\", \"src/main.cpp\"]}]",
+      "expect-reload": true,
+      "timeout": 60,
+      "settle": 3
+    },
+    {
+      "id": "S4-auto-i686-again",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "profile-target": "i686-unknown-linux-gnu",
+      "target-mode": "auto",
+      "target-requested": "i686-unknown-linux-gnu",
+      "target-source": "compile-commands",
+      "target-pending": false,
+      "timeout": 60
+    },
+    {
+      "id": "A5-i686-argv",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "arguments-contains": [
+        "--target",
+        "i686-unknown-linux-gnu"
+      ],
+      "count": 4
+    },
+    {
+      "id": "E2-reapplied-engine-target",
+      "kind": "engine-command",
+      "file": "src/main.cpp",
+      "contains": [
+        "--target=i686-unknown-linux-gnu"
+      ],
+      "timeout": 30
+    }
+  ]
+}

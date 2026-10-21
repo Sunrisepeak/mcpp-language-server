@@ -1,0 +1,387 @@
+{
+  "checks": [
+    {
+      "detail": "now, 1 round(s): definition p95 0.00s max 0.00s; documentSymbol p95 60.00s max 60.00s; semanticTokens p95 60.00s max 60.00s",
+      "id": "U1-first-response",
+      "kind": "latency",
+      "measure": {
+        "engineShare": {},
+        "firstAnswers": {},
+        "kinds": {
+          "definition": {
+            "empty": 0,
+            "errors": 0,
+            "max": 0.000195474,
+            "n": 1,
+            "p50": 0.000195474,
+            "p95": 0.000195474,
+            "timeouts": 0,
+            "wrong": 0
+          },
+          "documentSymbol": {
+            "empty": 1,
+            "errors": 0,
+            "max": 60.000470892,
+            "n": 2,
+            "p50": 0.619029104,
+            "p95": 60.000470892,
+            "timeouts": 0,
+            "wrong": 0
+          },
+          "semanticTokens": {
+            "empty": 0,
+            "errors": 0,
+            "max": 60.000610908,
+            "n": 2,
+            "p50": 1.012284954,
+            "p95": 60.000610908,
+            "timeouts": 0,
+            "wrong": 0
+          }
+        },
+        "load": 26.32,
+        "phase": "now",
+        "requests": {
+          "documentSymbol src/main.cpp": {
+            "max": 60.000470892,
+            "n": 1,
+            "p50": 60.000470892,
+            "p95": 60.000470892
+          },
+          "heavy-outline src/build/execute.cppm": {
+            "max": 0.619029104,
+            "n": 1,
+            "p50": 0.619029104,
+            "p95": 0.619029104
+          },
+          "heavy-tokens src/build/execute.cppm": {
+            "max": 1.012284954,
+            "n": 1,
+            "p50": 1.012284954,
+            "p95": 1.012284954
+          },
+          "module-name src/main.cpp": {
+            "max": 0.000195474,
+            "n": 1,
+            "p50": 0.000195474,
+            "p95": 0.000195474
+          },
+          "semanticTokens src/main.cpp": {
+            "max": 60.000610908,
+            "n": 1,
+            "p50": 60.000610908,
+            "p95": 60.000610908
+          }
+        },
+        "rounds": 1,
+        "seconds": 121.701723427
+      },
+      "ok": true,
+      "seconds": 121.765636409,
+      "since-start": 122.033638424
+    },
+    {
+      "detail": "first answer 'first-completion' came 244.7s after initialize, over the budget 150.0s; first answer 'first-jump' came 242.1s after initialize, over the budget 150.0s; cold, 112 round(s): completion p95 0.37s max 0.87s; hover p95 0.01s max 0.01s; completion by engine 100%; hover by engine 100%; first-completion first answered 244.7s in; first-jump first answered 242.1s in",
+      "id": "U4-cold",
+      "kind": "latency",
+      "measure": {
+        "engineShare": {
+          "textDocument/completion": {
+            "answeredBy": {
+              "cache": 3,
+              "clangd": 335
+            },
+            "share": 1.0
+          },
+          "textDocument/hover": {
+            "answeredBy": {
+              "clangd": 112
+            },
+            "share": 1.0
+          }
+        },
+        "firstAnswers": {
+          "first-completion": 244.702876072,
+          "first-jump": 242.133166179
+        },
+        "kinds": {
+          "completion": {
+            "empty": 0,
+            "errors": 0,
+            "max": 0.873115814,
+            "n": 336,
+            "p50": 0.061351655,
+            "p95": 0.374393287,
+            "timeouts": 0,
+            "wrong": 0
+          },
+          "hover": {
+            "empty": 0,
+            "errors": 0,
+            "max": 0.010837201,
+            "n": 112,
+            "p50": 0.001221678,
+            "p95": 0.005023049,
+            "timeouts": 0,
+            "wrong": 0
+          }
+        },
+        "load": 9.52,
+        "phase": "cold",
+        "requests": {
+          "body src/pack/binfmt.cppm": {
+            "max": 0.312668898,
+            "n": 112,
+            "p50": 0.025534112,
+            "p95": 0.066257857
+          },
+          "hover src/pack/binfmt.cppm": {
+            "max": 0.010837201,
+            "n": 112,
+            "p50": 0.001221678,
+            "p95": 0.005023049
+          },
+          "member src/pack/binfmt.cppm": {
+            "max": 0.873115814,
+            "n": 112,
+            "p50": 0.048917907,
+            "p95": 0.156726894
+          },
+          "std src/pack/binfmt.cppm": {
+            "max": 0.717413244,
+            "n": 112,
+            "p50": 0.206919998,
+            "p95": 0.496882303
+          }
+        },
+        "rounds": 112,
+        "seconds": 122.966854921
+      },
+      "ok": false,
+      "seconds": 123.077365873,
+      "since-start": 245.111046694
+    },
+    {
+      "detail": "background, 48 round(s): completion p95 0.19s max 0.46s; hover p95 0.00s max 0.02s; completion by engine 100%; hover by engine 100%",
+      "id": "U4-background",
+      "kind": "latency",
+      "measure": {
+        "engineShare": {
+          "textDocument/completion": {
+            "answeredBy": {
+              "clangd": 144
+            },
+            "share": 1.0
+          },
+          "textDocument/hover": {
+            "answeredBy": {
+              "clangd": 48
+            },
+            "share": 1.0
+          }
+        },
+        "firstAnswers": {},
+        "kinds": {
+          "completion": {
+            "empty": 0,
+            "errors": 0,
+            "max": 0.458230362,
+            "n": 144,
+            "p50": 0.050378483,
+            "p95": 0.186422916,
+            "timeouts": 0,
+            "wrong": 0
+          },
+          "hover": {
+            "empty": 0,
+            "errors": 0,
+            "max": 0.019320121,
+            "n": 48,
+            "p50": 0.000932564,
+            "p95": 0.001427882,
+            "timeouts": 0,
+            "wrong": 0
+          }
+        },
+        "load": 5.3,
+        "phase": "background",
+        "requests": {
+          "body src/pack/binfmt.cppm": {
+            "max": 0.218291746,
+            "n": 48,
+            "p50": 0.017511746,
+            "p95": 0.027090247
+          },
+          "hover src/pack/binfmt.cppm": {
+            "max": 0.019320121,
+            "n": 48,
+            "p50": 0.000932564,
+            "p95": 0.001427882
+          },
+          "member src/pack/binfmt.cppm": {
+            "max": 0.067393647,
+            "n": 48,
+            "p50": 0.048211457,
+            "p95": 0.057725247
+          },
+          "std src/pack/binfmt.cppm": {
+            "max": 0.458230362,
+            "n": 48,
+            "p50": 0.179884434,
+            "p95": 0.193876001
+          }
+        },
+        "rounds": 48,
+        "seconds": 46.077385096
+      },
+      "ok": true,
+      "seconds": 46.249936066,
+      "since-start": 291.361023489
+    },
+    {
+      "detail": "idle, 20 round(s): completion p95 0.02s max 0.04s; definition p95 0.00s max 0.01s; hover p95 0.01s max 0.01s; semanticTokens p95 0.03s max 0.04s; completion by engine 100%; hover by engine 100%",
+      "id": "U3-idle",
+      "kind": "latency",
+      "measure": {
+        "engineShare": {
+          "textDocument/completion": {
+            "answeredBy": {
+              "clangd": 20
+            },
+            "share": 1.0
+          },
+          "textDocument/hover": {
+            "answeredBy": {
+              "clangd": 20
+            },
+            "share": 1.0
+          }
+        },
+        "firstAnswers": {},
+        "kinds": {
+          "completion": {
+            "empty": 0,
+            "errors": 0,
+            "max": 0.038085395,
+            "n": 20,
+            "p50": 0.007473192,
+            "p95": 0.023377209,
+            "timeouts": 0,
+            "wrong": 0
+          },
+          "definition": {
+            "empty": 0,
+            "errors": 0,
+            "max": 0.00742418,
+            "n": 20,
+            "p50": 0.00118095,
+            "p95": 0.002362896,
+            "timeouts": 0,
+            "wrong": 0
+          },
+          "hover": {
+            "empty": 0,
+            "errors": 0,
+            "max": 0.012687445,
+            "n": 20,
+            "p50": 0.001091265,
+            "p95": 0.011173125,
+            "timeouts": 0,
+            "wrong": 0
+          },
+          "semanticTokens": {
+            "empty": 0,
+            "errors": 0,
+            "max": 0.038157735,
+            "n": 20,
+            "p50": 0.015565315,
+            "p95": 0.034782266,
+            "timeouts": 0,
+            "wrong": 0
+          }
+        },
+        "load": 5.71,
+        "phase": "idle",
+        "requests": {
+          "definition src/main.cpp": {
+            "max": 0.00742418,
+            "n": 20,
+            "p50": 0.00118095,
+            "p95": 0.002362896
+          },
+          "hover src/pack/binfmt.cppm": {
+            "max": 0.012687445,
+            "n": 20,
+            "p50": 0.001091265,
+            "p95": 0.011173125
+          },
+          "member src/pack/binfmt.cppm": {
+            "max": 0.038085395,
+            "n": 20,
+            "p50": 0.007473192,
+            "p95": 0.023377209
+          },
+          "semanticTokens src/pack/binfmt.cppm": {
+            "max": 0.038157735,
+            "n": 20,
+            "p50": 0.015565315,
+            "p95": 0.034782266
+          }
+        },
+        "rounds": 20,
+        "seconds": 14.130259056
+      },
+      "ok": true,
+      "seconds": 22.825063417,
+      "since-start": 314.186193992
+    },
+    {
+      "detail": "{\"about\":{\"engine\":{\"build\":\"23.1.0-mcppls.4\",\"features\":14,\"name\":\"clangd\",\"restarts\":1,\"version\":\"23.1.0-mcppls.4\"},\"kit\":\"mcppls-kit-libcxx-23.1.0-x86_64-unknown-linux-gnu\",\"mcpp\":\"2026.9.21.1\",\"platform\":\"linux-x64\",\"server\":\"0.0.16\",\"startedAt\":\"2026-10-21T17:37:15Z\"},\"cache\":{\"bytes\":400000000,\"copies\":{\"bytes\":0,\"files\":0,\"oldestSeconds\":0},\"instances\":{\"bytes\":0,\"count\":0},\"limitBytes\":4294967296,\"state\":\"ok\"},\"engine\":{\"name\":\"clangd\",\"version\":\"23.1.0-mcppls.4\"},\"engines\":[{\"name\":\"mcppls\",\"role\":\"modules\",\"state\":\"ready\",\"version\":\"0.0.16\"},{\"name\":\"clangd\",\"role\":\"core\",\"state\":\"ready\",\"version\":\"23.1.0-mcppls.4\"}],\"issues\":[],\"profile\":{\"compiler\":\"gcc 16.1.0\",\"kind\":\"build-toolchain\",\"standard\":\"c++23\",\"stdlib\":\"libstdc++ 16.1.0\",\"target\":\"x86_64-linux-gnu\"},\"project\":{\"level\":3,\"root\":\"file:///tmp/mcppls-perf59/mcpp/work/ux-mcpp\",\"source\":\"mcpp\",\"tier\":1},\"state\":\"ready\"}",
+      "id": "S1",
+      "kind": "status",
+      "ok": true,
+      "seconds": 0.000137173,
+      "since-start": 314.186360881
+    },
+    {
+      "detail": "peak RSS 1198 MB",
+      "id": "U14-memory",
+      "kind": "resources",
+      "measure": {
+        "load": 5.71,
+        "peakRssMB": 1197.66796875
+      },
+      "ok": true,
+      "seconds": 5.6066e-05,
+      "since-start": 314.186434884
+    },
+    {
+      "detail": "not ready without progress for 118.22s is over the budget 60.00s; longest stall 118.2s, 4 state changes (2 in the busiest minute), 0 error, clangd restarts 1, first ready 243.1s, prepared 243.1s",
+      "id": "U15-cold",
+      "kind": "timeline",
+      "measure": {
+        "busiestMinuteChanges": 2,
+        "clangdRestarts": 1,
+        "errorStates": 0,
+        "firstReadySeconds": 243.120100836,
+        "load": 5.71,
+        "longestStallSeconds": 118.222242175,
+        "preparedSeconds": 243.120100836,
+        "serverRestarts": 0,
+        "stateChanges": 4,
+        "statuses": 143
+      },
+      "ok": false,
+      "seconds": 0.037480517,
+      "since-start": 314.223972173
+    }
+  ],
+  "failures": 2,
+  "first-diagnostics": 242.132049028,
+  "first-navigation": null,
+  "fixture": "ux-mcpp",
+  "initialize": 0.267136916,
+  "ready": 1.268437844,
+  "reused-workspace": false,
+  "seconds": 315.38651872
+}

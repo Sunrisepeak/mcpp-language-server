@@ -307,7 +307,7 @@ jobs:
             part: 1 of 2
             os: ubuntu-24.04
             exe: ''
-            fixtures: mcpp-split multi-root mcpp-llvm mcpp-watch inferred module-faults
+            fixtures: mcpp-split multi-root mcpp-llvm mcpp-watch inferred module-faults mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-target-selection@polling mcpp-producer-identity@polling mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve
           - platform: linux-x64
             part: 2 of 2
             os: ubuntu-24.04
@@ -316,12 +316,12 @@ jobs:
           - platform: darwin-arm64
             os: macos-14
             exe: ''
-            fixtures: inferred module-faults verify-changes multi-root mcpp-llvm mcpp-split mcpp-all-cppm mcpp-watch
+            fixtures: inferred module-faults verify-changes multi-root mcpp-llvm mcpp-split mcpp-all-cppm mcpp-watch mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve
           - platform: win32-x64
             part: 1 of 2
             os: windows-2022
             exe: '.exe'
-            fixtures: mcpp-split inferred module-faults mcpp-watch
+            fixtures: mcpp-split inferred module-faults mcpp-watch mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve
           - platform: win32-x64
             part: 2 of 2
             os: windows-2022

@@ -1,0 +1,55 @@
+{
+  "name": "mcpp-target-mismatch-cold",
+  "prepare": [
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--write-target-cdb",
+      "i686-unknown-linux-gnu"
+    ]
+  ],
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}"
+  ],
+  "checks": [
+    {
+      "id": "S1-wrong-producer-result-unapplied",
+      "kind": "status",
+      "source": "inferred",
+      "state": "degraded",
+      "issue-code": "model-stale",
+      "issue-message": "requested target",
+      "target-requested": "i686-unknown-linux-gnu",
+      "target-pending": true,
+      "timeout": 60
+    },
+    {
+      "id": "A1-no-targetless-retry",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 1,
+      "arguments-contains": [
+        "--target",
+        "i686-unknown-linux-gnu"
+      ],
+      "settle": 3
+    },
+    {
+      "id": "R1-wrong-target-not-adopted",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/events/*/detail/source",
+          "equals": "mcpp",
+          "max-matches": 0
+        },
+        {
+          "path": "/roots/0/project/targetSelection/pending",
+          "equals": true
+        }
+      ]
+    }
+  ],
+  "description": "A producer that returns x64 for a requested i686 target is reported as unapplied. Its response cannot replace the usable inferred model, and no retry without --target hides the failure."
+}

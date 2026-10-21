@@ -1,0 +1,125 @@
+{
+  "name": "mcpp-target-auto-fallback",
+  "description": "Conflicting targets and opaque target-affecting arguments explicitly fall back to mcpp defaults; reason changes without target changes do not invoke the producer again; a unique target recovers.",
+  "prepare": [
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--write-target-cdb",
+      "i686-unknown-linux-gnu"
+    ]
+  ],
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}"
+  ],
+  "checks": [
+    {
+      "id": "TARGET-STATUS",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "profile-target": "i686-unknown-linux-gnu",
+      "target-mode": "auto",
+      "target-requested": "i686-unknown-linux-gnu",
+      "target-source": "compile-commands",
+      "target-pending": false
+    },
+    {
+      "id": "FIRST-EMIT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 1
+    },
+    {
+      "id": "CONFLICT",
+      "kind": "write-file",
+      "file": "compile_commands.json",
+      "content": "[{\"directory\": \"{workspace}\", \"file\": \"src/main.cpp\", \"arguments\": [\"clang++\", \"--target=i686-unknown-linux-gnu\", \"-std=c++23\", \"-c\", \"src/main.cpp\"]}, {\"directory\": \"{workspace}\", \"file\": \"src/platform.cppm\", \"arguments\": [\"clang++\", \"--target=x86_64-unknown-linux-gnu\", \"-std=c++23\", \"-c\", \"src/platform.cppm\"]}]",
+      "expect-reload": true,
+      "settle": 3,
+      "timeout": 60
+    },
+    {
+      "id": "CONFLICT-DEFAULT",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "profile-target": "x86_64-unknown-linux-gnu",
+      "target-mode": "auto",
+      "target-requested": "",
+      "target-source": "project",
+      "target-pending": false,
+      "target-reason": "project commands contain multiple targets"
+    },
+    {
+      "id": "CONFLICT-NO-TARGET",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 2,
+      "arguments-absent": [
+        "--target"
+      ]
+    },
+    {
+      "id": "OPAQUE-ARG",
+      "kind": "write-file",
+      "file": "compile_commands.json",
+      "content": "[{\"directory\": \"{workspace}\", \"file\": \"src/main.cpp\", \"arguments\": [\"clang++\", \"--target=i686-unknown-linux-gnu\", \"-std=c++23\", \"-c\", \"src/main.cpp\", \"@unresolved.rsp\"]}]",
+      "expect-reload": false,
+      "settle": 3,
+      "timeout": 60
+    },
+    {
+      "id": "OPAQUE-DEFAULT",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "profile-target": "x86_64-unknown-linux-gnu",
+      "target-mode": "auto",
+      "target-requested": "",
+      "target-source": "project",
+      "target-pending": false,
+      "target-reason": "a project command contains an unresolved target-affecting argument"
+    },
+    {
+      "id": "SAME-DEFAULT-NO-EMIT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 2
+    },
+    {
+      "id": "UNIQUE-AGAIN",
+      "kind": "write-file",
+      "file": "compile_commands.json",
+      "content": "[{\"directory\": \"{workspace}\", \"file\": \"src/main.cpp\", \"arguments\": [\"clang++\", \"--target=i686-unknown-linux-gnu\", \"-std=c++23\", \"-c\", \"src/main.cpp\"]}]",
+      "expect-reload": true,
+      "settle": 3,
+      "timeout": 60
+    },
+    {
+      "id": "RECOVERED",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "profile-target": "i686-unknown-linux-gnu",
+      "target-mode": "auto",
+      "target-requested": "i686-unknown-linux-gnu",
+      "target-source": "compile-commands",
+      "target-pending": false
+    },
+    {
+      "id": "RECOVERY-ARGV",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 3,
+      "arguments-contains": [
+        "--target",
+        "i686-unknown-linux-gnu"
+      ]
+    }
+  ]
+}

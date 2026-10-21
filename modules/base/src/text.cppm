@@ -27,6 +27,11 @@ std::string to_lower_ascii(std::string_view text);
 bool iequals_ascii(std::string_view a, std::string_view b);
 std::string replace_all(std::string_view text, std::string_view from, std::string_view to);
 
+// Byte-budget clipping of UTF-8 text, without cutting a code point. These do not validate
+// external text; its output boundary still decides how malformed bytes are handled.
+std::string_view utf8_prefix(std::string_view text, std::size_t maxBytes);
+std::string_view utf8_suffix(std::string_view text, std::size_t maxBytes);
+
 std::size_t utf16_length(std::string_view utf8);
 Position position_at(std::string_view text, std::size_t byteOffset);
 std::optional<std::size_t> offset_at(std::string_view text, Position position);

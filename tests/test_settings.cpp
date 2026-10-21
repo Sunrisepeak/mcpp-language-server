@@ -90,6 +90,22 @@ int main() {
         }
     };
 
+    "a workspace mcpp target reloads the model, and a CLI target keeps precedence"_test = [] {
+        settings::Settings workspace;
+        expect(workspace.string_value("buildDiscovery.mcppTarget") == "auto");
+        workspace.apply_initialization_options(Json { { "buildDiscovery", Json { { "mcppTarget", "i686-windows-msvc" } } } });
+        expect(workspace.string_value("buildDiscovery.mcppTarget") == "i686-windows-msvc");
+        const auto changed = workspace.apply_configuration_change(Json { { "settings", Json { { "buildDiscovery.mcppTarget", "project" } } } });
+        expect(std::ranges::find(changed.reloadKeys, std::string { "buildDiscovery.mcppTarget" }) != changed.reloadKeys.end());
+        expect(workspace.string_value("buildDiscovery.mcppTarget") == "project");
+        settings::Settings cli;
+        cli.apply_command_line(parse_argv({ "--mcpp-target", "i686-windows-msvc" }));
+        cli.apply_initialization_options(Json { { "buildDiscovery.mcppTarget", "project" } });
+        cli.apply_configuration_change(Json { { "settings", Json { { "buildDiscovery.mcppTarget", "auto" } } } });
+        expect(cli.string_value("buildDiscovery.mcppTarget") == "i686-windows-msvc");
+        expect(cli.origin("buildDiscovery.mcppTarget") == settings::Origin::commandLine);
+    };
+
     "the command line wins over initializationOptions, which wins over the default"_test = [] {
         settings::Settings values;
         expect(values.origin("buildTool") == settings::Origin::defaulted);

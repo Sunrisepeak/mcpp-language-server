@@ -30,6 +30,35 @@ mcpp 给出的文档里列出了每个翻译单元、它的模块角色、它的
 - **老版本的 mcpp** 没有 `emit build-database`，但这不是终点：如果机器上别处装有更新的 mcpp（xlings 的包目录、mcpp 自己的 registry 目录），mcppls 会改问*那一个*，同样只读、离线，只用来描述工程——工程本身仍用它固定的 mcpp 构建。发生这种情况时状态会说"described by mcpp X (the project pins Y)"。只有机器上没有任何 mcpp 能回答时，才会让固定的那个做配置（`mcpp build --configure-only`），这一步会写入项目；这时状态会说明，解决办法是升级 mcpp。
 - **过期的数据库**——条目指向的文件已经不在了（构建曾经写过的 `target/` 后来被删掉，或者从别的机器提交进来的 `compile_commands.json`）——只使用仍然存在的部分；状态会注明它已过期，而不是直接失败。构建时才生成的模块（依赖包自己的 `std`、代码生成器的输出），mcppls 会先去构建通常留下它们的地方找——工程自己的构建目录，以及 mcpp 的 build-database 缓存（删掉 `target/` 后它仍在）——找不到时才用空的占位单元。
 
+### 跟随 mcpp 的构建目标
+
+默认的 `mcppls.buildDiscovery.mcppTarget = "auto"` 会读取工程根目录的
+`compile_commands.json`；项目源码明确使用同一目标平台时，mcppls 将该目标传给 mcpp，重新获取模块构建描述。
+例如执行 `mcpp build --target i686-windows-msvc` 发布编译数据库后，编辑器跟随 i686，无需再设置一次。
+这里跟随的是最近发布的编译配置；仅配置命令或随后编译失败的命令也可能发布它，不代表最近一次成功构建。
+
+要固定当前工程的分析平台，可在 `.vscode/settings.json` 中设置：
+
+```json
+{
+  "mcppls.buildDiscovery.mcppTarget": "i686-windows-msvc"
+}
+```
+
+填 `"project"` 会忽略 CDB 的目标，由 mcpp 按自身规则解析默认值，包括 `mcpp.toml` 的 `[build].target`。
+命令行对应 `--mcpp-target`。此设置只影响 mcpp 提供者，`buildTool=off` 时也不会因此启动构建工具。
+在 VS Code 中，显式设置作用于整个工作区窗口，不支持多根工作区内每个文件夹分别覆盖。
+自动模式仍独立读取每个根目录的 CDB。修改目标只重新加载模型，不重启语言服务器。
+
+自动模式只采用命令中明确的 `--target` / `-target` 参数，不执行 CDB 命令，不从宏、目录名或文件时间猜测架构。
+缺失、冲突或无法解析的目标会回落 mcpp 默认规则，并在状态和报告中说明原因；半写的数据库会先有限重试。
+非法的显式设置会报配置问题，不会偷偷切回宿主平台。
+
+状态显示实际采用的平台；切换尚未应用或失败时，待应用目标单独显示，旧模型仍可提供服务。
+本功能只跟随 target，不恢复 CDB 的 profile、features、工具链和全部编译参数。
+要原样采用完整 CDB，请将 `mcppls.buildDiscovery.providers` 设为 `["compile-commands"]`；
+`mcppls.database` 接受 S1 构建数据库，不能直接指向 `compile_commands.json`。
+
 ## CMake
 
 如果构建目录里有 `build_database.json`（CMake 4.4+ 配 Ninja、`FILE_SET CXX_MODULES`），mcppls 就读它。否则它读 `compile_commands.json`，并展开生成器写出的 `@modmap` 文件。

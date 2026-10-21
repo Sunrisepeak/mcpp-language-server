@@ -202,6 +202,9 @@ private:
                 root->handle_model_loaded(event.generation, std::move(event.model), fromProducer);
             }
             break;
+        case EventKind::target_selected:
+            if (auto* root = root_by_key_(event.rootKey)) root->handle_target_selected(event.generation, event.message, std::move(event.model));
+            break;
         case EventKind::tool_run:
             if (auto* root = root_by_key_(event.rootKey)) root->handle_tool_run(event.message);
             break;
@@ -475,6 +478,7 @@ private:
         options_.semanticTokensModuleType = settings.bool_value("semanticTokens.moduleType");
         options_.buildDiscovery = settings.string_value("buildDiscovery.mode");
         options_.buildDiscoveryProviders = settings.list_value("buildDiscovery.providers");
+        options_.mcppTarget = settings.string_value("buildDiscovery.mcppTarget");
         options_.buildDiscoveryAskBeforeDownload = settings.bool_value("buildDiscovery.askBeforeDownload");
         options_.primeImplementationUnits = settings.string_value("index.primeImplementationUnits");
         options_.compiler = settings.string_value("compiler");
@@ -629,7 +633,7 @@ private:
             // string_view -- the 0.0.10 cache_swept crash was exactly that, found by the E2E.
             // The assert makes the compiler say it first (review 2026-10-03), the guard below
             // makes a future miss degrade to a name instead of undefined behaviour.
-            static constexpr std::array<std::string_view, 10> KINDS { "a client message", "the client closing", "an engine event", "a loaded model",
+            static constexpr std::array<std::string_view, 11> KINDS { "a client message", "the client closing", "an engine event", "a loaded model", "a selected target",
                                                                       "an external event", "a finished review", "a tool run", "a written bundle",
                                                                       "a swept cache", "a deferred answer" };
             static_assert(KINDS.size() == static_cast<std::size_t>(EventKind::deferred_answer) + 1,

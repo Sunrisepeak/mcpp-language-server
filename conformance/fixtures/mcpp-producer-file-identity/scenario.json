@@ -1,0 +1,117 @@
+{
+  "name": "mcpp-producer-file-identity",
+  "description": "Replacing an idle native mcpp executable at the same path is detected by the stat-only 30-second identity timer, without a watched source/configuration change or binary hashing on the LSP loop.",
+  "prepare": [
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--write-target-cdb",
+      "i686-unknown-linux-gnu"
+    ],
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--copy-self",
+      "producer/mcpp.exe"
+    ],
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--copy-self",
+      "replacement/mcpp.exe"
+    ]
+  ],
+  "server-arguments": [
+    "--mcpp",
+    "{workspace}/producer/mcpp.exe",
+    "--mcpp-target",
+    "project"
+  ],
+  "checks": [
+    {
+      "id": "TARGET-STATUS",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "profile-target": "x86_64-unknown-linux-gnu",
+      "target-mode": "project",
+      "target-requested": "",
+      "target-source": "project",
+      "target-pending": false,
+      "producer-version": "2026.10.22.1",
+      "timeout": 60
+    },
+    {
+      "id": "FIRST-EMIT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 1,
+      "version": "2026.10.22.1"
+    },
+    {
+      "id": "FIRST-PROTOCOL",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "--protocol-version",
+      "count": 1,
+      "version": "2026.10.22.1"
+    },
+    {
+      "id": "ABSOLUTE-RESOLVED-PRODUCER",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/project/producer",
+          "contains": "/producer/mcpp.exe"
+        }
+      ]
+    },
+    {
+      "id": "UPGRADE-RECORDING-ONLY",
+      "kind": "write-file",
+      "file": "mcpp-mock.json",
+      "replace": {
+        "from": "2026.10.22.1",
+        "with": "2026.10.22.2"
+      },
+      "notify": false,
+      "expect-reload": false,
+      "settle": 1
+    },
+    {
+      "id": "REPLACE-NATIVE-PRODUCER",
+      "kind": "write-file",
+      "file": "producer/mcpp.exe",
+      "content-from": "replacement/mcpp.exe",
+      "expect-reload": true,
+      "timeout": 45
+    },
+    {
+      "id": "UPGRADED-STATUS",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "profile-target": "x86_64-unknown-linux-gnu",
+      "target-mode": "project",
+      "target-requested": "",
+      "target-source": "project",
+      "target-pending": false,
+      "producer-version": "2026.10.22.2",
+      "timeout": 60
+    },
+    {
+      "id": "UPGRADED-EMIT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 2,
+      "version": "2026.10.22.2"
+    },
+    {
+      "id": "IDENTITY-RECHECKED-PROTOCOL",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "--protocol-version",
+      "count": 2,
+      "version": "2026.10.22.2"
+    }
+  ]
+}

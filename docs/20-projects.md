@@ -83,6 +83,43 @@ A few things are worth knowing:
   leave it — the project's own build directory, and mcpp's build-database cache, which survives a
   deleted `target/` — before mcppls falls back to an empty stand-in for it.
 
+### Following an mcpp build target
+
+By default (`mcppls.buildDiscovery.mcppTarget = "auto"`), mcppls follows an explicit, unique target
+from the project's root `compile_commands.json`, then asks mcpp to describe that target. For example,
+after `mcpp build --target i686-windows-msvc` publishes that database, analysis follows i686 without
+another editor setting. This follows the latest published compilation configuration, which can also
+come from a configure-only command or a failed compilation; it does not certify a successful build.
+
+To fix this workspace's analysis target, put this in `.vscode/settings.json` (or use the corresponding
+LSP initialization setting in another editor):
+
+```json
+{
+  "mcppls.buildDiscovery.mcppTarget": "i686-windows-msvc"
+}
+```
+
+Use `"project"` to ignore the compilation database for target selection and always let mcpp apply
+its own defaults, including `[build].target` in `mcpp.toml`. CLI users can pass `--mcpp-target`.
+The setting only affects the mcpp provider and does not enable execution when `buildTool` is `off`.
+In VS Code, the explicit setting applies to the whole workspace window;
+independent folder overrides in a multi-root window are not supported. Automatic selection still
+reads each root's own CDB independently. Changing the target reloads the model without restarting
+the language server.
+
+Automatic selection uses explicit `--target` / `-target` arguments, without executing CDB commands.
+Missing, conflicting or unsupported target-changing inputs fall back to mcpp defaults with an
+explanation in status/report. No architecture is guessed from macros, directory names or file dates.
+An incomplete database being written keeps the previous selection during a bounded retry. Invalid
+explicit settings are reported instead of silently using the host platform.
+
+The status shows the adopted platform. While a switch is pending or fails, the requested target is
+shown separately and the previous model can remain available. Target selection does not recover
+profile, features or the complete toolchain from CDB arguments. To use the database's complete
+commands, select only `mcppls.buildDiscovery.providers = ["compile-commands"]`; `mcppls.database`
+accepts an S1 build database rather than a `compile_commands.json`.
+
 ## CMake
 
 If the build directory has a `build_database.json` (CMake 4.4+ with Ninja, `FILE_SET CXX_MODULES`),

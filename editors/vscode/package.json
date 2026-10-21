@@ -2,7 +2,7 @@
   "name": "mcpp-language-server",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "0.0.16",
+  "version": "0.0.17",
   "publisher": "sunrisepeak",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -552,6 +552,12 @@
           "type": "string",
           "default": "auto",
           "description": "%config.mcppls.format.fallbackStyle.description%"
+        },
+        "mcppls.buildDiscovery.mcppTarget": {
+          "type": "string",
+          "default": "auto",
+          "scope": "window",
+          "description": "%config.mcppls.buildDiscovery.mcppTarget.description%"
         }
       }
     },

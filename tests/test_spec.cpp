@@ -320,6 +320,18 @@ int main(int argc, char* argv[]) {
         expect(fatal(document.has_value())) << (document ? "" : document.error().message);
         expect(document->database.is_object() && !document->watch.empty() && !document->effects.empty());
         Json envelope = Json::parse(*text);
+        envelope["mcpp"]["version"] = "2026.10.22.2";
+        const auto identity = spec::parse_database_envelope(envelope.dump());
+        expect(fatal(identity.has_value()));
+        expect(identity->producerVersion == "2026.10.22.2") << "identity comes from the invocation that actually produced the database";
+        envelope["mcpp"]["version"] = 17;
+        const auto invalidIdentity = spec::parse_database_envelope(envelope.dump());
+        expect(fatal(invalidIdentity.has_value()));
+        expect(invalidIdentity->producerVersion.empty()) << "an ill-typed optional identity cannot become a version or crash parsing";
+        envelope.erase("mcpp");
+        const auto absentIdentity = spec::parse_database_envelope(envelope.dump());
+        expect(fatal(absentIdentity.has_value()));
+        expect(absentIdentity->producerVersion.empty()) << "older envelopes keep the protocol-query fallback";
         envelope["vendor-extension"] = Json { { "x", 1 } };
         expect(spec::parse_database_envelope(envelope.dump()).has_value()) << "unknown fields are ignored";
         Json wrongKind = Json::parse(*text);

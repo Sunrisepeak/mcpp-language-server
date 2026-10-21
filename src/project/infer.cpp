@@ -154,7 +154,18 @@ InferredDatabase enrich_database(spec::Database database, const Scanner& scanner
     // Facts for the toolchains a producer described.
     for (const auto& [id, toolchain] : database.toolchains) {
         if (toolchain.driver.empty()) continue;
-        if (auto facts = prober(toolchain.driver, std::vector<std::string> {})) {
+        std::vector<std::string> relevant;
+        const auto associated = std::ranges::find_if(database.sets, [&](const spec::Set& set) {
+            return set.toolchain == id && !set.units.empty() && !set.units.front().arguments.empty();
+        });
+        if (associated != database.sets.end()) relevant = toolchain::probe_relevant_arguments(associated->units.front().arguments);
+        const bool hasTarget { std::ranges::any_of(relevant, [](const std::string& word) {
+            return word == "--target" || word == "-target" || word.starts_with("--target=");
+        }) };
+        // A cross target is part of the compiler query, not just a label on a native probe.
+        // GCC/MSVC select their target through the driver/environment; --target is a clang option.
+        if (!hasTarget && toolchain.family == spec::Family::clang && !toolchain.target.empty()) relevant.push_back("--target=" + toolchain.target);
+        if (auto facts = prober(toolchain.driver, relevant)) {
             // What the producer stated about the standard library wins over what a bare query says.
             if (toolchain.stdlib && !toolchain.stdlib->moduleMetadata.empty()) facts->toolchain.stdlib = toolchain.stdlib;
             result.facts.emplace(id, std::move(*facts));

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-22 — S3: requested and adopted analysis targets
+
+The optional `targetSelection` describes an mcpp target request, its source and whether it is pending
+(S3-4-35, S3-4-36). `profile.target` remains the adopted model target during switches and failures. The same
+selection appears under `project` in diagnostic reports. A field schema and example cover this additive
+object; older clients keep using the existing profile. Protocol version stays 1.
+
 ## 2026-10-13 — S3 and S5: answers given before the engine's, and where they came from
 
 S3 6.3 describes answers a server gives from what its engine answered before -- a completion, a hover, signature help,

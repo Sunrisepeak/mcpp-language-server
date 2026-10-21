@@ -1,0 +1,31 @@
+{
+  "server": "published v0.0.16",
+  "engine": "23.1.0-mcppls.4",
+  "engineArchiveSHA256": "56960d9316d413cbfe116b9a902021bbfd564d7178b6d165eacf2daeeb9eb65f",
+  "mcpp": "mcpp 2026.10.19.1",
+  "host": "Linux-6.8.0-147-generic-x86_64-with-glibc2.44",
+  "cpu": "13th Gen Intel(R) Core(TM) i9-13900K",
+  "affinity": {
+    "ux-xlings-long": "0-3",
+    "ux-mcpp-cold": "4-5",
+    "ux-xlings-long-no-prime": "6-9",
+    "ux-mcpp-pinned-cold": "10-11",
+    "ux-xlings-pinned-cold-idle": "12-15",
+    "ux-xlings-pinned-cold-idle-off": "16-19",
+    "ux-xlings-staged": "20-23"
+  },
+  "fixtures": {
+    "ux-mcpp": "d1f1c98fa26d953e084a183a9672fc1e0ce63558",
+    "ux-xlings": "84572b0cc8502a16afaa4ae00867aef17f18c2c2"
+  },
+  "caveat": "Local host, same pinned fixtures and released engine; mcpp newer than original nightly. Performance does not substitute GitHub-hosted runner evidence.",
+  "historicalProducer": "2026.9.30.2 (nightly UX setup-mcpp default; latest override belongs to separate job)",
+  "topology": "Hybrid Intel host: logical0-15 are SMT pairs of8 P cores,16-31 are16 E cores; cross-affinity timings do not establish a controlled speed comparison.",
+  "workingTreeBinarySHA256": {
+    "mcppls-fixed": "cfe829d98a69ddd2cba09d7b780f1901fc82b160224898ef0427d428497e02e2",
+    "conformance-fixed": "b83e9f7d7341175c4c644515f6cf6543a21fa32dc5102c448c585cc7ee69d72a",
+    "mcppls-idle-fixed": "13adecdfc924073fddf003e3a886727bb779e0e4ef59905b13879814adba8329",
+    "conformance-idle-fixed": "7cab76854ea8771b53df62eb24b2d8dff7b020dab8bdc30eee1407b2c4667a4a"
+  },
+  "fixedServerVersion": "0.0.17 working-tree checkpoint (not final commit)"
+}

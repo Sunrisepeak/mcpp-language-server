@@ -1,0 +1,8 @@
+{
+  "mode": "auto",
+  "requestedTarget": "i686-windows-msvc",
+  "source": "compile-commands",
+  "reason": "unique explicit target in project compile commands",
+  "evidencePath": "C:/work/app/compile_commands.json",
+  "pending": true
+}

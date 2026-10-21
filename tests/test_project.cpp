@@ -19,6 +19,7 @@ import mcppls.project.infer;
 import mcppls.project.mcpp;
 import mcppls.project.model;
 import mcppls.project.compdb;
+import mcppls.project.target;
 import mcppls.project.cmake;
 import mcppls.project.xmake;
 import mcppls.project.meson;
@@ -839,6 +840,75 @@ int main() {
         expect(!p::visual_studio_notice(facts).has_value()) << "a toolset with the std module is used, not explained";
         facts.msvc.reset();
         expect(!p::visual_studio_notice(facts).has_value()) << "no Visual Studio, nothing to say";
+        fs::remove_all(root);
+    };
+
+    "producer toolchain probes keep the selected cross target and sysroot"_test = [] {
+        s::Database database;
+        database.toolchains.emplace_back("cross", s::Toolchain { .family = s::Family::clang, .driver = "clang++", .target = "i686-pc-windows-msvc" });
+        s::Set set;
+        set.name = "app";
+        set.toolchain = "cross";
+        s::TranslationUnit unit;
+        unit.source = "/project/main.cpp";
+        unit.workDirectory = "/project";
+        unit.arguments = { "clang++", "--target=i686-pc-windows-msvc", "--sysroot=/sdk", "-c", unit.source };
+        unit.role = s::Role::non_module;
+        set.units.push_back(unit);
+        database.sets.push_back(set);
+        std::vector<std::string> observed;
+        const p::Prober prober = [&](std::string_view, std::span<const std::string> relevant) -> std::optional<mcppls::toolchain::ToolchainFacts> {
+            observed.assign(relevant.begin(), relevant.end());
+            mcppls::toolchain::ToolchainFacts facts;
+            facts.toolchain.family = s::Family::clang;
+            facts.toolchain.driver = "clang++";
+            facts.toolchain.target = "i686-pc-windows-msvc";
+            return facts;
+        };
+        auto enriched = p::enrich_database(database, p::file_scanner(), prober);
+        expect(std::ranges::find(observed, "--target=i686-pc-windows-msvc") != observed.end());
+        expect(std::ranges::find(observed, "--sysroot=/sdk") != observed.end());
+        expect(enriched.facts.at("cross").toolchain.target == "i686-pc-windows-msvc");
+        database.sets.front().units.front().arguments = {"clang++", "-c", "/project/main.cpp"};
+        enriched = p::enrich_database(database, p::file_scanner(), prober);
+        expect(std::ranges::find(observed, "--target=i686-pc-windows-msvc") != observed.end()) << "a stated target is still probed when argv omits it";
+    };
+
+    "mcpp fallback validates requested target even when the producer cannot run"_test = [] {
+        const std::string root { make_root("mcpp-fallback-target") };
+        write(root, "main.cpp", "int main() { return 0; }\n");
+        write(root, "mcpp.toml", "[package]\nname = \"app\"\n");
+        const nlohmann::json commands = nlohmann::json::array({ {
+            { "directory", root }, { "file", "main.cpp" }, { "arguments", { "clang++", "--target=i686-linux-gnu", "-c", "main.cpp" } }
+        } });
+        write(root, "compile_commands.json", commands.dump());
+        p::ProviderContext context;
+        context.trusted = true;
+        context.runBuildTool = false;
+        context.scanner = p::file_scanner();
+        context.prober = [](std::string_view, std::span<const std::string>) -> std::optional<mcppls::toolchain::ToolchainFacts> {
+            mcppls::toolchain::ToolchainFacts facts;
+            facts.toolchain.family = s::Family::clang;
+            facts.toolchain.driver = "clang++";
+            facts.toolchain.target = "i686-unknown-linux-gnu";
+            return facts;
+        };
+        const p::Detection detection { .kind = p::SourceKind::mcpp, .root = root, .manifest = b::join_path(root, "mcpp.toml") };
+        context.targetSelection = p::select_mcpp_target(root, "x86_64-linux-gnu");
+        auto fallback = p::load_mcpp(detection, context);
+        expect(fatal(fallback.has_value()));
+        expect(std::ranges::any_of(fallback->issues, [](const auto& issue) { return issue.first == "mcpp-target-unapplied"; }));
+        context.targetSelection = p::select_mcpp_target(root, "i686-linux-gnu");
+        fallback = p::load_mcpp(detection, context);
+        expect(fatal(fallback.has_value()));
+        expect(fallback->issues.empty()) << "a matching fallback is usable without a producer";
+        context.targetSelection = p::select_mcpp_target(root, "x86_64-linux-gnu");
+        context.runBuildTool = true;
+        context.mcppExecutable = b::join_path(root, "missing-producer");
+        fallback = p::load_mcpp(detection, context);
+        expect(fatal(fallback.has_value()));
+        expect(std::ranges::any_of(fallback->issues, [](const auto& issue) { return issue.first == "mcpp-target-mismatch"; }))
+            << "a missing producer cannot silently adopt another architecture's CDB";
         fs::remove_all(root);
     };
 

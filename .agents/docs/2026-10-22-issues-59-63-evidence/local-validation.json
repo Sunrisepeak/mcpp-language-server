@@ -1,0 +1,119 @@
+{
+  "date": "2026-10-22 JST",
+  "scope": "Linux x86_64 working-tree checkpoint; cross-platform and final-release validation remain pending",
+  "mcpp": "mcpp 2026.10.21.1",
+  "serverSHA256": "c513f5a21cd094da4b88f7841fc886cbb7cf7b3a6a701d690bee988612328a65",
+  "runnerSHA256": "fef9a6ccabf8fffd872d8684aa8fee844444044a2de77e76e24a8ac7fe28f08f",
+  "engine": "23.1.0-mcppls.4",
+  "payloadArchiveSHA256": "7c334e963c6d6102648bfe0aaccf8c30805007e21b1dd57afd5ce3751c1385b1",
+  "unitTests": {
+    "dev": {
+      "executablesPassed": 40,
+      "failed": 0
+    },
+    "release": {
+      "executablesPassed": 40,
+      "failed": 0
+    }
+  },
+  "conformance": [
+    {
+      "fixture": "mcpp-polling-watch-inputs",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-producer-file-identity",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-producer-identity",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-producer-relative-path",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-target-auto-fallback",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-target-build-tool-off",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-target-discovery-off",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-target-explicit",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-target-fallback-mismatch",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-target-fallback-preserve",
+      "exitCode": 0,
+      "note": "Fixture now retains the prepared absolute compiler and replaces only the target; mismatch and preservation are both verified."
+    },
+    {
+      "fixture": "mcpp-target-invalid",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-target-live",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-target-mismatch",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-target-mismatch-cold",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-target-project",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-target-provider-excluded",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-target-race",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-target-selection",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-target-windows",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-producer-identity@polling",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-target-selection@polling",
+      "exitCode": 0
+    },
+    {
+      "fixture": "mcpp-emit-watch@polling",
+      "exitCode": 0
+    }
+  ],
+  "specificationValidator": "0 failures",
+  "repositoryChecks": "passed; rerun after final staging",
+  "logs": ".payload-cache/59-63-* (ignored local working directory)",
+  "notes": [
+    "A rebuilt environment lost earlier /tmp material; these conformance results use a freshly downloaded and hash-verified released engine.",
+    "Earlier VS Code 44 passing/1 platform-specific pending is recorded separately against its exact earlier working-tree server hash.",
+    "U13 and U8 performance acceptance remains incomplete."
+  ],
+  "releaseServerSHA256": "2993016d1ec666651ea723614761178eb29d941a8fcb2e2392c25a4cc05476b6"
+}

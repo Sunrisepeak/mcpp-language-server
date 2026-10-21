@@ -1,0 +1,74 @@
+{
+  "stallSeconds": 70.489390232,
+  "stallFromSeconds": 1.023792633,
+  "stallToSeconds": 71.513182865,
+  "stallCpuCores": 1.4581237012713169,
+  "firstReadySeconds": 101.272880317,
+  "restarts": 0,
+  "moduleBuildsObserved": 176,
+  "longestModuleBuildsSeconds": [
+    [
+      4.348999977111816,
+      "mcpp.build.prepare"
+    ],
+    [
+      3.7089998722076416,
+      "std"
+    ],
+    [
+      2.558000087738037,
+      "mcpp.libs.json"
+    ],
+    [
+      1.8460001945495605,
+      "mcpp.cli.cmd_build"
+    ],
+    [
+      1.6369998455047607,
+      "mcpp.build.runtime_validation"
+    ],
+    [
+      1.4860000610351562,
+      "mcpp.manifest.toml"
+    ],
+    [
+      1.4590001106262207,
+      "mcpp.build.execute"
+    ],
+    [
+      1.3349997997283936,
+      "mcpp.build.plan"
+    ],
+    [
+      1.249000072479248,
+      "mcpp.runtime.elf"
+    ],
+    [
+      1.1719999313354492,
+      "mcpp.config"
+    ],
+    [
+      1.1389999389648438,
+      "mcpp.doctor"
+    ],
+    [
+      1.1150000095367432,
+      "mcpp.pack"
+    ],
+    [
+      1.1140000820159912,
+      "mcpp.build.tool_store"
+    ],
+    [
+      1.1130001544952393,
+      "mcpp.runtime.binding"
+    ],
+    [
+      1.0260000228881836,
+      "mcpp.bmi_cache.maintenance"
+    ]
+  ],
+  "firstBuiltUTC": "2026-10-21T17:43:13.416000+00:00",
+  "lastBuiltUTC": "2026-10-21T17:44:28.470000+00:00",
+  "interpretation": "Real build completions occur while primer progress.done does not advance; original stalled-completion-node metric retained. No deadlock evidence."
+}

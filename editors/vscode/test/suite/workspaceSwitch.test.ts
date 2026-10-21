@@ -41,6 +41,23 @@ suite('mcppls.enable switch', function () {
         if (workspace) fs.rmSync(path.join(workspace, '.vscode'), { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     });
 
+    test('a target-only workspace change keeps the running server session', async () => {
+        const configuration = vscode.workspace.getConfiguration('mcppls');
+        const original = configuration.inspect<string>('buildDiscovery.mcppTarget')?.workspaceValue;
+        const startedAt = api.lastStatus()?.about?.startedAt;
+        assert.ok(startedAt, 'the server exposes its session identity');
+        try {
+            await configuration.update('buildDiscovery.mcppTarget', 'project', vscode.ConfigurationTarget.Workspace);
+            // A full restart closes this client and changes about.startedAt. The target update
+            // instead reaches the running session through didChangeConfiguration.
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+            assert.strictEqual(api.serverRunning(), true);
+            assert.strictEqual(api.lastStatus()?.about?.startedAt, startedAt);
+        } finally {
+            await configuration.update('buildDiscovery.mcppTarget', original, vscode.ConfigurationTarget.Workspace);
+        }
+    });
+
     test('false in the workspace stops the server and says so; true starts it again', async () => {
         assert.strictEqual(api.serverRunning(), true);
         await vscode.workspace.getConfiguration('mcppls').update('enable', false, vscode.ConfigurationTarget.Workspace);

@@ -54,6 +54,7 @@ struct DatabaseDocument {
     std::vector<EnvelopeDiagnostic> diagnostics;
     std::uint64_t runId { 0 };                // the tool-run record of the run that produced it
     bool networkObserved { false };           // the envelope's effects said the producer reached the network
+    std::string producerVersion;              // optional envelope mcpp.version of this actual invocation
 };
 
 // The diagnostic code mcpp 2026.9.16.1 answers with when planning offline needs a download

@@ -11,16 +11,13 @@ import { TURN_ON_COMMAND } from './enable';
 import { stateTexts } from './statusText';
 import { cardMarkdown, CardStatus } from './tooltipCard';
 import { t } from './strings';
+import { describeProfile, describeTargetSelection } from './profileText';
+import type { SemanticProfile, TargetSelection } from './profileText';
+export { describeProfile } from './profileText';
+export type { SemanticProfile, TargetSelection } from './profileText';
 import type { ModuleIssueLike } from './unrecoverable';
 
 export type ModuleState = 'starting' | 'loading' | 'preparing' | 'ready' | 'degraded' | 'error';
-
-export interface SemanticProfile {
-    kind: 'build-toolchain' | 'semantic-kit';
-    compiler?: string;
-    stdlib: string;
-    target: string;
-}
 
 export interface IssueCommand {
     title: string;
@@ -54,6 +51,7 @@ export interface CxxModulesStatus {
         tier?: number;
     };
     profile: SemanticProfile;
+    targetSelection?: TargetSelection;
     // The core semantic engine; "none" when a root has none (S3 4, S3-4-6).
     engine: { name: string; version: string };
     // Every engine serving the root, mcppls's own module engine included (S3-4-5).
@@ -142,13 +140,6 @@ function moduleTierOf(state: ModuleState | 'starting'): Tier {
     if (state === 'error') return 2;
     if (state === 'degraded') return 1;
     return 0;
-}
-
-export function describeProfile(profile: SemanticProfile | undefined): string {
-    if (!profile) {
-        return '';
-    }
-    return profile.compiler && profile.compiler.length > 0 ? profile.compiler : profile.stdlib ?? '';
 }
 
 export class StatusController implements vscode.Disposable {
@@ -280,8 +271,9 @@ export class StatusController implements vscode.Disposable {
     private cardTooltip(detail: string | undefined, tooltipDetail: string | undefined): vscode.MarkdownString | string {
         const current = this.current;
         const coarse = current?.cache;
+        const targetDetail = [describeProfile(current?.profile), describeTargetSelection(current?.targetSelection)].filter(Boolean).join('\n');
         if (!coarse) {
-            return tooltipDetail || detail ? `mcppls — ${tooltipDetail ?? detail}` : 'mcppls';
+            return [tooltipDetail || detail ? `mcppls — ${tooltipDetail ?? detail}` : 'mcppls', targetDetail].filter(Boolean).join('\n\n');
         }
         const status: CardStatus | undefined = current
             ? { state: current.state, root: current.project?.root ?? '', source: current.project?.source, progress: current.progress }
@@ -296,6 +288,7 @@ export class StatusController implements vscode.Disposable {
             copyPromptCommand: COPY_AGENT_PROMPT_COMMAND,
             copyRepositoryCommand: COPY_REPOSITORY_URL_COMMAND,
         }), true);
+        if (targetDetail) markdown.appendText(`\n\n${targetDetail}`);
         markdown.isTrusted = {
             enabledCommands: [SWEEP_WORKSPACE_CACHE_COMMAND, COPY_AGENT_PROMPT_COMMAND, REVEAL_CACHE_DIRECTORY_COMMAND, COPY_REPOSITORY_URL_COMMAND],
         };
@@ -384,6 +377,8 @@ export class StatusController implements vscode.Disposable {
         } else if (status.engine) {
             details.push(`${status.engine.name} ${status.engine.version}`.trim());
         }
+        const selectionDetail = describeTargetSelection(status.targetSelection);
+        if (selectionDetail) details.push(selectionDetail);
         const issues = status.issues ?? [];
         if (!texts.full && status.notices && status.notices.length > 0) {
             // Shown in the item's hover only: a notice changes neither the state nor the severity.
@@ -416,6 +411,7 @@ export class StatusController implements vscode.Disposable {
             const tooltip = new vscode.MarkdownString(undefined, true);
             tooltip.isTrusted = { enabledCommands: [RESET_CACHE_COMMAND] };
             tooltip.appendText(`mcppls — ${texts.full ?? shortDetail ?? ''}\n\n`);
+            if (selectionDetail) tooltip.appendText(`${selectionDetail}\n\n`);
             tooltip.appendMarkdown(`[${RESET_CACHE.title}](command:${RESET_CACHE_COMMAND})`);
             this.bar.tooltip = tooltip;
         }

@@ -7,6 +7,39 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.17] — 2026-10-22
+
+The bundled engine remains [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.16)
+(`23.1.0-mcppls.4`).
+
+### Build targets
+
+- **mcpp analysis follows the target explicitly published in the root compilation database.**
+  A unique project target is passed to `mcpp emit build-database`; missing, conflicting or opaque
+  commands leave target resolution to mcpp with an explanation. No build-directory timestamps or
+  architecture macros are used to guess. `mcppls.buildDiscovery.mcppTarget` can fix a workspace's
+  target or use `project` to keep mcpp's defaults. This follows the target, rather than recovering
+  the CDB's profile, features or complete toolchain; the compile-commands provider still uses the
+  complete database directly.
+- Target selection runs off the language-server event loop. Changes are applied through one
+  selection snapshot; an old producer response cannot replace a newer target. The status bar and
+  report distinguish the adopted platform, its source and a requested target that is not applied.
+- Cross-target compiler probes keep the target arguments, and a host build-program set no longer
+  decides the target-side profile. Cached mcpp models are provisional until the current producer
+  confirms them; a model for another target cannot be adopted as a warm cache. Producer capability
+  records also follow executable identity and project selection inputs.
+
+### Reliability and measurements
+
+- **The conformance runner writes valid UTF-8 measurements.** Bounded text no longer cuts a
+  multibyte character; malformed external bytes are replaced at the artifact boundary. A failed
+  measurement or evidence write reports an error and fails the run instead of aborting or passing.
+- Module builds completed inside a preparation closure count as real activity for stall detection,
+  without incrementing the completed-prime counter. Resource and configuration measurements keep
+  the engine activity and rebuild evidence needed to distinguish ongoing work from a stall.
+- The Termux nightly binds its script directory into the inner Debian rootfs, so the job can reach
+  the server checks. The existing best-effort policy for Termux and two-core rounds is unchanged.
+
 ## [0.0.16] — 2026-10-14
 
 The bundled engine is unchanged: [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.16)

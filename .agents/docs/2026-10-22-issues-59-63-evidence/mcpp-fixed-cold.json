@@ -1,0 +1,921 @@
+{
+  "checks": [
+    {
+      "detail": "now, 1 round(s): definition p95 0.00s max 0.00s; documentSymbol p95 60.00s max 60.00s; semanticTokens p95 60.00s max 60.00s",
+      "id": "U1-first-response",
+      "kind": "latency",
+      "measure": {
+        "engineShare": {},
+        "firstAnswers": {},
+        "kinds": {
+          "definition": {
+            "empty": 0,
+            "errors": 0,
+            "max": 0.001290945,
+            "n": 1,
+            "p50": 0.001290945,
+            "p95": 0.001290945,
+            "timeouts": 0,
+            "wrong": 0
+          },
+          "documentSymbol": {
+            "empty": 1,
+            "errors": 0,
+            "max": 60.000627612,
+            "n": 2,
+            "p50": 4.86659881,
+            "p95": 60.000627612,
+            "timeouts": 0,
+            "wrong": 0
+          },
+          "semanticTokens": {
+            "empty": 0,
+            "errors": 0,
+            "max": 60.0011371,
+            "n": 2,
+            "p50": 0.459209611,
+            "p95": 60.0011371,
+            "timeouts": 0,
+            "wrong": 0
+          }
+        },
+        "load": 12.69,
+        "phase": "now",
+        "requests": {
+          "documentSymbol src/main.cpp": {
+            "max": 60.000627612,
+            "n": 1,
+            "p50": 60.000627612,
+            "p95": 60.000627612
+          },
+          "heavy-outline src/build/execute.cppm": {
+            "max": 4.86659881,
+            "n": 1,
+            "p50": 4.86659881,
+            "p95": 4.86659881
+          },
+          "heavy-tokens src/build/execute.cppm": {
+            "max": 0.459209611,
+            "n": 1,
+            "p50": 0.459209611,
+            "p95": 0.459209611
+          },
+          "module-name src/main.cpp": {
+            "max": 0.001290945,
+            "n": 1,
+            "p50": 0.001290945,
+            "p95": 0.001290945
+          },
+          "semanticTokens src/main.cpp": {
+            "max": 60.0011371,
+            "n": 1,
+            "p50": 60.0011371,
+            "p95": 60.0011371
+          }
+        },
+        "rounds": 1,
+        "seconds": 125.450085124
+      },
+      "ok": true,
+      "seconds": 125.54757097,
+      "since-start": 127.088069707
+    },
+    {
+      "detail": "cold, 15 round(s): completion p95 0.65s max 0.74s; hover p95 0.09s max 0.09s; completion by engine 100%; hover by engine 100%; first-completion first answered 128.3s in; first-jump first answered 134.4s in",
+      "id": "U4-cold",
+      "kind": "latency",
+      "measure": {
+        "engineShare": {
+          "textDocument/completion": {
+            "answeredBy": {
+              "clangd": 46
+            },
+            "share": 1.0
+          },
+          "textDocument/hover": {
+            "answeredBy": {
+              "clangd": 15
+            },
+            "share": 1.0
+          }
+        },
+        "firstAnswers": {
+          "first-completion": 128.263906289,
+          "first-jump": 134.405701037
+        },
+        "kinds": {
+          "completion": {
+            "empty": 0,
+            "errors": 0,
+            "max": 0.744781575,
+            "n": 45,
+            "p50": 0.126156343,
+            "p95": 0.646715518,
+            "timeouts": 0,
+            "wrong": 0
+          },
+          "hover": {
+            "empty": 0,
+            "errors": 0,
+            "max": 0.085981197,
+            "n": 15,
+            "p50": 0.003449911,
+            "p95": 0.085981197,
+            "timeouts": 0,
+            "wrong": 0
+          }
+        },
+        "load": 12.69,
+        "phase": "cold",
+        "requests": {
+          "body src/pack/binfmt.cppm": {
+            "max": 0.08411379,
+            "n": 15,
+            "p50": 0.044669536,
+            "p95": 0.08411379
+          },
+          "hover src/pack/binfmt.cppm": {
+            "max": 0.085981197,
+            "n": 15,
+            "p50": 0.003449911,
+            "p95": 0.085981197
+          },
+          "member src/pack/binfmt.cppm": {
+            "max": 0.159390287,
+            "n": 15,
+            "p50": 0.126156343,
+            "p95": 0.159390287
+          },
+          "std src/pack/binfmt.cppm": {
+            "max": 0.744781575,
+            "n": 15,
+            "p50": 0.53695666,
+            "p95": 0.744781575
+          }
+        },
+        "rounds": 15,
+        "seconds": 28.52014196
+      },
+      "ok": true,
+      "seconds": 28.921422353,
+      "since-start": 156.009547708
+    },
+    {
+      "detail": "background, 34 round(s): completion p95 0.67s max 0.86s; hover p95 0.02s max 0.02s; completion by engine 100%; hover by engine 100%",
+      "id": "U4-background",
+      "kind": "latency",
+      "measure": {
+        "engineShare": {
+          "textDocument/completion": {
+            "answeredBy": {
+              "cache": 7,
+              "clangd": 95
+            },
+            "share": 1.0
+          },
+          "textDocument/hover": {
+            "answeredBy": {
+              "clangd": 34
+            },
+            "share": 1.0
+          }
+        },
+        "firstAnswers": {},
+        "kinds": {
+          "completion": {
+            "empty": 0,
+            "errors": 0,
+            "max": 0.856308874,
+            "n": 102,
+            "p50": 0.091547612,
+            "p95": 0.669304595,
+            "timeouts": 0,
+            "wrong": 0
+          },
+          "hover": {
+            "empty": 0,
+            "errors": 0,
+            "max": 0.018063374,
+            "n": 34,
+            "p50": 0.00326194,
+            "p95": 0.01550933,
+            "timeouts": 0,
+            "wrong": 0
+          }
+        },
+        "load": 17.39,
+        "phase": "background",
+        "requests": {
+          "body src/pack/binfmt.cppm": {
+            "max": 0.176498342,
+            "n": 34,
+            "p50": 0.032578164,
+            "p95": 0.163329681
+          },
+          "hover src/pack/binfmt.cppm": {
+            "max": 0.018063374,
+            "n": 34,
+            "p50": 0.00326194,
+            "p95": 0.01550933
+          },
+          "member src/pack/binfmt.cppm": {
+            "max": 0.287225203,
+            "n": 34,
+            "p50": 0.083827953,
+            "p95": 0.264100705
+          },
+          "std src/pack/binfmt.cppm": {
+            "max": 0.856308874,
+            "n": 34,
+            "p50": 0.433857908,
+            "p95": 0.761470265
+          }
+        },
+        "rounds": 34,
+        "seconds": 46.285786996
+      },
+      "ok": true,
+      "seconds": 46.624988813,
+      "since-start": 202.634582303
+    },
+    {
+      "detail": "idle, 20 round(s): completion p95 0.02s max 0.07s; definition p95 0.01s max 0.01s; hover p95 0.00s max 0.01s; semanticTokens p95 0.04s max 0.04s; completion by engine 100%; hover by engine 100%",
+      "id": "U3-idle",
+      "kind": "latency",
+      "measure": {
+        "engineShare": {
+          "textDocument/completion": {
+            "answeredBy": {
+              "clangd": 20
+            },
+            "share": 1.0
+          },
+          "textDocument/hover": {
+            "answeredBy": {
+              "clangd": 20
+            },
+            "share": 1.0
+          }
+        },
+        "firstAnswers": {},
+        "kinds": {
+          "completion": {
+            "empty": 0,
+            "errors": 0,
+            "max": 0.067785447,
+            "n": 20,
+            "p50": 0.007479977,
+            "p95": 0.024920662,
+            "timeouts": 0,
+            "wrong": 0
+          },
+          "definition": {
+            "empty": 0,
+            "errors": 0,
+            "max": 0.014371896,
+            "n": 20,
+            "p50": 0.009989759,
+            "p95": 0.01391255,
+            "timeouts": 0,
+            "wrong": 0
+          },
+          "hover": {
+            "empty": 0,
+            "errors": 0,
+            "max": 0.008703646,
+            "n": 20,
+            "p50": 0.002047277,
+            "p95": 0.004549685,
+            "timeouts": 0,
+            "wrong": 0
+          },
+          "semanticTokens": {
+            "empty": 0,
+            "errors": 0,
+            "max": 0.042725807,
+            "n": 20,
+            "p50": 0.024733131,
+            "p95": 0.041855902,
+            "timeouts": 0,
+            "wrong": 0
+          }
+        },
+        "load": 13.96,
+        "phase": "idle",
+        "requests": {
+          "definition src/main.cpp": {
+            "max": 0.014371896,
+            "n": 20,
+            "p50": 0.009989759,
+            "p95": 0.01391255
+          },
+          "hover src/pack/binfmt.cppm": {
+            "max": 0.008703646,
+            "n": 20,
+            "p50": 0.002047277,
+            "p95": 0.004549685
+          },
+          "member src/pack/binfmt.cppm": {
+            "max": 0.067785447,
+            "n": 20,
+            "p50": 0.007479977,
+            "p95": 0.024920662
+          },
+          "semanticTokens src/pack/binfmt.cppm": {
+            "max": 0.042725807,
+            "n": 20,
+            "p50": 0.024733131,
+            "p95": 0.041855902
+          }
+        },
+        "rounds": 20,
+        "seconds": 14.568815359
+      },
+      "ok": true,
+      "seconds": 23.742926691,
+      "since-start": 226.377547323
+    },
+    {
+      "detail": "{\"about\":{\"engine\":{\"build\":\"23.1.0-mcppls.4\",\"features\":14,\"name\":\"clangd\",\"restarts\":0,\"version\":\"23.1.0-mcppls.4\"},\"kit\":\"mcppls-kit-libcxx-23.1.0-x86_64-unknown-linux-gnu\",\"mcpp\":\"2026.9.30.2\",\"platform\":\"linux-x64\",\"server\":\"0.0.17\",\"startedAt\":\"2026-10-21T17:56:44Z\"},\"cache\":{\"bytes\":100000000,\"copies\":{\"bytes\":0,\"files\":0,\"oldestSeconds\":0},\"instances\":{\"bytes\":0,\"count\":0},\"limitBytes\":4294967296,\"state\":\"ok\"},\"engine\":{\"name\":\"clangd\",\"version\":\"23.1.0-mcppls.4\"},\"engines\":[{\"name\":\"mcppls\",\"role\":\"modules\",\"state\":\"ready\",\"version\":\"0.0.17\"},{\"name\":\"clangd\",\"role\":\"core\",\"state\":\"ready\",\"version\":\"23.1.0-mcppls.4\"}],\"issues\":[],\"profile\":{\"compiler\":\"gcc 16.1.0\",\"kind\":\"build-toolchain\",\"standard\":\"c++23\",\"stdlib\":\"libstdc++ 16.1.0\",\"target\":\"x86_64-linux-gnu\"},\"project\":{\"level\":3,\"root\":\"file:///tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp\",\"source\":\"mcpp\",\"tier\":1},\"state\":\"ready\",\"targetSelection\":{\"evidencePath\":\"/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/compile_commands.json\",\"mode\":\"auto\",\"pending\":false,\"reason\":\"no root compilation database is available\",\"requestedTarget\":\"\",\"source\":\"project\"}}",
+      "id": "S1",
+      "kind": "status",
+      "ok": true,
+      "seconds": 0.000147907,
+      "since-start": 226.377718903
+    },
+    {
+      "detail": "peak RSS 1594 MB",
+      "id": "U14-memory",
+      "kind": "resources",
+      "measure": {
+        "load": 13.96,
+        "peakRssMB": 1593.9375
+      },
+      "ok": true,
+      "seconds": 3.2177e-05,
+      "since-start": 226.377767366
+    },
+    {
+      "detail": "not ready without completed preparation nodes for 123.64s is over the budget 60.00s; longest stall 123.6s, 3 state changes (2 in the busiest minute), 0 error, clangd restarts 0, first ready 155.7s, prepared 155.7s",
+      "id": "U15-cold",
+      "kind": "timeline",
+      "measure": {
+        "activityAtEnd": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundUnits": [],
+              "generation": 1,
+              "implementationIndex": {
+                "built": 0,
+                "on": true,
+                "queued": 2,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 176,
+                "done": 176,
+                "lastCompletedModule": "mcpp.cli",
+                "limit": 1,
+                "running": 0,
+                "runningUnits": [],
+                "secondsSinceModuleBuild": 92,
+                "wanted": 176,
+                "workers": 2
+              },
+              "rebuilds": {
+                "byReason": {
+                  "no-bmi": 176
+                },
+                "recent": [
+                  {
+                    "module": "mcpp.build.prepare_inputs",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.modgraph.validate",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.plan",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.cache_key",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.test_targets",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.flags",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.runtime_validation",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.backend",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.compile_commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pm.index_management",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.ninja",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.prepare",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack.pipeline",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.scaffold.create",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.cli.cmd_registry",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.cli.cmd_new",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.cli.cmd_toolchain",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pm.commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pm.publisher",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.publish.xpkg_emit",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.publish.pipeline",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.build_database",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack.library_pipeline",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.doctor",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.execute",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.cli.cmd_publish",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.cli.cmd_self",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.configure",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.cli.cmd_build",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.cli",
+                    "why": "no BMI for this command and these prerequisites"
+                  }
+                ]
+              },
+              "state": "ready"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 2,
+            "engine-database": 1,
+            "engine-start": 1,
+            "model-loaded": 1,
+            "model-source": 1,
+            "module-built": 176,
+            "plan": 1,
+            "request-timeout": 2,
+            "slow-request": 3,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 2
+          },
+          "requests": {
+            "textDocument/completion": {
+              "answeredBy": {
+                "cache": 7,
+                "clangd": 161
+              },
+              "cancelled": 0,
+              "count": 168,
+              "empty": 0,
+              "engineAnswered": 142,
+              "engineP50Ms": 81,
+              "engineP95Ms": 476,
+              "errors": 0,
+              "lastAt": "2026-10-21T18:00:29.169Z",
+              "maxMs": 763,
+              "overheadP50Ms": 1,
+              "overheadP95Ms": 9,
+              "p50Ms": 74,
+              "p95Ms": 517
+            },
+            "textDocument/definition": {
+              "answeredBy": {
+                "clangd": 21,
+                "mcppls": 1
+              },
+              "cancelled": 0,
+              "count": 22,
+              "empty": 0,
+              "engineAnswered": 22,
+              "engineP50Ms": 9,
+              "engineP95Ms": 13,
+              "errors": 0,
+              "lastAt": "2026-10-21T18:00:29.197Z",
+              "maxMs": 6140,
+              "overheadP50Ms": 0,
+              "overheadP95Ms": 0,
+              "p50Ms": 9,
+              "p95Ms": 13
+            },
+            "textDocument/documentSymbol": {
+              "answeredBy": {
+                "merged": 2
+              },
+              "cancelled": 0,
+              "count": 2,
+              "empty": 0,
+              "engineAnswered": 2,
+              "engineP50Ms": 60000,
+              "engineP95Ms": 60000,
+              "errors": 0,
+              "lastAt": "2026-10-21T17:58:49.447Z",
+              "maxMs": 60000,
+              "overheadP50Ms": 1,
+              "overheadP95Ms": 1,
+              "p50Ms": 60000,
+              "p95Ms": 60000
+            },
+            "textDocument/hover": {
+              "answeredBy": {
+                "clangd": 69
+              },
+              "cancelled": 0,
+              "count": 69,
+              "empty": 0,
+              "engineAnswered": 69,
+              "engineP50Ms": 1,
+              "engineP95Ms": 4,
+              "errors": 0,
+              "lastAt": "2026-10-21T18:00:29.184Z",
+              "maxMs": 82,
+              "overheadP50Ms": 1,
+              "overheadP95Ms": 1,
+              "p50Ms": 2,
+              "p95Ms": 7
+            },
+            "textDocument/semanticTokens/full": {
+              "answeredBy": {
+                "merged": 22
+              },
+              "cancelled": 0,
+              "count": 22,
+              "empty": 0,
+              "engineAnswered": 22,
+              "engineP50Ms": 10,
+              "engineP95Ms": 362,
+              "errors": 0,
+              "lastAt": "2026-10-21T18:00:29.213Z",
+              "maxMs": 60000,
+              "overheadP50Ms": 4,
+              "overheadP95Ms": 6,
+              "p50Ms": 14,
+              "p95Ms": 404
+            }
+          },
+          "state": "ready"
+        },
+        "busiestMinuteChanges": 2,
+        "clangdRestarts": 0,
+        "errorStates": 0,
+        "firstReadySeconds": 155.725001371,
+        "load": 13.96,
+        "longestEngineInactivitySeconds": 25.419264998,
+        "longestStallActivity": {
+          "events": [
+            {
+              "line": "mcppls 2026-10-21T17:56:45.828Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:45.824] Indexing /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0174-mcpp.libs.json.cpp (digest:=CE9BCF3E5A7D8E07)",
+              "seconds": 0.224462535
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:45.828Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:45.824] Indexing /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_config.cpp (digest:=7B01784E3959BBE5)",
+              "seconds": 0.224471014
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:45.828Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:45.825] Indexed /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0174-mcpp.libs.json.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 0.224478039
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:45.828Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:45.826] Indexing /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/src/build/hermetic.cppm (digest:=C7E2380423E10DD2)",
+              "seconds": 0.22448777
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:45.878Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:45.875] Indexed /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/src/build/hermetic.cppm (300 symbols, 2218 refs, 58 files)",
+              "seconds": 0.224681043
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:45.898Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:45.898] Indexing /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0039-mcpp.pm.cpp (digest:=9458A900864C1BC9)",
+              "seconds": 0.224699445
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:45.923Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:45.922] Indexed /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0039-mcpp.pm.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 0.224710316
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:45.925Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:45.925] Indexing /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0108-mcpp.build.linkage_form.cpp (digest:=07C082456E64C6CE)",
+              "seconds": 0.224720116
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:45.926Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:45.926] Indexed /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0108-mcpp.build.linkage_form.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 0.224725237
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:45.928Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:45.926] Indexing /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/src/fetcher.cppm (digest:=1404B2D6AF7F9A19)",
+              "seconds": 0.224734852
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:45.928Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:45.928] Indexed /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/src/fetcher.cppm (1 symbols, 0 refs, 1 files)",
+              "seconds": 0.224750129
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:45.929Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:45.929] Indexing /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_pack_archive_remove.cpp (digest:=03379E942639EC56)",
+              "seconds": 0.224759106
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:47.796Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:47.796] Indexed /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_pack_archive_remove.cpp (10882 symbols, 112186 refs, 395 files)",
+              "seconds": 2.975745487
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:48.761Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:47.857] Indexed /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_config.cpp (11083 symbols, 115333 refs, 399 files)",
+              "seconds": 3.645975276
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:49.830Z [info] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:49.830] Rebuilding module std: no BMI for this command and these prerequisites",
+              "seconds": 4.165072256
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:51.132Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:51.131] Indexing /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/src/pm/index_snapshot.cppm (digest:=D1F7E62C21CF112D)",
+              "seconds": 5.792895194
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:51.139Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:51.139] Indexed /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/src/pm/index_snapshot.cppm (21 symbols, 31 refs, 1 files)",
+              "seconds": 5.792902867
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:51.141Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:51.141] Indexing /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0067-mcpp.toolchain.registry.cpp (digest:=DFBB98CACC4BF3D5)",
+              "seconds": 5.792913807
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:51.147Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:51.147] Indexed /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0067-mcpp.toolchain.registry.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 5.792919803
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:51.149Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:51.149] Indexing /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0032-mcpp.project.cpp (digest:=790C8E5BBD9CA242)",
+              "seconds": 5.792930385
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:51.153Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:51.153] Indexed /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0032-mcpp.project.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 5.792935325
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:51.155Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:51.155] Indexing /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_artifact_naming.cpp (digest:=4262EF6529D720C4)",
+              "seconds": 5.792945796
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:54.816Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:54.816] Indexing /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/modules/buildmcpp/src/directives.cppm (digest:=31B40E9AF053C61B)",
+              "seconds": 9.297559441
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:54.832Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:54.832] Indexed /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/modules/buildmcpp/src/directives.cppm (94 symbols, 346 refs, 1 files)",
+              "seconds": 9.297572251
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:54.842Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:54.842] Indexing /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/src/main.cpp (digest:=465079F841F71B0C)",
+              "seconds": 9.297581946
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:54.857Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:54.857] Indexed /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/src/main.cpp (1 symbols, 1 refs, 1 files)",
+              "seconds": 9.297587123
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:54.865Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:54.865] Indexing /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/src/toolchain/probe.cppm (digest:=76D629F247324617)",
+              "seconds": 9.297597143
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:54.920Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:54.920] Indexed /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/src/toolchain/probe.cppm (313 symbols, 2248 refs, 58 files)",
+              "seconds": 9.297602087
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:54.928Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:54.927] Indexing /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0050-mcpp.toolchain.detect.cpp (digest:=561C91733E4FC28F)",
+              "seconds": 9.29761025
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:54.935Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:54.935] Indexed /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0050-mcpp.toolchain.detect.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 9.297615093
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:54.938Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:54.938] Indexing /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_hostflags.cpp (digest:=8CD766C7548ADD11)",
+              "seconds": 9.297623384
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:56.334Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:56.105] Indexed /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_artifact_naming.cpp (11009 symbols, 113179 refs, 395 files)",
+              "seconds": 10.79823798
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:56.567Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:56.567] Indexed /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_hostflags.cpp (11209 symbols, 115928 refs, 399 files)",
+              "seconds": 10.798245364
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:56.995Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:56.994] Indexing /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_abi.cpp (digest:=59A61385B4B6832F)",
+              "seconds": 11.298541393
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:57.023Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:57.023] Indexing /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0165-mcpp.manifest.xpkg.cpp (digest:=7BAD365B864F4653)",
+              "seconds": 11.298558944
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:57.026Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:57.026] Indexed /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0165-mcpp.manifest.xpkg.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 11.29856566
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:57.028Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:57.028] Indexing /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_pm_package_fetcher.cpp (digest:=3FD6C0C06410C158)",
+              "seconds": 11.298576037
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:58.470Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:58.346] Indexed /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_abi.cpp (11029 symbols, 113165 refs, 395 files)",
+              "seconds": 12.801277623
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:58.471Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:58.369] Indexed /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_pm_package_fetcher.cpp (10930 symbols, 112640 refs, 395 files)",
+              "seconds": 12.801283683
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:59.132Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:59.131] Indexing /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/modules/manifest/src/flag_words.cppm (digest:=F786A8D2E7014B76)",
+              "seconds": 14.728539336
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:59.135Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:59.134] Indexing /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_core_vendor_probes.cpp (digest:=6811DF260DF56599)",
+              "seconds": 14.728554948
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:59.135Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:59.134] Indexed /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/modules/manifest/src/flag_words.cppm (7 symbols, 21 refs, 1 files)",
+              "seconds": 14.728556904
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:59.138Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:59.138] Indexing /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0087-mcpp.toolchain.post_install.cpp (digest:=ADA224504C46B64B)",
+              "seconds": 14.728566916
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:59.139Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:59.139] Indexed /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0087-mcpp.toolchain.post_install.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 14.728572564
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:59.140Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:59.140] Indexing /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0176-std.cpp (digest:=14E30FAB4F997A4D)",
+              "seconds": 14.728581454
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:59.141Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:59.141] Indexed /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0176-std.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 14.728585852
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:59.142Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:59.142] Indexing /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0049-mcpp.toolchain.gcc.cpp (digest:=96EC125259ADD7D9)",
+              "seconds": 14.728594628
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:59.144Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:59.144] Indexed /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0049-mcpp.toolchain.gcc.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 14.728599646
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:59.144Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:59.144] Indexing /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0131-mcpp.platform.windows.cpp (digest:=2A80CB7D728A983C)",
+              "seconds": 14.72860801
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:59.145Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:59.145] Indexed /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0131-mcpp.platform.windows.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 14.728612754
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:59.146Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:59.146] Indexing /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0071-mcpp.bmi_cache.cpp (digest:=EE0607732DE3FED3)",
+              "seconds": 14.728621298
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:59.148Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:59.148] Indexed /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0071-mcpp.bmi_cache.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 14.728625346
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:59.148Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:59.148] Indexing /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0167-mcpp.manifest.cpp (digest:=9AE70B0D2AEB5B1E)",
+              "seconds": 14.728634139
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:59.150Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:56:59.150] Indexed /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0167-mcpp.manifest.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 14.728638948
+            },
+            {
+              "line": "mcppls 2026-10-21T17:56:59.151Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:56:59.151] Indexing /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_main_detection.cpp (digest:=2F54FB98F6ABAEAC)",
+              "seconds": 14.728646704
+            },
+            {
+              "line": "mcppls 2026-10-21T17:57:00.513Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:57:00.450] Indexed /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_core_vendor_probes.cpp (10846 symbols, 112028 refs, 395 files)",
+              "seconds": 16.031546213
+            },
+            {
+              "line": "mcppls 2026-10-21T17:57:00.513Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:57:00.462] Indexed /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_main_detection.cpp (10910 symbols, 112227 refs, 395 files)",
+              "seconds": 16.031558234
+            },
+            {
+              "line": "mcppls 2026-10-21T17:57:00.828Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:57:00.828] Indexing /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_platform_apple_sdk.cpp (digest:=DFF795C38781A0BB)",
+              "seconds": 16.031569058
+            },
+            {
+              "line": "mcppls 2026-10-21T17:57:00.830Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:57:00.830] Indexing /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_platform_env.cpp (digest:=4DF82056D026DBA4)",
+              "seconds": 16.031577463
+            },
+            {
+              "line": "mcppls 2026-10-21T17:57:02.801Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:57:02.702] Indexed /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_platform_env.cpp (10901 symbols, 112215 refs, 395 files)",
+              "seconds": 17.032097777
+            },
+            {
+              "line": "mcppls 2026-10-21T17:57:02.801Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:57:02.722] Indexed /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_platform_apple_sdk.cpp (10874 symbols, 112166 refs, 395 files)",
+              "seconds": 17.032105375
+            },
+            {
+              "line": "mcppls 2026-10-21T17:57:02.809Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:57:02.807] Indexing /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0027-mcpp.fallback.install_integrity.cpp (digest:=F57C48755687D199)",
+              "seconds": 17.032114622
+            },
+            {
+              "line": "mcppls 2026-10-21T17:57:02.813Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): I[02:57:02.811] Indexed /tmp/mcppls-perf59/mcpp-fixed/cache/workspaces/ux-mcpp-8388646300ffeeda/contexts/default/prime/0027-mcpp.fallback.install_integrity.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 17.032120131
+            },
+            {
+              "line": "mcppls 2026-10-21T17:57:02.813Z [debug] clangd (/tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp): V[02:57:02.811] Indexing /tmp/mcppls-perf59/mcpp-fixed/work/ux-mcpp/tests/unit/test_sysroot_ownership.cpp (digest:=4863199CCAB3C916)",
+              "seconds": 17.032130299
+            }
+          ],
+          "historyTruncated": false,
+          "observed": 1074
+        },
+        "longestStallCpuCores": 1.3927299687761947,
+        "longestStallFromSeconds": 2.829280017,
+        "longestStallSeconds": 123.643199494,
+        "longestStallToSeconds": 126.472479511,
+        "preparedSeconds": 155.725001371,
+        "serverRestarts": 0,
+        "stateChanges": 3,
+        "statuses": 94
+      },
+      "ok": false,
+      "seconds": 0.111806205,
+      "since-start": 226.489602839
+    }
+  ],
+  "failures": 1,
+  "first-diagnostics": null,
+  "first-navigation": null,
+  "fixture": "ux-mcpp",
+  "initialize": 1.539886538,
+  "ready": 2.813837158,
+  "reused-workspace": false,
+  "seconds": 227.341491235
+}

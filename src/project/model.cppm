@@ -9,6 +9,7 @@ import mcppls.spec.kit;
 import mcppls.toolchain.probe;
 import mcppls.project.detect;
 import mcppls.project.infer;
+import mcppls.project.target;
 
 export namespace mcppls::project {
 
@@ -41,6 +42,7 @@ struct ProjectModel {
     SemanticProfile profile;
     std::string producer;                     // the program that described the build, when one did
     std::string producerVersion;
+    TargetSelection targetSelection;
 };
 
 struct LoadOptions {
@@ -73,6 +75,9 @@ struct LoadOptions {
     // provider left out is skipped as if its files were not there.
     bool buildDiscovery { true };
     std::vector<std::string> providers;
+    std::string mcppTarget { "auto" };
+    std::optional<TargetSelection> targetSelection; // caller-captured selection for this generation
+
 };
 
 ProjectModel load_project(std::string_view root, const LoadOptions& options);

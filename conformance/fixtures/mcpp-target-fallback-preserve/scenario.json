@@ -1,0 +1,84 @@
+{
+  "name": "mcpp-target-fallback-preserve",
+  "description": "A same-tier CDB fallback cannot replace a valid i686 model with x64 commands while the analysis target remains fixed to i686 and the producer is disabled.",
+  "prepare": [
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--write-target-cdb",
+      "i686-unknown-linux-gnu"
+    ]
+  ],
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}",
+    "--build-tool",
+    "off"
+  ],
+  "checks": [
+    {
+      "id": "INITIAL-I686",
+      "kind": "status",
+      "profile-target": "i686-unknown-linux-gnu",
+      "timeout": 30,
+      "source": "mcpp"
+    },
+    {
+      "id": "FIX-I686",
+      "kind": "configuration",
+      "settings": {
+        "mcppls": {
+          "buildDiscovery": {
+            "mcppTarget": "i686-unknown-linux-gnu"
+          }
+        }
+      }
+    },
+    {
+      "id": "FIXED-I686",
+      "kind": "status",
+      "source": "mcpp",
+      "profile-target": "i686-unknown-linux-gnu",
+      "target-mode": "explicit",
+      "target-requested": "i686-unknown-linux-gnu",
+      "target-pending": false,
+      "timeout": 30
+    },
+    {
+      "id": "CDB-NOW-X64",
+      "kind": "write-file",
+      "file": "compile_commands.json",
+      "expect-reload": false,
+      "settle": 1,
+      "replace": {
+        "from": "i686-unknown-linux-gnu",
+        "with": "x86_64-unknown-linux-gnu"
+      }
+    },
+    {
+      "id": "REFRESH-MANIFEST",
+      "kind": "write-file",
+      "file": "mcpp.toml",
+      "content": "[package]\nname=\"target-fixture\"\nversion=\"0.1.0\"\n# refresh\n",
+      "expect-reload": true,
+      "timeout": 30
+    },
+    {
+      "id": "OLD-I686-PRESERVED",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "degraded",
+      "profile-target": "i686-unknown-linux-gnu",
+      "issue-code": "model-stale",
+      "issue-message": "requested target",
+      "timeout": 30
+    },
+    {
+      "id": "NO-EMIT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 0,
+      "settle": 0
+    }
+  ]
+}

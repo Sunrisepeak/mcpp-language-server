@@ -181,7 +181,7 @@ jobs:
           yes | pkg update -y || true
           pkg install -y proot-distro
           proot-distro install debian
-          proot-distro login debian --bind /mnt/work:/work -- bash /mnt/scripts/in-debian.sh
+          proot-distro login debian --bind /mnt/work:/work --bind /mnt/scripts:/mnt/scripts -- bash -c 'test -r /mnt/scripts/in-debian.sh && exec bash /mnt/scripts/in-debian.sh'
           EOF
           chmod a+r "$RUNNER_TEMP"/in-*.sh
       # /entrypoint.sh is termux-docker's: it prepares the termux environment (the Android-style

@@ -1,0 +1,37 @@
+{
+  "name": "mcpp-target-invalid",
+  "description": "An invalid explicit target is reported before any producer command executes.",
+  "prepare": [
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--write-target-cdb",
+      "i686-unknown-linux-gnu"
+    ]
+  ],
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}",
+    "--mcpp-target",
+    "bad target"
+  ],
+  "checks": [
+    {
+      "id": "S1-invalid",
+      "kind": "status",
+      "source": "inferred",
+      "state": "degraded",
+      "issue-code": "mcpp-target-invalid",
+      "timeout": 60
+    },
+    {
+      "id": "A1-no-execution",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "arguments-absent": [
+        "--target"
+      ],
+      "count": 0
+    }
+  ]
+}

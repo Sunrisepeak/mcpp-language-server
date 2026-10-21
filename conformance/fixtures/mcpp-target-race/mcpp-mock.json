@@ -1,0 +1,132 @@
+{
+  "version": "2026.10.22.1",
+  "defaultTarget": "x86_64-unknown-linux-gnu",
+  "callLog": "mcpp-calls.jsonl",
+  "requireOffline": true,
+  "watch": [
+    "mcpp.toml",
+    ".xlings.json",
+    "src/**/*.cppm",
+    "src/**/*.cpp"
+  ],
+  "database": {
+    "version": 1,
+    "revision": 0,
+    "ide": {
+      "profile-version": "0.2.0",
+      "generator": {
+        "name": "mcpp",
+        "version": "2026.10.22.1"
+      },
+      "toolchains": {
+        "target": {
+          "family": "clang",
+          "version": "22",
+          "driver": "${compiler}",
+          "target": "${target}",
+          "config-files": []
+        }
+      }
+    },
+    "sets": [
+      {
+        "name": "app",
+        "family-name": "app",
+        "baseline-arguments": [
+          "-std=c++23",
+          "--target=${target}"
+        ],
+        "ide": {
+          "configuration": "dev",
+          "kind": "executable",
+          "toolchain": "target"
+        },
+        "visible-sets": [
+          "mcpp:std"
+        ],
+        "translation-units": [
+          {
+            "source": "${root}/src/platform.cppm",
+            "work-directory": "${root}",
+            "arguments": [
+              "${compiler}",
+              "-std=c++23",
+              "--target=${target}",
+              "-c",
+              "${root}/src/platform.cppm"
+            ],
+            "local-arguments": [],
+            "provides": {
+              "target.platform": ""
+            },
+            "requires": [],
+            "private": false,
+            "ide": {
+              "role": "module-interface"
+            }
+          },
+          {
+            "source": "${root}/src/main.cpp",
+            "work-directory": "${root}",
+            "arguments": [
+              "${compiler}",
+              "-std=c++23",
+              "--target=${target}",
+              "-c",
+              "${root}/src/main.cpp"
+            ],
+            "local-arguments": [],
+            "provides": {},
+            "requires": [
+              "target.platform"
+            ],
+            "private": true,
+            "ide": {
+              "role": "non-module"
+            }
+          }
+        ]
+      },
+      {
+        "name": "mcpp:std",
+        "family-name": "mcpp:std",
+        "baseline-arguments": [
+          "-std=c++23",
+          "--target=${target}"
+        ],
+        "ide": {
+          "configuration": "dev",
+          "kind": "library",
+          "toolchain": "target"
+        },
+        "visible-sets": [
+          "app"
+        ],
+        "translation-units": [
+          {
+            "source": "${root}/recorded/std.cppm",
+            "work-directory": "${root}",
+            "arguments": [
+              "${compiler}",
+              "-std=c++23",
+              "--target=${target}",
+              "-c",
+              "${root}/recorded/std.cppm"
+            ],
+            "local-arguments": [],
+            "provides": {
+              "std": ""
+            },
+            "requires": [],
+            "private": false,
+            "ide": {
+              "role": "module-interface"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "delayMs": 8000,
+  "delayTarget": "i686-unknown-linux-gnu"
+}
