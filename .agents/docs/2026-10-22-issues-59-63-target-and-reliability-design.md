@@ -271,3 +271,5 @@ nightly 的 proot-distro login 增加 `/mnt/scripts:/mnt/scripts` 绑定或将�
 U8 两逻辑核完整重放随后确实未通过：undo 窗口有 28 次实际构建。原 release key 全部保留，最终 release 引擎也能复用它们。进一步 PCM 元数据与进程时序证明：旧 dev 引擎退出前读到了原地更新的 release CDB，产生 dev 依赖闭包与 release 命令混合的新 key。这里同时存在实验与驱动缺陷：runner 的 ready 判断在 dev 准备 `done=0 / wanted=140` 时已允许撤销；驱动在旧进程未完全退出时发布新 CDB。
 
 补修任务：runner 在改变配置前、撤销前及撤销后检查明确的有限工作状态并有界等待，不用 CPU/RSS 或固定延时选择起点，保留等待活动与原零重建门槛；驱动对需要重启的计划保留最新待发布快照，旧进程 reaped 后才发布 CDB 和生成 prime 文件，再启动新进程。普通无需重启的增量更新仍直接发布。写入失败不得记成功或启动读取旧配置的新引擎，应保留待发布计划供明确重试。新增 native regression 后先以旧实现确认失败，再统一编译、测试并重跑原两逻辑核链路；目前这组补修尚未验收。
+
+原两核完整链暴露另一个调度缺陷：普通模型 apply 重置 implementation sweep 完成状态后，没有待处理队列或新的 prime completion 时不会再调用 pump。900 s drain 最终同时看到 sweep 未完成、未调度，不能视为空闲。已在成功增量 apply 后调用既有 pump，遵循原工作/安静期判断；native 同计划重应用对照在旧实现有 4 个断言失败，补修 dev/release 各 40 个执行体及 engine 65 cases / 650 assertions 全通过，仍待完整新字节链及最终 CI。历史原链结果与独立 runner SIGSEGV 均保留在验证简报，不能由这一项修复替代验收。

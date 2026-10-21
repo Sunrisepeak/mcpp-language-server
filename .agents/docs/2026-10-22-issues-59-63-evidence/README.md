@@ -12,12 +12,16 @@
 | #59 producer 升级 | 缓存旧 producer 身份不能证明当前 producer；已改为当前身份确认 | mock 实际调用、版本、不同输出及 executable 替换回归通过 |
 | UTF-8 / Termux | runner 存在多字节裁剪缺陷；内层 Debian 缺脚本绑定 | UTF-8 native 回归通过；Termux 实际环境待 nightly |
 | U15 停顿 | 节点 done 不变时仍可能完成实际模块；不能据此认定引擎无进展 | 历史两逻辑核 cold：原节点间隔 77.73 s、真实无活动 4.00 s；faults：59.66 s / 7.42 s，均无 stalled 样本。最终完整链不能用历史通过替代 |
-| U8 撤销 | 两核重放发现 28 次构建；旧 release key 全保留，11 个新增 PCM 使用 release 命令及旧 dev 依赖闭包 | 已修 CDB 在旧进程结束前发布的问题；另修测试未等待有限工作完成。新 native 回归通过；最终 xlings undo=0，两核整链仍在运行 |
-| U13 空闲 | 原 xlings 完整链曾通过 600 s 门槛：0.007208 core、RSS -50.28% | 最终字节的完整链仍在跑；独立 memo 局限见下文 |
+| U8 撤销 | 两核重放发现 28 次构建；旧 release key 全保留，11 个新增 PCM 使用 release 命令及旧 dev 依赖闭包 | 已修 CDB 在旧进程结束前发布的问题；另修测试未等待有限工作完成。新 native 回归通过；最终 xlings undo=0；两核 edits 在修改配置前等待 900 s 后失败，具体原因见下文 |
+| U13 空闲 | 原 xlings 完整链曾通过 600 s 门槛：0.007208 core、RSS -50.28% | 源码 `5e19005` 完整链通过：CPU 0.006125 core、RSS -50.38%；独立 memo 局限见下文 |
 | runner 崩溃 | 两次原生两核 cold 退出 139；GDB 第二次捕获 SIGSEGV/core | **未解决，不能算 cold 通过**。合法 429,463 B completion、JSON 深度 7；reader 栈仅用 6,872 B，不能归为栈耗尽 |
 | 两核 warm | 最终字节 warm 的首次 ready 为 17.99 s，超过原 12 s；BMI 复用为 0/352 重建 | **未通过**，保留其失败 cold 后的真实 cache lineage |
 
 U8 修复同时处理驱动和测量：需要重启时，新 CDB/生成输入等旧进程 reaped 后才发布；普通增量先生成 prime/stub 再发布引用它们的 CDB。写失败不报成功，最新计划可重试。测量按明确任务状态有界等待，撤销前抓计数，包含撤销后所有快速构建，零重建预算不变。
+
+两核 edits 的末态为 preparation 156/156、所有请求/构建队列为零，但 implementation sweep 同时 `sweepComplete=false`、`sweepScheduled=false`。源码中普通计划应用会重置 complete，却可能没有后续事件调用 pump。补修是在成功增量 apply 后安排真实扫描；不能把这个末态直接视为空闲或放松 900 s 上限。新增 native 对照已验证：同一回归在旧实现有 4 个断言失败，补修版 65 cases / 650 assertions 全通过；覆盖重新调度、实际文件重建、在途任务可见和不重启。原运行未执行配置切换，不能用于证明 undo 零重建。原始对照位于 `.payload-cache/59-63-sweep-validation/{before-dev,fixed-dev-final}.log`。
+
+`5e19005` 的 xlings 完整链四阶段均通过：cold 112.687 s、warm 317.797 s、edits 645.876 s、long 782.284 s。U13 固定 600 s 空闲中 RSS 1272.258→631.234 MiB，CPU 0.006125 core；此前有限工作等待 60.067 s、约 0.949 core，单独记录。原始结果位于 `.payload-cache/59-63-performance/xlings-validated-staged-{cold,warm,edits,long}.json`；两核失败记录为同目录 `mcpp-validated-two-core-edits.json`。它们是快照归档之后的新结果，不混入旧哈希索引。
 
 <a id="validation"></a>
 ## 当前本地检查点
@@ -33,6 +37,14 @@ U8 修复同时处理驱动和测量：需要重启时，新 CDB/生成输入等
 | 规范 / 仓库检查 | 0 failure；4 个历史 pending 规则保留 | local-validation.json |
 
 这些结果对应源码检查点 `5e19005`，并非已发布 VSIX 或全平台通过声明。最终 CI/nightly、完整性能重放、最终自审、合入及下载/升级验证尚未完成，进度以 [PR #64](https://github.com/Sunrisepeak/mcpp-language-server/pull/64) 与其 Actions 为准。
+
+implementation sweep 补修检查点：Linux dev/release 均 40 个执行体通过，engine 65 cases / 650 assertions；规范及仓库检查通过。日志位于 `.payload-cache/59-63-sweep-validation/`，新完整链结果使用 `*-sweepfix-*` 文件名。它们不覆盖 `5e19005` 的旧失败记录，也尚不能证明 runner SIGSEGV 已修。
+
+| 补修二进制 | SHA-256 |
+|---|---|
+| dev server | 82660eb36b7d42918f780697dad5569d32a1ed1482c068b0e2f5ff6b42b178f1 |
+| dev runner | f6d2595d4e8558c38b1f7191422b05b568216e290f9ad36a615cb45ce2814702 |
+| release server | 824b825acd9fceff1fc685b9f8eb7cd309f336dbc03dfc5163b78743eb08d7db |
 
 ## 环境与身份
 

@@ -1633,6 +1633,33 @@ int main() {
         shared->finish(otherUri);
         host.pump(*engine);
         expect(engine->report()["implementationIndex"]["running"] == 0);
+
+        // Reapplying a plan resets the global sweep after all preparation has finished.
+        // A changed unit outside the open document's imports needs that sweep again.
+        const int generation { engine->report()["generation"].get<int>() };
+        const auto builtBefore = engine->report()["implementationIndex"]["built"].get<std::size_t>();
+        const auto openedBefore = std::ranges::count(BuildingProcess::files(*shared, "textDocument/didOpen"), other);
+        (void)fs::write_file(other, "module other;\nint other_value() { return 123; }\n");
+        engine->apply(&plan);
+        host.pump(*engine);
+        expect(engine->report()["implementationIndex"]["sweepComplete"] == false);
+        expect(engine->report()["implementationIndex"]["sweepScheduled"] == true)
+            << "a plan with no new preparation or relevant queued units still schedules its global sweep";
+        expect(engine->report()["implementationIndex"]["queued"] == 0);
+        std::this_thread::sleep_for(std::chrono::milliseconds { 1600 });
+        engine->handle_timers();
+        for (int turn { 0 }; turn < 4; ++turn) host.pump(*engine);
+        expect(engine->report()["implementationIndex"]["sweepComplete"] == true);
+        expect(engine->report()["implementationIndex"]["sweepScheduled"] == false);
+        expect(engine->report()["implementationIndex"]["running"] == 1)
+            << "finishing the sweep does not hide its asynchronously building unit";
+        shared->finish(otherUri);
+        host.pump(*engine);
+        expect(engine->report()["implementationIndex"]["running"] == 0);
+        expect(engine->report()["implementationIndex"]["built"].get<std::size_t>() == builtBefore);
+        expect(std::ranges::count(BuildingProcess::files(*shared, "textDocument/didOpen"), other) == openedBefore + 1)
+            << "the changed unit was actually built again by the scheduled sweep";
+        expect(engine->report()["generation"] == generation) << "the unchanged plan needs no engine restart";
         engine->shut_down();
         fs::remove_all(root);
     };

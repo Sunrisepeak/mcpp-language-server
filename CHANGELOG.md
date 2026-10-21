@@ -42,6 +42,8 @@ The bundled engine remains [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak
 - A replacement configuration database waits until the retiring engine has exited before a new
   engine starts, so old dependency closures cannot consume the next configuration's commands.
   Configuration-undo measurements also wait for explicit preparation and indexing work to finish.
+- Applying a model after module preparation finishes schedules its implementation indexing sweep
+  again, so changed definitions outside the open files remain discoverable.
 - The Termux nightly binds its script directory into the inner Debian rootfs, so the job can reach
   the server checks. The existing best-effort policy for Termux and two-core rounds is unchanged.
 

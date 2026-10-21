@@ -1003,6 +1003,9 @@ public:
             accept_traffic_if_ready_();
             open_held_files_(appliedAt);
             prepare_modules_();
+            // A plan can leave every module already prepared and the implementation queue
+            // empty. No completion event then arrives to schedule this plan's global sweep.
+            pump_implementations_(appliedAt);
             if (accepting_) warm_now_();   // the plan may have given clangd more of them (G1)
         }
         if (unresolvedForgot || doomForgot) host_->request_replan();
