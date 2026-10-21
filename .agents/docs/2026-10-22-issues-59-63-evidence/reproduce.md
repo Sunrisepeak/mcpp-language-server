@@ -108,3 +108,18 @@ taskset -c 6-7 gdb --args "$runner" run --server "$server" --payload "$payload" 
 GDB 内先 `set disable-randomization off`，再 `run`。只有收到 SIGSEGV 时才执行 `thread apply all bt` 和 `generate-core-file`；正常退出后不要将无 inferior 的 gcore 错误当成 runner 失败。当前捕获的原始 frame 是合法 429,463 B completion、深度 7；core 证明当时未耗尽 reader 栈，不能据此随意增加栈或放松 JSON 限制。
 
 完整 core 保留本地，不进 PR。复现产物目录为 `$audit_dir`；需要归档时保留所有阶段、exit code、版本/哈希和拓扑，而不是只选通过结果。
+
+## 5. home 内缓存的故障注入回归
+
+默认报告会将 home 前缀显示为 `~`，不能把这个展示字符串当作文件路径。下面仍运行原始完整 fixture，不改断言。若本项目 checkout 位于 home 内，`$audit_dir` 也在 home 内，可直接覆盖 Windows 暴露的脱敏边界；不需要修改 HOME。前提仍为第 1 节已固定的二进制与 payload。
+
+```bash
+mkdir -p "$audit_dir/report-cache-check"
+CONFORMANCE_CLANGXX="$HOME/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++" \
+  "$runner" run --server "$server" --payload "$payload" \
+  --fixture conformance/fixtures/mcpp-target-mismatch \
+  --cache-dir "$audit_dir/report-cache-check/cache" --timeout 60 \
+  --measure "$audit_dir/report-cache-check/measure.json"
+```
+
+旧 helper 的 C1 会报告无法打开 `~/.../model.mcpp.json`；修复后应实际注入缓存、拒绝不一致模型并重新取得 i686 结果，原完整 fixture 零失败。只有截到 C1 的旧诊断对照不能代替这份完整验收。

@@ -4,7 +4,7 @@
 
 本目录只保留结论、复现方法及原始记录索引。45 份原始记录共 26,769 行、约 1.0 MB，已移出 PR；失败、对照和历史检查点均保留。源码方案见 [详细设计](../2026-10-22-issues-59-63-target-and-reliability-design.md)，操作见 [复现说明](reproduce.md)。
 
-**构建配置边界：**下述本地历史性能链使用 dev server/runner。CI/nightly UX 则使用 release server/runner（`ci.yml` 的 payload build→stage 打包→UX 下载链，nightly 复用该 payload）。两者不能混称。复现默认已对齐 release，并补齐 xlings 的 faults 阶段；最终 release 重放尚未完成，不能用它覆盖已有 dev 失败。
+**构建配置边界：**早期本地历史性能链使用 dev server/runner，后续 release 检查点逐项另列。CI/nightly UX 则使用 release server/runner（`ci.yml` 的 payload build→stage 打包→UX 下载链，nightly 复用该 payload）。两者不能混称。复现默认已对齐 release，并补齐 xlings 的 faults 阶段；同一最终产品字节的 release 原完整链已完成，不能用它覆盖已有 dev、U5 或中断记录。
 
 ## 结论与证据边界
 
@@ -35,16 +35,20 @@ U8 修复同时处理驱动和测量：需要重启时，新 CDB/生成输入等
 
 此前 `dc12357` 的 [nightly 39675199436](https://github.com/Sunrisepeak/mcpp-language-server/actions/runs/39675199436) 中，复用 CI 的 xlings cold/warm/edits/faults 已全通过，下载 `ux-ux-xlings` artifact 的四份 measure 均零失败（119.405 / 310.503 / 685.644 / 176.905 s）；warm 零重建、配置撤销零重建。该 CI 场景不含 long，不能替代 600 s 验收；原始下载在 `.payload-cache/59-63-nightly-dc12357-ux-xlings/`。Linux 第一组 conformance 同时通过；旧整条运行因已确认的路径/未信任缺陷被补修任务替代，其失败记录保留，新完整平台验收另行执行。
 
-最终产品源码 `a9483e1` 的冻结 release mcpp 重放四阶段全部实际退出 0（175.727 / 310.318 / 517.146 / 270.194 s）；warm firstReady 4.2 s、176 已有模块零重建，U8 撤销实际/物理构建均零，faults 最长真实无活动 9.443 s、无 stalled 样本。xlings 新完整重放前四阶段亦退出 0（102.154 / 311.380 / 627.425 / 171.530 s），long 尚在运行，不能提前记全链 PASS。原始记录为 `.payload-cache/59-63-performance/{mcpp-member-alias-replay-two-core,xlings-member-alias-replay-staged}-*`。
+最终产品源码 `a9483e1` 的冻结 release mcpp 重放四阶段全部实际退出 0（175.727 / 310.318 / 517.146 / 270.194 s）；warm firstReady 4.2 s、176 已有模块零重建，U8 撤销实际/物理构建均零，faults 最长真实无活动 9.443 s、无 stalled 样本。xlings 新完整重放五阶段亦全部退出 0（102.154 / 311.380 / 627.425 / 171.530 / 748.934 s）；原 600 s U13 CPU 0.005372 core，RSS 1287.348→1152.652 MiB（-10.46%），peak 1831.254 MiB。有限工作 60.012 s / 0.944925 core 单列，不混入空闲测量。原始记录为 `.payload-cache/59-63-performance/{mcpp-member-alias-replay-two-core,xlings-member-alias-replay-staged}-*`。
 
 同一源码此前 xlings U5 确实失败：诊断刷新 7.0618 s 超过原 6 s；第二轮原场景为 1.9 s。旧 mcpp warm 和 xlings edits 外层脚本还在写完 measure 后退出 143，未进入后续阶段，信号发送者未知；ptrace 被系统拒绝，未更改系统设置。两次中断及 U5 失败均保留，不用新通过覆盖。U5 两窗口没有项目重描述或模块构建，仅有 clangd AST 工作；归一化工作区/缓存后 CDB 参数相同，但不足确定耗时差异的原因。
 
 当前 CI 的 Linux x64 / Windows 第二组原生 conformance 已通过，untrusted 分别 8.2 / 16.0 s。Linux ARM64 target fixture 暴露测试供给缺口：已安装系统 clang，但 mock 未收到绝对编译器路径，输出裸 `clang++`，违反 S1-6-3 的 driver 约定并被按数据库目录解析。补修仅在 cross-tools job 为 `CONFORMANCE_CLANGXX` 提供可执行的绝对路径，保留产品、平台矩阵和原 target 断言；产品二进制与性能链不变，新 CI 仍需完整通过。
 
+旧 Windows 第一组取消后的日志确认 selection/windows/race/live/auto-fallback 均为 0 failure；mismatch 的 C1 却把报告脱敏后的 `~/AppData/...` 当作真实路径，未完成缓存故障注入，后续失败不能用于判断缓存拒收行为。仅该 helper 改为明确请求 `redact:false`；默认报告请求、2 s drain 超时、谓词及所有性能参数不变。Linux home 内缓存的旧 runner 诊断对照准确重现 C1 失败；修后原始完整 mismatch fixture 在 dev/release 均通过，runner native 各 6 cases / 65 assertions 通过。记录位于 `.payload-cache/59-63-cache-report/`。服务器 SHA 仍为下表 730294c5；该后续 helper runner SHA 为 `0028e2c56181c0d0202238f49731b0cc13f195e785b3681b149d4a008c6f1434`，不冒充此前九阶段 runner 字节。
+
+同份旧 Windows 日志另有 U17 真失败：73 次请求 / 24 个词 = 3.04，超过原 2.0 门槛。保留窗口见 42 条不确定缓存先答、随后引擎回答，clangd 508–766 ms；不能把重询全归为引擎结果截断。相关 typing/answer/completion/参数生成代码与 0.0.16 一致，但不等于排除本 PR 的间接影响；此前同 fixture 曾通过 44/24。当前没有确定根因，继续保留原 2.0 gate 等新完整 CI 验收。精简分析为 `.payload-cache/59-63-performance/u17-windows-analysis.json`。
+
 <a id="validation"></a>
 ## 当前本地补修检查点
 
-路径身份、未信任回退及声明成员别名补修使用同一组冻结 release server/runner；它们还需新的原生平台 CI 和完整性能链验证，不能用前一提交的通过替代。
+路径身份、未信任回退及声明成员别名补修使用同一组冻结 release server/runner；同一 server 字节的原完整性能链已完成；最后原生平台 CI 和交付升级仍待验证。测试 helper 的后续字节单独标记，不混称性能 runner。
 
 | 检查 | 结果 | 原始记录（`.payload-cache/59-63-member-alias/`；特殊前缀另注） |
 |---|---|---|
@@ -68,7 +72,7 @@ U8 修复同时处理驱动和测量：需要重启时，新 CDB/生成输入等
 - 引擎为已校验的官方 v0.0.16 payload，`23.1.0-mcppls.4` / fork `92a4c630f4691890e6133c87d3e4591bc5fd8258`；本期未修改引擎。
 - fixture pins：mcpp `d1f1c98fa26d953e084a183a9672fc1e0ce63558`，xlings `84572b0cc8502a16afaa4ae00867aef17f18c2c2`。历史二进制身份留在索引与各运行 envelope，不混用不同提交的记录。
 
-| 当前补修 release 二进制 | SHA-256 |
+| 完整性能链 release 二进制 | SHA-256 |
 |---|---|
 | server | 730294c58cffd92b694ea72eeb39ccdf57f710a57cdcf5930c0199860651611d |
 | runner | b3fb89f81ebaf4b83ed89edaa84cc666836e8af8f25f2c9cbe9c3c82e9f67b68 |

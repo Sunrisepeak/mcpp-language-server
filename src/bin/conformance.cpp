@@ -1836,8 +1836,8 @@ public:
     static double seconds_between(Clock::time_point from, Clock::time_point to) { return std::chrono::duration<double>(to - from).count(); }
 
     // The first root's part of cxxModules/report, or null when the server did not answer in time.
-    Json root_report(std::chrono::seconds timeout = std::chrono::seconds { 60 }) {
-        auto answer = client_.request("cxxModules/report", Json::object(), timeout);
+    Json root_report(bool redact = true, std::chrono::seconds timeout = std::chrono::seconds { 60 }) {
+        auto answer = client_.request("cxxModules/report", redact ? Json::object() : Json { { "redact", false } }, timeout);
         if (!answer || !answer->is_object()) return nullptr;
         const Json roots = answer->value("roots", Json::array());
         return roots.is_array() && !roots.empty() ? roots.front() : Json(nullptr);
@@ -3552,7 +3552,7 @@ public:
         const auto deadline { Clock::now() + bound };
         BackgroundDrain result;
         do {
-            result.report = root_report(std::chrono::seconds { 2 });
+            result.report = root_report(true, std::chrono::seconds { 2 });
             result.unfinished = background_work(result.report);
             if (result.unfinished.empty() || Clock::now() >= deadline) break;
             client_.pump_until(std::min(deadline, Clock::now() + std::chrono::seconds { 2 }));
@@ -3795,7 +3795,8 @@ public:
         if (kind == "rewrite-cached-target") {
             // Deliberately inconsistent persisted data tests the adoption boundary, not just serialization.
             // Stop the owner before touching its cache, so a late cache save cannot hide the injected defect.
-            const Json report = root_report();
+            // This local operation needs the filesystem path, not a redacted report's ~/ placeholder.
+            const Json report = root_report(false);
             const std::string directory { report.value("cacheDirectory", std::string {}) };
             if (directory.empty()) return { false, "the workspace cache directory is unavailable" };
             client_.stop();
