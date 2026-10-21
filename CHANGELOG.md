@@ -31,7 +31,8 @@ The bundled engine remains [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak
   versions without target-selection identity are regenerated once after upgrade.
 - Windows 8.3 and long directory names share the same project ownership for target selection,
   producer validation and profile selection; rewriting a CDB with another spelling no longer
-  makes its project units disappear from target selection. Original paths and arguments are kept.
+  makes its project units disappear from target selection. Declared workspace members also retain
+  ownership through literal or one-level glob directory aliases. Original paths and arguments are kept.
 - Untrusted mcpp roots keep their source-scan fallback: target selection neither starts project
   tools nor repeatedly discards their inferred model while waiting for a target it cannot select.
 

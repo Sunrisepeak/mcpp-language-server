@@ -31,23 +31,27 @@ U8 修复同时处理驱动和测量：需要重启时，新 CDB/生成输入等
 
 恢复补修 `dc12357` 的 dev mcpp 链已结束：cold 139、warm firstReady 22.96 s 超过 12 s，edits/faults 通过，撤销实际构建为零。dev xlings cold/warm/edits/long 均通过；原 600 s 空闲 CPU 0.009926 core，接近 0.01 门槛，RSS 1448.520→820.371 MiB（-43.36%），不视为有充足 CPU 余量。未修改的 PR 前 0.0.16 dev 基线也观察到 SIGSEGV，系统 GDB 另发生 SIGILL；这只能说明基线也有异常，不能排除本 PR 的其他崩溃路径或确定硬件原因。原始记录位于 `.payload-cache/59-63-performance/` 的 `baseline-016-envelope.json`、`diagnostic-sigsegv-summary.json` 及 `mcpp-retryfix-two-core-*`。
 
-同一提交的独立 release mcpp 链 cold/warm/edits/faults **全部通过**（160.576 / 310.311 / 517.397 / 234.596 s），warm firstReady 4.136 s，176 个已有模块零重建、零首次构建；edits 撤销实际构建与物理变化均为零。faults 最长真实无活动 6.522 s、无 stalled 样本、无非计划引擎重启。release xlings 全五阶段已启动，尚未结束。身份见 `release-retryfix-envelope.json`，阶段结果为 `mcpp-release-retryfix-two-core-*`。这仍不等于所有平台与完整验收成功。
+同一提交的独立 release mcpp 链 cold/warm/edits/faults **全部通过**（160.576 / 310.311 / 517.397 / 234.596 s），warm firstReady 4.136 s，176 个已有模块零重建、零首次构建；edits 撤销实际构建与物理变化均为零。faults 最长真实无活动 6.522 s、无 stalled 样本、无非计划引擎重启。release xlings cold/warm/edits/faults/long 五阶段也全部通过（101.591 / 310.187 / 623.094 / 176.416 / 869.289 s）；原 600 s U13 CPU 0.006091 core，RSS 1082.797→1102.410 MiB（+1.81%），peak 1543.660 MiB。身份见 `release-retryfix-envelope.json`，阶段结果为 `mcpp-release-retryfix-two-core-*`。这仍不等于所有平台与完整验收成功。
 
-此前 `dc12357` 的 [nightly 39675199436](https://github.com/Sunrisepeak/mcpp-language-server/actions/runs/39675199436) 中，复用 CI 的 xlings cold/warm/edits/faults 已全通过，下载 `ux-ux-xlings` artifact 的四份 measure 均零失败（119.405 / 310.503 / 685.644 / 176.905 s）；warm 零重建、配置撤销零重建。该 CI 场景不含 long，不能替代 600 s 验收；原始下载在 `.payload-cache/59-63-nightly-dc12357-ux-xlings/`。Linux 第一组 conformance 同时通过；其他平台与整条 nightly 尚未全部结束。
+此前 `dc12357` 的 [nightly 39675199436](https://github.com/Sunrisepeak/mcpp-language-server/actions/runs/39675199436) 中，复用 CI 的 xlings cold/warm/edits/faults 已全通过，下载 `ux-ux-xlings` artifact 的四份 measure 均零失败（119.405 / 310.503 / 685.644 / 176.905 s）；warm 零重建、配置撤销零重建。该 CI 场景不含 long，不能替代 600 s 验收；原始下载在 `.payload-cache/59-63-nightly-dc12357-ux-xlings/`。Linux 第一组 conformance 同时通过；旧整条运行因已确认的路径/未信任缺陷被补修任务替代，其失败记录保留，新完整平台验收另行执行。
 
 <a id="validation"></a>
 ## 当前本地补修检查点
 
-路径身份与未信任回退补修使用同一组冻结 release server/runner；它们还需新的原生平台 CI 和完整性能链验证，不能用前一提交的通过替代。
+路径身份、未信任回退及声明成员别名补修使用同一组冻结 release server/runner；它们还需新的原生平台 CI 和完整性能链验证，不能用前一提交的通过替代。
 
-| 检查 | 结果 | 原始记录（`.payload-cache/59-63-path-identity/`） |
+| 检查 | 结果 | 原始记录（`.payload-cache/59-63-member-alias/`；特殊前缀另注） |
 |---|---|---|
-| Linux dev / release | 各 40 个执行体通过 | tests-final-dev.log / tests-final-release.log |
-| native 回归 | engine 67 cases / 693 assertions；target 9 / 92；runner 6 / 65，均零失败 | 同上 |
-| untrusted 旧代码对照 | 新 Workspace 回归实际执行，旧 guard 6 个断言失败；补修后通过 | before-untrusted-dev.log |
-| 真实 LSP | 23 组目标/producer/polling/untrusted + 显式目标 untrusted，共 24 组通过 | final-fixtures-results/summary.json / untrusted-explicit.json |
-| 规范与仓库 | 0 failure，316 规则，4 个历史 pending；仓库检查通过 | specs-final.log / check-all-final.log |
+| Linux dev / release | 各 40 个执行体通过 | tests-dev-complete.log / tests-release.log |
+| native 回归 | engine 67 cases / 693 assertions；target 9 / 119；runner 6 / 65，均零失败 | 同上 |
+| untrusted 旧代码对照 | 新 Workspace 回归实际执行，旧 guard 6 个断言失败；补修后通过 | ../59-63-path-identity/before-untrusted-dev.log |
+| 真实 LSP | 23 组目标/producer/polling/untrusted + 显式目标 untrusted，共 24 组通过 | fixtures-results/summary.json / untrusted-explicit.json |
+| 规范与仓库 | 0 failure，316 规则，4 个历史 pending；仓库检查通过 | specs.log / check-all.log |
 | 原生 Windows | 旧提交暴露 8.3/长名归属错误；产品已统一三处判断，原五个 fixture 保留 | 旧 CI 日志在本目录；新平台矩阵待完成 |
+
+声明成员别名在旧 boundary 对照中有 8 个断言失败；修复后 literal 与一层 glob 都保留归属，目标冲突不再因跳过成员而被误判为唯一。对应 `before-dev.log`。本次第一轮全量 dev 中两个引擎时序 case 有 3 个断言失败，完整日志 `tests-dev.log` 保留；未改代码/预算，随后单独 engine 67/693 与全量 dev/release 各 40 均通过。不能把首次失败抹去或据此确认环境根因。`7ba8b24` 刚启动的性能链因已确认成员兼容回归而停止并记为 superseded，不记 PASS 或预算失败。
+
+当前冻结字节的真实 VS Code 1.143.0 E2E 为 44 passing / 1 平台预期 pending，工作区未改（`vscode-e2e.log`）。
 
 此前 `dc12357` 的实际 VS Code 1.143.0 E2E 为 44 passing / 1 平台预期 pending，扩展单测 137 passing；其 CI Linux payload 下载校验及 21 项真实 clangd Windows-target 检查通过。官方 0.0.16 profile/cache 克隆升级至该 CI VSIX 的预检通过：旧无选择身份模型重新生成，定义导航正常，工作区未改，原旧 profile/cache 保持不变。它们是补修前检查点，正式 release 下载与升级尚待执行。
 
@@ -60,8 +64,8 @@ U8 修复同时处理驱动和测量：需要重启时，新 CDB/生成输入等
 
 | 当前补修 release 二进制 | SHA-256 |
 |---|---|
-| server | 432b76d1073dd77b1f4fbdab4fa3c388aede6b4ca69f3b49d0a3f3658bde095a |
-| runner | 3283243c33c3b7c9ecff4fd162ab244aaaf3e007063ca589cb8be56c93a5b866 |
+| server | 730294c58cffd92b694ea72eeb39ccdf57f710a57cdcf5930c0199860651611d |
+| runner | b3fb89f81ebaf4b83ed89edaa84cc666836e8af8f25f2c9cbe9c3c82e9f67b68 |
 
 <a id="memo"></a>
 ## 已定位但未修复的引擎局限

@@ -74,6 +74,18 @@ int main() {
             std::error_code error;
             std::filesystem::create_directory_symlink(physical, alias, error);
             expect(fatal(!error)) << error.message();
+            write(b::join_path(physical, "packages/literal/mcpp.toml"), "[package]\nname = \"literal\"\n");
+            write(b::join_path(physical, "packages/literal/src/member.cpp"), "int literal;\n");
+            write(b::join_path(physical, "packages/glob/mcpp.toml"), "[package]\nname = \"glob\"\n");
+            write(b::join_path(physical, "packages/glob/src/member.cpp"), "int glob;\n");
+            write(b::join_path(physical, "packages/glob/nested/mcpp.toml"), "[package]\nname = \"nested\"\n");
+            write(b::join_path(physical, "packages/glob/nested/main.cpp"), "int nested;\n");
+            (void)fs::create_directories(b::join_path(physical, "glob-members"));
+            std::filesystem::create_directory_symlink(b::join_path(physical, "packages/literal"), b::join_path(physical, "members/literal-alias"), error);
+            expect(fatal(!error)) << error.message();
+            std::filesystem::create_directory_symlink(b::join_path(physical, "packages/glob"), b::join_path(physical, "glob-members/glob-alias"), error);
+            expect(fatal(!error)) << error.message();
+            write(b::join_path(physical, "mcpp.toml"), "[workspace]\nmembers = [\"members/one\", \"members/literal-alias\", \"glob-members/*\"]\n");
         }
         const std::string source { b::join_path(alias, "src/main.cpp") };
         const p::ProjectBoundaries throughCanonical { canonical };
@@ -96,6 +108,21 @@ int main() {
         const auto unit = [&](const std::string& file, const std::string& target) {
             return p::CompileCommand { alias, file, {}, { "clang++", "--target=" + target, "-c", file } };
         };
+        if constexpr (b::NATIVE_PATH_STYLE != b::PathStyle::windows) {
+            for (const std::string member : { "members/literal-alias", "glob-members/glob-alias" }) {
+                const std::string memberSource { b::join_path(alias, member + "/src/member.cpp") };
+                expect(throughCanonical.owns(memberSource)) << member;
+                expect(throughAlias.owns(fs::canonical_path(memberSource))) << member;
+                const std::vector<p::CompileCommand> memberOnly { unit(memberSource, "i686-windows-msvc") };
+                expect(p::target_from_commands(canonical, memberOnly).requestedTarget == "i686-windows-msvc")
+                    << "a declared member remains identifiable through its alias: " << member;
+                const std::vector<p::CompileCommand> conflicting { unit(source, "i686-windows-msvc"), unit(memberSource, "x86_64-windows-msvc") };
+                expect(p::target_from_commands(canonical, conflicting).requestedTarget.empty()) << "an aliased member cannot be skipped to manufacture target uniqueness";
+                expect(memberOnly.front().file == memberSource && memberOnly.front().arguments.back() == memberSource);
+            }
+            expect(!throughCanonical.owns(b::join_path(alias, "glob-members/glob-alias/nested/main.cpp")))
+                << "members/* includes direct members, not a member's independently nested project";
+        }
         const std::vector<p::CompileCommand> commands {
             unit(source, "i686-windows-msvc"),
             unit(b::join_path(alias, "members/one/src/one.cpp"), "i686-windows-msvc"),

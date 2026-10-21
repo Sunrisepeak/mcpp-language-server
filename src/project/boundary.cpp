@@ -24,11 +24,16 @@ std::string relative_to(std::string_view root, std::string_view path) {
     return key;
 }
 
-// A member as mcpp.toml writes it: a path, or a path ending in `/*` for every directory below it.
-bool matches_member(std::string_view member, std::string_view relative) {
+std::string member_pattern(std::string_view member) {
     std::string pattern { member };
     std::ranges::replace(pattern, '\\', '/');
     while (pattern.ends_with('/')) pattern.pop_back();
+    return pattern;
+}
+
+// A member as mcpp.toml writes it: a path, or a path ending in `/*` for every directory below it.
+bool matches_member(std::string_view member, std::string_view relative) {
+    const std::string pattern { member_pattern(member) };
     if (pattern.ends_with("/*")) {
         const std::string_view prefix { std::string_view { pattern }.substr(0, pattern.size() - 1) };
         return relative.starts_with(prefix) && relative.find('/', prefix.size()) == std::string_view::npos;
@@ -112,8 +117,27 @@ bool ProjectBoundaries::separate(std::string_view directory) const {
         if (has(directory, manifest) && std::ranges::find(outerNesting_, manifest) == outerNesting_.end()) return true;
     }
     if (has(directory, "mcpp.toml")) {
-        const std::string relative { relative_to(canonicalOuter_, platform::fs::canonical_path(directory)) };
-        return std::ranges::none_of(members_, [&](const std::string& member) { return matches_member(member, relative); });
+        const std::string canonical { platform::fs::canonical_path(directory) };
+        const std::string relative { relative_to(canonicalOuter_, canonical) };
+        if (std::ranges::any_of(members_, [&](const std::string& member) { return matches_member(member, relative); })) return false;
+        // A declared member can itself be an alias. Compare its directory identity too,
+        // retaining the one-level `/*` semantics of matches_member rather than matching
+        // the canonical spelling against an unrelated physical directory layout.
+        if (!canonicalMembers_) {
+            canonicalMembers_.emplace();
+            for (const auto& member : members_) {
+                const std::string pattern { member_pattern(member) };
+                const bool glob { pattern.ends_with("/*") };
+                const std::string_view relativeMember { glob ? std::string_view { pattern }.substr(0, pattern.size() - 2) : std::string_view { pattern } };
+                const std::string path { base::join_path(outer_, relativeMember) };
+                if (glob) {
+                    for (const auto& entry : platform::fs::list_directory(path)) {
+                        if (platform::fs::is_directory(entry)) canonicalMembers_->insert(base::path_key(platform::fs::canonical_path(entry)));
+                    }
+                } else canonicalMembers_->insert(base::path_key(platform::fs::canonical_path(path)));
+            }
+        }
+        return !canonicalMembers_->contains(base::path_key(canonical));
     }
     return false;
 }

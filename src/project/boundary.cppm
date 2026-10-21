@@ -30,6 +30,7 @@ private:
     mutable std::map<std::string, std::string> canonicalDirectories_;
     std::vector<std::string_view> outerNesting_;   // the nesting manifests the outer root itself has
     std::vector<std::string> members_;   // an mcpp workspace's members, relative, as written
+    mutable std::optional<std::set<std::string>> canonicalMembers_; // lazily resolved declaration identities
 };
 
 // The files that make a directory a project's root, one list for every place that looks for one (plan
