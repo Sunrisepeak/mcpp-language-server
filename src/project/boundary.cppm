@@ -14,6 +14,10 @@ public:
     // `outer` is the outer project's root: the directory its own manifest is in.
     explicit ProjectBoundaries(std::string_view outer);
 
+    // Whether an absolute source belongs to this project, comparing platform-canonical names
+    // before checking nesting. The caller retains its original path and compiler arguments.
+    bool owns(std::string_view file) const;
+
     // Whether `directory`, strictly inside the outer root, is the root of a separate project.
     bool separate(std::string_view directory) const;
     // Whether some directory from `file`'s own up to (not including) `stop` is a separate project's root.
@@ -21,6 +25,9 @@ public:
 
 private:
     std::string outer_;
+    std::string canonicalOuter_;
+    // A CDB commonly repeats one aliased directory for thousands of sources. Resolve it once.
+    mutable std::map<std::string, std::string> canonicalDirectories_;
     std::vector<std::string_view> outerNesting_;   // the nesting manifests the outer root itself has
     std::vector<std::string> members_;   // an mcpp workspace's members, relative, as written
 };

@@ -86,7 +86,7 @@ TargetSelection target_from_commands(std::string_view root, std::span<const Comp
     const ProjectBoundaries boundaries { root };
     std::size_t included { 0 };
     for (const auto& command : commands) {
-        if (!base::is_within(command.file, root) || boundaries.crossed(command.file, root)) continue;
+        if (!boundaries.owns(command.file)) continue;
         // build.mcpp is mcpp's host build program, including a workspace member's build program.
         if (base::file_name(command.file) == "build.mcpp") continue;
         ++included;

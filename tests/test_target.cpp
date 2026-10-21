@@ -6,6 +6,7 @@ import mcppls.platform.fs;
 import mcppls.platform.dirs;
 import mcppls.project.compdb;
 import mcppls.project.target;
+import mcppls.project.boundary;
 import mcppls.project.model;
 import mcppls.project.modelcache;
 
@@ -49,6 +50,65 @@ int main() {
         expect(p::target_from_commands(root, commands).requestedTarget.empty());
         commands.back().arguments = {"clang++", "--target=x86_64-windows-msvc"};
         expect(p::target_from_commands(root, commands).requestedTarget.empty());
+    };
+
+    "project ownership follows filesystem aliases without changing compiler commands"_test = [&] {
+        const std::string physical { b::join_path(root, "identity/project") };
+        const std::string external { b::join_path(root, "identity/external.cpp") };
+        const auto write = [&](const std::string& path, std::string_view text) {
+            expect(fatal(fs::create_directories(b::parent_path(path)).has_value()));
+            expect(fatal(fs::write_file(path, text).has_value()));
+        };
+        write(b::join_path(physical, "mcpp.toml"), "[workspace]\nmembers = [\"members/one\"]\n");
+        write(b::join_path(physical, "src/main.cpp"), "int main() {}\n");
+        write(b::join_path(physical, "build.mcpp"), "int main() {}\n");
+        write(b::join_path(physical, "members/one/mcpp.toml"), "[package]\nname = \"one\"\n");
+        write(b::join_path(physical, "members/one/src/one.cpp"), "int one;\n");
+        write(b::join_path(physical, "nested/mcpp.toml"), "[package]\nname = \"nested\"\n");
+        write(b::join_path(physical, "nested/main.cpp"), "int nested;\n");
+        write(external, "int external;\n");
+        const std::string canonical { fs::canonical_path(physical) };
+        std::string alias { physical }; // Windows TEMP can already contain a nonprivileged 8.3 alias.
+        if constexpr (b::NATIVE_PATH_STYLE != b::PathStyle::windows) {
+            alias = b::join_path(root, "identity/project-alias");
+            std::error_code error;
+            std::filesystem::create_directory_symlink(physical, alias, error);
+            expect(fatal(!error)) << error.message();
+        }
+        const std::string source { b::join_path(alias, "src/main.cpp") };
+        const p::ProjectBoundaries throughCanonical { canonical };
+        const p::ProjectBoundaries throughAlias { alias };
+        expect(!throughCanonical.owns(""));
+        expect(throughCanonical.owns(source));
+        expect(throughCanonical.owns(b::join_path(alias, "src/generated/not-written.cpp")))
+            << "a generated source need not exist for its existing parents to establish ownership";
+        expect(throughAlias.owns(b::join_path(canonical, "src/main.cpp")));
+        expect(throughCanonical.owns(b::join_path(alias, "members/one/src/one.cpp"))) << "declared workspace members remain part of the project";
+        expect(!throughCanonical.owns(b::join_path(alias, "nested/main.cpp"))) << "a separate nested project is still excluded";
+        expect(!throughCanonical.owns(external));
+        if constexpr (b::NATIVE_PATH_STYLE != b::PathStyle::windows) {
+            const std::string linkedExternal { b::join_path(physical, "src/external.cpp") };
+            std::error_code error;
+            std::filesystem::create_symlink(external, linkedExternal, error);
+            expect(fatal(!error)) << error.message();
+            expect(!throughCanonical.owns(linkedExternal)) << "a symlink to an external source does not make it a project unit";
+        }
+        const auto unit = [&](const std::string& file, const std::string& target) {
+            return p::CompileCommand { alias, file, {}, { "clang++", "--target=" + target, "-c", file } };
+        };
+        const std::vector<p::CompileCommand> commands {
+            unit(source, "i686-windows-msvc"),
+            unit(b::join_path(alias, "members/one/src/one.cpp"), "i686-windows-msvc"),
+            unit(b::join_path(alias, "build.mcpp"), "x86_64-windows-msvc"),
+            unit(b::join_path(alias, "nested/main.cpp"), "x86_64-windows-msvc"),
+            unit(external, "x86_64-windows-msvc"),
+        };
+        const auto selected = p::target_from_commands(canonical, commands);
+        expect(selected.source == "compile-commands");
+        expect(selected.requestedTarget == "i686-windows-msvc");
+        expect(p::target_from_commands(alias, commands).requestedTarget == selected.requestedTarget);
+        expect(commands.front().file == source && commands.front().arguments.back() == source)
+            << "ownership resolution must not rewrite the published command or source spelling";
     };
 
     "target-affecting opaque inputs prevent auto selection"_test = [&] {

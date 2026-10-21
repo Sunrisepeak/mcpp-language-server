@@ -2508,7 +2508,8 @@ struct Workspace::Impl final : engine::Host {
             return;
         }
         loading = false;
-        if (loadedModel->detected == project::SourceKind::mcpp) {
+        if (options.trusted && loadedModel->detected == project::SourceKind::mcpp) {
+            // Untrusted roots deliberately select no producer target and scan sources instead.
             // A watched selection can change while a producer is running, including before its file event arrives.
             // Such a result never becomes the active model, even briefly.
             if (!refresh_target_selection()) {

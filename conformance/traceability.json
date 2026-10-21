@@ -540,6 +540,9 @@
     },
     {
       "test": "tests/test_project.cpp: an untrusted workspace still gets a model"
+    },
+    {
+      "test": "tests/test_server.cpp: an untrusted mcpp root adopts scanned sources without target reloads or tool runs"
     }
   ],
   "S1-14-2": [
@@ -863,6 +866,9 @@
     },
     {
       "test": "tests/test_project.cpp: an untrusted workspace still gets a model"
+    },
+    {
+      "test": "tests/test_server.cpp: an untrusted mcpp root adopts scanned sources without target reloads or tool runs"
     }
   ],
   "S2-6-2": [
@@ -2347,6 +2353,9 @@
     },
     {
       "check": "mcpp-target-live/S2-live-explicit"
+    },
+    {
+      "test": "tests/test_target.cpp: project ownership follows filesystem aliases without changing compiler commands"
     }
   ],
   "S3-4-36": [

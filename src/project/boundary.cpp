@@ -84,11 +84,25 @@ std::optional<std::string> find_project_root(std::string_view directory) {
 
 std::string enclosing_project_root(std::string_view directory) { return find_project_root(directory).value_or(std::string { directory }); }
 
-ProjectBoundaries::ProjectBoundaries(std::string_view outer) : outer_ { outer } {
+ProjectBoundaries::ProjectBoundaries(std::string_view outer)
+    : outer_ { outer }, canonicalOuter_ { platform::fs::canonical_path(outer) } {
     for (const std::string_view manifest : NESTING) {
         if (has(outer_, manifest)) outerNesting_.push_back(manifest);
     }
     if (const auto manifest = platform::fs::read_file(base::join_path(outer_, "mcpp.toml"))) members_ = workspace_members(*manifest);
+}
+
+bool ProjectBoundaries::owns(std::string_view file) const {
+    if (file.empty()) return false;
+    const std::string parent { base::parent_path(file) };
+    const std::string key { base::path_key(parent) };
+    auto found = canonicalDirectories_.find(key);
+    if (found == canonicalDirectories_.end()) {
+        found = canonicalDirectories_.emplace(key, platform::fs::canonical_path(parent)).first;
+    }
+    // Resolve the final component too (including POSIX source symlinks and Windows short names).
+    const std::string source { platform::fs::canonical_path(base::join_path(found->second, base::file_name(file))) };
+    return base::is_within(source, canonicalOuter_) && !crossed(source, canonicalOuter_);
 }
 
 bool ProjectBoundaries::separate(std::string_view directory) const {
@@ -98,7 +112,7 @@ bool ProjectBoundaries::separate(std::string_view directory) const {
         if (has(directory, manifest) && std::ranges::find(outerNesting_, manifest) == outerNesting_.end()) return true;
     }
     if (has(directory, "mcpp.toml")) {
-        const std::string relative { relative_to(outer_, directory) };
+        const std::string relative { relative_to(canonicalOuter_, platform::fs::canonical_path(directory)) };
         return std::ranges::none_of(members_, [&](const std::string& member) { return matches_member(member, relative); });
     }
     return false;

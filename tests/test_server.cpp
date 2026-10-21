@@ -11,6 +11,9 @@ import mcppls.base.text;
 import mcppls.base.uri;
 import mcppls.platform.fs;
 import mcppls.platform.dirs;
+import mcppls.platform.toolrun;
+import mcppls.project.detect;
+import mcppls.project.model;
 import mcppls.engine.clangd.bmi;
 import mcppls.normalize.plan;
 import mcppls.engine;
@@ -1811,6 +1814,81 @@ int main() {
         expect(!unresolved_in("inferred")) << "dropped once the build tool's model replaced the provisional one";
         engine->shut_down();
         fs::remove_all(root);
+    };
+
+    "an untrusted mcpp root adopts scanned sources without target reloads or tool runs"_test = [] {
+        namespace fs = mcppls::platform::fs;
+        using mcppls::base::join_path;
+        using namespace std::chrono_literals;
+        class Sink : public orch::ClientSink {
+        public:
+            void send(const Json&) override {}
+        };
+        for (const std::string selector : { "auto", "i686-windows-msvc" }) {
+            const std::string scratch { join_path(mcppls::platform::dirs::temp_directory(),
+                std::format("mcppls-test-untrusted-target-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+            (void)fs::create_directories(join_path(scratch, "src"));
+            const std::string root { fs::canonical_path(scratch) };
+            (void)fs::write_file(join_path(root, "mcpp.toml"), "[package]\nname = \"untrusted-target\"\n");
+            (void)fs::write_file(join_path(root, "src/main.cpp"), "int main() {}\n");
+            (void)fs::write_file(join_path(root, "compile_commands.json"), "invalid producer data that an untrusted root must not read");
+            orch::SessionOptions options;
+            options.trusted = false;
+            options.mcppTarget = selector;
+            options.mcpp = join_path(root, "must-not-run-mcpp");
+            options.engine = "none";
+            auto events = std::make_shared<orch::EventChannel>();
+            Sink sink;
+            const auto previousRuns = mcppls::platform::toolrun::recent(mcppls::platform::toolrun::KEPT);
+            const auto previousId = previousRuns.empty() ? 0 : previousRuns.back().id;
+            auto workspace = std::make_unique<orch::Workspace>(root, std::string { mcppls::base::file_name(root) }, options,
+                eng::PayloadPaths {}, false, false, join_path(root, "must-not-run-compiler"), events, sink);
+            // Finish the constructor's cache task before the fixture eventually removes its tree.
+            if (auto event = events->pop_until(std::chrono::steady_clock::now() + 5s)) {
+                if (event->kind == orch::EventKind::cache_swept) workspace->handle_cache_swept(event->message);
+            }
+            workspace->start(Json::object(), false, false);
+            int loads { 0 };
+            bool adopted { false };
+            auto deadline = std::chrono::steady_clock::now() + 5s;
+            while (std::chrono::steady_clock::now() < deadline && loads < 3) {
+                if (auto event = events->pop_until(deadline)) {
+                    if (event->kind == orch::EventKind::model_loaded) {
+                        ++loads;
+                        expect(event->model && event->model->source == mcppls::project::SourceKind::inferred);
+                        workspace->handle_model_loaded(event->generation, std::move(event->model));
+                    } else if (event->kind == orch::EventKind::cache_swept) workspace->handle_cache_swept(event->message);
+                    else if (event->kind == orch::EventKind::target_selected) {
+                        expect(false) << "an untrusted root never starts target selection";
+                        workspace->handle_target_selected(event->generation, event->message, std::move(event->model));
+                    }
+                }
+                if (!adopted && workspace->report()["project"].is_object()) {
+                    adopted = true;
+                    deadline = std::chrono::steady_clock::now() + 200ms;
+                }
+            }
+            const Json report = workspace->report();
+            expect(loads == 1) << "the scanned mcpp model must not be discarded and loaded indefinitely";
+            expect(adopted && report["state"] == "degraded");
+            const Json model = report["project"];
+            expect(model.is_object());
+            if (model.is_object()) {
+                expect(model["source"] == "inferred" && model["detected"] == "mcpp");
+                expect(model["tier"] == 4 && model["profile"]["kind"] == "semantic-kit");
+                expect(!model.contains("targetSelection"));
+                expect(model["producer"] == "" && model["producerRun"].is_null());
+                expect(std::ranges::any_of(model["issues"], [](const Json& issue) { return issue.value("code", std::string {}) == "untrusted-workspace"; }));
+            }
+            const auto afterRuns = mcppls::platform::toolrun::recent(mcppls::platform::toolrun::KEPT);
+            expect(std::ranges::none_of(afterRuns, [&](const auto& run) { return run.id > previousId; }))
+                << "no producer or compiler runs while adopting an untrusted model";
+            workspace->shut_down();
+            const std::string cache { workspace->cache_directory() };
+            workspace.reset();
+            fs::remove_all(cache);
+            fs::remove_all(root);
+        }
     };
 
     "incremental database publication follows creation of its generated inputs"_test = [] {

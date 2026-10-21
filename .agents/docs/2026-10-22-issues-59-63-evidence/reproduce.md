@@ -4,17 +4,18 @@
 
 ## 1. 固定源码、工具与 payload
 
-检查点原始数据对应 `5e19005d91af56cd5fd18b05225fc8b6c9d8b538`；核验后续修复时将下面的 `source_commit` 改为待审提交。需要 mcpp 2026.10.21.1、LLVM 22.1.8、GCC 16.1.0、git、gh、jq、taskset。fixture 的项目 launcher 依赖按 `.github/workflows/ci.yml` 的 UX job 安装；server producer 单独固定。
+历史归档对应 `5e19005d91af56cd5fd18b05225fc8b6c9d8b538`，恢复补修检查点为 `dc12357`。下面在待审提交的 checkout 中执行，默认固定其完整 HEAD；也可用环境变量 `SOURCE_COMMIT` 指定复现版本，未提交改动不会被带入。CI/nightly 的 UX 使用 release server 和 release runner，所以默认构建 release；先前本地 dev 性能数据单独保留，不能混称 release 验收。需要 mcpp 2026.10.21.1、LLVM 22.1.8、GCC 16.1.0、git、gh、jq、taskset。fixture 的项目 launcher 依赖按 `.github/workflows/ci.yml` 的 UX job 安装；server producer 单独固定。
 
 ```bash
 set -euo pipefail
-source_commit=5e19005d91af56cd5fd18b05225fc8b6c9d8b538
+source_commit=$(git rev-parse "${SOURCE_COMMIT:-HEAD}")
+build_profile=release
 audit_dir="$PWD/.payload-cache/repro59-63-$(date +%Y%m%dT%H%M%S)"
 mkdir -p "$audit_dir"
 git worktree add --detach "$audit_dir/checkout" "$source_commit"
 cd "$audit_dir/checkout"
 mcpp --version
-mcpp build --jobs 4
+mcpp build --profile "$build_profile" --jobs 4
 
 # fresh worktree 只构建一个 profile；拒绝在多个旧 bucket 中随意挑选。
 choose_binary() {
@@ -38,6 +39,7 @@ producer="$HOME/.xlings/data/xpkgs/xim-x-mcpp/2026.9.30.2/bin/mcpp"
 test -x "$producer"
 "$producer" --version
 sha256sum "$server" "$runner" "$payload/clangd/bin/clangd" > "$audit_dir/binaries.sha256"
+printf '%s\n' "$source_commit" "$build_profile" > "$audit_dir/source-profile.txt"
 lscpu -e=CPU,CORE,SOCKET,ONLINE > "$audit_dir/topology.txt"
 ```
 
@@ -46,17 +48,17 @@ lscpu -e=CPU,CORE,SOCKET,ONLINE > "$audit_dir/topology.txt"
 ## 2. 单测与目标选择回归
 
 ```bash
-MCPPLS_CONFORMANCE="$runner" mcpp test
+MCPPLS_CONFORMANCE="$runner" mcpp test --profile "$build_profile"
 python3 docs/specs/tools/validate.py
 
 export CONFORMANCE_CLANGXX="$HOME/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++"
 test -x "$CONFORMANCE_CLANGXX"
-for case in mcpp-target-selection mcpp-target-live mcpp-target-race   mcpp-target-windows mcpp-target-provider-excluded mcpp-producer-identity   mcpp-producer-file-identity mcpp-polling-watch-inputs; do
+for case in mcpp-target-selection mcpp-target-live mcpp-target-race   mcpp-target-windows mcpp-target-provider-excluded mcpp-producer-identity   mcpp-producer-file-identity mcpp-polling-watch-inputs untrusted; do
   "$runner" run --server "$server" --payload "$payload"     --fixture "conformance/fixtures/$case" --timeout 60     --measure "$audit_dir/$case.json"
 done
 ```
 
-release 验证另用 fresh worktree，将第 1 步 build 和这里 test 都加 `--profile release`，并重新选择该 worktree 唯一的 runner；不要用 dev runner 充作 release runner 的验证。
+dev 验证另用 fresh worktree，将第 1 步 `build_profile` 设为 `dev`，并重新选择该 worktree 唯一的 runner；不要交叉使用不同 profile 的 runner/server。历史 dev 崩溃定位使用对应历史提交和 dev profile，不用 release 重放覆盖。
 
 完整目标配置矩阵是 `conformance/fixtures/mcpp-target-*`、`mcpp-producer-*`；polling 路径再对 identity/target-selection/emit-watch 添加 `--no-dynamic-watch`。回归检查实际 producer argv、模型身份、目标状态、过期结果、CDB fallback、provider 排除和生命周期；仅看版本字符串不够。CDB publication 与 write-failure 的 native 对照位于 `tests/test_server.cpp`，runner drain 位于 `tests/test_conformance.cpp`。
 
@@ -84,13 +86,14 @@ for stage in cold warm edits faults; do
   cache=cache-a; [[ "$stage" != faults ]] || cache=cache-b
   run_stage mcpp 4-5 "$stage" "$cache"
 done
-for stage in cold warm edits long; do
-  run_stage xlings 12-15 "$stage" cache-a
+for stage in cold warm edits faults long; do
+  cache=cache-a; [[ "$stage" != faults ]] || cache=cache-b
+  run_stage xlings 12-15 "$stage" "$cache"
 done
 cat "$audit_dir/mcpp/exits.txt" "$audit_dir/xlings/exits.txt"
 ```
 
-CPU 编号是本机记录，不保证其他主机可用或拓扑相同。变更亲和性必须标成另一组实验。不要以增加核数、缩短 warm/edits/600 s idle、换 cache lineage、去掉失败 check 或调整门槛代替原场景。某阶段失败仍继续后续阶段；`exits.txt` 的非零值都算失败，缺少 measure 时也不能报通过。
+CPU 编号是本机记录，不保证其他主机可用或拓扑相同。变更亲和性必须标成另一组实验。mcpp 对应 nightly 两核阶段；xlings 包含 nightly round 1 的全部五阶段，另保留本机 12–15 亲和性。它们不是对 GitHub 所有轮次/平台的替代。不要以增加核数、缩短 warm/edits/600 s idle、换 cache lineage、去掉失败 check 或调整门槛代替原场景。某阶段失败仍继续后续阶段；`exits.txt` 的非零值都算失败，缺少 measure 时也不能报通过。
 
 读取结果时区分：U15 原节点间隔与真实模块无活动；U8 实际构建数、旧有效 key 和混合闭包；U13 有限工作期与随后固定 600 s 测量。先前失败及其完整原始记录由 [索引](raw-index.tsv) 保留。
 

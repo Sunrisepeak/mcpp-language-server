@@ -90,6 +90,8 @@ from the project's root `compile_commands.json`, then asks mcpp to describe that
 after `mcpp build --target i686-windows-msvc` publishes that database, analysis follows i686 without
 another editor setting. This follows the latest published compilation configuration, which can also
 come from a configure-only command or a failed compilation; it does not certify a successful build.
+Project ownership recognizes Windows 8.3 and long directory spellings as the same location;
+the compilation database's original paths and arguments are preserved.
 
 To fix this workspace's analysis target, put this in `.vscode/settings.json` (or use the corresponding
 LSP initialization setting in another editor):
@@ -103,6 +105,7 @@ LSP initialization setting in another editor):
 Use `"project"` to ignore the compilation database for target selection and always let mcpp apply
 its own defaults, including `[build].target` in `mcpp.toml`. CLI users can pass `--mcpp-target`.
 The setting only affects the mcpp provider and does not enable execution when `buildTool` is `off`.
+Untrusted workspaces keep their source-scan fallback; selecting a target never enables a producer or compiler there.
 In VS Code, the explicit setting applies to the whole workspace window;
 independent folder overrides in a multi-root window are not supported. Automatic selection still
 reads each root's own CDB independently. Changing the target reloads the model without restarting

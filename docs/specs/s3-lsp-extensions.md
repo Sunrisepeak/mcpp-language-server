@@ -202,6 +202,8 @@ A server whose semantic capabilities come from more than one engine **SHOULD** l
 
 For an mcpp root, the optional `targetSelection` describes the requested analysis target and its source; `profile.target` continues to describe the adopted model. A server that sends `targetSelection` **MUST** keep `pending` true while that selection has not been applied, including when a previous model remains available or the build tool is disabled; a client **MUST NOT** present `requestedTarget` as the adopted target while it is pending. <a id="S3-4-35"></a><a id="S3-4-36"></a><sup>S3-4-35, S3-4-36</sup> `auto` follows an explicit unique target in the existing root compilation database, otherwise mcpp defaults; `project` always uses mcpp defaults; `explicit` requests the configured target. An invalid explicit setting remains an unapplied explicit selection with an explanatory reason. Target selection follows the published compilation configuration, not proof of a successful build, and selects no profile, features or toolchain. The same object appears at `project.targetSelection` in `cxxModules/report`. Clients that do not know the field continue using `profile.target`; protocol version stays 1. The [field schema](schema/s3-target-selection.schema.json) and [example](examples/s3-target-selection.json) describe this object alone, not the complete status or report.
 
+Project-unit ownership for this selection uses platform-canonical paths, including Windows 8.3 and long spellings of the same directory. Selection, producer target validation and profile selection use the same project-boundary decision; the original source paths and compiler arguments remain unchanged.
+
 ## 5. Requests
 
 ### 5.1 `cxxModules/graph`

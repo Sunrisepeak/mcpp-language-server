@@ -296,7 +296,7 @@ void check_requested_target(InferredDatabase& database, const Detection& detecti
             if (spec::is_build_program_set(set) || set.units.empty()) continue;
             const bool local { std::ranges::any_of(set.units, [&](const spec::TranslationUnit& unit) {
                 const std::string source { spec::absolute_source(unit) };
-                return base::is_within(source, detection.root) && !boundaries.crossed(source, detection.root);
+                return boundaries.owns(source);
             }) };
             if (!local) continue;
             projectSet = true;

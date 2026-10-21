@@ -65,7 +65,7 @@ void set_profile(ProjectModel& model, const spec::Kit* kit) {
         if (spec::is_build_program_set(set)) continue;
         if (model.source == SourceKind::mcpp && !std::ranges::any_of(set.units, [&](const spec::TranslationUnit& unit) {
             const std::string source { spec::absolute_source(unit) };
-            return base::is_within(source, model.root) && !boundaries.crossed(source, model.root);
+            return boundaries.owns(source);
         })) continue;
         const auto it = model.facts.find(set.toolchain);
         if (it == model.facts.end() || it->second.appleClang) continue;
