@@ -37,6 +37,16 @@ std::optional<std::string> runner_path() {
 }
 
 int serve() {
+    const auto arguments = platform::env::arguments();
+    const bool drain { std::ranges::find(arguments, "--drain-ready") != arguments.end()
+        || std::ranges::find(arguments, "--drain-never") != arguments.end() || std::ranges::find(arguments, "--drain-missing") != arguments.end()
+        || std::ranges::find(arguments, "--drain-restarting") != arguments.end() };
+    const bool never { std::ranges::find(arguments, "--drain-never") != arguments.end() };
+    const bool missing { std::ranges::find(arguments, "--drain-missing") != arguments.end() };
+    const bool restarting { std::ranges::find(arguments, "--drain-restarting") != arguments.end() };
+    int reports { 0 }, changes { 0 };
+    const auto send = [](const Json& message) { return platform::stdio::write_output(lsp::encode_frame(message)); };
+    const auto status = [&](std::string state) { return send(lsp::make_notification("cxxModules/status", Json { { "state", std::move(state) } })); };
     lsp::FrameReader frames;
     while (true) {
         auto bytes = platform::stdio::read_input();
@@ -47,6 +57,20 @@ int serve() {
             const Json& request { **frame };
             const std::string method { request.value("method", std::string {}) };
             if (method == "exit") return 0;
+            if (drain && method == "initialized") {
+                (void)status("ready");
+                (void)send(lsp::make_request("drain-watch", "client/registerCapability", Json { { "registrations", Json::array({ Json {
+                    { "id", "inputs" }, { "method", "workspace/didChangeWatchedFiles" },
+                    { "registerOptions", Json { { "watchers", Json::array({ Json { { "globPattern", "**/mcpp.toml" } } }) } } }
+                } }) } }));
+            }
+            if (drain && method == "workspace/didChangeWatchedFiles") {
+                ++changes;
+                reports = 0;
+                (void)status("loading");
+                (void)status("ready");
+            }
+            if (!request.contains("method")) continue;
             if (!request.contains("id")) continue;
             Json result = nullptr;
             if (method == "initialize") result = Json { { "capabilities", Json { { "experimental", Json { { "cxxModules", Json::object() } } }, { "hoverProvider", true } } } };
@@ -58,6 +82,22 @@ int serve() {
                     { "details", Json { { "preparation", Json { { "runningUnits", Json::array({ Json { { "module", "sample" }, { "seconds", 12 } } }) } } } } }
                 } }) } } }) }
             };
+            if (drain && method == "cxxModules/report") {
+                const bool busy { !restarting && (never || ++reports < 3) };
+                Json details {
+                    { "generation", changes + 1 },
+                    { "handshakeDone", !restarting }, { "accepting", !restarting }, { "restartScheduled", restarting },
+                    { "preparation", Json { { "done", busy ? 0 : 140 }, { "wanted", 140 }, { "running", busy ? 1 : 0 },
+                        { "completedModuleBuilds", changes == 0 ? 5 : 10 } } },
+                    { "implementationIndex", Json { { "sweepComplete", true }, { "sweepScheduled", false }, { "queued", 0 }, { "running", 0 } } },
+                    { "backgroundIndex", Json { { "active", false } } },
+                    { "pendingRequests", 0 }, { "filesAwaitingDiagnostics", busy ? 11 : 0 }, { "deferredRequests", 0 }, { "heldRequests", 0 }
+                };
+                if (missing) details.erase("backgroundIndex");
+                result = Json { { "roots", Json::array({ Json { { "state", "ready" },
+                    { "engines", Json::array({ Json { { "name", "clangd" }, { "state", restarting ? "starting" : "ready" }, { "details", std::move(details) } } }) }
+                } }) } };
+            }
             if (!platform::stdio::write_output(lsp::encode_frame(lsp::make_result(request["id"], result)))) return 2;
         }
     }
@@ -158,6 +198,45 @@ int main() {
         if (result) {
             expect(result->exitCode == 1) << result->output << result->error;
             expect(result->output.find("engine work evidence unavailable") != std::string::npos);
+        }
+    };
+    const auto drain_scenario = [&](std::string mode, int bound) {
+        const Json sample { { "name", "timing" }, { "server-arguments", Json::array({ std::move(mode) }) },
+            { "checks", Json::array({ Json { { "id", "U8-config" }, { "kind", "graph-edit" }, { "action", "config" },
+                { "file", "mcpp.toml" }, { "replace", Json { { "from", "release" }, { "with", "dev" } } },
+                { "background-work-seconds", bound }, { "wait-seconds", 2 }, { "budget", Json { { "revertNewBmi", 0 } } }
+            } }) } };
+        expect(fs::write_file(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());
+        expect(fs::write_file(base::join_path(fixture, "mcpp.toml"), "default-profile = \"release\"\n").has_value());
+        return invoke(measure, evidence);
+    };
+    "configuration undo drains explicit unfinished preparation despite a ready status"_test = [&] {
+        const auto result = drain_scenario("--drain-ready", 10);
+        expect(result.has_value());
+        if (!result) return;
+        expect(result->exitCode == 0) << result->output << result->error;
+        const auto document = fs::read_file(measure);
+        expect(document.has_value());
+        if (!document) return;
+        const Json summary = Json::parse(*document);
+        const Json& sample = summary["checks"][0]["measure"];
+        for (const std::string phase : { "beforeChangeDrain", "beforeRevertDrain", "afterRevertDrain" }) {
+            expect(sample[phase]["ready"] == true);
+            expect(sample[phase]["seconds"].get<double>() >= 1.0) << "the mock's pending reports must not be skipped";
+            expect(sample[phase]["activityAtEnd"]["engines"][0]["preparation"]["done"] == 140);
+        }
+        expect(sample["revertNewBmi"] == 0);
+    };
+    "ready status cannot pass a missing or timed out background work report"_test = [&] {
+        for (const std::string mode : { "--drain-never", "--drain-missing", "--drain-restarting" }) {
+            const auto result = drain_scenario(mode, 0);
+            expect(result.has_value());
+            if (!result) continue;
+            expect(result->exitCode == 1) << result->output << result->error;
+            expect(result->output.find("background work did not finish within its bound") != std::string::npos);
+            const auto document = fs::read_file(measure);
+            expect(document.has_value());
+            if (document) expect(Json::parse(*document)["checks"][0]["measure"]["beforeChangeDrain"]["ready"] == false);
         }
     };
     fs::remove_all(root);

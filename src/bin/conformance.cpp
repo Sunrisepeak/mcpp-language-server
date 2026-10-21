@@ -3510,13 +3510,24 @@ public:
     // In particular an empty implementation queue before its delayed full sweep is not idle.
     static std::string background_work(const Json& root) {
         if (!root.is_object()) return "the engine report is unavailable";
+        const std::string rootState { root.value("state", std::string {}) };
+        if (rootState != "ready" && rootState != "degraded") return "the project is still loading or preparing";
         for (const auto& engine : root.value("engines", Json::array())) {
             if (engine.value("name", std::string {}) != "clangd") continue;
+            const std::string state { engine.value("state", std::string {}) };
+            if (state != "ready" && state != "degraded") return "the engine is still starting or preparing";
             const Json details = engine.value("details", Json::object());
             const Json preparation = details.value("preparation", Json::object());
             const Json implementations = details.value("implementationIndex", Json::object());
             const Json index = details.value("backgroundIndex", Json::object());
-            if (!implementations.contains("sweepComplete") || !index.contains("active")) return "the engine does not report its background work state";
+            if (!details.contains("handshakeDone") || !details.contains("accepting") || !details.contains("restartScheduled")
+                || !preparation.contains("running") || !preparation.contains("done") || !preparation.contains("wanted")
+                || !implementations.contains("sweepComplete") || !implementations.contains("sweepScheduled")
+                || !implementations.contains("queued") || !implementations.contains("running") || !index.contains("active")
+                || !details.contains("pendingRequests") || !details.contains("filesAwaitingDiagnostics")
+                || !details.contains("deferredRequests") || !details.contains("heldRequests")) return "the engine does not report its background work state";
+            if (!details.value("handshakeDone", false) || !details.value("accepting", false) || details.value("restartScheduled", false))
+                return "the engine is starting or waiting for a restart";
             if (preparation.value("running", 0L) > 0 || preparation.value("done", 0L) < preparation.value("wanted", 0L)) return "module preparation is unfinished";
             if (!implementations.value("sweepComplete", false) || implementations.value("sweepScheduled", false)) return "the implementation sweep is still scheduled";
             if (implementations.value("queued", 0L) > 0 || implementations.value("running", 0L) > 0) return "implementation units are queued or building";
@@ -3528,6 +3539,34 @@ public:
         return "no clangd engine reported its background work state";
     }
 
+    struct BackgroundDrain {
+        Json report;
+        std::string unfinished;
+        Json measure;
+    };
+
+    BackgroundDrain drain_background(std::chrono::seconds bound, std::chrono::seconds warmup = std::chrono::seconds { 0 }) {
+        const auto from { Clock::now() };
+        const auto rssBefore { watcher_.rss_mb_now() };
+        client_.pump_until(from + warmup);
+        const auto deadline { Clock::now() + bound };
+        BackgroundDrain result;
+        do {
+            result.report = root_report(std::chrono::seconds { 2 });
+            result.unfinished = background_work(result.report);
+            if (result.unfinished.empty() || Clock::now() >= deadline) break;
+            client_.pump_until(std::min(deadline, Clock::now() + std::chrono::seconds { 2 }));
+        } while (Clock::now() < deadline);
+        const auto until { Clock::now() };
+        const auto cores { watcher_.cpu_cores(from, until) };
+        const auto rssAfter { watcher_.rss_mb_now() };
+        result.measure = Json { { "seconds", seconds_between(from, until) }, { "cpuCores", cores ? Json(*cores) : Json(nullptr) },
+            { "rssBeforeMB", rssBefore ? Json(*rssBefore) : Json(nullptr) }, { "rssAfterMB", rssAfter ? Json(*rssAfter) : Json(nullptr) },
+            { "engineActivity", tailer_.activity_between(from, until) }, { "activityAtEnd", activity_snapshot(result.report) },
+            { "ready", result.unfinished.empty() }, { "unfinished", result.unfinished } };
+        return result;
+    }
+
     std::pair<bool, std::string> run_resources(const Json& check) {
         std::vector<std::string> failures;
         Json summary = Json::object();
@@ -3536,33 +3575,20 @@ public:
         std::optional<double> growth;
         if (const int idle { check.value("idle-seconds", 0) }; idle > 0) {
             if (!settle(std::chrono::seconds { check.value("settle-seconds", 900) })) return { false, "the project did not settle before the idle period" };
-            const auto scheduledFrom { Clock::now() };
-            const auto scheduledRssBefore { watcher_.rss_mb_now() };
             // Keep the existing minimum warm-up, then wait for finite scheduled work explicitly.
             // Neither a future sweep nor a background index is an idle-memory baseline (#59 U13).
-            client_.pump_until(Clock::now() + std::chrono::seconds { check.value("warmup-seconds", 60) });
-            const auto drainDeadline { Clock::now() + std::chrono::seconds { check.value("background-work-seconds", 900) } };
-            Json readyReport;
-            std::string unfinished;
-            do {
-                readyReport = root_report(std::chrono::seconds { 2 });
-                unfinished = background_work(readyReport);
-                if (unfinished.empty()) break;
-                client_.pump_until(std::min(drainDeadline, Clock::now() + std::chrono::seconds { 2 }));
-            } while (Clock::now() < drainDeadline);
-            const auto scheduledUntil { Clock::now() };
-            const auto scheduledCores { watcher_.cpu_cores(scheduledFrom, scheduledUntil) };
-            const auto scheduledRssAfter { watcher_.rss_mb_now() };
-            summary["scheduledWorkSeconds"] = seconds_between(scheduledFrom, scheduledUntil);
-            summary["scheduledWorkCpuCores"] = scheduledCores ? Json(*scheduledCores) : Json(nullptr);
-            summary["scheduledWorkRssBeforeMB"] = scheduledRssBefore ? Json(*scheduledRssBefore) : Json(nullptr);
-            summary["scheduledWorkRssAfterMB"] = scheduledRssAfter ? Json(*scheduledRssAfter) : Json(nullptr);
-            summary["scheduledEngineActivity"] = tailer_.activity_between(scheduledFrom, scheduledUntil);
-            if (!unfinished.empty()) {
-                summary["activityAtTimeout"] = activity_snapshot(readyReport);
-                return finish_measure({ "the engine never became idle: " + unfinished }, std::move(summary), "background work did not finish within its bound");
+            const auto drained = drain_background(std::chrono::seconds { check.value("background-work-seconds", 900) },
+                std::chrono::seconds { check.value("warmup-seconds", 60) });
+            summary["scheduledWorkSeconds"] = drained.measure["seconds"];
+            summary["scheduledWorkCpuCores"] = drained.measure["cpuCores"];
+            summary["scheduledWorkRssBeforeMB"] = drained.measure["rssBeforeMB"];
+            summary["scheduledWorkRssAfterMB"] = drained.measure["rssAfterMB"];
+            summary["scheduledEngineActivity"] = drained.measure["engineActivity"];
+            if (!drained.unfinished.empty()) {
+                summary["activityAtTimeout"] = drained.measure["activityAtEnd"];
+                return finish_measure({ "the engine never became idle: " + drained.unfinished }, std::move(summary), "background work did not finish within its bound");
             }
-            const Json before = activity_snapshot(readyReport);
+            const Json before = activity_snapshot(drained.report);
             const auto rssBefore { watcher_.rss_mb_now() };
             const auto from { Clock::now() };
             client_.pump_until(from + std::chrono::seconds { idle });
@@ -3682,15 +3708,24 @@ public:
             auto original = fs::read_file(path);
             if (!original || from.empty() || !original->contains(from)) return { false, std::format("{} has no '{}'", file, from) };
             const std::string changed { base::replace_all(*original, from, replace.value("with", std::string {})) };
-            if (!settle(std::chrono::seconds { check.value("settle-seconds", 900) })) return { false, "the project did not settle before the change" };
+            const std::chrono::seconds drainBound { check.value("background-work-seconds", 900) };
+            const auto beforeChange = drain_background(drainBound);
+            summary["beforeChangeDrain"] = beforeChange.measure;
+            if (!beforeChange.unfinished.empty()) return finish_measure({ "before the configuration change: " + beforeChange.unfinished },
+                std::move(summary), "background work did not finish within its bound");
             std::size_t samplesBefore { client_.statusSamples.size() };
             auto t0 { Clock::now() };
             (void)fs::write_file(path, changed);
             report_file_change(path, 2);
             const auto changeSeconds { replanned_since(t0, samplesBefore, waitFor) };
-            const bool settledAfterChange { settle(std::chrono::seconds { check.value("settle-seconds", 900) }) };
+            // A momentary ready status does not finish the new configuration's preparation.
+            // Count from before undo, including every fast build during replan, after its finite work drains.
+            const auto changedWork = drain_background(drainBound);
+            summary["beforeRevertDrain"] = changedWork.measure;
+            if (!changedWork.unfinished.empty()) return finish_measure({ "before undo: " + changedWork.unfinished },
+                std::move(summary), "background work did not finish within its bound");
             const auto pcmBeforeRevert { all_module_files(cacheDirectory_) };
-            summary["activityBeforeChange"] = activity_snapshot(before);
+            summary["activityBeforeChange"] = activity_snapshot(beforeChange.report);
             samplesBefore = client_.statusSamples.size();
             const Json beforeRevert = root_report();
             const auto completedBefore { completed_module_builds(beforeRevert) };
@@ -3700,9 +3735,10 @@ public:
             (void)fs::write_file(path, *original);
             report_file_change(path, 2);
             const auto revertSeconds { replanned_since(t0, samplesBefore, waitFor) };
-            const bool settledAfterRevert { settle(std::chrono::seconds { check.value("settle-seconds", 900) }) };
+            const auto restored = drain_background(drainBound);
+            summary["afterRevertDrain"] = restored.measure;
             const std::size_t rebuilt { builds_since(pcmBeforeRevert, all_module_files(cacheDirectory_)).rebuilt };
-            const Json after = root_report();
+            const Json after = restored.report;
             const auto completedAfter { completed_module_builds(after) };
             tailer_.poll();
             const auto actualBuilds { completedBefore && completedAfter && *completedAfter >= *completedBefore
@@ -3725,7 +3761,7 @@ public:
             else enforce_max(check, "revertSeconds", revertSeconds, "the project described again after the change was undone", "s", failures);
             if (!actualBuilds) failures.push_back("cannot measure module builds after undo: no engine completion counter or log");
             else enforce_max(check, "revertNewBmi", static_cast<double>(*actualBuilds), "modules built again after the change was undone", "", failures);
-            if (!settledAfterChange || !settledAfterRevert) failures.push_back("the project did not settle");
+            if (!restored.unfinished.empty()) failures.push_back("after undo: " + restored.unfinished);
             brief = std::format("changed {}: described again after {}; undone: after {}, {} module file(s) built again", file, text(changeSeconds), text(revertSeconds), actualBuilds.value_or(-1));
         } else {
             return { false, std::format("unknown graph-edit action {}", action) };

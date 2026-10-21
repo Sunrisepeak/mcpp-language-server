@@ -1,0 +1,150 @@
+{
+  "checks": [
+    {
+      "detail": "[\"file:///home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-work/ux-mcpp/src/cli.cppm\"]",
+      "id": "U2-jump",
+      "kind": "definition",
+      "ok": true,
+      "seconds": 0.758119703,
+      "since-start": 3.200581991
+    },
+    {
+      "detail": "longest stall 3.2s, 2 state changes (2 in the busiest minute), 0 error, clangd restarts 0, first ready 5.7s, prepared 5.7s",
+      "id": "U2-restarts",
+      "kind": "timeline",
+      "measure": {
+        "activityAtEnd": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundIndex": {
+                "active": false
+              },
+              "backgroundUnits": [],
+              "deferredRequests": 0,
+              "filesAwaitingDiagnostics": 0,
+              "generation": 1,
+              "heldRequests": 0,
+              "implementationIndex": {
+                "built": 4,
+                "on": true,
+                "queued": 0,
+                "running": 0,
+                "sweepComplete": true,
+                "sweepScheduled": false,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 0,
+                "done": 176,
+                "lastCompletedModule": "",
+                "limit": 1,
+                "running": 0,
+                "runningUnits": [],
+                "secondsSinceModuleBuild": null,
+                "wanted": 176,
+                "workers": 3
+              },
+              "rebuilds": {
+                "byReason": {},
+                "recent": []
+              },
+              "state": "ready"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 2,
+            "engine-database": 1,
+            "engine-start": 1,
+            "model-loaded": 1,
+            "model-source": 2,
+            "model-unchanged": 1,
+            "module-locks-cleared": 1,
+            "plan": 1,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 2,
+            "warm-adopted": 1
+          },
+          "requests": {
+            "textDocument/definition": {
+              "answeredBy": {
+                "cache": 1
+              },
+              "cancelled": 0,
+              "count": 1,
+              "empty": 0,
+              "errors": 0,
+              "lastAt": "2026-10-21T19:10:45.379Z",
+              "maxMs": 539,
+              "p50Ms": 539,
+              "p95Ms": 539
+            }
+          },
+          "state": "ready"
+        },
+        "busiestMinuteChanges": 2,
+        "clangdRestarts": 0,
+        "errorStates": 0,
+        "firstReadySeconds": 5.700040098,
+        "load": 10.96,
+        "longestEngineInactivitySeconds": 3.249755547,
+        "longestStallActivity": {
+          "events": [
+            {
+              "line": "mcppls 2026-10-21T19:10:44.975Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-work/ux-mcpp): I[04:10:44.972] Indexing c++23 standard library in the context of /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-work/ux-mcpp/src/pack/binfmt.cppm",
+              "seconds": 0.502757392
+            },
+            {
+              "line": "mcppls 2026-10-21T19:10:46.820Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-work/ux-mcpp): I[04:10:46.820] Indexed c++23 standard library: 18032 symbols, 2356 filtered",
+              "seconds": 2.506232086
+            }
+          ],
+          "historyTruncated": false,
+          "observed": 2
+        },
+        "longestStallCpuCores": 1.9110647237448708,
+        "longestStallFromSeconds": 2.450284551,
+        "longestStallSeconds": 3.249755547,
+        "longestStallToSeconds": 5.700040098,
+        "preparationStalledSamples": 0,
+        "preparedSeconds": 5.700040098,
+        "serverRestarts": 0,
+        "stateChanges": 2,
+        "statuses": 4
+      },
+      "ok": true,
+      "seconds": 300.064684818,
+      "since-start": 303.26530985
+    },
+    {
+      "detail": "0 of 176 module file(s) built again, 0 module(s) built for the first time, 0 'Built module' line(s) of modules built before",
+      "id": "U2-bmi",
+      "kind": "bmi-reuse",
+      "measure": {
+        "builtModuleLines": 0,
+        "firstBuilds": 0,
+        "load": 13.94,
+        "moduleFilesBefore": 176,
+        "moduleFilesNow": 352,
+        "newBmi": 0
+      },
+      "ok": true,
+      "seconds": 16.310722685,
+      "since-start": 319.576088337
+    }
+  ],
+  "failures": 0,
+  "first-diagnostics": null,
+  "first-navigation": 3.200581991,
+  "fixture": "ux-mcpp",
+  "initialize": 2.441398418,
+  "ready": 5.700044599,
+  "reused-workspace": true,
+  "seconds": 322.047874276
+}

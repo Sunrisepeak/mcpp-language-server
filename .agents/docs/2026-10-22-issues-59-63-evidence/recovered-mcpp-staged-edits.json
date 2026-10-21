@@ -1,0 +1,1154 @@
+{
+  "checks": [
+    {
+      "detail": "first clangd answer 1.3s after opening; then 125 s at 10 Hz, 127 completions p95 0.59s max 1.22s, 0 restart(s), 0 set aside, 0 doomed, 0 module-failed diagnostic(s), 0 stalled sample(s), 0 timeout(s), diagnostics after 1.7s",
+      "id": "U5-typing",
+      "kind": "typing",
+      "measure": {
+        "answered": 127,
+        "answeredBy": {
+          "cache": 11,
+          "clangd": 97,
+          "mcppls": 19
+        },
+        "askedAsTyped": 0,
+        "askedForIncomplete": 0,
+        "autosaveIdleMs": 0,
+        "autosaveMs": 0,
+        "clientTimeouts": 0,
+        "completion": {
+          "max": 1.224171001,
+          "n": 127,
+          "p50": 0.317548103,
+          "p95": 0.585134472
+        },
+        "completions": 127,
+        "diagnosticsRefresh": 1.683939245,
+        "doomed": 0,
+        "engineShare": 0.8503937007874016,
+        "errors": 0,
+        "filesSetAside": 0,
+        "firstOpenSeconds": 1.28113801,
+        "fromWord": 6,
+        "hz": 10.0,
+        "keysWhilePending": 0,
+        "load": 6.31,
+        "moduleFailedDiagnostics": 0,
+        "reask": "",
+        "restarts": 0,
+        "seconds": 124.670484909,
+        "serverTimeouts": 0,
+        "stalledSamples": 0,
+        "statesSeen": [
+          "ready"
+        ],
+        "typedWords": 0
+      },
+      "ok": true,
+      "seconds": 131.878938382,
+      "since-start": 134.549304762
+    },
+    {
+      "detail": "first clangd answer 1.3s after opening; then 124 s at 10 Hz, 126 completions p95 0.75s max 1.16s, 0 restart(s), 0 set aside, 0 doomed, 0 module-failed diagnostic(s), 0 stalled sample(s), 0 timeout(s), diagnostics after 1.7s",
+      "id": "U6-typing-autosave",
+      "kind": "typing",
+      "measure": {
+        "answered": 126,
+        "answeredBy": {
+          "cache": 18,
+          "clangd": 88,
+          "mcppls": 20
+        },
+        "askedAsTyped": 0,
+        "askedForIncomplete": 0,
+        "autosaveIdleMs": 0,
+        "autosaveMs": 1000,
+        "clientTimeouts": 0,
+        "completion": {
+          "max": 1.160927711,
+          "n": 126,
+          "p50": 0.312486454,
+          "p95": 0.750774903
+        },
+        "completions": 126,
+        "diagnosticsRefresh": 1.672935056,
+        "doomed": 0,
+        "engineShare": 0.8412698412698413,
+        "errors": 0,
+        "filesSetAside": 0,
+        "firstOpenSeconds": 1.299806236,
+        "fromWord": 6,
+        "hz": 10.0,
+        "keysWhilePending": 0,
+        "load": 5.98,
+        "moduleFailedDiagnostics": 0,
+        "reask": "",
+        "restarts": 0,
+        "seconds": 123.816599834,
+        "serverTimeouts": 0,
+        "stalledSamples": 0,
+        "statesSeen": [
+          "ready"
+        ],
+        "typedWords": 0
+      },
+      "ok": true,
+      "seconds": 130.774630213,
+      "since-start": 265.323989381
+    },
+    {
+      "detail": "first clangd answer 1.2s after opening; then 93 s at 10 Hz, 95 completions p95 0.25s max 0.81s, importer 95 completions p95 0.33s 0 empty 7 module-failed, 0 restart(s), 0 set aside, 0 doomed, 0 module-failed diagnostic(s), 0 stalled sample(s), 0 timeout(s), diagnostics after never",
+      "id": "U16-module-autosave",
+      "kind": "typing",
+      "measure": {
+        "answered": 95,
+        "answeredBy": {
+          "cache": 2,
+          "clangd": 188
+        },
+        "askedAsTyped": 0,
+        "askedForIncomplete": 0,
+        "autosaveIdleMs": 1000,
+        "autosaveMs": 0,
+        "clientTimeouts": 0,
+        "completion": {
+          "max": 0.813007608,
+          "n": 95,
+          "p50": 0.047082633,
+          "p95": 0.25367855
+        },
+        "completions": 95,
+        "diagnosticsRefresh": null,
+        "doomed": 0,
+        "engineShare": 1.0,
+        "errors": 0,
+        "filesSetAside": 0,
+        "firstOpenSeconds": 1.242002797,
+        "fromWord": 90,
+        "hz": 10.0,
+        "importer": {
+          "answered": 95,
+          "completion": {
+            "max": 0.590440969,
+            "n": 95,
+            "p50": 0.003510245,
+            "p95": 0.334349203
+          },
+          "completions": 95,
+          "empty": 0,
+          "file": "src/pack/prebuilt.cppm",
+          "moduleFailedDiagnostics": 7
+        },
+        "keysWhilePending": 0,
+        "load": 3.37,
+        "moduleFailedDiagnostics": 0,
+        "reask": "",
+        "restarts": 0,
+        "seconds": 92.703672046,
+        "serverTimeouts": 0,
+        "stalledSamples": 0,
+        "statesSeen": [
+          "ready"
+        ],
+        "typedWords": 0
+      },
+      "ok": true,
+      "seconds": 96.731236818,
+      "since-start": 362.055277276
+    },
+    {
+      "detail": "8 importers republished after 5.9s, probe cleared after 4.1s, interactive p95 0.69s max 0.69s, jump after 6.1s, states []",
+      "id": "U7a-fanout-save",
+      "kind": "edit-save",
+      "measure": {
+        "completion": {
+          "max": 0.693727562,
+          "n": 6,
+          "p50": 0.549472322,
+          "p95": 0.693727562
+        },
+        "completionsUnanswered": 0,
+        "engineShare": 1.0,
+        "errorSamples": 0,
+        "importers": 8,
+        "load": 4.64,
+        "probeSeconds": 4.121572811,
+        "recoverSeconds": 6.123637135,
+        "republishSeconds": 5.929633932,
+        "restarts": 0,
+        "statesSeen": []
+      },
+      "ok": true,
+      "seconds": 40.042031218,
+      "since-start": 402.097358768
+    },
+    {
+      "detail": "added src/ux_probe.cppm: the graph followed after 0.2s, 0 restart(s)",
+      "id": "U8-add-module",
+      "kind": "graph-edit",
+      "measure": {
+        "action": "add",
+        "graphSeconds": 0.176443196,
+        "load": 5.08,
+        "restarts": 0
+      },
+      "ok": true,
+      "seconds": 10.313881532,
+      "since-start": 412.411289236
+    },
+    {
+      "detail": "removed src/ux_probe.cppm: the graph followed after 0.2s, 0 restart(s)",
+      "id": "U8-remove-module",
+      "kind": "graph-edit",
+      "measure": {
+        "action": "remove",
+        "graphSeconds": 0.176305009,
+        "load": 5.3,
+        "restarts": 0
+      },
+      "ok": true,
+      "seconds": 10.314931957,
+      "since-start": 422.726273337
+    },
+    {
+      "detail": "changed mcpp.toml: described again after 3.3s; undone: after 3.3s, 0 module file(s) built again",
+      "id": "U8-config",
+      "kind": "graph-edit",
+      "measure": {
+        "action": "config",
+        "activityAfterRevert": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundIndex": {
+                "active": false
+              },
+              "backgroundUnits": [],
+              "deferredRequests": 0,
+              "filesAwaitingDiagnostics": 0,
+              "generation": 5,
+              "heldRequests": 0,
+              "implementationIndex": {
+                "built": 0,
+                "on": true,
+                "queued": 0,
+                "running": 0,
+                "sweepComplete": false,
+                "sweepScheduled": true,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 178,
+                "done": 155,
+                "lastCompletedModule": "mcpp.build.ninja",
+                "limit": 1,
+                "running": 0,
+                "runningUnits": [],
+                "secondsSinceModuleBuild": 49,
+                "wanted": 155,
+                "workers": 3
+              },
+              "rebuilds": {
+                "byReason": {
+                  "input": 19,
+                  "no-bmi": 179
+                },
+                "recent": [
+                  {
+                    "module": "mcpp.pm.resolver",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack.prebuilt",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.lockfile",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.runtime.elf",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.detect",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.loader_contract",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fetcher.progress",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.symbol_provision",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.hostflags",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.modgraph.p1689",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.post_install",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.resources",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.modgraph.scanner",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.stdmod",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.hostprogram",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.plan",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pm.index_refresh",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.build_program",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.prepare_inputs",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.modgraph.validate",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.cache_key",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.test_targets",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.flags",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.runtime_validation",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.backend",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.compile_commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.ninja",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fetcher.progress",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fetcher.progress",
+                    "why": "file '~/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-work/ux-mcpp/src/fetcher/progress.cppm' has been modified since the precompiled file '~/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-cache/workspaces/ux-mcpp-9741eb42850123a3/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-260-1/payload.pcm' was built"
+                  }
+                ]
+              },
+              "state": "ready"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 4,
+            "engine-database": 3,
+            "engine-plan-diff": 2,
+            "engine-restart": 2,
+            "engine-restart-scheduled": 2,
+            "engine-start": 3,
+            "model-loaded": 3,
+            "model-source": 4,
+            "model-unchanged": 1,
+            "module-built": 178,
+            "module-failed": 4,
+            "module-failed-unplaced": 10,
+            "module-locks-cleared": 3,
+            "module-retry": 4,
+            "plan": 16,
+            "scan-failed": 16,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 6,
+            "warm-adopted": 1
+          },
+          "requests": {
+            "textDocument/completion": {
+              "answeredBy": {
+                "cache": 31,
+                "clangd": 383,
+                "mcppls": 39
+              },
+              "cancelled": 0,
+              "count": 453,
+              "empty": 0,
+              "engineAnswered": 256,
+              "engineP50Ms": 167,
+              "engineP95Ms": 454,
+              "errors": 0,
+              "lastAt": "2026-10-21T19:22:24.115Z",
+              "maxMs": 761,
+              "overheadP50Ms": 4,
+              "overheadP95Ms": 13,
+              "p50Ms": 19,
+              "p95Ms": 401
+            }
+          },
+          "state": "ready"
+        },
+        "activityBeforeChange": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundIndex": {
+                "active": false
+              },
+              "backgroundUnits": [],
+              "deferredRequests": 0,
+              "filesAwaitingDiagnostics": 0,
+              "generation": 1,
+              "heldRequests": 0,
+              "implementationIndex": {
+                "built": 4,
+                "on": true,
+                "queued": 0,
+                "running": 0,
+                "sweepComplete": false,
+                "sweepScheduled": false,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 42,
+                "done": 156,
+                "lastCompletedModule": "mcpp.pack.pipeline",
+                "limit": 1,
+                "running": 0,
+                "runningUnits": [],
+                "secondsSinceModuleBuild": 28,
+                "wanted": 156,
+                "workers": 3
+              },
+              "rebuilds": {
+                "byReason": {
+                  "input": 18,
+                  "no-bmi": 41
+                },
+                "recent": [
+                  {
+                    "module": "mcpp.toolchain.gcc",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.hermetic",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.clang",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.registry",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.detect",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fetcher.progress",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.modgraph.p1689",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.hostflags",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.resources",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.post_install",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.stdmod",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.hostprogram",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.modgraph.scanner",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.lifecycle",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pm.index_refresh",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.build_program",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.prepare_inputs",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.plan",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.modgraph.validate",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.test_targets",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.cache_key",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.runtime_validation",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.flags",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.backend",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.compile_commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.ninja",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.prepare",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack.pipeline",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fetcher.progress",
+                    "why": "file '~/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-work/ux-mcpp/src/fetcher/progress.cppm' has been modified since the precompiled file '~/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-cache/workspaces/ux-mcpp-9741eb42850123a3/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-262-3/payload.pcm' was built"
+                  }
+                ]
+              },
+              "state": "ready"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 2,
+            "engine-database": 1,
+            "engine-start": 1,
+            "model-loaded": 1,
+            "model-source": 2,
+            "model-unchanged": 1,
+            "module-built": 42,
+            "module-failed": 4,
+            "module-failed-unplaced": 8,
+            "module-locks-cleared": 1,
+            "module-retry": 2,
+            "plan": 12,
+            "scan-failed": 16,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 2,
+            "warm-adopted": 1
+          },
+          "requests": {
+            "textDocument/completion": {
+              "answeredBy": {
+                "cache": 31,
+                "clangd": 383,
+                "mcppls": 39
+              },
+              "cancelled": 0,
+              "count": 453,
+              "empty": 0,
+              "engineAnswered": 256,
+              "engineP50Ms": 167,
+              "engineP95Ms": 454,
+              "errors": 0,
+              "lastAt": "2026-10-21T19:22:24.115Z",
+              "maxMs": 761,
+              "overheadP50Ms": 4,
+              "overheadP95Ms": 13,
+              "p50Ms": 19,
+              "p95Ms": 401
+            }
+          },
+          "state": "ready"
+        },
+        "activityBeforeRevert": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundIndex": {
+                "active": false
+              },
+              "backgroundUnits": [],
+              "deferredRequests": 0,
+              "filesAwaitingDiagnostics": 0,
+              "generation": 3,
+              "heldRequests": 0,
+              "implementationIndex": {
+                "built": 0,
+                "on": true,
+                "queued": 0,
+                "running": 0,
+                "sweepComplete": false,
+                "sweepScheduled": true,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 178,
+                "done": 155,
+                "lastCompletedModule": "mcpp.build.ninja",
+                "limit": 1,
+                "running": 0,
+                "runningUnits": [],
+                "secondsSinceModuleBuild": 11,
+                "wanted": 155,
+                "workers": 3
+              },
+              "rebuilds": {
+                "byReason": {
+                  "input": 18,
+                  "no-bmi": 179
+                },
+                "recent": [
+                  {
+                    "module": "mcpp.pm.index_route",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pm.resolver",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack.prebuilt",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.lockfile",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.runtime.elf",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.detect",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.loader_contract",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fetcher.progress",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.symbol_provision",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.hostflags",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.modgraph.p1689",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.post_install",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.resources",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.modgraph.scanner",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.stdmod",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.hostprogram",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.plan",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pm.index_refresh",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.build_program",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.prepare_inputs",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.modgraph.validate",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.cache_key",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.test_targets",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.flags",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.runtime_validation",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.backend",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.compile_commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.ninja",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fetcher.progress",
+                    "why": "no BMI for this command and these prerequisites"
+                  }
+                ]
+              },
+              "state": "ready"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 3,
+            "engine-database": 2,
+            "engine-plan-diff": 1,
+            "engine-restart": 1,
+            "engine-restart-scheduled": 1,
+            "engine-start": 2,
+            "model-loaded": 2,
+            "model-source": 3,
+            "model-unchanged": 1,
+            "module-built": 178,
+            "module-failed": 4,
+            "module-failed-unplaced": 9,
+            "module-locks-cleared": 2,
+            "module-retry": 3,
+            "plan": 14,
+            "scan-failed": 16,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 4,
+            "warm-adopted": 1
+          },
+          "requests": {
+            "textDocument/completion": {
+              "answeredBy": {
+                "cache": 31,
+                "clangd": 383,
+                "mcppls": 39
+              },
+              "cancelled": 0,
+              "count": 453,
+              "empty": 0,
+              "engineAnswered": 256,
+              "engineP50Ms": 167,
+              "engineP95Ms": 454,
+              "errors": 0,
+              "lastAt": "2026-10-21T19:22:24.115Z",
+              "maxMs": 761,
+              "overheadP50Ms": 4,
+              "overheadP95Ms": 13,
+              "p50Ms": 19,
+              "p95Ms": 401
+            }
+          },
+          "state": "ready"
+        },
+        "changeSeconds": 3.34064946,
+        "load": 3.35,
+        "revertBuildCountSource": "engine-completions",
+        "revertChangedModuleFiles": 0,
+        "revertEngineActivity": {
+          "events": [
+            {
+              "line": "mcppls 2026-10-21T19:24:16.604Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-work/ux-mcpp): I[04:24:16.601] Indexing c++23 standard library in the context of /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-work/ux-mcpp/modules/log/src/log.cppm",
+              "seconds": 8.29489686
+            },
+            {
+              "line": "mcppls 2026-10-21T19:24:18.314Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-work/ux-mcpp): I[04:24:18.314] Rebuilding module mcpp.fetcher.progress: file '/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-work/ux-mcpp/src/fetcher/progress.cppm' has been modified since the precompiled file '/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-cache/workspaces/ux-mcpp-9741eb42850123a3/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-260-1/payload.pcm' was built",
+              "seconds": 9.8029568
+            },
+            {
+              "line": "mcppls 2026-10-21T19:24:18.421Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-work/ux-mcpp): I[04:24:18.421] Indexed c++23 standard library: 18032 symbols, 2356 filtered",
+              "seconds": 9.803047626
+            }
+          ],
+          "historyTruncated": false,
+          "observed": 3
+        },
+        "revertNewBmi": 0,
+        "revertRestarts": 1,
+        "revertSeconds": 3.323328587
+      },
+      "ok": true,
+      "seconds": 98.645030719,
+      "since-start": 521.371352417
+    },
+    {
+      "detail": "longest stall 7.0s, 8 state changes (6 in the busiest minute), 0 error, clangd restarts 2, first ready 9.7s, prepared 474.6s",
+      "id": "U15-edits",
+      "kind": "timeline",
+      "measure": {
+        "activityAtEnd": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundIndex": {
+                "active": false
+              },
+              "backgroundUnits": [],
+              "deferredRequests": 0,
+              "filesAwaitingDiagnostics": 0,
+              "generation": 5,
+              "heldRequests": 0,
+              "implementationIndex": {
+                "built": 0,
+                "on": true,
+                "queued": 0,
+                "running": 0,
+                "sweepComplete": false,
+                "sweepScheduled": true,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 178,
+                "done": 155,
+                "lastCompletedModule": "mcpp.build.ninja",
+                "limit": 1,
+                "running": 0,
+                "runningUnits": [],
+                "secondsSinceModuleBuild": 49,
+                "wanted": 155,
+                "workers": 3
+              },
+              "rebuilds": {
+                "byReason": {
+                  "input": 19,
+                  "no-bmi": 179
+                },
+                "recent": [
+                  {
+                    "module": "mcpp.pm.resolver",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack.prebuilt",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.lockfile",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.runtime.elf",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.detect",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.loader_contract",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fetcher.progress",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.symbol_provision",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.hostflags",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.modgraph.p1689",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.post_install",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.resources",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.modgraph.scanner",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.stdmod",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.hostprogram",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.plan",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pm.index_refresh",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.build_program",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.prepare_inputs",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.modgraph.validate",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.cache_key",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.test_targets",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.flags",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.runtime_validation",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.backend",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.compile_commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.ninja",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fetcher.progress",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fetcher.progress",
+                    "why": "file '~/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-work/ux-mcpp/src/fetcher/progress.cppm' has been modified since the precompiled file '~/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-cache/workspaces/ux-mcpp-9741eb42850123a3/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-260-1/payload.pcm' was built"
+                  }
+                ]
+              },
+              "state": "ready"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 4,
+            "engine-database": 3,
+            "engine-plan-diff": 2,
+            "engine-restart": 2,
+            "engine-restart-scheduled": 2,
+            "engine-start": 3,
+            "model-loaded": 3,
+            "model-source": 4,
+            "model-unchanged": 1,
+            "module-built": 178,
+            "module-failed": 4,
+            "module-failed-unplaced": 10,
+            "module-locks-cleared": 3,
+            "module-retry": 4,
+            "plan": 16,
+            "scan-failed": 16,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 6,
+            "warm-adopted": 1
+          },
+          "requests": {
+            "textDocument/completion": {
+              "answeredBy": {
+                "cache": 31,
+                "clangd": 383,
+                "mcppls": 39
+              },
+              "cancelled": 0,
+              "count": 453,
+              "empty": 0,
+              "engineAnswered": 256,
+              "engineP50Ms": 167,
+              "engineP95Ms": 454,
+              "errors": 0,
+              "lastAt": "2026-10-21T19:22:24.115Z",
+              "maxMs": 761,
+              "overheadP50Ms": 4,
+              "overheadP95Ms": 13,
+              "p50Ms": 19,
+              "p95Ms": 401
+            }
+          },
+          "state": "ready"
+        },
+        "busiestMinuteChanges": 6,
+        "clangdRestarts": 2,
+        "errorStates": 0,
+        "firstReadySeconds": 9.711767206,
+        "load": 3.35,
+        "longestEngineInactivitySeconds": 6.996643534,
+        "longestStallActivity": {
+          "events": [
+            {
+              "line": "mcppls 2026-10-21T19:16:08.950Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-work/ux-mcpp): I[04:16:08.949] Indexing c++23 standard library in the context of /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-work/ux-mcpp/src/pack/binfmt.cppm",
+              "seconds": 0.46545452
+            },
+            {
+              "line": "mcppls 2026-10-21T19:16:10.775Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-work/ux-mcpp): I[04:16:10.775] Indexed c++23 standard library: 18032 symbols, 2356 filtered",
+              "seconds": 2.469500864
+            },
+            {
+              "line": "mcppls 2026-10-21T19:16:14.500Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-work/ux-mcpp): I[04:16:14.500] Rebuilding module mcpp.build.execute: file '/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-work/ux-mcpp/src/build/execute.cppm' has been modified since the precompiled file '/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-staged-cache/workspaces/ux-mcpp-9741eb42850123a3/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-341-1/payload.pcm' was built",
+              "seconds": 5.985001421
+            }
+          ],
+          "historyTruncated": false,
+          "observed": 3
+        },
+        "longestStallCpuCores": 1.2284490562888597,
+        "longestStallFromSeconds": 2.715123672,
+        "longestStallSeconds": 6.996643534,
+        "longestStallToSeconds": 9.711767206,
+        "preparationStalledSamples": 0,
+        "preparedSeconds": 474.620888725,
+        "serverRestarts": 0,
+        "stateChanges": 8,
+        "statuses": 120
+      },
+      "ok": true,
+      "seconds": 0.18703981,
+      "since-start": 521.558440816
+    }
+  ],
+  "failures": 0,
+  "first-diagnostics": 12.119110422,
+  "first-navigation": null,
+  "fixture": "ux-mcpp",
+  "initialize": 2.666346278,
+  "ready": 9.711771925,
+  "reused-workspace": true,
+  "seconds": 522.413428803
+}

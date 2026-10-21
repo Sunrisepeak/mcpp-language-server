@@ -1,5 +1,16 @@
 # Local VS Code E2E evidence
 
+## Frozen configuration-publication implementation
+
+After the CDB retirement and generated-input publication fixes, the complete VS Code 1.143.0
+main suite again passes: **44 passing, 1 expected platform-specific pending**, exit 0,
+workspace unchanged. This run uses release-profile server SHA-256
+`086ec76e66d0e76919281e8a2d0d0203aa5dc6fd2acd0077217fba29f37a9f4c` and the same verified
+official .4 engine payload. The persistent log is
+`.payload-cache/59-63-publication-prefix-vscode.log`. It remains a development-extension
+check of the release server; published VSIX installation and the retained 0.0.16 profile's
+upgrade are separate final-release checks.
+
 ## Persistent release-profile checkpoint after the environment rebuild
 
 The actual VS Code 1.143.0 application completed the main suite with **44 passing, 1 expected

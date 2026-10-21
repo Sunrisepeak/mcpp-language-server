@@ -1,0 +1,1394 @@
+{
+  "checks": [
+    {
+      "detail": "first clangd answer 1.1s after opening; then 124 s at 10 Hz, 127 completions p95 0.88s max 1.86s, 0 restart(s), 0 set aside, 0 doomed, 0 module-failed diagnostic(s), 0 stalled sample(s), 0 timeout(s), diagnostics after 2.5s",
+      "id": "U5-typing",
+      "kind": "typing",
+      "measure": {
+        "answered": 127,
+        "answeredBy": {
+          "cache": 24,
+          "clangd": 81,
+          "mcppls": 22
+        },
+        "askedAsTyped": 0,
+        "askedForIncomplete": 0,
+        "autosaveIdleMs": 0,
+        "autosaveMs": 0,
+        "clientTimeouts": 0,
+        "completion": {
+          "max": 1.863909349,
+          "n": 127,
+          "p50": 0.319691812,
+          "p95": 0.884405569
+        },
+        "completions": 127,
+        "diagnosticsRefresh": 2.469572076,
+        "doomed": 0,
+        "engineShare": 0.8267716535433071,
+        "errors": 0,
+        "filesSetAside": 0,
+        "firstOpenSeconds": 1.135530061,
+        "fromWord": 7,
+        "hz": 10.0,
+        "keysWhilePending": 0,
+        "load": 5.82,
+        "moduleFailedDiagnostics": 0,
+        "reask": "",
+        "restarts": 0,
+        "seconds": 123.804393449,
+        "serverTimeouts": 0,
+        "stalledSamples": 0,
+        "statesSeen": [
+          "ready"
+        ],
+        "typedWords": 0
+      },
+      "ok": true,
+      "seconds": 132.469268033,
+      "since-start": 134.557756392
+    },
+    {
+      "detail": "first clangd answer 1.2s after opening; then 123 s at 10 Hz, 125 completions p95 0.83s max 1.20s, 0 restart(s), 0 set aside, 0 doomed, 0 module-failed diagnostic(s), 0 stalled sample(s), 0 timeout(s), diagnostics after 3.2s",
+      "id": "U6-typing-autosave",
+      "kind": "typing",
+      "measure": {
+        "answered": 125,
+        "answeredBy": {
+          "cache": 8,
+          "clangd": 97,
+          "mcppls": 20
+        },
+        "askedAsTyped": 0,
+        "askedForIncomplete": 0,
+        "autosaveIdleMs": 0,
+        "autosaveMs": 1000,
+        "clientTimeouts": 0,
+        "completion": {
+          "max": 1.197159164,
+          "n": 125,
+          "p50": 0.256548436,
+          "p95": 0.825286348
+        },
+        "completions": 125,
+        "diagnosticsRefresh": 3.239684796,
+        "doomed": 0,
+        "engineShare": 0.84,
+        "errors": 0,
+        "filesSetAside": 0,
+        "firstOpenSeconds": 1.238023579,
+        "fromWord": 4,
+        "hz": 10.0,
+        "keysWhilePending": 0,
+        "load": 3.18,
+        "moduleFailedDiagnostics": 0,
+        "reask": "",
+        "restarts": 0,
+        "seconds": 122.897827093,
+        "serverTimeouts": 0,
+        "stalledSamples": 0,
+        "statesSeen": [
+          "ready"
+        ],
+        "typedWords": 0
+      },
+      "ok": true,
+      "seconds": 131.348676365,
+      "since-start": 265.906466841
+    },
+    {
+      "detail": "first clangd answer 1.2s after opening; then 93 s at 10 Hz, 95 completions p95 0.27s max 0.69s, importer 95 completions p95 0.33s 0 empty 7 module-failed, 0 restart(s), 0 set aside, 0 doomed, 0 module-failed diagnostic(s), 0 stalled sample(s), 0 timeout(s), diagnostics after never",
+      "id": "U16-module-autosave",
+      "kind": "typing",
+      "measure": {
+        "answered": 95,
+        "answeredBy": {
+          "cache": 3,
+          "clangd": 187
+        },
+        "askedAsTyped": 0,
+        "askedForIncomplete": 0,
+        "autosaveIdleMs": 1000,
+        "autosaveMs": 0,
+        "clientTimeouts": 0,
+        "completion": {
+          "max": 0.694204818,
+          "n": 95,
+          "p50": 0.05175156,
+          "p95": 0.272262023
+        },
+        "completions": 95,
+        "diagnosticsRefresh": null,
+        "doomed": 0,
+        "engineShare": 1.0,
+        "errors": 0,
+        "filesSetAside": 0,
+        "firstOpenSeconds": 1.182959454,
+        "fromWord": 91,
+        "hz": 10.0,
+        "importer": {
+          "answered": 95,
+          "completion": {
+            "max": 0.694263199,
+            "n": 95,
+            "p50": 0.003678315,
+            "p95": 0.333539756
+          },
+          "completions": 95,
+          "empty": 0,
+          "file": "src/pack/prebuilt.cppm",
+          "moduleFailedDiagnostics": 7
+        },
+        "keysWhilePending": 0,
+        "load": 5.13,
+        "moduleFailedDiagnostics": 0,
+        "reask": "",
+        "restarts": 0,
+        "seconds": 92.863868644,
+        "serverTimeouts": 0,
+        "stalledSamples": 0,
+        "statesSeen": [
+          "ready"
+        ],
+        "typedWords": 0
+      },
+      "ok": true,
+      "seconds": 96.366461399,
+      "since-start": 362.272969485
+    },
+    {
+      "detail": "8 importers republished after 10.9s, probe cleared after 8.7s, interactive p95 1.04s max 1.04s, jump after 11.3s, states [\"ready\"]",
+      "id": "U7a-fanout-save",
+      "kind": "edit-save",
+      "measure": {
+        "completion": {
+          "max": 1.0383233,
+          "n": 11,
+          "p50": 0.490529427,
+          "p95": 1.0383233
+        },
+        "completionsUnanswered": 0,
+        "engineShare": 1.0,
+        "errorSamples": 0,
+        "importers": 8,
+        "load": 5.29,
+        "probeSeconds": 8.661179868,
+        "recoverSeconds": 11.273359551,
+        "republishSeconds": 10.869300087,
+        "restarts": 0,
+        "statesSeen": [
+          "ready"
+        ]
+      },
+      "ok": true,
+      "seconds": 44.657077032,
+      "since-start": 406.930096871
+    },
+    {
+      "detail": "added src/ux_probe.cppm: the graph followed after 0.1s, 0 restart(s)",
+      "id": "U8-add-module",
+      "kind": "graph-edit",
+      "measure": {
+        "action": "add",
+        "graphSeconds": 0.118282497,
+        "load": 4.63,
+        "restarts": 0
+      },
+      "ok": true,
+      "seconds": 10.21766897,
+      "since-start": 417.147799032
+    },
+    {
+      "detail": "removed src/ux_probe.cppm: the graph followed after 0.1s, 0 restart(s)",
+      "id": "U8-remove-module",
+      "kind": "graph-edit",
+      "measure": {
+        "action": "remove",
+        "graphSeconds": 0.125305761,
+        "load": 4.38,
+        "restarts": 0
+      },
+      "ok": true,
+      "seconds": 10.224355089,
+      "since-start": 427.372186359
+    },
+    {
+      "detail": "modules built again after the change was undone 28.00 is over the budget 0.00; changed mcpp.toml: described again after 2.9s; undone: after 3.3s, 28 module file(s) built again",
+      "id": "U8-config",
+      "kind": "graph-edit",
+      "measure": {
+        "action": "config",
+        "activityAfterRevert": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundIndex": {
+                "active": false
+              },
+              "backgroundUnits": [],
+              "deferredRequests": 0,
+              "filesAwaitingDiagnostics": 0,
+              "generation": 5,
+              "heldRequests": 0,
+              "implementationIndex": {
+                "built": 0,
+                "on": true,
+                "queued": 0,
+                "running": 0,
+                "sweepComplete": false,
+                "sweepScheduled": true,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 114,
+                "done": 155,
+                "lastCompletedModule": "mcpp.fallback.legacy_dirs",
+                "limit": 1,
+                "running": 0,
+                "runningUnits": [],
+                "secondsSinceModuleBuild": 22,
+                "wanted": 155,
+                "workers": 2
+              },
+              "rebuilds": {
+                "byReason": {
+                  "input": 20,
+                  "no-bmi": 114
+                },
+                "recent": [
+                  {
+                    "module": "mcpp.pack.stage_tree",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.model",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.dep_graph",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.manifest",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.link_line",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack.abi_tag",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.cmdlimits",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.fingerprint",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.dyndep",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack.digest",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack.binfmt",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack.zip",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.freestanding.runner",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.modgraph.graph",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.cenv",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fallback.install_integrity",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fallback.xpkg_copy",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.provisions",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack.relocate",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.manifest.flag_words",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pm.compat",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.targetside",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.platform",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.source_kind",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pm.index_contract",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.refusal",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.manifest.types",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fallback.legacy_dirs",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.platform.axis",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fetcher.progress",
+                    "why": "file '~/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/fetcher/progress.cppm' has been modified since the precompiled file '~/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-254-1/payload.pcm' was built"
+                  }
+                ]
+              },
+              "state": "ready"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 4,
+            "engine-database": 3,
+            "engine-plan-diff": 2,
+            "engine-restart": 2,
+            "engine-restart-scheduled": 2,
+            "engine-start": 3,
+            "model-loaded": 3,
+            "model-source": 4,
+            "model-unchanged": 1,
+            "module-built": 114,
+            "module-failed": 4,
+            "module-failed-unplaced": 10,
+            "module-locks-cleared": 3,
+            "module-retry": 4,
+            "plan": 15,
+            "scan-failed": 20,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 6,
+            "warm-adopted": 1
+          },
+          "requests": {
+            "textDocument/completion": {
+              "answeredBy": {
+                "cache": 36,
+                "clangd": 379,
+                "mcppls": 42
+              },
+              "cancelled": 0,
+              "count": 457,
+              "empty": 0,
+              "engineAnswered": 256,
+              "engineP50Ms": 144,
+              "engineP95Ms": 435,
+              "errors": 0,
+              "lastAt": "2026-10-21T19:35:49.660Z",
+              "maxMs": 1166,
+              "overheadP50Ms": 3,
+              "overheadP95Ms": 12,
+              "p50Ms": 16,
+              "p95Ms": 407
+            }
+          },
+          "state": "ready"
+        },
+        "activityBeforeChange": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundIndex": {
+                "active": false
+              },
+              "backgroundUnits": [],
+              "deferredRequests": 0,
+              "filesAwaitingDiagnostics": 0,
+              "generation": 1,
+              "heldRequests": 0,
+              "implementationIndex": {
+                "built": 4,
+                "on": true,
+                "queued": 0,
+                "running": 0,
+                "sweepComplete": false,
+                "sweepScheduled": false,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 42,
+                "done": 156,
+                "lastCompletedModule": "mcpp.pack.pipeline",
+                "limit": 1,
+                "running": 0,
+                "runningUnits": [],
+                "secondsSinceModuleBuild": 29,
+                "wanted": 156,
+                "workers": 2
+              },
+              "rebuilds": {
+                "byReason": {
+                  "input": 19,
+                  "no-bmi": 41
+                },
+                "recent": [
+                  {
+                    "module": "mcpp.toolchain.gcc",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.clang",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.registry",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.hermetic",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.detect",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fetcher.progress",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.hostflags",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.modgraph.p1689",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.post_install",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.resources",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.hostprogram",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.stdmod",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.modgraph.scanner",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.lifecycle",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pm.index_refresh",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.build_program",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.prepare_inputs",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.modgraph.validate",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.plan",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.cache_key",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.test_targets",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.flags",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.runtime_validation",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.backend",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.compile_commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.ninja",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.prepare",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack.pipeline",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fetcher.progress",
+                    "why": "file '~/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/fetcher/progress.cppm' has been modified since the precompiled file '~/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-254-1/payload.pcm' was built"
+                  }
+                ]
+              },
+              "state": "ready"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 2,
+            "engine-database": 1,
+            "engine-start": 1,
+            "model-loaded": 1,
+            "model-source": 2,
+            "model-unchanged": 1,
+            "module-built": 42,
+            "module-failed": 4,
+            "module-failed-unplaced": 9,
+            "module-locks-cleared": 1,
+            "module-retry": 3,
+            "plan": 12,
+            "scan-failed": 20,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 2,
+            "warm-adopted": 1
+          },
+          "requests": {
+            "textDocument/completion": {
+              "answeredBy": {
+                "cache": 36,
+                "clangd": 379,
+                "mcppls": 42
+              },
+              "cancelled": 0,
+              "count": 457,
+              "empty": 0,
+              "engineAnswered": 256,
+              "engineP50Ms": 144,
+              "engineP95Ms": 435,
+              "errors": 0,
+              "lastAt": "2026-10-21T19:35:49.660Z",
+              "maxMs": 1166,
+              "overheadP50Ms": 3,
+              "overheadP95Ms": 12,
+              "p50Ms": 16,
+              "p95Ms": 407
+            }
+          },
+          "state": "ready"
+        },
+        "activityBeforeRevert": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundIndex": {
+                "active": false
+              },
+              "backgroundUnits": [],
+              "deferredRequests": 0,
+              "filesAwaitingDiagnostics": 11,
+              "generation": 3,
+              "heldRequests": 0,
+              "implementationIndex": {
+                "built": 0,
+                "on": true,
+                "queued": 0,
+                "running": 0,
+                "sweepComplete": false,
+                "sweepScheduled": false,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 86,
+                "done": 0,
+                "lastCompletedModule": "mcpp.manifest.xpkg",
+                "limit": 1,
+                "running": 1,
+                "runningUnits": [
+                  {
+                    "fileStatus": "",
+                    "module": "std",
+                    "seconds": 12
+                  }
+                ],
+                "secondsSinceModuleBuild": 0,
+                "wanted": 140,
+                "workers": 2
+              },
+              "rebuilds": {
+                "byReason": {
+                  "input": 19,
+                  "no-bmi": 86
+                },
+                "recent": [
+                  {
+                    "module": "mcpp.targetside",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.source_kind",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.libs.toml",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.version_req",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pm.mangle",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.version",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.program_protocol",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pm.compat.legacy",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.modgraph.glob",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.platform.process",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.refusal",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.platform.fs",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.platform.linux",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.version_floor",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pm.dependency_selector",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.predefines",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pm.compat",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fallback.config_migration",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.platform",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fallback.legacy_dirs",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.manifest.types",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.linkage_form",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.platform.axis",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.graph_shape",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.triple",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.platform.runtime_env_contract",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.manifest.toml",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.platform.runtime_search",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.manifest.xpkg",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack.stage_tree",
+                    "why": "no BMI for this command and these prerequisites"
+                  }
+                ]
+              },
+              "state": "preparing"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 3,
+            "engine-database": 2,
+            "engine-plan-diff": 1,
+            "engine-restart": 1,
+            "engine-restart-scheduled": 1,
+            "engine-start": 2,
+            "model-loaded": 2,
+            "model-source": 3,
+            "model-unchanged": 1,
+            "module-built": 86,
+            "module-failed": 4,
+            "module-failed-unplaced": 9,
+            "module-locks-cleared": 2,
+            "module-retry": 4,
+            "plan": 14,
+            "scan-failed": 20,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 4,
+            "warm-adopted": 1
+          },
+          "requests": {
+            "textDocument/completion": {
+              "answeredBy": {
+                "cache": 36,
+                "clangd": 379,
+                "mcppls": 42
+              },
+              "cancelled": 0,
+              "count": 457,
+              "empty": 0,
+              "engineAnswered": 256,
+              "engineP50Ms": 144,
+              "engineP95Ms": 435,
+              "errors": 0,
+              "lastAt": "2026-10-21T19:35:49.660Z",
+              "maxMs": 1166,
+              "overheadP50Ms": 3,
+              "overheadP95Ms": 12,
+              "p50Ms": 16,
+              "p95Ms": 407
+            }
+          },
+          "state": "preparing"
+        },
+        "changeSeconds": 2.875984591,
+        "load": 3.02,
+        "revertBuildCountSource": "engine-completions",
+        "revertChangedModuleFiles": 26,
+        "revertEngineActivity": {
+          "events": [
+            {
+              "line": "mcppls 2026-10-21T19:37:00.725Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:00.725] Built module mcpp.pack.stage_tree to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-177-4/payload.pcm",
+              "seconds": 0.255736274
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:00.752Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:00.752] Rebuilding module mcpp.toolchain.model: no BMI for this command and these prerequisites",
+              "seconds": 0.255743757
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:00.863Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:00.863] Built module mcpp.toolchain.model to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-181-4/payload.pcm",
+              "seconds": 0.255746817
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:00.905Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:00.905] Rebuilding module mcpp.build.dep_graph: no BMI for this command and these prerequisites",
+              "seconds": 0.756023714
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:00.997Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:00.997] Built module mcpp.build.dep_graph to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-185-4/payload.pcm",
+              "seconds": 0.756028471
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:01.024Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:01.024] Rebuilding module mcpp.manifest: no BMI for this command and these prerequisites",
+              "seconds": 0.756034535
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:01.070Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:01.069] Built module mcpp.manifest to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-189-4/payload.pcm",
+              "seconds": 0.756037119
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:01.095Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:01.095] Rebuilding module mcpp.build.link_line: no BMI for this command and these prerequisites",
+              "seconds": 0.756040913
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:01.141Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:01.141] Built module mcpp.build.link_line to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-193-4/payload.pcm",
+              "seconds": 0.756043515
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:01.168Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:01.167] Rebuilding module mcpp.pack.abi_tag: no BMI for this command and these prerequisites",
+              "seconds": 0.756047042
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:01.330Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:01.329] Built module mcpp.pack.abi_tag to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-197-4/payload.pcm",
+              "seconds": 0.756049538
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:01.364Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:01.364] Rebuilding module mcpp.build.cmdlimits: no BMI for this command and these prerequisites",
+              "seconds": 0.756053118
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:01.463Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:01.463] Built module mcpp.build.cmdlimits to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-201-4/payload.pcm",
+              "seconds": 1.256364907
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:01.500Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:01.500] Rebuilding module mcpp.toolchain.fingerprint: no BMI for this command and these prerequisites",
+              "seconds": 1.256374907
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:01.597Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:01.597] Built module mcpp.toolchain.fingerprint to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-205-4/payload.pcm",
+              "seconds": 1.256378438
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:01.631Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:01.630] Rebuilding module mcpp.dyndep: no BMI for this command and these prerequisites",
+              "seconds": 1.256383735
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:01.810Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:01.810] Built module mcpp.dyndep to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-209-4/payload.pcm",
+              "seconds": 1.256386937
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:01.858Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:01.858] Rebuilding module mcpp.pack.digest: no BMI for this command and these prerequisites",
+              "seconds": 1.256391338
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:02.030Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:02.030] Built module mcpp.pack.digest to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-213-4/payload.pcm",
+              "seconds": 1.759199684
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:02.084Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:02.081] Rebuilding module mcpp.pack.binfmt: no BMI for this command and these prerequisites",
+              "seconds": 1.759223716
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:02.414Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:02.413] Built module mcpp.pack.binfmt to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-217-4/payload.pcm",
+              "seconds": 2.262078406
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:02.465Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:02.465] Rebuilding module mcpp.pack.zip: no BMI for this command and these prerequisites",
+              "seconds": 2.262093118
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:02.634Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:02.634] Built module mcpp.pack.zip to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-221-4/payload.pcm",
+              "seconds": 2.262097244
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:02.665Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:02.665] Rebuilding module mcpp.freestanding.runner: no BMI for this command and these prerequisites",
+              "seconds": 2.262106345
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:02.809Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:02.808] Built module mcpp.freestanding.runner to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-225-4/payload.pcm",
+              "seconds": 2.262108805
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:02.864Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:02.864] Rebuilding module mcpp.modgraph.graph: no BMI for this command and these prerequisites",
+              "seconds": 2.262153104
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:02.991Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:02.991] Built module mcpp.modgraph.graph to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-229-4/payload.pcm",
+              "seconds": 2.762410796
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:03.021Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:03.021] Rebuilding module mcpp.toolchain.cenv: no BMI for this command and these prerequisites",
+              "seconds": 2.762422
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:03.167Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:03.167] Built module mcpp.toolchain.cenv to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-233-4/payload.pcm",
+              "seconds": 2.762424628
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:03.205Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:03.205] Rebuilding module mcpp.fallback.install_integrity: no BMI for this command and these prerequisites",
+              "seconds": 2.762432377
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:03.368Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:03.368] Built module mcpp.fallback.install_integrity to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-237-4/payload.pcm",
+              "seconds": 2.762434875
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:03.407Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:03.407] Rebuilding module mcpp.fallback.xpkg_copy: no BMI for this command and these prerequisites",
+              "seconds": 3.264088143
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:03.572Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:03.572] Built module mcpp.fallback.xpkg_copy to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-241-4/payload.pcm",
+              "seconds": 3.264092495
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:03.611Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:03.611] Rebuilding module mcpp.build.provisions: no BMI for this command and these prerequisites",
+              "seconds": 3.264100389
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:03.975Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:03.975] Built module mcpp.build.provisions to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-245-4/payload.pcm",
+              "seconds": 3.764384648
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:04.022Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:04.019] Rebuilding module mcpp.pack.relocate: no BMI for this command and these prerequisites",
+              "seconds": 3.764406256
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:04.268Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:04.268] Built module mcpp.pack.relocate to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-249-4/payload.pcm",
+              "seconds": 3.76440936
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:04.306Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:04.306] Rebuilding module mcpp.manifest.flag_words: no BMI for this command and these prerequisites",
+              "seconds": 3.764413619
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:04.391Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:04.391] Built module mcpp.manifest.flag_words to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-253-4/payload.pcm",
+              "seconds": 4.264639167
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:04.419Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:04.419] Rebuilding module mcpp.pm.compat: no BMI for this command and these prerequisites",
+              "seconds": 4.264647924
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:04.530Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:04.530] Built module mcpp.pm.compat to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-257-4/payload.pcm",
+              "seconds": 4.264651246
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:04.575Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:04.575] Rebuilding module mcpp.targetside: no BMI for this command and these prerequisites",
+              "seconds": 4.264654822
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:04.824Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:04.824] Built module mcpp.targetside to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-261-4/payload.pcm",
+              "seconds": 4.264656976
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:04.862Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:04.862] Rebuilding module mcpp.platform: no BMI for this command and these prerequisites",
+              "seconds": 4.264660372
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:04.913Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:04.913] Built module mcpp.platform to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-265-4/payload.pcm",
+              "seconds": 4.764913417
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:04.941Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:04.941] Rebuilding module mcpp.source_kind: no BMI for this command and these prerequisites",
+              "seconds": 4.76493245
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:05.133Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:05.133] Built module mcpp.source_kind to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-269-4/payload.pcm",
+              "seconds": 4.764934262
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:05.167Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:05.167] Rebuilding module mcpp.pm.index_contract: no BMI for this command and these prerequisites",
+              "seconds": 4.764937102
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:05.281Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:05.281] Built module mcpp.pm.index_contract to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-273-4/payload.pcm",
+              "seconds": 4.764939193
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:05.310Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:05.310] Rebuilding module mcpp.build.refusal: no BMI for this command and these prerequisites",
+              "seconds": 4.764941596
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:05.358Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:05.358] Built module mcpp.build.refusal to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-277-4/payload.pcm",
+              "seconds": 4.764943273
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:05.386Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:05.386] Rebuilding module mcpp.manifest.types: no BMI for this command and these prerequisites",
+              "seconds": 4.764945819
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:05.688Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:05.688] Built module mcpp.manifest.types to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-281-4/payload.pcm",
+              "seconds": 5.265155488
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:05.724Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:05.724] Rebuilding module mcpp.fallback.legacy_dirs: no BMI for this command and these prerequisites",
+              "seconds": 5.265160695
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:05.814Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:05.814] Built module mcpp.fallback.legacy_dirs to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-285-4/payload.pcm",
+              "seconds": 5.265162628
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:05.842Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:05.842] Rebuilding module mcpp.platform.axis: no BMI for this command and these prerequisites",
+              "seconds": 5.265165525
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:05.915Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:05.915] Built module mcpp.platform.axis to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-289-4/payload.pcm",
+              "seconds": 5.765604469
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:05.947Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:05.947] Rebuilding module mcpp.platform.process: no BMI for this command and these prerequisites",
+              "seconds": 5.765610589
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:07.533Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:07.531] Indexing c++23 standard library in the context of /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/modules/log/src/log.cppm",
+              "seconds": 7.274449315
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:08.993Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:08.993] Indexed c++23 standard library: 18032 symbols, 2356 filtered",
+              "seconds": 8.777453454
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:13.009Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:13.009] Rebuilding module mcpp.fetcher.progress: file '/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/fetcher/progress.cppm' has been modified since the precompiled file '/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-254-1/payload.pcm' was built",
+              "seconds": 12.78213416
+            }
+          ],
+          "historyTruncated": false,
+          "observed": 61
+        },
+        "revertNewBmi": 28,
+        "revertRestarts": 1,
+        "revertSeconds": 3.270951642
+      },
+      "ok": false,
+      "seconds": 55.775647521,
+      "since-start": 483.147864842
+    },
+    {
+      "detail": "longest stall 7.9s, 7 state changes (5 in the busiest minute), 0 error, clangd restarts 2, first ready 10.0s, prepared 470.4s",
+      "id": "U15-edits",
+      "kind": "timeline",
+      "measure": {
+        "activityAtEnd": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundIndex": {
+                "active": false
+              },
+              "backgroundUnits": [],
+              "deferredRequests": 0,
+              "filesAwaitingDiagnostics": 0,
+              "generation": 5,
+              "heldRequests": 0,
+              "implementationIndex": {
+                "built": 0,
+                "on": true,
+                "queued": 0,
+                "running": 0,
+                "sweepComplete": false,
+                "sweepScheduled": true,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 114,
+                "done": 155,
+                "lastCompletedModule": "mcpp.fallback.legacy_dirs",
+                "limit": 1,
+                "running": 0,
+                "runningUnits": [],
+                "secondsSinceModuleBuild": 22,
+                "wanted": 155,
+                "workers": 2
+              },
+              "rebuilds": {
+                "byReason": {
+                  "input": 20,
+                  "no-bmi": 114
+                },
+                "recent": [
+                  {
+                    "module": "mcpp.pack.stage_tree",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.model",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.dep_graph",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.manifest",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.link_line",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack.abi_tag",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.cmdlimits",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.fingerprint",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.dyndep",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack.digest",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack.binfmt",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack.zip",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.freestanding.runner",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.modgraph.graph",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.toolchain.cenv",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fallback.install_integrity",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fallback.xpkg_copy",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.provisions",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pack.relocate",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.manifest.flag_words",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pm.compat",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.targetside",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.platform",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.source_kind",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.pm.index_contract",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.build.refusal",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.manifest.types",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fallback.legacy_dirs",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.platform.axis",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpp.fetcher.progress",
+                    "why": "file '~/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/fetcher/progress.cppm' has been modified since the precompiled file '~/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-254-1/payload.pcm' was built"
+                  }
+                ]
+              },
+              "state": "ready"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 4,
+            "engine-database": 3,
+            "engine-plan-diff": 2,
+            "engine-restart": 2,
+            "engine-restart-scheduled": 2,
+            "engine-start": 3,
+            "model-loaded": 3,
+            "model-source": 4,
+            "model-unchanged": 1,
+            "module-built": 114,
+            "module-failed": 4,
+            "module-failed-unplaced": 10,
+            "module-locks-cleared": 3,
+            "module-retry": 4,
+            "plan": 15,
+            "scan-failed": 20,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 6,
+            "warm-adopted": 1
+          },
+          "requests": {
+            "textDocument/completion": {
+              "answeredBy": {
+                "cache": 36,
+                "clangd": 379,
+                "mcppls": 42
+              },
+              "cancelled": 0,
+              "count": 457,
+              "empty": 0,
+              "engineAnswered": 256,
+              "engineP50Ms": 144,
+              "engineP95Ms": 435,
+              "errors": 0,
+              "lastAt": "2026-10-21T19:35:49.660Z",
+              "maxMs": 1166,
+              "overheadP50Ms": 3,
+              "overheadP95Ms": 12,
+              "p50Ms": 16,
+              "p95Ms": 407
+            }
+          },
+          "state": "ready"
+        },
+        "busiestMinuteChanges": 5,
+        "clangdRestarts": 2,
+        "errorStates": 0,
+        "firstReadySeconds": 10.001774228,
+        "load": 3.26,
+        "longestEngineInactivitySeconds": 7.854967539,
+        "longestStallActivity": {
+          "events": [
+            {
+              "line": "mcppls 2026-10-21T19:29:28.497Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:29:28.495] Indexing c++23 standard library in the context of /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/pack/binfmt.cppm",
+              "seconds": 0.954528645
+            },
+            {
+              "line": "mcppls 2026-10-21T19:29:29.992Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:29:29.992] Indexed c++23 standard library: 18032 symbols, 2356 filtered",
+              "seconds": 2.464369465
+            },
+            {
+              "line": "mcppls 2026-10-21T19:29:34.322Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:29:34.321] Rebuilding module mcpp.build.execute: file '/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/build/execute.cppm' has been modified since the precompiled file '/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-340-1/payload.pcm' was built",
+              "seconds": 6.997411963
+            }
+          ],
+          "historyTruncated": false,
+          "observed": 3
+        },
+        "longestStallCpuCores": 0.8420852497821822,
+        "longestStallFromSeconds": 2.146806689,
+        "longestStallSeconds": 7.854967539,
+        "longestStallToSeconds": 10.001774228,
+        "preparationStalledSamples": 0,
+        "preparedSeconds": 470.406346077,
+        "serverRestarts": 0,
+        "stateChanges": 7,
+        "statuses": 31
+      },
+      "ok": true,
+      "seconds": 0.129753092,
+      "since-start": 483.277649704
+    }
+  ],
+  "failures": 1,
+  "first-diagnostics": 11.286343474,
+  "first-navigation": null,
+  "fixture": "ux-mcpp",
+  "initialize": 2.087892756,
+  "ready": 10.001778378,
+  "reused-workspace": true,
+  "seconds": 484.030266017
+}

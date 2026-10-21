@@ -1,0 +1,586 @@
+{
+  "status": "original two-logical-CPU failed baseline; not a passing final validation",
+  "affinity": "4-5",
+  "stages": "original cold -> original 300-second warm -> original full edits",
+  "rawUndoCounter": 28,
+  "physicalHeuristic": 26,
+  "beforeUndoEngineState": {
+    "engines": [
+      {
+        "name": "mcppls",
+        "state": "ready"
+      },
+      {
+        "backgroundIndex": {
+          "active": false
+        },
+        "backgroundUnits": [],
+        "deferredRequests": 0,
+        "filesAwaitingDiagnostics": 11,
+        "generation": 3,
+        "heldRequests": 0,
+        "implementationIndex": {
+          "built": 0,
+          "on": true,
+          "queued": 0,
+          "running": 0,
+          "sweepComplete": false,
+          "sweepScheduled": false,
+          "unreadable": 0
+        },
+        "name": "clangd",
+        "pendingRequests": 0,
+        "preparation": {
+          "completedModuleBuilds": 86,
+          "done": 0,
+          "lastCompletedModule": "mcpp.manifest.xpkg",
+          "limit": 1,
+          "running": 1,
+          "runningUnits": [
+            {
+              "fileStatus": "",
+              "module": "std",
+              "seconds": 12
+            }
+          ],
+          "secondsSinceModuleBuild": 0,
+          "wanted": 140,
+          "workers": 2
+        },
+        "rebuilds": {
+          "byReason": {
+            "input": 19,
+            "no-bmi": 86
+          },
+          "recent": [
+            {
+              "module": "mcpp.targetside",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.source_kind",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.libs.toml",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.version_req",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.pm.mangle",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.version",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.build.program_protocol",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.pm.compat.legacy",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.modgraph.glob",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.platform.process",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.build.refusal",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.platform.fs",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.platform.linux",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.build.version_floor",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.pm.dependency_selector",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.toolchain.predefines",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.pm.compat",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.fallback.config_migration",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.platform",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.fallback.legacy_dirs",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.manifest.types",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.build.linkage_form",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.platform.axis",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.build.graph_shape",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.toolchain.triple",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.platform.runtime_env_contract",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.manifest.toml",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.platform.runtime_search",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.manifest.xpkg",
+              "why": "no BMI for this command and these prerequisites"
+            },
+            {
+              "module": "mcpp.pack.stage_tree",
+              "why": "no BMI for this command and these prerequisites"
+            }
+          ]
+        },
+        "state": "preparing"
+      }
+    ],
+    "eventTotals": {
+      "cache-swept": 3,
+      "engine-database": 2,
+      "engine-plan-diff": 1,
+      "engine-restart": 1,
+      "engine-restart-scheduled": 1,
+      "engine-start": 2,
+      "model-loaded": 2,
+      "model-source": 3,
+      "model-unchanged": 1,
+      "module-built": 86,
+      "module-failed": 4,
+      "module-failed-unplaced": 9,
+      "module-locks-cleared": 2,
+      "module-retry": 4,
+      "plan": 14,
+      "scan-failed": 20,
+      "startup": 1,
+      "tool-environment": 1,
+      "tool-run": 4,
+      "warm-adopted": 1
+    },
+    "requests": {
+      "textDocument/completion": {
+        "answeredBy": {
+          "cache": 36,
+          "clangd": 379,
+          "mcppls": 42
+        },
+        "cancelled": 0,
+        "count": 457,
+        "empty": 0,
+        "engineAnswered": 256,
+        "engineP50Ms": 144,
+        "engineP95Ms": 435,
+        "errors": 0,
+        "lastAt": "2026-10-21T19:35:49.660Z",
+        "maxMs": 1166,
+        "overheadP50Ms": 3,
+        "overheadP95Ms": 12,
+        "p50Ms": 16,
+        "p95Ms": 407
+      }
+    },
+    "state": "preparing"
+  },
+  "originalReleaseStableCount": 218,
+  "afterDevStableCount": 261,
+  "afterUndoStableCount": 291,
+  "originalReleaseKeysLost": [],
+  "newKeysSinceLastDevSnapshot": [
+    {
+      "slot": 173,
+      "generation": 4,
+      "bytes": 2709256,
+      "module": "mcpp.manifest.xpkg",
+      "key": "8f0192ca469edf3b270dca82f13d45b9045fb4f3008c6cc0af0fa9ad21bb0fa9",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/BBB97436DF9FC930",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=0 op2=0 op3=2/>",
+      "optimizationLevel": 0,
+      "builtAt": "2026-10-21T19:37:00.417Z"
+    },
+    {
+      "slot": 177,
+      "generation": 4,
+      "bytes": 371432,
+      "module": "mcpp.pack.stage_tree",
+      "key": "ad0f819cfde8b19b2f1f33549417788ff3a508c9fbd8aa56ff64e790b0d10c83",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/FAFC1783D94EDE12",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=0 op2=0 op3=2/>",
+      "optimizationLevel": 0,
+      "builtAt": "2026-10-21T19:37:00.725Z"
+    },
+    {
+      "slot": 181,
+      "generation": 4,
+      "bytes": 197424,
+      "module": "mcpp.toolchain.model",
+      "key": "f9a8949185646a28786912e40820837c7048e2aa55869c9941800c2c89ec3388",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/999690F24BB5BCD4",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=0 op2=0 op3=2/>",
+      "optimizationLevel": 0,
+      "builtAt": "2026-10-21T19:37:00.863Z"
+    },
+    {
+      "slot": 185,
+      "generation": 4,
+      "bytes": 401812,
+      "module": "mcpp.build.dep_graph",
+      "key": "eea54431f021cdf9b2d93989b54944399dacc88cbf9f967a592e604e64b06c9e",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/C9B1086D37D6D4BA",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=0 op2=0 op3=2/>",
+      "optimizationLevel": 0,
+      "builtAt": "2026-10-21T19:37:00.997Z"
+    },
+    {
+      "slot": 189,
+      "generation": 4,
+      "bytes": 20416,
+      "module": "mcpp.manifest",
+      "key": "1e246ccb029817cc6a34ca7c458edebdeb60283303c2ed096fc8f65ef1ebc885",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/75A7DE2AE0D911EB",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=0 op2=0 op3=2/>",
+      "optimizationLevel": 0,
+      "builtAt": "2026-10-21T19:37:01.070Z"
+    },
+    {
+      "slot": 193,
+      "generation": 4,
+      "bytes": 25628,
+      "module": "mcpp.build.link_line",
+      "key": "8e4a4380dddd5bf12a432a22eac16c648ea6d97fd661d468598d1e00bd8df912",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/072749E5AD055B24",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=0 op2=0 op3=2/>",
+      "optimizationLevel": 0,
+      "builtAt": "2026-10-21T19:37:01.141Z"
+    },
+    {
+      "slot": 197,
+      "generation": 4,
+      "bytes": 529016,
+      "module": "mcpp.pack.abi_tag",
+      "key": "bed94049b658c624ada5db9ff7dd79c18c50a67874aba4b2be5c4e004ab41b5c",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/9D26A998F80528B5",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=0 op2=0 op3=2/>",
+      "optimizationLevel": 0,
+      "builtAt": "2026-10-21T19:37:01.330Z"
+    },
+    {
+      "slot": 201,
+      "generation": 4,
+      "bytes": 110784,
+      "module": "mcpp.build.cmdlimits",
+      "key": "44488d9aabfc749408516acee5fb57730fb3b7864ca29a1db6acdd9ffc3931dc",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/AFFD4327AB30AFE3",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=0 op2=0 op3=2/>",
+      "optimizationLevel": 0,
+      "builtAt": "2026-10-21T19:37:01.463Z"
+    },
+    {
+      "slot": 205,
+      "generation": 4,
+      "bytes": 44508,
+      "module": "mcpp.toolchain.fingerprint",
+      "key": "979432787a62f2395d3cb38e77558a5ed6e5cd60722a345c2fc2b4a3b73618f8",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/790ABEEAB18B3FFF",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=0 op2=0 op3=2/>",
+      "optimizationLevel": 0,
+      "builtAt": "2026-10-21T19:37:01.597Z"
+    },
+    {
+      "slot": 209,
+      "generation": 4,
+      "bytes": 1019576,
+      "module": "mcpp.dyndep",
+      "key": "eeb86293150339fb8f440cb9a18963869128baae90fb88c7a2ef5a6c838f95a5",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/CC9786992E9B2F40",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=0 op2=0 op3=2/>",
+      "optimizationLevel": 0,
+      "builtAt": "2026-10-21T19:37:01.810Z"
+    },
+    {
+      "slot": 213,
+      "generation": 4,
+      "bytes": 24244,
+      "module": "mcpp.pack.digest",
+      "key": "a94b3d7a3d4fb10534dfbef3f5e4d24a0140749ecd14b0acd8a9239130e3a175",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/E12394457DF10AB4",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=0 op2=0 op3=2/>",
+      "optimizationLevel": 0,
+      "builtAt": "2026-10-21T19:37:02.030Z"
+    },
+    {
+      "slot": 217,
+      "generation": 4,
+      "bytes": 1426368,
+      "module": "mcpp.pack.binfmt",
+      "key": "6b83c7f1734f2b7df9eaad59a1725c4c894026e94bb3f745dd4b55ad3be7b970",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/7C2DF537E4BF914C",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=0 op2=0 op3=2/>",
+      "optimizationLevel": 0,
+      "builtAt": "2026-10-21T19:37:02.414Z"
+    },
+    {
+      "slot": 221,
+      "generation": 4,
+      "bytes": 407812,
+      "module": "mcpp.pack.zip",
+      "key": "7d5b38c9828e669ac72709613edbf182470476913c58eaa893e0f5ae13bff4fa",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/39F61327867BBEF6",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=0 op2=0 op3=2/>",
+      "optimizationLevel": 0,
+      "builtAt": "2026-10-21T19:37:02.634Z"
+    },
+    {
+      "slot": 225,
+      "generation": 4,
+      "bytes": 329008,
+      "module": "mcpp.freestanding.runner",
+      "key": "8b9d006ca9fa6e4e5e60f7495a2aa43642d44ef7ef2d1ca513392586c0bd6bfb",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/E04FD0A21F4DD48C",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=0 op2=0 op3=2/>",
+      "optimizationLevel": 0,
+      "builtAt": "2026-10-21T19:37:02.809Z"
+    },
+    {
+      "slot": 229,
+      "generation": 4,
+      "bytes": 809312,
+      "module": "mcpp.modgraph.graph",
+      "key": "867212a35403b01293581575675f318eb00112dcdd3dd53dc5a5b44374ee489a",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/B44B549A30A212B4",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=0 op2=0 op3=2/>",
+      "optimizationLevel": 0,
+      "builtAt": "2026-10-21T19:37:02.991Z"
+    },
+    {
+      "slot": 233,
+      "generation": 4,
+      "bytes": 208036,
+      "module": "mcpp.toolchain.cenv",
+      "key": "37051413ce0435871e3cd90cc2adfb235c5e3b040bf7f6f2d610986aecd266ac",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/3CD25D5EE3EE37B2",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=0 op2=0 op3=2/>",
+      "optimizationLevel": 0,
+      "builtAt": "2026-10-21T19:37:03.167Z"
+    },
+    {
+      "slot": 237,
+      "generation": 4,
+      "bytes": 79100,
+      "module": "mcpp.fallback.install_integrity",
+      "key": "34bdf54d46d511e1fb8d5bef1d4a63568863d5a85f482f2b48e24ce24e28b0f9",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/2273F9ECAD152F02",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=0 op2=0 op3=2/>",
+      "optimizationLevel": 0,
+      "builtAt": "2026-10-21T19:37:03.368Z"
+    },
+    {
+      "slot": 241,
+      "generation": 4,
+      "bytes": 82480,
+      "module": "mcpp.fallback.xpkg_copy",
+      "key": "7532cc48ad3241acfb5d7a42786da5ce3238579a5c9ba29a4ed1ae819e53e803",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/63C9FA9D1A6EE24E",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=0 op2=0 op3=2/>",
+      "optimizationLevel": 0,
+      "builtAt": "2026-10-21T19:37:03.572Z"
+    },
+    {
+      "slot": 245,
+      "generation": 4,
+      "bytes": 2025888,
+      "module": "mcpp.build.provisions",
+      "key": "d214192423511c8120d32b98b3273ae9130b96ee7bee33835901a4c4890d284a",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/49D9719417713C50",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=0 op2=0 op3=2/>",
+      "optimizationLevel": 0,
+      "builtAt": "2026-10-21T19:37:03.975Z"
+    },
+    {
+      "slot": 249,
+      "generation": 4,
+      "bytes": 633344,
+      "module": "mcpp.pack.relocate",
+      "key": "e1181eaeac3a0f5698f641efc99b8587be4e85f3cb3c4856efbf0c03a95add58",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/5D453B4023D266A9",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=2 op2=0 op3=0/>",
+      "optimizationLevel": 2,
+      "builtAt": "2026-10-21T19:37:04.268Z"
+    },
+    {
+      "slot": 253,
+      "generation": 4,
+      "bytes": 202420,
+      "module": "mcpp.manifest.flag_words",
+      "key": "1c119dba1b45de27107c2d0a65e67873257600eb75891a2762bc2221769197e9",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/75E06EE79BF8D1A5",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=2 op2=0 op3=0/>",
+      "optimizationLevel": 2,
+      "builtAt": "2026-10-21T19:37:04.391Z"
+    },
+    {
+      "slot": 257,
+      "generation": 4,
+      "bytes": 273844,
+      "module": "mcpp.pm.compat",
+      "key": "b027e79e93236950a2732b3e7d6bb9a682e230d1a8baead85d416ac677db6f98",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/11E4A0FA48547CD3",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=2 op2=0 op3=0/>",
+      "optimizationLevel": 2,
+      "builtAt": "2026-10-21T19:37:04.530Z"
+    },
+    {
+      "slot": 261,
+      "generation": 4,
+      "bytes": 1659404,
+      "module": "mcpp.targetside",
+      "key": "efae713e90f905873d231edd2e4bf5dc623cd803d51feb35c42f7260d35c2923",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/5F53AB41C1FA5A9F",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=2 op2=0 op3=0/>",
+      "optimizationLevel": 2,
+      "builtAt": "2026-10-21T19:37:04.824Z"
+    },
+    {
+      "slot": 265,
+      "generation": 4,
+      "bytes": 21308,
+      "module": "mcpp.platform",
+      "key": "a690b3c78cb7a814ab1af2d50269bf3adc5b2c05512747d8939e6e4850f98171",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/34D2E50EC489CFB0",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=2 op2=0 op3=0/>",
+      "optimizationLevel": 2,
+      "builtAt": "2026-10-21T19:37:04.913Z"
+    },
+    {
+      "slot": 269,
+      "generation": 4,
+      "bytes": 449344,
+      "module": "mcpp.source_kind",
+      "key": "4d13e9b7878bcbae9a0dffd8a9cf7489a482e734debdb04691e1f6d8428a7238",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/45AACB4F259A5447",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=2 op2=0 op3=0/>",
+      "optimizationLevel": 2,
+      "builtAt": "2026-10-21T19:37:05.133Z"
+    },
+    {
+      "slot": 273,
+      "generation": 4,
+      "bytes": 293244,
+      "module": "mcpp.pm.index_contract",
+      "key": "1f388ced48ba6ed2f268f1a411bf32c949f9a7214c3db8b4984ba501cf33b86b",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/F3C8FDFC05B2BAD8",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=2 op2=0 op3=0/>",
+      "optimizationLevel": 2,
+      "builtAt": "2026-10-21T19:37:05.281Z"
+    },
+    {
+      "slot": 277,
+      "generation": 4,
+      "bytes": 34388,
+      "module": "mcpp.build.refusal",
+      "key": "90999f47f480e3ba9eb02024f7872c91493b63f63b7dfb2f25b488722458dc5f",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/EB167AC233211E44",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=2 op2=0 op3=0/>",
+      "optimizationLevel": 2,
+      "builtAt": "2026-10-21T19:37:05.358Z"
+    },
+    {
+      "slot": 281,
+      "generation": 4,
+      "bytes": 3492944,
+      "module": "mcpp.manifest.types",
+      "key": "f83c016c3c128fefcc548c7301a631e30f8f4aa1d511aba1c1a6438c22eddaa5",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/A51AC5FEEBC1C1EF",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=2 op2=0 op3=0/>",
+      "optimizationLevel": 2,
+      "builtAt": "2026-10-21T19:37:05.688Z"
+    },
+    {
+      "slot": 285,
+      "generation": 4,
+      "bytes": 190400,
+      "module": "mcpp.fallback.legacy_dirs",
+      "key": "fab53545a03f299cd0bec2af47af6c6111d9b97a458894d511a74ebcbca15888",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/F1EE400130544903",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=2 op2=0 op3=0/>",
+      "optimizationLevel": 2,
+      "builtAt": "2026-10-21T19:37:05.814Z"
+    },
+    {
+      "slot": 289,
+      "generation": 4,
+      "bytes": 102588,
+      "module": "mcpp.platform.axis",
+      "key": "08e76054b42d16e303b83c5288213efa77154ae0ad710dfbc12b11b210e29549",
+      "source": "/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.locks/C252BD6F188BD72F",
+      "codegenRecord": "<CODEGEN_OPTIONS op0=0 op1=2 op2=0 op3=0/>",
+      "optimizationLevel": 2,
+      "builtAt": "2026-10-21T19:37:05.915Z"
+    }
+  ],
+  "CDBs": {
+    "000": [
+      {
+        "path": "workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/compile_commands.json",
+        "sha256": "6d0914a5054d0f23038d3feb197b8c58fe8f984cdbcb522c6946cd1e50382686"
+      }
+    ],
+    "001": [
+      {
+        "path": "workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/compile_commands.json",
+        "sha256": "55a8d6b475832d414db35c92f51d2e2145611d1b4fd011eb029dbac6e61ea59c"
+      }
+    ],
+    "002": [
+      {
+        "path": "workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/compile_commands.json",
+        "sha256": "6d0914a5054d0f23038d3feb197b8c58fe8f984cdbcb522c6946cd1e50382686"
+      }
+    ]
+  },
+  "caveat": "The one-second manifest/ledger snapshots are not identical to the report-counter boundary: 30 new stable keys vs 28 observed completion delta. Two-phase metadata and the full raw timeline are retained; all old keys remain present.",
+  "sourceAttribution": "Old dev process is still using dev stable std1-4 and platform peers at 19:37:02; its platform265-4 has release codegen metadata (optimization=2), unlike dev133-4 (optimization=0). New release process loads its database at 19:37:07 and reuses original release std0-1/platform120-1 at 19:37:08/11 without building them. Publishing a replacement CDB while the old process is alive exposes a mixed closure.",
+  "rawArtifacts": ".payload-cache/59-63-performance/mcpp-two-core-{edits.log,snapshots,ledger-analysis.json}, producers.txt, platform-{old,dev,undo}-bcanalyzer.txt"
+}

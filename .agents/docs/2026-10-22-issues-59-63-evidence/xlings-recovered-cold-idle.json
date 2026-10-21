@@ -1,0 +1,664 @@
+{
+  "checks": [
+    {
+      "detail": "idle 600 s: clangd 0.003 core(s), memory +0.0% peak RSS 1585 MB",
+      "id": "U13-idle-10min",
+      "kind": "resources",
+      "measure": {
+        "activityAfter": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundIndex": {
+                "active": false
+              },
+              "backgroundUnits": [],
+              "deferredRequests": 0,
+              "filesAwaitingDiagnostics": 0,
+              "generation": 1,
+              "heldRequests": 0,
+              "implementationIndex": {
+                "built": 119,
+                "on": true,
+                "queued": 0,
+                "running": 0,
+                "sweepComplete": true,
+                "sweepScheduled": false,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 135,
+                "done": 1,
+                "lastCompletedModule": "xlings.i18n.zh",
+                "limit": 1,
+                "running": 0,
+                "runningUnits": [],
+                "secondsSinceModuleBuild": 622,
+                "wanted": 1,
+                "workers": 3
+              },
+              "rebuilds": {
+                "byReason": {
+                  "no-bmi": 135
+                },
+                "recent": [
+                  {
+                    "module": "xlings.core.xim.libxpkg.types.script",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.installer",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.subos.sandbox",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.subos",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpplibs.cmdline:options",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpplibs.cmdline:parse",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.uimode",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.console",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.i18n",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpplibs.cmdline",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:theme",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:layout",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.interface",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:progress",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:selector",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:table",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:banner",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:info_panel",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.cli",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.cmdprocessor",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.compact.git",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.overlay",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.libs.sha256",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.compact",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.groups",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.i18n.en",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.i18n.zh",
+                    "why": "no BMI for this command and these prerequisites"
+                  }
+                ]
+              },
+              "state": "ready"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 2,
+            "engine-database": 1,
+            "engine-start": 1,
+            "model-loaded": 1,
+            "model-source": 1,
+            "module-built": 135,
+            "plan": 1,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 2
+          },
+          "requests": {},
+          "state": "ready"
+        },
+        "activityBefore": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundIndex": {
+                "active": false
+              },
+              "backgroundUnits": [],
+              "deferredRequests": 0,
+              "filesAwaitingDiagnostics": 0,
+              "generation": 1,
+              "heldRequests": 0,
+              "implementationIndex": {
+                "built": 119,
+                "on": true,
+                "queued": 0,
+                "running": 0,
+                "sweepComplete": true,
+                "sweepScheduled": false,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 135,
+                "done": 1,
+                "lastCompletedModule": "xlings.i18n.zh",
+                "limit": 1,
+                "running": 0,
+                "runningUnits": [],
+                "secondsSinceModuleBuild": 22,
+                "wanted": 1,
+                "workers": 3
+              },
+              "rebuilds": {
+                "byReason": {
+                  "no-bmi": 135
+                },
+                "recent": [
+                  {
+                    "module": "xlings.core.xim.libxpkg.types.script",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.installer",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.subos.sandbox",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.subos",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpplibs.cmdline:options",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpplibs.cmdline:parse",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.uimode",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.console",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.i18n",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "mcpplibs.cmdline",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:theme",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:layout",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.interface",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:progress",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:selector",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:table",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:banner",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:info_panel",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.cli",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.cmdprocessor",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.compact.git",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.overlay",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.libs.sha256",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.compact",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.groups",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.i18n.en",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.i18n.zh",
+                    "why": "no BMI for this command and these prerequisites"
+                  }
+                ]
+              },
+              "state": "ready"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 2,
+            "engine-database": 1,
+            "engine-start": 1,
+            "model-loaded": 1,
+            "model-source": 1,
+            "module-built": 135,
+            "plan": 1,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 2
+          },
+          "requests": {},
+          "state": "ready"
+        },
+        "engineActivity": {
+          "events": [],
+          "historyTruncated": false,
+          "observed": 0
+        },
+        "idleCpuCores": 0.0028349406619698077,
+        "idleSeconds": 600,
+        "load": 3.53,
+        "peakRssMB": 1584.73828125,
+        "rssAfterMB": 967.73828125,
+        "rssBeforeMB": 967.5859375,
+        "rssGrowth": 0.0001574472551695182,
+        "scheduledEngineActivity": {
+          "events": [
+            {
+              "line": "mcppls 2026-10-21T19:00:19.059Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:19.059] Indexed /home/speak/.mcpp/registry/data/xpkgs/xim-x-gcc/16.1.0/include/c++/16.1.0/bits/std.cc (15518 symbols, 205898 refs, 519 files)",
+              "seconds": 0.547328425
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.267Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:19.267] Indexing /home/speak/.mcpp/registry/data/xpkgs/compat-x-libarchive/3.8.7/libarchive-3.8.7/libarchive/archive_read_disk_posix.c (digest:=21B456ED1AE598E3)",
+              "seconds": 0.547340982
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.328Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:19.328] Indexed /home/speak/.mcpp/registry/data/xpkgs/compat-x-libarchive/3.8.7/libarchive-3.8.7/libarchive/archive_read_disk_posix.c (963 symbols, 9875 refs, 201 files)",
+              "seconds": 0.547344825
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.336Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:19.336] Indexing /home/speak/.mcpp/registry/data/xpkgs/compat-x-libarchive/3.8.7/libarchive-3.8.7/libarchive/archive_write_set_format_gnutar.c (digest:=8F387A64A9611623)",
+              "seconds": 0.547351738
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.378Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:19.378] Indexed /home/speak/.mcpp/registry/data/xpkgs/compat-x-libarchive/3.8.7/libarchive-3.8.7/libarchive/archive_write_set_format_gnutar.c (671 symbols, 6532 refs, 134 files)",
+              "seconds": 0.547355296
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.383Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:19.383] Indexing /home/speak/.mcpp/registry/data/xpkgs/compat-x-xz/5.8.3/xz-5.8.3/src/liblzma/common/alone_decoder.c (digest:=E97386021E5A85AB)",
+              "seconds": 0.547361823
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.414Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:19.413] Indexed /home/speak/.mcpp/registry/data/xpkgs/compat-x-xz/5.8.3/xz-5.8.3/src/liblzma/common/alone_decoder.c (440 symbols, 4666 refs, 130 files)",
+              "seconds": 0.547365582
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.417Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:19.417] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings/modules/platform/src/platform/macos.cppm (digest:=90D0B98AE8B840CF)",
+              "seconds": 0.547372287
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.438Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:19.438] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings/modules/platform/src/platform/macos.cppm (452 symbols, 2820 refs, 69 files)",
+              "seconds": 0.547375724
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.441Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:19.441] Indexing /home/speak/.mcpp/registry/data/xpkgs/compat-x-libarchive/3.8.7/libarchive-3.8.7/libarchive/archive_read_support_format_xar.c (digest:=A6E9EF580D0996C0)",
+              "seconds": 0.547383178
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.485Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:19.485] Indexed /home/speak/.mcpp/registry/data/xpkgs/compat-x-libarchive/3.8.7/libarchive-3.8.7/libarchive/archive_read_support_format_xar.c (643 symbols, 7111 refs, 162 files)",
+              "seconds": 1.047676344
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.490Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:19.490] Indexing /home/speak/.mcpp/registry/data/xpkgs/compat-x-xz/5.8.3/xz-5.8.3/src/liblzma/delta/delta_encoder.c (digest:=A48D4E99EE84CA02)",
+              "seconds": 1.047687869
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.517Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:19.517] Indexed /home/speak/.mcpp/registry/data/xpkgs/compat-x-xz/5.8.3/xz-5.8.3/src/liblzma/delta/delta_encoder.c (427 symbols, 4510 refs, 130 files)",
+              "seconds": 1.04769118
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.521Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:19.521] Indexing /home/speak/.mcpp/registry/data/xpkgs/compat-x-mbedtls/3.6.1/mbedtls-mbedtls-3.6.1/library/hmac_drbg.c (digest:=281BA238A64F71F7)",
+              "seconds": 1.047697636
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.539Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:19.539] Indexed /home/speak/.mcpp/registry/data/xpkgs/compat-x-mbedtls/3.6.1/mbedtls-mbedtls-3.6.1/library/hmac_drbg.c (170 symbols, 2928 refs, 79 files)",
+              "seconds": 1.047701248
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.542Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:19.542] Indexing /home/speak/.mcpp/registry/data/xpkgs/compat-x-xz/5.8.3/xz-5.8.3/src/liblzma/common/hardware_physmem.c (digest:=3A107B17828FCF9B)",
+              "seconds": 1.04770752
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.570Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:19.570] Indexed /home/speak/.mcpp/registry/data/xpkgs/compat-x-xz/5.8.3/xz-5.8.3/src/liblzma/common/hardware_physmem.c (422 symbols, 4432 refs, 128 files)",
+              "seconds": 1.0477103
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.574Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:19.574] Indexing /home/speak/.mcpp/registry/data/xpkgs/compat-x-libarchive/3.8.7/libarchive-3.8.7/libarchive/archive_write_add_filter_lrzip.c (digest:=7D9C0E386D334F0A)",
+              "seconds": 1.047716867
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.610Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:19.610] Indexed /home/speak/.mcpp/registry/data/xpkgs/compat-x-libarchive/3.8.7/libarchive-3.8.7/libarchive/archive_write_add_filter_lrzip.c (658 symbols, 5955 refs, 131 files)",
+              "seconds": 1.047720173
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.614Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:19.614] Indexing /home/speak/.mcpp/registry/data/xpkgs/compat-x-libarchive/3.8.7/libarchive-3.8.7/libarchive/archive_read_support_format_by_code.c (digest:=006D9727CF10AFE1)",
+              "seconds": 1.047726409
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:19.648Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:19.648] Indexed /home/speak/.mcpp/registry/data/xpkgs/compat-x-libarchive/3.8.7/libarchive-3.8.7/libarchive/archive_read_support_format_by_code.c (647 symbols, 5832 refs, 130 files)",
+              "seconds": 1.047729538
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:20.101Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:20.101] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings/tests/unit/test_xvm_latest.cpp (digest:=FE485482A4BE8B72)",
+              "seconds": 1.548000908
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:20.466Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:20.466] Indexed /home/speak/.mcpp/registry/data/xpkgs/compat-x-gtest/1.15.2/googletest-1.15.2/googletest/src/gtest_main.cc (10679 symbols, 111612 refs, 393 files)",
+              "seconds": 2.048339275
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:20.554Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:20.554] Indexing /home/speak/.mcpp/registry/data/xpkgs/compat-x-mbedtls/3.6.1/mbedtls-mbedtls-3.6.1/library/psa_crypto_cipher.c (digest:=ADB4AE9B95CB5B7C)",
+              "seconds": 2.048352324
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:20.575Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:20.575] Indexed /home/speak/.mcpp/registry/data/xpkgs/compat-x-mbedtls/3.6.1/mbedtls-mbedtls-3.6.1/library/psa_crypto_cipher.c (162 symbols, 4432 refs, 121 files)",
+              "seconds": 2.048355903
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:20.591Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:20.591] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-cache/workspaces/ux-xlings-dcec94eed0be31ac/contexts/default/prime/0060-xlings.core.subos.graphics.cpp (digest:=234F51802FBFB6B9)",
+              "seconds": 2.048362728
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:20.592Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:20.592] Built module xlings.ui:banner to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-cache/workspaces/ux-xlings-dcec94eed0be31ac/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-246-1/payload.pcm",
+              "seconds": 2.048366054
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:20.592Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:20.592] Built module xlings.ui:info_panel to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-cache/workspaces/ux-xlings-dcec94eed0be31ac/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-247-1/payload.pcm",
+              "seconds": 2.048371593
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:20.594Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:20.594] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-cache/workspaces/ux-xlings-dcec94eed0be31ac/contexts/default/prime/0060-xlings.core.subos.graphics.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 2.048375518
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:20.596Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:20.596] Indexing /home/speak/.mcpp/registry/data/xpkgs/compat-x-lua/5.4.7/lua-5.4.7/src/lbaselib.c (digest:=41CF11989A60BB6E)",
+              "seconds": 2.048383648
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:20.635Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:20.635] Indexed /home/speak/.mcpp/registry/data/xpkgs/compat-x-lua/5.4.7/lua-5.4.7/src/lbaselib.c (307 symbols, 2798 refs, 79 files)",
+              "seconds": 2.048387458
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:20.639Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:20.639] Indexing /home/speak/.mcpp/registry/data/xpkgs/compat-x-ftxui/6.1.9/FTXUI-6.1.9/src/ftxui/dom/dbox.cpp (digest:=E173F7D1936A2528)",
+              "seconds": 2.048394486
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:20.847Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:20.846] Rebuilding module xlings.ui: no BMI for this command and these prerequisites",
+              "seconds": 2.04840656
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:20.900Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:20.899] Built module xlings.ui to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-cache/workspaces/ux-xlings-dcec94eed0be31ac/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-250-1/payload.pcm",
+              "seconds": 2.048409022
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.166Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:21.166] Rebuilding module xlings.cli: no BMI for this command and these prerequisites",
+              "seconds": 2.551109445
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.572Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:21.572] Built module xlings.cli to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-cache/workspaces/ux-xlings-dcec94eed0be31ac/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-252-1/payload.pcm",
+              "seconds": 3.051418051
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.622Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:21.622] Indexed /home/speak/.mcpp/registry/data/xpkgs/compat-x-gtest/1.15.2/googletest-1.15.2/googletest/src/gtest-all.cc (13100 symbols, 134154 refs, 491 files)",
+              "seconds": 3.051428789
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.765Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:21.765] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings/src/core/xvm/inspect.cpp (digest:=90425AA517C506CA)",
+              "seconds": 3.051437879
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.769Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:21.769] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings/src/core/xvm/inspect.cpp (18 symbols, 15 refs, 1 files)",
+              "seconds": 3.051442109
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.773Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:21.773] Indexing /home/speak/.mcpp/registry/data/xpkgs/compat-x-mbedtls/3.6.1/mbedtls-mbedtls-3.6.1/library/sha512.c (digest:=FDD50CD16B0A64BB)",
+              "seconds": 3.051450046
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.791Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:21.791] Indexed /home/speak/.mcpp/registry/data/xpkgs/compat-x-mbedtls/3.6.1/mbedtls-mbedtls-3.6.1/library/sha512.c (167 symbols, 2814 refs, 78 files)",
+              "seconds": 3.051453558
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.794Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:21.794] Indexing /home/speak/.mcpp/registry/data/xpkgs/compat-x-libarchive/3.8.7/libarchive-3.8.7/libarchive/archive_read_support_filter_none.c (digest:=4C0D8B66B7F713EB)",
+              "seconds": 3.051460567
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.825Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:21.825] Indexed /home/speak/.mcpp/registry/data/xpkgs/compat-x-libarchive/3.8.7/libarchive-3.8.7/libarchive/archive_read_support_filter_none.c (645 symbols, 5648 refs, 123 files)",
+              "seconds": 3.051464142
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.828Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:21.828] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings/src/runtime/event_stream.cppm (digest:=74DB1BE0B489E93D)",
+              "seconds": 3.051471301
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.830Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:21.830] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings/src/runtime/event_stream.cppm (38 symbols, 39 refs, 1 files)",
+              "seconds": 3.051474933
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.832Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:21.832] Indexing /home/speak/.mcpp/registry/data/xpkgs/mcpplibs.capi-x-lua/0.0.3/lua-0.0.3/src/capi/lua.cppm (digest:=5F3CB84DE02D483F)",
+              "seconds": 3.05148221
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.849Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:21.849] Indexed /home/speak/.mcpp/registry/data/xpkgs/mcpplibs.capi-x-lua/0.0.3/lua-0.0.3/src/capi/lua.cppm (587 symbols, 2755 refs, 55 files)",
+              "seconds": 3.051484855
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.853Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:21.853] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings/src/runtime/capability.cpp (digest:=4F368500ECC18F4C)",
+              "seconds": 3.051491657
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.858Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:21.858] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings/src/runtime/capability.cpp (2 symbols, 0 refs, 1 files)",
+              "seconds": 3.0514951
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.860Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:21.860] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-cache/workspaces/ux-xlings-dcec94eed0be31ac/contexts/default/prime/0065-xlings.core.mirror.types.cpp (digest:=DF4A2430AD8D6621)",
+              "seconds": 3.051502671
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.862Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:21.862] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-cache/workspaces/ux-xlings-dcec94eed0be31ac/contexts/default/prime/0065-xlings.core.mirror.types.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 3.051506357
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.864Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:21.864] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings/src/core/xself/update.cpp (digest:=A69891E863BCBC52)",
+              "seconds": 3.051514108
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.867Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:21.867] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings/src/core/xself/update.cpp (4 symbols, 2 refs, 1 files)",
+              "seconds": 3.051517724
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.869Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:21.869] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-cache/workspaces/ux-xlings-dcec94eed0be31ac/contexts/default/prime/0137-xlings.runtime.cancellation.cpp (digest:=AADB93C54536BE56)",
+              "seconds": 3.051525266
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.871Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:21.871] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-cache/workspaces/ux-xlings-dcec94eed0be31ac/contexts/default/prime/0137-xlings.runtime.cancellation.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 3.051529003
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.873Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:21.873] Indexing /home/speak/.mcpp/registry/data/xpkgs/compat-x-ftxui/6.1.9/FTXUI-6.1.9/src/ftxui/dom/automerge.cpp (digest:=4E151C002CB9734B)",
+              "seconds": 3.051537216
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.894Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:21.894] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings/tests/unit/test_xvm_latest.cpp (10703 symbols, 111706 refs, 393 files)",
+              "seconds": 3.05154001
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.910Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:21.910] Indexing /home/speak/.mcpp/registry/data/xpkgs/compat-x-libarchive/3.8.7/libarchive-3.8.7/libarchive/archive_read_open_filename.c (digest:=70250AC890CF418C)",
+              "seconds": 3.05154777
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.949Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:21.949] Indexed /home/speak/.mcpp/registry/data/xpkgs/compat-x-libarchive/3.8.7/libarchive-3.8.7/libarchive/archive_read_open_filename.c (684 symbols, 6763 refs, 151 files)",
+              "seconds": 3.051552174
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:21.953Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:21.953] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings/tests/unit/test_shim_table.cpp (digest:=3076D81717CD8EB6)",
+              "seconds": 3.051559005
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:22.379Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:22.379] Indexed /home/speak/.mcpp/registry/data/xpkgs/compat-x-ftxui/6.1.9/FTXUI-6.1.9/src/ftxui/dom/dbox.cpp (7178 symbols, 85016 refs, 317 files)",
+              "seconds": 3.551856317
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:22.472Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:22.469] Indexing /home/speak/.mcpp/registry/data/xpkgs/mcpplibs-x-tinyhttps/0.2.9/tinyhttps-0.2.9/src/sse.cppm (digest:=1E4F2C6065EF3A06)",
+              "seconds": 4.05211239
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:22.474Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): I[04:00:22.474] Indexed /home/speak/.mcpp/registry/data/xpkgs/mcpplibs-x-tinyhttps/0.2.9/tinyhttps-0.2.9/src/sse.cppm (15 symbols, 13 refs, 1 files)",
+              "seconds": 4.052119893
+            },
+            {
+              "line": "mcppls 2026-10-21T19:00:22.479Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-work/ux-xlings): V[04:00:22.479] Indexing /home/speak/.mcpp/registry/data/xpkgs/compat-x-zstd/1.5.7/zstd-1.5.7/lib/compress/zstd_compress_literals.c (digest:=0CF8427CB5AB0247)",
+              "seconds": 4.052128026
+            }
+          ],
+          "historyTruncated": false,
+          "observed": 403
+        },
+        "scheduledWorkCpuCores": 1.8334707437562645,
+        "scheduledWorkRssAfterMB": 967.5859375,
+        "scheduledWorkRssBeforeMB": 1273.80078125,
+        "scheduledWorkSeconds": 68.363100613
+      },
+      "ok": true,
+      "seconds": 736.024402853,
+      "since-start": 737.055320729
+    }
+  ],
+  "failures": 0,
+  "first-diagnostics": null,
+  "first-navigation": null,
+  "fixture": "ux-xlings",
+  "initialize": 1.030497668,
+  "ready": 5.131350492,
+  "reused-workspace": false,
+  "seconds": 737.478766042
+}

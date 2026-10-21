@@ -1,0 +1,442 @@
+{
+  "checks": [
+    {
+      "detail": "idle 600 s: clangd 0.007 core(s), memory -50.3% peak RSS 1654 MB",
+      "id": "U13-idle-10min",
+      "kind": "resources",
+      "measure": {
+        "activityAfter": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundIndex": {
+                "active": false
+              },
+              "backgroundUnits": [],
+              "deferredRequests": 0,
+              "filesAwaitingDiagnostics": 0,
+              "generation": 1,
+              "heldRequests": 0,
+              "implementationIndex": {
+                "built": 121,
+                "on": true,
+                "queued": 0,
+                "running": 0,
+                "sweepComplete": true,
+                "sweepScheduled": false,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 0,
+                "done": 1,
+                "lastCompletedModule": "",
+                "limit": 1,
+                "running": 0,
+                "runningUnits": [],
+                "secondsSinceModuleBuild": null,
+                "wanted": 1,
+                "workers": 3
+              },
+              "rebuilds": {
+                "byReason": {},
+                "recent": []
+              },
+              "state": "ready"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 2,
+            "engine-database": 1,
+            "engine-start": 1,
+            "model-loaded": 1,
+            "model-source": 2,
+            "model-unchanged": 1,
+            "module-locks-cleared": 1,
+            "plan": 1,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 2
+          },
+          "requests": {},
+          "state": "ready"
+        },
+        "activityBefore": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundIndex": {
+                "active": false
+              },
+              "backgroundUnits": [
+                "~/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-staged-work/ux-xlings/modules/platform/src/platform.cppm",
+                "~/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-staged-work/ux-xlings/src/core/log.cpp",
+                "~/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-staged-work/ux-xlings/src/core/mirror/expand.cpp",
+                "~/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-staged-work/ux-xlings/src/core/semver.cppm",
+                "~/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-staged-work/ux-xlings/src/core/xvm/lock.cpp"
+              ],
+              "deferredRequests": 0,
+              "filesAwaitingDiagnostics": 0,
+              "generation": 1,
+              "heldRequests": 0,
+              "implementationIndex": {
+                "built": 121,
+                "on": true,
+                "queued": 0,
+                "running": 0,
+                "sweepComplete": true,
+                "sweepScheduled": false,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 0,
+                "done": 1,
+                "lastCompletedModule": "",
+                "limit": 1,
+                "running": 0,
+                "runningUnits": [],
+                "secondsSinceModuleBuild": null,
+                "wanted": 1,
+                "workers": 3
+              },
+              "rebuilds": {
+                "byReason": {},
+                "recent": []
+              },
+              "state": "ready"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 2,
+            "engine-database": 1,
+            "engine-start": 1,
+            "model-loaded": 1,
+            "model-source": 2,
+            "model-unchanged": 1,
+            "module-locks-cleared": 1,
+            "plan": 1,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 2
+          },
+          "requests": {},
+          "state": "ready"
+        },
+        "engineActivity": {
+          "events": [],
+          "historyTruncated": false,
+          "observed": 0
+        },
+        "idleCpuCores": 0.007207540882140096,
+        "idleSeconds": 600,
+        "load": 2.67,
+        "peakRssMB": 1654.46484375,
+        "rssAfterMB": 715.3984375,
+        "rssBeforeMB": 1438.77734375,
+        "rssGrowth": -0.5027733508539965,
+        "scheduledEngineActivity": {
+          "events": [
+            {
+              "line": "mcppls 2026-10-21T19:22:53.158Z [info] building 116 implementation units for clangd's index (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-staged-work/ux-xlings)",
+              "seconds": 5.011024341
+            }
+          ],
+          "historyTruncated": false,
+          "observed": 1
+        },
+        "scheduledWorkCpuCores": 0.9594982384612273,
+        "scheduledWorkRssAfterMB": 1438.77734375,
+        "scheduledWorkRssBeforeMB": 969.87109375,
+        "scheduledWorkSeconds": 60.067830037
+      },
+      "ok": true,
+      "seconds": 670.667874378,
+      "since-start": 675.140907012
+    },
+    {
+      "detail": "HEAD~20: 177 file(s), replanned 5.7s, 1 restart(s); 84572b0cc8502a16afaa4ae00867aef17f18c2c2: 177 file(s), replanned 6.0s, 1 restart(s)",
+      "id": "U12-git-checkout",
+      "kind": "fault",
+      "measure": {
+        "legs": [
+          {
+            "answerSeconds": null,
+            "filesChanged": 177,
+            "replanSeconds": 5.668715779,
+            "restarts": 1,
+            "rev": "HEAD~20",
+            "settled": true
+          },
+          {
+            "answerSeconds": 6.118546673,
+            "filesChanged": 177,
+            "replanSeconds": 6.042753183,
+            "restarts": 1,
+            "rev": "84572b0cc8502a16afaa4ae00867aef17f18c2c2",
+            "settled": true
+          }
+        ],
+        "load": 5.89
+      },
+      "ok": true,
+      "seconds": 88.25647044,
+      "since-start": 763.397410325
+    },
+    {
+      "detail": "longest stall 4.5s, 5 state changes (4 in the busiest minute), 0 error, clangd restarts 2, first ready 6.6s, prepared -",
+      "id": "U15-long",
+      "kind": "timeline",
+      "measure": {
+        "activityAtEnd": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundIndex": {
+                "active": false
+              },
+              "backgroundUnits": [],
+              "deferredRequests": 0,
+              "filesAwaitingDiagnostics": 0,
+              "generation": 5,
+              "heldRequests": 0,
+              "implementationIndex": {
+                "built": 20,
+                "on": true,
+                "queued": 0,
+                "running": 0,
+                "sweepComplete": false,
+                "sweepScheduled": true,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 130,
+                "done": 111,
+                "lastCompletedModule": "xlings.core.xim.index_cmd",
+                "limit": 1,
+                "running": 0,
+                "runningUnits": [],
+                "secondsSinceModuleBuild": 48,
+                "wanted": 111,
+                "workers": 3
+              },
+              "rebuilds": {
+                "byReason": {
+                  "input": 6,
+                  "no-bmi": 124
+                },
+                "recent": [
+                  {
+                    "module": "xlings.core.xim.downloader",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.repo",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.catalog",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself.doctor",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.inventory",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.resolver",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.libxpkg.types.subos",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.libxpkg.types.script",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.installer",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.subos.sandbox",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.subos",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.cli",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.uimode",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.console",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.utf8",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.agent.text_renderer",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.capabilities",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.home_config",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:theme",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:layout",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:progress",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:selector",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:table",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:info_panel",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui:banner",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.ui",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.index_cmd",
+                    "why": "no BMI for this command and these prerequisites"
+                  }
+                ]
+              },
+              "state": "ready"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 4,
+            "engine-database": 4,
+            "engine-plan-diff": 2,
+            "engine-restart": 2,
+            "engine-restart-postponed": 1,
+            "engine-restart-scheduled": 2,
+            "engine-start": 3,
+            "model-loaded": 3,
+            "model-source": 4,
+            "model-unchanged": 1,
+            "module-built": 130,
+            "module-locks-cleared": 3,
+            "plan": 5,
+            "scan-failed": 1,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 6
+          },
+          "requests": {
+            "textDocument/completion": {
+              "answeredBy": {
+                "clangd": 1
+              },
+              "cancelled": 0,
+              "count": 1,
+              "empty": 0,
+              "engineAnswered": 1,
+              "engineP50Ms": 50,
+              "engineP95Ms": 50,
+              "errors": 0,
+              "lastAt": "2026-10-21T19:34:47.326Z",
+              "maxMs": 51,
+              "overheadP50Ms": 1,
+              "overheadP95Ms": 1,
+              "p50Ms": 51,
+              "p95Ms": 51
+            }
+          },
+          "state": "ready"
+        },
+        "busiestMinuteChanges": 4,
+        "clangdRestarts": 2,
+        "errorStates": 0,
+        "firstReadySeconds": 6.626456893,
+        "load": 5.89,
+        "longestEngineInactivitySeconds": 4.476869485,
+        "longestStallActivity": {
+          "events": [],
+          "historyTruncated": false,
+          "observed": 0
+        },
+        "longestStallCpuCores": null,
+        "longestStallFromSeconds": 0.0,
+        "longestStallSeconds": 4.476869485,
+        "longestStallToSeconds": 4.476869485,
+        "preparationStalledSamples": 0,
+        "preparedSeconds": null,
+        "serverRestarts": 0,
+        "stateChanges": 5,
+        "statuses": 83
+      },
+      "ok": true,
+      "seconds": 0.14595542,
+      "since-start": 763.543394724
+    }
+  ],
+  "failures": 0,
+  "first-diagnostics": 675.178439165,
+  "first-navigation": null,
+  "fixture": "ux-xlings",
+  "initialize": 4.472093185,
+  "ready": 6.626461489,
+  "reused-workspace": true,
+  "seconds": 764.974739712
+}

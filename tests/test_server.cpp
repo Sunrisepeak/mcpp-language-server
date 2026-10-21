@@ -215,6 +215,42 @@ private:
     bool running_ { false };
 };
 
+// A native process double whose retiring workers keep reading the same CDB until released.
+class DatabaseReadingProcess : public BuildingProcess {
+public:
+    struct Reads {
+        std::mutex mutex;
+        std::condition_variable changed;
+        bool stopping { false };
+        bool released { false };
+        std::vector<std::string> starts;
+        std::string retiring;
+    };
+    DatabaseReadingProcess(std::shared_ptr<BuildingProcess::Shared> shared, std::shared_ptr<Reads> reads)
+        : BuildingProcess(std::move(shared)), reads_ { std::move(reads) } {}
+    mcppls::base::Result<void> start(const cld::ProcessConfig& config, MessageHandler message, ClosedHandler closed, LogHandler log) override {
+        path_ = mcppls::base::join_path(config.databaseDirectory, "compile_commands.json");
+        {
+            const std::lock_guard lock { reads_->mutex };
+            reads_->starts.push_back(mcppls::platform::fs::read_file(path_).value_or(std::string {}));
+        }
+        return BuildingProcess::start(config, std::move(message), std::move(closed), std::move(log));
+    }
+    void stop(std::chrono::milliseconds grace) override {
+        {
+            std::unique_lock lock { reads_->mutex };
+            reads_->stopping = true;
+            reads_->changed.notify_all();
+            reads_->changed.wait_for(lock, std::chrono::seconds { 3 }, [&] { return reads_->released; });
+            reads_->retiring = mcppls::platform::fs::read_file(path_).value_or(std::string {});
+        }
+        BuildingProcess::stop(grace);
+    }
+private:
+    std::shared_ptr<Reads> reads_;
+    std::string path_;
+};
+
 // The least a Workspace offers an engine: one root, no documents, events recorded.
 class RecordingHost : public eng::Host {
 public:
@@ -1748,6 +1784,219 @@ int main() {
         expect(!unresolved_in("inferred")) << "dropped once the build tool's model replaced the provisional one";
         engine->shut_down();
         fs::remove_all(root);
+    };
+
+    "incremental database publication follows creation of its generated inputs"_test = [] {
+        namespace fs = mcppls::platform::fs;
+        using mcppls::base::join_path;
+        const std::string root { join_path(mcppls::platform::dirs::temp_directory(),
+            std::format("mcppls-test-generated-publication-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+        (void)fs::create_directories(root);
+        const std::string executable { join_path(root, "clangd") };
+        (void)fs::write_file(executable, "pretend-clangd");
+        const std::string source { join_path(root, "module.cppm") };
+        (void)fs::write_file(source, "export module hello;\n");
+        class PublicationHost : public RecordingHost {
+        public:
+            using RecordingHost::RecordingHost;
+            std::vector<std::string> expectedFiles;
+            std::vector<std::optional<std::string>> contentsAtPublication;
+            std::vector<bool> referencedAtPublication;
+            void record_event(std::string_view kind, Json detail) override {
+                RecordingHost::record_event(kind, std::move(detail));
+                if (kind != "engine-database" || expectedFiles.empty()) return;
+                const auto path = mcppls::base::join_path(cache_directory(), "contexts/default/cdb/compile_commands.json");
+                const auto database = Json::parse(mcppls::platform::fs::read_file(path).value_or("null"), nullptr, false);
+                for (const auto& file : expectedFiles) {
+                    auto content = mcppls::platform::fs::read_file(file);
+                    contentsAtPublication.push_back(content ? std::optional<std::string> { *content } : std::nullopt);
+                    referencedAtPublication.push_back(database.is_array() && std::ranges::any_of(database, [&](const auto& entry) {
+                        return entry.is_object() && entry.value("file", std::string {}) == file;
+                    }));
+                }
+            }
+        };
+        auto shared = std::make_shared<BuildingProcess::Shared>();
+        cld::Options options;
+        options.executable = executable;
+        options.version = "23.1.0";
+        options.primeImplementationUnits = false;
+        options.processFactory = [shared] { return std::make_unique<BuildingProcess>(shared); };
+        PublicationHost host { root };
+        auto engine = cld::make_engine(std::move(options));
+        engine->start(host);
+        host.pump(*engine);
+        mcppls::normalize::EnginePlan first;
+        first.entries.push_back(mcppls::normalize::EngineEntry { root, source, { "clang++", "-c", source }, "hello", "hello", {}, {} });
+        engine->apply(&first);
+        host.pump(*engine);
+        auto incremental = first;
+        const std::string prime { join_path(host.cache_directory(), "contexts/default/prime/added.cpp") };
+        const std::string stub { join_path(host.cache_directory(), "contexts/default/stubs/missing.cppm") };
+        const std::string primeText { "import hello;\n" };
+        const std::string stubText { "export module missing;\n" };
+        incremental.primeSources.emplace_back(prime, primeText);
+        incremental.stubSources.emplace_back(stub, stubText);
+        incremental.entries.push_back(mcppls::normalize::EngineEntry { root, prime, { "clang++", "-c", prime }, "", "", { "hello" }, {} });
+        incremental.entries.push_back(mcppls::normalize::EngineEntry { root, stub, { "clang++", "-c", stub }, "missing", "missing", {}, {} });
+        host.expectedFiles = { prime, stub };
+        engine->apply(&incremental);
+        host.pump(*engine);
+        expect(host.contentsAtPublication == std::vector<std::optional<std::string>> { primeText, stubText });
+        expect(host.referencedAtPublication == std::vector<bool> { true, true });
+        expect(std::ranges::count(host.events, std::string { "engine-database" }) == 2);
+        expect(std::ranges::count(host.events, std::string { "engine-restart" }) == 0);
+        { const std::lock_guard lock { shared->mutex };
+          expect(std::ranges::count_if(shared->sent, [](const Json& message) { return message.value("method", std::string {}) == "initialize"; }) == 1); }
+        engine->shut_down();
+        fs::remove_all(root);
+    };
+
+    "a failed first database remains retryable and later plans replace it"_test = [] {
+        namespace fs = mcppls::platform::fs;
+        using mcppls::base::join_path;
+        using namespace std::chrono_literals;
+        const std::string root { join_path(mcppls::platform::dirs::temp_directory(),
+            std::format("mcppls-test-first-cdb-write-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+        (void)fs::create_directories(root);
+        const std::string executable { join_path(root, "clangd") };
+        (void)fs::write_file(executable, "pretend-clangd");
+        const std::string source { join_path(root, "module.cppm") };
+        (void)fs::write_file(source, "export module hello;\n");
+        auto shared = std::make_shared<BuildingProcess::Shared>();
+        cld::Options options;
+        options.executable = executable;
+        options.version = "23.1.0";
+        options.primeImplementationUnits = false;
+        options.processFactory = [shared] { return std::make_unique<BuildingProcess>(shared); };
+        RecordingHost host { root };
+        auto engine = cld::make_engine(std::move(options));
+        engine->start(host);
+        host.pump(*engine);
+        const std::string database { join_path(host.cache_directory(), "contexts/default/cdb/compile_commands.json") };
+        (void)fs::create_directories(database);
+        (void)fs::write_file(join_path(database, "blocker"), "preserve this directory\n");
+        mcppls::normalize::EnginePlan first;
+        first.entries.push_back(mcppls::normalize::EngineEntry { root, source, { "clang++", "-DFIRST", "-c", source }, "hello", "hello", {}, {} });
+        engine->apply(&first);
+        expect(std::ranges::count(host.events, std::string { "engine-database" }) == 0);
+        expect(std::ranges::any_of(engine->status().issues, [](const auto& issue) { return issue.code == "engine-database-write-failed"; }));
+        auto latest = first;
+        latest.entries.front().arguments[1] = "-DLATEST";
+        engine->apply(&latest);
+        expect(std::ranges::count(host.events, std::string { "engine-database" }) == 0);
+        fs::remove_all(database);
+        expect(engine->restart_on_request());
+        const auto until = std::chrono::steady_clock::now() + 2s;
+        while (std::chrono::steady_clock::now() < until) {
+            host.pump(*engine);
+            if (fs::read_file(database).has_value() && engine->status().accepting) break;
+            std::this_thread::sleep_for(5ms);
+        }
+        expect(fs::read_file(database).value_or(std::string {}).contains("-DLATEST"));
+        expect(!fs::read_file(database).value_or(std::string {}).contains("-DFIRST"));
+        expect(std::ranges::count(host.events, std::string { "engine-database" }) == 1);
+        expect(std::ranges::none_of(engine->status().issues, [](const auto& issue) { return issue.code == "engine-database-write-failed"; }));
+        engine->shut_down();
+        fs::remove_all(root);
+    };
+
+    "a retiring process keeps its database and its successor sees only the latest plan"_test = [] {
+        namespace fs = mcppls::platform::fs;
+        using mcppls::base::join_path;
+        using namespace std::chrono_literals;
+        for (const bool failWrite : { false, true }) {
+            const std::string root { join_path(mcppls::platform::dirs::temp_directory(),
+                std::format("mcppls-test-cdb-retirement-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+            (void)fs::create_directories(root);
+            const std::string executable { join_path(root, "clangd") };
+            (void)fs::write_file(executable, "pretend-clangd");
+            const std::string source { join_path(root, "module.cppm") };
+            (void)fs::write_file(source, "export module hello;\n");
+            auto shared = std::make_shared<BuildingProcess::Shared>();
+            auto reads = std::make_shared<DatabaseReadingProcess::Reads>();
+            cld::Options options;
+            options.executable = executable;
+            options.version = "23.1.0";
+            options.primeImplementationUnits = false;
+            options.processFactory = [shared, reads] { return std::make_unique<DatabaseReadingProcess>(shared, reads); };
+            RecordingHost host { root };
+            auto engine = cld::make_engine(std::move(options));
+            engine->start(host);
+            host.pump(*engine);
+            const auto plan = [&](const std::string& profile) {
+                mcppls::normalize::EnginePlan result;
+                result.toolchainKey = profile;
+                result.entries.push_back(mcppls::normalize::EngineEntry { root, source, { "clang++", "-D" + profile, "-c", source }, "hello", "hello", {}, {} });
+                return result;
+            };
+            const auto original = plan("ORIGINAL");
+            engine->apply(&original);
+            host.pump(*engine);
+            const std::string database { join_path(host.cache_directory(), "contexts/default/cdb/compile_commands.json") };
+            auto incremental = original;
+            const std::string added { join_path(root, "added.cpp") };
+            incremental.entries.push_back(mcppls::normalize::EngineEntry { root, added, { "clang++", "-c", added }, "", "", {}, {} });
+            engine->apply(&incremental);
+            host.pump(*engine);
+            const auto before = fs::read_file(database).value_or(std::string {});
+            expect(before.contains("added.cpp")) << "an ordinary additive update is still published immediately";
+            { const std::lock_guard lock { reads->mutex }; expect(reads->starts.size() == 1u); }
+            const auto middle = plan("MIDDLE");
+            engine->apply(&middle);
+            {
+                std::unique_lock lock { reads->mutex };
+                expect(reads->changed.wait_for(lock, 2s, [&] { return reads->stopping; }));
+            }
+            const auto latest = plan("LATEST");
+            engine->apply(&latest);
+            expect(fs::read_file(database).value_or(std::string {}) == before) << "the old process still reads its original configuration";
+            const auto publishedBefore = std::ranges::count(host.events, std::string { "engine-database" });
+            if (failWrite) {
+                fs::remove_all(database);
+                (void)fs::create_directories(database);
+                (void)fs::write_file(join_path(database, "blocker"), "preserve this directory\n"); // an atomic replacement cannot remove a nonempty directory
+            }
+            {
+                const std::lock_guard lock { reads->mutex };
+                reads->released = true;
+                reads->changed.notify_all();
+            }
+            const auto until = std::chrono::steady_clock::now() + 2s;
+            while (std::chrono::steady_clock::now() < until) {
+                host.pump(*engine);
+                const auto status = engine->status();
+                bool started;
+                { const std::lock_guard lock { reads->mutex }; started = reads->starts.size() > 1; }
+                if (started || std::ranges::any_of(status.issues, [](const auto& issue) { return issue.code == "engine-database-write-failed"; })) break;
+                std::this_thread::sleep_for(5ms);
+            }
+            {
+                const std::lock_guard lock { reads->mutex };
+                if (!failWrite) {
+                    expect(reads->retiring == before) << "even the final old-process read sees the old plan";
+                    expect(reads->starts.size() == 2u);
+                    if (reads->starts.size() > 1) {
+                        expect(reads->starts.back().contains("-DLATEST"));
+                        expect(!reads->starts.back().contains("-DMIDDLE"));
+                    }
+                } else expect(reads->starts.size() == 1u) << "a failed publication cannot start a process with the wrong database";
+            }
+            expect(std::ranges::count(host.events, std::string { "engine-database" }) == publishedBefore + (failWrite ? 0 : 1));
+            if (failWrite) {
+                const auto status = engine->status();
+                expect(std::ranges::any_of(status.issues, [](const auto& issue) { return issue.code == "engine-database-write-failed"; }));
+                fs::remove_all(database);
+                expect(engine->restart_on_request());
+                host.pump(*engine);
+                const auto recovered = engine->status();
+                expect(std::ranges::none_of(recovered.issues, [](const auto& issue) { return issue.code == "engine-database-write-failed"; }));
+                { const std::lock_guard lock { reads->mutex }; expect(reads->starts.size() == 2u); }
+                expect(fs::read_file(database).value_or(std::string {}).contains("-DLATEST"));
+            }
+            engine->shut_down();
+            fs::remove_all(root);
+        }
     };
 
     "a restart the plan asks for waits while the person types, and not past its limit (R-8)"_test = [] {

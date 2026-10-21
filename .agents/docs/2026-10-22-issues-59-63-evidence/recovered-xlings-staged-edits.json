@@ -1,0 +1,1138 @@
+{
+  "checks": [
+    {
+      "detail": "first clangd answer 1.3s after opening; then 121 s at 10 Hz, 123 completions p95 0.63s max 0.95s, 0 restart(s), 0 set aside, 0 doomed, 0 module-failed diagnostic(s), 0 stalled sample(s), 0 timeout(s), diagnostics after 4.3s",
+      "id": "U5-typing",
+      "kind": "typing",
+      "measure": {
+        "answered": 123,
+        "answeredBy": {
+          "cache": 9,
+          "clangd": 91,
+          "mcppls": 23
+        },
+        "askedAsTyped": 0,
+        "askedForIncomplete": 0,
+        "autosaveIdleMs": 0,
+        "autosaveMs": 0,
+        "clientTimeouts": 0,
+        "completion": {
+          "max": 0.945335289,
+          "n": 123,
+          "p50": 0.18973723,
+          "p95": 0.628219819
+        },
+        "completions": 123,
+        "diagnosticsRefresh": 4.307902965,
+        "doomed": 0,
+        "engineShare": 0.8130081300813008,
+        "errors": 0,
+        "filesSetAside": 0,
+        "firstOpenSeconds": 1.317396622,
+        "fromWord": 6,
+        "hz": 10.0,
+        "keysWhilePending": 0,
+        "load": 13.94,
+        "moduleFailedDiagnostics": 0,
+        "reask": "",
+        "restarts": 0,
+        "seconds": 120.50326666,
+        "serverTimeouts": 0,
+        "stalledSamples": 0,
+        "statesSeen": [
+          "ready"
+        ],
+        "typedWords": 0
+      },
+      "ok": true,
+      "seconds": 130.665098657,
+      "since-start": 134.18296778
+    },
+    {
+      "detail": "first clangd answer 1.2s after opening; then 123 s at 10 Hz, 126 completions p95 0.42s max 0.81s, 0 restart(s), 0 set aside, 0 doomed, 0 module-failed diagnostic(s), 0 stalled sample(s), 0 timeout(s), diagnostics after 1.8s",
+      "id": "U6-typing-autosave",
+      "kind": "typing",
+      "measure": {
+        "answered": 126,
+        "answeredBy": {
+          "cache": 2,
+          "clangd": 101,
+          "mcppls": 23
+        },
+        "askedAsTyped": 0,
+        "askedForIncomplete": 0,
+        "autosaveIdleMs": 0,
+        "autosaveMs": 1000,
+        "clientTimeouts": 0,
+        "completion": {
+          "max": 0.814234882,
+          "n": 126,
+          "p50": 0.141521602,
+          "p95": 0.418337296
+        },
+        "completions": 126,
+        "diagnosticsRefresh": 1.802827231,
+        "doomed": 0,
+        "engineShare": 0.8174603174603174,
+        "errors": 0,
+        "filesSetAside": 0,
+        "firstOpenSeconds": 1.236287335,
+        "fromWord": 3,
+        "hz": 10.0,
+        "keysWhilePending": 0,
+        "load": 7.18,
+        "moduleFailedDiagnostics": 0,
+        "reask": "",
+        "restarts": 0,
+        "seconds": 123.047459352,
+        "serverTimeouts": 0,
+        "stalledSamples": 0,
+        "statesSeen": [],
+        "typedWords": 0
+      },
+      "ok": true,
+      "seconds": 130.690896507,
+      "since-start": 264.873918665
+    },
+    {
+      "detail": "first clangd answer 1.2s after opening; then 93 s at 10 Hz, 96 completions p95 0.53s max 0.64s, importer 96 completions p95 0.45s 0 empty 7 module-failed, 0 restart(s), 0 set aside, 0 doomed, 0 module-failed diagnostic(s), 0 stalled sample(s), 0 timeout(s), diagnostics after never",
+      "id": "U16-module-autosave",
+      "kind": "typing",
+      "measure": {
+        "answered": 96,
+        "answeredBy": {
+          "cache": 4,
+          "clangd": 188
+        },
+        "askedAsTyped": 0,
+        "askedForIncomplete": 0,
+        "autosaveIdleMs": 1000,
+        "autosaveMs": 0,
+        "clientTimeouts": 0,
+        "completion": {
+          "max": 0.643050801,
+          "n": 96,
+          "p50": 0.091416148,
+          "p95": 0.530738273
+        },
+        "completions": 96,
+        "diagnosticsRefresh": null,
+        "doomed": 0,
+        "engineShare": 1.0,
+        "errors": 0,
+        "filesSetAside": 0,
+        "firstOpenSeconds": 1.200653655,
+        "fromWord": 83,
+        "hz": 10.0,
+        "importer": {
+          "answered": 96,
+          "completion": {
+            "max": 1.37615086,
+            "n": 96,
+            "p50": 0.003771108,
+            "p95": 0.445277483
+          },
+          "completions": 96,
+          "empty": 0,
+          "file": "src/core/log.cpp",
+          "moduleFailedDiagnostics": 7
+        },
+        "keysWhilePending": 0,
+        "load": 9.34,
+        "moduleFailedDiagnostics": 0,
+        "reask": "",
+        "restarts": 0,
+        "seconds": 92.957102806,
+        "serverTimeouts": 0,
+        "stalledSamples": 0,
+        "statesSeen": [
+          "ready"
+        ],
+        "typedWords": 0
+      },
+      "ok": true,
+      "seconds": 96.48102911,
+      "since-start": 361.354991956
+    },
+    {
+      "detail": "8 importers republished after 2.0s, probe cleared after 2.0s, interactive p95 0.70s max 0.70s, jump after 2.2s, states []",
+      "id": "U7a-fanout-save",
+      "kind": "edit-save",
+      "measure": {
+        "completion": {
+          "max": 0.695078164,
+          "n": 2,
+          "p50": 0.580446878,
+          "p95": 0.695078164
+        },
+        "completionsUnanswered": 0,
+        "engineShare": 1.0,
+        "errorSamples": 0,
+        "importers": 8,
+        "load": 7.35,
+        "probeSeconds": 2.011277653,
+        "recoverSeconds": 2.213532722,
+        "republishSeconds": 2.011515992,
+        "restarts": 0,
+        "statesSeen": []
+      },
+      "ok": true,
+      "seconds": 21.546017029,
+      "since-start": 382.901050682
+    },
+    {
+      "detail": "added src/core/ux_probe.cppm: the graph followed after 0.1s, 0 restart(s)",
+      "id": "U8-add-module",
+      "kind": "graph-edit",
+      "measure": {
+        "action": "add",
+        "graphSeconds": 0.144689259,
+        "load": 6.61,
+        "restarts": 0
+      },
+      "ok": true,
+      "seconds": 10.826900874,
+      "since-start": 393.727987195
+    },
+    {
+      "detail": "removed src/core/ux_probe.cppm: the graph followed after 0.1s, 0 restart(s)",
+      "id": "U8-remove-module",
+      "kind": "graph-edit",
+      "measure": {
+        "action": "remove",
+        "graphSeconds": 0.14141839,
+        "load": 5.98,
+        "restarts": 0
+      },
+      "ok": true,
+      "seconds": 10.654653244,
+      "since-start": 404.382676547
+    },
+    {
+      "detail": "changed mcpp.toml: described again after 5.2s; undone: after 5.1s, 0 module file(s) built again",
+      "id": "U8-config",
+      "kind": "graph-edit",
+      "measure": {
+        "action": "config",
+        "activityAfterRevert": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundIndex": {
+                "active": false
+              },
+              "backgroundUnits": [],
+              "deferredRequests": 0,
+              "filesAwaitingDiagnostics": 0,
+              "generation": 5,
+              "heldRequests": 0,
+              "implementationIndex": {
+                "built": 33,
+                "on": true,
+                "queued": 0,
+                "running": 0,
+                "sweepComplete": false,
+                "sweepScheduled": true,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 111,
+                "done": 96,
+                "lastCompletedModule": "xlings.core.xim.overlay",
+                "limit": 1,
+                "running": 0,
+                "runningUnits": [],
+                "secondsSinceModuleBuild": 53,
+                "wanted": 96,
+                "workers": 3
+              },
+              "rebuilds": {
+                "byReason": {
+                  "input": 19,
+                  "no-bmi": 110
+                },
+                "recent": [
+                  {
+                    "module": "xlings.core.xself.shell_profile",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.payload",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.runtime",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.errors",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.install_state",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.removal",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.mirror",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.indexfetch",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.elf_same_source",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.repo",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.catalog",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.resolver",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.switch_plan",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.inspect",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself.config",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.closure_check",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.shim",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself.uninstall",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.profile",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself.install",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.downloader",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.inventory",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself.doctor",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.libxpkg.types.subos",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.libxpkg.types.script",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.installer",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.overlay",
+                    "why": "no BMI for this command and these prerequisites"
+                  }
+                ]
+              },
+              "state": "ready"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 4,
+            "engine-database": 3,
+            "engine-plan-diff": 2,
+            "engine-restart": 2,
+            "engine-restart-scheduled": 2,
+            "engine-start": 3,
+            "model-loaded": 3,
+            "model-source": 4,
+            "model-unchanged": 1,
+            "module-built": 111,
+            "module-failed": 2,
+            "module-locks-cleared": 3,
+            "module-retry": 1,
+            "plan": 15,
+            "scan-failed": 30,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 6,
+            "warm-adopted": 1
+          },
+          "requests": {
+            "textDocument/completion": {
+              "answeredBy": {
+                "cache": 16,
+                "clangd": 385,
+                "mcppls": 46
+              },
+              "cancelled": 0,
+              "count": 447,
+              "empty": 0,
+              "engineAnswered": 256,
+              "engineP50Ms": 95,
+              "engineP95Ms": 325,
+              "errors": 0,
+              "lastAt": "2026-10-21T19:19:58.152Z",
+              "maxMs": 1375,
+              "overheadP50Ms": 3,
+              "overheadP95Ms": 11,
+              "p50Ms": 37,
+              "p95Ms": 328
+            }
+          },
+          "state": "ready"
+        },
+        "activityBeforeChange": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundIndex": {
+                "active": false
+              },
+              "backgroundUnits": [
+                "~/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-staged-work/ux-xlings/src/cli.cpp"
+              ],
+              "deferredRequests": 0,
+              "filesAwaitingDiagnostics": 0,
+              "generation": 1,
+              "heldRequests": 0,
+              "implementationIndex": {
+                "built": 34,
+                "on": true,
+                "queued": 84,
+                "running": 1,
+                "sweepComplete": false,
+                "sweepScheduled": false,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 40,
+                "done": 103,
+                "lastCompletedModule": "xlings.core.xim.commands",
+                "limit": 1,
+                "running": 0,
+                "runningUnits": [],
+                "secondsSinceModuleBuild": 30,
+                "wanted": 103,
+                "workers": 3
+              },
+              "rebuilds": {
+                "byReason": {
+                  "input": 19,
+                  "no-bmi": 39
+                },
+                "recent": [
+                  {
+                    "module": "xlings.core.mirror.registry",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself.init",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.payload",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.mirror.expand",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.install_state",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.mirror",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.indexfetch",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.repo",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.catalog",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.resolver",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself.shell_profile",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.errors",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.removal",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.elf_same_source",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.inspect",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.switch_plan",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.closure_check",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.shim",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself.uninstall",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.profile",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself.install",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.downloader",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself.doctor",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.inventory",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.libxpkg.types.subos",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.libxpkg.types.script",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.installer",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  }
+                ]
+              },
+              "state": "ready"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 2,
+            "engine-database": 1,
+            "engine-start": 1,
+            "model-loaded": 1,
+            "model-source": 2,
+            "model-unchanged": 1,
+            "module-built": 40,
+            "module-failed": 2,
+            "module-locks-cleared": 1,
+            "module-retry": 1,
+            "plan": 13,
+            "scan-failed": 30,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 2,
+            "warm-adopted": 1
+          },
+          "requests": {
+            "textDocument/completion": {
+              "answeredBy": {
+                "cache": 16,
+                "clangd": 385,
+                "mcppls": 46
+              },
+              "cancelled": 0,
+              "count": 447,
+              "empty": 0,
+              "engineAnswered": 256,
+              "engineP50Ms": 95,
+              "engineP95Ms": 325,
+              "errors": 0,
+              "lastAt": "2026-10-21T19:19:58.152Z",
+              "maxMs": 1375,
+              "overheadP50Ms": 3,
+              "overheadP95Ms": 11,
+              "p50Ms": 37,
+              "p95Ms": 328
+            }
+          },
+          "state": "ready"
+        },
+        "activityBeforeRevert": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundIndex": {
+                "active": false
+              },
+              "backgroundUnits": [],
+              "deferredRequests": 0,
+              "filesAwaitingDiagnostics": 0,
+              "generation": 3,
+              "heldRequests": 0,
+              "implementationIndex": {
+                "built": 33,
+                "on": true,
+                "queued": 0,
+                "running": 0,
+                "sweepComplete": false,
+                "sweepScheduled": true,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 111,
+                "done": 96,
+                "lastCompletedModule": "xlings.core.xim.overlay",
+                "limit": 1,
+                "running": 0,
+                "runningUnits": [],
+                "secondsSinceModuleBuild": 16,
+                "wanted": 96,
+                "workers": 3
+              },
+              "rebuilds": {
+                "byReason": {
+                  "input": 19,
+                  "no-bmi": 110
+                },
+                "recent": [
+                  {
+                    "module": "xlings.core.xself.shell_profile",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.payload",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.runtime",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.errors",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.install_state",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.removal",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.mirror",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.indexfetch",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.elf_same_source",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.repo",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.catalog",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.resolver",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.switch_plan",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.inspect",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself.config",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.closure_check",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.shim",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself.uninstall",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.profile",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself.install",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.downloader",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.inventory",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself.doctor",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.libxpkg.types.subos",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.libxpkg.types.script",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.installer",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.overlay",
+                    "why": "no BMI for this command and these prerequisites"
+                  }
+                ]
+              },
+              "state": "ready"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 3,
+            "engine-database": 2,
+            "engine-plan-diff": 1,
+            "engine-restart": 1,
+            "engine-restart-scheduled": 1,
+            "engine-start": 2,
+            "model-loaded": 2,
+            "model-source": 3,
+            "model-unchanged": 1,
+            "module-built": 111,
+            "module-failed": 2,
+            "module-locks-cleared": 2,
+            "module-retry": 1,
+            "plan": 14,
+            "scan-failed": 30,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 4,
+            "warm-adopted": 1
+          },
+          "requests": {
+            "textDocument/completion": {
+              "answeredBy": {
+                "cache": 16,
+                "clangd": 385,
+                "mcppls": 46
+              },
+              "cancelled": 0,
+              "count": 447,
+              "empty": 0,
+              "engineAnswered": 256,
+              "engineP50Ms": 95,
+              "engineP95Ms": 325,
+              "errors": 0,
+              "lastAt": "2026-10-21T19:19:58.152Z",
+              "maxMs": 1375,
+              "overheadP50Ms": 3,
+              "overheadP95Ms": 11,
+              "p50Ms": 37,
+              "p95Ms": 328
+            }
+          },
+          "state": "ready"
+        },
+        "changeSeconds": 5.189951306,
+        "load": 4.07,
+        "revertBuildCountSource": "engine-completions",
+        "revertChangedModuleFiles": 0,
+        "revertEngineActivity": {
+          "events": [
+            {
+              "line": "mcppls 2026-10-21T19:22:02.092Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-staged-work/ux-xlings): I[04:22:02.092] Indexing c++23 standard library in the context of /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-staged-work/ux-xlings/modules/platform/src/platform.cppm",
+              "seconds": 8.247380609
+            },
+            {
+              "line": "mcppls 2026-10-21T19:22:03.279Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-staged-work/ux-xlings): I[04:22:03.279] Indexed c++23 standard library: 18031 symbols, 2355 filtered",
+              "seconds": 9.760448023
+            }
+          ],
+          "historyTruncated": false,
+          "observed": 2
+        },
+        "revertNewBmi": 0,
+        "revertRestarts": 1,
+        "revertSeconds": 5.100249925
+      },
+      "ok": true,
+      "seconds": 120.655994873,
+      "since-start": 525.038705277
+    },
+    {
+      "detail": "longest stall 4.1s, 6 state changes (4 in the busiest minute), 0 error, clangd restarts 2, first ready 9.0s, prepared 9.0s",
+      "id": "U15-edits",
+      "kind": "timeline",
+      "measure": {
+        "activityAtEnd": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundIndex": {
+                "active": false
+              },
+              "backgroundUnits": [],
+              "deferredRequests": 0,
+              "filesAwaitingDiagnostics": 0,
+              "generation": 5,
+              "heldRequests": 0,
+              "implementationIndex": {
+                "built": 33,
+                "on": true,
+                "queued": 0,
+                "running": 0,
+                "sweepComplete": false,
+                "sweepScheduled": true,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 111,
+                "done": 96,
+                "lastCompletedModule": "xlings.core.xim.overlay",
+                "limit": 1,
+                "running": 0,
+                "runningUnits": [],
+                "secondsSinceModuleBuild": 53,
+                "wanted": 96,
+                "workers": 3
+              },
+              "rebuilds": {
+                "byReason": {
+                  "input": 19,
+                  "no-bmi": 110
+                },
+                "recent": [
+                  {
+                    "module": "xlings.core.xself.shell_profile",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.payload",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.runtime",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.errors",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.install_state",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.removal",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.mirror",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.indexfetch",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.elf_same_source",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.repo",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.catalog",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.resolver",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.switch_plan",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.inspect",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself.config",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.closure_check",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.shim",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself.uninstall",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.profile",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself.install",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.downloader",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.inventory",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself.doctor",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.libxpkg.types.subos",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xself",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xvm.commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.libxpkg.types.script",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.installer",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.commands",
+                    "why": "no BMI for this command and these prerequisites"
+                  },
+                  {
+                    "module": "xlings.core.xim.overlay",
+                    "why": "no BMI for this command and these prerequisites"
+                  }
+                ]
+              },
+              "state": "ready"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 4,
+            "engine-database": 3,
+            "engine-plan-diff": 2,
+            "engine-restart": 2,
+            "engine-restart-scheduled": 2,
+            "engine-start": 3,
+            "model-loaded": 3,
+            "model-source": 4,
+            "model-unchanged": 1,
+            "module-built": 111,
+            "module-failed": 2,
+            "module-locks-cleared": 3,
+            "module-retry": 1,
+            "plan": 15,
+            "scan-failed": 30,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 6,
+            "warm-adopted": 1
+          },
+          "requests": {
+            "textDocument/completion": {
+              "answeredBy": {
+                "cache": 16,
+                "clangd": 385,
+                "mcppls": 46
+              },
+              "cancelled": 0,
+              "count": 447,
+              "empty": 0,
+              "engineAnswered": 256,
+              "engineP50Ms": 95,
+              "engineP95Ms": 325,
+              "errors": 0,
+              "lastAt": "2026-10-21T19:19:58.152Z",
+              "maxMs": 1375,
+              "overheadP50Ms": 3,
+              "overheadP95Ms": 11,
+              "p50Ms": 37,
+              "p95Ms": 328
+            }
+          },
+          "state": "ready"
+        },
+        "busiestMinuteChanges": 4,
+        "clangdRestarts": 2,
+        "errorStates": 0,
+        "firstReadySeconds": 8.977968166,
+        "load": 4.07,
+        "longestEngineInactivitySeconds": 4.127175934,
+        "longestStallActivity": {
+          "events": [
+            {
+              "line": "mcppls 2026-10-21T19:13:51.326Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/xlings-staged-work/ux-xlings): I[04:13:51.326] Indexed c++23 standard library: 18031 symbols, 2355 filtered",
+              "seconds": 0.677431988
+            }
+          ],
+          "historyTruncated": false,
+          "observed": 1
+        },
+        "longestStallCpuCores": 0.8298892655400293,
+        "longestStallFromSeconds": 4.850792232,
+        "longestStallSeconds": 4.127175934,
+        "longestStallToSeconds": 8.977968166,
+        "preparationStalledSamples": 0,
+        "preparedSeconds": 8.977968166,
+        "serverRestarts": 0,
+        "stateChanges": 6,
+        "statuses": 67
+      },
+      "ok": true,
+      "seconds": 0.136944391,
+      "since-start": 525.175686753
+    }
+  ],
+  "failures": 0,
+  "first-diagnostics": 13.935997204,
+  "first-navigation": null,
+  "fixture": "ux-xlings",
+  "initialize": 3.51706796,
+  "ready": 8.97797544,
+  "reused-workspace": true,
+  "seconds": 525.861090145
+}

@@ -1,0 +1,506 @@
+{
+  "checks": [
+    {
+      "detail": "1 kill(s), new clangd after 5.8s, jump after 6.6s, ready 65.6s, preparation went on",
+      "id": "U9-kill-clangd",
+      "kind": "fault",
+      "measure": {
+        "action": "kill-clangd",
+        "answerSeconds": 6.603386532,
+        "clangdStarts": 1,
+        "load": 4.27,
+        "newClangdSeconds": [
+          5.75960406
+        ],
+        "preparationResumed": true,
+        "readySeconds": 65.620789151
+      },
+      "ok": true,
+      "seconds": 142.481057043,
+      "since-start": 143.572774343
+    },
+    {
+      "detail": "new server: jump after 2.5s, ready after 6.1s, 0 module file(s) built, the workspace's cache",
+      "id": "U10-kill-server",
+      "kind": "fault",
+      "measure": {
+        "action": "kill-server",
+        "answerSeconds": 2.533993524,
+        "clangdRestarts": 0,
+        "load": 3.59,
+        "lockWaitLines": 0,
+        "newBmi": 0,
+        "orphanedClangd": 0,
+        "preparationResumed": true,
+        "readySeconds": 6.133711459,
+        "usesPrimaryCache": true
+      },
+      "ok": true,
+      "seconds": 24.276657893,
+      "since-start": 167.849472926
+    },
+    {
+      "detail": "new server: jump after 2.5s, ready after 9.2s, 0 module file(s) built, the workspace's cache",
+      "id": "U11-lock-dead-pid",
+      "kind": "fault",
+      "measure": {
+        "action": "lock",
+        "answerSeconds": 2.495275088,
+        "clangdRestarts": 0,
+        "injected": "1 lock(s) held by speak-pc 3999999",
+        "load": 2.58,
+        "lockWaitLines": 0,
+        "newBmi": 0,
+        "preparationResumed": true,
+        "readySeconds": 9.205633121,
+        "usesPrimaryCache": true
+      },
+      "ok": true,
+      "seconds": 25.867326901,
+      "since-start": 193.716841724
+    },
+    {
+      "detail": "new server: jump after 2.4s, ready after 6.2s, 0 module file(s) built, the workspace's cache",
+      "id": "U11-lock-live-pid",
+      "kind": "fault",
+      "measure": {
+        "action": "lock",
+        "answerSeconds": 2.41862472,
+        "clangdRestarts": 0,
+        "injected": "1 lock(s) held by speak-pc 1",
+        "load": 2.22,
+        "lockWaitLines": 0,
+        "newBmi": 0,
+        "preparationResumed": true,
+        "readySeconds": 6.21459377,
+        "usesPrimaryCache": true
+      },
+      "ok": true,
+      "seconds": 22.776863004,
+      "since-start": 216.493741498
+    },
+    {
+      "detail": "new server: jump after 2.5s, ready after 6.3s, 0 module file(s) built, the workspace's cache",
+      "id": "U11-lock-foreign-host",
+      "kind": "fault",
+      "measure": {
+        "action": "lock",
+        "answerSeconds": 2.506251169,
+        "clangdRestarts": 0,
+        "injected": "1 lock(s) held by some-other-host 1",
+        "load": 2.07,
+        "lockWaitLines": 0,
+        "newBmi": 0,
+        "preparationResumed": true,
+        "readySeconds": 6.301793805,
+        "usesPrimaryCache": true
+      },
+      "ok": true,
+      "seconds": 22.864629983,
+      "since-start": 239.358410244
+    },
+    {
+      "detail": "new server: jump after 2.4s, ready after 6.1s, 1 module file(s) built, the workspace's cache",
+      "id": "U11-truncate-pcm",
+      "kind": "fault",
+      "measure": {
+        "action": "truncate-pcm",
+        "answerSeconds": 2.444023538,
+        "clangdRestarts": 0,
+        "load": 1.62,
+        "lockWaitLines": 0,
+        "newBmi": 1,
+        "preparationResumed": true,
+        "readySeconds": 6.149042032,
+        "truncated": 1,
+        "usesPrimaryCache": true
+      },
+      "ok": true,
+      "seconds": 22.672524371,
+      "since-start": 262.030973265
+    },
+    {
+      "detail": "longest stall 59.7s, 16 state changes (6 in the busiest minute), 0 error, clangd restarts 0, first ready 141.9s, prepared 141.9s",
+      "id": "U15-faults",
+      "kind": "timeline",
+      "measure": {
+        "activityAtEnd": {
+          "engines": [
+            {
+              "name": "mcppls",
+              "state": "ready"
+            },
+            {
+              "backgroundIndex": {
+                "active": false
+              },
+              "backgroundUnits": [],
+              "deferredRequests": 0,
+              "filesAwaitingDiagnostics": 0,
+              "generation": 1,
+              "heldRequests": 0,
+              "implementationIndex": {
+                "built": 0,
+                "on": true,
+                "queued": 0,
+                "running": 0,
+                "sweepComplete": false,
+                "sweepScheduled": true,
+                "unreadable": 0
+              },
+              "name": "clangd",
+              "pendingRequests": 0,
+              "preparation": {
+                "completedModuleBuilds": 1,
+                "done": 176,
+                "lastCompletedModule": "mcpp.ui",
+                "limit": 1,
+                "running": 0,
+                "runningUnits": [],
+                "secondsSinceModuleBuild": 8,
+                "wanted": 176,
+                "workers": 2
+              },
+              "rebuilds": {
+                "byReason": {
+                  "no-bmi": 1
+                },
+                "recent": [
+                  {
+                    "module": "mcpp.ui",
+                    "why": "no BMI for this command and these prerequisites"
+                  }
+                ]
+              },
+              "state": "ready"
+            }
+          ],
+          "eventTotals": {
+            "cache-swept": 2,
+            "engine-database": 1,
+            "engine-start": 1,
+            "model-loaded": 1,
+            "model-source": 2,
+            "model-unchanged": 1,
+            "module-built": 1,
+            "module-locks-cleared": 1,
+            "plan": 1,
+            "startup": 1,
+            "tool-environment": 1,
+            "tool-run": 2,
+            "warm-adopted": 3
+          },
+          "requests": {
+            "textDocument/completion": {
+              "answeredBy": {
+                "clangd": 1
+              },
+              "cancelled": 0,
+              "count": 1,
+              "empty": 0,
+              "engineAnswered": 1,
+              "engineP50Ms": 345,
+              "engineP95Ms": 345,
+              "errors": 0,
+              "lastAt": "2026-10-21T19:41:46.474Z",
+              "maxMs": 347,
+              "overheadP50Ms": 1,
+              "overheadP95Ms": 1,
+              "p50Ms": 347,
+              "p95Ms": 347
+            }
+          },
+          "state": "ready"
+        },
+        "busiestMinuteChanges": 6,
+        "clangdRestarts": 0,
+        "errorStates": 0,
+        "firstReadySeconds": 141.910916631,
+        "load": 1.62,
+        "longestEngineInactivitySeconds": 7.42048924,
+        "longestStallActivity": {
+          "events": [
+            {
+              "line": "mcppls 2026-10-21T19:37:37.138Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:37.129] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/xlings/address_set.cppm (digest:=09F50950BEBF7DC9)",
+              "seconds": 0.113010012
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.138Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:37.130] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/modules/versioning/src/version_req.cppm (digest:=9B334523179F210D)",
+              "seconds": 0.113021626
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.164Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:37.164] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/xlings/address_set.cppm (20 symbols, 32 refs, 1 files)",
+              "seconds": 0.113025776
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.169Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:37.168] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/build/execute.cppm (digest:=86089A800E826103)",
+              "seconds": 0.113034339
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.173Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:37.173] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/modules/versioning/src/version_req.cppm (46 symbols, 99 refs, 1 files)",
+              "seconds": 0.11303706
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.174Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:37.174] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/pack/library_pipeline.cppm (digest:=A06C5595DAD8A25B)",
+              "seconds": 0.113045616
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.212Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:37.212] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/pack/library_pipeline.cppm (173 symbols, 1742 refs, 36 files)",
+              "seconds": 0.616208887
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.218Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:37.218] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/prime/0073-mcpp.cli.cmd_cache.cpp (digest:=99D37EA343D2D036)",
+              "seconds": 0.616219867
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.223Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:37.223] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/prime/0073-mcpp.cli.cmd_cache.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 0.616224171
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.223Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:37.223] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/prime/0149-mcpp.toolchain.triple.cpp (digest:=852766912086438C)",
+              "seconds": 0.616231838
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.225Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:37.225] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/prime/0149-mcpp.toolchain.triple.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 0.616235008
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.226Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:37.226] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/build/ninja_backend.cppm (digest:=3FF113DA6A0C9C57)",
+              "seconds": 0.616241578
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.240Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:37.240] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/build/execute.cppm (537 symbols, 3281 refs, 79 files)",
+              "seconds": 0.616244149
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.264Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:37.264] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/tests/unit/test_bmi_equivalent.cpp (digest:=1B804F43257B1344)",
+              "seconds": 0.616256353
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.284Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:37.284] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/build/ninja_backend.cppm (497 symbols, 2998 refs, 71 files)",
+              "seconds": 0.616258823
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.292Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:37.292] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/prime/0130-mcpp.cli.cpp (digest:=7C4995E39EE0875A)",
+              "seconds": 0.61626627
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.299Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:37.299] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/prime/0130-mcpp.cli.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 0.616269903
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.300Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:37.300] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/build/stage.cppm (digest:=6D277EB461380E94)",
+              "seconds": 0.616277406
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.303Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:37.302] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/build/stage.cppm (24 symbols, 42 refs, 1 files)",
+              "seconds": 0.616280762
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.305Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:37.305] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/prime/0145-mcpp.platform.fs.cpp (digest:=E98D89A63CB27DA3)",
+              "seconds": 0.616287914
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.308Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:37.308] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/prime/0145-mcpp.platform.fs.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 0.616291263
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.309Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:37.309] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/pack/zip.cppm (digest:=76B40D3263E6104C)",
+              "seconds": 0.616298327
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.311Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:37.311] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/pack/zip.cppm (17 symbols, 25 refs, 1 files)",
+              "seconds": 0.616302004
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.334Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:37.334] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/tests/unit/test_artifact_naming.cpp (digest:=4262EF6529D720C4)",
+              "seconds": 0.616309268
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:37.953Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:37.953] Rebuilding module std: no BMI for this command and these prerequisites",
+              "seconds": 1.12192979
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:40.504Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:40.500] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/tests/unit/test_artifact_naming.cpp (11009 symbols, 113179 refs, 395 files)",
+              "seconds": 3.624495086
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:40.594Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:40.594] Built module std to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-0-1/payload.pcm",
+              "seconds": 3.624500282
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:40.640Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:40.640] Rebuilding module mcpp.libs.json: no BMI for this command and these prerequisites",
+              "seconds": 3.624509926
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:40.642Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:40.642] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/tests/unit/test_bmi_equivalent.cpp (11520 symbols, 117494 refs, 407 files)",
+              "seconds": 3.624511722
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:40.658Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:40.658] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/tests/unit/test_elf_runtime.cpp (digest:=FA4158D9AE138485)",
+              "seconds": 3.624521942
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:40.862Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:40.862] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/prime/0084-mcpp.fallback.legacy_dirs.cpp (digest:=25DC7F3C83F66C9D)",
+              "seconds": 4.124754387
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:40.868Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:40.868] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/prime/0084-mcpp.fallback.legacy_dirs.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 4.124760437
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:40.869Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:40.869] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/prime/0043-mcpp.pm.index_snapshot.cpp (digest:=F0C53099973BA0E3)",
+              "seconds": 4.124776124
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:40.870Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:40.870] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/prime/0043-mcpp.pm.index_snapshot.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 4.124780569
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:40.871Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:40.871] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/prime/0161-mcpp.pm.dependency_selector.cpp (digest:=C4C102476D9C2838)",
+              "seconds": 4.124789853
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:40.876Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:40.876] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/prime/0161-mcpp.pm.dependency_selector.cpp (0 symbols, 0 refs, 1 files)",
+              "seconds": 4.12479415
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:40.883Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:40.880] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/build/configure.cppm (digest:=92C1F08C1D4C7BA9)",
+              "seconds": 4.124802637
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:40.898Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:40.898] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/build/configure.cppm (170 symbols, 1742 refs, 36 files)",
+              "seconds": 4.124806341
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:40.900Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:40.900] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/pm/refresh_policy.cppm (digest:=638B523397A1805F)",
+              "seconds": 4.124814464
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:40.906Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:40.906] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/pm/refresh_policy.cppm (29 symbols, 93 refs, 1 files)",
+              "seconds": 4.124817897
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:40.911Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:40.911] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/tests/unit/test_freestanding.cpp (digest:=B7ACC57F183DC54D)",
+              "seconds": 4.124825868
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:42.810Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:42.809] Built module mcpp.libs.json to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-2-1/payload.pcm",
+              "seconds": 6.125518173
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:42.845Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:42.845] Rebuilding module mcpp.platform.capacity: no BMI for this command and these prerequisites",
+              "seconds": 6.125530222
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:42.887Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:42.886] Built module mcpp.platform.capacity to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-4-1/payload.pcm",
+              "seconds": 6.125533218
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:42.904Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:42.904] Rebuilding module mcpp.pm.dep_spec: no BMI for this command and these prerequisites",
+              "seconds": 6.12554033
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:42.956Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:42.955] Built module mcpp.pm.dep_spec to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-6-1/payload.pcm",
+              "seconds": 6.125543171
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:42.967Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:42.967] Rebuilding module mcpplibs.cmdline:options: no BMI for this command and these prerequisites",
+              "seconds": 6.125546508
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:43.018Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:43.017] Built module mcpplibs.cmdline:options to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-8-1/payload.pcm",
+              "seconds": 6.125548807
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:43.029Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:43.029] Rebuilding module mcpp.pm.index_spec: no BMI for this command and these prerequisites",
+              "seconds": 6.125552191
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:43.074Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:43.070] Built module mcpp.pm.index_spec to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-10-1/payload.pcm",
+              "seconds": 6.125554445
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:43.085Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:43.082] Rebuilding module mcpplibs.cmdline:parse: no BMI for this command and these prerequisites",
+              "seconds": 6.125557849
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:43.108Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:43.108] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/tests/unit/test_elf_runtime.cpp (11060 symbols, 113689 refs, 395 files)",
+              "seconds": 6.125561035
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:43.134Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:43.134] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/modules/manifest/src/types.cppm (digest:=666EC8277F70410E)",
+              "seconds": 6.125568496
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:43.150Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:43.150] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/modules/manifest/src/types.cppm (376 symbols, 486 refs, 1 files)",
+              "seconds": 6.125572095
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:43.156Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:43.156] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/pack/pipeline.cppm (digest:=1924C335A5609E23)",
+              "seconds": 6.12557935
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:43.201Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:43.200] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/src/pack/pipeline.cppm (466 symbols, 2949 refs, 71 files)",
+              "seconds": 6.125582777
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:43.202Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:43.202] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/tests/unit/test_dialect.cpp (digest:=C5897F7113151123)",
+              "seconds": 6.125592394
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:43.238Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:43.237] Built module mcpplibs.cmdline:parse to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-12-1/payload.pcm",
+              "seconds": 6.62579544
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:43.259Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:43.259] Rebuilding module mcpp.platform.common: no BMI for this command and these prerequisites",
+              "seconds": 6.625803556
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:43.290Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:43.290] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/tests/unit/test_freestanding.cpp (11162 symbols, 114062 refs, 395 files)",
+              "seconds": 6.625806494
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:43.296Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:43.296] Built module mcpp.platform.common to /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-cache-b/workspaces/ux-mcpp-bfa725ff207fe403/contexts/default/cdb/.cache/clangd/modules/.owned-payload-v1/generation-14-1/payload.pcm",
+              "seconds": 6.625809471
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:43.308Z [info] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:43.308] Rebuilding module mcpp.platform.shell: no BMI for this command and these prerequisites",
+              "seconds": 6.625816866
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:43.319Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): V[04:37:43.319] Indexing /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/modules/manifest/src/flag_words.cppm (digest:=F786A8D2E7014B76)",
+              "seconds": 6.625825311
+            },
+            {
+              "line": "mcppls 2026-10-21T19:37:43.322Z [debug] clangd (/home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp): I[04:37:43.322] Indexed /home/speak/workspace/github/mcpp-language-server/.payload-cache/59-63-performance/mcpp-two-core-work/ux-mcpp/modules/manifest/src/flag_words.cppm (7 symbols, 21 refs, 1 files)",
+              "seconds": 6.625828916
+            }
+          ],
+          "historyTruncated": false,
+          "observed": 716
+        },
+        "longestStallCpuCores": 1.5623472786947772,
+        "longestStallFromSeconds": 2.483237831,
+        "longestStallSeconds": 59.658156363,
+        "longestStallToSeconds": 62.141394194,
+        "preparationStalledSamples": 0,
+        "preparedSeconds": 141.910916631,
+        "serverRestarts": 5,
+        "stateChanges": 16,
+        "statuses": 115
+      },
+      "ok": true,
+      "seconds": 0.054147776,
+      "since-start": 262.08514635
+    }
+  ],
+  "failures": 0,
+  "first-diagnostics": null,
+  "first-navigation": null,
+  "fixture": "ux-mcpp",
+  "initialize": 1.09101938,
+  "ready": 2.468100087,
+  "reused-workspace": true,
+  "seconds": 262.838148644
+}

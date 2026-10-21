@@ -1,0 +1,93 @@
+{
+  "status": "local fresh-cache control, not the historical warm/edit lineage",
+  "engineVersion": "23.1.0-mcppls.4",
+  "engineForkCommit": "92a4c630f4691890e6133c87d3e4591bc5fd8258",
+  "server": "0.0.17 working-tree checkpoint",
+  "serverSHA256": "c513f5a21cd094da4b88f7841fc886cbb7cf7b3a6a701d690bee988612328a65",
+  "producer": "2026.9.30.2 (actual server about.mcpp)",
+  "affinity": "4-7",
+  "sourcePin": "d1f1c98fa26d953e084a183a9672fc1e0ce63558",
+  "scenario": "clean U7 importer buffers plus main/execute, documentSymbol requests, then release -> dev -> release",
+  "ledgerFormat": {
+    "recordBytes": 1280,
+    "slots": 4096,
+    "stableType": 2,
+    "perSlot": "maximum sequence of two banks, no checksum validation performed by this read-only forensic parser"
+  },
+  "stableCounts": {
+    "000": 176,
+    "001": 352,
+    "002": 352
+  },
+  "engineCompilationDatabases": {
+    "000": [
+      {
+        "path": "workspaces/ux-mcpp-3d717e24e4ad3412/contexts/default/cdb/compile_commands.json",
+        "sha256": "060f40ff1f58233fd4be676751fe7287e4241597e4b092c2cf2b689f1a809338"
+      }
+    ],
+    "001": [
+      {
+        "path": "workspaces/ux-mcpp-3d717e24e4ad3412/contexts/default/cdb/compile_commands.json",
+        "sha256": "224c11b4da30846f2586251c36e5f0dc14ae0029a77b819aae8a723df0617b9d"
+      }
+    ],
+    "002": [
+      {
+        "path": "workspaces/ux-mcpp-3d717e24e4ad3412/contexts/default/cdb/compile_commands.json",
+        "sha256": "060f40ff1f58233fd4be676751fe7287e4241597e4b092c2cf2b689f1a809338"
+      }
+    ]
+  },
+  "newKeysAfterUndo": [],
+  "result": "No completed builds and no new stable keys after undo. Both profiles had their full 176-module closure built during this control. This proves reuse for valid fully built old artifacts; it does not identify why an earlier warm/edit lineage built 20 modules during undo.",
+  "rawArtifacts": ".payload-cache/59-63-performance/u8-ledger-analysis.json preserves parsed state at completion; u8-snapshots/002 continued to be refreshed by the sampler during a later U7 experiment and is not an immutable original-control snapshot.",
+  "afterSaveControl": {
+    "scenario": "same complete release/dev cache; U7a fanout save restores the interface; server exits; new server opens all eleven clean buffers through completion; release -> dev -> release",
+    "U7aFailures": 0,
+    "cleanConfigFailures": 0,
+    "actualNewBuildsDuringControl": 0,
+    "stableCounts": {
+      "000": 412,
+      "001": 412,
+      "002": 412
+    },
+    "rawArtifacts": ".payload-cache/59-63-performance/u8-after-u7-snapshots (sampler stopped at completion)",
+    "limit": "Does not reconstruct earlier mutations from the original full edits stage."
+  },
+  "originalFourECoreStagedControl": {
+    "affinity": "16-19 (four E cores; does not substitute the separate two-logical-CPU lineage)",
+    "stages": "original cold -> 300-second warm -> full edits, all gates unchanged",
+    "failures": 0,
+    "stableCounts": {
+      "000": 218,
+      "001": 354,
+      "002": 354
+    },
+    "newStableKeysAfterUndo": [],
+    "originalReleaseStableKeysLostAfterUndo": [],
+    "engineCompilationDatabases": {
+      "000": [
+        {
+          "path": "workspaces/ux-mcpp-9741eb42850123a3/contexts/default/cdb/compile_commands.json",
+          "sha256": "d04dab1a51f9925094af10d1d216d65faa29d48a5663526cc5de8f82f5750581"
+        }
+      ],
+      "001": [
+        {
+          "path": "workspaces/ux-mcpp-9741eb42850123a3/contexts/default/cdb/compile_commands.json",
+          "sha256": "4c5db59a0367224ca7f6953525961fafe08e4a9f7340491b185a9bf9a03ac8af"
+        }
+      ],
+      "002": [
+        {
+          "path": "workspaces/ux-mcpp-9741eb42850123a3/contexts/default/cdb/compile_commands.json",
+          "sha256": "d04dab1a51f9925094af10d1d216d65faa29d48a5663526cc5de8f82f5750581"
+        }
+      ]
+    },
+    "actualBuildsAfterUndo": 0,
+    "physicalHeuristicAfterUndo": 0,
+    "rawArtifacts": ".payload-cache/59-63-performance/mcpp-staged-snapshots (sampler stopped at completion)"
+  }
+}

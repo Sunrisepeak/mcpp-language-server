@@ -165,6 +165,7 @@ private:
     // Plan.
     bool planApplied_ { false };
     std::string writtenDatabase_;
+    std::optional<normalize::EnginePlan> pendingDatabasePlan_; // published only after the previous process is gone
     std::string writtenStructure_;   // the written database without module hints
     std::map<std::string, std::string, std::less<>> writtenArguments_;   // path key -> the unit's engine command, without hints
     std::set<std::string> excluded_;   // path keys
@@ -799,25 +800,6 @@ public:
         modelOrigin_ = plan->modelOrigin;
         provisionalModel_ = plan->provisional;
         if (fromProvisional) forget_provisional_verdicts_();
-        write_prime_sources_(*plan);
-        const std::string database { normalize::to_compile_commands(*plan).dump(1) };
-        const std::string structure { normalize::to_compile_commands(*plan, false).dump(1) };
-        const bool changed { database != writtenDatabase_ };
-        // Hints alone change as imports do; clangd rereads the database within five seconds.
-        const bool structureChanged { structure != writtenStructure_ };
-        writtenStructure_ = structure;
-        if (changed) {
-            // clangd rereads --compile-commands-dir/compile_commands.json itself (v1 design 15.1).
-            if (auto written = platform::fs::write_file_atomic(base::join_path(databaseDirectory_, "compile_commands.json"), database); !written) {
-                log::error("cannot write the engine database ({}): {}", host_->root_directory(), written.error().message);
-            }
-            writtenDatabase_ = database;
-            forget_scan_failures_();
-            log::info("engine database ({}): {} entries ({} standard library units, {} stand-ins), {} left out, {} issues", host_->root_directory(),
-                      plan->entries.size(), plan->stdUnits, plan->stubModules.size(), plan->excludedFiles.size(), plan->issues.size());
-            host_->record_event("engine-database", Json { { "entries", plan->entries.size() }, { "standIns", plan->stubModules.size() },
-                                                          { "leftOut", plan->excludedFiles.size() } });
-        }
         // Each stand-in named at warning, with why it got one, not just counted (robustness design O3,
         // real-project plan RP3.3): a module nothing usable provides is worth a person's attention once,
         // not every time the database is rewritten for something else.
@@ -891,9 +873,6 @@ public:
             if (before == writtenArguments_.end() || before->second != arguments) commandChanged.push_back(file);
         }
         std::erase_if(joinedAt_, [&](const auto& item) { return !newArguments.contains(item.first); });
-        writtenArguments_ = std::move(newArguments);
-        for (auto& [key, held] : held_) held.planned = true;
-        (void)structureChanged;
         // WA-CLANGD-009: with its modules support clangd scans a file's module dependencies again for every completion
         // (UP-23: 82 ms -> 254 ms at the median, 869 ms at worst, on vulkan-hpp in issue #37), so a project that uses no
         // modules gets a clangd without it. It goes off only with the first plan, before clangd was given a document, so
@@ -904,6 +883,15 @@ public:
         if (traits_.scansModulesOnEveryRequest) remember_modules_verdict_(usesModules);
         if (modulesSwitch) modulesSupport_ = usesModules;
         const bool restartNeeded { ((providerLeft || argumentsChanged) && planApplied_ && handshakeDone_) || modulesSwitch };
+        // A retiring clangd can still reread this path while its workers stop. Preserve its
+        // complete configuration until reaped; consecutive plans replace only the pending one.
+        if (restartNeeded || reaping_ || pendingDatabasePlan_) pendingDatabasePlan_ = *plan;
+        else if (!publish_database_(*plan)) {
+            pendingDatabasePlan_ = *plan;
+            return;
+        }
+        writtenArguments_ = std::move(newArguments);
+        for (auto& [key, held] : held_) held.planned = true;
         if (!restartNeeded && accepting_) {
             for (const auto& document : host_->documents()) {
                 if (document.path.empty()) continue;
@@ -1011,7 +999,7 @@ public:
             } else {
                 schedule_plan_restart_(reason);
             }
-        } else {
+        } else if (!pendingDatabasePlan_) {
             accept_traffic_if_ready_();
             open_held_files_(appliedAt);
             prepare_modules_();
@@ -1776,7 +1764,40 @@ private:
         }
     }
 
+    bool publish_database_(const normalize::EnginePlan& plan) {
+        const std::string database { normalize::to_compile_commands(plan).dump(1) };
+        // The published commands can be read immediately by a running engine. Materialize
+        // their generated inputs first; retirement paths reach this helper only once reaped.
+        write_prime_sources_(plan);
+        if (database != writtenDatabase_) {
+            if (auto written = platform::fs::write_file_atomic(base::join_path(databaseDirectory_, "compile_commands.json"), database); !written) {
+                log::error("cannot write the engine database ({}): {}", host_->root_directory(), written.error().message);
+                add_issue_(Issue { "engine-database-write-failed", "the engine database could not be written; check the cache permissions and available space, then restart clangd: " + written.error().message, "mcppls.restartClangd", "environment" });
+                host_->status_changed();
+                return false;
+            }
+            writtenDatabase_ = database;
+            writtenStructure_ = normalize::to_compile_commands(plan, false).dump(1);
+            forget_scan_failures_();
+            log::info("engine database ({}): {} entries ({} standard library units, {} stand-ins), {} left out, {} issues", host_->root_directory(),
+                      plan.entries.size(), plan.stdUnits, plan.stubModules.size(), plan.excludedFiles.size(), plan.issues.size());
+            host_->record_event("engine-database", Json { { "entries", plan.entries.size() }, { "standIns", plan.stubModules.size() },
+                                                          { "leftOut", plan.excludedFiles.size() } });
+        }
+        std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-database-write-failed"; });
+        return true;
+    }
+
     void start_process_() {
+        if (pendingDatabasePlan_) {
+            if (!publish_database_(*pendingDatabasePlan_)) {
+                unavailable_ = true;
+                flush_deferred_without_engine_();
+                host_->engine_settled(ENGINE_ID, Json::object());
+                return;
+            }
+            pendingDatabasePlan_.reset();
+        }
         handshakeDone_ = false;
         backgroundIndexActive_ = false;
         forget_implementations_();   // a new clangd's index has none of what the last one was given
@@ -4102,6 +4123,7 @@ private:
         platform::fs::remove_all(context);
         (void)platform::fs::create_directories(databaseDirectory_);
         // What was written there, and what was concluded from what clangd did with it, starts over too.
+        pendingDatabasePlan_.reset();
         writtenDatabase_.clear();
         writtenStructure_.clear();
         writtenArguments_.clear();

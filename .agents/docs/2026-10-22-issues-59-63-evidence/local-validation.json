@@ -2,20 +2,20 @@
   "date": "2026-10-22 JST",
   "scope": "Linux x86_64 working-tree checkpoint; cross-platform and final-release validation remain pending",
   "mcpp": "mcpp 2026.10.21.1",
-  "serverSHA256": "d486bc40d57e0f3c4ec6f41404c11e372aadccf927d4a26ebff67a468f387b77",
-  "runnerSHA256": "e1382b6b3aa83ce377a806299e85fadf10903e91e53688a2934ada14e8c0a175",
+  "serverSHA256": "a405994b23537a2471c29663d2c0a9295e093565ef2e9769d0f6ffb65b051fac",
+  "runnerSHA256": "37d486fe6951a0478910e275be91f5f4d93d269d951f0d8f0f1eb1d841fa4445",
   "engine": "23.1.0-mcppls.4",
   "payloadArchiveSHA256": "7c334e963c6d6102648bfe0aaccf8c30805007e21b1dd57afd5ce3751c1385b1",
   "unitTests": {
     "dev": {
       "executablesPassed": 40,
       "failed": 0,
-      "log": ".payload-cache/59-63-test-clangcl-dev.log"
+      "log": ".payload-cache/59-63-publication-prefix-test-dev.log"
     },
     "release": {
       "executablesPassed": 40,
       "failed": 0,
-      "log": ".payload-cache/59-63-test-clangcl-release.log"
+      "log": ".payload-cache/59-63-publication-prefix-test-release.log"
     }
   },
   "conformance": [
@@ -112,12 +112,13 @@
   "repositoryChecks": "passed; rerun after final staging",
   "logs": ".payload-cache/59-63-* (ignored local working directory)",
   "notes": [
-    "Latest dev/release binaries include polling shutdown, target-only provider isolation, and clang-cl cross-target probing; each root suite passes 40 executables.",
-    "All 22 target/producer/polling cases were repeated against the latest dev binary; summary and logs remain in .payload-cache/59-63-fixtures-results.",
-    "Actual VS Code 44 passing/1 platform-specific pending is recorded against its exact earlier release-profile server hash in vscode-e2e.md.",
-    "Original xlings cold/warm/edits/long passed, with unchanged U13 thresholds. A separately isolated engine memo-allocation limitation remains documented.",
-    "Original two-logical-CPU mcpp edits reproduces U8 undo with 28 actual module completions. Key-level attribution and the independent-cache faults stage remain incomplete.",
-    "Official v0.0.16 Linux VSIX SHA256 is checked; installed extension and bundled server answer and provide module definition in actual VS Code. Its profile/cache are retained for the final release upgrade."
+    "The frozen working-tree binaries include the CDB retirement and generated-input publication fixes as well as target/provider isolation and clang-cl probing. Both full root suites pass 40 executables.",
+    "All 22 target/producer/polling cases were repeated against the recorded final dev binary; logs and summary are in .payload-cache/59-63-fixtures-results.",
+    "The old driver fails the new native retirement/failure regressions with 12 failed assertions. The corrected driver passes 65 engine cases/640 assertions and 6 runner cases/65 assertions. See publication-regression.json.",
+    "Actual VS Code 44 passing/1 expected platform-specific pending is repeated against the recorded release server hash; log and limits are in vscode-e2e.md.",
+    "Previously reproduced original two-logical-CPU U8 failure: 28 completions, including mixed old-dev closure/new-release command work. That raw failure remains retained; fresh full mcpp and xlings scenario lineages are currently running against the frozen hashes.",
+    "Official v0.0.16 Linux VSIX SHA256 is checked; installed extension and bundled server answer and provide module definition in actual VS Code. The profile/cache are retained for final release upgrade.",
+    "Final-head platform CI/nightly, full fresh performance results, final review, merge and released-asset verification remain pending."
   ],
-  "releaseServerSHA256": "266be7b1b05c55ba6c7e735e12da5eab858800ddaddf18a065e9ae301556b690"
+  "releaseServerSHA256": "086ec76e66d0e76919281e8a2d0d0203aa5dc6fd2acd0077217fba29f37a9f4c"
 }
