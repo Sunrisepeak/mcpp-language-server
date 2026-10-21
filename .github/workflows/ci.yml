@@ -504,6 +504,15 @@ jobs:
         run: |
           set -euo pipefail
           export CONFORMANCE_CLANGXX="${CONFORMANCE_CLANGXX/#\~/$HOME}"
+          if [ "${{ matrix.cross-tools }}" = true ]; then
+            # S1 toolchain drivers are absolute paths; this host has distribution clang,
+            # rather than an mcpp LLVM store for the mock's compiler placeholder.
+            CONFORMANCE_CLANGXX=$(command -v clang++)
+            [[ "$CONFORMANCE_CLANGXX" = /* ]]
+            test -x "$CONFORMANCE_CLANGXX"
+            export CONFORMANCE_CLANGXX
+            "$CONFORMANCE_CLANGXX" --version
+          fi
           exe=''; extra=()
           if [ "$RUNNER_OS" = Windows ]; then exe='.exe'; extra=(--msvc-env "$RUNNER_TEMP/msvc.env"); fi
           # cmake-clang-bdb and cmake-msvc-bdb are the only fixtures that need

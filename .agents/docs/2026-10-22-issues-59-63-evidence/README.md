@@ -35,6 +35,12 @@ U8 修复同时处理驱动和测量：需要重启时，新 CDB/生成输入等
 
 此前 `dc12357` 的 [nightly 39675199436](https://github.com/Sunrisepeak/mcpp-language-server/actions/runs/39675199436) 中，复用 CI 的 xlings cold/warm/edits/faults 已全通过，下载 `ux-ux-xlings` artifact 的四份 measure 均零失败（119.405 / 310.503 / 685.644 / 176.905 s）；warm 零重建、配置撤销零重建。该 CI 场景不含 long，不能替代 600 s 验收；原始下载在 `.payload-cache/59-63-nightly-dc12357-ux-xlings/`。Linux 第一组 conformance 同时通过；旧整条运行因已确认的路径/未信任缺陷被补修任务替代，其失败记录保留，新完整平台验收另行执行。
 
+最终产品源码 `a9483e1` 的冻结 release mcpp 重放四阶段全部实际退出 0（175.727 / 310.318 / 517.146 / 270.194 s）；warm firstReady 4.2 s、176 已有模块零重建，U8 撤销实际/物理构建均零，faults 最长真实无活动 9.443 s、无 stalled 样本。xlings 新完整重放前四阶段亦退出 0（102.154 / 311.380 / 627.425 / 171.530 s），long 尚在运行，不能提前记全链 PASS。原始记录为 `.payload-cache/59-63-performance/{mcpp-member-alias-replay-two-core,xlings-member-alias-replay-staged}-*`。
+
+同一源码此前 xlings U5 确实失败：诊断刷新 7.0618 s 超过原 6 s；第二轮原场景为 1.9 s。旧 mcpp warm 和 xlings edits 外层脚本还在写完 measure 后退出 143，未进入后续阶段，信号发送者未知；ptrace 被系统拒绝，未更改系统设置。两次中断及 U5 失败均保留，不用新通过覆盖。U5 两窗口没有项目重描述或模块构建，仅有 clangd AST 工作；归一化工作区/缓存后 CDB 参数相同，但不足确定耗时差异的原因。
+
+当前 CI 的 Linux x64 / Windows 第二组原生 conformance 已通过，untrusted 分别 8.2 / 16.0 s。Linux ARM64 target fixture 暴露测试供给缺口：已安装系统 clang，但 mock 未收到绝对编译器路径，输出裸 `clang++`，违反 S1-6-3 的 driver 约定并被按数据库目录解析。补修仅在 cross-tools job 为 `CONFORMANCE_CLANGXX` 提供可执行的绝对路径，保留产品、平台矩阵和原 target 断言；产品二进制与性能链不变，新 CI 仍需完整通过。
+
 <a id="validation"></a>
 ## 当前本地补修检查点
 
