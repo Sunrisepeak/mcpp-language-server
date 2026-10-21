@@ -59,6 +59,8 @@ mcpp 给出的文档里列出了每个翻译单元、它的模块角色、它的
 要原样采用完整 CDB，请将 `mcppls.buildDiscovery.providers` 设为 `["compile-commands"]`；
 `mcppls.database` 接受 S1 构建数据库，不能直接指向 `compile_commands.json`。
 
+旧版本保存的 mcpp 模型若没有目标选择身份，升级后的首次会话会重新获取构建描述，因此首次加载可能多花一些时间。
+
 ## CMake
 
 如果构建目录里有 `build_database.json`（CMake 4.4+ 配 Ninja、`FILE_SET CXX_MODULES`），mcppls 就读它。否则它读 `compile_commands.json`，并展开生成器写出的 `@modmap` 文件。

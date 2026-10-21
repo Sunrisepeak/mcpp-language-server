@@ -1879,6 +1879,69 @@ int main() {
         fs::remove_all(root);
     };
 
+    "restarting after a single failed publication restores the whole plan"_test = [] {
+        namespace fs = mcppls::platform::fs;
+        using mcppls::base::join_path;
+        using namespace std::chrono_literals;
+        for (const bool incremental : { false, true }) {
+            const std::string root { join_path(mcppls::platform::dirs::temp_directory(),
+                std::format("mcppls-test-cdb-retry-metadata-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+            (void)fs::create_directories(root);
+            const std::string executable { join_path(root, "clangd") };
+            const std::string source { join_path(root, "module.cppm") };
+            const std::string implementation { join_path(root, "implementation.cpp") };
+            (void)fs::write_file(executable, "pretend-clangd");
+            (void)fs::write_file(source, "export module hello;\n");
+            (void)fs::write_file(implementation, "module hello;\nint value() { return 1; }\n");
+            auto shared = std::make_shared<BuildingProcess::Shared>();
+            cld::Options options;
+            options.executable = executable;
+            options.version = "23.1.0";
+            options.implementationIdle = 10ms;
+            options.implementationQuiet = 0ms;
+            options.processFactory = [shared] { return std::make_unique<BuildingProcess>(shared); };
+            RecordingHost host { root };
+            auto engine = cld::make_engine(std::move(options));
+            engine->start(host);
+            host.pump(*engine);
+            mcppls::normalize::EnginePlan plan;
+            plan.entries.push_back(mcppls::normalize::EngineEntry { root, source, { "clang++", "-c", source }, "hello", "hello", {}, {} });
+            if (incremental) {
+                engine->apply(&plan);
+                host.pump(*engine);
+                expect(engine->status().accepting);
+            }
+            plan.entries.push_back(mcppls::normalize::EngineEntry { root, implementation, { "clang++", "-c", implementation }, "", "hello", {}, {} });
+            const std::string database { join_path(host.cache_directory(), "contexts/default/cdb/compile_commands.json") };
+            fs::remove_all(database);
+            (void)fs::create_directories(database);
+            (void)fs::write_file(join_path(database, "blocker"), "preserve this directory\n");
+            engine->apply(&plan); // exactly one failed application, with no later apply to repair its metadata
+            expect(std::ranges::any_of(engine->status().issues, [](const auto& issue) { return issue.code == "engine-database-write-failed"; }));
+            expect(engine->status().accepting == incremental) << "a first failed plan cannot accept traffic; an existing plan remains available";
+            expect(std::ranges::count(host.events, std::string { "engine-database" }) == (incremental ? 1 : 0));
+            fs::remove_all(database);
+            expect(engine->restart_on_request());
+            const auto until = std::chrono::steady_clock::now() + 2s;
+            while (std::chrono::steady_clock::now() < until) {
+                host.pump(*engine);
+                engine->handle_timers();
+                if (engine->status().accepting && engine->report()["implementationIndex"]["built"] == 1) break;
+                std::this_thread::sleep_for(5ms);
+            }
+            expect(engine->status().accepting) << "the recovered first plan completed planApplied as well as writing the CDB";
+            expect(std::ranges::none_of(engine->status().issues, [](const auto& issue) { return issue.code == "engine-database-write-failed"; }));
+            expect(fs::read_file(database).value_or(std::string {}).contains("implementation.cpp"));
+            expect(engine->report()["implementationIndex"]["built"] == 1) << "module-unit metadata was recovered, so its implementation is actually indexed";
+            expect(std::ranges::count(BuildingProcess::files(*shared, "textDocument/didOpen"), implementation) == 1);
+            expect(std::ranges::count(host.events, std::string { "engine-database" }) == (incremental ? 2 : 1));
+            { const std::lock_guard lock { shared->mutex };
+              expect(std::ranges::count_if(shared->sent, [](const Json& message) { return message.value("method", std::string {}) == "initialize"; }) == 2); }
+            engine->shut_down();
+            fs::remove_all(root);
+        }
+    };
+
     "a failed first database remains retryable and later plans replace it"_test = [] {
         namespace fs = mcppls::platform::fs;
         using mcppls::base::join_path;

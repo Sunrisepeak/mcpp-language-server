@@ -27,7 +27,8 @@ The bundled engine remains [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak
 - Cross-target compiler probes keep the target arguments, and a host build-program set no longer
   decides the target-side profile. Cached mcpp models are provisional until the current producer
   confirms them; a model for another target cannot be adopted as a warm cache. Producer capability
-  records also follow executable identity and project selection inputs.
+  records also follow executable identity and project selection inputs. Models cached by older
+  versions without target-selection identity are regenerated once after upgrade.
 
 ### Reliability and measurements
 
@@ -44,6 +45,8 @@ The bundled engine remains [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak
   Configuration-undo measurements also wait for explicit preparation and indexing work to finish.
 - Applying a model after module preparation finishes schedules its implementation indexing sweep
   again, so changed definitions outside the open files remain discoverable.
+- After a cache write failure, fixing the disk and restarting clangd restores analysis directly;
+  changing the project again is no longer needed to recover the failed plan.
 - The Termux nightly binds its script directory into the inner Debian rootfs, so the job can reach
   the server checks. The existing best-effort policy for Termux and two-core rounds is unchanged.
 

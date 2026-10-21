@@ -1792,6 +1792,8 @@ private:
     }
 
     void start_process_() {
+        handshakeDone_ = false;
+        accepting_ = false;
         if (pendingDatabasePlan_) {
             if (!publish_database_(*pendingDatabasePlan_)) {
                 unavailable_ = true;
@@ -1799,9 +1801,13 @@ private:
                 host_->engine_settled(ENGINE_ID, Json::object());
                 return;
             }
+            // A failed ordinary publication returned before apply installed the desired
+            // metadata. Complete that same snapshot with no process accepting traffic;
+            // already staged restart plans follow this idempotent path as well.
+            auto published = std::move(*pendingDatabasePlan_);
             pendingDatabasePlan_.reset();
+            apply(&published);
         }
-        handshakeDone_ = false;
         backgroundIndexActive_ = false;
         forget_implementations_();   // a new clangd's index has none of what the last one was given
         loadFailure_.reset();

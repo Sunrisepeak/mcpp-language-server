@@ -12,16 +12,20 @@
 | #59 producer 升级 | 缓存旧 producer 身份不能证明当前 producer；已改为当前身份确认 | mock 实际调用、版本、不同输出及 executable 替换回归通过 |
 | UTF-8 / Termux | runner 存在多字节裁剪缺陷；内层 Debian 缺脚本绑定 | UTF-8 native 回归通过；Termux 实际环境待 nightly |
 | U15 停顿 | 节点 done 不变时仍可能完成实际模块；不能据此认定引擎无进展 | 历史两逻辑核 cold：原节点间隔 77.73 s、真实无活动 4.00 s；faults：59.66 s / 7.42 s，均无 stalled 样本。最终完整链不能用历史通过替代 |
-| U8 撤销 | 两核重放发现 28 次构建；旧 release key 全保留，11 个新增 PCM 使用 release 命令及旧 dev 依赖闭包 | 已修 CDB 在旧进程结束前发布的问题；另修测试未等待有限工作完成。新 native 回归通过；最终 xlings undo=0；两核 edits 在修改配置前等待 900 s 后失败，具体原因见下文 |
+| U8 撤销 | 两核重放发现 28 次构建；旧 release key 全保留，11 个新增 PCM 使用 release 命令及旧 dev 依赖闭包 | 已修 CDB 在旧进程结束前发布的问题；另修测试未等待有限工作完成。native 回归通过；`fb1cb51` 原两核 mcpp 及 xlings edits 均 undo=0；此前 900 s 丢调度失败与补修见下文 |
 | U13 空闲 | 原 xlings 完整链曾通过 600 s 门槛：0.007208 core、RSS -50.28% | 源码 `5e19005` 完整链通过：CPU 0.006125 core、RSS -50.38%；独立 memo 局限见下文 |
-| runner 崩溃 | 两次原生两核 cold 退出 139；GDB 第二次捕获 SIGSEGV/core | **未解决，不能算 cold 通过**。合法 429,463 B completion、JSON 深度 7；reader 栈仅用 6,872 B，不能归为栈耗尽 |
-| 两核 warm | 最终字节 warm 的首次 ready 为 17.99 s，超过原 12 s；BMI 复用为 0/352 重建 | **未通过**，保留其失败 cold 后的真实 cache lineage |
+| SIGSEGV | 两次原生两逻辑核 runner cold 退出 139；GDB2 捕获 reader，GDB5 观察到 server SIGSEGV，GDB7 捕获 runner 主线程 | **未解决**。GDB7 live text 与冻结 ELF 完全一致；不能仅凭堆栈名称归为 parser、delete 或硬件问题。GDB2 合法 429,463 B completion、深度 7；各线程历史栈使用不足 100 KiB，不支持栈耗尽 |
+| 两核 warm | `5e19005` 首次 ready 17.99 s，超过原 12 s；保留失败 cold 后的真实 cache lineage | 历史失败不覆盖；`fb1cb51` 新原链 cold/warm 通过，warm ready 5.809 s，零重建 |
 
 U8 修复同时处理驱动和测量：需要重启时，新 CDB/生成输入等旧进程 reaped 后才发布；普通增量先生成 prime/stub 再发布引用它们的 CDB。写失败不报成功，最新计划可重试。测量按明确任务状态有界等待，撤销前抓计数，包含撤销后所有快速构建，零重建预算不变。
 
 两核 edits 的末态为 preparation 156/156、所有请求/构建队列为零，但 implementation sweep 同时 `sweepComplete=false`、`sweepScheduled=false`。源码中普通计划应用会重置 complete，却可能没有后续事件调用 pump。补修是在成功增量 apply 后安排真实扫描；不能把这个末态直接视为空闲或放松 900 s 上限。新增 native 对照已验证：同一回归在旧实现有 4 个断言失败，补修版 65 cases / 650 assertions 全通过；覆盖重新调度、实际文件重建、在途任务可见和不重启。原运行未执行配置切换，不能用于证明 undo 零重建。原始对照位于 `.payload-cache/59-63-sweep-validation/{before-dev,fixed-dev-final}.log`。
 
 `5e19005` 的 xlings 完整链四阶段均通过：cold 112.687 s、warm 317.797 s、edits 645.876 s、long 782.284 s。U13 固定 600 s 空闲中 RSS 1272.258→631.234 MiB，CPU 0.006125 core；此前有限工作等待 60.067 s、约 0.949 core，单独记录。原始结果位于 `.payload-cache/59-63-performance/xlings-validated-staged-{cold,warm,edits,long}.json`；两核失败记录为同目录 `mcpp-validated-two-core-edits.json`。它们是快照归档之后的新结果，不混入旧哈希索引。
+
+`fb1cb51` 对应冻结字节的新链已通过两条 cold/warm/edits：mcpp 178.400/315.871 s（warm firstReady 5.809 s、176 个已有 BMI、零重建），xlings 118.072/315.753 s（warm firstReady 5.604 s、111 个已有 BMI、零重建）。两核 edits 548.177 s、xlings edits 660.035 s 均通过，U8 撤销实际构建与物理变化均为零；此前 900 s 丢调度的 beforeChange drain 已在 6.204 s 正常结束。faults/long 尚未全部结束，不能据此声称完整性能验收通过。
+
+最终自审另补修单次 CDB 发布失败后的恢复：旧实现仅发布 pending 文件，没有完成首份/增量计划的内部状态；现在在停止接收流量时重新应用完整快照，再启动引擎。新增回归不再第二次 apply，旧代码 5 个断言失败，补修 dev/release 各 40 执行体通过（engine 66 cases / 673 assertions）。对照在 `.payload-cache/59-63-publication-retry/`，后续完整性能链仍需对应补修字节。
 
 <a id="validation"></a>
 ## 当前本地检查点

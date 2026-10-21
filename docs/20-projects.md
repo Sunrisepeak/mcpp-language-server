@@ -120,6 +120,9 @@ profile, features or the complete toolchain from CDB arguments. To use the datab
 commands, select only `mcppls.buildDiscovery.providers = ["compile-commands"]`; `mcppls.database`
 accepts an S1 build database rather than a `compile_commands.json`.
 
+Cached mcpp models from older versions without target-selection identity are regenerated on the
+first session after upgrade. The initial project description can therefore take longer once.
+
 ## CMake
 
 If the build directory has a `build_database.json` (CMake 4.4+ with Ninja, `FILE_SET CXX_MODULES`),
