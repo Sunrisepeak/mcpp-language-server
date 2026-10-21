@@ -12,9 +12,7 @@
     "--mcpp",
     "{runner-dir}/mcppls-mock-mcpp{exe}",
     "--build-discovery-providers",
-    "compile-commands",
-    "--mcpp-target",
-    "x86_64-unknown-linux-gnu"
+    "compile-commands"
   ],
   "checks": [
     {
@@ -51,6 +49,48 @@
       "file": "mcpp-calls.jsonl",
       "command": "--protocol-version",
       "count": 0
+    },
+    {
+      "id": "LIVE-UNRELATED-TARGET",
+      "kind": "configuration",
+      "settings": {
+        "mcppls": {
+          "buildDiscovery.mcppTarget": "project"
+        }
+      }
+    },
+    {
+      "id": "NO-TOOL-AFTER-LIVE-TARGET",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 0,
+      "settle": 3
+    },
+    {
+      "id": "NO-UNRELATED-MODEL-RELOAD",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/project/source",
+          "equals": "compile-commands"
+        },
+        {
+          "path": "/roots/0/project/targetSelection",
+          "absent": true
+        },
+        {
+          "path": "/roots/0/eventTotals/model-unchanged",
+          "absent": true
+        },
+        {
+          "path": "/roots/0/eventTotals/model-loaded",
+          "equals": 1
+        }
+      ]
     }
-  ]
+  ],
+  "initialization-options": {
+    "buildDiscovery.mcppTarget": "x86_64-unknown-linux-gnu"
+  }
 }

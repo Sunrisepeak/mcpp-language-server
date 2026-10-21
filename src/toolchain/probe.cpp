@@ -180,11 +180,15 @@ void probe_clang(std::string_view driver, std::span<const std::string> relevant,
     }
 }
 
-void probe_msvc(std::string_view driver, const Runner& runner, ToolchainFacts& facts, bool clangCl) {
+void probe_msvc(std::string_view driver, std::span<const std::string> relevant, const Runner& runner, ToolchainFacts& facts, bool clangCl) {
     const std::string normalized { base::normalize_path(driver) };
     facts.toolchain.target = "x86_64-pc-windows-msvc";
     if (clangCl) {
-        std::vector<std::string> argv { normalized, "--version" };
+        // clang-cl's banner describes the selected target only when queried with the
+        // command's target/configuration arguments; its bare banner describes the host.
+        std::vector<std::string> argv { normalized };
+        argv.insert(argv.end(), relevant.begin(), relevant.end());
+        argv.emplace_back("--version");
         if (auto result = runner(argv); result && !result->timedOut) {
             parse_clang_version(result->output, facts);
             for (auto line : base::split_lines(result->output)) {
@@ -284,8 +288,8 @@ base::Result<ToolchainFacts> probe_toolchain(std::string_view driverPath, std::s
     switch (facts.toolchain.family) {
     case spec::Family::gcc: probe_gcc(driverPath, relevantArguments, runner, facts); break;
     case spec::Family::clang: probe_clang(driverPath, relevantArguments, runner, facts); break;
-    case spec::Family::msvc: probe_msvc(driverPath, runner, facts, false); break;
-    case spec::Family::clang_cl: probe_msvc(driverPath, runner, facts, true); break;
+    case spec::Family::msvc: probe_msvc(driverPath, relevantArguments, runner, facts, false); break;
+    case spec::Family::clang_cl: probe_msvc(driverPath, relevantArguments, runner, facts, true); break;
     case spec::Family::other: return base::fail("toolchain-unknown", std::format("{} is not a recognized compiler driver", driverPath));
     }
     if (facts.toolchain.version.empty() && facts.toolchain.target.empty()) {

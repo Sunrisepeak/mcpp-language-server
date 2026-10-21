@@ -1,0 +1,42 @@
+{
+  "status": "isolated engine-only local reproduction; not a replacement for the original U13 gate",
+  "engine": "23.1.0-mcppls.4",
+  "engineForkCommit": "92a4c630f4691890e6133c87d3e4591bc5fd8258",
+  "engineSHA256": "f32fe2f4ad5404bb07af9a169b44900d23a0d9abc6dff244b5c2ecdd6315c4f9",
+  "affinity": "0-1",
+  "commands": [
+    "initialize",
+    "initialized",
+    "shutdown",
+    "exit"
+  ],
+  "documentsOpened": 0,
+  "backgroundIndex": false,
+  "loadedMemos": {
+    "verdicts": 253,
+    "scans": 329,
+    "unreadable": 0,
+    "loadMilliseconds": 468
+  },
+  "memoFileBytes": 30298617,
+  "memoFileSHA256": "e499cdea66e14550e7a3c126f816b600ce6048149e2921be945a5ca4f8e469c8",
+  "memoWrittenLogLines": 0,
+  "baselineAfterLoad": {
+    "elapsedSeconds": 1.0111680680001882,
+    "rssMiB": 176.83203125,
+    "anonymousMiB": 166.84765625,
+    "cpuSeconds": 0.49
+  },
+  "lastBeforeShutdown": {
+    "elapsedSeconds": 179.88844344200015,
+    "rssMiB": 266.75390625,
+    "anonymousMiB": 256.70703125,
+    "cpuSeconds": 1.97
+  },
+  "rssGrowth": 0.5085157613377809,
+  "observedCpuCores": 0.008273829064679055,
+  "peakRssMiB": 284.10546875,
+  "sourceFinding": "The exact released patch 0030 write() constructs the entire memos() JSON before comparing cache version counters. Adopting kept entries increments neither counter; with no file work all counters remain zero, every 30-second cycle constructs and discards an unchanged snapshot without a written log.",
+  "fixRecommendation": "In the engine, cheaply compare cache change counters before constructing memo snapshots; preserve the snapshot counters for publication and detect concurrent stores on a later cycle. Add a warm-adopted, unchanged-version regression that observes no snapshot construction across timer cycles. A server pending/publication heuristic cannot fix this unmodified-snapshot allocation.",
+  "rawArtifacts": ".payload-cache/59-63-performance/memo-only*"
+}

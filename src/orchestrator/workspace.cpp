@@ -107,6 +107,7 @@ std::string structure_of(const project::ScanResult& scan) {
 
 // The inputs a producer named in its database's watch list (S2 5), shared with the polling worker.
 struct WatchPatterns {
+    std::atomic<bool> stopped { false };
     std::mutex mutex;
     std::vector<std::string> entries;   // glob patterns relative to the root, or absolute paths
     int generation { 0 };               // advanced whenever `entries` is replaced
@@ -1004,6 +1005,7 @@ struct Workspace::Impl final : engine::Host {
         auto queue = events;
         const std::string rootPath { root };
         std::thread { [queue, rootPath, known = watchBaseline, patterns = watchPatterns]() mutable {
+            if (patterns->stopped.load()) return;
             // Build/source stamps captured at Workspace construction remain authoritative during
             // startup. Broaden the baseline off the LSP thread so later watch registration can
             // distinguish preexisting glob matches from files created after publication.
@@ -1014,8 +1016,9 @@ struct Workspace::Impl final : engine::Host {
             known = std::move(initial);
             std::vector<std::string> knownEntries;
             int knownGeneration { 0 };
-            while (true) {
+            while (!patterns->stopped.load()) {
                 std::this_thread::sleep_for(std::chrono::seconds { 2 });
+                if (patterns->stopped.load()) return;
                 std::vector<std::string> entries;
                 std::map<std::string, std::optional<platform::fs::FileStamp>> concreteBaseline;
                 int generation { 0 };
@@ -1047,6 +1050,7 @@ struct Workspace::Impl final : engine::Host {
                 known = std::move(current);
                 knownEntries = std::move(entries);
                 knownGeneration = generation;
+                if (patterns->stopped.load()) return;
                 if (changes.empty()) continue;
                 // `Json message { make_notification(...) }` would wrap the result in a one-element array.
                 Json message = lsp::make_notification("workspace/didChangeWatchedFiles", Json { { "changes", std::move(changes) } });
@@ -2195,7 +2199,7 @@ struct Workspace::Impl final : engine::Host {
             { "level", candidate.level },
             { "usesKit", candidate.usesKit },
             { "profile", Json::array({ candidate.profile.kind, candidate.profile.compiler, candidate.profile.stdlib, candidate.profile.target }) },
-            { "targetSelection", project::target_selection_key(candidate.targetSelection) },
+            { "targetSelection", candidate.source == project::SourceKind::mcpp ? project::target_selection_key(candidate.targetSelection) : std::string {} },
             { "facts", std::move(facts) },
             { "database", Json::parse(spec::to_json(candidate.database).dump()) },
             // Issue #30: the plan builds the engine's arguments from derived options and from stated ones
@@ -3861,7 +3865,7 @@ Workspace::Workspace(std::string root, std::string key, SessionOptions options, 
       impl_ { std::make_unique<Impl>(std::move(root), std::move(key), std::move(options), std::move(payload), payloadCorrupt, kitEnabled,
                                     std::move(compilerOverride), std::move(events), client) } {}
 
-Workspace::~Workspace() = default;
+Workspace::~Workspace() { impl_->watchPatterns->stopped.store(true); }
 
 void Workspace::set_client_uri(std::string uri) { impl_->clientUri = std::move(uri); }
 
@@ -3944,6 +3948,7 @@ void Workspace::allow_status_notifications() {
 }
 
 void Workspace::shut_down() {
+    impl_->watchPatterns->stopped.store(true);
     impl_->save_recent_files(true);
     if (impl_->answers_) impl_->answers_->save(true);
     if (impl_->reviewProcess) impl_->reviewProcess->kill();
@@ -4720,6 +4725,13 @@ void Workspace::reload_with_options(const SessionOptions& options, const std::st
     impl_->compilerOverride = compilerOverride;
     impl_->kitEnabled = kitEnabled;
     impl_->schedule_reload();
+}
+
+void Workspace::set_mcpp_target(const std::string& target) {
+    if (impl_->options.mcppTarget == target) return;
+    impl_->options.mcppTarget = target;
+    // Keep the value for later discovery, without rerunning an unrelated build tool.
+    if (impl_->detectedSource == project::SourceKind::mcpp) impl_->schedule_reload();
 }
 
 void Workspace::apply_live_options(const SessionOptions& options) {

@@ -2,18 +2,20 @@
   "date": "2026-10-22 JST",
   "scope": "Linux x86_64 working-tree checkpoint; cross-platform and final-release validation remain pending",
   "mcpp": "mcpp 2026.10.21.1",
-  "serverSHA256": "c513f5a21cd094da4b88f7841fc886cbb7cf7b3a6a701d690bee988612328a65",
-  "runnerSHA256": "fef9a6ccabf8fffd872d8684aa8fee844444044a2de77e76e24a8ac7fe28f08f",
+  "serverSHA256": "d486bc40d57e0f3c4ec6f41404c11e372aadccf927d4a26ebff67a468f387b77",
+  "runnerSHA256": "e1382b6b3aa83ce377a806299e85fadf10903e91e53688a2934ada14e8c0a175",
   "engine": "23.1.0-mcppls.4",
   "payloadArchiveSHA256": "7c334e963c6d6102648bfe0aaccf8c30805007e21b1dd57afd5ce3751c1385b1",
   "unitTests": {
     "dev": {
       "executablesPassed": 40,
-      "failed": 0
+      "failed": 0,
+      "log": ".payload-cache/59-63-test-clangcl-dev.log"
     },
     "release": {
       "executablesPassed": 40,
-      "failed": 0
+      "failed": 0,
+      "log": ".payload-cache/59-63-test-clangcl-release.log"
     }
   },
   "conformance": [
@@ -55,8 +57,7 @@
     },
     {
       "fixture": "mcpp-target-fallback-preserve",
-      "exitCode": 0,
-      "note": "Fixture now retains the prepared absolute compiler and replaces only the target; mismatch and preservation are both verified."
+      "exitCode": 0
     },
     {
       "fixture": "mcpp-target-invalid",
@@ -111,9 +112,12 @@
   "repositoryChecks": "passed; rerun after final staging",
   "logs": ".payload-cache/59-63-* (ignored local working directory)",
   "notes": [
-    "A rebuilt environment lost earlier /tmp material; these conformance results use a freshly downloaded and hash-verified released engine.",
-    "Earlier VS Code 44 passing/1 platform-specific pending is recorded separately against its exact earlier working-tree server hash.",
-    "U13 and U8 performance acceptance remains incomplete."
+    "Latest dev/release binaries include polling shutdown, target-only provider isolation, and clang-cl cross-target probing; each root suite passes 40 executables.",
+    "All 22 target/producer/polling cases were repeated against the latest dev binary; summary and logs remain in .payload-cache/59-63-fixtures-results.",
+    "Actual VS Code 44 passing/1 platform-specific pending is recorded against its exact earlier release-profile server hash in vscode-e2e.md.",
+    "Original xlings cold/warm/edits/long passed, with unchanged U13 thresholds. A separately isolated engine memo-allocation limitation remains documented.",
+    "Original two-logical-CPU mcpp edits reproduces U8 undo with 28 actual module completions. Key-level attribution and the independent-cache faults stage remain incomplete.",
+    "Official v0.0.16 Linux VSIX SHA256 is checked; installed extension and bundled server answer and provide module definition in actual VS Code. Its profile/cache are retained for the final release upgrade."
   ],
-  "releaseServerSHA256": "2993016d1ec666651ea723614761178eb29d941a8fcb2e2392c25a4cc05476b6"
+  "releaseServerSHA256": "266be7b1b05c55ba6c7e735e12da5eab858800ddaddf18a065e9ae301556b690"
 }

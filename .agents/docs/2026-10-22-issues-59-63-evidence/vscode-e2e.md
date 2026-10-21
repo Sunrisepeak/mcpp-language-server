@@ -1,5 +1,19 @@
 # Local VS Code E2E evidence
 
+## Persistent release-profile checkpoint after the environment rebuild
+
+The actual VS Code 1.143.0 application completed the main suite with **44 passing, 1 expected
+platform-specific pending**, exit 0, and workspace unchanged. It used the release-profile server
+SHA-256 `a2b4386ec230a08d47afbd1ad4b0c0b7e7fce1efe16e9bb8b15b9dfb48fc0356`, built with
+the target-only configuration isolation and polling-worker shutdown fixes. The later clang-cl
+probe follow-up is not part of this binary. The payload was the hash-checked official v0.0.16
+payload at `.payload-cache/59-63-release16/payload`, with engine `23.1.0-mcppls.4`.
+The unfiltered development-extension run is retained in the persistent ignored log
+`.payload-cache/59-63-vscode-final-source.log`. The extension and server both reported 0.0.17.
+This is not the final published VSIX or upgrade test; those require the actual release assets.
+
+## Earlier development-profile checkpoint
+
 Date: 2026-10-22 JST. Host: Linux x86_64. CPU affinity: 24–27.
 
 The actual VS Code stable 1.143.0 Electron application ran in an independent Xvfb display (`:91`).

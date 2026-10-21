@@ -500,8 +500,12 @@ private:
         if (result.changedKeys.empty()) return;
         sync_settings_();
         if (!result.reloadKeys.empty()) {
-            log::info("settings changed ({}): reloading every workspace's model", base::join(result.reloadKeys, ", "));
-            for (auto& root : roots_) root->reload_with_options(options_, compilerOverride_, kitEnabled_);
+            const bool targetOnly { result.reloadKeys.size() == 1 && result.reloadKeys.front() == "buildDiscovery.mcppTarget" };
+            log::info("settings changed ({}): reloading affected workspace models", base::join(result.reloadKeys, ", "));
+            for (auto& root : roots_) {
+                if (targetOnly) root->set_mcpp_target(options_.mcppTarget);
+                else root->reload_with_options(options_, compilerOverride_, kitEnabled_);
+            }
         }
         for (const auto& key : result.restartKeys) {
             log::warning("setting {} changed; restart mcppls for it to take effect", key);

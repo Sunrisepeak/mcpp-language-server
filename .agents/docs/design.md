@@ -303,8 +303,15 @@ before anything is published (`docs/92-release.md`).
 - clangd cannot change its log level while it runs; an incident carries its `info` log, and the
   `verbose` one needs the server started at `--log-level debug` (in VS Code, the trace setting at
   `verbose`), a restart away.
-- An mcpp project built for Windows through openkal needs `--target x86_64-windows-gnu`, which no
-  editor setting passes to mcpp yet.
+- mcpp analysis can pass an explicit platform with `mcppls.buildDiscovery.mcppTarget`, or follow
+  the root compilation database's unique explicit target in `auto` mode. This does not recover
+  the full profile/toolchain/features or prove which build last succeeded (2026-10-22 target design).
+- The bundled `23.1.0-mcppls.4` engine constructs persistent memo JSON every 30 seconds before
+  checking whether its counters changed. An isolated session with retained memos and no opened
+  files reproduces idle RSS growth from those discarded snapshots. Persistence remains enabled
+  for warm reuse; mcppls does not hide the allocation with a delay or a changed resource budget.
+  The source attribution and upstream-side fix required are recorded in
+  [the U13 evidence](2026-10-22-issues-59-63-evidence/u13-memo-worker.md); no workaround is applied.
 - openkal cannot lower a child's scheduling priority, so clangd's cold-start module builds compete
   with the editor (plan 2026-09-30 R-9, deferred).
 - Windows gives no CPU reading of clangd yet (plan 2026-09-30 K-1, deferred), so the stuck-clangd

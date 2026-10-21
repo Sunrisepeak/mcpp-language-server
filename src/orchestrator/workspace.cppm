@@ -256,6 +256,7 @@ public:
     // paths -- needs an actual restart instead, which a fresh Workspace after one gets for free) and
     // schedules one, the same way an autosaved build file already does.
     void reload_with_options(const SessionOptions& options, const std::string& compilerOverride, bool kitEnabled);
+    void set_mcpp_target(const std::string& target);
     // The settings that apply to a running root without reloading anything (config settings: `immediately`).
     void apply_live_options(const SessionOptions& options);
 

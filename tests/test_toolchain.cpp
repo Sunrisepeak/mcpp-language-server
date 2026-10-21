@@ -195,10 +195,28 @@ int main() {
         expect(facts->appleClang);
     };
 
+    "clang-cl probes the command target instead of its host default"_test = [] {
+        const std::string cl { "C:/LLVM/bin/clang-cl.exe" };
+        for (const std::string target : { "i686-pc-windows-msvc", "aarch64-pc-windows-msvc" }) {
+            const std::vector<std::string> command { cl, "--target=" + target, "/O2", "/c", "main.cpp" };
+            const auto relevant = toolchain::probe_relevant_arguments(command);
+            const auto runner = recorded({
+                { cl + " --version", "clang version 22.1.8\nTarget: x86_64-pc-windows-msvc\n" },
+                { cl + " --target=" + target + " --version", "clang version 22.1.8\nTarget: " + target + "\n" },
+            });
+            auto facts = toolchain::probe_toolchain(cl, relevant, runner);
+            expect(fatal(facts.has_value()));
+            expect(facts->toolchain.family == spec::Family::clang_cl);
+            expect(facts->toolchain.version == "22.1.8");
+            expect(facts->toolchain.target == target) << facts->toolchain.target;
+        }
+    };
+
     "cl.exe banner"_test = [] {
         const std::string cl { "C:/VS/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe" };
         const auto runner = recorded({}, { { cl, "Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35211 for x64\nCopyright (C) Microsoft Corporation.  All rights reserved.\n" } });
-        auto facts = toolchain::probe_toolchain(cl, std::vector<std::string> {}, runner);
+        // cl.exe's architecture is selected by its executable, not clang-style arguments.
+        auto facts = toolchain::probe_toolchain(cl, std::vector<std::string> { "--target=i686-pc-windows-msvc" }, runner);
         expect(fatal(facts.has_value()));
         expect(facts->toolchain.family == mcppls::spec::Family::msvc);
         expect(facts->toolchain.version == "19.44.35211");

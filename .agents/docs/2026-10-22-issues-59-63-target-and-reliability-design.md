@@ -120,7 +120,7 @@ mcpp 的 `src/build/compile_commands.cppm` 定义：配置目录 CDB 保存该�
 
 当前扩展一个窗口共享一个 server 会话，显式设置采用 window 作用域，作用于该会话中的 mcpp 根；`auto` 则按每个根的 CDB 独立选择。单根项目可直接实现项目级固定；多根工作区若要逐根固定不同目标，需要额外的 root→target 设置协议，作为后续范围，不伪称现有窗口配置已支持。
 
-该设置仅影响已选中的 mcpp provider。显式 S1 database、compile-commands provider、discovery=off、未信任工作区的原有规则保持一致。`buildTool=off` 仍不启动 producer；目标选择变化必须显示“未应用”，不能宣称已切换。
+该设置仅影响已选中的 mcpp provider。显式 S1 database、compile-commands provider、discovery=off、未信任工作区的原有规则保持一致。`buildTool=off` 仍不启动 producer；现有 CDB 已符合所选目标时可以使用，否则显示“未应用”并保留有效旧模型，不能宣称已强制切换或执行过 producer。
 
 ### 4.2 profile 与完整命令的边界
 
@@ -172,7 +172,7 @@ producer 路径与版本通过现有 tool environment 和 protocol 查询获取�
 - 使用 generation：i686 请求后又变为 x64，晚到的 i686 结果不得提交。同一选择去重，每次 producer 完成不反向触发下一次；mcppls 不写根 CDB。
 - 准备期间保留旧模型的可用答案可以沿用，但状态标注旧目标和待应用目标；不得用新目标标签包装旧诊断。失败时说明仍在使用哪个旧目标。
 - 多根工作区在 auto 下各自选择；显式设置遵循 §4 的会话范围。共享实例缓存要校验选择身份；不允许两个不同分析目标的实例互相确认模型。
-- 轮询模式必须覆盖首次 watch 注册后、首轮扫描前创建输入的竞态；不能把这类新文件静默当作已有基线。动态 watch 与 polling 两条路径分别验收。
+- 轮询模式必须覆盖首次 watch 注册后、首轮扫描前创建输入的竞态；不能把这类新文件静默当作已有基线。动态 watch 与 polling 两条路径分别验收。工作区关闭后轮询 worker 必须退出，避免移除项目后继续全目录 stat。
 
 ## 7. 展示与接口
 
@@ -260,5 +260,10 @@ nightly 的 proot-distro login 增加 `/mnt/scripts:/mnt/scripts` 绑定或将�
 - 已修 UTF-8 artifact 输出、Termux 脚本绑定及 polling watch 注册初期漏事件；有界 CDB 读取不依赖事前 stat 维持内存上限。
 - 当前 Linux 工作区检查点：dev/release 各 40 个单测执行体通过，22 组目标/身份/polling conformance 通过，规范和仓库检查通过。准确二进制 hash 与范围见 `2026-10-22-issues-59-63-evidence/local-validation.json`。
 - 真实 VS Code E2E 在此前准确 hash 的开发检查点通过：44 passing、1 项平台专用 pending；见证据目录 `vscode-e2e.md`。最终 release 字节仍需重新验证。
-- U15 已以真实模块完成活动修复停顿判断；U13 RSS 和 U8 撤销后重建仍在取证和修复。不会通过放宽既有预算结束这两项。
+- U15 已以真实模块完成活动修复停顿判断。原 xlings cold/warm/edits/long 完整链路已通过，U13 保留 600 秒、0.01 core、10% RSS 门槛；该次 CPU 为 0.007208 core，RSS 净变化为 -50.28%。另一个无文件/无索引的隔离实验定位到内置引擎未变 memo JSON 的周期性分配，属于已知未修局限；原 gate 通过不能证明该局限消失。详见证据目录的 `u13-memo-worker.md`。
+- 原 mcpp 四核 cold/warm/edits 已通过；U8 在该链路撤销时新增实际构建为零。两逻辑核的完整 edits/faults 验收仍在进行，不以窄场景替代。不会通过放宽既有预算结束性能验收。
 - 尚未完成：全平台 CI、Termux 实际环境、性能最终重放、最终自审、squash 合入、release 与下载/升级验证。单 PR 将保持草稿直到验收完整。
+
+后续自审补充：target-only 设置更新仅调度 mcpp 根，不重跑其他 provider；无关 provider 的模型比较不纳入 mcpp 选择身份。真实 LSP 回归在修前观察到额外 model-unchanged，修后不再出现。轮询生命周期对照见 polling-lifecycle.json：四次移除根目录，修前遗留四条线程，修后回到相同线程基线。
+
+只读交叉自审另发现 clang-cl 探测遗漏目标参数，会把正确 i686/ARM64 命令读成宿主 x64 并被新校验拒收。已补目标参数传递及有区分力的 host/target 单测，保留 cl.exe 原行为；补修后 Linux dev/release 各 40 个执行体通过，仍需最终提交的原生 CI 验收。

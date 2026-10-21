@@ -1,0 +1,29 @@
+{
+  "scope": "Linux native LSP workspace-folder lifecycle; dynamic watching omitted so server polling is active",
+  "method": "Initialize one empty folder; record /proc/<server-pid>/task count after startup; add and remove four additional folders sequentially through workspace/didChangeWorkspaceFolders; wait for report root count and three seconds after each removal; compare with baseline. Each process uses a separate cache.",
+  "before": {
+    "serverSHA256": "2993016d1ec666651ea723614761178eb29d941a8fcb2e2392c25a4cc05476b6",
+    "case": "before",
+    "removedRootThreadCounts": [
+      8,
+      9,
+      10,
+      11
+    ],
+    "baselineThreads": 7,
+    "growth": 4
+  },
+  "after": {
+    "serverSHA256": "f8b9af75a78c60c014bc2a740a1f8afeb37fe129a1b2087cb306ddb19af1a06d",
+    "case": "after",
+    "removedRootThreadCounts": [
+      7,
+      7,
+      7,
+      7
+    ],
+    "baselineThreads": 7,
+    "growth": 0
+  },
+  "conclusion": "Before, each removed workspace retained one polling thread; after, all four removals return to the baseline. Atomic stop state is set on shutdown/destruction and checked before polling and publishing events."
+}
