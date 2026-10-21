@@ -311,7 +311,7 @@ before anything is published (`docs/92-release.md`).
   files reproduces idle RSS growth from those discarded snapshots. Persistence remains enabled
   for warm reuse; mcppls does not hide the allocation with a delay or a changed resource budget.
   The source attribution and upstream-side fix required are recorded in
-  [the U13 evidence](2026-10-22-issues-59-63-evidence/u13-memo-worker.md); no workaround is applied.
+  [the U13 brief](2026-10-22-issues-59-63-evidence/README.md#memo); no workaround is applied.
 - openkal cannot lower a child's scheduling priority, so clangd's cold-start module builds compete
   with the editor (plan 2026-09-30 R-9, deferred).
 - Windows gives no CPU reading of clangd yet (plan 2026-09-30 K-1, deferred), so the stuck-clangd

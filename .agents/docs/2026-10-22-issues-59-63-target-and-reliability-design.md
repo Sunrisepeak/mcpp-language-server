@@ -258,13 +258,13 @@ nightly 的 proot-distro login 增加 `/mnt/scripts:/mnt/scripts` 绑定或将�
 
 - 已实现目标配置、自动提取、当前 producer 确认、动态切换及状态展示；补齐旧 CDB 回退校验和冷启动拒绝错误架构的竞态。
 - 已修 UTF-8 artifact 输出、Termux 脚本绑定及 polling watch 注册初期漏事件；有界 CDB 读取不依赖事前 stat 维持内存上限。
-- 当前 Linux 工作区检查点：dev/release 各 40 个单测执行体通过，22 组目标/身份/polling conformance 通过，规范和仓库检查通过。准确二进制 hash 与范围见 `2026-10-22-issues-59-63-evidence/local-validation.json`。
-- 真实 VS Code E2E 在此前准确 hash 的开发检查点通过：44 passing、1 项平台专用 pending；见证据目录 `vscode-e2e.md`。最终 release 字节仍需重新验证。
-- U15 已以真实模块完成活动修复停顿判断。原 xlings cold/warm/edits/long 完整链路已通过，U13 保留 600 秒、0.01 core、10% RSS 门槛；该次 CPU 为 0.007208 core，RSS 净变化为 -50.28%。另一个无文件/无索引的隔离实验定位到内置引擎未变 memo JSON 的周期性分配，属于已知未修局限；原 gate 通过不能证明该局限消失。详见证据目录的 `u13-memo-worker.md`。
+- 当前 Linux 工作区检查点：dev/release 各 40 个单测执行体通过，22 组目标/身份/polling conformance 通过，规范和仓库检查通过。二进制 hash、范围及原始记录索引见 [验证简报](2026-10-22-issues-59-63-evidence/README.md#validation)。
+- 真实 VS Code E2E 通过：44 passing、1 项平台专用 pending；准确 release-profile 二进制 hash 与验证范围见简报。发布 VSIX 的安装/升级仍需单独验证。
+- U15 已以真实模块完成活动修复停顿判断。原 xlings cold/warm/edits/long 完整链路曾通过，U13 保留 600 秒、0.01 core、10% RSS 门槛；该次 CPU 为 0.007208 core，RSS 净变化为 -50.28%。另一个无文件/无索引的隔离实验定位到内置引擎未变 memo JSON 的周期性分配，属于已知未修局限；原 gate 通过不能证明该局限消失。详见 [简报的 memo 结论](2026-10-22-issues-59-63-evidence/README.md#memo)。最终重放中的失败也在简报中保留。
 - 原 mcpp 四核 cold/warm/edits 已通过；U8 在该链路撤销时新增实际构建为零。两逻辑核的完整 edits/faults 验收仍在进行，不以窄场景替代。不会通过放宽既有预算结束性能验收。
 - 尚未完成：全平台 CI、Termux 实际环境、性能最终重放、最终自审、squash 合入、release 与下载/升级验证。单 PR 将保持草稿直到验收完整。
 
-后续自审补充：target-only 设置更新仅调度 mcpp 根，不重跑其他 provider；无关 provider 的模型比较不纳入 mcpp 选择身份。真实 LSP 回归在修前观察到额外 model-unchanged，修后不再出现。轮询生命周期对照见 polling-lifecycle.json：四次移除根目录，修前遗留四条线程，修后回到相同线程基线。
+后续自审补充：target-only 设置更新仅调度 mcpp 根，不重跑其他 provider；无关 provider 的模型比较不纳入 mcpp 选择身份。真实 LSP 回归在修前观察到额外 model-unchanged，修后不再出现。轮询生命周期对照：四次移除根目录，修前遗留四条线程，修后回到相同线程基线。对应原始记录由简报的索引定位，不在 PR 内展开 JSON。
 
 只读交叉自审另发现 clang-cl 探测遗漏目标参数，会把正确 i686/ARM64 命令读成宿主 x64 并被新校验拒收。已补目标参数传递及有区分力的 host/target 单测，保留 cl.exe 原行为；补修后 Linux dev/release 各 40 个执行体通过，仍需最终提交的原生 CI 验收。
 

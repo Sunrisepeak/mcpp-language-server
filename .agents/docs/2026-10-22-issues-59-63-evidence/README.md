@@ -1,135 +1,67 @@
-# #59 performance evidence
+# #59 / #63 验证简报
 
-Status: implementation and verification in progress. Source/test changes in the shared worktree
-are under review; they are not a merged fix or release. RSS-trend gating has not been adopted
-or implemented. Final claims require the original gates and replay evidence.
+日期：2026-10-22 JST。状态：**实现已提交，完整验收仍有失败项；PR 保持草稿。**
 
-Local Linux measurements use the released v0.0.16 payload (clangd 23.1.0-mcppls.4), the
-original pinned source fixtures and explicit CPU affinity. `environment.json` identifies
-producer versions, CPU topology and limitations. These are local reproductions, not claims
-about unrun GitHub, macOS, Windows or Termux environments.
+本目录只保留结论、复现方法及原始记录索引。45 份原始记录共 26,769 行、约 1.0 MB，已移出 PR；失败、对照和历史检查点均保留。源码方案见 [详细设计](../2026-10-22-issues-59-63-target-and-reliability-design.md)，操作见 [复现说明](reproduce.md)。
 
-## U15
+## 结论与证据边界
 
-`mcpp-cold.json` reproduces the historical 117-second symptom: 118.22 seconds without a
-completed preparation node. `mcpp-pinned-cold.json` uses the workflow's actual producer pin
-2026.9.30.2 and measures a 70.49-second node gap, with 1.458 CPU cores consumed in that gap,
-no restart, and first ready at 101.27 seconds. Both keep the original 60-second threshold.
+| 项目 | 已证实结论 | 当前验收状态 |
+|---|---|---|
+| #63 目标选择 | mcpp provider 未传 target 会采用默认架构；新增 auto / project / 显式 triple，统一请求、生效目标和缓存身份 | Linux 目标/身份/polling 22 组通过；原生矩阵继续验证 |
+| #59 producer 升级 | 缓存旧 producer 身份不能证明当前 producer；已改为当前身份确认 | mock 实际调用、版本、不同输出及 executable 替换回归通过 |
+| UTF-8 / Termux | runner 存在多字节裁剪缺陷；内层 Debian 缺脚本绑定 | UTF-8 native 回归通过；Termux 实际环境待 nightly |
+| U15 停顿 | 节点 done 不变时仍可能完成实际模块；不能据此认定引擎无进展 | 历史两逻辑核 cold：原节点间隔 77.73 s、真实无活动 4.00 s；faults：59.66 s / 7.42 s，均无 stalled 样本。最终完整链不能用历史通过替代 |
+| U8 撤销 | 两核重放发现 28 次构建；旧 release key 全保留，11 个新增 PCM 使用 release 命令及旧 dev 依赖闭包 | 已修 CDB 在旧进程结束前发布的问题；另修测试未等待有限工作完成。新 native 回归通过；最终 xlings undo=0，两核整链仍在运行 |
+| U13 空闲 | 原 xlings 完整链曾通过 600 s 门槛：0.007208 core、RSS -50.28% | 最终字节的完整链仍在跑；独立 memo 局限见下文 |
+| runner 崩溃 | 两次原生两核 cold 退出 139；GDB 第二次捕获 SIGSEGV/core | **未解决，不能算 cold 通过**。合法 429,463 B completion、JSON 深度 7；reader 栈仅用 6,872 B，不能归为栈耗尽 |
+| 两核 warm | 最终字节 warm 的首次 ready 为 17.99 s，超过原 12 s；BMI 复用为 0/352 重建 | **未通过**，保留其失败 cold 后的真实 cache lineage |
 
-`u15-pinned-build-completions.json` preserves the 176 actual module completions observed in
-the pinned run. The slowest single build took 4.349 seconds; std took 3.709 seconds. A whole
-closure completed while its prime TU had not yet published diagnostics. The engine previously
-mistook this for no progress and could raise `preparation-stalled`. The fix recognizes genuine
-completed BMIs for wanted modules, without advancing the independent preparation-node counter.
-Unrelated work, reuse, old-generation events and an otherwise silent unfinished closure remain
-non-progress; native mock-process tests cover these distinctions.
+U8 修复同时处理驱动和测量：需要重启时，新 CDB/生成输入等旧进程 reaped 后才发布；普通增量先生成 prime/stub 再发布引用它们的 CDB。写失败不报成功，最新计划可重试。测量按明确任务状态有界等待，撤销前抓计数，包含撤销后所有快速构建，零重建预算不变。
 
-The runner preserves `longestStallSeconds` and adds `longestEngineInactivitySeconds`. A gate
-on actual inactivity falls back conservatively to the original node gap if logs/history are
-missing. The old gap is still independently gateable; it is never replaced with a heartbeat.
+<a id="validation"></a>
+## 当前本地检查点
 
-`u15-recovered-two-core-cold.json` repeats the complete original mcpp cold stage after the
-environment rebuild, with current server, released .4 engine, explicit producer 2026.9.30.2
-and two logical CPUs (4–5). All seven checks pass. The raw prime-node gap is still 77.73 s
-with 1.51 CPU cores consumed, while genuine module completions keep engine inactivity to
-4.00 s; first ready is 113.35 s, with zero preparation-stalled samples and zero restarts.
-This preserves the original symptom in the measurement while proving the activity fix.
+| 检查 | 结果 | 对应原始记录 |
+|---|---|---|
+| Linux dev / release | 各 40 个执行体通过 | local-validation.json |
+| engine / runner native 回归 | 65 cases / 640 assertions；6 cases / 65 assertions | publication-regression.json |
+| 旧驱动对照 | 新增回归中 2 cases、12 assertions 失败；修复版通过 | publication-regression.json |
+| 目标、producer、polling | 22 组通过 | local-validation.json |
+| 实际 VS Code 1.143.0 | 44 passing、1 项平台专用预期 pending；工作区未改变 | vscode-e2e.md |
+| polling 生命周期 | 四次移除根后：旧版遗留 4 线程，修复版回到基线 | polling-lifecycle.json |
+| 规范 / 仓库检查 | 0 failure；4 个历史 pending 规则保留 | local-validation.json |
 
-## U13
+这些结果对应源码检查点 `5e19005`，并非已发布 VSIX 或全平台通过声明。最终 CI/nightly、完整性能重放、最终自审、合入及下载/升级验证尚未完成，进度以 [PR #64](https://github.com/Sunrisepeak/mcpp-language-server/pull/64) 与其 Actions 为准。
 
-`xlings-long.json` is explicitly a **cold-cache idle control**, not the original nightly's
-cold/warm/edits/long cache lineage. It reproduces 0.07 cores and memory growth. Trace comparison
-finds finite background indexing and an implementation sweep, rather than repeated producer
-calls: auto priming opened about 120 units and built 135 modules; priming off opened one std
-unit and built one module. CPU affinity classes differ for some controls, so their timings do
-not establish a controlled speedup.
+## 环境与身份
 
-The resource check now drains explicit preparation/index/implementation work with a bounded
-wait, records that phase separately, and then measures the same 600-second, 0.01-core, 10%-RSS
-idle budgets. It never chooses an idle baseline by requiring CPU to pass its own budget.
+- Linux x86_64，i9-13900K 混合核心；两逻辑核用 4–5，xlings 用 12–15。逻辑 CPU 与物理核心不同；本机数据不等于 GitHub runner，跨亲和性结果不用于宣称加速。
+- 构建 mcpp 2026.10.21.1 / LLVM 22.1.8；server producer 显式指定 2026.9.30.2。fixture prepare 的 launcher 与 server producer 分开记录。
+- 引擎使用校验过的 v0.0.16 payload，`23.1.0-mcppls.4`，fork `92a4c630f4691890e6133c87d3e4591bc5fd8258`；本期未修改引擎。
+- fixture pins：mcpp `d1f1c98fa26d953e084a183a9672fc1e0ce63558`；xlings `84572b0cc8502a16afaa4ae00867aef17f18c2c2`。
 
-The .17 checkpoint still shows a finite RSS jump after known background work becomes idle:
-about 472 MiB to 562 MiB over approximately 30 seconds, followed by a flat multi-minute period.
-The new task-state eligibility therefore cannot yet be claimed to fix the RSS budget. The same
-600-second replay and the original cold/warm/edits/long lineage are still running; their final
-results must be reviewed before changing any memory metric.
+| 二进制 | SHA-256 |
+|---|---|
+| dev server | a405994b23537a2471c29663d2c0a9295e093565ef2e9769d0f6ffb65b051fac |
+| runner | 37d486fe6951a0478910e275be91f5f4d93d269d951f0d8f0f1eb1d841fa4445 |
+| release server | 086ec76e66d0e76919281e8a2d0d0203aa5dc6fd2acd0077217fba29f37a9f4c |
 
-`xlings-recovered-cold-idle.json` is a new independent cold-cache control after the environment
-was rebuilt, with the explicit historical producer 2026.9.30.2 and released .4 engine. It
-passes the unchanged 600-second idle gates: 0.002835 CPU cores and RSS 967.586 → 967.738 MiB
-(+0.0157%). The task-state drain records 68.36 seconds of finite scheduled work before the
-baseline; 119 implementation units and 135 module builds are complete. Its 1-second smaps
-samples do not reproduce the prior +19% jump. Inspection of the exact released engine source
-confirms the memo worker constructs all memo JSON every 30 seconds before comparing versions,
-but this control does not prove that code caused the earlier jump. No memo-publication
-readiness workaround or new memory metric has been introduced. The original staged cache
-lineage is recorded separately below.
+<a id="memo"></a>
+## 已定位但未修复的引擎局限
 
-The complete original xlings cold → 300-second warm → full edits → long sequence now passes
-all local checks with the released .4 engine and explicit historical producer 2026.9.30.2
-on CPUs 12–15. `recovered-xlings-staged-{cold,warm,edits,long}.json` preserve every check.
-The original 600-second U13 gate reports 0.007208 CPU cores and RSS 1438.777 → 715.398 MiB
-(-50.28%). The baseline follows the existing 60-second warm-up and the task-state drain;
-it was not selected from CPU/RSS samples. U12 checkout and U15-long pass too.
+无打开文件、关闭 background index、仅载入 30,298,617 B memo 的隔离实验中，180 s RSS 从 176.832 增至 266.754 MiB（+50.85%），零 memo 写入。官方 [0030 patch](https://github.com/Sunrisepeak/mcppls-clangd/blob/92a4c630f4691890e6133c87d3e4591bc5fd8258/patches/0030-UP-35-module-input-sources-and-memos.patch) 的 timer 每 30 s 先构造全部 JSON，再检查版本是否变化；warm adoption 不增加该版本。这是独立分配问题，不证明持续泄漏，也不等同于原 U13 gate 失败。
 
-A separate isolated reproduction does establish an engine limitation: unchanged persistent
-memo snapshots allocate every 30 seconds even with no opened documents or background index.
-`u13-memo-only-summary.json`, `u13-memo-only-samples.json` and `u13-memo-worker.md` show
-176.832 → 266.754 MiB (+50.85%) during 180 seconds after warm adoption, with zero writes.
-This is not a claim that the staged gate failed: that gate starts before a later large RSS
-release, so its net growth is negative. It also does not mean the memo limitation is fixed.
-The exact engine-source diagnosis and smallest engine fix are recorded without changing
-clangd, disabling persistence, adding pending heuristics/delays, or changing the idle budgets.
+合理的引擎修复是先检查廉价变更计数，再构造有变化的快照并保留其对应版本；本期没有以关闭 persistence、等待首个 written 日志、固定延时或调整 RSS 起点代替修复。原 U13 的 600 s / 0.01 core / 10% RSS 门槛保持不变。
 
-## U8
+<a id="raw"></a>
+## 原始记录如何核对
 
-A small isolated replay opening only the binfmt source reused the old configuration with zero
-new completed builds. This narrow result does not cover the original importer working set.
-The stronger replay opens the original eight U7 importers with clean buffers, plus main and
-execute, before release → dev → release. It observes 20 actual module completions during undo
-(counter 58 → 78), while the older source/size file heuristic reports 19. These counters alone
-do not distinguish a previously built release cache key from a first build under that key.
-The final module-cache disk usage is 304 MiB, so a 3 GiB payload quota alone does not explain
-the builds.
-`u8-clean-importers-summary.json` and `mcpp-u8-clean-importers.json` preserve the evidence.
-The new `u8-owned-cache-control.json` and `u8-owned-cache-summary.json` add a fresh-cache
-control with the released .4 engine and explicit historical producer 2026.9.30.2. The full
-release closure builds 176 modules, dev builds 176, and undo builds zero. The owned ledger has
-176 → 352 → 352 stable keys; the release engine CDB is byte-identical after undo. This proves
-reuse of the fully built original closure in this control. Its cache lineage differs from the
-earlier warm/edit experiment and does not establish the cause of those 20 builds. No upstream
-defect or definitive project-cache root cause has been claimed.
+[raw-index.tsv](raw-index.tsv) 逐文件列出大小与 SHA-256；所有历史失败和对照均在索引中，未按通过与否筛选。
 
-The stronger original two-logical-CPU cold → 300-second warm → full edits sequence does
-reproduce a failure: `recovered-mcpp-two-core-edits.json` reports 28 completed builds during
-undo (26 from the older physical heuristic), with the original zero budget unchanged.
-`u8-two-core-failure-attribution.json` retains the individual owned keys and PCM metadata.
-All 218 old release stable entries survive; the engine CDB is byte-identical after undo.
-Before undo the runner nevertheless observes `ready` with preparation done=0/wanted=140,
-running=1 and 11 files still awaiting diagnostics. The runner's former settle predicate had
-not drained that work.
+- 本地归档：`.payload-cache/59-63-evidence-raw/checkpoint-20261021T202025Z-5e19005.tar.gz`
+- 归档 SHA-256：`674b5072ddfb27204aef5bc2de61cf13ad38176f3e5a79c00a5cda382e15a8c0`
+- 全部运行日志、ledger/PCM 快照及新阶段结果：`.payload-cache/59-63-performance/`。core 单独留在该目录，未纳入 PR 或这个 JSON 归档。
+- 归档是截至该时间的历史快照；后续结果持续记录在简报及 CI artifacts。CI/nightly 已上传各阶段 measure；新复现默认也写入独立输出目录。
 
-This is more than a mislabeled count. While the old dev process continues, the replacement
-release CDB is published in place. Its new platform PCM has release optimization metadata
-but retains dev prerequisite producers. The later release process reuses the original valid
-release std/platform entries. The working-tree fixes separately add task-state drains around
-the U8 experiment and defer replacement CDB publication until the old process is reaped.
-The original failure is retained; fixed full two-core replay is still required.
-
-The same original two-core workspace then ran faults with an independent cache-b:
-`recovered-mcpp-two-core-faults.json` passes every check in 262.84 seconds. U15-faults records
-59.66 seconds of raw node stall, 7.42 seconds of genuine engine inactivity, zero stalled
-samples and no clangd restarts (the fault checks deliberately restart the server).
-
-A full original mcpp edits run under GDB completed with no runner crash, but that replay used
-unrestricted CPU affinity. One earlier two-logical-CPU runner process exited 139 without a core
-or stack; it remains unconfirmed, not a proven fixed defect.
-
-The earlier complete staged xlings replay passed. U8 now has artifact-backed attribution
-to unfinished dev work and release CDB publication while that process remained alive; native
-regressions cover the driver fix and the separate measurement drain. Full original two-core
-and xlings chains against the final frozen bytes are running in new validated directories.
-The original `/tmp/mcppls-perf59` traces were lost when the environment was rebuilt; the JSON
-evidence here survives. New raw logs, source/ledger snapshots and smaps samples are retained
-in the ignored, persistent `.payload-cache/59-63-performance/` directory. This record will be
-completed with final replay results before submission.
+原早期 `/tmp` 跟踪曾在环境重建时丢失，不能冒充完整原始日志；已保留的 JSON 与之后持久目录的新证据区分记录。
