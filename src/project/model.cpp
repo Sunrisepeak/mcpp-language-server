@@ -15,6 +15,8 @@ import mcppls.spec.options;
 import mcppls.toolchain.probe;
 import mcppls.toolchain.discover;
 import mcppls.project.detect;
+import mcppls.project.target;
+import mcppls.project.boundary;
 import mcppls.project.infer;
 import mcppls.project.provider;
 import mcppls.project.providers;
@@ -58,7 +60,13 @@ std::optional<ModelIssue> visual_studio_notice(const toolchain::ToolchainFacts& 
 namespace {
 
 void set_profile(ProjectModel& model, const spec::Kit* kit) {
+    const ProjectBoundaries boundaries { model.root };
     for (const auto& set : model.database.sets) {
+        if (spec::is_build_program_set(set)) continue;
+        if (model.source == SourceKind::mcpp && !std::ranges::any_of(set.units, [&](const spec::TranslationUnit& unit) {
+            const std::string source { spec::absolute_source(unit) };
+            return boundaries.owns(source);
+        })) continue;
         const auto it = model.facts.find(set.toolchain);
         if (it == model.facts.end() || it->second.appleClang) continue;
         const auto& toolchain = it->second.toolchain;
@@ -223,6 +231,10 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
             // `existing()` never runs anything; `describe()` may run the build tool, into its own
             // private directory under the workspace's cache (one per workspace, per provider --
             // design plan §3.2), never the project's own build directory.
+            if (detection.kind == SourceKind::mcpp) {
+                context.targetSelection = options.targetSelection ? *options.targetSelection : select_mcpp_target(model.root, options.mcppTarget);
+                model.targetSelection = context.targetSelection;
+            }
             ProviderContext describeContext { context };
             describeContext.privateDirectory = base::join_path(options.cacheDirectory, std::string { provider->id() });
             std::optional<Answer> answer { provider->existing(claim, context) };

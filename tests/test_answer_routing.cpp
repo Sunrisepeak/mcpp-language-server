@@ -35,7 +35,11 @@ struct Held {
     std::map<std::string, e::Reply> pending;   // by the client's request id, dumped
     std::vector<std::string> asked;            // methods, in order
     std::vector<std::string> cancelled;
+    bool ignoreCancellation { false };          // clangd may keep running and answer a cancelled request
     std::vector<std::string> detached;
+    std::optional<Json> definitionResult;
+    std::optional<Json> declarationResult;
+    std::optional<Json> renameResult;           // a compiler's intentionally partial edit, when configured
     std::vector<Json> internal;                // requests mcppls made itself (learning, prefetching)
 };
 
@@ -55,17 +59,25 @@ public:
     void sources_changed() override {}
     bool claims(const e::RequestView&) const override { return true; }
     void request(const e::RequestView& view, const Json& message, e::Reply reply) override {
-        const std::lock_guard lock { held_->mutex };
-        held_->asked.emplace_back(view.method);
-        const std::string id { message["id"].dump() };
-        if (id.find("mcppls:answer:") != std::string::npos) held_->internal.push_back(message);
-        held_->pending[id] = std::move(reply);
+        std::optional<Json> immediate;
+        {
+            const std::lock_guard lock { held_->mutex };
+            held_->asked.emplace_back(view.method);
+            const std::string id { message["id"].dump() };
+            if (id.find("mcppls:answer:") != std::string::npos) held_->internal.push_back(message);
+            if (view.method == "textDocument/rename" && held_->renameResult) immediate = held_->renameResult;
+            else if (view.method == "textDocument/definition" && held_->definitionResult) immediate = held_->definitionResult;
+            else if (view.method == "textDocument/declaration" && held_->declarationResult) immediate = held_->declarationResult;
+            else held_->pending[id] = std::move(reply);
+        }
+        if (immediate) reply(e::Answer { e::Answer::Kind::result, std::move(*immediate) });
     }
     void cancel(const Json& id) override {
         e::Reply reply;
         {
             const std::lock_guard lock { held_->mutex };
             held_->cancelled.push_back(id.dump());
+            if (held_->ignoreCancellation) return;
             const auto it = held_->pending.find(id.dump());
             if (it == held_->pending.end()) return;
             reply = std::move(it->second);
@@ -154,7 +166,7 @@ struct Fixture {
     }
 
     // The project: a.cpp and b.cpp, b.cpp compiled with `extra` too.
-    void load_model(const std::vector<std::string>& extra = {}) {
+    void load_model(const std::vector<std::string>& extra = {}, bool engineInterface = false) {
         auto model = std::make_shared<mcppls::project::ProjectModel>();
         model->root = root;
         model->source = mcppls::project::SourceKind::build_database;
@@ -177,6 +189,22 @@ struct Fixture {
             set.units.push_back(std::move(unit));
         }
         model->database.sets.push_back(std::move(set));
+        if (engineInterface) {
+            mcppls::spec::Set engineSet;
+            engineSet.name = std::string { mcppls::spec::ENGINE_INTERFACE_SET };
+            engineSet.configuration = std::string { mcppls::spec::BUILD_PROGRAM_CONFIGURATION };
+            engineSet.hasIde = true;
+            engineSet.toolchain = "test-clang";
+            mcppls::spec::TranslationUnit unit;
+            unit.source = mcppls::base::join_path(root, "engine/mcpp.cppm");
+            unit.workDirectory = root;
+            unit.role = mcppls::spec::Role::module_interface;
+            unit.arguments = { "clang++", "-std=c++23", "-c", unit.source };
+            (void)fs::create_directories(mcppls::base::parent_path(unit.source));
+            (void)fs::write_file(unit.source, "export module mcpp;\nexport void cxxflag();\n");
+            engineSet.units.push_back(std::move(unit));
+            model->database.sets.push_back(std::move(engineSet));
+        }
         // As the build tool's answer to the load start() began (generation 1); a later one replaces it.
         workspace->handle_model_loaded(1, std::move(model));
     }
@@ -198,12 +226,13 @@ struct Fixture {
     Json ask(std::string_view method, std::string_view name, int line, int character, std::string idPrefix = "") {
         const Json id = idPrefix.empty() ? Json(nextId++) : Json(std::format("{}{}", idPrefix, nextId++));
         Json params { { "textDocument", { { "uri", uri(name) } } }, { "position", { { "line", line }, { "character", character } } } };
+        if (method == "textDocument/rename") params["newName"] = "flag";
         workspace->route_client_request(Json { { "jsonrpc", "2.0" }, { "id", id }, { "method", std::string { method } }, { "params", params } });
         return id;
     }
 
     // The engine answers the request it holds under `id` (the client's) with `result`.
-    bool answer(const Json& id, Json result) {
+    bool answer(const Json& id, Json result, e::Answer::Kind kind = e::Answer::Kind::result) {
         e::Reply reply;
         {
             const std::lock_guard lock { held->mutex };
@@ -212,7 +241,7 @@ struct Fixture {
             reply = std::move(it->second);
             held->pending.erase(it);
         }
-        reply(e::Answer { e::Answer::Kind::result, std::move(result) });
+        reply(e::Answer { kind, std::move(result) });
         return true;
     }
 
@@ -227,6 +256,22 @@ struct Fixture {
         workspace->handle_timers();
     }
 };
+
+Json definition_location(const std::string& uri, int shape = 0) {
+    const Json range { { "start", Json { { "line", 0 }, { "character", 0 } } },
+                       { "end", Json { { "line", 0 }, { "character", 7 } } } };
+    const Json location { { "uri", uri }, { "range", range } };
+    if (shape == 1) return Json::array({ location });
+    if (shape == 2) return Json::array({ Json { { "targetUri", uri }, { "targetRange", range }, { "targetSelectionRange", range } } });
+    return location;
+}
+
+Json rename_edit(const std::string& uri) {
+    return Json { { "changes", Json { { uri, Json::array({ Json {
+        { "range", Json { { "start", Json { { "line", 0 }, { "character", 10 } } },
+                          { "end", Json { { "line", 0 }, { "character", 17 } } } } }, { "newText", "flag" }
+    } }) } } } };
+}
 
 // A constant, not a std::string: nothing is allocated before main (the platform runtime is set up there).
 constexpr std::string_view A { "#include <x>\nvoid f() {\n    doc.size();\n    std::vector<int> v;\n}\n" };   // `doc.` at 2:8, `std::` at 3:9
@@ -259,6 +304,236 @@ int main() {
         std::print(std::cerr, "{}", result->error);
         return result->timedOut ? 1 : result->exitCode;
     }
+    "rename refuses an engine-interface owner even when the compiler edits only project references"_test = [] {
+        for (int shape { 0 }; shape < 3; ++shape) {
+            Fixture f;
+            f.load_model({}, true);
+            f.open("a.cpp", "void f(){ cxxflag(); cxxflag(); }\n");
+            f.held->renameResult = rename_edit(f.uri("a.cpp"));
+            const Json id = f.ask("textDocument/rename", "a.cpp", 0, 13);
+            // The old product goes straight to rename and receives this real partial WorkspaceEdit.
+            // The fixed product instead holds definition, whose owner is the immutable interface.
+            if (f.held->pending.contains(id.dump())) {
+                expect(f.held->asked.back() == "textDocument/definition");
+                expect(f.answer(id, definition_location(f.uri("engine/mcpp.cppm"), shape)));
+            }
+            const auto response = f.sink.response(id);
+            expect(fatal(response.has_value()));
+            expect(response->value("error", Json::object()).value("code", 0) == -32803) << response->dump();
+            expect(std::ranges::count(f.held->asked, "textDocument/rename") == 0);
+        }
+    };
+
+    "rename ownership permits project and writable dependency definitions and retains the edit guard"_test = [] {
+        for (const std::string owner : { "a.cpp", "dependency.cppm" }) {
+            Fixture f;
+            f.load_model({}, true);
+            f.open("a.cpp", "void f(){ cxxflag(); }\n");
+            f.held->renameResult = rename_edit(f.uri("a.cpp"));
+            const Json id = f.ask("textDocument/rename", "a.cpp", 0, 13);
+            expect(f.answer(id, definition_location(f.uri(owner), owner == "a.cpp" ? 1 : 2)));
+            expect(f.held->asked.back() == "textDocument/declaration");
+            expect(f.answer(id, definition_location(f.uri(owner), owner == "a.cpp" ? 2 : 1)));
+            const auto response = f.sink.response(id);
+            expect(fatal(response.has_value()));
+            expect(response->contains("result") && (*response)["result"] == *f.held->renameResult) << response->dump();
+            expect(std::ranges::count(f.held->asked, "textDocument/rename") == 1);
+        }
+        Fixture f;
+        f.load_model({}, true);
+        f.open("a.cpp", "void f(){ cxxflag(); }\n");
+        f.held->renameResult = rename_edit(f.uri("engine/mcpp.cppm"));
+        const Json id = f.ask("textDocument/rename", "a.cpp", 0, 13);
+        expect(f.answer(id, definition_location(f.uri("a.cpp"))));
+        expect(f.answer(id, definition_location(f.uri("a.cpp"))));
+        const auto response = f.sink.response(id);
+        expect(fatal(response.has_value()));
+        expect(response->value("error", Json::object()).value("code", 0) == -32803) << response->dump();
+    };
+
+    "rename refuses a readonly declaration even when the definition is implemented in the project"_test = [] {
+        Fixture f;
+        f.load_model({}, true);
+        f.open("a.cpp", "void f(){ cxxflag(); }\n");
+        f.held->renameResult = rename_edit(f.uri("a.cpp"));
+        const Json id = f.ask("textDocument/rename", "a.cpp", 0, 13);
+        expect(f.answer(id, definition_location(f.uri("a.cpp"))));
+        expect(f.held->asked.back() == "textDocument/declaration");
+        expect(f.answer(id, definition_location(f.uri("engine/mcpp.cppm"), 2)));
+        const auto response = f.sink.response(id);
+        expect(fatal(response.has_value()));
+        expect(response->value("error", Json::object()).value("code", 0) == -32803) << response->dump();
+        expect(std::ranges::count(f.held->asked, "textDocument/rename") == 0);
+    };
+
+    "rename ownership supports unchanged closed files and rejects disk or open-state changes"_test = [] {
+        for (int stage { 0 }; stage < 2; ++stage) for (int mode { 0 }; mode < 4; ++mode) {
+            Fixture f;
+            f.load_model({}, true);
+            const std::string path { mcppls::base::join_path(f.root, "a.cpp") };
+            if (mode != 3) expect(fs::write_file(path, "void f(){ cxxflag(); }\n").has_value());
+            f.held->renameResult = rename_edit(f.uri("a.cpp"));
+            const Json id = f.ask("textDocument/rename", "a.cpp", 0, 13);
+            if (mode == 3) {
+                const auto response = f.sink.response(id);
+                expect(fatal(response.has_value()));
+                expect(response->value("error", Json::object()).value("code", 0) == -32803);
+                expect(f.held->asked.empty());
+                continue;
+            }
+            if (stage == 1) expect(f.answer(id, definition_location(f.uri("a.cpp"))));
+            if (mode == 1) expect(fs::write_file(path, "void f(){ cxxflag(); } // disk changed\n").has_value());
+            if (mode == 2) f.open("a.cpp", "void f(){ cxxflag(); }\n");
+            expect(f.answer(id, definition_location(f.uri("a.cpp"))));
+            if (mode == 0 && stage == 0) expect(f.answer(id, definition_location(f.uri("a.cpp"))));
+            const auto response = f.sink.response(id);
+            expect(fatal(response.has_value()));
+            if (mode == 0) {
+                expect(response->contains("result") && (*response)["result"] == *f.held->renameResult) << response->dump();
+                expect(std::ranges::count(f.held->asked, "textDocument/rename") == 1);
+            } else {
+                expect(response->value("error", Json::object()).value("code", 0) == -32803) << response->dump();
+                expect(std::ranges::count(f.held->asked, "textDocument/rename") == 0);
+            }
+        }
+    };
+
+    "rename ownership handles fully synchronous definition declaration and rename callbacks"_test = [] {
+        Fixture f;
+        f.load_model({}, true);
+        f.open("a.cpp", "void f(){ cxxflag(); }\n");
+        f.held->definitionResult = definition_location(f.uri("a.cpp"));
+        f.held->declarationResult = definition_location(f.uri("a.cpp"), 2);
+        f.held->renameResult = rename_edit(f.uri("a.cpp"));
+        const Json id = f.ask("textDocument/rename", "a.cpp", 0, 13);
+        const auto response = f.sink.response(id);
+        expect(fatal(response.has_value()));
+        expect(response->contains("result") && (*response)["result"] == *f.held->renameResult) << response->dump();
+        expect(f.held->asked == std::vector<std::string> { "textDocument/definition", "textDocument/declaration", "textDocument/rename" });
+        expect(f.held->pending.empty());
+    };
+
+    "rename ownership fails closed on unresolved, malformed, errored and cancelled definitions"_test = [] {
+        for (int stage { 0 }; stage < 2; ++stage) for (int mode { 0 }; mode < 9; ++mode) {
+            Fixture f;
+            f.load_model({}, true);
+            f.open("a.cpp", "void f(){ cxxflag(); }\n");
+            f.held->renameResult = rename_edit(f.uri("a.cpp"));
+            const Json id = f.ask("textDocument/rename", "a.cpp", 0, 13);
+            if (stage == 1) expect(f.answer(id, definition_location(f.uri("a.cpp"))));
+            Json definition = nullptr;
+            if (mode == 1) definition = Json::array();
+            if (mode == 2) definition = Json { { "uri", f.uri("a.cpp") }, { "range", Json::object() } };
+            if (mode == 3) definition = Json::array({ definition_location(f.uri("a.cpp")), Json { { "uri", 7 } } });
+            if (mode == 7) definition = definition_location("https://example.invalid/symbol.cpp");
+            if (mode == 8) {
+                definition = definition_location(f.uri("a.cpp"), 2);
+                definition[0]["targetSelectionRange"]["end"]["character"] = 8;
+            }
+            const auto kind = mode == 4 ? e::Answer::Kind::error : mode == 5 ? e::Answer::Kind::unavailable
+                : mode == 6 ? e::Answer::Kind::cancelled : e::Answer::Kind::result;
+            expect(f.answer(id, definition, kind));
+            const auto response = f.sink.response(id);
+            expect(fatal(response.has_value()));
+            expect(response->value("error", Json::object()).value("code", 0) == (mode == 6 ? -32800 : -32803)) << response->dump();
+            expect(std::ranges::count(f.held->asked, "textDocument/rename") == 0);
+        }
+    };
+
+    "rename ownership cannot continue after cancellation, an edit, or a replacement model"_test = [] {
+        for (int stage { 0 }; stage < 2; ++stage) for (int mode { 0 }; mode < 4; ++mode) {
+            Fixture f;
+            f.load_model({}, true);
+            f.open("a.cpp", "void f(){ cxxflag(); }\n");
+            f.held->renameResult = rename_edit(f.uri("a.cpp"));
+            const Json id = f.ask("textDocument/rename", "a.cpp", 0, 13);
+            if (stage == 1) expect(f.answer(id, definition_location(f.uri("a.cpp"))));
+            if (mode == 0) f.workspace->cancel(id);
+            if (mode == 1) f.change("a.cpp", "void f(){ cxxflag(); } // edited\n");
+            if (mode == 2) f.load_model({ "-DNEW_MODEL" }, true);
+            if (mode == 3) {
+                o::SessionOptions options;
+                options.buildDiscovery = "off";
+                options.discoverCompilers = false;
+                f.workspace->reload_with_options(options, "", false);
+                f.tick(1600ms);   // starts a new load generation, before accepting its async result
+            }
+            if (mode != 0) expect(f.answer(id, definition_location(f.uri("a.cpp"))));
+            else expect(!f.answer(id, definition_location(f.uri("a.cpp"))));
+            const auto response = f.sink.response(id);
+            expect(fatal(response.has_value()));
+            expect(response->value("error", Json::object()).value("code", 0) == (mode == 0 ? -32800 : -32803)) << response->dump();
+            expect(std::ranges::count(f.held->asked, "textDocument/rename") == 0);
+        }
+    };
+
+    "rename ownership rejects late results before the next timer tick in either lookup phase"_test = [] {
+        Fixture f;
+        f.load_model({}, true);
+        f.open("a.cpp", "void f(){ cxxflag(); }\n");
+        f.held->renameResult = rename_edit(f.uri("a.cpp"));
+        const Json definition = f.ask("textDocument/rename", "a.cpp", 0, 13);
+        const Json declaration = f.ask("textDocument/rename", "a.cpp", 0, 13);
+        expect(f.answer(declaration, definition_location(f.uri("a.cpp"))));
+        std::this_thread::sleep_for(10050ms);   // deliberately do not call Workspace::handle_timers
+        for (const Json id : { definition, declaration }) {
+            expect(f.answer(id, definition_location(f.uri("a.cpp"))));
+            const auto response = f.sink.response(id);
+            expect(fatal(response.has_value()));
+            expect(response->value("error", Json::object()).value("code", 0) == -32803) << response->dump();
+        }
+        expect(std::ranges::count(f.held->asked, "textDocument/declaration") == 1);
+        expect(std::ranges::count(f.held->asked, "textDocument/rename") == 0);
+    };
+
+    "rename cancellation retires the local job even when the compiler ignores cancellation"_test = [] {
+        for (int stage { 0 }; stage < 2; ++stage) {
+            Fixture f;
+            f.load_model({}, true);
+            f.open("a.cpp", "void f(){ cxxflag(); }\n");
+            f.held->renameResult = rename_edit(f.uri("a.cpp"));
+            f.held->ignoreCancellation = true;
+            const Json id = f.ask("textDocument/rename", "a.cpp", 0, 13);
+            if (stage == 1) expect(f.answer(id, definition_location(f.uri("a.cpp"))));
+            const auto requestsBefore = f.held->asked.size();
+            f.workspace->cancel(id);
+            const auto response = f.sink.response(id);
+            expect(fatal(response.has_value()));
+            expect(response->value("error", Json::object()).value("code", 0) == -32800) << response->dump();
+            expect(f.held->pending.contains(id.dump())) << "the compiler still has the cancelled lookup";
+            expect(f.answer(id, definition_location(f.uri("a.cpp")))) << "it can return a successful late result";
+            expect(f.held->asked.size() == requestsBefore) << "the late result advances neither lookup nor rename";
+            expect(std::ranges::count(f.held->asked, "textDocument/rename") == 0);
+            expect(std::ranges::count_if(f.sink.sent, [&](const Json& message) {
+                return message.contains("id") && message["id"] == id && !message.contains("method");
+            }) == 1) << "cancellation answers the client exactly once";
+        }
+    };
+
+    "rename ownership uses the existing definition deadline and leaves ordinary workspaces unchanged"_test = [] {
+        Fixture f;
+        f.load_model({}, true);
+        f.open("a.cpp", "void f(){ cxxflag(); }\n");
+        f.held->renameResult = rename_edit(f.uri("a.cpp"));
+        const Json id = f.ask("textDocument/rename", "a.cpp", 0, 13);
+        f.tick(6000ms);
+        expect(f.answer(id, definition_location(f.uri("a.cpp"))));
+        expect(f.held->asked.back() == "textDocument/declaration");
+        f.tick(4050ms);   // the second lookup shares the first one's deadline
+        const auto response = f.sink.response(id);
+        expect(fatal(response.has_value()));
+        expect(response->value("error", Json::object()).value("code", 0) == -32803) << response->dump();
+        expect(!f.held->pending.contains(id.dump()));
+        expect(std::ranges::count(f.held->asked, "textDocument/rename") == 0);
+        Fixture ordinary;
+        ordinary.open("a.cpp", "void f(){ cxxflag(); }\n");
+        ordinary.held->renameResult = rename_edit(ordinary.uri("a.cpp"));
+        const Json direct = ordinary.ask("textDocument/rename", "a.cpp", 0, 13);
+        expect(ordinary.sink.response(direct).has_value());
+        expect(std::ranges::count(ordinary.held->asked, "textDocument/definition") == 0);
+        expect(std::ranges::count(ordinary.held->asked, "textDocument/rename") == 1);
+    };
+
     "a slow engine's answer is kept, and given at the answer budget the next time"_test = [] {
         Fixture f;
         f.open("a.cpp", A);
@@ -372,6 +647,46 @@ int main() {
         const auto served = f.sink.response(again);
         expect(fatal(served.has_value()));
         expect(labels_of(*served) == std::vector<std::string> { "push_back", "size", "empty" }) << "the engine's own";
+    };
+
+    "K1 background completions teach the file's pace from the original request"_test = [] {
+        Fixture f;
+        f.open("a.cpp", A);
+        const Json initial = f.ask("textDocument/completion", "a.cpp", 2, 8);
+        expect(f.answer(initial, items({ "cached" })));
+        f.tick(10ms);
+
+        // These lists stay incomplete deliberately: A1 must not hide the answer-layer path.
+        // Four slow completions replace EnginePace's four-entry history, including the initial
+        // fast seed. Each answer arrives 1.25 s after its request, but just 0.15 s after detach.
+        // The unchanged production limits are 0.45 s for a kept answer, 1 s for the regular
+        // request, and 2.5 s for adaptation. There is ample room on both sides of the probe.
+        for (int sample { 0 }; sample < 4; ++sample) {
+            const Json asked = f.ask("textDocument/completion", "a.cpp", 2, 8);
+            f.tick(1100ms);
+            const auto fallback = f.sink.response(asked);
+            expect(fatal(fallback.has_value())) << "the held engine request gave its K1 fallback";
+            expect((*fallback)["result"]["isIncomplete"] == true);
+            expect(f.held->pending.contains(asked.dump())) << "the same engine request is still running";
+            f.tick(150ms);
+            expect(f.answer(asked, items({ "cached" })));
+            f.tick(10ms);
+        }
+        const Json measured = f.workspace->report()["answers"]["fromEngine"];
+        expect(measured.value("maxMs", 0.0) >= 1000.0)
+            << "engine latency includes the wait before detaching, not only the background tail: " << measured.dump();
+
+        const Json probe = f.ask("textDocument/completion", "a.cpp", 2, 8);
+        f.tick(750ms);   // well past the old 450 ms fallback; well inside the learned ~1.4 s wait
+        expect(!f.sink.response(probe).has_value()) << "background samples let the next request wait for its engine";
+        expect(f.held->pending.contains(probe.dump())) << "one live engine request, not a replacement";
+        Json authoritative = items({ "engine_current" });
+        authoritative["isIncomplete"] = false;
+        expect(f.answer(probe, authoritative));
+        const auto response = f.sink.response(probe);
+        expect(fatal(response.has_value()));
+        expect(labels_of(*response) == std::vector<std::string> { "engine_current" }) << response->dump();
+        expect((*response)["result"]["isIncomplete"] == false) << "only the engine marked this list complete";
     };
 
     "a request the person cancelled keeps its answer for the next time"_test = [] {

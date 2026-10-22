@@ -6,7 +6,7 @@ This directory holds the normative specifications that let C++ named modules be 
 |---|---|---|---|---|
 | [S1](s1-build-database.md) | C++ Build Database: IDE Profile | profile-version 0.3.0 | Draft | [s1-build-database.schema.json](schema/s1-build-database.schema.json) |
 | [S2](s2-discovery.md) | Build Database Discovery Protocol | 0.3.0 | Draft | [s2-discovery.schema.json](schema/s2-discovery.schema.json) |
-| [S3](s3-lsp-extensions.md) | Language Server Protocol Extensions for C++ Modules | protocol version 1 | Draft | TypeScript interfaces in the text |
+| [S3](s3-lsp-extensions.md) | Language Server Protocol Extensions for C++ Modules | protocol version 1 | Draft | TypeScript interfaces in the text; [target selection field](schema/s3-target-selection.schema.json) |
 | [S4](s4-semantic-kit.md) | Semantic Kit | kit-version 1 | Draft | [s4-kit.schema.json](schema/s4-kit.schema.json) |
 | [S5](s5-semantic-query.md) | Semantic Queries for C++ Code | 0.1.0 | Draft | TypeScript interfaces in the text |
 
@@ -37,7 +37,7 @@ These specifications are self-contained. They are compatible with, and borrow th
 | Path | Content |
 |---|---|
 | `s1-…md` to `s4-…md` | Specification text |
-| `schema/` | JSON Schema (draft 2020-12) documents for S1, S2 and S4 |
+| `schema/` | JSON Schema (draft 2020-12) documents for S1, S2 and S4, plus the S3 target selection field |
 | `examples/` | Example documents; every example validates against its schema |
 | `CHANGELOG.md` | Changes per specification and version |
 

@@ -65,6 +65,11 @@ base::Result<DatabaseDocument> parse_database_envelope(std::string_view output) 
     if (envelope.value("schemaVersion", 0) != 1) return base::fail("discovery-protocol", "unsupported envelope schemaVersion");
     if (envelope.value("kindVersion", 0) != 1) return base::fail("discovery-protocol", "unsupported kindVersion");
     DatabaseDocument document;
+    if (const auto producer = envelope.find("mcpp"); producer != envelope.end() && producer->is_object()) {
+        if (const auto version = producer->find("version"); version != producer->end() && version->is_string()) {
+            document.producerVersion = version->get<std::string>();
+        }
+    }
     document.effects = string_list(envelope.value("effects", nlohmann::json::array()));
     for (const auto& diagnostic : envelope.value("diagnostics", nlohmann::json::array())) {
         if (!diagnostic.is_object()) continue;

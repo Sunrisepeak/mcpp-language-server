@@ -165,6 +165,7 @@ private:
     // Plan.
     bool planApplied_ { false };
     std::string writtenDatabase_;
+    std::optional<normalize::EnginePlan> pendingDatabasePlan_; // published only after the previous process is gone
     std::string writtenStructure_;   // the written database without module hints
     std::map<std::string, std::string, std::less<>> writtenArguments_;   // path key -> the unit's engine command, without hints
     std::set<std::string> excluded_;   // path keys
@@ -207,7 +208,6 @@ private:
     std::map<std::string, std::vector<std::string>, std::less<>> moduleRequires_;   // module -> the modules it imports, from the plan
     std::map<std::string, std::vector<std::string>, std::less<>> fileImports_;      // path key -> modules it imports directly
     std::map<std::string, std::string, std::less<>> fileModule_;                    // path key -> its module, any role
-    static constexpr std::chrono::seconds PREPARATION_STALL_TIMEOUT { 60 };
     // M-1 (plan 0.0.8): how long the sources a failed module is built from must be left alone before its importers are given
     // back to clangd to try again. The module's own unit stays with clangd; retrying at every autosave of a module being
     // written handed its importers back and took them again hundreds of times a minute (ux-mcpp U16: 377 in 94 s), and
@@ -221,6 +221,9 @@ private:
     std::map<std::string, std::string, std::less<>> primeModuleByPath_;
     std::map<std::string, Clock::time_point, std::less<>> primeDeadlines_;
     std::optional<Clock::time_point> lastPrimeProgressAt_;
+    std::uint64_t moduleBuildCompletions_ { 0 };
+    std::string lastCompletedModule_;
+    std::optional<Clock::time_point> lastModuleBuiltAt_;
     std::map<std::string, std::string, std::less<>> moduleSources_;   // importable module -> the unit providing it, from the plan
     // clangd's persistent module cache as the plan found it (cached_bmis), read the first time a
     // module becomes ready for preparation and not again until the next plan.
@@ -532,6 +535,7 @@ private:
     std::map<std::string, std::optional<platform::fs::FileStamp>, std::less<>> implementationBuilt_;   // path key -> the file as it was built
     std::map<std::string, std::string, std::less<>> implementationUnreadable_;                        // path key -> why it did not build (N-3)
     bool implementationSeedOpen_ { true };        // the open documents' relevant units are still to be queued
+    bool backgroundIndexActive_ { false };
     bool implementationRestQueued_ { false };
     std::optional<Clock::time_point> implementationRestAt_;
     // Plan 2026-09-27 N-8: a declaration clangd answered a definition request with, read lexically.
@@ -570,7 +574,7 @@ public:
         // preparation has made no progress for a minute, it counts as not preparing any more, whatever
         // it is still nominally waiting on. A known cause (doomed modules) explains it in issues_
         // already; an unexplained stall gets a generic one below so degraded always says why.
-        const bool stalled { preparingBusy && lastPrimeProgressAt_ && Clock::now() - *lastPrimeProgressAt_ >= PREPARATION_STALL_TIMEOUT };
+        const bool stalled { preparingBusy && lastPrimeProgressAt_ && Clock::now() - *lastPrimeProgressAt_ >= options_.preparationStallTimeout };
         status.preparing = (!awaitingDiagnostics_.empty() || (preparingBusy && !stalled) || !held_.empty()) && accepting_;
         // A clangd that keeps crashing is tried again (K-2): degraded, not failed. Failed is for what no restart mends.
         status.failed = options_.payloadCorrupt || incompatible_;
@@ -653,7 +657,11 @@ public:
             { "backgroundUnits", background_files_() },
             // N-7 (WA-CLANGD-008): implementation units built for clangd's index, waiting, and the ones that did not build.
             { "implementationIndex", Json { { "built", implementationBuilt_.size() }, { "queued", implementationQueue_.size() },
-                                            { "unreadable", implementationUnreadable_.size() }, { "on", priming_implementations_() } } },
+                                            { "unreadable", implementationUnreadable_.size() }, { "on", priming_implementations_() },
+                                            { "running", std::ranges::count_if(background_, [](const auto& item) { return item.second.priming && !item.second.built; }) },
+                                            { "sweepComplete", !priming_implementations_() || implementationRestQueued_ },
+                                            { "sweepScheduled", priming_implementations_() && implementationRestAt_.has_value() } } },
+            { "backgroundIndex", Json { { "active", backgroundIndexActive_ } } },
             { "definitionSearches", searches_.size() },
             { "unresolvedModules", std::move(unresolved) },
             { "modulesThatDidNotCompile", std::move(compileFailures) },
@@ -661,7 +669,9 @@ public:
             { "filesRoutedToOwnEngine", std::move(doomedFiles) },
             { "stdFromSemanticKit", stdFromKit_ },
             { "preparation", Json { { "done", done }, { "wanted", wanted }, { "running", primer_.running() }, { "runningUnits", std::move(runningUnits) },
-                                    { "limit", preparation_limit(workers_, waiting_on_preparation_()) }, { "workers", workers_ } } },
+                                    { "limit", preparation_limit(workers_, waiting_on_preparation_()) }, { "workers", workers_ },
+                                    { "completedModuleBuilds", moduleBuildCompletions_ }, { "lastCompletedModule", lastCompletedModule_ },
+                                    { "secondsSinceModuleBuild", lastModuleBuiltAt_ ? Json(secondsAgo(*lastModuleBuiltAt_)) : Json(nullptr) } } },
             { "pendingRequests", pending_.size() },
             { "deferredRequests", deferred_.size() },
             { "heldRequests", std::ranges::fold_left(heldRequests_ | std::views::values | std::views::transform(&std::vector<Waiting>::size), std::size_t { 0 }, std::plus {}) },
@@ -790,25 +800,6 @@ public:
         modelOrigin_ = plan->modelOrigin;
         provisionalModel_ = plan->provisional;
         if (fromProvisional) forget_provisional_verdicts_();
-        write_prime_sources_(*plan);
-        const std::string database { normalize::to_compile_commands(*plan).dump(1) };
-        const std::string structure { normalize::to_compile_commands(*plan, false).dump(1) };
-        const bool changed { database != writtenDatabase_ };
-        // Hints alone change as imports do; clangd rereads the database within five seconds.
-        const bool structureChanged { structure != writtenStructure_ };
-        writtenStructure_ = structure;
-        if (changed) {
-            // clangd rereads --compile-commands-dir/compile_commands.json itself (v1 design 15.1).
-            if (auto written = platform::fs::write_file_atomic(base::join_path(databaseDirectory_, "compile_commands.json"), database); !written) {
-                log::error("cannot write the engine database ({}): {}", host_->root_directory(), written.error().message);
-            }
-            writtenDatabase_ = database;
-            forget_scan_failures_();
-            log::info("engine database ({}): {} entries ({} standard library units, {} stand-ins), {} left out, {} issues", host_->root_directory(),
-                      plan->entries.size(), plan->stdUnits, plan->stubModules.size(), plan->excludedFiles.size(), plan->issues.size());
-            host_->record_event("engine-database", Json { { "entries", plan->entries.size() }, { "standIns", plan->stubModules.size() },
-                                                          { "leftOut", plan->excludedFiles.size() } });
-        }
         // Each stand-in named at warning, with why it got one, not just counted (robustness design O3,
         // real-project plan RP3.3): a module nothing usable provides is worth a person's attention once,
         // not every time the database is rewritten for something else.
@@ -882,9 +873,6 @@ public:
             if (before == writtenArguments_.end() || before->second != arguments) commandChanged.push_back(file);
         }
         std::erase_if(joinedAt_, [&](const auto& item) { return !newArguments.contains(item.first); });
-        writtenArguments_ = std::move(newArguments);
-        for (auto& [key, held] : held_) held.planned = true;
-        (void)structureChanged;
         // WA-CLANGD-009: with its modules support clangd scans a file's module dependencies again for every completion
         // (UP-23: 82 ms -> 254 ms at the median, 869 ms at worst, on vulkan-hpp in issue #37), so a project that uses no
         // modules gets a clangd without it. It goes off only with the first plan, before clangd was given a document, so
@@ -895,6 +883,15 @@ public:
         if (traits_.scansModulesOnEveryRequest) remember_modules_verdict_(usesModules);
         if (modulesSwitch) modulesSupport_ = usesModules;
         const bool restartNeeded { ((providerLeft || argumentsChanged) && planApplied_ && handshakeDone_) || modulesSwitch };
+        // A retiring clangd can still reread this path while its workers stop. Preserve its
+        // complete configuration until reaped; consecutive plans replace only the pending one.
+        if (restartNeeded || reaping_ || pendingDatabasePlan_) pendingDatabasePlan_ = *plan;
+        else if (!publish_database_(*plan)) {
+            pendingDatabasePlan_ = *plan;
+            return;
+        }
+        writtenArguments_ = std::move(newArguments);
+        for (auto& [key, held] : held_) held.planned = true;
         if (!restartNeeded && accepting_) {
             for (const auto& document : host_->documents()) {
                 if (document.path.empty()) continue;
@@ -1002,10 +999,13 @@ public:
             } else {
                 schedule_plan_restart_(reason);
             }
-        } else {
+        } else if (!pendingDatabasePlan_) {
             accept_traffic_if_ready_();
             open_held_files_(appliedAt);
             prepare_modules_();
+            // A plan can leave every module already prepared and the implementation queue
+            // empty. No completion event then arrives to schedule this plan's global sweep.
+            pump_implementations_(appliedAt);
             if (accepting_) warm_now_();   // the plan may have given clangd more of them (G1)
         }
         if (unresolvedForgot || doomForgot) host_->request_replan();
@@ -1384,6 +1384,19 @@ public:
             note_scan_failure_(event.value("file", std::string {}), event.value("reason", std::string {}), event.value("driver", false));
         } else if (kind == "module-lock-wait") {
             handle_module_lock_wait_(event.value("path", std::string {}));
+        } else if (kind == "module-built") {
+            const std::string module { event.value("module", std::string {}) };
+            ++moduleBuildCompletions_;
+            lastCompletedModule_ = module;
+            lastModuleBuiltAt_ = Clock::now();
+            // #59 U15: clangd can build a whole closure before its prime TU completes. These
+            // completed BMIs are real progress, unlike CPU samples or repeating file-status text.
+            // An unrelated background build does not make a stuck preparation look healthy.
+            if (primer_.busy() && primer_.state(module) != Primer::State::unwanted) {
+                lastPrimeProgressAt_ = *lastModuleBuiltAt_;
+                host_->status_changed();
+            }
+            host_->record_event("module-built", Json { { "module", module } });
         } else if (kind == "module-rebuild") {
             note_rebuild_(event.value("module", std::string {}), event.value("reason", std::string {}));
         } else if (kind == "ast-build") {
@@ -1500,7 +1513,7 @@ public:
         if (!deferredReclaims_.empty() && lastSourceChangeAt_) consider(*lastSourceChangeAt_ + GENERAL_PATIENCE);
         // So the status settles into ready or degraded on its own, not only when something else wakes
         // the event loop (real-project plan RP1.4, design P7).
-        if (primer_.busy() && lastPrimeProgressAt_) consider(*lastPrimeProgressAt_ + PREPARATION_STALL_TIMEOUT);
+        if (primer_.busy() && lastPrimeProgressAt_) consider(*lastPrimeProgressAt_ + options_.preparationStallTimeout);
         for (const auto& [key, held] : held_) {
             if (const auto joined = joinedAt_.find(key); joined != joinedAt_.end()) consider(joined->second + DATABASE_REREAD);
             else if (!held.planned) consider(held.since + PLAN_PATIENCE);
@@ -1683,7 +1696,7 @@ public:
         }
         // The status settles once preparation has made no progress for a minute (real-project plan RP1.4,
         // design P7), so a client polling only when told to is told, even with nothing else happening.
-        const bool stalledNow { primer_.busy() && lastPrimeProgressAt_ && now - *lastPrimeProgressAt_ >= PREPARATION_STALL_TIMEOUT };
+        const bool stalledNow { primer_.busy() && lastPrimeProgressAt_ && now - *lastPrimeProgressAt_ >= options_.preparationStallTimeout };
         if (!expired.empty() || stalledNow) host_->status_changed();
     }
 
@@ -1754,8 +1767,48 @@ private:
         }
     }
 
+    bool publish_database_(const normalize::EnginePlan& plan) {
+        const std::string database { normalize::to_compile_commands(plan).dump(1) };
+        // The published commands can be read immediately by a running engine. Materialize
+        // their generated inputs first; retirement paths reach this helper only once reaped.
+        write_prime_sources_(plan);
+        if (database != writtenDatabase_) {
+            if (auto written = platform::fs::write_file_atomic(base::join_path(databaseDirectory_, "compile_commands.json"), database); !written) {
+                log::error("cannot write the engine database ({}): {}", host_->root_directory(), written.error().message);
+                add_issue_(Issue { "engine-database-write-failed", "the engine database could not be written; check the cache permissions and available space, then restart clangd: " + written.error().message, "mcppls.restartClangd", "environment" });
+                host_->status_changed();
+                return false;
+            }
+            writtenDatabase_ = database;
+            writtenStructure_ = normalize::to_compile_commands(plan, false).dump(1);
+            forget_scan_failures_();
+            log::info("engine database ({}): {} entries ({} standard library units, {} stand-ins), {} left out, {} issues", host_->root_directory(),
+                      plan.entries.size(), plan.stdUnits, plan.stubModules.size(), plan.excludedFiles.size(), plan.issues.size());
+            host_->record_event("engine-database", Json { { "entries", plan.entries.size() }, { "standIns", plan.stubModules.size() },
+                                                          { "leftOut", plan.excludedFiles.size() } });
+        }
+        std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-database-write-failed"; });
+        return true;
+    }
+
     void start_process_() {
         handshakeDone_ = false;
+        accepting_ = false;
+        if (pendingDatabasePlan_) {
+            if (!publish_database_(*pendingDatabasePlan_)) {
+                unavailable_ = true;
+                flush_deferred_without_engine_();
+                host_->engine_settled(ENGINE_ID, Json::object());
+                return;
+            }
+            // A failed ordinary publication returned before apply installed the desired
+            // metadata. Complete that same snapshot with no process accepting traffic;
+            // already staged restart plans follow this idempotent path as well.
+            auto published = std::move(*pendingDatabasePlan_);
+            pendingDatabasePlan_.reset();
+            apply(&published);
+        }
+        backgroundIndexActive_ = false;
         forget_implementations_();   // a new clangd's index has none of what the last one was given
         loadFailure_.reset();
         accepting_ = false;
@@ -1886,6 +1939,16 @@ private:
                     if (const std::size_t colon { rest.find(": ") }; colon != std::string_view::npos) {
                         sink(Json { { "kind", "module-rebuild" }, { "generation", generation }, { "module", std::string { rest.substr(0, colon) } },
                                     { "reason", std::string { rest.substr(colon + 2) } } });
+                    }
+                }
+                if (const std::size_t header { line.find("] ") }; header != std::string_view::npos) {
+                    const std::string_view text { line.substr(header + 2) };
+                    // Match the message itself: a verbose didOpen can quote these words in source.
+                    if (text.starts_with("Built module ")) {
+                        const std::string_view rest { text.substr(13) };
+                        if (const std::size_t to { rest.find(" to ") }; to != std::string_view::npos && to > 0) {
+                            sink(Json { { "kind", "module-built" }, { "generation", generation }, { "module", std::string { rest.substr(0, to) } } });
+                        }
                     }
                 }
                 if (read.important || parse_module_failure(line)) {
@@ -2624,6 +2687,16 @@ private:
 
     void handle_notification_(const Json& message) {
         const std::string method { message.value("method", std::string {}) };
+        if (method == "$/progress") {
+            const Json* token { lsp::find_path(message, { "params", "token" }) };
+            const Json* value { lsp::find_path(message, { "params", "value" }) };
+            if (token != nullptr && token->is_string() && token->get<std::string>() == "backgroundIndexProgress"
+                && value != nullptr && value->is_object()) {
+                const std::string kind { value->value("kind", std::string {}) };
+                if (kind == "begin" || kind == "report") backgroundIndexActive_ = true;
+                else if (kind == "end") backgroundIndexActive_ = false;
+            }
+        }
         if (method == "textDocument/clangd.fileStatus") {
             const Json* params { lsp::find(message, "params") };
             if (params != nullptr && params->is_object()) {
@@ -4059,6 +4132,7 @@ private:
         platform::fs::remove_all(context);
         (void)platform::fs::create_directories(databaseDirectory_);
         // What was written there, and what was concluded from what clangd did with it, starts over too.
+        pendingDatabasePlan_.reset();
         writtenDatabase_.clear();
         writtenStructure_.clear();
         writtenArguments_.clear();

@@ -34,6 +34,7 @@ import mcppls.project.providers;
 import mcppls.project.provider;
 import mcppls.project.model;
 import mcppls.project.mcpp;
+import mcppls.project.target;
 import mcppls.project.modelcache;
 import mcppls.normalize.plan;
 import mcppls.arch;
@@ -106,9 +107,11 @@ std::string structure_of(const project::ScanResult& scan) {
 
 // The inputs a producer named in its database's watch list (S2 5), shared with the polling worker.
 struct WatchPatterns {
+    std::atomic<bool> stopped { false };
     std::mutex mutex;
     std::vector<std::string> entries;   // glob patterns relative to the root, or absolute paths
     int generation { 0 };               // advanced whenever `entries` is replaced
+    std::map<std::string, std::optional<platform::fs::FileStamp>> concreteBaseline;
 };
 
 // Whether `path` is one of `entries`: an absolute entry names the file, a relative one is a glob under `root`.
@@ -125,16 +128,18 @@ bool watch_covers(std::span<const std::string> entries, std::string_view root, s
     return is_build_file(base::file_name(path)) || project::is_cxx_source_name(path) || matches_watch_entries(entries, root, path);
 }
 
-std::map<std::string, platform::fs::FileStamp> watched_files_snapshot_of(std::string_view root, std::span<const std::string> entries) {
+std::map<std::string, platform::fs::FileStamp> watched_files_snapshot_of(std::string_view root, std::span<const std::string> entries, bool allRootFiles = false) {
     std::map<std::string, platform::fs::FileStamp> files;
     for (const auto& file : platform::fs::list_files(root, {}, WATCH_POLL_SKIP_DIRECTORIES)) {
-        if (!watch_covers(entries, root, file)) continue;
+        if (!allRootFiles && !watch_covers(entries, root, file)) continue;
         if (auto fileStamp = platform::fs::stamp(file)) files.emplace(file, *fileStamp);
     }
-    // An absolute entry outside the root is watched too; the database of S2 stream mode is one.
+    // Explicit files are watched independently of traversal exclusions, including target/ and
+    // files outside the root. Globs do not cause traversal into excluded directories.
     for (const auto& entry : entries) {
-        if (!base::is_absolute_path(entry) || base::is_within(entry, root)) continue;
-        if (auto fileStamp = platform::fs::stamp(entry)) files.emplace(base::normalize_path(entry), *fileStamp);
+        if (entry.find_first_of("*?[{") != std::string::npos) continue;
+        const std::string path { base::is_absolute_path(entry) ? base::normalize_path(entry) : base::join_path(root, entry) };
+        if (auto fileStamp = platform::fs::stamp(path)) files.insert_or_assign(path, *fileStamp);
     }
     return files;
 }
@@ -366,6 +371,7 @@ struct Workspace::Impl final : engine::Host {
         std::optional<Json> error;
         bool cancelled { false };
         bool merging { false };
+        bool renamePreflight { false };
         engine::RequestView view;
         Json params;
         std::string path;
@@ -442,7 +448,8 @@ struct Workspace::Impl final : engine::Host {
         answering::Asked asked;
         std::optional<answering::Served> served;   // what went out instead of the engine's answer, if anything did
         Json clientId;
-        Clock::time_point started;
+        Clock::time_point requestStarted;          // the original client request, before any fallback
+        Clock::time_point started;                 // detached at; eviction and notice freshness use this
         Clock::time_point until;
         std::int64_t version { 0 };                 // the document's when it was asked
         bool sparse { false };                      // what went out had (almost) nothing after a `.`, `->` or `::` (R3)
@@ -472,6 +479,16 @@ struct Workspace::Impl final : engine::Host {
     std::string modelDescription;            // describe_model of `model`, to recognize an unchanged reload
     bool loading { false };
     bool reloadAfterLoad { false };
+    project::TargetSelection targetSelection;
+    bool targetReadPending { false };
+    int targetReadRetries { 0 };
+    std::optional<Clock::time_point> targetRetryAt;
+    std::string targetSelectionInput;
+    int targetSelectionGeneration { 0 };
+    bool targetSelectionBusy { false };
+    bool targetLoadRequested { false };
+    bool targetCacheDeferred { false };
+    std::shared_ptr<project::ProjectModel> targetDeferredModel;
     normalize::EnginePlan plan;
     bool firstPlanWritten { false };
     std::string contextSet;
@@ -514,6 +531,9 @@ struct Workspace::Impl final : engine::Host {
     std::string firstModelOrigin;                        // where the model this session started with came from
     std::string producerPath;                            // for the fingerprint of the next save
     std::string producerVersion;
+    std::string producerObservedIdentity;
+    std::optional<Clock::time_point> producerIdentityAt;
+    std::optional<Clock::time_point> targetIdentityAt;
     std::string staleCacheWhy;   // which input made the cached model stale (0.0.13 W6)
     // 0.0.13 W6: this start's timeline, said in one line when the root is first ready and kept, with the last few starts,
     // in the report and in <cache>/startups.json: a warm start and a cold one are compared from those lines alone.
@@ -954,6 +974,9 @@ struct Workspace::Impl final : engine::Host {
             if (at && (!deadline || *at < *deadline)) deadline = at;
         };
         consider(reloadAt);
+        consider(targetRetryAt);
+        consider(producerIdentityAt);
+        consider(targetIdentityAt);
         consider(buildProgramCheckAt);
         consider(healthAt);
         consider(replanAt);
@@ -984,39 +1007,52 @@ struct Workspace::Impl final : engine::Host {
         auto queue = events;
         const std::string rootPath { root };
         std::thread { [queue, rootPath, known = watchBaseline, patterns = watchPatterns]() mutable {
+            if (patterns->stopped.load()) return;
+            // Build/source stamps captured at Workspace construction remain authoritative during
+            // startup. Broaden the baseline off the LSP thread so later watch registration can
+            // distinguish preexisting glob matches from files created after publication.
+            auto initial = watched_files_snapshot_of(rootPath, {}, true);
+            // A build/source file created since the startup snapshot must still be reported.
+            std::erase_if(initial, [&](const auto& entry) { return watch_covers({}, rootPath, entry.first) && !known.contains(entry.first); });
+            for (const auto& [path, stamp] : known) initial.insert_or_assign(path, stamp);
+            known = std::move(initial);
             std::vector<std::string> knownEntries;
             int knownGeneration { 0 };
-            while (true) {
+            while (!patterns->stopped.load()) {
                 std::this_thread::sleep_for(std::chrono::seconds { 2 });
+                if (patterns->stopped.load()) return;
                 std::vector<std::string> entries;
+                std::map<std::string, std::optional<platform::fs::FileStamp>> concreteBaseline;
                 int generation { 0 };
                 {
                     const std::lock_guard lock { patterns->mutex };
                     entries = patterns->entries;
                     generation = patterns->generation;
+                    if (generation != knownGeneration) concreteBaseline = patterns->concreteBaseline;
                 }
-                std::map<std::string, platform::fs::FileStamp> current { watched_files_snapshot_of(rootPath, entries) };
-                // A model that names new inputs brings files into the watch that were there all along:
-                // they start from what they are now rather than being reported as created.
-                const bool entriesChanged { generation != knownGeneration };
+                // Concrete inputs may live outside the root walk or in excluded directories.
+                // Publication stamps catch deletion before the first poll of a newly declared watch.
+                for (const auto& [path, stamp] : concreteBaseline) {
+                    if (known.contains(path) && watch_covers(knownEntries, rootPath, path)) continue;
+                    if (stamp) known.insert_or_assign(path, *stamp);
+                    else known.erase(path); // absent at publication, even if the background walk saw it later
+                }
+                auto current = watched_files_snapshot_of(rootPath, entries, true);
                 Json changes = Json::array();
                 for (const auto& [file, fileStamp] : current) {
+                    if (!watch_covers(entries, rootPath, file)) continue;
                     const auto previous = known.find(file);
-                    if (previous == known.end()) {
-                        if (entriesChanged && !watch_covers(knownEntries, rootPath, file)) continue;
-                        changes.push_back(Json { { "uri", base::path_to_uri(file) }, { "type", 1 } });
-                    } else if (previous->second != fileStamp) {
-                        changes.push_back(Json { { "uri", base::path_to_uri(file) }, { "type", 2 } });
-                    }
+                    if (previous == known.end()) changes.push_back(Json { { "uri", base::path_to_uri(file) }, { "type", 1 } });
+                    else if (previous->second != fileStamp) changes.push_back(Json { { "uri", base::path_to_uri(file) }, { "type", 2 } });
                 }
                 for (const auto& [file, fileStamp] : known) {
-                    if (current.contains(file)) continue;
-                    if (entriesChanged && !watch_covers(entries, rootPath, file)) continue;
+                    if (current.contains(file) || !watch_covers(entries, rootPath, file)) continue;
                     changes.push_back(Json { { "uri", base::path_to_uri(file) }, { "type", 3 } });
                 }
                 known = std::move(current);
                 knownEntries = std::move(entries);
                 knownGeneration = generation;
+                if (patterns->stopped.load()) return;
                 if (changes.empty()) continue;
                 // `Json message { make_notification(...) }` would wrap the result in a one-element array.
                 Json message = lsp::make_notification("workspace/didChangeWatchedFiles", Json { { "changes", std::move(changes) } });
@@ -1117,6 +1153,10 @@ struct Workspace::Impl final : engine::Host {
             return;
         }
         if (selection.answerers.empty()) {
+            if (job.method == "textDocument/rename" && !readOnlySources.empty()) {
+                fail_rename_ownership(jobId, "no compiler can resolve the symbol");
+                return;
+            }
             finish_job(jobId, Json(nullptr));
             return;
         }
@@ -1136,6 +1176,10 @@ struct Workspace::Impl final : engine::Host {
             && (!answer::is_jump(job.asked->kind) || job.found->certainty == answer::Certainty::certain)) {
             const auto at = job.started + kept_answer_wait(job);
             job.budgetAt = job.budgetAt ? std::min(*job.budgetAt, at) : at;
+        }
+        if (job.method == "textDocument/rename" && !readOnlySources.empty()) {
+            preflight_rename(jobId);
+            return;
         }
         ask_next(jobId);
     }
@@ -1210,7 +1254,7 @@ struct Workspace::Impl final : engine::Host {
                                       ? served->result["items"].size() : 0 };
         // (Almost) nothing went out: no kept answer, only the file's words, and fewer than three of them.
         const bool sparse { asked.kind == answer::Kind::completion && trigger && items < 3 && (!served || served->provenance.source == answer::Source::native) };
-        background_[jobId] = Background { asked, std::move(served), clientId, Clock::now(), Clock::now() + BACKGROUND_KEEP,
+        background_[jobId] = Background { asked, std::move(served), clientId, jobs.at(jobId).started, Clock::now(), Clock::now() + BACKGROUND_KEEP,
                                           document != nullptr ? document->version : 0, sparse };
         answerInflight_[asked.k1] = jobId;
         answers_->count_background("detached");
@@ -1229,7 +1273,12 @@ struct Workspace::Impl final : engine::Host {
             answers_->count_background("dropped");
             return;
         }
-        const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - background.started);
+        const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - background.requestStarted);
+        // A kept answer does not finish the engine's work. Its eventual full latency must
+        // teach the same pace as a foreground answer, rather than relearning only its tail.
+        if (background.asked.kind == answer::Kind::completion || background.asked.kind == answer::Kind::signature_help) {
+            note_core_completion(background.asked.path, background.requestStarted);
+        }
         answers_->keep(background.asked, answer.value, background.served, took);
         answers_->count_engine(background.asked, took);
         answers_->count_background("answered");
@@ -1414,6 +1463,121 @@ struct Workspace::Impl final : engine::Host {
         return false;
     }
 
+    void fail_rename_ownership(std::uint64_t jobId, std::string_view reason) {
+        finish_job_with_error(jobId, Json { { "code", lsp::REQUEST_FAILED },
+            { "message", std::format("Cannot confirm rename ownership: {}", reason) } });
+    }
+
+    // A compiler can return only the editable references of an imported symbol. Resolve its
+    // definition and declaration owners before asking for edits, rather than treating
+    // that partial edit as proof of safety. Both lookups share the original deadline.
+    void preflight_rename(std::uint64_t jobId, bool declaration = false,
+                          std::optional<platform::fs::FileStamp> closedStamp = std::nullopt) {
+        Job& job = jobs.at(jobId);
+        const std::string uri { uri_of_params(job.params) };
+        const Document* document { documents_.find(uri) };
+        if (coreEngine == nullptr || !position_of(job.params)) {
+            fail_rename_ownership(jobId, "the symbol's document or compiler is unavailable");
+            return;
+        }
+        if (!declaration && document == nullptr) closedStamp = platform::fs::stamp(job.path);
+        if (declaration && closedStamp && document != nullptr) {
+            fail_rename_ownership(jobId, "the closed document was opened while resolving the symbol");
+            return;
+        }
+        if (document == nullptr && !closedStamp) {
+            fail_rename_ownership(jobId, "the closed document has no stable file stamp");
+            return;
+        }
+        const std::optional<std::int64_t> version = document != nullptr
+            ? std::optional<std::int64_t> { document->version } : std::nullopt;
+        const auto generation = modelGeneration;
+        const auto ownerModel = model;
+        job.renamePreflight = true;
+        if (!declaration) job.budgetAt = job.started + *answer_budget("textDocument/definition");
+        const std::string method { declaration ? "textDocument/declaration" : "textDocument/definition" };
+        Json params = job.params;
+        params.erase("newName");
+        const Json request = lsp::make_request(job.clientId, method, params);
+        const engine::RequestView view { method, &params, job.path, job.text };
+        coreEngine->request(view, request, [this, jobId, uri, version, generation, ownerModel, declaration, closedStamp](engine::Answer answer) {
+            const auto current = jobs.find(jobId);
+            if (current == jobs.end() || !current->second.renamePreflight) return;
+            if (!current->second.budgetAt || Clock::now() >= *current->second.budgetAt) {
+                fail_rename_ownership(jobId, "symbol ownership lookup timed out");
+                return;
+            }
+            if (answer.kind == engine::Answer::Kind::cancelled) {
+                finish_job_cancelled(jobId);
+                return;
+            }
+            const Document* now = documents_.find(uri);
+            const bool sameDocument { version ? now != nullptr && now->version == *version && now->text == current->second.text
+                : now == nullptr && closedStamp && platform::fs::stamp(current->second.path) == closedStamp };
+            if (generation != modelGeneration || ownerModel != model || !sameDocument) {
+                fail_rename_ownership(jobId, "the document or project changed while resolving the symbol");
+                return;
+            }
+            if (answer.kind != engine::Answer::Kind::result) {
+                fail_rename_ownership(jobId, "the compiler did not resolve the symbol");
+                return;
+            }
+            const auto range_valid = [](const Json* range) {
+                if (range == nullptr || !range->is_object()) return false;
+                const auto start = range->find("start"), end = range->find("end");
+                if (start == range->end() || end == range->end() || !start->is_object() || !end->is_object()) return false;
+                const auto sl = lsp::int_at(*start, "line"), sc = lsp::int_at(*start, "character");
+                const auto el = lsp::int_at(*end, "line"), ec = lsp::int_at(*end, "character");
+                return sl && sc && el && ec && *sl >= 0 && *sc >= 0 && *el >= 0 && *ec >= 0
+                    && std::pair { *sl, *sc } <= std::pair { *el, *ec };
+            };
+            std::vector<std::string> owners;
+            const auto location = [&](const Json& entry) {
+                if (!entry.is_object()) return false;
+                const bool link { entry.contains("targetUri") };
+                const Json* target = lsp::find(entry, link ? "targetUri" : "uri");
+                if (target == nullptr || !target->is_string() || !range_valid(lsp::find(entry, link ? "targetRange" : "range"))
+                    || (link && !range_valid(lsp::find(entry, "targetSelectionRange")))) return false;
+                if (link) {
+                    const auto point = [](const Json& position) {
+                        return std::pair { *lsp::int_at(position, "line"), *lsp::int_at(position, "character") };
+                    };
+                    const Json& range { entry["targetRange"] };
+                    const Json& selection { entry["targetSelectionRange"] };
+                    if (point(selection["start"]) < point(range["start"]) || point(range["end"]) < point(selection["end"])) return false;
+                }
+                const std::string path { path_of_uri(target->get<std::string>()) };
+                if (path.empty()) return false;
+                owners.push_back(path);
+                return true;
+            };
+            bool resolved { false };
+            if (answer.value.is_array()) {
+                resolved = !answer.value.empty();
+                for (const auto& entry : answer.value) if (!location(entry)) resolved = false;
+            } else {
+                resolved = location(answer.value);
+            }
+            if (!resolved) {
+                fail_rename_ownership(jobId, "the compiler returned no valid definition location");
+                return;
+            }
+            for (const auto& path : owners) {
+                if (readOnlySources.contains(base::path_key(path))) {
+                    finish_job_with_error(jobId, read_only_error(path));
+                    return;
+                }
+            }
+            if (!declaration) {
+                preflight_rename(jobId, true, closedStamp);
+                return;
+            }
+            current->second.renamePreflight = false;
+            current->second.budgetAt.reset();
+            ask_next(jobId);
+        });
+    }
+
     Json read_only_error(std::string_view path) const {
         return Json { { "code", lsp::REQUEST_FAILED },
                       { "message", std::format("{} is mcpp's engine interface, which mcpp writes for each of its versions and which is not edited",
@@ -1512,6 +1676,12 @@ struct Workspace::Impl final : engine::Host {
     // finished first, so the engines' answers to the cancellation find nothing to finish. The core engine's own
     // timeouts and watchdogs still see the request until clangd lets go of it.
     void answer_without_core(std::uint64_t jobId) {
+        if (jobs.at(jobId).renamePreflight) {
+            const Json id = jobs.at(jobId).clientId;
+            fail_rename_ownership(jobId, "symbol ownership lookup timed out");
+            if (coreEngine != nullptr) coreEngine->cancel(id);
+            return;
+        }
         if (jobs.at(jobId).found && serve_kept(jobId)) return;
         Job& job = jobs.at(jobId);
         const Json clientId = job.clientId;   // `=`: braces make an array holding it (CWG 2137)
@@ -1629,7 +1799,9 @@ struct Workspace::Impl final : engine::Host {
         if (it == lateCompletions.end()) return;
         LateCompletion late { std::move(it->second) };
         lateCompletions.erase(it);
-        if (answer.kind == engine::Answer::Kind::result) note_core_completion(late.path, late.started);
+        // The answer layer may also retain this C-2 request. Its background callback below
+        // records that result once; with the layer off, C-2 still owns its pace sample.
+        if (answer.kind == engine::Answer::Kind::result && !background_.contains(jobId)) note_core_completion(late.path, late.started);
         // An empty answer or an error is nothing to give: whoever waits for it gets the file's words at its budget.
         if (answer.kind != engine::Answer::Kind::result || completion::is_empty(answer.value)) return;
         ++lateCompletionsArrived;
@@ -1923,11 +2095,127 @@ struct Workspace::Impl final : engine::Host {
     // The waits below are the whole of the "user waits for the build tool" budget: three seconds
     // when there is a cache whose fingerprint no longer matches (it is still a far better guess than
     // scanning), FIRST_MODEL_WAIT when there is none at all.
+    std::string target_input_signature() const {
+        std::string signature { options.mcppTarget };
+        if (options.mcppTarget == "auto") {
+            const auto path = base::join_path(root, "compile_commands.json");
+            signature += "\n" + platform::fs::canonical_path(path);
+            if (const auto stamp = platform::fs::stamp(path)) signature += std::format("\n{}:{}", stamp->size, stamp->modified);
+            else signature += "\nabsent";
+            if (const auto identity = platform::fs::file_identity(path)) signature += std::format("\n{}:{}", identity->volume, identity->index);
+        }
+        return signature;
+    }
+
+    std::string producer_file_identity() const {
+        if (producerPath.empty()) return {};
+        std::string identity { platform::fs::canonical_path(producerPath) };
+        if (const auto stamp = platform::fs::stamp(producerPath)) identity += std::format("\n{}:{}", stamp->size, stamp->modified);
+        else identity += "\nabsent";
+        if (const auto file = platform::fs::file_identity(producerPath)) identity += std::format("\n{}:{}", file->volume, file->index);
+        return identity;
+    }
+
+    bool refresh_target_selection() {
+        const auto providers = allowed_providers();
+        const auto detection = project::detect_project(root, options.database, providers, options.buildDiscovery != "off");
+        if (!options.trusted || detection.kind != project::SourceKind::mcpp) {
+            targetSelection.mode.clear();
+            targetReadPending = false;
+            targetRetryAt.reset();
+            if (targetSelectionBusy) ++targetSelectionGeneration;
+            targetSelectionBusy = false;
+            targetSelectionInput.clear();
+            targetLoadRequested = false;
+            targetCacheDeferred = false;
+            targetReadRetries = 0;
+            targetIdentityAt.reset();
+            return true;
+        }
+        if (options.mcppTarget == "auto") targetIdentityAt = Clock::now() + std::chrono::seconds { 30 };
+        else targetIdentityAt.reset();
+        const std::string input { target_input_signature() };
+        if (input == targetSelectionInput) {
+            targetReadPending = false;
+            targetRetryAt.reset();
+            return true;
+        }
+        if (targetSelectionBusy) return false; // one bounded parse at a time; its completion checks the latest stamp
+        targetReadPending = true;
+        targetSelectionBusy = true;
+        const int generation { ++targetSelectionGeneration };
+        const auto rootCopy = root;
+        const auto selector = options.mcppTarget;
+        const auto rootKey = key;
+        const auto queue = events;
+        // CDB parsing and directory-boundary checks can be substantial. Only cheap stamps run on the LSP loop.
+        std::thread { [queue, rootCopy, selector, rootKey, input, generation]() {
+            auto selected = std::make_shared<project::ProjectModel>();
+            selected->targetSelection = project::select_mcpp_target(rootCopy, selector);
+            queue->push(Event { EventKind::target_selected, Json { { "input", input } }, generation, std::move(selected), rootKey });
+        } }.detach();
+        return false;
+    }
+
+    void target_selected(int generation, const Json& message, const project::TargetSelection& selected) {
+        if (generation != targetSelectionGeneration) return;
+        targetSelectionBusy = false;
+        if (message.value("input", std::string {}) != target_input_signature()) {
+            if (refresh_target_selection()) {
+                const bool requested { std::exchange(targetLoadRequested, false) };
+                if (targetDeferredModel) {
+                    reloadAfterLoad = reloadAfterLoad || requested;
+                    handle_model_loaded(std::exchange(targetDeferredModel, {}));
+                }
+                else if (requested) start_model_load();
+                else update_status();
+            }
+            return;
+        }
+        if (selected.retryable && targetReadRetries < 5) {
+            ++targetReadRetries;
+            targetRetryAt = Clock::now() + std::chrono::seconds { 1 };
+            update_status();
+            return;
+        }
+        if (!selected.retryable) targetReadRetries = 0;
+        const auto previous = project::target_selection_key(targetSelection);
+        targetSelection = selected;
+        targetSelectionInput = message.value("input", std::string {});
+        targetReadPending = false;
+        targetRetryAt.reset();
+        if (targetCacheDeferred && !model) {
+            targetCacheDeferred = false;
+            adopt_cached_model();
+        }
+        const bool requested { targetLoadRequested };
+        const bool load { requested || !model || previous != project::target_selection_key(targetSelection) };
+        targetLoadRequested = false;
+        if (targetDeferredModel) {
+            reloadAfterLoad = reloadAfterLoad || requested;
+            handle_model_loaded(std::exchange(targetDeferredModel, {}));
+        }
+        else if (load) start_model_load();
+        else update_status();
+    }
+
+    Json target_selection_json() const {
+        if (targetSelection.mode.empty()) return nullptr;
+        const bool applied { model && model->source == project::SourceKind::mcpp
+            && project::target_selection_key(model->targetSelection) == project::target_selection_key(targetSelection)
+            && (targetSelection.requestedTarget.empty() || project::mcpp_target_matches(targetSelection.requestedTarget, model->profile.target))
+            && std::ranges::none_of(model->issues, [](const auto& issue) { return issue.code.starts_with("mcpp-target-"); }) };
+        return Json { { "mode", targetSelection.mode }, { "requestedTarget", targetReadPending ? std::string {} : targetSelection.requestedTarget },
+                      { "source", targetSelection.source }, { "reason", targetReadPending ? "the compilation database is being read again" : targetSelection.reason },
+                      { "evidencePath", targetSelection.evidencePath }, { "pending", targetReadPending || !applied } };
+    }
+
     void adopt_cached_model() {
         const auto providers = allowed_providers();
         const project::Detection detection { project::detect_project(root, options.database, providers, options.buildDiscovery != "off") };
         detectedSource = detection.kind;
         detectedManifest = detection.manifest;
+        const bool selectionReady { refresh_target_selection() };
         if (detection.kind == project::SourceKind::inferred) return;   // no producer: nothing to wait for
         // An untrusted workspace runs no build tool, and a model a trusted session once cached is
         // that build tool's word: scanned sources are what this workspace gets (design 4.1).
@@ -1944,6 +2232,29 @@ struct Workspace::Impl final : engine::Host {
         if (!cached) {
             loadGiveUpAt = Clock::now() + FIRST_MODEL_WAIT;
             lastProducerMs = read_producer_timing(detection.kind);   // P-2
+            return;
+        }
+        if (detection.kind == project::SourceKind::mcpp) {
+            // The old producer and version cannot certify the executable currently selected by PATH or a launcher.
+            // Compatible models are provisional until this session's asynchronous producer confirms them.
+            if (!selectionReady) {
+                targetCacheDeferred = true;
+                loadGiveUpAt = Clock::now() + FIRST_MODEL_WAIT;
+                return;
+            }
+            if (cached->model.targetSelection.mode.empty()
+                || project::target_selection_key(cached->model.targetSelection) != project::target_selection_key(targetSelection)
+                || (!targetSelection.requestedTarget.empty() && !project::mcpp_target_matches(targetSelection.requestedTarget, cached->model.profile.target))
+                || std::ranges::any_of(cached->model.issues, [](const auto& issue) { return issue.code.starts_with("mcpp-target-"); })) {
+                log::info("the cached mcpp model of {} does not establish the current analysis target; asking the producer", root);
+                loadGiveUpAt = Clock::now() + FIRST_MODEL_WAIT;
+                return;
+            }
+            producerPath = cached->producer;
+            producerVersion = cached->producerVersion;
+            lastProducerMs = cached->producerMs;
+            staleModelReason = "the cached mcpp model is in use while this session confirms the producer and its inputs";
+            adopt_model(std::make_shared<project::ProjectModel>(std::move(cached->model)), "cache-pending");
             return;
         }
         producerPath = cached->producer;
@@ -2026,6 +2337,7 @@ struct Workspace::Impl final : engine::Host {
             { "level", candidate.level },
             { "usesKit", candidate.usesKit },
             { "profile", Json::array({ candidate.profile.kind, candidate.profile.compiler, candidate.profile.stdlib, candidate.profile.target }) },
+            { "targetSelection", candidate.source == project::SourceKind::mcpp ? project::target_selection_key(candidate.targetSelection) : std::string {} },
             { "facts", std::move(facts) },
             { "database", Json::parse(spec::to_json(candidate.database).dump()) },
             // Issue #30: the plan builds the engine's arguments from derived options and from stated ones
@@ -2220,6 +2532,11 @@ struct Workspace::Impl final : engine::Host {
             reloadAfterLoad = true;
             return;
         }
+        if (!refresh_target_selection()) {
+            targetLoadRequested = true;
+            update_status();
+            return;
+        }
         loading = true;
         remember_described_inputs(true);
         const int generation { ++modelGeneration };
@@ -2228,6 +2545,8 @@ struct Workspace::Impl final : engine::Host {
         load.cacheDirectory = cacheDirectory;
         load.compilerOverride = compilerOverride;
         load.mcppExecutable = options.mcpp;
+        load.mcppTarget = options.mcppTarget;
+        if (!targetSelection.mode.empty()) load.targetSelection = targetSelection;
         load.configuredDatabase = options.database;
         load.discoverCompilers = options.discoverCompilers;
         // Plan 2026-09-27 B-7: whether the build system is detected at all, and by which providers.
@@ -2248,9 +2567,9 @@ struct Workspace::Impl final : engine::Host {
                             : online                             ? std::chrono::milliseconds { std::chrono::minutes { 10 } }
                                                                  : producer_deadline(lastProducerMs);
         load.producerSoft = std::chrono::seconds { 5 };
-        // With a model already in hand nothing waits for the environment; without one, the producer
-        // is worth the wait, because a producer found through the wrong PATH describes another build.
-        load.environmentWait = model ? std::chrono::milliseconds { 0 } : std::chrono::milliseconds { std::chrono::seconds { 10 } };
+        // This wait is on the worker, including warm starts. A cached model keeps serving while the
+        // login environment resolves; the editor's provisional PATH must not confirm another producer.
+        load.environmentWait = std::chrono::seconds { 10 };
         load.rootKey = key;
         producerSlowMs->store(0);
         loadStartedAt = Clock::now();
@@ -2327,6 +2646,49 @@ struct Workspace::Impl final : engine::Host {
             return;
         }
         loading = false;
+        if (options.trusted && loadedModel->detected == project::SourceKind::mcpp) {
+            // Untrusted roots deliberately select no producer target and scan sources instead.
+            // A watched selection can change while a producer is running, including before its file event arrives.
+            // Such a result never becomes the active model, even briefly.
+            if (!refresh_target_selection()) {
+                targetDeferredModel = std::move(loadedModel);
+                reloadAfterLoad = false;
+                loadGiveUpAt.reset();
+                producerElapsed.reset();
+                update_status();
+                return;
+            }
+            if (project::target_selection_key(loadedModel->targetSelection) != project::target_selection_key(targetSelection)) {
+                reloadAfterLoad = false;
+                loadGiveUpAt.reset();
+                producerElapsed.reset();
+                loadStartedAt.reset();
+                log::info("discarding the mcpp model of {}: its analysis target was replaced while it ran", root);
+                start_model_load();
+                return;
+            }
+            const auto targetProblem = std::ranges::find_if(loadedModel->issues, [](const auto& issue) { return issue.code.starts_with("mcpp-target-"); });
+            // With buildTool=off a cold session may still use its existing CDB, explicitly
+            // marked pending. It must not replace an established model with another platform.
+            const bool rejectTarget { targetProblem != loadedModel->issues.end()
+                && loadedModel->source != project::SourceKind::inferred
+                && (targetProblem->code != "mcpp-target-unapplied" || (model && model->source != project::SourceKind::inferred)) };
+            if (rejectTarget) {
+                staleModelReason = std::format("the requested mcpp analysis target was not applied: {}; {}", targetProblem->message,
+                    model ? "the previous model remains in use" : "sources are scanned until the target can be applied");
+                const bool requestedAgain { std::exchange(reloadAfterLoad, false) };
+                loadGiveUpAt.reset();
+                producerElapsed.reset();
+                loadStartedAt.reset();
+                coreWaitOver = true; // the producer answered; a rejected target is not pending work
+                if (!model) start_inferred_load();
+                else if (modelOrigin == "inferred") replanAt = Clock::now();
+                journal.add("model-stale", Json { { "reason", staleModelReason } });
+                if (requestedAgain) start_model_load();
+                else update_status();
+                return;
+            }
+        }
         loadGiveUpAt.reset();
         producerElapsed.reset();
         // R-4 (plan 0.0.8): the build tool answered, whatever it said, so the provisional model is provisional no more: a
@@ -2511,6 +2873,10 @@ struct Workspace::Impl final : engine::Host {
             producerPath = loadedModel->producer;
             producerVersion = loadedModel->producerVersion;
         }
+        if (loadedModel->source == project::SourceKind::mcpp && options.trusted && options.buildTool != "off" && !producerPath.empty()) {
+            producerObservedIdentity = producer_file_identity();
+            producerIdentityAt = Clock::now() + std::chrono::seconds { 30 };
+        } else producerIdentityAt.reset();
         const bool watchChanged { !model || model->watch != loadedModel->watch };
         std::string description { describe_model(*loadedModel) };
         const bool unchanged { model && description == modelDescription };
@@ -2520,6 +2886,12 @@ struct Workspace::Impl final : engine::Host {
             {
                 const std::lock_guard lock { watchPatterns->mutex };
                 watchPatterns->entries = model->watch;
+                watchPatterns->concreteBaseline.clear();
+                for (const auto& entry : model->watch) {
+                    if (entry.find_first_of("*?[{") != std::string::npos) continue;
+                    const std::string path { base::is_absolute_path(entry) ? base::normalize_path(entry) : base::join_path(root, entry) };
+                    watchPatterns->concreteBaseline.emplace(path, platform::fs::stamp(path));
+                }
                 ++watchPatterns->generation;
             }
             register_model_watch();
@@ -3242,6 +3614,7 @@ struct Workspace::Impl final : engine::Host {
             { "issues", issues },
             { "about", about_json() },
         };
+        if (const Json selection = target_selection_json(); selection.is_object()) params["targetSelection"] = selection;
         if (!notices.empty()) params["notices"] = std::move(notices);
         if (!onlineRun.is_null()) params["onlineRun"] = onlineRun;   // D-5, S3-4-26
         if (core && core->toPrepare > 0) params["progress"] = Json { { "done", core->prepared }, { "total", core->toPrepare } };
@@ -3531,6 +3904,28 @@ struct Workspace::Impl final : engine::Host {
             reloadAt.reset();
             start_model_load();
         }
+        if (targetRetryAt && *targetRetryAt <= now) {
+            targetRetryAt.reset();
+            start_model_load();
+        }
+        if (producerIdentityAt && *producerIdentityAt <= now) {
+            producerIdentityAt = now + std::chrono::seconds { 30 };
+            if (options.trusted && options.buildTool != "off" && detectedSource == project::SourceKind::mcpp) {
+                const auto identity = producer_file_identity();
+                if (identity != producerObservedIdentity) {
+                    producerObservedIdentity = identity;
+                    log::info("the mcpp executable of {} changed; describing the project again", root);
+                    schedule_reload();
+                }
+            } else producerIdentityAt.reset();
+        }
+        if (targetIdentityAt && *targetIdentityAt <= now) {
+            targetIdentityAt = now + std::chrono::seconds { 30 };
+            // Polling FileStamp alone cannot see a symlink swap with the same size and mtime.
+            // Compare the small identity tuple; only a changed tuple starts the bounded background parse.
+            if (options.trusted && options.mcppTarget == "auto" && !targetSelectionInput.empty()
+                && target_input_signature() != targetSelectionInput) refresh_target_selection();
+        }
         if (downloadRetryAt && *downloadRetryAt <= now) {
             downloadRetryAt.reset();
             log::info("asking {} again, offline, whether it can describe {} now", project::to_string(detectedSource), root);
@@ -3609,7 +4004,7 @@ Workspace::Workspace(std::string root, std::string key, SessionOptions options, 
       impl_ { std::make_unique<Impl>(std::move(root), std::move(key), std::move(options), std::move(payload), payloadCorrupt, kitEnabled,
                                     std::move(compilerOverride), std::move(events), client) } {}
 
-Workspace::~Workspace() = default;
+Workspace::~Workspace() { impl_->watchPatterns->stopped.store(true); }
 
 void Workspace::set_client_uri(std::string uri) { impl_->clientUri = std::move(uri); }
 
@@ -3692,6 +4087,7 @@ void Workspace::allow_status_notifications() {
 }
 
 void Workspace::shut_down() {
+    impl_->watchPatterns->stopped.store(true);
     impl_->save_recent_files(true);
     if (impl_->answers_) impl_->answers_->save(true);
     if (impl_->reviewProcess) impl_->reviewProcess->kill();
@@ -3810,8 +4206,22 @@ void Workspace::handle_watched_files(const Json& changes) {
                                    && matches_watch_entries(impl_->model->watch, impl_->root, path) };
         if (type == 3) impl_->describedInputs.erase(base::path_key(path));
         if (is_build_file(name)) {
-            // mcpp rewrites its own compile_commands.json while the model loads.
-            if (name == "compile_commands.json" && impl_->model && impl_->model->source == project::SourceKind::mcpp) continue;
+            if (name == "compile_commands.json" && impl_->detectedSource == project::SourceKind::mcpp
+                && base::same_path(path, base::join_path(impl_->root, "compile_commands.json"))) {
+                // The CDB chooses only the target; arbitrary formatting or flags do not rerun mcpp.
+                // project/explicit modes never consult it for selection.
+                if (impl_->options.mcppTarget != "auto") continue;
+                const auto before = project::target_selection_key(impl_->targetSelection);
+                impl_->targetReadRetries = 0;
+                impl_->targetSelectionInput.clear();
+                if (!impl_->refresh_target_selection()) {
+                    impl_->update_status();
+                    continue;
+                }
+                if (before != project::target_selection_key(impl_->targetSelection)) reload = describedAgain = true;
+                impl_->update_status();
+                continue;
+            }
             if (type != 3 && impl_->input_unchanged(path)) continue;   // A1: written again with the same bytes
             reload = describedAgain = true;
             continue;
@@ -3864,6 +4274,15 @@ void Workspace::handle_watched_files(const Json& changes) {
 }
 
 void Workspace::cancel(const Json& id) {
+    for (const auto& [jobId, job] : impl_->jobs) {
+        if (!job.renamePreflight || job.clientId != id) continue;
+        const Json engineId = job.clientId;
+        impl_->finish_job_cancelled(jobId);
+        // Cancellation is advisory to a compiler: retire the client job first so a
+        // later successful lookup cannot advance to declaration or rename.
+        if (impl_->coreEngine != nullptr) impl_->coreEngine->cancel(engineId);
+        return;
+    }
     if (impl_->cancel_into_background(id)) return;
     for (const auto& engine : impl_->engines) engine->cancel(id);
 }
@@ -3926,6 +4345,7 @@ Json Workspace::report() const {
         project["producer"] = impl.producerPath;
         project["producerVersion"] = impl.producerVersion;
         project["buildTool"] = impl.options.buildTool;
+        if (const Json selection = impl.target_selection_json(); selection.is_object()) project["targetSelection"] = selection;
         if (!impl.needsDownload.empty()) project["needsDownload"] = impl.needsDownload;
         if (impl.staleCache) project["cacheAwaitingProducer"] = true;
     }
@@ -4322,6 +4742,7 @@ bool Workspace::start_review(const Json& arguments) {
     if (!options.clangd.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--clangd", options.clangd });
     if (!options.kit.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--kit", options.kit });
     if (!options.mcpp.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--mcpp", options.mcpp });
+    if (options.mcppTarget != "auto") spawn.arguments.insert(spawn.arguments.end(), { "--mcpp-target", options.mcppTarget });
     if (!options.database.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--database", options.database });
     if (options.engine != "clangd") spawn.arguments.insert(spawn.arguments.end(), { "--engine", options.engine });
     if (!options.discoverCompilers) spawn.arguments.push_back("--no-discover");
@@ -4447,10 +4868,18 @@ void Workspace::reload_with_options(const SessionOptions& options, const std::st
     impl_->options.producerTimeout = options.producerTimeout;
     impl_->options.buildDiscovery = options.buildDiscovery;
     impl_->options.buildDiscoveryProviders = options.buildDiscoveryProviders;
+    impl_->options.mcppTarget = options.mcppTarget;
     impl_->options.buildDiscoveryAskBeforeDownload = options.buildDiscoveryAskBeforeDownload;
     impl_->compilerOverride = compilerOverride;
     impl_->kitEnabled = kitEnabled;
     impl_->schedule_reload();
+}
+
+void Workspace::set_mcpp_target(const std::string& target) {
+    if (impl_->options.mcppTarget == target) return;
+    impl_->options.mcppTarget = target;
+    // Keep the value for later discovery, without rerunning an unrelated build tool.
+    if (impl_->detectedSource == project::SourceKind::mcpp) impl_->schedule_reload();
 }
 
 void Workspace::apply_live_options(const SessionOptions& options) {
@@ -4461,6 +4890,10 @@ void Workspace::apply_live_options(const SessionOptions& options) {
 void Workspace::handle_model_loaded(int generation, std::shared_ptr<project::ProjectModel> model, bool fromProducer) {
     if (generation != impl_->modelGeneration) return;
     impl_->handle_model_loaded(std::move(model), fromProducer);
+}
+
+void Workspace::handle_target_selected(int generation, const Json& message, std::shared_ptr<project::ProjectModel> selected) {
+    if (selected) impl_->target_selected(generation, message, selected->targetSelection);
 }
 
 std::optional<Clock::time_point> Workspace::next_deadline() const { return impl_->next_deadline(); }

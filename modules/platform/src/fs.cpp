@@ -54,6 +54,22 @@ base::Result<std::string> read_file(std::string_view path) {
     return content;
 }
 
+base::Result<std::string> read_file(std::string_view path, std::size_t maxBytes) {
+    std::ifstream stream { native(path), std::ios::binary };
+    if (!stream) return base::fail("read-file", std::format("cannot open {}", path));
+    std::string content;
+    std::array<char, 4096> buffer;
+    while (true) {
+        const auto remaining = maxBytes - content.size();
+        const auto amount = remaining >= buffer.size() ? buffer.size() : remaining + 1;
+        stream.read(buffer.data(), static_cast<std::streamsize>(amount));
+        content.append(buffer.data(), static_cast<std::size_t>(stream.gcount()));
+        if (content.size() > maxBytes) return base::fail("read-file-limit", std::format("{} exceeds the {} byte read limit", path, maxBytes));
+        if (stream.bad() || (stream.fail() && !stream.eof())) return base::fail("read-file", std::format("cannot read {}", path));
+        if (stream.eof()) return content;
+    }
+}
+
 base::Result<void> write_file(std::string_view path, std::string_view content) {
     std::ofstream stream { native(path), std::ios::binary | std::ios::trunc };
     if (!stream) return base::fail("write-file", std::format("cannot create {}", path));

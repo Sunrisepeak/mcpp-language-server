@@ -35,6 +35,9 @@ struct Options {
     // The payload bound of mcppls-clangd's owned module cache, in MiB (0: none); unset, the engine's own (1 GiB).
     std::optional<std::uint64_t> ownedCachePayloadMiB;
     std::chrono::milliseconds requestTimeout { std::chrono::seconds { 60 } };
+    // A finite module closure can finish many BMIs before its prime unit publishes diagnostics.
+    // Real module completions reset this deadline; tests shorten it, never the production default.
+    std::chrono::milliseconds preparationStallTimeout { std::chrono::seconds { 60 } };
     // StuckWatch: once clangd leaves a request unanswered this long, with nothing answered since, its
     // CPU is watched for `stuckWatch`; still unanswered then, with next to no CPU used, it is stuck and
     // is restarted. Both end within an interactive request's own timeout. Tests shorten them.

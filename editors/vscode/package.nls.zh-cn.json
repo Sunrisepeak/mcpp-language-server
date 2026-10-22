@@ -96,5 +96,6 @@
   "config.mcppls.answer.prefetch.description": "引擎空闲时，向它询问当前文件里已有的 .、->、:: 之后的补全，让下次输入时已有保留的答复。修改后服务端会重启。",
   "config.mcppls.answer.agent.description": "MCP 工具可以用什么作答。修改后服务端会重启。",
   "config.mcppls.answer.agent.enum.0": "引擎较慢时可以用保留的答复代替，结果的 provenance 会注明（authoritative: false）。",
-  "config.mcppls.answer.agent.enum.1": "只用引擎自己的答复。"
+  "config.mcppls.answer.agent.enum.1": "只用引擎自己的答复。",
+  "config.mcppls.buildDiscovery.mcppTarget.description": "mcpp 分析的目标平台：auto 跟随根 compile_commands.json 中明确且唯一的项目目标；project 使用 mcpp 默认规则；填写目标三元组则固定分析平台。不会复制 CDB 的其他编译参数。"
 }

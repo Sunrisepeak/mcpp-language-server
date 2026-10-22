@@ -16,6 +16,24 @@ int main() {
     };
 
 
+    "UTF-8 byte budgets preserve complete Chinese and emoji code points"_test = [] {
+        const std::string text { "a中😀z" };
+        const std::vector<std::string> prefixes { "", "a", "a", "a", "a中", "a中", "a中", "a中", "a中😀", text };
+        const std::vector<std::string> suffixes { "", "z", "z", "z", "z", "😀z", "😀z", "😀z", "中😀z", text };
+        for (std::size_t bytes { 0 }; bytes < prefixes.size(); ++bytes) {
+            expect(utf8_prefix(text, bytes) == prefixes[bytes]) << bytes;
+            expect(utf8_suffix(text, bytes) == suffixes[bytes]) << bytes;
+        }
+        expect(utf8_prefix(text, 100) == text);
+        expect(utf8_suffix(text, 100) == text);
+        expect(utf8_prefix("", 0).empty());
+        expect(utf8_suffix("", 0).empty());
+        expect(utf8_prefix("éx", 1).empty());
+        expect(utf8_prefix("éx", 2) == "é");
+        expect(utf8_suffix("xé", 1).empty());
+        expect(utf8_suffix("xé", 2) == "é");
+    };
+
     "UTF-16 columns count surrogate pairs twice"_test = [] {
         const std::string_view text { "a\xF0\x9F\x98\x80" "b" };   // a😀b
         expect(position_at(text, 5) == Position { 0, 3 });

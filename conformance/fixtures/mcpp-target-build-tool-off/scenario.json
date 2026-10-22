@@ -1,0 +1,60 @@
+{
+  "name": "mcpp-target-build-tool-off",
+  "description": "Disabling the build tool preserves the existing i686 CDB and reports the explicit x64 request as pending; no protocol query or producer runs.",
+  "prepare": [
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--write-target-cdb",
+      "i686-unknown-linux-gnu"
+    ]
+  ],
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}",
+    "--build-tool",
+    "off",
+    "--mcpp-target",
+    "x86_64-unknown-linux-gnu"
+  ],
+  "checks": [
+    {
+      "id": "TARGET-STATUS",
+      "kind": "status",
+      "source": "mcpp",
+      "profile-target": "i686-unknown-linux-gnu",
+      "target-mode": "explicit",
+      "target-requested": "x86_64-unknown-linux-gnu",
+      "target-source": "configuration",
+      "target-pending": true
+    },
+    {
+      "id": "CLI-CONTROLS",
+      "kind": "cli",
+      "args": [
+        "model",
+        "--export",
+        "compile-commands"
+      ],
+      "expect": [
+        {
+          "path": "",
+          "min-items": 1
+        }
+      ]
+    },
+    {
+      "id": "NO-EMIT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 0
+    },
+    {
+      "id": "NO-PROTOCOL",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "--protocol-version",
+      "count": 0
+    }
+  ]
+}

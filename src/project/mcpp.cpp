@@ -12,12 +12,16 @@ import mcppls.platform.fs;
 import mcppls.platform.dirs;
 import mcppls.platform.process;
 import mcppls.platform.toolrun;
+import mcppls.platform.toolenv;
+import mcppls.platform.env;
 import mcppls.spec.database;
 import mcppls.spec.discovery;
 import mcppls.project.detect;
 import mcppls.project.compdb;
 import mcppls.project.infer;
 import mcppls.project.provider;
+import mcppls.project.target;
+import mcppls.project.boundary;
 
 namespace mcppls::project {
 
@@ -196,11 +200,25 @@ public:
         std::lock_guard lock { mutex_ };
         const auto it = answers_.find(key);
         if (it == answers_.end()) return std::nullopt;
-        return it->second;
+        if (std::chrono::steady_clock::now() - it->second.checked > std::chrono::seconds { 30 }) {
+            answers_.erase(it);
+            return std::nullopt;
+        }
+        return it->second.version;
     }
     void remember(std::string key, std::string version) {
         std::lock_guard lock { mutex_ };
-        answers_.insert_or_assign(std::move(key), std::move(version));
+        if (const auto existing = answers_.find(key); existing != answers_.end()) {
+            existing->second.version = std::move(version); // emit identity does not extend capability-query freshness
+            return;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        std::erase_if(answers_, [&](const auto& entry) { return now - entry.second.checked > std::chrono::seconds { 30 }; });
+        if (answers_.size() >= 128) {
+            const auto oldest = std::ranges::min_element(answers_, {}, [](const auto& entry) { return entry.second.checked; });
+            answers_.erase(oldest);
+        }
+        answers_.insert_or_assign(std::move(key), Answer { std::move(version), now });
     }
     void forget(const std::string& key) {
         std::lock_guard lock { mutex_ };
@@ -209,7 +227,8 @@ public:
 
 private:
     std::mutex mutex_;
-    std::map<std::string, std::string, std::less<>> answers_;
+    struct Answer { std::string version; std::chrono::steady_clock::time_point checked; };
+    std::map<std::string, Answer, std::less<>> answers_;
 };
 
 ProducerAnswers& producer_answers() {
@@ -266,13 +285,53 @@ bool produces_build_databases(const std::string& mcpp, const Detection& detectio
     return true;
 }
 
+void check_requested_target(InferredDatabase& database, const Detection& detection, const ProviderContext& context, bool fallback = false) {
+    const bool unapplied { fallback && !context.runBuildTool };
+    const std::string unverifiedCode { unapplied ? "mcpp-target-unapplied" : "mcpp-target-unverified" };
+    const std::string mismatchCode { unapplied ? "mcpp-target-unapplied" : "mcpp-target-mismatch" };
+    if (!context.targetSelection.requestedTarget.empty()) {
+        bool projectSet { false };
+        const ProjectBoundaries boundaries { detection.root };
+        for (const auto& set : database.database.sets) {
+            if (spec::is_build_program_set(set) || set.units.empty()) continue;
+            const bool local { std::ranges::any_of(set.units, [&](const spec::TranslationUnit& unit) {
+                const std::string source { spec::absolute_source(unit) };
+                return boundaries.owns(source);
+            }) };
+            if (!local) continue;
+            projectSet = true;
+            const auto* toolchain = spec::find_toolchain(database.database, set.toolchain);
+            if (toolchain == nullptr || toolchain->target.empty()) {
+                database.issues.emplace_back(unverifiedCode, "the producer did not identify the effective target of a project set");
+            } else if (!mcpp_target_matches(context.targetSelection.requestedTarget, toolchain->target)) {
+                database.issues.emplace_back(mismatchCode, std::format("requested target {} but project set {} uses {}",
+                    context.targetSelection.requestedTarget, set.name, toolchain->target));
+            }
+            if (const auto facts = database.facts.find(set.toolchain); facts != database.facts.end()
+                && !facts->second.toolchain.target.empty()
+                && !mcpp_target_matches(context.targetSelection.requestedTarget, facts->second.toolchain.target)) {
+                database.issues.emplace_back(mismatchCode, std::format("requested target {} but compiler commands for project set {} resolve to {}",
+                    context.targetSelection.requestedTarget, set.name, facts->second.toolchain.target));
+            }
+        }
+        if (!projectSet) database.issues.emplace_back(unverifiedCode, "the producer described no identifiable project sets for the requested target");
+    }
+}
+
 // S2 0.2 single-document mode against mcpp's machine-output protocol (mcpp-community/mcpp#636):
 // `mcpp --protocol-version` advertises the kind, `mcpp emit build-database --format json` answers it.
 // nullopt when this mcpp cannot be asked; an mcpp that can be asked and fails says why, and nothing
 // else is tried: configuring instead would write into the project and hide what mcpp reported.
 std::optional<base::Result<InferredDatabase>> emit_build_database(const std::string& mcpp, const Detection& detection, const ProviderContext& context,
                                                                   std::string& version, bool* reachable = nullptr) {
-    const std::string key { std::format("{}\n{}", mcpp, detection.root) };
+    std::string key { std::format("{}\n{}\n{}", platform::fs::canonical_path(mcpp), detection.root,
+                                  target_selection_key(context.targetSelection)) };
+    // The path alone cannot identify a replaced binary, or a launcher whose project pin changed.
+    for (const std::string& path : { mcpp, base::join_path(detection.root, ".xlings.json"),
+                                     base::join_path(detection.root, "mcpp.toml"), base::join_path(detection.root, "mcpp.lock") }) {
+        if (const auto stamp = platform::fs::stamp(path)) key += std::format("\n{}:{}:{}", path, stamp->size, stamp->modified);
+        if (const auto identity = platform::fs::file_identity(path)) key += std::format(":{}:{}", identity->volume, identity->index);
+    }
     if (const auto remembered = producer_answers().known(key)) {
         version = *remembered;
         if (reachable != nullptr) *reachable = true;   // a "yes" was already remembered: it answered, or this key would not be known
@@ -280,7 +339,11 @@ std::optional<base::Result<InferredDatabase>> emit_build_database(const std::str
         if (!produces_build_databases(mcpp, detection, context, version, reachable)) return std::nullopt;
         producer_answers().remember(key, version);
     }
-    const std::vector<std::string> command { mcpp, "emit", "build-database", "--format", "json" };
+    std::vector<std::string> command { mcpp, "emit", "build-database", "--format", "json" };
+    if (!context.targetSelection.requestedTarget.empty()) {
+        command.push_back("--target");
+        command.push_back(context.targetSelection.requestedTarget);
+    }
     const spec::RunContext how {
         .purpose = "producer",
         .root = context.rootKey,
@@ -302,6 +365,12 @@ std::optional<base::Result<InferredDatabase>> emit_build_database(const std::str
         base::log::warning("mcpp emit build-database failed: {}", document.error().message);
         return base::fail(document.error().code, std::format("mcpp emit build-database failed: {}", document.error().message));
     }
+    // A launcher may select a different installed mcpp without its own file or project pin changing.
+    // The successful invocation's envelope identifies the program that actually answered.
+    if (!document->producerVersion.empty()) {
+        version = document->producerVersion;
+        producer_answers().remember(key, version);
+    }
     if (document->networkObserved && context.offline) {
         base::log::warning("mcpp reached the network on a run this server asked to be offline");
     }
@@ -314,6 +383,7 @@ std::optional<base::Result<InferredDatabase>> emit_build_database(const std::str
         return base::fail(database.error().code, std::format("mcpp's build database cannot be read: {}", database.error().message));
     }
     auto enriched = enrich_database(std::move(*database), context.scanner, context.prober);
+    check_requested_target(enriched, detection, context);
     enriched.watch = std::move(document->watch);
     // S2 0.3.0 (S2-3.4-12, S2-3.4-13; mcpp-community/mcpp#699): a document with `data` and `error` diagnostics describes
     // everything but what they name. The rest is used, and each part mcpp could not describe is said, by its file.
@@ -349,10 +419,36 @@ base::Result<InferredDatabase> load_mcpp(const Detection& detection, const Provi
     const std::string commandsPath { base::join_path(detection.root, "compile_commands.json") };
     std::vector<std::pair<std::string, std::string>> notices;
     std::string failure;   // why mcpp produced no compile database, in its own words
+    if (context.targetSelection.mode == "explicit" && context.targetSelection.requestedTarget.empty()) {
+        return base::fail("mcpp-target-invalid", "invalid mcppls.buildDiscovery.mcppTarget setting");
+    }
     if (context.trusted && context.runBuildTool) {
         const std::string home { platform::dirs::home_directory() };
         const std::vector<std::string> fallbacks { base::join_path(home, ".mcpp/bin/mcpp"), base::join_path(home, ".xlings/subos/current/bin/mcpp") };
-        const std::optional<std::string> mcpp { context.mcppExecutable.empty() ? find_tool("mcpp", fallbacks) : std::optional<std::string> { context.mcppExecutable } };
+        const std::string configured { context.mcppExecutable.empty() ? "mcpp" : context.mcppExecutable };
+        const auto environment = platform::toolenv::get(context.environmentWait);
+        std::string toolPath;
+        for (const auto& variable : environment.variables) {
+            const auto equals = variable.find('=');
+            if (equals != std::string::npos && base::to_lower_ascii(variable.substr(0, equals)) == "path") {
+                toolPath = variable.substr(equals + 1);
+                break;
+            }
+        }
+        // Resolve exactly the invocation used by toolrun, while preserving a launcher's basename.
+        // A relative configured path belongs to the project, never the server's own working directory.
+        std::optional<std::string> mcpp;
+        if (base::is_absolute_path(configured) || configured.find_first_of("/\\") != std::string::npos) {
+            const std::string path { base::join_path(detection.root, configured) };
+            mcpp = platform::env::find_executable(path, toolPath).value_or(path);
+        } else {
+            mcpp = platform::env::find_executable(configured, toolPath);
+            if (!mcpp && context.mcppExecutable.empty()) {
+                for (const auto& fallback : fallbacks) {
+                    if (auto found = platform::env::find_executable(fallback, toolPath)) { mcpp = std::move(found); break; }
+                }
+            }
+        }
         if (mcpp) {
             std::string version;
             bool reachable { false };
@@ -383,9 +479,14 @@ base::Result<InferredDatabase> load_mcpp(const Detection& detection, const Provi
             }
             // Neither the project's own mcpp nor another installed one can describe the build without
             // configuring it, which writes into the project.
+            std::vector<std::string> configureArguments { "build", "--configure-only" };
+            if (!context.targetSelection.requestedTarget.empty()) {
+                configureArguments.push_back("--target");
+                configureArguments.push_back(context.targetSelection.requestedTarget);
+            }
             auto result = platform::toolrun::run({
                 .program = *mcpp,
-                .arguments = { "build", "--configure-only" },
+                .arguments = std::move(configureArguments),
                 .workDirectory = detection.root,
                 .purpose = "configure",
                 .root = context.rootKey,
@@ -436,6 +537,7 @@ base::Result<InferredDatabase> load_mcpp(const Detection& detection, const Provi
     auto database = database_from_commands(*commands, name, context.scanner, context.prober);
     database.database.generator = spec::Generator { "mcppls", "mcpp compile_commands.json" };
     database.notices = std::move(notices);
+    check_requested_target(database, detection, context, true);
     return database;
 }
 
@@ -465,7 +567,7 @@ Answer McppProvider::describe(const Claim& claim, const ProviderContext& context
 }
 
 std::vector<std::string> McppProvider::watch_inputs(const Claim&) const {
-    return { "mcpp.toml", "mcpp.lock" };
+    return { "mcpp.toml", "mcpp.lock", ".xlings.json", "compile_commands.json" };
 }
 
 } // namespace mcppls::project

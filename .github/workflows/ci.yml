@@ -71,11 +71,24 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
-      - name: Build
+      - name: Build server and native test tools
+        run: mcpp build --profile ${{ matrix.profile }} ${{ matrix.target }}
+      - name: Build development tools
         if: matrix.profile == 'dev'
+        run: mcpp build -p devtools ${{ matrix.target }}
+      - name: Select the conformance runner for native regression tests
         run: |
-          mcpp build ${{ matrix.target }}
-          mcpp build -p devtools ${{ matrix.target }}
+          set -euo pipefail
+          runner=$(find target -type f \( -name mcppls-conformance -o -name mcppls-conformance.exe \) -path '*/bin/*')
+          [ -n "$runner" ]
+          case "$runner" in *$'\n'*) echo "ambiguous conformance runner build"; exit 1 ;; esac
+          runner="$PWD/$runner"
+          "$runner" version
+          mock="${runner%/*}/mcppls-mock-mcpp"
+          if [ "$RUNNER_OS" = Windows ]; then mock="$mock.exe"; fi
+          "$mock" --protocol-version
+          if [ "$RUNNER_OS" = Windows ]; then runner=$(cygpath -w "$runner"); fi
+          echo "MCPPLS_CONFORMANCE=$runner" >> "$GITHUB_ENV"
       - name: Executables run
         if: matrix.profile == 'dev'
         run: |
@@ -308,7 +321,7 @@ jobs:
           - platform: linux-x64
             part: 1 of 2
             os: ubuntu-24.04
-            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mingw mcpp-split-gcc mcpp-watch multi-root mcpp-llvm mcpp-build-programs mcpp-watch@polling mcpp-emit mcpp-rules-generated s1-two-sets compdb-lto-msvc failure-at-base@vscode generated-module-negotiated typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins compdb-rejected-command compdb-mixed-standards mcpp-emit-partial mcpp-emit-partial-download compdb-midwrite xmake-basic xmake-late-config xmake-user-mode xmake-no-standard xmake-needs-download ux-modules-qt
+            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mingw mcpp-split-gcc mcpp-watch multi-root mcpp-llvm mcpp-build-programs mcpp-watch@polling mcpp-emit mcpp-rules-generated s1-two-sets compdb-lto-msvc failure-at-base@vscode generated-module-negotiated typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins compdb-rejected-command compdb-mixed-standards mcpp-emit-partial mcpp-emit-partial-download compdb-midwrite xmake-basic xmake-late-config xmake-user-mode xmake-no-standard xmake-needs-download ux-modules-qt mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-target-selection@polling mcpp-producer-identity@polling mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve
           - platform: linux-x64
             part: 2 of 2
             os: ubuntu-24.04
@@ -320,18 +333,18 @@ jobs:
           - platform: darwin-arm64
             os: macos-14
             extras: true
-            fixtures: inferred inferred-bom typing-pause module-fails-in-import save-plan build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-build-programs mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views format-explicit build-program-broken build-program-gated build-program-manual
-          # No mcpp on the arm64 runner (its tools are the cross-built ones), so the fixtures that
-          # need no build tool and no compiler of their own: the semantic kit, clangd and the server
-          # on aarch64, with module faults, a corrupt payload and polling included.
+            fixtures: inferred inferred-bom typing-pause module-fails-in-import save-plan build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-build-programs mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views format-explicit build-program-broken build-program-gated build-program-manual mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve
+          # No mcpp on the arm64 runner: the server and mock producers are cross-built. Most
+          # fixtures use the semantic kit; the SDK-free target fixtures probe distribution clang,
+          # installed below. Module faults, a corrupt payload and polling are included.
           - platform: linux-arm64
             os: ubuntu-24.04-arm
             cross-tools: true
-            fixtures: inferred inferred-bom typing-pause module-fails-in-import build-discovery-off engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views
+            fixtures: inferred inferred-bom typing-pause module-fails-in-import build-discovery-off engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve
           - platform: win32-x64
             part: 1 of 2
             os: windows-2022
-            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-split-msvc cmake-msvc-std compdb-clangxx-msvc-std multi-root compdb-clang-cl-std mcpp-llvm-msvc mcpp-build-programs failure-at-base@vscode typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins ux-modules-windows
+            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-split-msvc cmake-msvc-std compdb-clangxx-msvc-std multi-root compdb-clang-cl-std mcpp-llvm-msvc mcpp-build-programs failure-at-base@vscode typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins ux-modules-windows mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve
           - platform: win32-x64
             part: 2 of 2
             os: windows-2022
@@ -349,6 +362,9 @@ jobs:
           set -euo pipefail
           case " ${{ matrix.fixtures }} " in *" mcpp-gcc "*|*" mcpp-split-gcc "*|*" mingw "*) mcpp toolchain install gcc 16.1.0 ;; esac
           if [ "$RUNNER_OS" = Linux ]; then sudo apt-get update -q && sudo apt-get install -y -q ninja-build; fi
+          # The native mock target fixtures need only a compiler probe and SDK-free module sources.
+          # arm64 has no mcpp toolchain store; its distribution clang is sufficient for these fixtures.
+          if [ "${{ matrix.cross-tools }}" = true ]; then sudo apt-get install -y -q clang; fi
           # ux-modules-qt: Qt 5's headers in module units' global module fragments, from the distribution.
           case " ${{ matrix.fixtures }} " in *" ux-modules-qt "*) sudo apt-get install -y -q qtbase5-dev ;; esac
       # 0.0.8 part 2 X-7: the xmake fixtures run xmake itself (pinned in .github/versions.env, from xlings like every other
@@ -485,12 +501,26 @@ jobs:
           name: payload-${{ matrix.platform }}
       - name: Unpack the payload
         run: tar -xzf payload-${{ matrix.platform }}.tar.gz && ls payload stage
+      - name: The packaged mock producer starts on this host
+        run: |
+          set -euo pipefail
+          exe=''; [ "$RUNNER_OS" != Windows ] || exe='.exe'
+          "stage/mcppls-mock-mcpp$exe" --protocol-version
       - name: Run the fixtures
         env:
           CONFORMANCE_CLANGXX: ${{ runner.os == 'Linux' && !matrix.cross-tools && '~/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++' || '' }}
         run: |
           set -euo pipefail
           export CONFORMANCE_CLANGXX="${CONFORMANCE_CLANGXX/#\~/$HOME}"
+          if [ "${{ matrix.cross-tools }}" = true ]; then
+            # S1 toolchain drivers are absolute paths; this host has distribution clang,
+            # rather than an mcpp LLVM store for the mock's compiler placeholder.
+            CONFORMANCE_CLANGXX=$(command -v clang++)
+            [[ "$CONFORMANCE_CLANGXX" = /* ]]
+            test -x "$CONFORMANCE_CLANGXX"
+            export CONFORMANCE_CLANGXX
+            "$CONFORMANCE_CLANGXX" --version
+          fi
           exe=''; extra=()
           if [ "$RUNNER_OS" = Windows ]; then exe='.exe'; extra=(--msvc-env "$RUNNER_TEMP/msvc.env"); fi
           # cmake-clang-bdb and cmake-msvc-bdb are the only fixtures that need
@@ -524,10 +554,11 @@ jobs:
                 --keep-bundles "$RUNNER_TEMP/bundles" \
                 ${fixture_extra[@]+"${fixture_extra[@]}"} --fixture "conformance/fixtures/${fixture%@*}" "$@"
           }
+          mkdir -p "$RUNNER_TEMP/conformance-measures"
           failed=''
           for fixture in ${{ matrix.fixtures }}; do
             echo "::group::$fixture"
-            if ! run_fixture "$fixture" --timeout 180; then
+            if ! run_fixture "$fixture" --timeout 180 --measure "$RUNNER_TEMP/conformance-measures/${fixture//@/-}.json"; then
               failed="$failed $fixture"
             fi
             echo "::endgroup::"
@@ -539,6 +570,13 @@ jobs:
             run_fixture "$first" --timeout 60 --verbose 2>&1 | tail -200 || true
             exit 1
           fi
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: conformance-measures-${{ matrix.platform }}-${{ matrix.part || 'full' }}
+          path: ${{ runner.temp }}/conformance-measures/*.json
+          if-no-files-found: ignore
 
       # Issue #23 fix plan F18: the bundles diagnostic-bundle exported on this runner's own account, whose
       # name is in every path of it (runneradmin and RUNNER~1 on Windows). The fixture already held each

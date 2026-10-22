@@ -1,0 +1,155 @@
+{
+  "version": "2026.10.22.1",
+  "defaultTarget": "x86_64-unknown-linux-gnu",
+  "callLog": "mcpp-calls.jsonl",
+  "requireOffline": true,
+  "watch": [
+    "mcpp.toml",
+    "src/**/*.cppm",
+    "src/**/*.cpp",
+    "inputs/producer-refresh.txt"
+  ],
+  "database": {
+    "version": 1,
+    "revision": 0,
+    "ide": {
+      "profile-version": "0.2.0",
+      "generator": {
+        "name": "mcpp",
+        "version": "2026.10.22.1"
+      },
+      "toolchains": {
+        "target": {
+          "family": "clang",
+          "version": "22",
+          "driver": "${compiler}",
+          "target": "${target}",
+          "config-files": []
+        }
+      }
+    },
+    "sets": [
+      {
+        "name": "app",
+        "family-name": "app",
+        "baseline-arguments": [
+          "-std=c++23",
+          "--target=${target}"
+        ],
+        "ide": {
+          "configuration": "dev",
+          "kind": "executable",
+          "toolchain": "target"
+        },
+        "visible-sets": [
+          "mcpp:std"
+        ],
+        "translation-units": [
+          {
+            "source": "${root}/src/platform.cppm",
+            "work-directory": "${root}",
+            "arguments": [
+              "${compiler}",
+              "-std=c++23",
+              "--target=${target}",
+              "-c",
+              "${root}/src/platform.cppm"
+            ],
+            "local-arguments": [],
+            "provides": {
+              "target.platform": ""
+            },
+            "requires": [],
+            "private": false,
+            "ide": {
+              "role": "module-interface"
+            }
+          },
+          {
+            "source": "${root}/src/main.cpp",
+            "work-directory": "${root}",
+            "arguments": [
+              "${compiler}",
+              "-std=c++23",
+              "--target=${target}",
+              "-c",
+              "${root}/src/main.cpp"
+            ],
+            "local-arguments": [],
+            "provides": {},
+            "requires": [
+              "target.platform"
+            ],
+            "private": true,
+            "ide": {
+              "role": "non-module"
+            }
+          }
+        ]
+      },
+      {
+        "name": "mcpp:std",
+        "family-name": "mcpp:std",
+        "baseline-arguments": [
+          "-std=c++23",
+          "-Wno-reserved-module-identifier",
+          "--target=${target}"
+        ],
+        "ide": {
+          "toolchain": "target",
+          "configuration": "dev",
+          "kind": "library"
+        },
+        "visible-sets": [
+          "app"
+        ],
+        "translation-units": [
+          {
+            "source": "${root}/fixture-stdlib/std.cppm",
+            "work-directory": "${root}",
+            "arguments": [
+              "${compiler}",
+              "-std=c++23",
+              "-Wno-reserved-module-identifier",
+              "--target=${target}",
+              "-c",
+              "${root}/fixture-stdlib/std.cppm"
+            ],
+            "local-arguments": [],
+            "object": "${root}/fixture-stdlib/std.cppm.o",
+            "provides": {
+              "std": ""
+            },
+            "requires": [],
+            "private": false,
+            "ide": {
+              "role": "module-interface"
+            }
+          },
+          {
+            "source": "${root}/fixture-stdlib/std.compat.cppm",
+            "work-directory": "${root}",
+            "arguments": [
+              "${compiler}",
+              "-std=c++23",
+              "-Wno-reserved-module-identifier",
+              "--target=${target}",
+              "-c",
+              "${root}/fixture-stdlib/std.compat.cppm"
+            ],
+            "local-arguments": [],
+            "object": "${root}/fixture-stdlib/std.compat.cppm.o",
+            "provides": {
+              "std.compat": ""
+            },
+            "requires": [],
+            "private": false,
+            "ide": {
+              "role": "module-interface"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

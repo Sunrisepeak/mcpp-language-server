@@ -9,7 +9,7 @@ export namespace mcppls::base {
 // checked against mcpp.toml (the one source) by `mcppls-devtools version --check`, not kept in step by
 // hand. Three constants that lived here and nothing read were removed rather than left to drift:
 // the S1 profile version is spec::PROFILE_VERSION, the kit manifest version is spec::KIT_VERSION.
-inline constexpr std::string_view VERSION { "0.0.16" };
+inline constexpr std::string_view VERSION { "0.0.17" };
 // The clangd the payload ships (mcppls-clangd). Checked against packaging/payload.lock.json by the same command.
 inline constexpr std::string_view CLANGD_VERSION { "23.1.0-mcppls.4" };
 // Maintained-engine identity stays intact in logs and caches. Its LLVM base

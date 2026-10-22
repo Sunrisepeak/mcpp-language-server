@@ -67,8 +67,10 @@ A few things are worth knowing:
   cross build. An import across the two — a target importing `mcpp` or a library of
   `[build-dependencies]`, `build.mcpp` importing a module of the targets — is an error, as it is for
   mcpp. The engine interface under `<MCPP_HOME>/engine/<version>/modules` belongs to mcpp and is
-  read-only: no formatting, code action or rename edits it, and VS Code opens it read-only. With an
-  older mcpp, `build.mcpp` is not read, and a note in the file names the mcpp that describes it.
+  read-only: no formatting, code action or rename edits it, and VS Code opens it read-only. Renaming
+  a symbol declared or defined there is also refused from project code, so it cannot leave a partial
+  rename. Project and writable library symbols remain editable; if ownership cannot be resolved,
+  the rename returns an error without edits. With an older mcpp, `build.mcpp` is not read, and a note in the file names the mcpp that describes it.
 - **An older mcpp** without `emit build-database` is not the end of it: if a newer mcpp is installed
   elsewhere on the machine (the xlings package store, mcpp's own registry store), mcppls asks *that*
   one instead, read-only and offline the same way, only to describe the project — the project still
@@ -82,6 +84,49 @@ A few things are worth knowing:
   only when it runs (a dependency's own `std`, a code generator's output) is looked for where builds
   leave it — the project's own build directory, and mcpp's build-database cache, which survives a
   deleted `target/` — before mcppls falls back to an empty stand-in for it.
+
+### Following an mcpp build target
+
+By default (`mcppls.buildDiscovery.mcppTarget = "auto"`), mcppls follows an explicit, unique target
+from the project's root `compile_commands.json`, then asks mcpp to describe that target. For example,
+after `mcpp build --target i686-windows-msvc` publishes that database, analysis follows i686 without
+another editor setting. This follows the latest published compilation configuration, which can also
+come from a configure-only command or a failed compilation; it does not certify a successful build.
+Project ownership recognizes Windows 8.3 and long directory spellings as the same location;
+the compilation database's original paths and arguments are preserved.
+
+To fix this workspace's analysis target, put this in `.vscode/settings.json` (or use the corresponding
+LSP initialization setting in another editor):
+
+```json
+{
+  "mcppls.buildDiscovery.mcppTarget": "i686-windows-msvc"
+}
+```
+
+Use `"project"` to ignore the compilation database for target selection and always let mcpp apply
+its own defaults, including `[build].target` in `mcpp.toml`. CLI users can pass `--mcpp-target`.
+The setting only affects the mcpp provider and does not enable execution when `buildTool` is `off`.
+Untrusted workspaces keep their source-scan fallback; selecting a target never enables a producer or compiler there.
+In VS Code, the explicit setting applies to the whole workspace window;
+independent folder overrides in a multi-root window are not supported. Automatic selection still
+reads each root's own CDB independently. Changing the target reloads the model without restarting
+the language server.
+
+Automatic selection uses explicit `--target` / `-target` arguments, without executing CDB commands.
+Missing, conflicting or unsupported target-changing inputs fall back to mcpp defaults with an
+explanation in status/report. No architecture is guessed from macros, directory names or file dates.
+An incomplete database being written keeps the previous selection during a bounded retry. Invalid
+explicit settings are reported instead of silently using the host platform.
+
+The status shows the adopted platform. While a switch is pending or fails, the requested target is
+shown separately and the previous model can remain available. Target selection does not recover
+profile, features or the complete toolchain from CDB arguments. To use the database's complete
+commands, select only `mcppls.buildDiscovery.providers = ["compile-commands"]`; `mcppls.database`
+accepts an S1 build database rather than a `compile_commands.json`.
+
+Cached mcpp models from older versions without target-selection identity are regenerated on the
+first session after upgrade. The initial project description can therefore take longer once.
 
 ## CMake
 

@@ -92,6 +92,7 @@ orchestrator::SessionOptions session_options(const cmdline::ParsedArgs& args) {
     options.semanticTokensModuleType = settings.bool_value("semanticTokens.moduleType");
     options.buildDiscovery = settings.string_value("buildDiscovery.mode");
     options.buildDiscoveryProviders = settings.list_value("buildDiscovery.providers");
+    options.mcppTarget = settings.string_value("buildDiscovery.mcppTarget");
     options.buildDiscoveryAskBeforeDownload = settings.bool_value("buildDiscovery.askBeforeDownload");
     options.primeImplementationUnits = settings.string_value("index.primeImplementationUnits");
     // Design 4.2 sets this at a minute. A machine whose build tool is honestly slower needs it

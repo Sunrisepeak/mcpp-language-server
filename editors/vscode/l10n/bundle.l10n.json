@@ -102,5 +102,11 @@
   "{0} issues": "{0} issues",
   "Versions copied": "Versions copied",
   "Cache is not on a Dev Drive": "Cache is not on a Dev Drive",
-  "Defender scans module files as they are written and read; the log says what helps": "Defender scans module files as they are written and read; the log says what helps"
+  "Defender scans module files as they are written and read; the log says what helps": "Defender scans module files as they are written and read; the log says what helps",
+  "workspace setting": "workspace setting",
+  "existing compile database": "existing compile database",
+  "mcpp defaults": "mcpp defaults",
+  "Target source: {0}": "Target source: {0}",
+  "Target not applied: {0}": "Target not applied: {0}",
+  "Target selection not applied": "Target selection not applied"
 }

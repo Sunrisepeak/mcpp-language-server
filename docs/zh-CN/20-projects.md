@@ -26,9 +26,42 @@ mcpp 给出的文档里列出了每个翻译单元、它的模块角色、它的
 
   `mcppls.buildTool` 和 `mcppls.buildDiscovery.askBeforeDownload` 见 [30-settings.md](30-settings.md)。
 - **构建规则生成的文件。** 规则包（比如 `mcpp:plugins` 的 `rules-qt`）在构建时把 `.ui`、`.qrc`、`.ts` 变成头文件和源文件。mcpp 描述构建时不运行这些步骤，所以表单的 `ui_*.h` 在它的描述里还不存在。mcppls 会去掉规则的输入（它们不是 C++），构建写过这些文件时从你工程自己的 `target/` 读取，否则说明缺了哪些，并提供 **Build in Terminal**；一旦构建写出了它们，包含它们的文件不用重启就有语义。
-- **`build.mcpp` 及其导入的库。** 从 mcpp 2026.10.11.1 起，构建数据库同时描述构建程序：`build.mcpp`、`[build-dependencies]` 中的库和 mcpp 的引擎接口（`import mcpp;`），它们位于自身配置的集合中（`<package>:build`、`<package>:host`、`mcpp:core`）。`build.mcpp` 按 mcpp 编译它所用的参数作为 C++ 读取，因此跳转、悬停、补全和诊断覆盖它导入的库与引擎接口。同时出现在 `[dependencies]` 和 `[build-dependencies]` 中的包按目标的构建方式读取；上下文 `<package>:build`（**mcppls: Select Context**）按 mcpp 编译构建程序的方式读取它们，构建程序使用独立工具链时（例如交叉构建）也在该上下文中读取。跨越两种配置的导入——目标导入 `mcpp` 或 `[build-dependencies]` 中的库，`build.mcpp` 导入目标的模块——与 mcpp 一致，报告为错误。`<MCPP_HOME>/engine/<version>/modules` 下的引擎接口属于 mcpp，只读：格式化、代码操作和重命名都不修改它，VS Code 以只读方式打开它。使用较旧的 mcpp 时不读取 `build.mcpp`，文件中的提示说明提供该描述的 mcpp 版本。
+- **`build.mcpp` 及其导入的库。** 从 mcpp 2026.10.11.1 起，构建数据库同时描述构建程序：`build.mcpp`、`[build-dependencies]` 中的库和 mcpp 的引擎接口（`import mcpp;`），它们位于自身配置的集合中（`<package>:build`、`<package>:host`、`mcpp:core`）。`build.mcpp` 按 mcpp 编译它所用的参数作为 C++ 读取，因此跳转、悬停、补全和诊断覆盖它导入的库与引擎接口。同时出现在 `[dependencies]` 和 `[build-dependencies]` 中的包按目标的构建方式读取；上下文 `<package>:build`（**mcppls: Select Context**）按 mcpp 编译构建程序的方式读取它们，构建程序使用独立工具链时（例如交叉构建）也在该上下文中读取。跨越两种配置的导入——目标导入 `mcpp` 或 `[build-dependencies]` 中的库，`build.mcpp` 导入目标的模块——与 mcpp 一致，报告为错误。`<MCPP_HOME>/engine/<version>/modules` 下的引擎接口属于 mcpp，只读：格式化、代码操作和重命名都不修改它，VS Code 以只读方式打开它。从项目代码发起重命名时，在该接口中声明或定义的符号也会被拒绝，以免只修改引用而留下部分重命名。项目及可写库中的符号仍可重命名；无法确认归属时返回错误，不产生修改。使用较旧的 mcpp 时不读取 `build.mcpp`，文件中的提示说明提供该描述的 mcpp 版本。
 - **老版本的 mcpp** 没有 `emit build-database`，但这不是终点：如果机器上别处装有更新的 mcpp（xlings 的包目录、mcpp 自己的 registry 目录），mcppls 会改问*那一个*，同样只读、离线，只用来描述工程——工程本身仍用它固定的 mcpp 构建。发生这种情况时状态会说"described by mcpp X (the project pins Y)"。只有机器上没有任何 mcpp 能回答时，才会让固定的那个做配置（`mcpp build --configure-only`），这一步会写入项目；这时状态会说明，解决办法是升级 mcpp。
 - **过期的数据库**——条目指向的文件已经不在了（构建曾经写过的 `target/` 后来被删掉，或者从别的机器提交进来的 `compile_commands.json`）——只使用仍然存在的部分；状态会注明它已过期，而不是直接失败。构建时才生成的模块（依赖包自己的 `std`、代码生成器的输出），mcppls 会先去构建通常留下它们的地方找——工程自己的构建目录，以及 mcpp 的 build-database 缓存（删掉 `target/` 后它仍在）——找不到时才用空的占位单元。
+
+### 跟随 mcpp 的构建目标
+
+默认的 `mcppls.buildDiscovery.mcppTarget = "auto"` 会读取工程根目录的
+`compile_commands.json`；项目源码明确使用同一目标平台时，mcppls 将该目标传给 mcpp，重新获取模块构建描述。
+例如执行 `mcpp build --target i686-windows-msvc` 发布编译数据库后，编辑器跟随 i686，无需再设置一次。
+这里跟随的是最近发布的编译配置；仅配置命令或随后编译失败的命令也可能发布它，不代表最近一次成功构建。
+
+要固定当前工程的分析平台，可在 `.vscode/settings.json` 中设置：
+
+```json
+{
+  "mcppls.buildDiscovery.mcppTarget": "i686-windows-msvc"
+}
+```
+
+填 `"project"` 会忽略 CDB 的目标，由 mcpp 按自身规则解析默认值，包括 `mcpp.toml` 的 `[build].target`。
+命令行对应 `--mcpp-target`。此设置只影响 mcpp 提供者，`buildTool=off` 时也不会因此启动构建工具。
+未信任工作区仍使用源码扫描回退，选择目标不会启用 producer 或编译器。
+在 VS Code 中，显式设置作用于整个工作区窗口，不支持多根工作区内每个文件夹分别覆盖。
+自动模式仍独立读取每个根目录的 CDB。修改目标只重新加载模型，不重启语言服务器。
+
+自动模式只采用命令中明确的 `--target` / `-target` 参数，不执行 CDB 命令，不从宏、目录名或文件时间猜测架构。
+项目归属比较将 Windows 8.3 短目录名和对应长目录名视为同一位置，保留 CDB 的原始路径和编译参数。
+缺失、冲突或无法解析的目标会回落 mcpp 默认规则，并在状态和报告中说明原因；半写的数据库会先有限重试。
+非法的显式设置会报配置问题，不会偷偷切回宿主平台。
+
+状态显示实际采用的平台；切换尚未应用或失败时，待应用目标单独显示，旧模型仍可提供服务。
+本功能只跟随 target，不恢复 CDB 的 profile、features、工具链和全部编译参数。
+要原样采用完整 CDB，请将 `mcppls.buildDiscovery.providers` 设为 `["compile-commands"]`；
+`mcppls.database` 接受 S1 构建数据库，不能直接指向 `compile_commands.json`。
+
+旧版本保存的 mcpp 模型若没有目标选择身份，升级后的首次会话会重新获取构建描述，因此首次加载可能多花一些时间。
 
 ## CMake
 

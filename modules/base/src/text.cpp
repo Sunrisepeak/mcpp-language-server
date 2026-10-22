@@ -105,6 +105,20 @@ std::string replace_all(std::string_view text, std::string_view from, std::strin
     return out;
 }
 
+std::string_view utf8_prefix(std::string_view text, std::size_t maxBytes) {
+    if (maxBytes >= text.size()) return text;
+    std::size_t end { maxBytes };
+    while (end > 0 && (static_cast<unsigned char>(text[end]) & 0xC0) == 0x80) --end;
+    return text.substr(0, end);
+}
+
+std::string_view utf8_suffix(std::string_view text, std::size_t maxBytes) {
+    if (maxBytes >= text.size()) return text;
+    std::size_t start { text.size() - maxBytes };
+    while (start < text.size() && (static_cast<unsigned char>(text[start]) & 0xC0) == 0x80) ++start;
+    return text.substr(start);
+}
+
 std::size_t utf16_length(std::string_view utf8) {
     std::size_t units { 0 };
     std::size_t i { 0 };

@@ -5,7 +5,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-    answerBudgetSetting, buildInitializationOptions, InspectedValue, legacyNamesInUse, RENAMED_SETTINGS, resolveRenamed, SettingsReader, workersSetting,
+    answerBudgetSetting, buildDiscoveryChange, buildDiscoveryOptions, buildInitializationOptions, InspectedValue, legacyNamesInUse, RENAMED_SETTINGS, resolveRenamed, SettingsReader, workersSetting,
 } from '../../src/settingsRead';
 
 /** A configuration with the given user values: `global` for the user's settings, `workspace` for the folder's. */
@@ -73,6 +73,38 @@ suite('S-2: what the server is sent', () => {
         assert.strictEqual(buildInitializationOptions(reader({ 'answer.cache': 'sometimes' }), '')['answer.cache'], 'on');
         for (const bad of ['99', '2001', 'fast', '', '45O']) assert.strictEqual(answerBudgetSetting(bad), '450', bad);
         assert.strictEqual(answerBudgetSetting(' 2000 '), '2000');
+    });
+
+    test('auto, project and explicit targets are sent at startup without masking invalid explicit settings', () => {
+        assert.strictEqual(buildInitializationOptions(reader(), '')['buildDiscovery.mcppTarget'], 'auto');
+        for (const target of ['auto', 'project', 'i686-windows-msvc', 'bad target', '']) {
+            assert.strictEqual(buildInitializationOptions(reader({ 'buildDiscovery.mcppTarget': target }), '')['buildDiscovery.mcppTarget'], target);
+        }
+        assert.strictEqual(buildInitializationOptions(reader({ 'buildDiscovery.mcppTarget': 'project' },
+            { 'buildDiscovery.mcppTarget': 'i686-windows-msvc' }), '')['buildDiscovery.mcppTarget'], 'i686-windows-msvc');
+    });
+
+    test('target changes reload the model and clearing the workspace selection restores auto', () => {
+        const defaults = buildDiscoveryOptions(reader());
+        const fixed = buildDiscoveryOptions(reader({ 'buildDiscovery.mcppTarget': 'i686-windows-msvc' }));
+        const project = buildDiscoveryOptions(reader({ 'buildDiscovery.mcppTarget': 'project' }));
+        assert.strictEqual(buildDiscoveryChange(defaults, fixed), 'reload');
+        assert.strictEqual(buildDiscoveryChange(fixed, project), 'reload');
+        assert.strictEqual(buildDiscoveryChange(project, defaults), 'reload');
+        assert.strictEqual(buildDiscoveryChange(fixed, buildDiscoveryOptions(reader({ 'buildDiscovery.mcppTarget': 'i686-windows-msvc' }))), 'none');
+    });
+
+    test('the parent discovery setting and other simultaneous changes still restart', () => {
+        const previous = buildDiscoveryOptions(reader());
+        for (const values of [
+            { buildDiscovery: 'off' },
+            { 'buildDiscovery.mode': 'off' },
+            { 'buildDiscovery.providers': ['compile-commands'] },
+            { 'buildDiscovery.askBeforeDownload': false },
+            { 'buildDiscovery.mode': 'off', 'buildDiscovery.mcppTarget': 'project' },
+        ]) {
+            assert.strictEqual(buildDiscoveryChange(previous, buildDiscoveryOptions(reader(values))), 'restart');
+        }
     });
 
     test('the renamed settings are sent under their new names, whichever name a person used', () => {

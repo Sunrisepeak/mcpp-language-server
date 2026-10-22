@@ -28,6 +28,10 @@ VS Code 扩展已经会这样做）；`重新加载模型` 只重新加载项目
 （`{"semanticTokens": {"modules": false}}`）和点号写法的键（`{"semanticTokens.modules": false}`），
 外面套不套一层 `mcppls` 都可以。
 
+**分析目标的作用域。** VS Code 的 `mcppls.buildDiscovery.mcppTarget` 作用于整个工作区窗口，
+不支持在多根工作区内为每个文件夹分别覆盖。`auto` 仍独立跟随每个根目录自己的 CDB。
+只修改目标时会重新加载模型，不重启服务器。见[项目类型](20-projects.md#跟随-mcpp-的构建目标)。
+
 <!-- settings:begin -->
 ### 项目与构建工具
 
@@ -41,6 +45,7 @@ VS Code 扩展已经会这样做）；`重新加载模型` 只重新加载项目
 | `mcppls.discoverCompilers` | `true`, `false` | `true` | `--no-discover` | 重新加载模型 | 为构建描述没有覆盖到的源码在本机查找编译器。关闭后，这类源码改用语义工具包。 |
 | `mcppls.buildDiscovery.mode` | `auto`, `off` | `auto` | `--build-discovery` | 重新加载模型 | 是否探测项目的构建系统。`off`：不隐式读取或执行任何东西——只用明确配置的 `database`，否则扫描源码。`buildTool` 管的是探测到的构建工具能不能*执行*；这个开关管的是要不要去探测它。 |
 | `mcppls.buildDiscovery.providers` | `mcpp`, `cmake`, `xmake`, `meson`, `compile-commands`（逗号分隔） | `mcpp`, `cmake`, `xmake`, `meson`, `compile-commands` | `--build-discovery-providers` | 重新加载模型 | `buildDiscovery.mode` 可以使用哪些构建系统提供者；从中去掉某个提供者即停用它的探测（例如只想用已有的 CMake 构建目录，不要 xmake）。 |
+| `mcppls.buildDiscovery.mcppTarget` | 字符串 | `auto` | `--mcpp-target` | 重新加载模型 | mcpp 描述的目标平台：auto 跟随根 compile_commands.json 中项目源码明确且唯一的目标；project 使用 mcpp 自身的默认规则；填写目标三元组则固定分析平台。只选择 target，不复制 CDB 的其他编译参数。 |
 | `mcppls.buildDiscovery.askBeforeDownload` | `true`, `false` | `true` | — | 立即生效 | 当构建工具需要下载才能完成描述项目时，客户端可以提议去获取它。关闭后，状态栏说明需要下载，但不会再询问。 |
 
 ### 引擎

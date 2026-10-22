@@ -45,6 +45,26 @@ void say(std::format_string<Args...> format, Args&&... args) {
     std::cout << std::format(format, std::forward<Args>(args)...) << '\n' << std::flush;
 }
 
+// Detail strings enter measurement JSON after clipping. Keep complete code points;
+// external command output can still contain malformed bytes, handled at artifact output.
+std::string clipped(std::string_view text, std::size_t bytes) {
+    return std::string { base::utf8_prefix(text, bytes) };
+}
+
+bool write_artifact(const std::string& path, const Json& value) {
+    try {
+        const std::string encoded { value.dump(2, ' ', false, Json::error_handler_t::replace) + "\n" };
+        if (auto written = fs::write_file(path, encoded); !written) {
+            say("conformance: cannot write {}: {}", path, written.error().message);
+            return false;
+        }
+        return true;
+    } catch (const std::exception& error) {
+        say("conformance: cannot serialize {}: {}", path, error.what());
+        return false;
+    }
+}
+
 struct Options {
     std::string server;
     std::string fixture;
@@ -235,8 +255,9 @@ bool run_prepare(const Json& command, const std::string& workspace, bool verbose
     options.environment = environment;
     auto result = mcppls::platform::run(std::move(options), std::chrono::minutes { 20 });
     if (!result || result->exitCode != 0 || result->timedOut) {
-        say("prepare failed: {}", lsp::dump(command));
-        if (result) say("{}\n{}", result->output, result->error);
+        say("prepare failed: {} (program {})", lsp::dump(command), program);
+        if (result) say("exit code {}, timed out {}\n{}\n{}", result->exitCode, result->timedOut, result->output, result->error);
+        else say("{}", result.error().message);
         return false;
     }
     if (verbose) say("prepare: {}\n{}", lsp::dump(command), result->output);
@@ -457,7 +478,7 @@ public:
         auto inbox = inbox_;
         auto connection = lsp::Connection::start(
             std::move(spawn), [inbox, verbose](Json message) {
-                if (verbose) std::cerr << "  <<< " << lsp::dump(message).substr(0, 120) << std::endl;
+                if (verbose) std::cerr << "  <<< " << clipped(lsp::dump(message), 120) << std::endl;
                 inbox->push(std::move(message));
             }, [inbox] { inbox->close(); },
             [verbose](std::string_view line) {
@@ -851,7 +872,7 @@ std::pair<bool, std::string> expectations_hold(const Json& value, const Json& ex
         }
         if (!held) {
             std::string found { matches.empty() ? std::string { "nothing" } : lsp::dump(*matches.front()) };
-            if (found.size() > 160) found = found.substr(0, 160) + "...";
+            if (found.size() > 160) found = clipped(found, 160) + "...";
             return { false, std::format("{} does not hold ({} found at {})", lsp::dump(expectation), found, pointer) };
         }
     }
@@ -1393,7 +1414,21 @@ private:
     std::map<std::string, std::uintmax_t> size_;
     std::map<std::string, long> counts_;
     bool clangdOutputSeen_ { false };
+    // Real engine work, separate from status progress. Bounded even through a long nightly run;
+    // timestamps are observation times (within the tailer's 500 ms sampling interval).
+    std::deque<std::pair<Clock::time_point, std::string>> activity_;
+    std::optional<Clock::time_point> activityDiscardedThrough_;
     std::jthread thread_;
+
+    static std::string_view engine_message(std::string_view line) {
+        const auto engine { line.find(" clangd (") };
+        if (engine == std::string_view::npos) return {};
+        const auto wrapper { line.find("): ", engine) };
+        if (wrapper == std::string_view::npos) return {};
+        const auto text { line.substr(wrapper + 3) };
+        const auto header { text.find("] ") };
+        return header == std::string_view::npos ? std::string_view {} : text.substr(header + 2);
+    }
 
     // Complete lines of `path` from `from` to `to`, counted; returns how far it got.
     std::uintmax_t read_lines(const std::string& path, std::uintmax_t from, std::uintmax_t to) {
@@ -1412,8 +1447,18 @@ private:
             std::size_t stop { chunk.find('\n', start) };
             const std::string_view line { std::string_view { chunk }.substr(start, stop - start) };
             if (line.contains(" clangd (")) clangdOutputSeen_ = true;
+            const auto message { engine_message(line) };
+            if (message.starts_with("Built module ") || message.starts_with("Rebuilding module ")
+                || message.starts_with("Indexing ") || message.starts_with("Indexed ")
+                || (message.empty() && line.contains("implementation units for clangd"))) {
+                activity_.emplace_back(Clock::now(), clipped(line, 768));
+                if (activity_.size() > 4096) {
+                    activityDiscardedThrough_ = activity_.front().first;
+                    activity_.pop_front();
+                }
+            }
             for (const auto needle : NEEDLES) {
-                if (line.contains(needle)) ++counts_[std::string { needle }];
+                if (message.starts_with(needle)) ++counts_[std::string { needle }];
             }
             start = stop + 1;
         }
@@ -1459,6 +1504,35 @@ public:
         std::lock_guard lock { mutex_ };
         const auto it = counts_.find(std::string { needle });
         return it == counts_.end() ? 0 : it->second;
+    }
+
+    Json activity_between(Clock::time_point from, Clock::time_point to) {
+        poll();
+        std::lock_guard lock { mutex_ };
+        Json events = Json::array();
+        std::size_t count { 0 };
+        for (const auto& [at, line] : activity_) {
+            if (at < from || at > to) continue;
+            ++count;
+            if (events.size() < 64) events.push_back(Json { { "seconds", std::chrono::duration<double>(at - from).count() }, { "line", line } });
+        }
+        return Json { { "observed", count }, { "events", std::move(events) }, { "historyTruncated", activityDiscardedThrough_.has_value() } };
+    }
+
+    // The status-node completion gap and the interval with no actual module completion are
+    // separate measurements. Losing the relevant log history makes the latter unknown, never 0.
+    std::optional<double> longest_without_module_build(Clock::time_point from, Clock::time_point to) {
+        poll();
+        std::lock_guard lock { mutex_ };
+        if (!clangdOutputSeen_ || (activityDiscardedThrough_ && from <= *activityDiscardedThrough_)) return std::nullopt;
+        double longest { 0 };
+        auto previous { from };
+        for (const auto& [at, line] : activity_) {
+            if (at < from || at > to || !engine_message(line).starts_with("Built module ")) continue;
+            longest = std::max(longest, std::chrono::duration<double>(at - previous).count());
+            previous = at;
+        }
+        return std::max(longest, std::chrono::duration<double>(to - previous).count());
     }
 
     // Whether the files carry clangd's own output: at the default log level they do not, and a count of nothing then says nothing.
@@ -1763,11 +1837,40 @@ public:
     static double seconds_between(Clock::time_point from, Clock::time_point to) { return std::chrono::duration<double>(to - from).count(); }
 
     // The first root's part of cxxModules/report, or null when the server did not answer in time.
-    Json root_report(std::chrono::seconds timeout = std::chrono::seconds { 60 }) {
-        auto answer = client_.request("cxxModules/report", Json::object(), timeout);
+    Json root_report(bool redact = true, std::chrono::seconds timeout = std::chrono::seconds { 60 }) {
+        auto answer = client_.request("cxxModules/report", redact ? Json::object() : Json { { "redact", false } }, timeout);
         if (!answer || !answer->is_object()) return nullptr;
         const Json roots = answer->value("roots", Json::array());
         return roots.is_array() && !roots.empty() ? roots.front() : Json(nullptr);
+    }
+
+    // Enough to distinguish scheduled work, engine builds and a quiet process, without copying
+    // the full (and potentially large) report into each measurement. Taken outside timed windows.
+    static Json activity_snapshot(const Json& root) {
+        if (!root.is_object()) return nullptr;
+        Json result { { "state", root.value("state", std::string {}) }, { "eventTotals", root.value("eventTotals", Json::object()) },
+                      { "requests", root.value("requests", Json::object()) } };
+        Json engines = Json::array();
+        for (const auto& engine : root.value("engines", Json::array())) {
+            Json one { { "name", engine.value("name", std::string {}) }, { "state", engine.value("state", std::string {}) } };
+            const Json details = engine.value("details", Json::object());
+            for (const std::string key : { "generation", "preparation", "implementationIndex", "backgroundUnits", "backgroundIndex", "rebuilds", "pendingRequests", "filesAwaitingDiagnostics", "deferredRequests", "heldRequests" }) {
+                if (details.contains(key)) one[key] = details[key];
+            }
+            engines.push_back(std::move(one));
+        }
+        result["engines"] = std::move(engines);
+        return result;
+    }
+
+    static std::optional<long> completed_module_builds(const Json& root) {
+        if (!root.is_object()) return std::nullopt;
+        for (const auto& engine : root.value("engines", Json::array())) {
+            if (engine.value("name", std::string {}) != "clangd") continue;
+            const Json* count { lsp::find_path(engine, { "details", "preparation", "completedModuleBuilds" }) };
+            if (count != nullptr && count->is_number_integer()) return count->get<long>();
+        }
+        return std::nullopt;
     }
 
     static long event_total(const Json& root, std::string_view kind) {
@@ -2448,6 +2551,9 @@ public:
         std::size_t waitedForPending { 0 };     // keys typed while the word's answer was on its way
         std::size_t askedForIncomplete { 0 };   // the last one was answered incomplete
         std::size_t words { 0 };
+        constexpr std::size_t WORD_TRACE_LIMIT { 256 };
+        Json wordTrace = Json::array();
+        std::size_t wordTraceDropped { 0 };
         const auto identifier_char = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_'; };
         const std::chrono::milliseconds autosaveEvery { check.value("autosave-ms", 0) };
         // files.autoSave "afterDelay": the buffer is saved once this long has passed since the last keystroke.
@@ -2616,10 +2722,20 @@ public:
                             }
                         }
                         if (ask) {
+                            const bool firstInWord { !wordRequest.has_value() };
                             wordRequest = client_.send_async("textDocument/completion", Json { { "textDocument", Json { { "uri", documentUri } } },
                                                                                              { "position", Json { { "line", cursor.line }, { "character", cursor.character } } } });
                             completions.push_back(*wordRequest);
                             ++askedAsTyped;
+                            if (wordTrace.size() < WORD_TRACE_LIMIT) {
+                                wordTrace.push_back(Json { { "id", *wordRequest }, { "word", words },
+                                    { "documentVersion", open_.at(file).second },
+                                    { "position", Json { { "line", cursor.line }, { "character", cursor.character } } },
+                                    { "sentSeconds", seconds_between(began, client_.asyncRequests.at(*wordRequest).sent) },
+                                    { "reason", firstInWord ? "first" : "incomplete" } });
+                            } else {
+                                ++wordTraceDropped;
+                            }
                         }
                     }
                 }
@@ -2761,6 +2877,17 @@ public:
         // more of them ask again after an incomplete one, so the per-word total above is what a fixture bounds.
         enforce_max(check, "incompletePerWord",
                     words > 0 ? static_cast<double>(askedForIncomplete) / static_cast<double>(words) : 0.0, "completions asked again per word for an incomplete answer", "", failures);
+        // Inspect the original responses only after typing has finished; tracing sends no requests.
+        for (auto& entry : wordTrace) {
+            const auto& request { client_.asyncRequests.at(entry["id"].get<std::int64_t>()) };
+            entry["responseSeconds"] = request.answered ? Json(seconds_between(request.sent, *request.answered)) : Json(nullptr);
+            entry["error"] = request.isError;
+            const Json& result { request.result };
+            const Json* incomplete { result.is_object() ? lsp::find(result, "isIncomplete") : nullptr };
+            entry["isIncomplete"] = incomplete != nullptr ? *incomplete : Json(nullptr);
+            const Json* items { result.is_array() ? &result : result.is_object() ? lsp::find(result, "items") : nullptr };
+            entry["items"] = items != nullptr && items->is_array() ? Json(items->size()) : Json(nullptr);
+        }
         Json summary { { "seconds", typingSeconds }, { "hz", hz }, { "autosaveMs", autosaveEvery.count() }, { "autosaveIdleMs", autosaveIdle.count() }, { "completions", completions.size() },
                        { "reask", reask }, { "askedAsTyped", askedAsTyped }, { "keysWhilePending", waitedForPending },
                        { "askedForIncomplete", askedForIncomplete }, { "typedWords", words }, { "fromWord", fromWord },
@@ -2769,6 +2896,11 @@ public:
                        { "restarts", restarts }, { "filesSetAside", setAside }, { "diagnosticsRefresh", refresh ? Json(*refresh) : Json(nullptr) },
                        { "statesSeen", statesSeen }, { "doomed", doomed }, { "moduleFailedDiagnostics", moduleFailedDiagnostics }, { "stalledSamples", stalledSamples },
                        { "firstOpenSeconds", firstOpen ? Json(*firstOpen) : Json(nullptr) } };
+        if (!reask.empty()) {
+            summary["wordTrace"] = std::move(wordTrace);
+            summary["wordTraceLimit"] = WORD_TRACE_LIMIT;
+            summary["wordTraceDropped"] = wordTraceDropped;
+        }
         std::string importerBrief;
         if (withImporter) {
             summary["importer"] = Json { { "file", importerFile }, { "completions", importerCompletions.size() }, { "answered", importerAnswered.size() },
@@ -3254,11 +3386,23 @@ public:
         // The longest time the project was loading, preparing or stalled without a module being prepared: a status that
         // changes state but never advances `progress.done` is not progress. `degraded` and `ready` are settled.
         double longestStall { 0.0 };
+        std::optional<double> longestEngineInactivity { 0.0 };
+        auto longestFrom { begin_ };
+        auto longestTo { begin_ };
         std::optional<Clock::time_point> since { begin_ };
         long lastDone { -1 };
         long lastTotal { -1 };
         const auto close = [&](Clock::time_point at) {
-            if (since) longestStall = std::max(longestStall, seconds_between(*since, at));
+            if (since) {
+                const auto gap { tailer_.longest_without_module_build(*since, at) };
+                if (!gap) longestEngineInactivity.reset();
+                else if (longestEngineInactivity) longestEngineInactivity = std::max(*longestEngineInactivity, *gap);
+            }
+            if (since && seconds_between(*since, at) > longestStall) {
+                longestStall = seconds_between(*since, at);
+                longestFrom = *since;
+                longestTo = at;
+            }
             since.reset();
         };
         for (const auto& sample : samples) {
@@ -3286,7 +3430,7 @@ public:
                 lastTotal = sample.total;
             }
         }
-        if (since) longestStall = std::max(longestStall, seconds_between(*since, now));
+        close(now);
 
         // State changes in the busiest minute, and the times the status was `error`.
         std::vector<Clock::time_point> changes;
@@ -3329,7 +3473,15 @@ public:
         const long clangdRestarts { std::max(0L, clangdStarts - 1) };
 
         std::vector<std::string> failures;
-        enforce_max(check, "maxStallSeconds", longestStall, "not ready without progress for", "s", failures);
+        enforce_max(check, "maxStallSeconds", longestStall, "not ready without completed preparation nodes for", "s", failures);
+        // Missing/truncated engine evidence cannot silently pass this gate: conservatively keep
+        // the original preparation-node gap when no finer measurement is available.
+        enforce_max(check, "maxEngineInactivitySeconds", longestEngineInactivity.value_or(longestStall),
+                    longestEngineInactivity ? "not ready without a module or preparation node completing for" : "preparation-node gap (engine work evidence unavailable)", "s", failures);
+        const auto stalledSamples { std::ranges::count_if(samples, [](const auto& sample) {
+            return std::ranges::find(sample.issues, "preparation-stalled") != sample.issues.end();
+        }) };
+        enforce_max(check, "preparationStalledSamples", static_cast<double>(stalledSamples), "status samples with preparation-stalled", "", failures);
         enforce_max(check, "maxChangesPerMinute", static_cast<double>(busiest), "state changes in a minute", "", failures);
         enforce_max(check, "errorStates", static_cast<double>(errors), "status error", "", failures);
         if (root.is_object()) enforce_max(check, "restarts", static_cast<double>(clangdRestarts), "clangd restarts", "", failures);
@@ -3341,7 +3493,15 @@ public:
         Json summary { { "statuses", samples.size() }, { "longestStallSeconds", longestStall }, { "stateChanges", changes.size() }, { "busiestMinuteChanges", busiest },
                        { "errorStates", errors }, { "clangdRestarts", root.is_object() ? Json(clangdRestarts) : Json(nullptr) },
                        { "firstReadySeconds", firstReady ? Json(*firstReady) : Json(nullptr) }, { "preparedSeconds", prepared ? Json(*prepared) : Json(nullptr) },
-                       { "serverRestarts", client_.restartMarks.size() } };
+                       { "serverRestarts", client_.restartMarks.size() },
+                       { "longestStallFromSeconds", seconds_between(begin_, longestFrom) },
+                       { "longestStallToSeconds", seconds_between(begin_, longestTo) },
+                       { "longestStallActivity", tailer_.activity_between(longestFrom, longestTo) },
+                       { "longestEngineInactivitySeconds", longestEngineInactivity ? Json(*longestEngineInactivity) : Json(nullptr) },
+                       { "preparationStalledSamples", stalledSamples },
+                       { "activityAtEnd", activity_snapshot(root) } };
+        const auto stallCpu = watcher_.cpu_cores(longestFrom, longestTo);
+        summary["longestStallCpuCores"] = stallCpu ? Json(*stallCpu) : Json(nullptr);
         const auto number = [](const std::optional<double>& value) { return value ? std::format("{:.1f}s", *value) : std::string { "-" }; };
         return finish_measure(std::move(failures), std::move(summary),
                               std::format("longest stall {:.1f}s, {} state changes ({} in the busiest minute), {} error, clangd restarts {}, first ready {}, prepared {}", longestStall,
@@ -3376,6 +3536,67 @@ public:
 
     // ---- resources ----
 
+    // Eligibility is task state, never a low CPU sample chosen to pass the idle CPU budget.
+    // In particular an empty implementation queue before its delayed full sweep is not idle.
+    static std::string background_work(const Json& root) {
+        if (!root.is_object()) return "the engine report is unavailable";
+        const std::string rootState { root.value("state", std::string {}) };
+        if (rootState != "ready" && rootState != "degraded") return "the project is still loading or preparing";
+        for (const auto& engine : root.value("engines", Json::array())) {
+            if (engine.value("name", std::string {}) != "clangd") continue;
+            const std::string state { engine.value("state", std::string {}) };
+            if (state != "ready" && state != "degraded") return "the engine is still starting or preparing";
+            const Json details = engine.value("details", Json::object());
+            const Json preparation = details.value("preparation", Json::object());
+            const Json implementations = details.value("implementationIndex", Json::object());
+            const Json index = details.value("backgroundIndex", Json::object());
+            if (!details.contains("handshakeDone") || !details.contains("accepting") || !details.contains("restartScheduled")
+                || !preparation.contains("running") || !preparation.contains("done") || !preparation.contains("wanted")
+                || !implementations.contains("sweepComplete") || !implementations.contains("sweepScheduled")
+                || !implementations.contains("queued") || !implementations.contains("running") || !index.contains("active")
+                || !details.contains("pendingRequests") || !details.contains("filesAwaitingDiagnostics")
+                || !details.contains("deferredRequests") || !details.contains("heldRequests")) return "the engine does not report its background work state";
+            if (!details.value("handshakeDone", false) || !details.value("accepting", false) || details.value("restartScheduled", false))
+                return "the engine is starting or waiting for a restart";
+            if (preparation.value("running", 0L) > 0 || preparation.value("done", 0L) < preparation.value("wanted", 0L)) return "module preparation is unfinished";
+            if (!implementations.value("sweepComplete", false) || implementations.value("sweepScheduled", false)) return "the implementation sweep is still scheduled";
+            if (implementations.value("queued", 0L) > 0 || implementations.value("running", 0L) > 0) return "implementation units are queued or building";
+            if (index.value("active", false)) return "the background index is working";
+            if (details.value("pendingRequests", 0L) > 0 || details.value("filesAwaitingDiagnostics", 0L) > 0
+                || details.value("deferredRequests", 0L) > 0 || details.value("heldRequests", 0L) > 0) return "engine requests or diagnostics are unfinished";
+            return {};
+        }
+        return "no clangd engine reported its background work state";
+    }
+
+    struct BackgroundDrain {
+        Json report;
+        std::string unfinished;
+        Json measure;
+    };
+
+    BackgroundDrain drain_background(std::chrono::seconds bound, std::chrono::seconds warmup = std::chrono::seconds { 0 }) {
+        const auto from { Clock::now() };
+        const auto rssBefore { watcher_.rss_mb_now() };
+        client_.pump_until(from + warmup);
+        const auto deadline { Clock::now() + bound };
+        BackgroundDrain result;
+        do {
+            result.report = root_report(true, std::chrono::seconds { 2 });
+            result.unfinished = background_work(result.report);
+            if (result.unfinished.empty() || Clock::now() >= deadline) break;
+            client_.pump_until(std::min(deadline, Clock::now() + std::chrono::seconds { 2 }));
+        } while (Clock::now() < deadline);
+        const auto until { Clock::now() };
+        const auto cores { watcher_.cpu_cores(from, until) };
+        const auto rssAfter { watcher_.rss_mb_now() };
+        result.measure = Json { { "seconds", seconds_between(from, until) }, { "cpuCores", cores ? Json(*cores) : Json(nullptr) },
+            { "rssBeforeMB", rssBefore ? Json(*rssBefore) : Json(nullptr) }, { "rssAfterMB", rssAfter ? Json(*rssAfter) : Json(nullptr) },
+            { "engineActivity", tailer_.activity_between(from, until) }, { "activityAtEnd", activity_snapshot(result.report) },
+            { "ready", result.unfinished.empty() }, { "unfinished", result.unfinished } };
+        return result;
+    }
+
     std::pair<bool, std::string> run_resources(const Json& check) {
         std::vector<std::string> failures;
         Json summary = Json::object();
@@ -3384,14 +3605,29 @@ public:
         std::optional<double> growth;
         if (const int idle { check.value("idle-seconds", 0) }; idle > 0) {
             if (!settle(std::chrono::seconds { check.value("settle-seconds", 900) })) return { false, "the project did not settle before the idle period" };
-            // A clangd that has just gone quiet has not yet loaded what it will keep: the window starts after a warm-up minute, or
-            // its growth would be measured against a process that is not full-sized yet.
-            client_.pump_until(Clock::now() + std::chrono::seconds { check.value("warmup-seconds", 60) });
+            // Keep the existing minimum warm-up, then wait for finite scheduled work explicitly.
+            // Neither a future sweep nor a background index is an idle-memory baseline (#59 U13).
+            const auto drained = drain_background(std::chrono::seconds { check.value("background-work-seconds", 900) },
+                std::chrono::seconds { check.value("warmup-seconds", 60) });
+            summary["scheduledWorkSeconds"] = drained.measure["seconds"];
+            summary["scheduledWorkCpuCores"] = drained.measure["cpuCores"];
+            summary["scheduledWorkRssBeforeMB"] = drained.measure["rssBeforeMB"];
+            summary["scheduledWorkRssAfterMB"] = drained.measure["rssAfterMB"];
+            summary["scheduledEngineActivity"] = drained.measure["engineActivity"];
+            if (!drained.unfinished.empty()) {
+                summary["activityAtTimeout"] = drained.measure["activityAtEnd"];
+                return finish_measure({ "the engine never became idle: " + drained.unfinished }, std::move(summary), "background work did not finish within its bound");
+            }
+            const Json before = activity_snapshot(drained.report);
             const auto rssBefore { watcher_.rss_mb_now() };
             const auto from { Clock::now() };
             client_.pump_until(from + std::chrono::seconds { idle });
-            idleCores = watcher_.cpu_cores(from, Clock::now());
+            const auto until { Clock::now() };
+            idleCores = watcher_.cpu_cores(from, until);
             const auto rssAfter { watcher_.rss_mb_now() };
+            summary["activityBefore"] = before;
+            summary["activityAfter"] = activity_snapshot(root_report());
+            summary["engineActivity"] = tailer_.activity_between(from, until);
             if (rssBefore && rssAfter && *rssBefore > 0) growth = (*rssAfter - *rssBefore) / *rssBefore;
             summary["idleSeconds"] = idle;
             summary["idleCpuCores"] = idleCores ? Json(*idleCores) : Json(nullptr);
@@ -3502,34 +3738,61 @@ public:
             auto original = fs::read_file(path);
             if (!original || from.empty() || !original->contains(from)) return { false, std::format("{} has no '{}'", file, from) };
             const std::string changed { base::replace_all(*original, from, replace.value("with", std::string {})) };
-            if (!settle(std::chrono::seconds { check.value("settle-seconds", 900) })) return { false, "the project did not settle before the change" };
+            const std::chrono::seconds drainBound { check.value("background-work-seconds", 900) };
+            const auto beforeChange = drain_background(drainBound);
+            summary["beforeChangeDrain"] = beforeChange.measure;
+            if (!beforeChange.unfinished.empty()) return finish_measure({ "before the configuration change: " + beforeChange.unfinished },
+                std::move(summary), "background work did not finish within its bound");
             std::size_t samplesBefore { client_.statusSamples.size() };
             auto t0 { Clock::now() };
             (void)fs::write_file(path, changed);
             report_file_change(path, 2);
             const auto changeSeconds { replanned_since(t0, samplesBefore, waitFor) };
-            const bool settledAfterChange { settle(std::chrono::seconds { check.value("settle-seconds", 900) }) };
+            // A momentary ready status does not finish the new configuration's preparation.
+            // Count from before undo, including every fast build during replan, after its finite work drains.
+            const auto changedWork = drain_background(drainBound);
+            summary["beforeRevertDrain"] = changedWork.measure;
+            if (!changedWork.unfinished.empty()) return finish_measure({ "before undo: " + changedWork.unfinished },
+                std::move(summary), "background work did not finish within its bound");
             const auto pcmBeforeRevert { all_module_files(cacheDirectory_) };
+            summary["activityBeforeChange"] = activity_snapshot(beforeChange.report);
             samplesBefore = client_.statusSamples.size();
             const Json beforeRevert = root_report();
+            const auto completedBefore { completed_module_builds(beforeRevert) };
+            tailer_.poll();
+            const long loggedBefore { tailer_.count("Built module") };
             t0 = Clock::now();
             (void)fs::write_file(path, *original);
             report_file_change(path, 2);
             const auto revertSeconds { replanned_since(t0, samplesBefore, waitFor) };
-            const bool settledAfterRevert { settle(std::chrono::seconds { check.value("settle-seconds", 900) }) };
+            const auto restored = drain_background(drainBound);
+            summary["afterRevertDrain"] = restored.measure;
             const std::size_t rebuilt { builds_since(pcmBeforeRevert, all_module_files(cacheDirectory_)).rebuilt };
-            const Json after = root_report();
+            const Json after = restored.report;
+            const auto completedAfter { completed_module_builds(after) };
+            tailer_.poll();
+            const auto actualBuilds { completedBefore && completedAfter && *completedAfter >= *completedBefore
+                ? std::optional<long> { *completedAfter - *completedBefore }
+                : tailer_.clangd_output_seen() ? std::optional<long> { tailer_.count("Built module") - loggedBefore } : std::nullopt };
             summary["changeSeconds"] = changeSeconds ? Json(*changeSeconds) : Json(nullptr);
             summary["revertSeconds"] = revertSeconds ? Json(*revertSeconds) : Json(nullptr);
-            summary["revertNewBmi"] = rebuilt;
+            // A new owned generation with the same source and byte size can be a real rebuild,
+            // not a read copy. Completed engine builds are authoritative for this experiment.
+            summary["revertNewBmi"] = actualBuilds ? Json(*actualBuilds) : Json(nullptr);
+            summary["revertChangedModuleFiles"] = rebuilt;
+            summary["revertBuildCountSource"] = completedBefore && completedAfter ? "engine-completions" : "engine-log";
+            summary["activityBeforeRevert"] = activity_snapshot(beforeRevert);
+            summary["activityAfterRevert"] = activity_snapshot(after);
+            summary["revertEngineActivity"] = tailer_.activity_between(t0, Clock::now());
             summary["revertRestarts"] = event_total(after, "engine-start") - event_total(beforeRevert, "engine-start");
             if (!changeSeconds) failures.push_back("the server never described the project again after the change");
             else enforce_max(check, "changeSeconds", changeSeconds, "the project described again after the change", "s", failures);
             if (!revertSeconds) failures.push_back("the server never described the project again after the change was undone");
             else enforce_max(check, "revertSeconds", revertSeconds, "the project described again after the change was undone", "s", failures);
-            enforce_max(check, "revertNewBmi", static_cast<double>(rebuilt), "module files built again after the change was undone", "", failures);
-            if (!settledAfterChange || !settledAfterRevert) failures.push_back("the project did not settle");
-            brief = std::format("changed {}: described again after {}; undone: after {}, {} module file(s) built again", file, text(changeSeconds), text(revertSeconds), rebuilt);
+            if (!actualBuilds) failures.push_back("cannot measure module builds after undo: no engine completion counter or log");
+            else enforce_max(check, "revertNewBmi", static_cast<double>(*actualBuilds), "modules built again after the change was undone", "", failures);
+            if (!restored.unfinished.empty()) failures.push_back("after undo: " + restored.unfinished);
+            brief = std::format("changed {}: described again after {}; undone: after {}, {} module file(s) built again", file, text(changeSeconds), text(revertSeconds), actualBuilds.value_or(-1));
         } else {
             return { false, std::format("unknown graph-edit action {}", action) };
         }
@@ -3553,6 +3816,36 @@ public:
         const std::string file { check.value("file", std::string { "src/main.cpp" }) };
         // A check may bring its own unsaved buffer.
         if (auto text = check.find("text"); text != check.end()) open(file, text->get<std::string>());
+        if (kind == "restart-server") {
+            client_.stop();
+            std::string why;
+            const bool restarted { restart_server(why) };
+            return { restarted, restarted ? std::string { "server restarted with the same workspace and cache" } : why };
+        }
+        if (kind == "rewrite-cached-target") {
+            // Deliberately inconsistent persisted data tests the adoption boundary, not just serialization.
+            // Stop the owner before touching its cache, so a late cache save cannot hide the injected defect.
+            // This local operation needs the filesystem path, not a redacted report's ~/ placeholder.
+            const Json report = root_report(false);
+            const std::string directory { report.value("cacheDirectory", std::string {}) };
+            if (directory.empty()) return { false, "the workspace cache directory is unavailable" };
+            client_.stop();
+            const std::string path { base::join_path(directory, "model.mcpp.json") };
+            const auto text = fs::read_file(path);
+            if (!text) return { false, text.error().message };
+            Json cached = Json::parse(*text, nullptr, false);
+            if (!cached.is_object() || !cached.contains("model") || !cached["model"].is_object()) return { false, "the persisted mcpp model is unavailable" };
+            const std::string requested { check.value("requested-target", std::string {}) };
+            cached["model"]["targetSelection"] = Json { { "mode", "auto" }, { "requestedTarget", requested },
+                { "source", "compile-commands" }, { "reason", "injected cache target mismatch" },
+                { "evidencePath", base::join_path(workspace_, "compile_commands.json") } };
+            if (auto written = fs::write_file(path, lsp::dump(cached)); !written) return { false, written.error().message };
+            if (const auto content = check.find("cdb-content"); content != check.end() && content->is_string()) {
+                const auto commands = base::replace_all(content->get<std::string>(), "{workspace}", workspace_);
+                if (auto written = fs::write_file(base::join_path(workspace_, "compile_commands.json"), commands); !written) return { false, written.error().message };
+            }
+            return { true, "cached requested target rewritten while its effective profile is retained" };
+        }
         if (kind == "status") {
             // usable plan W9.1: "folder" selects one root's own status in a multi-root fixture
             // (relative to the fixture root, like a check's own "file"); absent, this checks
@@ -3571,13 +3864,28 @@ public:
                 const std::string state { state_of(status) };
                 return state == "ready" || state == "degraded" || state == "error";
             };
+            const bool allowUnsettled { check.value("allow-unsettled", false) };
             const auto matches = [&](const Json& snapshot) {
-                bool matched { settled(snapshot) };
+                bool matched { settled(snapshot) || (allowUnsettled && snapshot.is_object() && !state_of(snapshot).empty()) };
                 if (auto source = check.find("source"); source != check.end()) {
                     matched = matched && snapshot.value("project", Json::object()).value("source", std::string {}) == source->get<std::string>();
                 }
                 if (auto profile = check.find("profile-kind"); profile != check.end()) {
                     matched = matched && snapshot.value("profile", Json::object()).value("kind", std::string {}) == profile->get<std::string>();
+                }
+                if (auto target = check.find("profile-target"); target != check.end()) {
+                    matched = matched && snapshot.value("profile", Json::object()).value("target", std::string {}) == target->get<std::string>();
+                }
+                for (const auto& [key, field] : std::array<std::pair<std::string_view, std::string_view>, 5> {{
+                    { "target-mode", "mode" }, { "target-requested", "requestedTarget" }, { "target-source", "source" },
+                    { "target-pending", "pending" }, { "target-reason", "reason" } }}) {
+                    if (const auto wanted = check.find(std::string { key }); wanted != check.end()) {
+                        const Json selection = snapshot.value("targetSelection", Json::object());
+                        matched = matched && selection.contains(std::string { field }) && selection[std::string { field }] == *wanted;
+                    }
+                }
+                if (auto version = check.find("producer-version"); version != check.end()) {
+                    matched = matched && snapshot.value("about", Json::object()).value("mcpp", std::string {}) == version->get<std::string>();
                 }
                 if (auto state = check.find("state"); state != check.end()) matched = matched && state_of(snapshot) == state->get<std::string>();
                 if (auto level = check.find("level"); level != check.end()) {
@@ -3639,10 +3947,16 @@ public:
                 }
                 return matched;
             };
-            (void)client_.wait_for([&] { return settled(current()); }, timeout_);
-            // A server coalesces changes that keep the state (S3 4), so the rest of a settled
-            // status may follow a moment later: a mismatch gets a few seconds more, not the whole timeout.
-            if (!matches(current())) (void)client_.wait_for([&] { return matches(current()); }, std::min(timeout_, std::chrono::seconds { 3 }));
+            if (allowUnsettled) {
+                // A pending target is observable while its producer runs. Waiting for ready here
+                // would consume the very race window the fixture is meant to exercise.
+                (void)client_.wait_for([&] { return matches(current()); }, timeout_);
+            } else {
+                (void)client_.wait_for([&] { return settled(current()); }, timeout_);
+                // A server coalesces changes that keep the state (S3 4), so the rest of a settled
+                // status may follow a moment later: a mismatch gets a few seconds more, not the whole timeout.
+                if (!matches(current())) (void)client_.wait_for([&] { return matches(current()); }, std::min(timeout_, std::chrono::seconds { 3 }));
+            }
             const Json snapshot = current();   // `Json x { y }` would wrap y in a one-element array; `=` copies it
             return { matches(snapshot), lsp::dump(snapshot) };
         }
@@ -3696,8 +4010,8 @@ public:
                                                                 : Json::parse(content.empty() ? std::string { "null" } : content[0].value("text", std::string { "null" }), nullptr, false);
                 }
                 auto [held, detail] = expectations_hold(value, check.value("expect", Json::array()));
-                if (held && isError == expectError) return { true, lsp::dump(value).substr(0, 160) };
-                why = isError != expectError ? std::format("isError is {}: {}", isError, lsp::dump(value).substr(0, 300)) : detail;
+                if (held && isError == expectError) return { true, clipped(lsp::dump(value), 160) };
+                why = isError != expectError ? std::format("isError is {}: {}", isError, clipped(lsp::dump(value), 300)) : detail;
                 if (!check.value("retry", true)) break;
                 client_.drain(std::chrono::milliseconds { 1000 });
             } while (Clock::now() < deadline);
@@ -3725,11 +4039,11 @@ public:
             if (!result) return { false, result.error().message };
             if (result->timedOut) return { false, "the command did not finish in time" };
             const int wantedExit { check.value("exit", 0) };
-            if (result->exitCode != wantedExit) return { false, std::format("exit {} instead of {}: {}", result->exitCode, wantedExit, (result->output + result->error).substr(0, 300)) };
+            if (result->exitCode != wantedExit) return { false, std::format("exit {} instead of {}: {}", result->exitCode, wantedExit, clipped(result->output + result->error, 300)) };
             const Json value = Json::parse(result->output, nullptr, false);
-            if (value.is_discarded()) return { false, "the output is not JSON: " + result->output.substr(0, 200) };
+            if (value.is_discarded()) return { false, "the output is not JSON: " + clipped(result->output, 200) };
             auto [held, detail] = expectations_hold(value, check.value("expect", Json::array()));
-            return { held, held ? lsp::dump(value).substr(0, 160) : detail };
+            return { held, held ? clipped(lsp::dump(value), 160) : detail };
         }
         if (kind == "type-text") {
             // import-hang plan §8: a person typing a line one key at a time. Line `line` of `file` takes each of
@@ -3804,7 +4118,7 @@ public:
             const std::string says { check.value("says", std::string {}) };
             if (expected == "hangs" && !hung) {
                 return { false, std::format("{} (clangd exited {} in under {} s: {})", says.empty() ? std::string { "clangd finished; the defect is gone" } : says,
-                                            result->exitCode, limit.count(), (result->output + result->error).substr(0, 200)) };
+                                            result->exitCode, limit.count(), clipped(result->output + result->error, 200)) };
             }
             if (expected == "finishes" && hung) return { false, std::format("clangd did not finish {} in {} s", file, limit.count()) };
             if (crashed) return { true, std::format("clangd crashed on {} (exit {}), as expected", file, result->exitCode) };
@@ -3819,14 +4133,14 @@ public:
             const auto answer = client_.request(method, Json { { "textDocument", Json { { "uri", uri(file) } } }, { "position", position(check.at("at")) } },
                                                 timeout_);
             const double seconds { std::chrono::duration<double>(Clock::now() - started).count() };
-            return { answer.has_value(), answer ? std::format("{:.1f}s: {}", seconds, lsp::dump(*answer).substr(0, 120)) : std::string { "no answer" } };
+            return { answer.has_value(), answer ? std::format("{:.1f}s: {}", seconds, clipped(lsp::dump(*answer), 120)) : std::string { "no answer" } };
         }
         if (kind == "model-origin") {
             // Build description design 4.1: a cold run plans with what the producer says, a warm one
             // plans with the cached model at once and confirms it in the background. The report says
             // which it was, so the difference is checked rather than assumed.
-            const std::string expected { expectWarm_ ? check.value("warm", std::string { "cache-fresh" })
-                                                     : check.value("cold", std::string { "producer" }) };
+            std::string expected { expectWarm_ ? check.value("warm", std::string { "cache-fresh" })
+                                              : check.value("cold", std::string { "producer" }) };
             const auto deadline = Clock::now() + timeout_;
             std::string found { "no answer" };
             do {
@@ -3834,6 +4148,12 @@ public:
                 auto answer = client_.request("cxxModules/report", Json::object(), std::max(std::chrono::seconds { 1 }, remaining));
                 if (!answer) break;
                 const Json& roots { (*answer)["roots"] };
+                if (expectWarm_ && !check.contains("warm") && roots.is_array() && !roots.empty()) {
+                    const Json* source { lsp::find_path(roots.front(), { "project", "source" }) };
+                    // mcpp caches are usable while the current executable confirms their identity;
+                    // only that provider starts pending. Others keep the stronger fresh assertion.
+                    expected = source != nullptr && source->is_string() && source->get<std::string>() == "mcpp" ? "cache-pending" : "cache-fresh";
+                }
                 // Where the model this session STARTED with came from. `origin` moves on as the
                 // producer confirms what the cache said; what this check is about is the start.
                 const Json* origin { roots.is_array() && !roots.empty() ? lsp::find_path(roots.front(), { "project", "firstOrigin" }) : nullptr };
@@ -3848,6 +4168,14 @@ public:
             // file of the module is still there unchanged, and none was added under another command.
             const std::string module { check.value("module", std::string { "std" }) };
             const auto before = moduleFilesBefore_.find(module);
+            // Navigation can come from the persisted answer cache before clangd finishes
+            // copying its BMI. Check reuse only after explicit engine work has drained,
+            // including on a cold run that establishes the next session's baseline.
+            const auto drained = drain_background(timeout_);
+            measure_ = Json { { "module", module }, { "cacheDrain", drained.measure } };
+            if (!drained.unfinished.empty()) {
+                return { false, std::format("module cache work did not finish within {} s: {}", timeout_.count(), drained.unfinished) };
+            }
             if (before == moduleFilesBefore_.end() || before->second.empty()) {
                 return { !expectWarm_, std::format("no module file of {} before the server started: a cold start", module) };
             }
@@ -3937,8 +4265,8 @@ public:
                         if (entry.contains("arguments")) arguments = entry["arguments"].get<std::vector<std::string>>();
                         const bool ok { std::ranges::all_of(contains, [&](const std::string& name) { return std::ranges::find(arguments, name) != arguments.end(); })
                                         && std::ranges::none_of(absent, [&](const std::string& name) { return std::ranges::find(arguments, name) != arguments.end(); }) };
-                        if (ok) return { true, base::join(arguments, " ").substr(0, 240) };
-                        detail = base::join(arguments, " ").substr(0, 400);
+                        if (ok) return { true, clipped(base::join(arguments, " "), 240) };
+                        detail = clipped(base::join(arguments, " "), 400);
                     }
                 }
                 client_.drain(std::chrono::milliseconds { 300 });
@@ -3978,6 +4306,51 @@ public:
             open(file);
             return { true, file };
         }
+        if (kind == "producer-call-log") {
+            if (const int observe = check.value("settle", 0); observe > 0) client_.pump_for(std::chrono::seconds { observe });
+            const auto text = fs::read_file(base::join_path(workspace_, file));
+            if (!text) return { false, "the producer call log is unavailable" };
+            Json calls = Json::array();
+            for (const auto line : base::split_lines(*text)) {
+                if (base::trim(line).empty()) continue;
+                auto call = Json::parse(line, nullptr, false);
+                if (!call.is_object()) return { false, "the producer call log contains invalid JSON" };
+                const auto args = call.value("arguments", std::vector<std::string> {});
+                if (const std::string command = check.value("command", std::string {}); !command.empty()
+                    && (args.empty() || args.front() != command)) continue;
+                calls.push_back(std::move(call));
+            }
+            if (check.contains("count") && calls.size() != check["count"].get<std::size_t>())
+                return { false, std::format("{} calls instead of {}", calls.size(), check["count"].get<std::size_t>()) };
+            if (calls.empty()) return { check.contains("count") && check["count"].get<std::size_t>() == 0, "no matching producer calls" };
+            if (const auto expected = check.find("expect"); expected != check.end()) {
+                const auto [held, why] = expectations_hold(calls, *expected);
+                if (!held) return { false, why };
+            }
+            const Json& latest = calls.back();
+            const auto args = latest.value("arguments", std::vector<std::string> {});
+            for (const auto& arg : check.value("arguments-contains", std::vector<std::string> {}))
+                if (std::ranges::find(args, arg) == args.end()) return { false, "the latest producer call lacks " + arg };
+            for (const auto& arg : check.value("arguments-absent", std::vector<std::string> {}))
+                if (std::ranges::find(args, arg) != args.end()) return { false, "the latest producer call unexpectedly has " + arg };
+            if (check.contains("version") && latest.value("version", std::string {}) != check["version"].get<std::string>())
+                return { false, "the producer call used another version" };
+            return { true, std::format("{} matching producer call(s): {}", calls.size(), clipped(latest.dump(), 240)) };
+        }
+        if (kind == "configuration") {
+            client_.notify("workspace/didChangeConfiguration", Json { { "settings", check.value("settings", Json::object()) } });
+            return { true, "workspace configuration changed" };
+        }
+        if (kind == "delete-file") {
+            const std::string path { base::join_path(workspace_, file) };
+            remember_original(path);
+            std::error_code error;
+            const bool removed = std::filesystem::remove(path, error);
+            if (error || !removed) return { false, std::format("cannot remove {}: {}", file, error.message()) };
+            if (check.value("notify", false) || client_.watches(path, 3))
+                client_.notify("workspace/didChangeWatchedFiles", Json { { "changes", Json::array({ Json { { "uri", uri(file) }, { "type", 3 } } }) } });
+            return { true, file };
+        }
         if (kind == "write-file") {
             // usable plan W9.3: writes a file directly, the way an editor's own file system watcher
             // (or, without one, this server's own polling fallback) would notice it, without the
@@ -4005,6 +4378,7 @@ public:
                 if (from.empty() || !current->contains(from)) return { false, std::format("{} has no '{}'", file, from) };
                 content = base::replace_all(*current, from, replace->value("with", std::string {}));
             }
+            content = base::replace_all(content, "{workspace}", workspace_);
             (void)fs::create_directories(base::parent_path(path));
             // With "folder", the reload must be that root's own (usable plan W9.1): a change routed
             // to another root would reload that one instead.
@@ -4206,7 +4580,7 @@ public:
                     return std::ranges::any_of(expected, [&](const std::string& one) { return text.find(one) != std::string::npos; });
                 });
             std::string text { hover_text(result) };
-            return { ok, text.substr(0, std::min<std::size_t>(text.size(), 160)) };
+            return { ok, clipped(text, 160) };
         }
         if (kind == "completion-contains") {
             open(file);
@@ -4264,12 +4638,12 @@ public:
             if (!answer) return { false, "no answer" };
             const bool empty { completion_labels(*answer).empty() };
             const bool inTime { !check.contains("within-ms") || elapsed <= check.value("within-ms", std::int64_t { 0 }) };
-            return { empty && inTime, std::format("{} in {} ms", lsp::dump(*answer).substr(0, 120), elapsed) };
+            return { empty && inTime, std::format("{} in {} ms", clipped(lsp::dump(*answer), 120), elapsed) };
         }
         if (kind == "capabilities") {
             // The server capabilities initialize answered with, held to "expect" like a tool's result.
             auto [held, detail] = expectations_hold(capabilities_, check.value("expect", Json::array()));
-            return { held, held ? lsp::dump(capabilities_.value("completionProvider", Json::object())).substr(0, 160) : detail };
+            return { held, held ? clipped(lsp::dump(capabilities_.value("completionProvider", Json::object())), 160) : detail };
         }
         if (kind == "references-span") {
             open(file);
@@ -4296,7 +4670,7 @@ public:
                     if (!value.is_array()) return false;
                     return std::ranges::any_of(value, [&](const Json& symbol) { return symbol.value("name", std::string {}) == expected; });
                 });
-            return { ok, lsp::dump(result).substr(0, 160) };
+            return { ok, clipped(lsp::dump(result), 160) };
         }
         if (kind == "semantic-tokens") {
             // design doc 2026-09-25 K/§7: every entry of "expect" ({"line", "text", "type",
@@ -4330,7 +4704,7 @@ public:
             for (const auto& token : decode_semantic_tokens(result, content)) {
                 detail += std::format("[{}:{} '{}' {} {}] ", token.line, token.startChar, token.text, token.type, lsp::dump(token.modifiers));
             }
-            return { ok, detail.substr(0, std::min<std::size_t>(detail.size(), 200)) };
+            return { ok, clipped(detail, 200) };
         }
         if (kind == "bundle") {
             // issue #23 fix plan F18: `mcppls.exportBundle` writes a zip within its size cap whose manifest is its contents,
@@ -4377,7 +4751,7 @@ public:
                 while (running.wait_for(std::chrono::milliseconds { 200 }) != std::future_status::ready) client_.drain(std::chrono::milliseconds { 0 });
                 auto result = running.get();
                 if (!result) return { false, result.error().message };
-                if (result->timedOut || result->exitCode != 0) return { false, std::format("mcppls report --bundle: exit {}: {}", result->exitCode, (result->output + result->error).substr(0, 300)) };
+                if (result->timedOut || result->exitCode != 0) return { false, std::format("mcppls report --bundle: exit {}: {}", result->exitCode, clipped(result->output + result->error, 300)) };
             } else {
                 Json arguments = check.value("arguments", Json::object());
                 arguments["client"] = Json { { "name", "mcppls-conformance" }, { "log", std::format("started in {}\nworkspace {}\n", home, workspace_) } };
@@ -4427,7 +4801,7 @@ public:
                 auto answer = client_.request("cxxModules/report", Json::object(), std::max(std::chrono::seconds { 1 }, remaining));
                 if (!answer) break;
                 auto [held, detail] = expectations_hold(*answer, check.value("expect", Json::array()));
-                if (held) return { true, lsp::dump(answer->value("roots", Json::array())).substr(0, 160) };
+                if (held) return { true, clipped(lsp::dump(answer->value("roots", Json::array())), 160) };
                 why = detail;
                 client_.drain(std::chrono::milliseconds { 500 });
             } while (Clock::now() < deadline);
@@ -4446,7 +4820,7 @@ public:
                 [&] { return Json { { "textDocument", Json { { "uri", uri(file) } } }, { "position", position(check.at("at")) } }; },
                 [&](const Json& value) { return hover_text(value).find(expected) != std::string::npos; });
             std::string text { hover_text(result) };
-            return { ok, text.substr(0, std::min<std::size_t>(text.size(), 160)) };
+            return { ok, clipped(text, 160) };
         }
         if (kind == "module-graph-contains") {
             // Retries within the check's own timeout (a check's "timeout" field, e.g. usable plan
@@ -4457,7 +4831,7 @@ public:
                 return std::ranges::any_of(value.value("modules", Json::array()),
                     [&](const Json& module) { return module.value("name", std::string {}) == expected; });
             });
-            return { ok, result.is_object() ? lsp::dump(result).substr(0, 160) : std::string { "no response" } };
+            return { ok, result.is_object() ? clipped(lsp::dump(result), 160) : std::string { "no response" } };
         }
         if (kind == "clangd-lsp") return run_clangd_lsp(check, file);
         if (kind == "completion-baseline") return run_completion_baseline(check, file);
@@ -4822,7 +5196,9 @@ int run(Options options) {
             const bool named { stage->is_array() ? std::ranges::any_of(*stage, [&](const Json& one) { return one == Json(options.stage); }) : *stage == Json(options.stage) };
             if (!named) continue;
         }
-        if (const auto reason = client.unusable(); !reason.empty()) {
+        // Cache fault checks intentionally stop the server before corrupting persisted input.
+        // An explicit restart remains available even when the old connection is closed.
+        if (const auto reason = client.unusable(); !reason.empty() && check.value("kind", std::string {}) != "restart-server") {
             if (!optional) ++failures;
             say("{} {} {} (not run) {}", optional ? "SKIP" : "FAIL", id, check.value("kind", std::string {}), reason);
             continue;
@@ -4861,11 +5237,10 @@ int run(Options options) {
         Json evidence { { "server-command", client.serverCommand }, { "workspace", workspace },
                         { "cache-directory", cacheDirectory }, { "report", nullptr },
                         { "collection-budget-seconds", 2 }, { "collection-excluded-from-timing", true } };
-        if (report && report->dump(2).size() <= 1024 * 1024) evidence["report"] = std::move(*report);
+        if (report && report->dump(2, ' ', false, Json::error_handler_t::replace).size() <= 1024 * 1024) evidence["report"] = std::move(*report);
         else evidence["report-unavailable"] = report ? "report exceeds 1 MiB evidence bound" : "no report within 2 seconds";
         evidence["collection-seconds"] = std::chrono::duration<double>(Clock::now() - evidenceBegin).count();
-        if (auto written = fs::write_file(options.timingEvidenceFile, evidence.dump(2) + "\n"); !written)
-            say("conformance: cannot write timing evidence {}", options.timingEvidenceFile);
+        if (!write_artifact(options.timingEvidenceFile, evidence)) ++failures;
         evidenceSeconds = std::chrono::duration<double>(Clock::now() - evidenceBegin).count();
     }
     runner.finish();
@@ -4915,7 +5290,7 @@ int run(Options options) {
         summary["first-diagnostics"] = since(measuredDiagnostics);
         summary["first-navigation"] = firstNavigation;
         summary["checks"] = measured;
-        if (auto written = fs::write_file(options.measureFile, summary.dump(2) + "\n"); !written) say("conformance: cannot write {}", options.measureFile);
+        if (!write_artifact(options.measureFile, summary)) ++failures;
     }
     if (!options.keep && !reused) fs::remove_all(scratch);
     return failures == 0 ? 0 : 1;

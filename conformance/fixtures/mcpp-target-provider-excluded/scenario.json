@@ -1,0 +1,96 @@
+{
+  "name": "mcpp-target-provider-excluded",
+  "description": "Selecting only compile-commands ignores the mcpp target setting and never runs mcpp.",
+  "prepare": [
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--write-target-cdb",
+      "i686-unknown-linux-gnu"
+    ]
+  ],
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}",
+    "--build-discovery-providers",
+    "compile-commands"
+  ],
+  "checks": [
+    {
+      "id": "CDB-STATUS",
+      "kind": "status",
+      "source": "compile-commands",
+      "profile-target": "i686-unknown-linux-gnu"
+    },
+    {
+      "id": "CLI-CONTROLS",
+      "kind": "cli",
+      "args": [
+        "model",
+        "--export",
+        "compile-commands"
+      ],
+      "expect": [
+        {
+          "path": "",
+          "min-items": 1
+        }
+      ]
+    },
+    {
+      "id": "NO-EMIT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 0
+    },
+    {
+      "id": "NO-PROTOCOL",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "--protocol-version",
+      "count": 0
+    },
+    {
+      "id": "LIVE-UNRELATED-TARGET",
+      "kind": "configuration",
+      "settings": {
+        "mcppls": {
+          "buildDiscovery.mcppTarget": "project"
+        }
+      }
+    },
+    {
+      "id": "NO-TOOL-AFTER-LIVE-TARGET",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 0,
+      "settle": 3
+    },
+    {
+      "id": "NO-UNRELATED-MODEL-RELOAD",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/project/source",
+          "equals": "compile-commands"
+        },
+        {
+          "path": "/roots/0/project/targetSelection",
+          "absent": true
+        },
+        {
+          "path": "/roots/0/eventTotals/model-unchanged",
+          "absent": true
+        },
+        {
+          "path": "/roots/0/eventTotals/model-loaded",
+          "equals": 1
+        }
+      ]
+    }
+  ],
+  "initialization-options": {
+    "buildDiscovery.mcppTarget": "x86_64-unknown-linux-gnu"
+  }
+}

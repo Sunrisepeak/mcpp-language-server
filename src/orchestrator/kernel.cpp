@@ -184,6 +184,9 @@ struct Kernel::Impl {
                 workspace->handle_model_loaded(event.generation, std::move(event.model), fromProducer);
             }
             break;
+        case EventKind::target_selected:
+            if (event.rootKey == workspace->key()) workspace->handle_target_selected(event.generation, event.message, std::move(event.model));
+            break;
         case EventKind::client_message:
             // The polling watch reports changed files as the notification an editor would have sent.
             if (event.message.value("method", std::string {}) == "workspace/didChangeWatchedFiles") {

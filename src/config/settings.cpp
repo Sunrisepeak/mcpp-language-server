@@ -122,6 +122,16 @@ const std::vector<Setting>& shipped_registry() {
             .clientConfigurable = true,
         },
         Setting {
+            .key = "buildDiscovery.mcppTarget", .kind = Kind::string, .defaultValue = "auto",
+            .commandLine = "--mcpp-target", .surface = Surface::server, .applies = Applies::reload, .category = "build",
+            .since = "0.0.17",
+            .summary = "The platform mcpp describes: auto follows the explicit, unique target of project sources in the root compile_commands.json; "
+                       "project uses mcpp's own defaults; a target triple fixes the analysis platform. This selects the target only, not the CDB's other flags.",
+            .summaryZh = "mcpp 描述的目标平台：auto 跟随根 compile_commands.json 中项目源码明确且唯一的目标；project 使用 mcpp 自身的默认规则；"
+                         "填写目标三元组则固定分析平台。只选择 target，不复制 CDB 的其他编译参数。",
+            .clientConfigurable = true,
+        },
+        Setting {
             .key = "buildDiscovery.askBeforeDownload", .kind = Kind::boolean, .defaultValue = "true", .surface = Surface::server,
             .applies = Applies::immediately, .category = "build", .since = "0.0.6",
             .summary = "When the build tool needs a download to finish describing the project, a client may offer to fetch it. "

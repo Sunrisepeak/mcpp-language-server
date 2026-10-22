@@ -1,0 +1,134 @@
+{
+  "name": "mcpp-polling-watch-inputs",
+  "description": "Polling retains the root stat baseline across watch registration: a preexisting non-source glob match causes no producer run, newly created external concrete inputs reload, and explicitly declared files inside excluded target/ remain observable.",
+  "prepare": [
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--write-target-cdb",
+      "i686-unknown-linux-gnu"
+    ]
+  ],
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}",
+    "--mcpp-target",
+    "project"
+  ],
+  "checks": [
+    {
+      "id": "INITIAL",
+      "kind": "status",
+      "profile-target": "x86_64-unknown-linux-gnu",
+      "timeout": 30,
+      "source": "mcpp",
+      "state": "ready"
+    },
+    {
+      "id": "EXISTING-GLOB-NO-EXTRA-RUN",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 1,
+      "settle": 3
+    },
+    {
+      "id": "VERSION-EXTERNAL-CREATED",
+      "kind": "write-file",
+      "file": "mcpp-mock.json",
+      "replace": {
+        "from": "2026.10.22.1",
+        "with": "2026.10.22.2"
+      },
+      "expect-reload": false,
+      "settle": 0
+    },
+    {
+      "id": "EXTERNAL-CREATED",
+      "kind": "write-file",
+      "file": "../external-input.txt",
+      "content": "external input\n",
+      "expect-reload": true,
+      "timeout": 15
+    },
+    {
+      "id": "APPLIED-EXTERNAL-CREATED",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "producer-version": "2026.10.22.2",
+      "timeout": 30
+    },
+    {
+      "id": "EXTERNAL-RELOADED",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 2
+    },
+    {
+      "id": "VERSION-EXPLICIT-IGNORED-DIR-CREATED",
+      "kind": "write-file",
+      "file": "mcpp-mock.json",
+      "replace": {
+        "from": "2026.10.22.2",
+        "with": "2026.10.22.3"
+      },
+      "expect-reload": false,
+      "settle": 0
+    },
+    {
+      "id": "EXPLICIT-IGNORED-DIR-CREATED",
+      "kind": "write-file",
+      "file": "target/explicit-input.txt",
+      "content": "explicit input under traversal exclusion\n",
+      "expect-reload": true,
+      "timeout": 15
+    },
+    {
+      "id": "APPLIED-EXPLICIT-IGNORED-DIR-CREATED",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "producer-version": "2026.10.22.3",
+      "timeout": 30
+    },
+    {
+      "id": "EXPLICIT-RELOADED",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 3
+    },
+    {
+      "id": "VERSION-EXTERNAL-DELETED",
+      "kind": "write-file",
+      "file": "mcpp-mock.json",
+      "replace": {
+        "from": "2026.10.22.3",
+        "with": "2026.10.22.4"
+      },
+      "expect-reload": false,
+      "settle": 0
+    },
+    {
+      "id": "EXTERNAL-DELETED",
+      "kind": "delete-file",
+      "file": "../external-input.txt"
+    },
+    {
+      "id": "APPLIED-EXTERNAL-DELETED",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "producer-version": "2026.10.22.4",
+      "timeout": 30
+    },
+    {
+      "id": "EXTERNAL-DELETION-RELOADED",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 4
+    }
+  ]
+}

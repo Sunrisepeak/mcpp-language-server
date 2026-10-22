@@ -1,0 +1,66 @@
+{
+  "name": "mcpp-target-discovery-off",
+  "description": "Disabling discovery ignores the mcpp target setting and reads only source files without invoking mcpp.",
+  "prepare": [
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--write-target-cdb",
+      "i686-unknown-linux-gnu"
+    ]
+  ],
+  "server-arguments": [
+    "--mcpp",
+    "{runner-dir}/mcppls-mock-mcpp{exe}",
+    "--build-discovery",
+    "off",
+    "--mcpp-target",
+    "x86_64-unknown-linux-gnu"
+  ],
+  "checks": [
+    {
+      "id": "INFERRED-STATUS",
+      "kind": "status",
+      "source": "inferred",
+      "tier": 4
+    },
+    {
+      "id": "DISCOVERY-OFF",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/project/notices/*/code",
+          "equals": "build-discovery-off"
+        }
+      ]
+    },
+    {
+      "id": "CLI-CONTROLS",
+      "kind": "cli",
+      "args": [
+        "model",
+        "--export",
+        "compile-commands"
+      ],
+      "expect": [
+        {
+          "path": "",
+          "min-items": 1
+        }
+      ]
+    },
+    {
+      "id": "NO-EMIT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 0
+    },
+    {
+      "id": "NO-PROTOCOL",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "--protocol-version",
+      "count": 0
+    }
+  ]
+}

@@ -7,6 +7,67 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.17] — 2026-10-22
+
+The bundled engine remains [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.16)
+(`23.1.0-mcppls.4`).
+
+### Build targets
+
+- **mcpp analysis follows the target explicitly published in the root compilation database.**
+  A unique project target is passed to `mcpp emit build-database`; missing, conflicting or opaque
+  commands leave target resolution to mcpp with an explanation. No build-directory timestamps or
+  architecture macros are used to guess. `mcppls.buildDiscovery.mcppTarget` can fix a workspace's
+  target or use `project` to keep mcpp's defaults. This follows the target, rather than recovering
+  the CDB's profile, features or complete toolchain; the compile-commands provider still uses the
+  complete database directly.
+- Target selection runs off the language-server event loop. Changes are applied through one
+  selection snapshot; an old producer response cannot replace a newer target. The status bar and
+  report distinguish the adopted platform, its source and a requested target that is not applied.
+- Cross-target compiler probes keep the target arguments, and a host build-program set no longer
+  decides the target-side profile. Cached mcpp models are provisional until the current producer
+  confirms them; a model for another target cannot be adopted as a warm cache. Producer capability
+  records also follow executable identity and project selection inputs. Models cached by older
+  versions without target-selection identity are regenerated once after upgrade.
+- Windows 8.3 and long directory names share the same project ownership for target selection,
+  producer validation and profile selection; rewriting a CDB with another spelling no longer
+  makes its project units disappear from target selection. Declared workspace members also retain
+  ownership through literal or one-level glob directory aliases. Original paths and arguments are kept.
+- Untrusted mcpp roots keep their source-scan fallback: target selection neither starts project
+  tools nor repeatedly discards their inferred model while waiting for a target it cannot select.
+
+### Reliability and measurements
+
+- Renaming a symbol owned by mcpp's read-only engine interface is refused even from project
+  references when the compiler returns only project edits. Definition and declaration ownership
+  are checked before edits; unresolved or stale ownership returns an error without partial changes.
+
+- Completion and signature-help answers arriving after a cached fallback now teach the file's
+  existing adaptive wait using the entire engine request, including the foreground wait. Slow
+  background answers no longer disappear from that history or report only their final tail.
+  The existing wait limits and completion-completeness rules are unchanged.
+- **The conformance runner writes valid UTF-8 measurements.** Bounded text no longer cuts a
+  multibyte character; malformed external bytes are replaced at the artifact boundary. A failed
+  measurement or evidence write reports an error and fails the run instead of aborting or passing.
+- Cold/warm module-reuse checks wait for explicit engine work to finish before inspecting cache
+  files. A navigation answered from the previous session's cache can otherwise expose a partially
+  written BMI read copy. Missing work state or an expired wait fails; navigation budgets and the
+  zero-rebuild assertion remain unchanged.
+- Unchanged persistent memo snapshots in the bundled engine can still allocate memory during
+  idle periods. The engine remains unchanged; this release does not claim to fix that allocation.
+- Module builds completed inside a preparation closure count as real activity for stall detection,
+  without incrementing the completed-prime counter. Resource and configuration measurements keep
+  the engine activity and rebuild evidence needed to distinguish ongoing work from a stall.
+- A replacement configuration database waits until the retiring engine has exited before a new
+  engine starts, so old dependency closures cannot consume the next configuration's commands.
+  Configuration-undo measurements also wait for explicit preparation and indexing work to finish.
+- Applying a model after module preparation finishes schedules its implementation indexing sweep
+  again, so changed definitions outside the open files remain discoverable.
+- After a cache write failure, fixing the disk and restarting clangd restores analysis directly;
+  changing the project again is no longer needed to recover the failed plan.
+- The Termux nightly binds its script directory into the inner Debian rootfs, so the job can reach
+  the server checks. The existing best-effort policy for Termux and two-core rounds is unchanged.
+
 ## [0.0.16] — 2026-10-14
 
 The bundled engine is unchanged: [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.16)

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sunrisepeak.github.io/mcpp-language-server/specs/s3-target-selection.schema.json",
+  "title": "S3 optional targetSelection field (not a whole status notification)",
+  "type": "object",
+  "required": [
+    "mode",
+    "requestedTarget",
+    "source",
+    "reason",
+    "pending"
+  ],
+  "properties": {
+    "mode": {
+      "enum": [
+        "auto",
+        "project",
+        "explicit"
+      ]
+    },
+    "requestedTarget": {
+      "type": "string"
+    },
+    "source": {
+      "enum": [
+        "configuration",
+        "compile-commands",
+        "project"
+      ]
+    },
+    "reason": {
+      "type": "string"
+    },
+    "evidencePath": {
+      "type": "string"
+    },
+    "pending": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": true
+}
