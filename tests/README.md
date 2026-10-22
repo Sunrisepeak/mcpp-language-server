@@ -32,3 +32,6 @@ The runner's fake-LSP test also checks per-word typing traces: an incomplete ans
 new request, a complete answer stops reasking, and the trace records the original metadata
 without completion text. `test_answer_routing` holds actual workspace engine callbacks across
 cached fallbacks and proves that their full latency teaches the next request's adaptive wait.
+The fake LSP also exposes a partial owned BMI copy until its reported diagnostics work finishes:
+cache-reuse checks must drain that work, accept the finished copy, and still reject new builds,
+missing work state and a wait that never finishes.

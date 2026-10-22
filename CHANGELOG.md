@@ -45,6 +45,10 @@ The bundled engine remains [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak
 - **The conformance runner writes valid UTF-8 measurements.** Bounded text no longer cuts a
   multibyte character; malformed external bytes are replaced at the artifact boundary. A failed
   measurement or evidence write reports an error and fails the run instead of aborting or passing.
+- Cold/warm module-reuse checks wait for explicit engine work to finish before inspecting cache
+  files. A navigation answered from the previous session's cache can otherwise expose a partially
+  written BMI read copy. Missing work state or an expired wait fails; navigation budgets and the
+  zero-rebuild assertion remain unchanged.
 - Unchanged persistent memo snapshots in the bundled engine can still allocate memory during
   idle periods. The engine remains unchanged; this release does not claim to fix that allocation.
 - Module builds completed inside a preparation closure count as real activity for stall detection,

@@ -327,6 +327,12 @@ platform that cannot cause a fault reports it as skipped in the check's detail. 
 | `resources` | clangd's peak resident memory over the run (`/proc`, Linux) and, with `idle-seconds`, its CPU in cores and memory growth while nobody asks. After settling and the minimum `warmup-seconds` (60), explicit preparation, implementation and index work must finish within `background-work-seconds` (900); missing state or unfinished work fails the check. Scheduled work is measured separately, without choosing the idle baseline by CPU/RSS values. Budget: `rssMB`, `idleCpuCores`, `rssGrowth` |
 
 
+`module-cache-reused` drains explicit engine work within the run's timeout before taking its
+comparison snapshot, including on cold starts. Its `cacheDrain` measurement retains the work
+evidence; missing state or unfinished work fails the check. This prevents a cached navigation
+from racing a partially written owned BMI read copy. It preserves the original first-navigation
+timestamp and the assertion that existing module files were not rebuilt.
+
 Typing checks with `reask` also retain `wordTrace`: request ID, word ordinal, document version,
 position, send time, reason (`first` or `incomplete`), response latency, error flag, the original
 `isIncomplete`, and item count. Absent response fields remain null. The trace is limited to 256

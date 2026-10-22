@@ -36,9 +36,18 @@ std::optional<std::string> runner_path() {
     return std::nullopt;
 }
 
+std::string pcm_bytes(const std::string& source) {
+    return source + "\n" + std::string(256, 'x');
+}
+
 int serve() {
     const auto arguments = platform::env::arguments();
-    const bool drain { std::ranges::find(arguments, "--drain-ready") != arguments.end()
+    std::string cacheMode;
+    for (const auto& argument : arguments) if (argument.starts_with("--cache-")) cacheMode = argument;
+    const std::string cache { platform::env::get("MCPPLS_CACHE_DIR").value_or("") };
+    const std::string cacheSource { base::join_path(cache, "std.cppm") };
+    const std::string readCopy { base::join_path(cache, "modules/.owned-payload-v1/generation-1-2/payload.pcm") };
+    const bool drain { !cacheMode.empty() || std::ranges::find(arguments, "--drain-ready") != arguments.end()
         || std::ranges::find(arguments, "--drain-never") != arguments.end() || std::ranges::find(arguments, "--drain-missing") != arguments.end()
         || std::ranges::find(arguments, "--drain-restarting") != arguments.end() };
     const bool never { std::ranges::find(arguments, "--drain-never") != arguments.end() };
@@ -58,6 +67,10 @@ int serve() {
             const std::string method { request.value("method", std::string {}) };
             if (method == "exit") return 0;
             if (drain && method == "initialized") {
+                if (!cacheMode.empty()) {
+                    (void)fs::create_directories(base::parent_path(readCopy));
+                    (void)fs::write_file(readCopy, cacheSource + "\n" + std::string(32, 'x'));
+                }
                 (void)status("ready");
                 (void)send(lsp::make_request("drain-watch", "client/registerCapability", Json { { "registrations", Json::array({ Json {
                     { "id", "inputs" }, { "method", "workspace/didChangeWatchedFiles" },
@@ -89,17 +102,22 @@ int serve() {
                 } }) } } }) }
             };
             if (drain && method == "cxxModules/report") {
-                const bool busy { !restarting && (never || ++reports < 3) };
+                const bool busy { !cacheMode.empty() ? (++reports < 2 || cacheMode == "--cache-never")
+                                                   : !restarting && (never || ++reports < 3) };
+                if (!cacheMode.empty() && !busy) {
+                    (void)fs::write_file(readCopy, pcm_bytes(cacheSource) + (cacheMode == "--cache-new" ? "new-build" : ""));
+                }
+                const bool preparationBusy { cacheMode.empty() && busy };
                 Json details {
                     { "generation", changes + 1 },
                     { "handshakeDone", !restarting }, { "accepting", !restarting }, { "restartScheduled", restarting },
-                    { "preparation", Json { { "done", busy ? 0 : 140 }, { "wanted", 140 }, { "running", busy ? 1 : 0 },
+                    { "preparation", Json { { "done", preparationBusy ? 0 : 140 }, { "wanted", 140 }, { "running", preparationBusy ? 1 : 0 },
                         { "completedModuleBuilds", changes == 0 ? 5 : 10 } } },
                     { "implementationIndex", Json { { "sweepComplete", true }, { "sweepScheduled", false }, { "queued", 0 }, { "running", 0 } } },
                     { "backgroundIndex", Json { { "active", false } } },
                     { "pendingRequests", 0 }, { "filesAwaitingDiagnostics", busy ? 11 : 0 }, { "deferredRequests", 0 }, { "heldRequests", 0 }
                 };
-                if (missing) details.erase("backgroundIndex");
+                if (missing || cacheMode == "--cache-missing") details.erase("backgroundIndex");
                 result = Json { { "roots", Json::array({ Json { { "state", "ready" },
                     { "engines", Json::array({ Json { { "name", "clangd" }, { "state", restarting ? "starting" : "ready" }, { "details", std::move(details) } } }) }
                 } }) } };
@@ -141,10 +159,12 @@ int main() {
     };
     expect(fs::write_file(base::join_path(fixture, "scenario.json"), scenario.dump()).has_value());
     expect(fs::write_file(base::join_path(fixture, "main.cpp"), "int main() {}\n").has_value());
-    const auto invoke = [&](const std::string& measure, const std::string& evidence) {
+    const auto invoke = [&](const std::string& measure, const std::string& evidence, const std::string& cache = std::string {}, bool warm = false) {
         platform::SpawnOptions spawn;
         spawn.program = *runner;
         spawn.arguments = { "run", "--server", self_path(), "--fixture", fixture, "--measure", measure, "--timing-evidence", evidence, "--timeout", "5" };
+        if (!cache.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--cache-dir", cache });
+        if (warm) spawn.arguments.push_back("--expect-warm");
         return platform::run(std::move(spawn), std::chrono::seconds { 30 });
     };
     const std::string measure { base::join_path(root, "measure.json") };
@@ -240,6 +260,43 @@ int main() {
             expect(entry["error"] == false);
         }
         expect(trace.dump().find("private") == std::string::npos) << "trace keeps counts, never completion text";
+    };
+    "module reuse drains partial read copies and preserves cold, rebuild and missing-state checks"_test = [&] {
+        // Owned payloads are Linux's cache representation; its source scanner uses POSIX paths.
+        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::linux) return;
+        const std::string cache { base::join_path(root, "module-cache") };
+        const std::string source { base::join_path(cache, "std.cppm") };
+        const std::string stable { base::join_path(cache, "modules/.owned-payload-v1/generation-0-1/payload.pcm") };
+        for (const std::string mode : { "--cache-copy", "--cache-cold", "--cache-new", "--cache-missing", "--cache-never" }) {
+            fs::remove_all(cache);
+            expect(fs::create_directories(base::parent_path(stable)).has_value());
+            expect(fs::write_file(source, "export module std;\n").has_value());
+            const bool cold { mode == "--cache-cold" };
+            if (!cold) expect(fs::write_file(stable, pcm_bytes(source)).has_value());
+            const Json sample { { "name", "timing" }, { "server-arguments", Json::array({ mode }) },
+                { "checks", Json::array({ Json { { "id", "SC4" }, { "kind", "module-cache-reused" }, { "module", "std" } } }) } };
+            expect(fs::write_file(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());
+            const auto result = invoke(measure, evidence, cache, !cold);
+            expect(fatal(result.has_value()));
+            const bool good { mode == "--cache-copy" || cold };
+            expect(result->exitCode == (good ? 0 : 1)) << mode << result->output << result->error;
+            const auto document = fs::read_file(measure);
+            expect(fatal(document.has_value()));
+            const Json summary = Json::parse(*document);
+            const Json& check = summary["checks"][0];
+            expect(check["ok"] == good) << mode << check.dump();
+            expect(fatal(check.contains("measure") && check["measure"].contains("cacheDrain"))) << mode;
+            const Json& drained = check["measure"]["cacheDrain"];
+            const bool drainedReady { good || mode == "--cache-new" };
+            expect(drained["ready"] == drainedReady) << mode << drained.dump();
+            if (drainedReady) {
+                expect(drained["seconds"].get<double>() >= 1.0) << "snapshot must wait for the fake's second report";
+                expect(drained["activityAtEnd"]["engines"][0]["filesAwaitingDiagnostics"] == 0);
+            } else {
+                expect(check["detail"].get<std::string>().find("module cache work did not finish") != std::string::npos);
+            }
+            if (mode == "--cache-new") expect(check["detail"].get<std::string>().find("added ") != std::string::npos);
+        }
     };
     const auto drain_scenario = [&](std::string mode, int bound) {
         const Json sample { { "name", "timing" }, { "server-arguments", Json::array({ std::move(mode) }) },

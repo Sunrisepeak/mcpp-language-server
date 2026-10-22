@@ -4168,6 +4168,14 @@ public:
             // file of the module is still there unchanged, and none was added under another command.
             const std::string module { check.value("module", std::string { "std" }) };
             const auto before = moduleFilesBefore_.find(module);
+            // Navigation can come from the persisted answer cache before clangd finishes
+            // copying its BMI. Check reuse only after explicit engine work has drained,
+            // including on a cold run that establishes the next session's baseline.
+            const auto drained = drain_background(timeout_);
+            measure_ = Json { { "module", module }, { "cacheDrain", drained.measure } };
+            if (!drained.unfinished.empty()) {
+                return { false, std::format("module cache work did not finish within {} s: {}", timeout_.count(), drained.unfinished) };
+            }
             if (before == moduleFilesBefore_.end() || before->second.empty()) {
                 return { !expectWarm_, std::format("no module file of {} before the server started: a cold start", module) };
             }

@@ -146,3 +146,9 @@ MCPPLS_CONFORMANCE="$runner" mcpp test --profile "$build_profile" conformance
 新增 K1 回归保留四次引擎请求：原请求等待 1100 ms 后已缓存先答，再等 150 ms 给真实引擎答案。报告必须包含完整延迟，下一请求在 750 ms 时仍等待引擎；最终完整列表只能由引擎提供。旧产品加同一测试会有 4 个断言失败，修复后通过。对照应在独立 worktree 中将新增测试应用到 `0e2a146`，不要在正进行验收的构建中来回替换源码。
 
 Windows 原生环境仍运行完整 `ux-modules-windows` fixture，以原 `askedAsTypedPerWord <= 2.0` 门槛验收。首次 `--measure` 的 `wordTrace` 可逐词核对 first/incomplete、请求版本和位置、原始 `isIncomplete`、候选数量与响应延迟；超过 256 条的数量明确写入 `wordTraceDropped`。CI 的 `conformance-measures-win32-x64-*` artifact 保存首次结果，原失败不会被 verbose 重跑覆盖。不得通过改变 trigger context、输入节奏或门槛使旧失败消失。
+
+## 8. SC4：先完成引擎工作，再比较缓存
+
+`MCPPLS_CONFORMANCE="$runner" mcpp test --profile "$build_profile" conformance` 包含确定性回归：fake LSP 先暴露一份短 owned std copy，并报告 `filesAwaitingDiagnostics > 0`；后续 report 才补齐同字节副本并报告工作结束。旧 runner 不等工作结束，立刻报新增 BMI；新 runner 应接受补齐的副本。不同大小的新 BMI、缺失工作状态、永远未完成三种情况仍必须失败，cold 也要 drain 后才能建立 warm 的基线。
+
+真实引擎则运行原完整 `conformance/fixtures/timing`，同一 workspace/cache 依次 cold 与 `--expect-warm`，保持导航门槛 15/5 秒。`SC4-std-reused.measure.cacheDrain` 保留等待时长和末态；首导航仍是最初回答的时间，不能由后续 drain 改写。CI 的 `timing-<platform>` artifact 同时保留 cold/warm JSON；首次失败与后续修补结果分别记录。
