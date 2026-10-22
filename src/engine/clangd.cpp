@@ -1528,6 +1528,8 @@ public:
         // So the status settles into ready or degraded on its own, not only when something else wakes
         // the event loop (real-project plan RP1.4, design P7).
         if (primer_.busy() && lastPrimeProgressAt_) consider(*lastPrimeProgressAt_ + options_.preparationStallTimeout);
+        // W5: a file set aside after an exit is looked at again once preparation is done with its rebuilt modules.
+        if (closureRetryCheck_) consider(Clock::now() + std::chrono::seconds { 1 });
         for (const auto& [key, held] : held_) {
             if (const auto joined = joinedAt_.find(key); joined != joinedAt_.end()) consider(joined->second + DATABASE_REREAD);
             else if (!held.planned) consider(held.since + PLAN_PATIENCE);
