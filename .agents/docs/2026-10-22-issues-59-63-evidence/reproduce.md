@@ -133,3 +133,16 @@ CONFORMANCE_CLANGXX="$HOME/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang
 ```
 
 CI 同时检查原生 dev/release 和 payload 内打包的 mock。旧失败的 artifact SHA、初始化顺序及必要反汇编另保存在本地 `.payload-cache/59-63-macos-mock-startup/`；Linux 上的静态 Mach-O 分析不能代替 macOS 原生运行。
+
+## 7. 后台补全节奏与逐词证据
+
+完成对应 profile 的 `mcpp build` 后，运行真实 Workspace 回归和 runner 的 fake-LSP 回归：
+
+```bash
+MCPPLS_CONFORMANCE="$runner" mcpp test --profile "$build_profile" answer_routing
+MCPPLS_CONFORMANCE="$runner" mcpp test --profile "$build_profile" conformance
+```
+
+新增 K1 回归保留四次引擎请求：原请求等待 1100 ms 后已缓存先答，再等 150 ms 给真实引擎答案。报告必须包含完整延迟，下一请求在 750 ms 时仍等待引擎；最终完整列表只能由引擎提供。旧产品加同一测试会有 4 个断言失败，修复后通过。对照应在独立 worktree 中将新增测试应用到 `0e2a146`，不要在正进行验收的构建中来回替换源码。
+
+Windows 原生环境仍运行完整 `ux-modules-windows` fixture，以原 `askedAsTypedPerWord <= 2.0` 门槛验收。首次 `--measure` 的 `wordTrace` 可逐词核对 first/incomplete、请求版本和位置、原始 `isIncomplete`、候选数量与响应延迟；超过 256 条的数量明确写入 `wordTraceDropped`。CI 的 `conformance-measures-win32-x64-*` artifact 保存首次结果，原失败不会被 verbose 重跑覆盖。不得通过改变 trigger context、输入节奏或门槛使旧失败消失。

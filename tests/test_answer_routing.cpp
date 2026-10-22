@@ -374,6 +374,46 @@ int main() {
         expect(labels_of(*served) == std::vector<std::string> { "push_back", "size", "empty" }) << "the engine's own";
     };
 
+    "K1 background completions teach the file's pace from the original request"_test = [] {
+        Fixture f;
+        f.open("a.cpp", A);
+        const Json initial = f.ask("textDocument/completion", "a.cpp", 2, 8);
+        expect(f.answer(initial, items({ "cached" })));
+        f.tick(10ms);
+
+        // These lists stay incomplete deliberately: A1 must not hide the answer-layer path.
+        // Four slow completions replace EnginePace's four-entry history, including the initial
+        // fast seed. Each answer arrives 1.25 s after its request, but just 0.15 s after detach.
+        // The unchanged production limits are 0.45 s for a kept answer, 1 s for the regular
+        // request, and 2.5 s for adaptation. There is ample room on both sides of the probe.
+        for (int sample { 0 }; sample < 4; ++sample) {
+            const Json asked = f.ask("textDocument/completion", "a.cpp", 2, 8);
+            f.tick(1100ms);
+            const auto fallback = f.sink.response(asked);
+            expect(fatal(fallback.has_value())) << "the held engine request gave its K1 fallback";
+            expect((*fallback)["result"]["isIncomplete"] == true);
+            expect(f.held->pending.contains(asked.dump())) << "the same engine request is still running";
+            f.tick(150ms);
+            expect(f.answer(asked, items({ "cached" })));
+            f.tick(10ms);
+        }
+        const Json measured = f.workspace->report()["answers"]["fromEngine"];
+        expect(measured.value("maxMs", 0.0) >= 1000.0)
+            << "engine latency includes the wait before detaching, not only the background tail: " << measured.dump();
+
+        const Json probe = f.ask("textDocument/completion", "a.cpp", 2, 8);
+        f.tick(750ms);   // well past the old 450 ms fallback; well inside the learned ~1.4 s wait
+        expect(!f.sink.response(probe).has_value()) << "background samples let the next request wait for its engine";
+        expect(f.held->pending.contains(probe.dump())) << "one live engine request, not a replacement";
+        Json authoritative = items({ "engine_current" });
+        authoritative["isIncomplete"] = false;
+        expect(f.answer(probe, authoritative));
+        const auto response = f.sink.response(probe);
+        expect(fatal(response.has_value()));
+        expect(labels_of(*response) == std::vector<std::string> { "engine_current" }) << response->dump();
+        expect((*response)["result"]["isIncomplete"] == false) << "only the engine marked this list complete";
+    };
+
     "a request the person cancelled keeps its answer for the next time"_test = [] {
         Fixture f;
         f.open("a.cpp", A);

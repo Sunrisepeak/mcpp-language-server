@@ -447,7 +447,8 @@ struct Workspace::Impl final : engine::Host {
         answering::Asked asked;
         std::optional<answering::Served> served;   // what went out instead of the engine's answer, if anything did
         Json clientId;
-        Clock::time_point started;
+        Clock::time_point requestStarted;          // the original client request, before any fallback
+        Clock::time_point started;                 // detached at; eviction and notice freshness use this
         Clock::time_point until;
         std::int64_t version { 0 };                 // the document's when it was asked
         bool sparse { false };                      // what went out had (almost) nothing after a `.`, `->` or `::` (R3)
@@ -1244,7 +1245,7 @@ struct Workspace::Impl final : engine::Host {
                                       ? served->result["items"].size() : 0 };
         // (Almost) nothing went out: no kept answer, only the file's words, and fewer than three of them.
         const bool sparse { asked.kind == answer::Kind::completion && trigger && items < 3 && (!served || served->provenance.source == answer::Source::native) };
-        background_[jobId] = Background { asked, std::move(served), clientId, Clock::now(), Clock::now() + BACKGROUND_KEEP,
+        background_[jobId] = Background { asked, std::move(served), clientId, jobs.at(jobId).started, Clock::now(), Clock::now() + BACKGROUND_KEEP,
                                           document != nullptr ? document->version : 0, sparse };
         answerInflight_[asked.k1] = jobId;
         answers_->count_background("detached");
@@ -1263,7 +1264,12 @@ struct Workspace::Impl final : engine::Host {
             answers_->count_background("dropped");
             return;
         }
-        const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - background.started);
+        const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - background.requestStarted);
+        // A kept answer does not finish the engine's work. Its eventual full latency must
+        // teach the same pace as a foreground answer, rather than relearning only its tail.
+        if (background.asked.kind == answer::Kind::completion || background.asked.kind == answer::Kind::signature_help) {
+            note_core_completion(background.asked.path, background.requestStarted);
+        }
         answers_->keep(background.asked, answer.value, background.served, took);
         answers_->count_engine(background.asked, took);
         answers_->count_background("answered");
@@ -1663,7 +1669,9 @@ struct Workspace::Impl final : engine::Host {
         if (it == lateCompletions.end()) return;
         LateCompletion late { std::move(it->second) };
         lateCompletions.erase(it);
-        if (answer.kind == engine::Answer::Kind::result) note_core_completion(late.path, late.started);
+        // The answer layer may also retain this C-2 request. Its background callback below
+        // records that result once; with the layer off, C-2 still owns its pace sample.
+        if (answer.kind == engine::Answer::Kind::result && !background_.contains(jobId)) note_core_completion(late.path, late.started);
         // An empty answer or an error is nothing to give: whoever waits for it gets the file's words at its budget.
         if (answer.kind != engine::Answer::Kind::result || completion::is_empty(answer.value)) return;
         ++lateCompletionsArrived;

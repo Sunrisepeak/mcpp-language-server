@@ -327,6 +327,14 @@ platform that cannot cause a fault reports it as skipped in the check's detail. 
 | `resources` | clangd's peak resident memory over the run (`/proc`, Linux) and, with `idle-seconds`, its CPU in cores and memory growth while nobody asks. After settling and the minimum `warmup-seconds` (60), explicit preparation, implementation and index work must finish within `background-work-seconds` (900); missing state or unfinished work fails the check. Scheduled work is measured separately, without choosing the idle baseline by CPU/RSS values. Budget: `rssMB`, `idleCpuCores`, `rssGrowth` |
 
 
+Typing checks with `reask` also retain `wordTrace`: request ID, word ordinal, document version,
+position, send time, reason (`first` or `incomplete`), response latency, error flag, the original
+`isIncomplete`, and item count. Absent response fields remain null. The trace is limited to 256
+requests, with `wordTraceDropped` recording omissions; it contains no completion or document
+text. It inspects the original responses after typing, without adding requests or changing
+typing inputs or budgets. Native CI uploads the first run's measurement JSON even on failure;
+the existing verbose diagnostic rerun does not overwrite that evidence.
+
 For #59 performance diagnosis, measurements retain the original budgets and add work evidence.
 `timeline` reports `longestStallFromSeconds`, `longestStallToSeconds`,
 `longestStallCpuCores` (null without sufficient Linux samples), `longestStallActivity`,

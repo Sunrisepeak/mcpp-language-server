@@ -2551,6 +2551,9 @@ public:
         std::size_t waitedForPending { 0 };     // keys typed while the word's answer was on its way
         std::size_t askedForIncomplete { 0 };   // the last one was answered incomplete
         std::size_t words { 0 };
+        constexpr std::size_t WORD_TRACE_LIMIT { 256 };
+        Json wordTrace = Json::array();
+        std::size_t wordTraceDropped { 0 };
         const auto identifier_char = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_'; };
         const std::chrono::milliseconds autosaveEvery { check.value("autosave-ms", 0) };
         // files.autoSave "afterDelay": the buffer is saved once this long has passed since the last keystroke.
@@ -2719,10 +2722,20 @@ public:
                             }
                         }
                         if (ask) {
+                            const bool firstInWord { !wordRequest.has_value() };
                             wordRequest = client_.send_async("textDocument/completion", Json { { "textDocument", Json { { "uri", documentUri } } },
                                                                                              { "position", Json { { "line", cursor.line }, { "character", cursor.character } } } });
                             completions.push_back(*wordRequest);
                             ++askedAsTyped;
+                            if (wordTrace.size() < WORD_TRACE_LIMIT) {
+                                wordTrace.push_back(Json { { "id", *wordRequest }, { "word", words },
+                                    { "documentVersion", open_.at(file).second },
+                                    { "position", Json { { "line", cursor.line }, { "character", cursor.character } } },
+                                    { "sentSeconds", seconds_between(began, client_.asyncRequests.at(*wordRequest).sent) },
+                                    { "reason", firstInWord ? "first" : "incomplete" } });
+                            } else {
+                                ++wordTraceDropped;
+                            }
                         }
                     }
                 }
@@ -2864,6 +2877,17 @@ public:
         // more of them ask again after an incomplete one, so the per-word total above is what a fixture bounds.
         enforce_max(check, "incompletePerWord",
                     words > 0 ? static_cast<double>(askedForIncomplete) / static_cast<double>(words) : 0.0, "completions asked again per word for an incomplete answer", "", failures);
+        // Inspect the original responses only after typing has finished; tracing sends no requests.
+        for (auto& entry : wordTrace) {
+            const auto& request { client_.asyncRequests.at(entry["id"].get<std::int64_t>()) };
+            entry["responseSeconds"] = request.answered ? Json(seconds_between(request.sent, *request.answered)) : Json(nullptr);
+            entry["error"] = request.isError;
+            const Json& result { request.result };
+            const Json* incomplete { result.is_object() ? lsp::find(result, "isIncomplete") : nullptr };
+            entry["isIncomplete"] = incomplete != nullptr ? *incomplete : Json(nullptr);
+            const Json* items { result.is_array() ? &result : result.is_object() ? lsp::find(result, "items") : nullptr };
+            entry["items"] = items != nullptr && items->is_array() ? Json(items->size()) : Json(nullptr);
+        }
         Json summary { { "seconds", typingSeconds }, { "hz", hz }, { "autosaveMs", autosaveEvery.count() }, { "autosaveIdleMs", autosaveIdle.count() }, { "completions", completions.size() },
                        { "reask", reask }, { "askedAsTyped", askedAsTyped }, { "keysWhilePending", waitedForPending },
                        { "askedForIncomplete", askedForIncomplete }, { "typedWords", words }, { "fromWord", fromWord },
@@ -2872,6 +2896,11 @@ public:
                        { "restarts", restarts }, { "filesSetAside", setAside }, { "diagnosticsRefresh", refresh ? Json(*refresh) : Json(nullptr) },
                        { "statesSeen", statesSeen }, { "doomed", doomed }, { "moduleFailedDiagnostics", moduleFailedDiagnostics }, { "stalledSamples", stalledSamples },
                        { "firstOpenSeconds", firstOpen ? Json(*firstOpen) : Json(nullptr) } };
+        if (!reask.empty()) {
+            summary["wordTrace"] = std::move(wordTrace);
+            summary["wordTraceLimit"] = WORD_TRACE_LIMIT;
+            summary["wordTraceDropped"] = wordTraceDropped;
+        }
         std::string importerBrief;
         if (withImporter) {
             summary["importer"] = Json { { "file", importerFile }, { "completions", importerCompletions.size() }, { "answered", importerAnswered.size() },

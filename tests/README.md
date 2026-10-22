@@ -27,3 +27,8 @@ malformed external output, and nonzero failures when artifacts cannot be written
 Those tests print a note when the corresponding tool build is unavailable. When
 several tool builds coexist, `MCPPLS_CONFORMANCE=/absolute/path/to/mcppls-conformance`
 selects the exact runner build for the UTF-8 regression.
+
+The runner's fake-LSP test also checks per-word typing traces: an incomplete answer causes one
+new request, a complete answer stops reasking, and the trace records the original metadata
+without completion text. `test_answer_routing` holds actual workspace engine callbacks across
+cached fallbacks and proves that their full latency teaches the next request's adaptive wait.

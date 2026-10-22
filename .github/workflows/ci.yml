@@ -554,10 +554,11 @@ jobs:
                 --keep-bundles "$RUNNER_TEMP/bundles" \
                 ${fixture_extra[@]+"${fixture_extra[@]}"} --fixture "conformance/fixtures/${fixture%@*}" "$@"
           }
+          mkdir -p "$RUNNER_TEMP/conformance-measures"
           failed=''
           for fixture in ${{ matrix.fixtures }}; do
             echo "::group::$fixture"
-            if ! run_fixture "$fixture" --timeout 180; then
+            if ! run_fixture "$fixture" --timeout 180 --measure "$RUNNER_TEMP/conformance-measures/${fixture//@/-}.json"; then
               failed="$failed $fixture"
             fi
             echo "::endgroup::"
@@ -569,6 +570,13 @@ jobs:
             run_fixture "$first" --timeout 60 --verbose 2>&1 | tail -200 || true
             exit 1
           fi
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: conformance-measures-${{ matrix.platform }}-${{ matrix.part || 'full' }}
+          path: ${{ runner.temp }}/conformance-measures/*.json
+          if-no-files-found: ignore
 
       # Issue #23 fix plan F18: the bundles diagnostic-bundle exported on this runner's own account, whose
       # name is in every path of it (runneradmin and RUNNER~1 on Windows). The fixture already held each

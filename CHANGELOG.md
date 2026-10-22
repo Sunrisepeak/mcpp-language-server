@@ -38,6 +38,10 @@ The bundled engine remains [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak
 
 ### Reliability and measurements
 
+- Completion and signature-help answers arriving after a cached fallback now teach the file's
+  existing adaptive wait using the entire engine request, including the foreground wait. Slow
+  background answers no longer disappear from that history or report only their final tail.
+  The existing wait limits and completion-completeness rules are unchanged.
 - **The conformance runner writes valid UTF-8 measurements.** Bounded text no longer cuts a
   multibyte character; malformed external bytes are replaced at the artifact boundary. A failed
   measurement or evidence write reports an error and fails the run instead of aborting or passing.

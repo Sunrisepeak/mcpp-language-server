@@ -44,7 +44,7 @@ int serve() {
     const bool never { std::ranges::find(arguments, "--drain-never") != arguments.end() };
     const bool missing { std::ranges::find(arguments, "--drain-missing") != arguments.end() };
     const bool restarting { std::ranges::find(arguments, "--drain-restarting") != arguments.end() };
-    int reports { 0 }, changes { 0 };
+    int reports { 0 }, changes { 0 }, completions { 0 };
     const auto send = [](const Json& message) { return platform::stdio::write_output(lsp::encode_frame(message)); };
     const auto status = [&](std::string state) { return send(lsp::make_notification("cxxModules/status", Json { { "state", std::move(state) } })); };
     lsp::FrameReader frames;
@@ -74,6 +74,12 @@ int serve() {
             if (!request.contains("id")) continue;
             Json result = nullptr;
             if (method == "initialize") result = Json { { "capabilities", Json { { "experimental", Json { { "cxxModules", Json::object() } } }, { "hoverProvider", true } } } };
+            if (method == "textDocument/completion") {
+                ++completions;
+                result = Json { { "isIncomplete", completions == 1 },
+                    { "items", Json::array({ Json { { "label", "private-completion-text" } } }) } };
+                if (completions == 2) result["items"].push_back(Json { { "label", "second-private-item" } });
+            }
             if (method == "textDocument/hover") result = Json { { "contents", Json { { "kind", "plaintext" }, { "value", std::string(159, 'a') + "中文😀" } } } };
             if (method == "cxxModules/report") result = Json {
                 { "note", "中文😀" },
@@ -199,6 +205,41 @@ int main() {
             expect(result->exitCode == 1) << result->output << result->error;
             expect(result->output.find("engine work evidence unavailable") != std::string::npos);
         }
+    };
+    "typing trace preserves per-word requests and records the original completion metadata"_test = [&] {
+        const Json sample { { "name", "timing" }, { "checks", Json::array({ Json {
+            { "id", "WORDS" }, { "kind", "typing" }, { "file", "main.cpp" }, { "seconds", 1 }, { "hz", 5 },
+            { "completion-every-ms", 0 }, { "reask", "incomplete" },
+            { "scripts", Json::array({ Json { { "line", 0 }, { "text", "abc" } } }) }
+        } }) } };
+        expect(fs::write_file(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());
+        const auto result = invoke(measure, evidence);
+        expect(fatal(result.has_value()));
+        expect(result->exitCode == 0) << result->output << result->error;
+        const auto document = fs::read_file(measure);
+        expect(fatal(document.has_value()));
+        const Json summary = Json::parse(*document);
+        const Json& typed = summary["checks"][0]["measure"];
+        expect(typed["typedWords"] == 1 && typed["askedAsTyped"] == 2 && typed["askedForIncomplete"] == 1);
+        expect(typed["completions"] == 2 && typed["answered"] == 2);
+        expect(typed["wordTraceLimit"] == 256 && typed["wordTraceDropped"] == 0);
+        const Json& trace = typed["wordTrace"];
+        expect(fatal(trace.is_array() && trace.size() == 2));
+        expect(trace[0]["word"] == 1 && trace[1]["word"] == 1);
+        expect(trace[0]["reason"] == "first" && trace[1]["reason"] == "incomplete");
+        expect(trace[0]["id"].get<std::int64_t>() + 1 == trace[1]["id"].get<std::int64_t>());
+        expect(trace[0]["documentVersion"].get<int>() + 1 == trace[1]["documentVersion"].get<int>());
+        expect(trace[0]["position"] == Json({ { "line", 0 }, { "character", 1 } }));
+        expect(trace[1]["position"] == Json({ { "line", 0 }, { "character", 2 } }));
+        expect(trace[0]["isIncomplete"] == true && trace[1]["isIncomplete"] == false);
+        expect(trace[0]["items"] == 1 && trace[1]["items"] == 2);
+        expect(trace[0]["sentSeconds"].get<double>() >= 0.0);
+        expect(trace[1]["sentSeconds"].get<double>() >= trace[0]["sentSeconds"].get<double>());
+        for (const auto& entry : trace) {
+            expect(entry["responseSeconds"].is_number() && entry["responseSeconds"].get<double>() >= 0.0);
+            expect(entry["error"] == false);
+        }
+        expect(trace.dump().find("private") == std::string::npos) << "trace keeps counts, never completion text";
     };
     const auto drain_scenario = [&](std::string mode, int bound) {
         const Json sample { { "name", "timing" }, { "server-arguments", Json::array({ std::move(mode) }) },

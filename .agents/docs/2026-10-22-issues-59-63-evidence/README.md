@@ -81,6 +81,18 @@ U8 修复同时处理驱动和测量：需要重启时，新 CDB/生成输入等
 | server | 730294c58cffd92b694ea72eeb39ccdf57f710a57cdcf5930c0199860651611d |
 | runner | b3fb89f81ebaf4b83ed89edaa84cc666836e8af8f25f2c9cbe9c3c82e9f67b68 |
 
+## 后台补全节奏修复：新验收进行中
+
+`0e2a146` 的 PR CI `39702173244` 在 Windows U17 实际失败：66 请求 / 24 词 = 2.75，42 次 incomplete 重询；同源码 nightly 的该场景为 46/24 = 1.92，通过原 2.0 门槛。两份原始日志均保留，不能用后一次通过抹掉失败。macOS 两组原生 conformance 已通过，之前的 mock 启动问题已有平台运行证明。
+
+已定位并补修 mcppls 的独立缺口：K1 缓存先答后，引擎的后台回答未进入文件已有的 completion pace；计时也从后台 detach 才开始，漏掉此前等待。现在从原请求开始计时，并将成功的 completion/signature-help 后台回答记录一次；C-2 与答案层共同保留的请求不重复记样。detach 的过期、淘汰和通知时效仍沿用原时间。等待上限、`isIncomplete` 和 U17 原输入/门槛不变。
+
+同一实际 Workspace/HeldCore 回归在旧实现产生 4 个断言失败（只记到约 150 ms 尾段、下一请求过早缓存先答等），修复后 dev 的 17 cases / 112 assertions 全通过。原始对照在本地 `.payload-cache/59-63-background-completion-pace/{before-dev,fixed-dev}.log`。这证明漏记缺口已修复；Windows U17 是否稳定通过仍须新平台 CI 验收，不能由该单测替代。当前产品字节已改变，上表旧九阶段结果仅为历史记录，新的完整九阶段性能链也必须重跑。
+
+修补后的 dev/release 完整 workspace 均为 6 members / 57 test programs / 0 failed；runner 新回归各 7 cases / 88 assertions。实际 VS Code 1.143.0 为 44 passing / 1 macOS-only pending，退出 0，workspace unchanged。规格、devtools 全检查通过。完整 LSP、原九阶段性能链及新平台 CI 尚在验收，不能将上述局部结果写成全部放行。
+
+为核对下一份 U17 证据，runner 追加最多 256 条逐词请求元数据及丢弃计数，不存正文或候选标签；原生 CI 保存首次运行的 measure artifact，诊断重跑不覆盖失败。详见 [复现步骤](reproduce.md#7-后台补全节奏与逐词证据)。
+
 <a id="memo"></a>
 ## 已定位但未修复的引擎局限
 
