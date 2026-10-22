@@ -22,9 +22,8 @@ on:
         type: string
         default: ''
 
-permissions:
-  contents: read
-  actions: read
+# No permissions of its own: it has the caller's. CI's default (contents) is all it needs for its own run's
+# payload; nightly's `payload-run` reads another run's artifacts, and nightly grants `actions: read` for it.
 
 jobs:
   zed:

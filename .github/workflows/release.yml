@@ -35,8 +35,6 @@ on:
 
 permissions:
   contents: write
-  # zed-smoke.yml, called through prerelease and release-checks, asks for it (it can test another run's payload).
-  actions: read
 
 env:
   XLINGS_NON_INTERACTIVE: '1'
