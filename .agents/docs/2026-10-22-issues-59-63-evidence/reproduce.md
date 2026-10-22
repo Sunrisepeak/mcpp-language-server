@@ -166,3 +166,9 @@ Windows 原生环境仍运行完整 `ux-modules-windows` fixture，以原 `asked
 `mcpp test process` 和 `mcpp test process --profile release` 保留原 `busy CPU > 0.5 s`、`idle CPU < 0.2 s` 断言。旧测试固定等 2 秒 wall time，不能保证获得 0.5 秒 CPU；PR/nightly 的 macOS release 首轮分别只读到 0.09/0.08 秒增量。它们仍是真失败，不能据此排除产品 sampler 的问题。
 
 子进程 READY 后由父进程先采样，再发送 START；子进程用独立 native process CPU 时钟确认累计至少 0.75 秒并发送 DONE，保持进程存活供父进程再次采样。父进程的工作与握手共用原 30 秒期限；sampler 每次调用另有既有界限（macOS 的 ps 为 2 秒），清理也可能越过工作期限，迟到采样仍失败。记录 native work 和两组 before/after；独立工作未完成、时钟不可用或 subject 读数不足均失败。Linux oracle 直接 native clock syscall，macOS 直接 libSystem 的 Darwin CPU clock（ID 12），不使用 subject `/proc`/`ps` 读取器；当前 OpenKAL 的 `std::clock` 实际走 monotonic，不能充当 CPU oracle。该改动只涉及测试，不更改产品 sampler 或性能输入/预算。
+
+## 11. 发送队列的编码与快照
+
+运行两种 profile 的完整 `mcpp test process`。原 nonreader 测试仍发送 64 条、每条 64 KiB，要求全部 send 在 2 秒内返回、stop 在 10 秒内结束；现在同时记录实际耗时。Release 39732244483 的原 macOS dev 失败日志保存在 `.payload-cache/59-63-delivery/release-macos-dev-first-failure.log`，不得以另一次通过或放宽时限替代它。
+
+双 framing 的真实 echo 子进程回归检查 FIFO、发送后修改或销毁原 JSON 的快照独立性、UTF-8 replacement；退出的 peer 必须拒绝继续发送并完成 stop。新 writer 在锁外使用既有 dump/encode_frame，编码异常必须转换成连接失败，不能逃出线程；没有添加生产测试 hook 或伪造损坏 JSON 来触发 OOM。该异常隔离有代码审查，不能宣称已经完成原生 OOM 故障注入。

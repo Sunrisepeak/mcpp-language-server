@@ -38,6 +38,9 @@ The bundled engine remains [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak
 
 ### Reliability and measurements
 
+- Child-connection messages are encoded by the writer, after an owned snapshot is queued.
+  Large JSON serialization no longer runs on the caller's event loop; FIFO order, framing and
+  UTF-8 replacement are preserved. A writer encoding failure ends the connection without terminating the server.
 - Renaming a symbol owned by mcpp's read-only engine interface is refused even from project
   references when the compiler returns only project edits. Definition and declaration ownership
   are checked before edits; unresolved or stale ownership returns an error without partial changes.

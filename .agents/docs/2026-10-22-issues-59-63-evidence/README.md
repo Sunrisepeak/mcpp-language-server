@@ -1,6 +1,6 @@
 # #59 / #63 验证简报
 
-日期：2026-10-22 JST。**R1 产品补修本地已通过；新 CI 的 CPU 采样测试与原九阶段 warm 超时仍待解决，PR 保持草稿。**
+日期：2026-10-22 JST。**PR #64 已合入；合入前 CI/nightly 与最终完整九阶段通过。发布预检新发现 macOS dev 的发送时限失败，补修与新验证进行中，尚未发布。**
 
 本目录只收结论、[复现步骤](reproduce.md)和 [SHA-256 索引](raw-index.tsv)。45 份原始记录共 26,769 行，已移出 PR；失败、对照、日志与 core 均保留。源码边界见 [设计方案](../2026-10-22-issues-59-63-target-and-reliability-design.md)。
 
@@ -55,6 +55,14 @@ R1 补修本地 dev/release 全 workspace 均为 6 members / 57 programs / 0 fai
 新提交 `f6ec554` 的 PR/nightly macOS release 均在既有 CPU 测试失败：固定 wall 2 s 后忙进程只增加 0.09/0.08 CPU s，低于原 >0.5 门槛；不能由此确认实际调度量或排除 sampler 缺陷。测试补修先以独立 native CPU oracle 完成 ≥0.75 CPU s，再测原 subject；READY/START/DONE 共用原 30 s 硬期限，原 CPU 断言不变。Linux dev/release 各 23 cases / 91 assertions 通过，native work 约 0.75 s、subject 增量 0.74/0.75 s；sampler 单次既有界限及清理可越过工作期限，迟到仍失败，macOS 原生验证待 CI；见[复现第 10 节](reproduce.md#10-cpu-采样前先确认实际-cpu-工作完成)。另一 macOS conformance 失败发生在 checkout DNS，产品测试尚未启动，首轮日志均保留。
 
 同一新产品的原性能首轮 mcpp warm ready **15.219 s > 12 s**，真实失败；176 已有模块零重建/零首次构建、零错误/重启。producer/model/首次导航很快，慢段位于引擎 prerequisite reuse 检查与扫描。该段采样约 0.343 core；前检查点约 1.353 core，总 CPU 工作近似相当，但缺当时 IO、调度及宿主 pressure 证据，不归因外部负载或认定产品无关。其余阶段继续，不能将旧九阶段通过或后来诊断通过替代本轮失败。
+
+## 合入检查点与发布前发送补修
+
+`38366b9` 的 PR CI 39720450692 为 61 success / 1 expected skip；proot 首次下载 VS Code 超时，单项原样重试后实际 LSP/editor 通过，首日志保留。nightly 39720447763 为 62 success / 4 expected skips，全部八组 UX 的 34 阶段 / 207 检查实际通过。固定 observer 对照四组 cold→firstwarm 全部退出 0，warm 为 3.92/4.06/4.16/3.98 秒，没有证明观察器导致首次超时。
+
+另一次预登记的完整九阶段最终验收为 9 exit 0 / 53 checks / 0 failed，保留原 CPU、pins、producer、cache lineage 和门槛；mcpp warm 3.824 秒，U8 undo 均为 0。原 600 秒 xlings idle 为 0.004819 core、RSS 1258.30→1121.86 MiB，有限工作单列。此前 15.219 秒失败仍未归因，未因新通过改写。该检查点于 `fd869bd` squash 合入；原始材料及小型终态摘要保存在 `.payload-cache/59-63-performance/light-observer-final-acceptance-f6ec554/`。
+
+随后 draft Release 39732244483 的 macOS dev job 119670268987 在原 `test_process.cpp` 发送检查失败：4 MiB 入队应小于 2 秒；CPU oracle 测试通过。旧断言未打印实际耗时，不能给出精确超时值或归因宿主。代码确认 JSON 编码仍在调用线程同步执行；补修将拥有所有权的 JSON 快照交给 writer 编码、写入，保持 FIFO、UTF-8 和两种 framing，并隔离 writer 编码异常。原 4 MiB / 2 秒及 stop 10 秒门槛不变；新产品必须重新验收，不能借用前述产品通过。见[复现第 11 节](reproduce.md#11-发送队列的编码与快照)。
 
 ## 历史失败与反证仍保留
 

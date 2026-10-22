@@ -21,7 +21,6 @@ base::Result<std::unique_ptr<Connection>> Connection::start(platform::SpawnOptio
 
     auto connection = std::make_unique<Connection>();
     connection->process_ = std::move(*process);
-    connection->framing_ = framing;
     Connection* self { connection.get() };
     connection->reader_ = std::jthread { [self, framing, onMessage = std::move(onMessage), onClosed = std::move(onClosed)] {
         FrameReader reader;
@@ -55,21 +54,35 @@ base::Result<std::unique_ptr<Connection>> Connection::start(platform::SpawnOptio
         self->closed_.store(true);
         if (onClosed) onClosed();
     } };
-    connection->writer_ = std::jthread { [self] {
+    connection->writer_ = std::jthread { [self, framing] {
         while (true) {
-            std::string frame;
+            Json message;
             {
                 std::unique_lock lock { self->outMutex_ };
                 self->outReady_.wait(lock, [&] { return !self->outgoing_.empty() || self->outClosing_; });
-                if (self->outgoing_.empty()) break;   // closing, and everything queued is out
-                frame = std::move(self->outgoing_.front());
+                if (self->closed_.load() || self->outgoing_.empty()) break;
+                message = std::move(self->outgoing_.front());
                 self->outgoing_.pop_front();
             }
-            if (!self->process_.write(frame)) {
-                self->writeFailed_.store(true);
-                break;
+            // Encoding is also peer work: large JSON must not occupy the event-loop thread.
+            // Keep the snapshot and all framing work outside the queue lock.
+            try {
+                const std::string frame { framing == Framing::lines ? dump(message) + "\n" : encode_frame(message) };
+                if (self->process_.write(frame)) continue;
+            } catch (...) {
+                // An exception escaping a writer thread would terminate the whole server.
+                // The failed connection closes its input just as it does after a pipe error.
             }
+            self->writeFailed_.store(true);
+            break;
         }
+        {
+            const std::lock_guard lock { self->outMutex_ };
+            self->outClosing_ = true;
+        }
+        // No sender can append after observing outClosing_ under the lock. Dispose of
+        // any unsent snapshots without making a concurrent sender wait for their destructors.
+        self->outgoing_.clear();
         // The input is closed here, by the one thread that writes to it: the peer reads its end and may exit by itself.
         self->process_.close_input();
     } };
@@ -94,14 +107,13 @@ base::Result<std::unique_ptr<Connection>> Connection::start(platform::SpawnOptio
     return connection;
 }
 
-base::Result<void> Connection::send(const Json& message) {
+base::Result<void> Connection::send(Json message) {
     if (closed_.load()) return base::fail("connection-closed", "the peer has exited");
-    if (writeFailed_.load()) return base::fail("connection-write", "the peer stopped reading its input");
-    std::string frame { framing_ == Framing::lines ? dump(message) + "\n" : encode_frame(message) };
+    if (writeFailed_.load()) return base::fail("connection-write", "the connection could not encode or write its queued input");
     {
         const std::lock_guard lock { outMutex_ };
         if (outClosing_) return base::fail("connection-closed", "the peer is being stopped");
-        outgoing_.push_back(std::move(frame));
+        outgoing_.push_back(std::move(message));
     }
     outReady_.notify_one();
     return {};
