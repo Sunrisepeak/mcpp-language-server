@@ -1,0 +1,166 @@
+{
+  "name": "clangd-crash-closure",
+  "description": "0.0.17 W5 (#59 U7a), Linux and macOS: the stand-in clangd (`prepare clangd-crash-closure`) crashes 25 seconds in with a crash context naming src/main.cpp, which the editor is typing in: main.cpp is set aside, as a file clangd crashed on is. Then another importer of hello.greet is edited and the module's partition changes, so clangd builds the modules main.cpp imports again: main.cpp goes back to clangd once, well before its two-minute term is up. Up to 0.0.16 it waited the whole term.",
+  "prepare": [
+    [
+      "{conformance}",
+      "prepare",
+      "clangd-crash-closure",
+      "{payload}"
+    ]
+  ],
+  "server-arguments": [
+    "--clangd",
+    "{workspace}/stand-in/clangd",
+    "--no-discover"
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "state": "ready",
+      "engine-name": "clangd"
+    },
+    {
+      "id": "W1-warmed-up",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet",
+      "timeout": 90
+    },
+    {
+      "id": "T1-editing-when-it-crashes",
+      "kind": "type-text",
+      "file": "src/main.cpp",
+      "line": 2,
+      "steps": [
+        "i",
+        "in",
+        "int",
+        "int x",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        ""
+      ],
+      "interval-ms": 500,
+      "answer-within": 15
+    },
+    {
+      "id": "R1-the-file-it-named",
+      "kind": "report",
+      "timeout": 30,
+      "expect": [
+        {
+          "path": "/roots/0/engines/*/details/lastExit/crashFile",
+          "contains": "main.cpp"
+        },
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside",
+          "min-items": 1
+        },
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside/*",
+          "each-contains": "main.cpp"
+        }
+      ]
+    },
+    {
+      "id": "W2-another-importer",
+      "kind": "hover-contains",
+      "file": "src/crasher.cpp",
+      "at": [
+        3,
+        4
+      ],
+      "expect": "crash_here",
+      "timeout": 90
+    },
+    {
+      "id": "E1-its-module-changes",
+      "kind": "write-file",
+      "file": "src/greet/detail.cppm",
+      "text": "export module hello.greet:detail;\nimport std;\nexport namespace hello::detail {\n  std::string prefix() { return \"Hi, \"; }\n}\n"
+    },
+    {
+      "id": "E2-the-importer-is-rebuilt",
+      "kind": "type-text",
+      "file": "src/crasher.cpp",
+      "line": 2,
+      "steps": [
+        "int y;",
+        "int y;",
+        ""
+      ],
+      "interval-ms": 1000,
+      "answer-within": 60
+    },
+    {
+      "id": "R2-handed-back-once-rebuilt",
+      "kind": "report",
+      "timeout": 60,
+      "expect": [
+        {
+          "path": "/roots/0/events/*/kind",
+          "equals": "file-handed-back"
+        },
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside",
+          "max-items": 0
+        }
+      ]
+    }
+  ]
+}

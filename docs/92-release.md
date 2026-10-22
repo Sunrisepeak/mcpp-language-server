@@ -142,8 +142,25 @@ releases has already passed this repository's CI with it, and the release brings
 4. Merge this PR and release.
 
 A candidate file never reaches a release: CI refuses it on `main` and in a release's run, and the
-Release workflow stops at once if it is there. Artifacts are kept 14 days; an older run is rebuilt
-by re-running the engine PR's CI.
+Release workflow stops at once if it is there. A manual run of CI or of the nightly on a branch other
+than `main` may use it: the nightly's ux rounds are where an engine change to idle memory or typing
+latency shows, so they see the engine before it is released. Artifacts are kept 14 days; an older run
+is rebuilt by re-running the engine PR's CI.
+
+## Measuring a change
+
+What the nightly measures varies from run to run on the same bytes: a slower runner, a busier hour.
+One red round is not a regression, and one green round is not a fix. A manual nightly
+(`gh workflow run nightly.yml --ref <branch> -f …`) measures a change without building it again:
+
+| Input | What it does |
+|---|---|
+| `payload-run` | Tests the payloads a CI run of the branch built (its run id) instead of building them again: about 35 minutes instead of 80, on the bytes the pull request's CI tested |
+| `scope` | `all` (every job) or `ux` (only the ux rounds, their budgets and the comparison) |
+| `ux-repeat` | Each round runs its edits stage (typing, saving, U5, U6, U7a, U15) this many times, each in a new server session on what the cold and warm stages prepared: 4 over the three rounds is 12 samples of each, built once |
+| `ux-baseline` | A release (`v0.0.16`) whose server runs the same stages on the same machines, in its own workspace and cache, alternating with this one (A B B A); `ux budgets` then prints `mcppls-devtools measure compare`, the typing, save, state-change, idle and timeout numbers side by side, with those whose median is worse than the baseline's beyond their spread marked |
+
+The runner, the fixtures and the budgets are the branch's for both servers, so only the server differs.
 
 ## Verifying a release
 

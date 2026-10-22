@@ -122,7 +122,7 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **clangd 反复重启。** 看 `engines[].restarts`、`engines[].details.restartBudget` 和 `events` 日志。每种原因各有十分钟三次的重启额度：引擎数据库变化（`plan`）、恢复停止应答或空转的 clangd（`recovery`）、clangd 退出（`crash`）。用完之后，同类的下一次重启依次等待一、二、四、八分钟——是退避而不是拒绝，所以卡住的 clangd 总能恢复——状态会说明（`engine-restart-capped`）并提供 **Restart clangd** 按钮（其他编辑器用 `workspace/executeCommand` `mcppls.restartEngine`），它立即重启且从不计入额度。切换工具链、profile 或 context 也从不计入，模块编译不过从来不是重启的理由。引擎数据库的每次变化都会记入日志并写明改了什么（`engine database changed: … compiled otherwise (main.cpp: argument 3: -O0 -> -O2)`），重启密集时能直接看到原因。
 
-**“clangd crashed while building NormalJsonTranslator.Core.cpp”。** clangd 会说明它在哪个文件上崩溃（崩溃上下文），隔离的就是这个文件：它改由 mcppls 自己的引擎应答，同时重启一个不带它的 clangd。报告里的 `engines[].details.lastExit` 有退出码、文件、clangd 当时在做什么，Windows 上还有异常码。五分钟内退出五次之后，clangd 会在 1、2、4、8 分钟后重新启动，状态会说明（`engine-crash-loop`，带 **Restart clangd**）；它不会在本次会话里被放弃。clangd 稳定运行满一分钟后，崩溃和超时这两类 issue 会自行清除。最后的办法见[下文](#mcppls-无法自行恢复时)。
+**“clangd crashed while building NormalJsonTranslator.Core.cpp”。** clangd 会说明它在哪个文件上崩溃（崩溃上下文），隔离的就是这个文件：它改由 mcppls 自己的引擎应答，同时重启一个不带它的 clangd。它在以下情况交回 clangd：文件本身有改动；隔离期满（两分钟，再次让 clangd 崩溃则翻倍）；或者它导入的模块重新构建完成（只交回一次，因为它可能正是在某个重建到一半的模块上崩溃的）。clangd 退出时没有指明文件（被杀掉或内存不足），它当时在处理的文件只记一次警告，不会被隔离；同一个文件在十分钟内第二次碰到这种退出，才会被隔离。报告里的 `engines[].details.lastExit` 有退出码、文件、clangd 当时在做什么，Windows 上还有异常码。五分钟内退出五次之后，clangd 会在 1、2、4、8 分钟后重新启动，状态会说明（`engine-crash-loop`，带 **Restart clangd**）；它不会在本次会话里被放弃。clangd 稳定运行满一分钟后，崩溃和超时这两类 issue 会自行清除。最后的办法见[下文](#mcppls-无法自行恢复时)。
 
 **“mcpp could not describe tools/updater/mcpp.toml”。** 构建工具描述了工作区的其余部分，并说明了它没能描述的那一部分（例如某个成员的构建程序失败）；那部分的文件按其余部分提供的信息来读，其余部分照常工作（`producer-partial`，S2 0.3.0）。修好消息里指出的问题，下次重新加载就会一并描述它。
 

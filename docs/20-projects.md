@@ -38,7 +38,9 @@ A few things are worth knowing:
   not repeatedly ask for the same graph. Preprocessing changes, failed descriptions and files
   changed while discovery runs retain conservative rechecks. The build tool is asked again when a build file, a
   non-source input or a source's module structure changes, and edits that keep coming are one run —
-  the wait before it grows with how long the build tool takes, up to a minute.
+  the wait before it grows with how long the build tool takes, up to a minute. A save of a file you
+  are still typing in (autosave while you type an import) waits until that file has been quiet for
+  two seconds, at most thirty, so a typed import is one run, made once you pause.
 - **The run is offline.** A build description is a question about the project, not an errand, so
   the server asks it with `MCPP_OFFLINE` set. If the project's dependencies are not on the machine
   yet, mcpp says so, and nothing waits for you to decide anything:
@@ -96,7 +98,10 @@ after `mcpp build --target i686-windows-msvc` publishes that database, analysis 
 another editor setting. This follows the latest published compilation configuration, which can also
 come from a configure-only command or a failed compilation; it does not certify a successful build.
 Project ownership recognizes Windows 8.3 and long directory spellings as the same location;
-the compilation database's original paths and arguments are preserved.
+the compilation database's original paths and arguments are preserved. On Windows with MSVC, an
+mcpp project that uses `import std` needs mcpp 2026.10.5.2 or later: earlier releases pass the
+Windows SDK path with a trailing backslash that swallows the next argument, the standard library
+modules fail to build, and mcppls shows mcpp's own error as `producer-failed`.
 
 To fix this workspace's analysis target, put this in `.vscode/settings.json` (or use the corresponding
 LSP initialization setting in another editor):

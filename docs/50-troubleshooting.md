@@ -280,8 +280,12 @@ argument 3: -O0 -> -O2)`), so a burst names its cause.
 
 **"clangd crashed while building NormalJsonTranslator.Core.cpp".** clangd names the file it crashed
 on (its crash context), and that file is set aside: answered by mcppls's own engine while clangd is
-restarted without it. `engines[].details.lastExit` in the report has the exit code, the file, what
-clangd was doing and, on Windows, the exception code. After five exits in five
+restarted without it. It goes back to clangd when it changes, when its term (two minutes, doubling
+if it crashes clangd again) is up, or once, as soon as the modules it imports have been built again:
+it may have crashed on one of them half rebuilt. A clangd that exits without naming a file (killed,
+or out of memory) costs the files it was working on a strike, not their place: only a second such
+exit on the same file within ten minutes sets it aside. `engines[].details.lastExit` in the report
+has the exit code, the file, what clangd was doing and, on Windows, the exception code. After five exits in five
 minutes clangd is started again after 1, 2, 4, then 8 minutes, and the status says so
 (`engine-crash-loop`, with **Restart clangd**); it is not given up for the session. The crash and
 timeout issues clear by themselves once clangd has stayed up for a minute. The last resort is

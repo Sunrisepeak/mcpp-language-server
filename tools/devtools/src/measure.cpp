@@ -163,11 +163,16 @@ double percentile_of(std::vector<double> values, double fraction) {
 
 } // namespace
 
-base::Result<std::string> budgets(const std::string& directory) {
+namespace {
+
+using Samples = std::map<std::pair<std::string, std::string>, std::vector<double>>;   // (check, number) -> one per run
+
+// Every number of every check's `measure` in the --measure files under `directory`, at any depth.
+base::Result<Samples> collect(const std::string& directory) {
     if (!fs::is_directory(directory)) return base::fail("measure-dir", std::format("{} is not a directory", directory));
     std::vector<std::string> files;
     measure_files(directory, files);
-    std::map<std::pair<std::string, std::string>, std::vector<double>> values;   // (check, number) -> one per run
+    Samples values;
     for (const auto& path : files) {
         auto text = fs::read_file(path);
         if (!text) return std::unexpected { text.error() };
@@ -185,13 +190,60 @@ base::Result<std::string> budgets(const std::string& directory) {
             for (const auto& [name, number] : numbers) values[{ check.value("id", std::string {}), name }].push_back(number);
         }
     }
+    return values;
+}
+
+double deviation_of(const std::vector<double>& values) {
+    if (values.size() < 2) return 0;
+    double mean { 0 };
+    for (const double value : values) mean += value;
+    mean /= static_cast<double>(values.size());
+    double squares { 0 };
+    for (const double value : values) squares += (value - mean) * (value - mean);
+    return std::sqrt(squares / static_cast<double>(values.size() - 1));
+}
+
+// The numbers a release is compared on: what a person waits for while typing and saving, how often the state
+// changes, what an idle server costs, and requests that were never answered. Every other number is in `budgets`.
+constexpr std::array<std::string_view, 9> COMPARED { "completion.p95", "completion.max", "importer.completion.max", "busiestMinuteChanges",
+                                                     "rssGrowth", "idleCpuCores", "serverTimeouts", "clientTimeouts", "republishSeconds" };
+
+} // namespace
+
+base::Result<std::string> budgets(const std::string& directory) {
+    auto values = collect(directory);
+    if (!values) return std::unexpected { values.error() };
     std::string out { "| check | measure | runs | p50 | p95 | max | p95 x 1.3 |\n|---|---|---|---|---|---|---|\n" };
-    for (const auto& [key, measured] : values) {
+    for (const auto& [key, measured] : *values) {
         const double p95 { percentile_of(measured, 0.95) };
         out += std::format("| {} | {} | {} | {:.3g} | {:.3g} | {:.3g} | {:.3g} |\n", key.first, key.second, measured.size(), median_of(measured), p95,
                            std::ranges::max(measured), p95 * 1.3);
     }
     return out;
+}
+
+base::Result<Comparison> compare(const std::string& candidate, const std::string& baseline) {
+    auto ours = collect(candidate);
+    if (!ours) return std::unexpected { ours.error() };
+    auto theirs = collect(baseline);
+    if (!theirs) return std::unexpected { theirs.error() };
+    Comparison result { "| check | measure | runs | median | max | baseline runs | baseline median | baseline max | |\n"
+                        "|---|---|---|---|---|---|---|---|---|\n", {} };
+    for (const auto& [key, measured] : *ours) {
+        if (std::ranges::find(COMPARED, key.second) == COMPARED.end()) continue;
+        const auto other = theirs->find(key);
+        if (other == theirs->end()) continue;
+        const double median { median_of(measured) }, otherMedian { median_of(other->second) };
+        // Worse: a median above the baseline's by more than twice their pooled deviation, and by more than a tenth of it, so
+        // that two counts that never vary (0 and 0) are the same and a noise-free 0 against 1 is not called noise.
+        const double pooled { std::sqrt((std::pow(deviation_of(measured), 2) + std::pow(deviation_of(other->second), 2)) / 2) };
+        const bool worse { median > otherMedian + std::max(2 * pooled, 0.1 * std::abs(otherMedian)) };
+        if (worse) result.worse.push_back(std::format("{} {}: median {:.3g} against {:.3g}", key.first, key.second, median, otherMedian));
+        result.table += std::format("| {} | {} | {} | {:.3g} | {:.3g} | {} | {:.3g} | {:.3g} | {} |\n", key.first, key.second, measured.size(), median,
+                                    std::ranges::max(measured), other->second.size(), otherMedian, std::ranges::max(other->second),
+                                    worse ? "worse" : "");
+    }
+    return result;
 }
 
 } // namespace mcppls::devtools::measure
@@ -257,11 +309,28 @@ int command_measure_budgets(const cmdline::ParsedArgs& arguments) {
     return 0;
 }
 
+int command_measure_compare(const cmdline::ParsedArgs& arguments) {
+    const std::string candidate { arguments.positional_or(0, "") }, baseline { arguments.positional_or(1, "") };
+    if (candidate.empty() || baseline.empty()) {
+        std::println(std::cerr, "mcppls-devtools: measure compare needs two directories");
+        return 2;
+    }
+    auto compared = measure::compare(candidate, baseline);
+    if (!compared) {
+        std::println(std::cerr, "mcppls-devtools: {}", compared.error().message);
+        return 1;
+    }
+    std::print("{}", compared->table);
+    for (const auto& worse : compared->worse) std::println(std::cerr, "mcppls-devtools: worse than the baseline: {}", worse);
+    return arguments.is_flag_set("fail-worse") && !compared->worse.empty() ? 1 : 0;
+}
+
 int dispatch(bool& handled, int& status, std::string_view verb, const cmdline::ParsedArgs& inner) {
     handled = true;
     if (verb == "summary") return command_measure_summary(inner);
     if (verb == "budgets") return command_measure_budgets(inner);
-    std::println(std::cerr, "mcppls-devtools: measure needs a verb: summary or budgets");
+    if (verb == "compare") return command_measure_compare(inner);
+    std::println(std::cerr, "mcppls-devtools: measure needs a verb: summary, budgets or compare");
     return 2;
 }
 
@@ -278,6 +347,11 @@ cmdline::App measure_command(bool& handled, int& status) {
     (void) command.subcommand("budgets")
         .description("Each check's measured numbers over every --measure file under a directory: runs, p50, p95, max, p95 x 1.3")
         .arg("directory").required().help("Directory of --measure files, at any depth (nightly's ux artifacts)");
+    (void) command.subcommand("compare")
+        .description("The typing, save, state-change, idle and timeout numbers of two directories of --measure files, side by side")
+        .option("fail-worse").help("Fail when a median is worse than the baseline's beyond their spread")
+        .arg("candidate").required().help("Directory of the candidate's --measure files")
+        .arg("baseline").required().help("Directory of the baseline's, measured on the same machines (nightly's ux-baseline)");
     (void) command.action([&handled, &status](const cmdline::ParsedArgs& arguments) {
         const auto sub = arguments.subcommand();
         static const cmdline::ParsedArgs EMPTY {};

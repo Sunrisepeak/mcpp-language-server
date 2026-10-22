@@ -537,6 +537,13 @@ struct Workspace::Impl final : engine::Host {
     // Fix plan F13: a change to a file's imports or module declaration made in the editor is planned once the file
     // has been quiet this long, so a name being typed is not planned letter by letter.
     static constexpr std::chrono::milliseconds EDIT_SETTLE { 2000 };
+    // 0.0.17 W4 (#59 U15): a structure reload that saves of a file still being typed in asked for waits until the file
+    // is quiet (EDIT_SETTLE after its last change). With autosave, every pause while an import is typed is a save that
+    // changes the file's imports; each was a run of the producer and a loading state of its own. Edits that keep coming
+    // put it off no longer than EDIT_DEFER_LIMIT after the first save that waited, so the model is never left behind.
+    static constexpr std::chrono::seconds EDIT_DEFER_LIMIT { 30 };
+    std::set<std::string, std::less<>> reloadWaitsFor;   // path keys of the files being typed in
+    std::optional<Clock::time_point> reloadDeferredSince;
     std::optional<Clock::time_point> loadGiveUpAt;       // the producer has not answered: take what there is (design 4.1)
     std::optional<Clock::time_point> lastResortAt;       // nothing at all came: serve without a database rather than nothing
     std::optional<Clock::time_point> sdkCheckAt;
@@ -1945,9 +1952,20 @@ struct Workspace::Impl final : engine::Host {
             recent.push_back(ms);
             if (recent.size() > 64) recent.pop_front();
         }
-        if (ms >= 5000) {
-            journal.add("slow-request", Json { { "method", job.method }, { "file", job.path }, { "ms", static_cast<std::int64_t>(ms) },
-                                               { "outcome", std::string { outcome } }, { "answeredBy", job.answeredBy } });
+        // A completion a person notices is slow from two seconds on (0.0.17 M3, #59 U5/U6: a typing session's slowest answers were
+        // 6-8 s, and nothing said where the time went); anything else from five. Where it went: waiting before an engine was asked
+        // (queueMs), the engine (engineMs), and what came after its answer -- merging, the answer layer, the reply (answerMs).
+        const bool completion { job.method == lsp::method::TEXT_DOCUMENT_COMPLETION };
+        if (ms >= (completion ? 2000 : 5000)) {
+            Json detail { { "method", job.method }, { "file", job.path }, { "ms", static_cast<std::int64_t>(ms) },
+                          { "outcome", std::string { outcome } }, { "answeredBy", job.answeredBy } };
+            const auto milliseconds = [](Clock::duration span) { return static_cast<std::int64_t>(std::chrono::duration<double, std::milli>(span).count()); };
+            if (job.engineSentAt) detail["queueMs"] = milliseconds(*job.engineSentAt - job.started);
+            if (job.engineSentAt && job.engineRepliedAt) {
+                detail["engineMs"] = milliseconds(*job.engineRepliedAt - *job.engineSentAt);
+                detail["answerMs"] = milliseconds(Clock::now() - *job.engineRepliedAt);
+            }
+            journal.add("slow-request", std::move(detail));
         }
     }
 
@@ -3182,12 +3200,34 @@ struct Workspace::Impl final : engine::Host {
     // `fromEdits`: asked for by changes under the workspace rather than by a build description. Such a reload waits as
     // long as the producer takes to answer (at most a minute), so edits that keep coming are one run, not a queue of them.
     // A reload a build description asked for is not put off by edits that follow it: it reads them too.
-    void schedule_reload(bool fromEdits = false) {
+    // `typing`: of the files whose changes asked for it, those still being typed in (W4); the reload waits for them.
+    void schedule_reload(bool fromEdits = false, const std::vector<std::string>& typing = {}) {
         using namespace std::chrono_literals;
         if (fromEdits && reloadAt && !reloadMovable) return;
+        const auto now { Clock::now() };
         const auto wait = fromEdits ? std::clamp<std::chrono::milliseconds>(std::chrono::milliseconds { lastProducerMs }, 1500ms, 60s) : 1500ms;
-        reloadAt = Clock::now() + wait;
+        reloadAt = now + wait;
         reloadMovable = fromEdits;
+        if (!fromEdits) {
+            reloadWaitsFor.clear();
+            reloadDeferredSince.reset();
+            return;
+        }
+        reloadWaitsFor.insert(typing.begin(), typing.end());
+        defer_reload_while_typing(now);
+    }
+
+    // W4: the pending reload put off until the files it waits for are quiet, within EDIT_DEFER_LIMIT of the first wait.
+    void defer_reload_while_typing(Clock::time_point now) {
+        if (!reloadAt || !reloadMovable) return;
+        std::optional<Clock::time_point> quiet;
+        for (const auto& key : reloadWaitsFor) {
+            const auto edited = editedAt.find(key);
+            if (edited != editedAt.end() && edited->second + EDIT_SETTLE > now) quiet = std::max(quiet.value_or(now), edited->second + EDIT_SETTLE);
+        }
+        if (!quiet) return;
+        if (!reloadDeferredSince) reloadDeferredSince = now;
+        reloadAt = std::max(*reloadAt, std::min(*quiet, *reloadDeferredSince + EDIT_DEFER_LIMIT));
     }
 
     // K-7: the issues nothing here recovers from by itself.
@@ -3978,6 +4018,8 @@ struct Workspace::Impl final : engine::Host {
         phase("the workspace lease and dead instances");
         if (reloadAt && *reloadAt <= now) {
             reloadAt.reset();
+            reloadWaitsFor.clear();
+            reloadDeferredSince.reset();
             start_model_load();
         }
         if (targetRetryAt && *targetRetryAt <= now) {
@@ -4205,6 +4247,7 @@ void Workspace::did_change(const Json& message, const Json& params) {
     if (!document->path.empty()) {
         if (impl_->answers_) impl_->answers_->changed(document->path);
         impl_->editedAt[base::path_key(document->path)] = Clock::now();
+        if (impl_->reloadWaitsFor.contains(base::path_key(document->path))) impl_->defer_reload_while_typing(Clock::now());
         impl_->note_recent_file(document->path);
         impl_->index.update(document->path, document->text);
         impl_->note_structure_change(document->path, true);
@@ -4271,6 +4314,7 @@ void Workspace::handle_watched_files(const Json& changes) {
     bool reload { false };
     bool describedAgain { false };   // a build file or another input of the producer's, not a source: reloaded without the edit delay
     bool replan { false };
+    std::vector<std::string> typing;   // W4: changed sources whose structure differs and that are being typed in
     for (const auto& change : changes) {
         const std::string path { impl_->path_of_uri(change.value("uri", std::string {})) };
         if (path.empty()) continue;
@@ -4353,7 +4397,11 @@ void Workspace::handle_watched_files(const Json& changes) {
                         && (!structure || started->second != *structure || !impl_->loading || !impl_->staleModelReason.empty())) differs = true;
                 }
             }
-            if (differs) reload = true;
+            if (differs) {
+                reload = true;
+                const auto edited = impl_->editedAt.find(key);
+                if (open && edited != impl_->editedAt.end() && Clock::now() - edited->second < Impl::EDIT_SETTLE) typing.push_back(key);
+            }
         }
         if (open) continue;
         if (impl_->model && impl_->model->source == project::SourceKind::inferred && type != 2) reload = true;
@@ -4362,7 +4410,7 @@ void Workspace::handle_watched_files(const Json& changes) {
     if (reload || replan) {
         for (const auto& engine : impl_->engines) engine->sources_changed();
     }
-    if (reload) impl_->schedule_reload(!describedAgain);
+    if (reload) impl_->schedule_reload(!describedAgain, typing);
     else if (replan) impl_->schedule_replan();
     // 0.0.13 W10 (#53): clangd refuses the whole notification for one change that is not a file ("clangd only supports
     // 'file' URI scheme for workspace files"), and the files beside it went unseen; only file: URIs go on.

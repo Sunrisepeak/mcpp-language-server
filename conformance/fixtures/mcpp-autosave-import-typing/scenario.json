@@ -1,0 +1,102 @@
+{
+  "name": "mcpp-autosave-import-typing",
+  "description": "0.0.17 W4 (#59 U15): imports and function bodies typed in turn at ten keys a second, with autosave every second, for forty seconds, as ux-mcpp's U6 does: some saves change the file's imports and the ones between do not. Up to 0.0.16 a reload fired in every pause of the import changes, a producer run and a loading state each (6 runs, 13 state changes in a minute); now a reload that saves of a file still being typed in ask for waits until the file has been quiet for two seconds, at most thirty, so typing without a pause is one run every thirty seconds and one more once it stops.",
+  "prepare": [
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--copy-self",
+      "producer/mcpp.exe"
+    ]
+  ],
+  "server-arguments": [
+    "--mcpp",
+    "{workspace}/producer/mcpp.exe"
+  ],
+  "initialization-options": {
+    "buildDiscovery.mcppTarget": "project"
+  },
+  "checks": [
+    {
+      "id": "INITIAL",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "timeout": 60
+    },
+    {
+      "id": "INITIAL-EMIT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 1,
+      "settle": 3
+    },
+    {
+      "id": "TYPING-WITH-AUTOSAVE",
+      "kind": "typing",
+      "file": "src/main.cpp",
+      "seconds": 40,
+      "hz": 10,
+      "completion-every-ms": 1000,
+      "scripts": [
+        {
+          "line": 1,
+          "text": "import target.x1;"
+        },
+        {
+          "line": 4,
+          "text": "int q1 = 1;"
+        },
+        {
+          "line": 1,
+          "text": "import target.x2;"
+        },
+        {
+          "line": 4,
+          "text": "int q2 = 2;"
+        },
+        {
+          "line": 1,
+          "text": "import target.x3;"
+        },
+        {
+          "line": 4,
+          "text": "int q3 = 3;"
+        },
+        {
+          "line": 1,
+          "text": "import target.x4;"
+        },
+        {
+          "line": 4,
+          "text": "int q4 = 4;"
+        }
+      ],
+      "autosave-ms": 1000
+    },
+    {
+      "id": "FEW-STATE-CHANGES",
+      "kind": "timeline",
+      "budget": {
+        "errorStates": 0,
+        "maxChangesPerMinute": 6
+      }
+    },
+    {
+      "id": "FEW-RUNS-ONCE-QUIET",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "min-count": 2,
+      "max-count": 3,
+      "settle": 6
+    },
+    {
+      "id": "READY-AGAIN",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "timeout": 30
+    }
+  ]
+}

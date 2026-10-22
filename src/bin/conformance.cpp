@@ -264,6 +264,48 @@ bool run_prepare(const Json& command, const std::string& workspace, bool verbose
     return true;
 }
 
+// A dotted version's numbers ("2026.10.5.2"), compared number by number; empty when it has none.
+std::vector<long> version_numbers(std::string_view text) {
+    std::vector<long> numbers;
+    for (const auto part : std::views::split(text, '.')) {
+        long value { 0 };
+        const std::string_view piece { part.begin(), part.end() };
+        const auto [end, error] = std::from_chars(piece.data(), piece.data() + piece.size(), value);
+        if (error != std::errc {} || end != piece.data() + piece.size()) return {};
+        numbers.push_back(value);
+    }
+    return numbers;
+}
+
+// "requires-mcpp": {"executable": "{env:MCPPLS_REAL_MCPP|mcpp}", "at-least": "2026.10.5.2"}: a fixture that runs a real
+// mcpp says which release it needs, and gets that sentence instead of the compiler errors an older mcpp gives in the
+// middle of its prepare steps. Empty when the mcpp asked is recent enough, else why the fixture cannot run.
+std::string missing_mcpp(const Json& requirement, const Expansion& expansion) {
+    if (!requirement.is_object()) return {};
+    const std::string wanted { requirement.value("at-least", std::string {}) };
+    std::string program { expand(requirement.value("executable", std::string { "mcpp" }), expansion) };
+    if (program.empty()) program = "mcpp";
+    if (!base::is_absolute_path(program)) {
+        auto found = mcppls::platform::env::find_executable(program);
+        if (!found) return std::format("the fixture needs mcpp {} or later, and {} is not on PATH", wanted, program);
+        program = *found;
+    }
+    mcppls::platform::SpawnOptions options;
+    options.program = program;
+    options.arguments = { "--version" };
+    auto result = mcppls::platform::run(std::move(options), std::chrono::seconds { 60 });
+    if (!result || result->exitCode != 0 || result->timedOut) return std::format("the fixture needs mcpp {} or later, and {} --version failed", wanted, program);
+    // "mcpp 2026.10.11.1": the last word of the first line.
+    std::string_view line { result->output };
+    line = line.substr(0, line.find_first_of("\r\n"));
+    const std::string_view version { line.substr(line.find_last_of(' ') == std::string_view::npos ? 0 : line.find_last_of(' ') + 1) };
+    const auto have = version_numbers(version), need = version_numbers(wanted);
+    if (have.empty() || need.empty() || std::ranges::lexicographical_compare(have, need)) {
+        return std::format("the fixture needs mcpp {} or later, and {} is {}", wanted, program, version.empty() ? std::string_view { "of no version" } : version);
+    }
+    return {};
+}
+
 // A file's size and FNV-1a digest, read a block at a time: a build tree holds files far larger than a check needs to keep.
 std::optional<std::string> digest(const std::string& path) {
     std::ifstream stream { std::filesystem::path { path }, std::ios::binary };
@@ -3002,9 +3044,10 @@ public:
                 Json entry = Json::object();
                 const Json* at { lsp::find(event, "at") };
                 entry["at"] = at != nullptr && at->is_string() ? *at : Json(nullptr);
-                for (const std::string_view field : { "method", "ms", "outcome", "answeredBy" }) {
+                for (const std::string_view field : { "method", "ms", "outcome", "answeredBy", "queueMs", "engineMs", "answerMs" }) {
                     const Json* value { lsp::find_path(event, { "detail", field }) };
-                    entry[std::string { field }] = value != nullptr && (field == "ms" ? value->is_number() : value->is_string()) ? *value : Json(nullptr);
+                    const bool number { field.ends_with("ms") || field.ends_with("Ms") };
+                    entry[std::string { field }] = value != nullptr && (number ? value->is_number() : value->is_string()) ? *value : Json(nullptr);
                 }
                 if (slowEvents.size() == SLOW_TRACE_LIMIT) slowEvents.erase(slowEvents.begin());
                 slowEvents.push_back(std::move(entry));
@@ -4492,6 +4535,11 @@ public:
             }
             if (check.contains("count") && calls.size() != check["count"].get<std::size_t>())
                 return { false, std::format("{} calls instead of {}", calls.size(), check["count"].get<std::size_t>()) };
+            // "min-count" / "max-count": a bound instead of an exact number, for runs whose count is timing's (0.0.17 W4).
+            if (check.contains("min-count") && calls.size() < check["min-count"].get<std::size_t>())
+                return { false, std::format("{} calls, fewer than {}", calls.size(), check["min-count"].get<std::size_t>()) };
+            if (check.contains("max-count") && calls.size() > check["max-count"].get<std::size_t>())
+                return { false, std::format("{} calls, more than {}", calls.size(), check["max-count"].get<std::size_t>()) };
             if (calls.empty()) return { check.contains("count") && check["count"].get<std::size_t>() == 0, "no matching producer calls" };
             if (const auto expected = check.find("expect"); expected != check.end()) {
                 const auto [held, why] = expectations_hold(calls, *expected);
@@ -5215,6 +5263,10 @@ int run(Options options) {
             return 2;
         }
         prepareEnvironment = prepare_environment(options.msvcEnvironment);
+    }
+    if (const auto missing = missing_mcpp(scenario.value("requires-mcpp", Json {}), expansion); !missing.empty()) {
+        say("FAIL requires-mcpp: {}", missing);
+        return 1;
     }
     if (!alreadyPrepared) {
         for (const auto& command : scenario.value("prepare", Json::array())) {
@@ -5969,21 +6021,31 @@ int prepare_clangd_cannot_load() {
 // Fix plan F3: a clangd that crashes the way clangd 23.1 did on Windows in issue #23 -- its crash context on standard
 // error, naming a file that is not the one being edited, and then gone -- once, 25 seconds after it starts; every
 // later start is the payload's real clangd. POSIX only: the stand-in is a shell script around the real one.
-int prepare_clangd_crash_context(const std::string& payload) {
+// `crashFile` (relative to the workspace) is the file the context names; empty, the stand-in prints no context and is
+// gone the way a clangd killed from outside is (0.0.17 W5: clangd-exit-strike).
+int prepare_crashing_clangd(std::string_view kind, const std::string& payload, std::string_view crashFile) {
     if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
-        say("clangd-crash-context: POSIX only");
+        say("{}: POSIX only", kind);
         return 2;
     }
     const std::string workspace { fs::current_directory() };
     const std::string real { base::join_path(payload, "clangd/bin/clangd") };
     if (!fs::exists(real)) {
-        say("clangd-crash-context: no clangd at {}", real);
+        say("{}: no clangd at {}", kind, real);
         return 1;
     }
     const std::string directory { base::join_path(workspace, "stand-in") };
     (void)fs::create_directories(directory);
     const std::string crashed { base::join_path(directory, "crashed-once") };
-    const std::string crasher { base::join_path(workspace, "src/crasher.cpp") };
+    const std::string crasher { crashFile.empty() ? std::string {} : base::join_path(workspace, crashFile) };
+    const std::string context { crasher.empty() ? std::string {} : std::format(
+        "echo 'PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace.' >&2\n"
+        "echo 'Signalled during AST worker action: Build AST' >&2\n"
+        "echo '  Filename: {}' >&2\n"
+        "echo '  Directory: {}' >&2\n"
+        "echo '  Command Line: clang++ -std=c++23 -c -- {}' >&2\n"
+        "echo '  Version: 1' >&2\n",
+        crasher, workspace, crasher) };
     const std::string script { std::format(
         "#!/bin/sh\n"
         "real='{}'\n"
@@ -5999,22 +6061,17 @@ int prepare_clangd_crash_context(const std::string& payload) {
         // on the slowest Intel macOS runners, which killed the stand-in before its designed crash).
         "end=$(( $(date +%s) + 25 ))\n"
         "while [ $(date +%s) -lt $end ]; do i=0; while [ $i -lt 5000 ]; do i=$((i+1)); done; done\n"
-        "echo 'PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace.' >&2\n"
-        "echo 'Signalled during AST worker action: Build AST' >&2\n"
-        "echo '  Filename: {}' >&2\n"
-        "echo '  Directory: {}' >&2\n"
-        "echo '  Command Line: clang++ -std=c++23 -c -- {}' >&2\n"
-        "echo '  Version: 1' >&2\n"
+        "{}"
         "kill -KILL $child\n"
-        "exit 139\n",
-        real, crashed, crashed, crasher, workspace, crasher) };
+        "exit {}\n",
+        real, crashed, crashed, context, crasher.empty() ? 137 : 139) };
     const std::string clangd { base::join_path(directory, "clangd") };
     if (auto written = fs::write_file(clangd, script); !written) {
-        say("clangd-crash-context: {}", written.error().message);
+        say("{}: {}", kind, written.error().message);
         return 1;
     }
     if (auto marked = fs::make_executable(std::vector<std::string> { clangd }); !marked) {
-        say("clangd-crash-context: {}", marked.error().message);
+        say("{}: {}", kind, marked.error().message);
         return 1;
     }
     return 0;
@@ -6096,13 +6153,15 @@ int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "compdb-clangxx-msvc-std") return prepare_compdb_msvc_std(false);
     if (kind == "generated-module-old-mcpp") return prepare_generated_module_compdb(argument);
     if (kind == "clangd-cannot-load") return prepare_clangd_cannot_load();
-    if (kind == "clangd-crash-context") return prepare_clangd_crash_context(argument);
+    if (kind == "clangd-crash-context") return prepare_crashing_clangd(kind, argument, "src/crasher.cpp");
+    if (kind == "clangd-crash-closure") return prepare_crashing_clangd(kind, argument, "src/main.cpp");
+    if (kind == "clangd-exit-strike") return prepare_crashing_clangd(kind, argument, "");
     if (kind == "compdb-rejected-command") return prepare_compdb_rejected_command(argument);
     if (kind == "compdb-mixed-standards") return prepare_compdb_mixed_standards(argument);
     if (kind == "xmake-stale-compdb") return prepare_marked_compdb(kind, argument.empty() ? std::string { "g++" } : argument, "-DSTALE_COMPDB", "-std=c++17");
     if (kind == "compdb-midwrite") return prepare_marked_compdb(kind, argument.empty() ? std::string { "clang++" } : argument, "-DVERSION_ONE", "-std=c++23");
     if (kind == "compdb-lto-msvc") return prepare_compdb_lto_msvc(argument);
-    say("prepare: unknown fixture kind {} (heavy-headers, s1-two-sets, payload-corrupt, producer-candidate, delayed-producer, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, compdb-rejected-command, compdb-mixed-standards, xmake-stale-compdb, compdb-midwrite)", kind);
+    say("prepare: unknown fixture kind {} (heavy-headers, s1-two-sets, payload-corrupt, producer-candidate, delayed-producer, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, clangd-crash-closure, clangd-exit-strike, compdb-rejected-command, compdb-mixed-standards, xmake-stale-compdb, compdb-midwrite)", kind);
     return 2;
 }
 

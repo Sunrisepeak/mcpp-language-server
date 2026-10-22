@@ -24,6 +24,15 @@ base::Result<std::string> summarize(const std::string& directory);
 // from the measured distribution would be. A Markdown table, sorted by check and number.
 base::Result<std::string> budgets(const std::string& directory);
 
+// The same files of a candidate and of a baseline measured beside it (nightly's ux-baseline): for the numbers a release
+// is compared on, each side's runs, median and largest value, as a Markdown table, and one sentence per number whose
+// median is worse than the baseline's beyond their spread.
+struct Comparison {
+    std::string table;
+    std::vector<std::string> worse;
+};
+base::Result<Comparison> compare(const std::string& candidate, const std::string& baseline);
+
 // What a pre-release gate needs from the same files: the median `first-navigation` of each kind
 // against a ceiling in seconds, and every run's `failures` at zero. One sentence per breach; an
 // empty answer passes. A budget for a kind with no files is a breach too: a gate that measured

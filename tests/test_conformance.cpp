@@ -438,7 +438,7 @@ int main() {
         expect(slow["totalBefore"] == 5 && slow["totalAfter"] == 8 && slow["added"] == 3);
         expect(slow["afterRecentCount"] == 4 && slow["droppedByTraceLimit"] == 0);
         expect(slow["newRetained"] == 3 && slow["newNotRetained"] == 0);
-        expect(slow["eventsAfter"].size() == 4 && slow["eventsAfter"][0].size() == 5);
+        expect(slow["eventsAfter"].size() == 4 && slow["eventsAfter"][0].size() == 8) << "at, the four names and the three spans (0.0.17 M3)";
         expect(slow["eventsAfter"][0]["at"] == "fake-at-0" && slow["eventsAfter"][0]["ms"] == 8765);
         expect(server.dump().find("private") == std::string::npos) << "only public method statistics and whitelisted event fields";
         const auto artifact = fs::read_file(evidence);
@@ -465,10 +465,23 @@ int main() {
         const auto total = typed["completions"].get<std::size_t>();
         expect(total >= 300 && trace["entries"].size() == 256);
         expect(trace["total"] == total && trace["dropped"] == total - 256);
-        expect(trace["slowestSuccessful"]["elapsedSeconds"] == typed["completion"]["max"]);
-        expect(trace["slowestAnswered"]["elapsedSeconds"] == typed["completion"]["max"]);
+        // What a failure here needs to be read (0.0.17 M5, seen on Windows only): both sides of each comparison, and the
+        // slowest entries of the retained prefix with their send and answer times.
+        std::string observed { std::format("max {} n {} total {}; slowestSuccessful {}; slowestAnswered {}; prefix slowest:",
+                                           typed["completion"]["max"].dump(), typed["completion"]["n"].dump(), total,
+                                           trace["slowestSuccessful"].dump(), trace["slowestAnswered"].dump()) };
+        {
+            std::vector<Json> prefix { trace["entries"].begin(), trace["entries"].end() };
+            std::ranges::sort(prefix, std::greater {}, [](const Json& entry) {
+                const Json& elapsed { entry["elapsedNanoseconds"] };
+                return elapsed.is_number_integer() ? elapsed.get<std::int64_t>() : std::int64_t { 0 };
+            });
+            for (std::size_t i { 0 }; i < std::min<std::size_t>(3, prefix.size()); ++i) observed += " " + prefix[i].dump();
+        }
+        expect(trace["slowestSuccessful"]["elapsedSeconds"] == typed["completion"]["max"]) << observed;
+        expect(trace["slowestAnswered"]["elapsedSeconds"] == typed["completion"]["max"]) << observed;
         expect(trace["slowestSuccessful"]["index"].get<std::size_t>() >= 256)
-            << "the deliberately slow response beyond the prefix must survive truncation";
+            << "the deliberately slow response beyond the prefix must survive truncation: " << observed;
         expect(typed["answered"] == total && typed["completion"]["n"] == total);
         expect(trace.dump().find("private") == std::string::npos);
         const Json& server = typed["serverCompletionEvidence"];

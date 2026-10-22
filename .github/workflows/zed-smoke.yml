@@ -12,13 +12,19 @@ name: Zed smoke
 #   nightly.yml       every night, after ci.yml
 #   release-checks    every release candidate (and a pull request that changes release packaging)
 #
-# It needs the `payload-linux-x64` artifact of the calling run.
+# It needs the `payload-linux-x64` artifact of the calling run, or of the run `payload-run` names.
 
 on:
   workflow_call:
+    inputs:
+      payload-run:
+        description: The run whose payload-linux-x64 to test; empty for the calling run
+        type: string
+        default: ''
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   zed:
@@ -38,11 +44,10 @@ jobs:
             case "$name" in ''|\#*) continue ;; esac
             echo "$name=$value" >> "$GITHUB_ENV"
           done < .github/versions.env
-      - uses: actions/download-artifact@v8
+      - uses: ./.github/actions/payload
         with:
-          name: payload-linux-x64
-      - name: Unpack the payload
-        run: tar -xzf payload-linux-x64.tar.gz
+          platform: linux-x64
+          run-id: ${{ inputs.payload-run }}
       # Zed needs a display and a Vulkan driver: xvfb for the first, lavapipe (software Vulkan)
       # for the second. The libraries are what a desktop has and a runner image may not.
       - name: Display, Vulkan and the libraries Zed loads

@@ -1,6 +1,10 @@
 {
   "name": "mcpp-target-windows-real",
   "description": "Real mcpp with LLVM and the Windows MSVC environment publishes unmodified i686 and x64 compile databases. In one LSP session, the root CDB switches i686\u2192x64\u2192i686, overriding the manifest x64 default; actual analysis targets, engine commands, conditional module constants (32/64/32), navigation and diagnostics follow. No mocked producer or rewritten CDB entries.",
+  "requires-mcpp": {
+    "executable": "{env:MCPPLS_REAL_MCPP|mcpp}",
+    "at-least": "2026.10.5.2"
+  },
   "prepare-environment": "msvc",
   "prepare": [
     [

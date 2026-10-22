@@ -48,6 +48,31 @@ int main() {
         expect(!measure::budgets("/definitely/not/a/real/directory-mcppls-test").has_value());
     };
 
+    "compare: the typing and idle numbers beside a baseline's, and only a difference beyond their spread is worse"_test = [&] {
+        const std::string candidate { scratch("compare-candidate") }, baseline { scratch("compare-baseline") };
+        const auto write_run = [&](const std::string& directory, int index, double max, double growth, int timeouts) {
+            const std::string run { std::format(R"({{"fixture":"ux","checks":[)"
+                                                R"({{"id":"U5","measure":{{"completion":{{"max":{},"n":10}},"serverTimeouts":{}}}}},)"
+                                                R"({{"id":"U13","measure":{{"rssGrowth":{},"seconds":600}}}}]}})", max, timeouts, growth) };
+            (void) fs::write_file(base::join_path(directory, std::format("ux-edits-{}.json", index)), run);
+        };
+        for (int i { 0 }; i != 4; ++i) {
+            write_run(candidate, i, 0.80 + 0.01 * i, 0.30 + 0.01 * i, 0);
+            write_run(baseline, i, 0.78 + 0.01 * i, -0.10 + 0.01 * i, 0);
+        }
+        auto compared = measure::compare(candidate, baseline);
+        expect(fatal(compared.has_value()));
+        expect(compared->table.contains("| U5 | completion.max | 4 |")) << compared->table;
+        expect(compared->table.contains("| U13 | rssGrowth | 4 |")) << compared->table;
+        expect(!compared->table.contains("completion.n") && !compared->table.contains("| seconds |")) << "only the compared numbers";
+        expect(compared->worse.size() == 1u) << "0.02 s on a 0.8 s max is noise; idle growth +30% against -10% is not";
+        expect(!compared->worse.empty() && compared->worse.front().starts_with("U13 rssGrowth")) << (compared->worse.empty() ? "" : compared->worse.front());
+        expect(compared->table.contains("| U5 | serverTimeouts | 4 | 0 |")) << "two counts that never vary are the same";
+        expect(!measure::compare(candidate, "/definitely/not/a/real/directory-mcppls-test").has_value());
+        std::filesystem::remove_all(candidate);
+        std::filesystem::remove_all(baseline);
+    };
+
     "an empty directory renders the header alone"_test = [&] {
         const std::string directory { scratch("empty") };
         auto text = measure::summarize(directory);

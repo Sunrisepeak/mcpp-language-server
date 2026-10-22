@@ -7,10 +7,39 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
-## [0.0.17] — 2026-10-22
+## [0.0.17] — 2026-10-23
 
-The bundled engine remains [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.16)
-(`23.1.0-mcppls.4`).
+The bundled engine is [mcppls-clangd 0.0.17](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.17)
+(`23.1.0-mcppls.5`), released together with this version. This release is about following an mcpp build target,
+what an idle or a crashed clangd costs you, and typing imports with autosave on.
+
+### The engine
+
+- **An idle clangd no longer grows.** The engine kept the memos of a project's module checks on disk by building the
+  JSON of all of them every 30 seconds, and only then finding nothing had changed; the allocator kept what each write
+  built and freed, and ten idle minutes could add hundreds of megabytes (#59 U13). It now writes only when a memo
+  changed (engine patch 0036).
+- The engine's module workers work in sanitizer builds again (0037), which is how the engine's own nightly tests the
+  module paths for memory errors; and its releases publish the unstripped clangd for Linux and macOS beside the
+  stripped one, so a crash's stack can be named.
+
+### Typing and saving
+
+- **Typing an import with autosave on no longer asks the build tool at every pause.** A save that changes a file's
+  imports asks for the project model again; while that file is still being typed in, the request now waits until it
+  has been quiet for two seconds (never more than thirty), so a typed import is one run of mcpp, not one per save,
+  and the status no longer turns `loading` and back every couple of seconds (#59 U15).
+
+### When clangd exits
+
+- **A clangd that is killed (or stops with no crash report) no longer takes the file you are typing in away from it
+  for two minutes.** An exit that names no file is a strike against the files clangd was working on, not a verdict:
+  only a second such exit on the same file within ten minutes sets it aside (#59 U9).
+- **A file clangd crashed on goes back to it once the modules it imports are built again**, instead of after its
+  whole two-minute term: what it crashed on may have been one of those modules, half rebuilt. It goes back once for
+  each such build; another crash sets it aside for a doubled term, as before (#59 U7a).
+- A slow completion (two seconds and more) is recorded with where its time went -- waiting before the engine was
+  asked, the engine, and what came after -- in the report's events and in diagnostic bundles.
 
 ### Build targets
 
@@ -69,8 +98,6 @@ The bundled engine remains [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak
   files. A navigation answered from the previous session's cache can otherwise expose a partially
   written BMI read copy. Missing work state or an expired wait fails; navigation budgets and the
   zero-rebuild assertion remain unchanged.
-- Unchanged persistent memo snapshots in the bundled engine can still allocate memory during
-  idle periods. The engine remains unchanged; this release does not claim to fix that allocation.
 - Module builds completed inside a preparation closure count as real activity for stall detection,
   without incrementing the completed-prime counter. Resource and configuration measurements keep
   the engine activity and rebuild evidence needed to distinguish ongoing work from a stall.
@@ -82,7 +109,14 @@ The bundled engine remains [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak
 - After a cache write failure, fixing the disk and restarting clangd restores analysis directly;
   changing the project again is no longer needed to recover the failed plan.
 - The Termux nightly binds its script directory into the inner Debian rootfs, so the job can reach
-  the server checks. The existing best-effort policy for Termux and two-core rounds is unchanged.
+  the server checks, and uses the official package source instead of a randomly picked mirror. The Zed
+  smoke test uses a preinstalled clangd through Zed's own lookup instead of a GitHub download.
+- On Windows with MSVC, an mcpp project that uses `import std` needs mcpp 2026.10.5.2 or later (docs/20-projects.md);
+  a conformance fixture that needs a newer mcpp than CI's pinned one declares it (`requires-mcpp`).
+- **A change can be measured without being built again.** A manual nightly can test the payloads a pull request's CI
+  already built (`payload-run`), run only the ux rounds (`scope`), run their edits stage several times in new server
+  sessions (`ux-repeat`), and run a released server beside them on the same machines (`ux-baseline`), compared by
+  `mcppls-devtools measure compare`; a manual nightly of a branch can test a candidate engine (docs/92-release.md).
 
 ## [0.0.16] — 2026-10-14
 
