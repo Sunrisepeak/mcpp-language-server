@@ -1,6 +1,6 @@
 # #59 / #63 验证简报
 
-日期：2026-10-22 JST。**PR #64 已合入；合入前 CI/nightly 与最终完整九阶段通过。发布预检的 macOS 发送时限补修已通过本地及首轮原生检查；新 CI 的 U15 状态频率失败仍待验收，尚未发布。**
+日期：2026-10-22 JST。**PR #64 已合入；PR #65 的产品补修在提交 `1341938` 通过 PR CI 与本地原九阶段。最终范围审计补充真实 mcpp Windows 双目标链，新增验收仍待原生 CI；nightly 和正式发布/升级尚未完成。**
 
 本目录只收结论、[复现步骤](reproduce.md)和 [SHA-256 索引](raw-index.tsv)。45 份原始记录共 26,769 行，已移出 PR；失败、对照、日志与 core 均保留。源码边界见 [设计方案](../2026-10-22-issues-59-63-target-and-reliability-design.md)。
 
@@ -71,6 +71,14 @@ R1 补修本地 dev/release 全 workspace 均为 6 members / 57 programs / 0 fai
 独立回归证明同步 apply 的一致性缺陷：真实 clangd 在安装新 primer/安排重启前会调用 `host.status_changed()`，workspace 此时已采用新 profile。相同回调时序的定制 core 在旧产品上仅一个断言失败，暴露了引擎尚未 commit 的新 profile/ready；无回调对照通过。补修只合并同一同步 apply 栈内的状态通知，所有参与引擎完成后发布；不增加延时、不扩展 hold、不隐藏异步状态。修后 dev/release 各 28 cases / 357 assertions 通过，其他验证仍在进行。这一独立缺陷不能冒充首个 13 次失败的归因。
 
 runner 新增紧凑 `stateTransitionTrace` 与 `busiestMinuteWindow`：保存初始状态、重启边界和实际计数的转换，带整数纳秒及采样索引，能按原严格 `<60s` 窗口重算。只保留 issue code，不复制完整 status 或路径；原采样、计数和门槛不变。完整新产品性能链与平台 CI/nightly 尚未完成。见[复现第 12 节](reproduce.md#12-同步-apply-的状态快照与时间线证据)。
+
+## 补修产品最终本地验收与真实 Windows 生产链边界
+
+提交 `1341938` 的 PR CI 39742414940 为 **46 success / 1 条件跳过**。两种 profile 各 6 members / 57 programs、31 组真实 LSP、原完整 build-programs 与实际 VS Code（44 passing / 1 平台专用 pending）均零失败。原九阶段单次完整运行 **9 exit 0 / 53 checks / 0 failed**，fixture、CPU、producer、cache lineage 与预算保持原值；mcpp/xlings warm ready 为 **6.572 / 2.435 秒 <12 秒**，已有模块分别 176/111，均零重建；xlings 另有 39 首次构建。U8 撤销均零重建，U15 edits 最忙一分钟为 4/2 次。
+
+原 600 秒 xlings idle 为 **0.004954 core**，RSS **1108.40→1129.73 MiB（+1.92%）**；之前 62.021 秒有限工作单列，不混入空闲值。独立重算全部状态轨迹和严格 `<60s` 窗口，9 个 observer 均正常结束，303 个观测到的 PID/birth 身份已退出；1 秒采样可能漏掉瞬时子进程。终态摘要在 `.payload-cache/59-63-performance/light-observer-final-acceptance-status-1341938/terminal-summary.json`，原 13/min 与 15.219 秒失败及其未归因边界不变。
+
+范围审计发现：原 `mcpp-target-windows` 是 mock producer + 真实 clangd，它证明目标传递和条件声明，但不能代替设计要求的真实 mcpp 原生双目标生产链。新增 `mcpp-target-windows-real` 使用真实 `mcpp build --configure-only --target` 生成两份完整 CDB，不改写条目；同一会话切换 i686→x64→i686，校验 auto 来源、实际引擎命令、32/64/32 条件声明、导航与诊断。Windows 原生 CI 实际通过前，该项保持待验收；没有把 mock 通过扩大为真实生产链通过。
 
 ## 历史失败与反证仍保留
 

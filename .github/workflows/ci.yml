@@ -344,7 +344,7 @@ jobs:
           - platform: win32-x64
             part: 1 of 2
             os: windows-2022
-            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-split-msvc cmake-msvc-std compdb-clangxx-msvc-std multi-root compdb-clang-cl-std mcpp-llvm-msvc mcpp-build-programs failure-at-base@vscode typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins ux-modules-windows mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve
+            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-split-msvc cmake-msvc-std compdb-clangxx-msvc-std multi-root compdb-clang-cl-std mcpp-llvm-msvc mcpp-build-programs failure-at-base@vscode typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins ux-modules-windows mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-target-windows-real mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve
           - platform: win32-x64
             part: 2 of 2
             os: windows-2022
@@ -534,6 +534,12 @@ jobs:
             case "$fixture" in
               cmake-clang-bdb) path_prefix="$RUNNER_TEMP/cmake-4.4.2/bin:" ;;
               cmake-msvc-bdb|cmake-clang-cl) fixture_extra=(--msvc-env "$RUNNER_TEMP/msvc-bdb.env") ;;
+              # Preserve the real producer's first CDBs and server log independently
+              # of the diagnostic rerun: no reconstructed or rewritten target entries.
+              mcpp-target-windows-real)
+                local evidence="$RUNNER_TEMP/mcpp-target-windows-real-first"
+                case " $* " in *" --verbose "*) evidence="$RUNNER_TEMP/mcpp-target-windows-real-diagnostic" ;; esac
+                fixture_extra+=(--workspace-dir "$evidence/workspace" --cache-dir "$evidence/cache") ;;
               # usable plan W9.3: the fallback runs only when the client never declares
               # didChangeWatchedFiles.dynamicRegistration. NAME@polling runs fixture NAME that way.
               watch-polling|*@polling) fixture_extra+=(--no-dynamic-watch) ;;
@@ -576,6 +582,17 @@ jobs:
         with:
           name: conformance-measures-${{ matrix.platform }}-${{ matrix.part || 'full' }}
           path: ${{ runner.temp }}/conformance-measures/*.json
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v7
+        if: always() && contains(matrix.fixtures, 'mcpp-target-windows-real')
+        with:
+          name: real-mcpp-target-cdb-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/mcpp-target-windows-real-*/workspace/mcpp-target-windows-real/recorded-*.json
+            ${{ runner.temp }}/mcpp-target-windows-real-*/workspace/mcpp-target-windows-real/compile_commands.json
+            ${{ runner.temp }}/mcpp-target-windows-real-*/cache/logs/*.log
+            ${{ runner.temp }}/mcpp-target-windows-real-*/cache/workspaces/**/model.mcpp.json
           if-no-files-found: ignore
 
       # Issue #23 fix plan F18: the bundles diagnostic-bundle exported on this runner's own account, whose

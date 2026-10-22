@@ -1,0 +1,16 @@
+[package]
+name = "target-real"
+version = "0.1.0"
+description = "Real mcpp Windows analysis target follows the published CDB"
+license = "Apache-2.0"
+
+[toolchain]
+default = "llvm@22.1.8"
+
+# The initial published CDB deliberately overrides this project default with i686.
+[build]
+target = "x86_64-windows-msvc"
+
+# mcpp's built-in target table does not list 32-bit Windows; projects may
+# declare an explicit custom target that the selected LLVM driver supports.
+[target.i686-windows-msvc]
