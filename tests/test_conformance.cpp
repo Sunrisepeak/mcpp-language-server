@@ -450,7 +450,9 @@ int main() {
     "truncated completion traces still identify the original slowest response"_test = [&] {
         const Json sample { { "name", "timing" }, { "server-arguments", Json::array({ "--completion-trace-overflow" }) },
             { "checks", Json::array({ Json { { "id", "OVERFLOW" }, { "kind", "typing" }, { "file", "main.cpp" },
-                { "seconds", 1 }, { "hz", 1000 }, { "completion-every-ms", 0 }, { "reask", "always" }, { "requestTimeout", 5 },
+                // At least 300 requests on every OS (the mock delays the 270th): Windows sleeps in 15.6 ms steps, so a
+                // second at "1000 Hz" there was 65 keystrokes, and the slow request was never asked (0.0.17 M5).
+                { "seconds", 6 }, { "hz", 100 }, { "completion-every-ms", 0 }, { "reask", "always" }, { "requestTimeout", 5 },
                 { "scripts", Json::array({ Json { { "line", 0 }, { "text", std::string(300, 'a') } } }) }
             } }) } };
         expect(fs::write_file(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());

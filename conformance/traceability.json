@@ -920,7 +920,7 @@
   "S2-5-2": [
     {
       "script": "src/orchestrator/workspace.cpp",
-      "contains": "void schedule_reload(bool fromEdits = false) {"
+      "contains": "void schedule_reload(bool fromEdits = false, const std::vector<std::string>& typing = {}) {"
     }
   ],
   "S2-5-9": [
