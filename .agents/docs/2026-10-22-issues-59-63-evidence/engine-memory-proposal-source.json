@@ -1,0 +1,10 @@
+{
+  "engineForkCommit": "92a4c630f4691890e6133c87d3e4591bc5fd8258",
+  "engineVersion": "23.1.0-mcppls.4",
+  "pinned0030SHA256": "091fa15f06a736955f331c3025bf73bcd891bce7de81024c8f3826588f0b9986",
+  "runtimePatchSHA256": "143bebe8e0d335620ddfe18350dd8a7c22629d50050bbcb1c3f512ec4f3b0122",
+  "nativeCanaryPatchSHA256": "3c12e2a2753ff3560a9238d59ac78d36c0ac8a3ccf33e15fc09de770cfa1fbbf",
+  "status": "local proposal only; no LLVM build, no engine checkout changes, no registration/comment/publication",
+  "contextValidation": "Store.cpp/header reconstructed exactly from added-file content of pinned0030; cache snapshot contexts from same patch; full released source git apply --check pending authorization",
+  "shutdownPolicy": "Periodic writes get early-version fast path; flush forces original snapshot path because ClangdMain permits lingering cache writers"
+}

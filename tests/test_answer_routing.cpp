@@ -312,6 +312,104 @@ int main() {
         std::print(std::cerr, "{}", result->error);
         return result->timedOut ? 1 : result->exitCode;
     }
+    "watched source acknowledgement covers successful run-start inputs, not failures or later disk edits"_test = [] {
+        for (const int scenario : { 0, 1, 2, 3, 4, 5 }) {
+            const bool failed { scenario == 1 }, restored { scenario == 2 };
+            Fixture f;
+            const auto source = [](std::string_view hidden, int body) {
+                return std::format("import active;\n#if 0\nimport {};\n#endif\nint value() {{ return {}; }}\n", hidden, body);
+            };
+            const std::string path { mcppls::base::join_path(f.root, "a.cpp") };
+            const std::string initial { scenario == 5 ? "#define SELECT(x) x\nimport SELECT(active);\nint value() { return 0; }\n"
+                : scenario >= 3 ? "#if 1\nimport active;\n#endif\nint value() { return 0; }\n"
+                                : "import active;\nint value() { return 0; }\n" };
+            expect(fs::write_file(path, initial).has_value());
+            expect(fs::write_file(mcppls::base::join_path(f.root, "b.cpp"), "export module active;\n").has_value());
+            const auto loaded = [&](int generation, bool success) {
+                auto model = std::make_shared<mcppls::project::ProjectModel>();
+                model->root = f.root;
+                model->detected = mcppls::project::SourceKind::build_database;
+                if (success) {
+                    model->source = mcppls::project::SourceKind::build_database;
+                    model->watch = { "a.cpp" };
+                    mcppls::spec::Set set;
+                    set.name = "app";
+                    for (const char* name : { "a.cpp", "b.cpp" }) {
+                        mcppls::spec::TranslationUnit unit;
+                        unit.source = mcppls::base::join_path(f.root, name);
+                        unit.workDirectory = f.root;
+                        unit.arguments = { "clang++", "-std=c++23", "-c", unit.source };
+                        if (std::string_view { name } == "a.cpp") unit.requiredModules = { "active" };
+                        else unit.providedModules = { { "active", "" } };
+                        set.units.push_back(std::move(unit));
+                    }
+                    model->database.sets.push_back(std::move(set));
+                } else model->issues.emplace_back("producer-failed", "the controlled producer returned no model");
+                f.workspace->handle_model_loaded(generation, std::move(model));
+            };
+            const auto watched = [&] {
+                f.workspace->handle_watched_files(Json::array({ Json {
+                    { "uri", f.uri("a.cpp") }, { "type", 2 }
+                } }));
+            };
+            loaded(1, true);
+            if (scenario == 5) {
+                watched();
+                f.tick(1600ms);
+                expect(fatal(f.workspace->report()["state"] == "loading"));
+                loaded(2, true); // SELECT(active) really imports active; this answer is valid.
+                expect(fs::write_file(path, "#define SELECT(x) x\nimport SELECT(other);\nint value() { return 0; }\n").has_value());
+                watched();
+                f.tick(1600ms);
+                expect(f.workspace->report()["state"] == "loading")
+                    << "the same macro definition with another import argument needs a new producer answer";
+                continue;
+            }
+            if (scenario >= 3) {
+                if (scenario == 4) {
+                    // The source's active dependency exactly matches the producer's model.
+                    // A successful refresh establishes a baseline for that same structure.
+                    watched();
+                    f.tick(1600ms);
+                    expect(fatal(f.workspace->report()["state"] == "loading"));
+                    loaded(2, true);
+                }
+                expect(fs::write_file(path, "#if 0\nimport active;\n#endif\nint value() { return 0; }\n").has_value());
+                watched();
+                f.tick(1600ms);
+                expect(f.workspace->report()["state"] == "loading")
+                    << "disabling the import changes effective dependencies even though lexical names still match the old model; baseline=" << (scenario == 4);
+                continue;
+            }
+            expect(fs::write_file(path, source("hidden.alpha", 1)).has_value());
+            watched();
+            const auto beforeRun = fs::stamp(path);
+            f.tick(1600ms); // The existing producer debounce, not a status hold.
+            expect(fatal(f.workspace->report()["state"] == "loading"));
+            if (!failed) {
+                // A checkout changes disk after the run began, before its watch reaches us.
+                expect(fs::write_file(path, source("hidden.beta", 2)).has_value());
+                if (restored) {
+                    expect(fs::write_file(path, source("hidden.alpha", 1)).has_value());
+                    expect(fatal(fs::stamp(path) != beforeRun)) << "the A -> B -> A control changed the original file stamp";
+                }
+            }
+            loaded(2, !failed);
+            expect(fs::write_file(path, source(failed || restored ? "hidden.alpha" : "hidden.beta", 3)).has_value());
+            watched();
+            f.tick(1600ms);
+            expect(f.workspace->report()["state"] == "loading")
+                << (failed ? "a failed answer cannot acknowledge this structure: retry on the next body save"
+                           : restored ? "a changed stamp cannot acknowledge A -> B -> A while the producer ran"
+                                      : "a run cannot acknowledge the later disk structure it did not start with");
+            loaded(3, true);
+            expect(fs::write_file(path, source(failed || restored ? "hidden.alpha" : "hidden.beta", 4)).has_value());
+            watched();
+            f.tick(1600ms);
+            expect(f.workspace->report()["state"] != "loading") << "a valid unchanged answer acknowledges the run-start structure";
+        }
+    };
+
     "a model's status is published only after its synchronous engine apply commits"_test = [] {
         struct Probe {
             Sink* sink { nullptr };

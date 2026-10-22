@@ -1,0 +1,1121 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Portable selected evidence for PR65; restores original relative paths, not an entire build/cache environment",
+  "testedSource": "e01e1c1 plus frozen dirty patch/source snapshots included; newly pushed head still needs its own CI",
+  "files": [
+    {
+      "path": ".payload-cache/59-63-completion-trace/binaries-dev.json",
+      "bytes": 696,
+      "sha256": "7e8a49e12e3312a00c7d675e9aad9ce5a9967d5c3087b9a5b267c2da17b9139b"
+    },
+    {
+      "path": ".payload-cache/59-63-completion-trace/binaries-release.json",
+      "bytes": 703,
+      "sha256": "041b92190b5a6c38353f6fd162fb67b1b5763f8ce5a9629b60d19ff27f48381a"
+    },
+    {
+      "path": ".payload-cache/59-63-completion-trace/old-runner-negative-release.json",
+      "bytes": 527,
+      "sha256": "68ce18dc9561238efa6f1b5d59a1689cddcdb67441d4d4f74d25b1fd8802fd18"
+    },
+    {
+      "path": ".payload-cache/59-63-completion-trace/old-runner-negative-release.log",
+      "bytes": 1359,
+      "sha256": "5d051a7671904e24fdd704219d1054a81af9c56ed67c290c6010a62b20e7325f"
+    },
+    {
+      "path": ".payload-cache/59-63-completion-trace/previous-canaries.json",
+      "bytes": 636,
+      "sha256": "abf005b97f5531854f074e7a31ac39f7f1cd01f0ebaa85e71553a2eff8af8a65"
+    },
+    {
+      "path": ".payload-cache/59-63-completion-trace/source-provenance.json",
+      "bytes": 427,
+      "sha256": "f22c2416bb509105b484425e19e91188f5fb2af71f2190340db620b68d19cb8c"
+    },
+    {
+      "path": ".payload-cache/59-63-completion-trace/test-conformance-dev.log",
+      "bytes": 2679,
+      "sha256": "65cad58921a039356e8c92a023321a7e746b9fd8e4137b4b75043a56ddbcc68a"
+    },
+    {
+      "path": ".payload-cache/59-63-completion-trace/test-conformance-release.log",
+      "bytes": 2787,
+      "sha256": "99b0be71e507d4a251c0daf7f4235511a4528db83301bf6ca9c0a3211243843a"
+    },
+    {
+      "path": ".payload-cache/59-63-completion-trace/typing-trace-source-fixed.patch",
+      "bytes": 24945,
+      "sha256": "55a021e82d9d9161cd7e2d3b4fada7069d08be852b5ef0f542d0be809d0eb82e"
+    },
+    {
+      "path": ".payload-cache/59-63-current-state.json",
+      "bytes": 7550,
+      "sha256": "c44cb2a9ed390e8d9e4c3f6d807ea39ce1c09d4c1b68c9e452297003eea38750"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/light-observer-final-acceptance-f6ec554/mcpp/cold/measure.json",
+      "bytes": 55565,
+      "sha256": "a99dc1ea02ef5b6c36ac6c15c289b2e69d031f5767c55d5d8da7c6f0ebe244fd"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/light-observer-final-acceptance-f6ec554/mcpp/edits/measure.json",
+      "bytes": 106271,
+      "sha256": "8418e0544dd55cbdb8c681324554b0fdfc08d2347de08d7a4bc650c0e77fbe3b"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/light-observer-final-acceptance-f6ec554/mcpp/faults/measure.json",
+      "bytes": 40059,
+      "sha256": "74f69e952a6eaa3038a34be9091527e0aef8bbee1e8c1685b087b02910098766"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/light-observer-final-acceptance-f6ec554/mcpp/warm/measure.json",
+      "bytes": 5113,
+      "sha256": "7acd998e83b9452deeaaed768103ad4079085c3dde0ed43471e4c13b8d7f9544"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/analysis-first.log",
+      "bytes": 782,
+      "sha256": "af2ad16a927d755cddfc894e905cb3c55d59f8a5b97ff4529a6e9abf41ff0ce3"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/analysis-fixed.log",
+      "bytes": 228,
+      "sha256": "ad1cd96c39a1a472039c928d6f449fd8a256578cb7ac8c6e1a027411ec492c6f"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/analysis-helper-amendment.json",
+      "bytes": 432,
+      "sha256": "08d6709cde016e9efd652a593f7f110e6005770b83287755e69430d0d50f31e9"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/analyze-terminal-first.py",
+      "bytes": 20549,
+      "sha256": "679a919eeaea42f1d53389c32a569ac23111fe3916669cd68bae32a84674bfb3"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/analyze-terminal.py",
+      "bytes": 20563,
+      "sha256": "8090e141842658d13a87bbbc8be33381601b03a03b6cf2f6ce20ced02b72f397"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/diagnostic-plan.json",
+      "bytes": 36815,
+      "sha256": "f7bbfd17ae658fcacc37d9c967796b2a75b580a774568ac1cffdb3e90475e9e6"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/cache-a/payload-integrity.json",
+      "bytes": 459,
+      "sha256": "a4d55106807c1a95d36715b4003d292374ca7f63522785af9ebd9b520442b3af"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/cache-b/payload-integrity.json",
+      "bytes": 459,
+      "sha256": "a4d55106807c1a95d36715b4003d292374ca7f63522785af9ebd9b520442b3af"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/cold/binaries.json",
+      "bytes": 175,
+      "sha256": "b9186ca98c5eaf34293f19d347d40dc2427d1137c6af8f1e62a24d4cf3b6d70f"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/cold/exit.json",
+      "bytes": 152,
+      "sha256": "fbc9e614328a42eb905b801c17bc2969fe18f629a4840a7ea0b687bad3de0cd2"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/cold/invocation.json",
+      "bytes": 1665,
+      "sha256": "70b23dc8421022af3226c772c1dcc46ad67eb71499a35672551b0985f14b0a05"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/cold/measure.json",
+      "bytes": 56661,
+      "sha256": "adf0e20bf1187909c64a79a39a3f1b2de421ad7190e6e5b822971218fa74ba75"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/cold/processes.jsonl",
+      "bytes": 735596,
+      "sha256": "2ff585515868a2e62ef372750d6352032503d32729aba49489f700a6371a6cbd"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/cold/server-log-archive.json",
+      "bytes": 914,
+      "sha256": "26ec8523b4ba38c60842c6dfbe23c211a345b2130566dbd837dca4138ae16d1b"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/completed.json",
+      "bytes": 1280,
+      "sha256": "32991c0efa097337dd4b3de293f85915d7db5aac3567a21f069f7a508de3fd5a"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/edits/binaries.json",
+      "bytes": 175,
+      "sha256": "b9186ca98c5eaf34293f19d347d40dc2427d1137c6af8f1e62a24d4cf3b6d70f"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/edits/exit.json",
+      "bytes": 152,
+      "sha256": "012281ca92ca245f99dfd4546a45098deb269d29fe2c9dfe675ce259a9e4755e"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/edits/invocation.json",
+      "bytes": 1688,
+      "sha256": "613d79fc9a2ec61c3118636a27edce70a0c0fe506ce5ccbd5fe7ecb2930cbbad"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/edits/measure.json",
+      "bytes": 281259,
+      "sha256": "869ca265b46955815fb8e461fff7ee75eb9b59eb6ccc77d1fdd1528914e38360"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/edits/processes.jsonl",
+      "bytes": 1363913,
+      "sha256": "8d9424ea35f93134d36ab0a2b195c1296a7c2559739fa6b26abb2773b4cdd501"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/edits/server-log-archive.json",
+      "bytes": 1609,
+      "sha256": "042ac40062350fecab60dad82173ba1211f2a65f12848b5de0a231dd8c73347d"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/faults/binaries.json",
+      "bytes": 175,
+      "sha256": "b9186ca98c5eaf34293f19d347d40dc2427d1137c6af8f1e62a24d4cf3b6d70f"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/faults/exit.json",
+      "bytes": 155,
+      "sha256": "3ea69c6a981ca58e2d23c6387581533eb1977f96c2e3848e7198d822f68b591c"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/faults/invocation.json",
+      "bytes": 1669,
+      "sha256": "ae7c6a5cf6028fd4b63738e5ecabea10af646d75102944de5e46a4f25a642aa5"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/faults/measure.json",
+      "bytes": 49299,
+      "sha256": "6834720fba7fa995658b7aaef6bfba4636c4f2bede84ad83ba764215184324f6"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/faults/processes.jsonl",
+      "bytes": 563009,
+      "sha256": "c40df88edd35f583ec2cb1c9fe6c838d7f3124e622dbf461d45c7e8f1d6af157"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/faults/server-log-archive.json",
+      "bytes": 1782,
+      "sha256": "f5904aa86cb47a8d73938feb44c29e9fb823e82246e9749e5b35268705bd7cf1"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/preflight.json",
+      "bytes": 959,
+      "sha256": "677ab2e02822aef0bf31b03e32ef1fb7ebe2aa6d524546bdb73acd7a0b823485"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/producer-preflight.json",
+      "bytes": 613,
+      "sha256": "fe331b2f770b5fb7a687d47959e6be842c5ed9ddd327edb87023cb7ef557058f"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/progress.json",
+      "bytes": 711,
+      "sha256": "cea4f9c4d25054e16fcc5506aa8023d598f8dd902ead2115b76c7b108baef48f"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/started.json",
+      "bytes": 875,
+      "sha256": "aef522e5f9389290b88f38b4661cb348bbad557b034f8e1783707c6cfd90610a"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/warm/binaries.json",
+      "bytes": 175,
+      "sha256": "b9186ca98c5eaf34293f19d347d40dc2427d1137c6af8f1e62a24d4cf3b6d70f"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/warm/exit.json",
+      "bytes": 154,
+      "sha256": "3fd10d90ea5b4e5e79d637ae6d88e358fd0f321be58ca21d951e53bf844f5e22"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/warm/invocation.json",
+      "bytes": 1686,
+      "sha256": "56d4bcc20c1179fd24ec9710a293294d406a9e67c52cec7c4b9a18c37ed0bd93"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/warm/measure.json",
+      "bytes": 6669,
+      "sha256": "e1cb52ebe570dcc353d6d8480f20568c42c2af7497ce820cbe03e588d55be719"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/warm/processes.jsonl",
+      "bytes": 656528,
+      "sha256": "743f1ff4cc68b191bd4cef2a1e14fe45ff35d13cce586b702ef9cc6a4ff7fa8c"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/mcpp/warm/server-log-archive.json",
+      "bytes": 1087,
+      "sha256": "a6844bcc3b5ed10c8a3a6afc331b51078e10ad3a2bf720b7ebb3f31596ac79ad"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/prepared-crosscheck.json",
+      "bytes": 1302,
+      "sha256": "8c4c673c29fe67344e405b10563310d2e6166a45db9caa8d54cd1aaa0c8e5b1a"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/root-registration.json",
+      "bytes": 605,
+      "sha256": "6c98f283d964d43da9985f12c31022e4cacf89a499dfcaed4d26178804726700"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/run.py",
+      "bytes": 13631,
+      "sha256": "077e293b935a280860952059d77d3805bdea647846618402ffe68eae188bc85a"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/runner-pending-pre-binding-plan.json",
+      "bytes": 35875,
+      "sha256": "0581ca1c05cd52800e031dd1eac83bb69922191c371a79e4f7abbc4e7a993bff"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/terminal-analysis.json",
+      "bytes": 131701,
+      "sha256": "aa8c81b6d111a6f321b3deac42b95c8e77829834f6f2659a9bd234aef061000a"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/u7a-crash-parser-context.txt",
+      "bytes": 2590,
+      "sha256": "0a56a7e5febb7a2b543236d6f24ecd862489a0fec6383e79031a34b319fbfd29"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/u7a-crash-stack-context.txt",
+      "bytes": 14183,
+      "sha256": "85fa9daf5a4b3926f9d6156f10a9a59e8e541d89d44595fc2ffc19a6c6b2ca1b"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/u7a-postrun-analysis.json",
+      "bytes": 18036,
+      "sha256": "23f3c48891437a6a604c6abd03935c7e4c0de1235e9f65f5849358d26e97f08b"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/u7a-postrun-analysis.md",
+      "bytes": 2806,
+      "sha256": "22bbfd685f5a2821dfb29c95df34b6a296d67d242ff8ca491c630ca180de1577"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/u7a-symbolization-summary.json",
+      "bytes": 6900,
+      "sha256": "30151877d8b42a489eeb6c825586f6f4c271cdb7f4a00544c2a54162f21c6e38"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/u7a-symbolize-addr2line.json",
+      "bytes": 331,
+      "sha256": "43c6a8db3d5c0b8f8eb80551ef50773c36a3025e920febabb8b643541a449786"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/u7a-symbolize-llvm.json",
+      "bytes": 329,
+      "sha256": "15fe4c9281a779c1dee2f058c3b061e1e365bdf22ebdf6ac190cdcb53fb3d434"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-134-nightly-round2-latency-diagnostic/u7a-symbolize-nm.json",
+      "bytes": 220,
+      "sha256": "8f96eccc8b384f2286648fafb8afb9e1abdc13c87fcc3e6348b9055c223b29cb"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/mcpp-staged-fixture/scenario.json",
+      "bytes": 23630,
+      "sha256": "eebddf0aed7f1d227d4f7dddee108e19b24afc85142d12f5fc30a6b99fded0f0"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/memo-control.py",
+      "bytes": 1843,
+      "sha256": "1b97034a7f2d8d9a1d80ba6b5ed267fe846806b6f74f7226443d77f0a6acb684"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/memo-only-lsp.log",
+      "bytes": 2071,
+      "sha256": "6eac28fcedad7344f4abdc222d62965deb9be0f268227ddf1fe957391ea14a90"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/memo-only.log",
+      "bytes": 3547,
+      "sha256": "e1f38b36de050b563e1bf7fe3c73aa6bdf9d0e5bf884e6b41331c2cbbaf98690"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/observe-owned-processes.py",
+      "bytes": 7301,
+      "sha256": "8410c71b3dddfa42d96ba805012c850569952b0597a56022f3789a4fda09071a"
+    },
+    {
+      "path": ".payload-cache/59-63-performance/runner-cold-gdb2-memory.log",
+      "bytes": 7359,
+      "sha256": "21fc569f75f1f9b7834c76c843337ac525373712ccfe12b650ce51808e638e5f"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/ci-state.json",
+      "bytes": 188688,
+      "sha256": "85098f2d00b69cbce5ae48d8c5f7b1e400be657f5f0fb5f6d7da766e4dbef0e9"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/e01-nightly-windows1-first.log",
+      "bytes": 47508,
+      "sha256": "de87e81fbd3bd701d4fdac219c307930707dff498c3c681c0dec2f09c21b1033"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/engine-memory-review/pinned-0030.patch",
+      "bytes": 70632,
+      "sha256": "091fa15f06a736955f331c3025bf73bcd891bce7de81024c8f3826588f0b9986"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-mcpp-round1-failure.log",
+      "bytes": 255474,
+      "sha256": "d1fd834da94950c205000aa18d1bd7499f5524aa6920707c18433ddf0aa9fdb4"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-mcpp-round1-measures/ux-mcpp-1-cold.json",
+      "bytes": 45293,
+      "sha256": "ba40d219bff5bb920b5f4e0ed2511e97bb75fa494fe866d28173a73cd4d93428"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-mcpp-round1-measures/ux-mcpp-1-edits.json",
+      "bytes": 105358,
+      "sha256": "c7455cfd6eedddac93446d7f3d54842831b78739dbc749f9240ea54ff8530447"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-mcpp-round1-measures/ux-mcpp-1-faults.json",
+      "bytes": 38532,
+      "sha256": "5a94d32cc4c155182f27e2440be4c9bb95debf8afcb0f7f3156d4aa7363c28ec"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-mcpp-round1-measures/ux-mcpp-1-long.json",
+      "bytes": 40389,
+      "sha256": "0199130e255f40d7ce6267dc21d5cd0a75c96b177de0739ffce92a98fd527ce2"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-mcpp-round1-measures/ux-mcpp-1-warm.json",
+      "bytes": 6271,
+      "sha256": "2760e72904849fd3559bca31b6ef66f88d0fea08578067d53fad5590f0123199"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-mcpp-round1-window-recompute.json",
+      "bytes": 4968,
+      "sha256": "cc4d01d09193788cee7d5e807ca7b01a6a1a4ae63d1c0498adefddeb1ddcbc39"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-mcpp-round2-failure.log",
+      "bytes": 232582,
+      "sha256": "d1db485d6b32e26642ff5ffffbe5ce7387491e4aeaadc7556e18c68d0143f183"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-mcpp-round2-measures/ux-mcpp-2-cold.json",
+      "bytes": 45661,
+      "sha256": "56ef639a79112ea26e22062a0e7430b77e7b7dda4c21501259ff459130e50afd"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-mcpp-round2-measures/ux-mcpp-2-edits.json",
+      "bytes": 104749,
+      "sha256": "ea46380726f2f2aca481027db22453f4bb40ee11d016515d78eff54d652a6f01"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-mcpp-round2-measures/ux-mcpp-2-faults.json",
+      "bytes": 38551,
+      "sha256": "388e57fbfcdbf0b891af3d93cdf0040341930961fb2bb21e550475307cc6749e"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-mcpp-round2-measures/ux-mcpp-2-warm.json",
+      "bytes": 6268,
+      "sha256": "75c4353debba66424bf37c03705abf59e32558ab723801382bc334ad1e0165b2"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-xlings-round1-failure.log",
+      "bytes": 558591,
+      "sha256": "6a17b4a3b813a4ae3108029d61718f316a94456ed5fa73af24e94c8ac273104d"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-xlings-round1-measures/ux-xlings-1-cold.json",
+      "bytes": 42350,
+      "sha256": "05590c70b99a764fe1963c879478742902a62d74b4a7fc0a30a93599d1d2b72a"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-xlings-round1-measures/ux-xlings-1-edits.json",
+      "bytes": 94362,
+      "sha256": "b34e41b266a3e7f4bac008f1266a67b3f5c1bc37771343dfe325b961417a81ae"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-xlings-round1-measures/ux-xlings-1-faults.json",
+      "bytes": 37941,
+      "sha256": "3563080415e0c08263014edd8812647c76ac53efd9c501892dd45f7a2f82db02"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-xlings-round1-measures/ux-xlings-1-long.json",
+      "bytes": 17571,
+      "sha256": "0d549972986e61d427a456ac03efee57d70530b257597f3c310557bb29866e13"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-xlings-round1-measures/ux-xlings-1-warm.json",
+      "bytes": 15504,
+      "sha256": "13bf3e21ca4c30a6b6b814892d2bc70e43e931c0ecda2e3b359468c6b9e7dde6"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-xlings-twocore-failure.log",
+      "bytes": 262169,
+      "sha256": "64c1559bf4f72f13335ca758a102c3ddb1da2876517af6ae70fad19e8aa0147d"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-xlings-twocore-measures/ux-xlings-two-core-cold.json",
+      "bytes": 46922,
+      "sha256": "027d8c1e40a2ecb36e7383b544f19f6b4a7feb12535303228f6e0356b18de405"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-xlings-twocore-measures/ux-xlings-two-core-edits.json",
+      "bytes": 95506,
+      "sha256": "39ed331aa81feee8002eb6d29671f880181a7e5a0f0d22bffc839afcdf5b6318"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-xlings-twocore-measures/ux-xlings-two-core-faults.json",
+      "bytes": 38822,
+      "sha256": "f86b6f0630fdc576cfb931a74901b781a8bc847ab62196dffa34de1c78e98cbd"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/first134-nightly-xlings-twocore-measures/ux-xlings-two-core-warm.json",
+      "bytes": 9822,
+      "sha256": "2277aeb569def199b13a0c88e3e6ab2dd0d03b322fb12835669d49a5aa26606e"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/linux-std-preflight/compile_commands.json",
+      "bytes": 6576,
+      "sha256": "d1a53c60f32f2b3656755b0c1e385aca1662e34c86306a880fa275cd2604609d"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/linux-std-preflight/configure-host.log",
+      "bytes": 342,
+      "sha256": "94fa526f4185a270518f6ddb9dea94aaebea637d38c41a1fd63ff0051e6827a5"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/linux-std-preflight/no-std.json",
+      "bytes": 6598,
+      "sha256": "6df980b16a30bf041e61cc42384cd8bf253cf5f7bddab7a58e1689495e674627"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/linux-std-preflight/scenario.json",
+      "bytes": 5446,
+      "sha256": "2ea2c5472177e4bebd006612eb3c505b564cdf3d3fabe6415536273d322c164c"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/linux-std-preflight/validate-with-std.log",
+      "bytes": 197058,
+      "sha256": "7665e45d8957e782257227328223c14a7ada5ac7a50866848370f4e318871566"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/linux-std-preflight/with-std.json",
+      "bytes": 12683,
+      "sha256": "12365bad672cb919ab3422e8a5407904d65471c3b1ed505e9d87fb1e4d0b6567"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/nightly-state.json",
+      "bytes": 243844,
+      "sha256": "a17bef743615359c056cf3d7cb6343facf30d9b60fbf3ff753a4927e88d04b37"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/nightly-termux-119754344604-first.log",
+      "bytes": 34495,
+      "sha256": "cf42fc69cc0cb1b04517b43384971b5c933a75dc33f7c0fe7127a8c1bd784df7"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/nightly-zed-119754345027-first.log",
+      "bytes": 54344,
+      "sha256": "bcfc27cc1fce56e70fb7dd77f43a21130d84f2aab0c413b2969b754945daf984"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/runs.json",
+      "bytes": 50,
+      "sha256": "006e8a5825b3fc10f1822e0869e66785dd93e707f55ba66117e0291036cc2c48"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/state.json",
+      "bytes": 10251,
+      "sha256": "64e75fc77ce502e3fa82cc87a56daa5d1c4f0094babd39a3a3db2e6657b95c86"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/zed-lsp-directory-check/results.json",
+      "bytes": 729,
+      "sha256": "3ceea87f2c737d4c454dfa85fae9ff48945427b245a79260235dff05898496f2"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/zed-smoke-default-first/cache/logs/server-20261022-094609.434-c50e.log",
+      "bytes": 4060,
+      "sha256": "d49fe4db79643375c36b9d9bfd318abd2ba77ab6448c99d2ad7a64f9a6f77e9e"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/zed-smoke-default-first/lsp-in.log",
+      "bytes": 5773,
+      "sha256": "8f564462186b11e6ed4cf3a994b286aa08deab7b00cc48e2226bdaaad7939b9b"
+    },
+    {
+      "path": ".payload-cache/59-63-real-target-integration/zed-smoke-default-first/lsp-out.log",
+      "bytes": 4735,
+      "sha256": "86bd826f4cae5ef24ec395f1a9845d71fdcde5b9a9de13476d8388948b2bdbde"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/binaries-dev.json",
+      "bytes": 1019,
+      "sha256": "c46fc47e40b782696bac9fa6a47e56cfa675ecba73f874ca8bc71bea6ca1f550"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/binaries-release.json",
+      "bytes": 1030,
+      "sha256": "d865871167b5a94e395314112357d7da6b05056a1db6c517ac63986335d5d3a4"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/build-workspace-dev.log",
+      "bytes": 8037,
+      "sha256": "c3a9bfecf465de7bdd00d7fe1cf5764b1642d32f63e701d1d5c39f8fcf0c1851"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/build-workspace-release.log",
+      "bytes": 8027,
+      "sha256": "9d7086afe2655c340e6e31ac7cb12d99fe6b2989fbe6e9f4d58f253fdfd2891e"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/build-workspaces-run.log",
+      "bytes": 176,
+      "sha256": "dec86b6722858b48fe5b54f2d8981d74fdcaba1fc26d2ab30b07a247635c3643"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/build-workspaces.py",
+      "bytes": 1778,
+      "sha256": "c09eb41fa290638a9da4703ff56017959eca985099e2b36e14425e183908e292"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/dev-test_answer_routing.log",
+      "bytes": 46071,
+      "sha256": "e4d9152a14eb4c9278d3fb593e9f919703a04cabff92a6a5c6bde10668b70a70"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/dev-test_scan.log",
+      "bytes": 3085,
+      "sha256": "c3412afe945bbca8b95d4b3441ca6c6b55f57650479bcf7562bba72c7c29ed79"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/dev-test_session-fixed.log",
+      "bytes": 1883,
+      "sha256": "09202cbc77e16c36c3fa0f2be730526bdf6bc2941fd2fe24790b0a263f519bd5"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/dev-test_session.log",
+      "bytes": 65036,
+      "sha256": "7e68feb1abd267b53b9a5b08b3827958d028b247c74c6089fba20d044d4cd058"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixture-profiles-run.log",
+      "bytes": 94,
+      "sha256": "0e3ea52a49a18d0224b6584ac233a76af203484596570a2167cf579928a03cf8"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixture-runs.json",
+      "bytes": 608,
+      "sha256": "4eec81075222edddf985d6459aa017f18826a57c799ee73495958c9ae4bcaabe"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev-run.log",
+      "bytes": 841,
+      "sha256": "686ec07c5c37a87141c67168ae9a322e9c7196d55bdecca6958ea83661089670"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/build-program-broken.json",
+      "bytes": 7129,
+      "sha256": "ef52c1ccd366f762100efbac2ab9da5e5d803e7958d30afa2f39b53976c3407c"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/build-program-gated.json",
+      "bytes": 4734,
+      "sha256": "2d338736bb143b3eeef30f2a030e15ecf70c358313aeb254a2f6f65fdb7e5a18"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/build-program-manual.json",
+      "bytes": 4230,
+      "sha256": "1a0972e75bba5972218d45eb3b30f4385ecd4199ec249cdae6b9a85f072f8a91"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/clangd-cannot-load.json",
+      "bytes": 4301,
+      "sha256": "b69c6c61826818ce8e09bd40fe3de2603c307c378800e7330a2743a903c33cef"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/generated-module-negotiated.json",
+      "bytes": 3711,
+      "sha256": "8c7ab609ddfb913bcfae016b44331b00146b36a34d3150abe2597db942501eee"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/generated-module.json",
+      "bytes": 3963,
+      "sha256": "3a3f167788953c051810cee6fe7a091f6a633bc7d50dbff1fbf924b2cf62ae50"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-emit-wait.json",
+      "bytes": 3355,
+      "sha256": "ddaba8ef148a0be5546eef64a7178fcb68291f3539a73cf3e383ba9db26b1f48"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-emit-watch@polling.json",
+      "bytes": 8146,
+      "sha256": "14c389b8a39b218e97deeb40073f6eb811a14174c11df20e9357f9e66ca8c216"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-polling-watch-inputs.json",
+      "bytes": 8744,
+      "sha256": "26dadb4680404de08ce72ec577607ea97895acf45a527faf5b2411bd9acff83b"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-producer-file-identity.json",
+      "bytes": 5177,
+      "sha256": "07248d38ff7f9dd72e9d29dc81eb14d93d5fd96234f4a125ed21009ab0696351"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-producer-identity.json",
+      "bytes": 7815,
+      "sha256": "cfc60a85506a687dd22326b9969fffd0b54b92ed2538ca1f1a05a2e87ba97f79"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-producer-identity@polling.json",
+      "bytes": 7818,
+      "sha256": "3539ef03427d5082c420f014b9ace52f2124030890958d46ef5286d3fbc5c481"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-producer-relative-path.json",
+      "bytes": 2657,
+      "sha256": "f653cae978a0b7fc9066c3642cee7d9b8adcd55ca7249655a1ec75ea534d44cc"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-target-auto-fallback.json",
+      "bytes": 8571,
+      "sha256": "2ed63f5b5ab5a184c6a542b096ea5c18df0b43099e3f53b47668df6030f5e23e"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-target-build-tool-off.json",
+      "bytes": 3193,
+      "sha256": "6037a0861a51d9cbef6bb7c9caba999091b6fe27de3dee8a9f0fe3e2fd1ef065"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-target-discovery-off.json",
+      "bytes": 2809,
+      "sha256": "85d629c4469c0ad98bde8cbe015a433a49c9b279f1dc4c3a3f8d2364d79838ee"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-target-explicit.json",
+      "bytes": 3210,
+      "sha256": "30b06e3e1531baf5888f173efef7626ac8fe49b80108b8645a7e31242b6d4b66"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-target-fallback-mismatch.json",
+      "bytes": 2351,
+      "sha256": "2931d64673f55829999d3d4e34f4d83dc7cf1e17f8c7255533f5c943424267a6"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-target-fallback-preserve.json",
+      "bytes": 6547,
+      "sha256": "226f914cc313010dc8eaaa1aadeecd9ac2f7465127872090b1f7fcce7f85ce0a"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-target-invalid.json",
+      "bytes": 2056,
+      "sha256": "cf580b150037f99293e0c6ebd7ab53498b9a98b2ad12a5ae469ddff2186cdbe1"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-target-live.json",
+      "bytes": 7270,
+      "sha256": "83365b5eb3c670c7b304705f22198d35963e24a968eb10141114ed1af803f0ef"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-target-mismatch-cold.json",
+      "bytes": 2934,
+      "sha256": "1e8372693abf57f4f10789adbe51fd4b6086dbd61952efd9d6e5ec82808143a3"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-target-mismatch.json",
+      "bytes": 4867,
+      "sha256": "19996e6643c92b23ad15631e15e018b163dc6f79e2460186d514909206962b06"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-target-project.json",
+      "bytes": 3092,
+      "sha256": "d76004854c186575c6a1225a5b1a8ae71dc707da2f3cda657a6aa59aec78fa9e"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-target-provider-excluded.json",
+      "bytes": 3188,
+      "sha256": "2fa36752f7f425cffd3a14c77357ec54eef67239afa75d60889b7fff12dce4d1"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-target-race.json",
+      "bytes": 6890,
+      "sha256": "62de78d1b6707baa69003aae99008a96a33b1bdd6745106a004c07edc9a104c4"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-target-selection.json",
+      "bytes": 11091,
+      "sha256": "043646860e3aee8a8c8e058a4b478a8f9ec5e5d2778d6fd8f5713f2811ca259e"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-target-selection@polling.json",
+      "bytes": 11090,
+      "sha256": "c970ab32219feb4553c456ca7d573698a84a18e56a47881e8b685ef4dce93c19"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-target-windows.json",
+      "bytes": 11719,
+      "sha256": "ed1dd2791de078eaed4c2e41f1f9cc7c2cfac79ba7a29884a3c704af6558154f"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-watched-source-structure.json",
+      "bytes": 39467,
+      "sha256": "cb270062908858b8cd16ffbf37c4add0d47c083fea2fea7af355d348623348ed"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/mcpp-watched-source-structure.log",
+      "bytes": 84990,
+      "sha256": "9dcb112873a307e1e00bcaae2bd868a4b40e6a8589b92ffd7ff8c7425ddbacab"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/provisional-no-prime.json",
+      "bytes": 2873,
+      "sha256": "83d3af88e76cfc8a0cdc8eda520b4f4f46e58957bd92cd524a2bd6b402c68a43"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/summary.json",
+      "bytes": 27533,
+      "sha256": "d2e3da140560e014d0682b281677a3a2b3d5c20c7cd15da8fda04238169b5765"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-dev/untrusted.json",
+      "bytes": 3356,
+      "sha256": "3234c7d0683b13ea1a28a8dc4f54c94c5738dc2d42367837f34e76f0e9bddce2"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release-run.log",
+      "bytes": 841,
+      "sha256": "f64cb6d53e7de50a73e3d570d63029ff0504ccd0104097e7d6efb9663146e301"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/build-program-broken.json",
+      "bytes": 7123,
+      "sha256": "4ee90b594683b3c014c9aa74a2aa0ce77b15ec31dc2e2d347250ae50b5d0b001"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/build-program-gated.json",
+      "bytes": 4731,
+      "sha256": "672a5e2ff11cf37d55fd13bbb77d08c9966e02dfc0f4082f73bdca8300d1eb37"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/build-program-manual.json",
+      "bytes": 4231,
+      "sha256": "36c55b617e2975ef8ba01c8068da94e7dffb9e55365e197f6846f94288a577b9"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/clangd-cannot-load.json",
+      "bytes": 4298,
+      "sha256": "17ee2b0f1bab2308ebb007593fbb3612a745f8f0553a1b2de93b084daac929b9"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/generated-module-negotiated.json",
+      "bytes": 3712,
+      "sha256": "87249f010c6a487c9263876eace5dd26e6beaba22d43c9836ade52dbe03eb593"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/generated-module.json",
+      "bytes": 3953,
+      "sha256": "e0a4d6d28402ad681b3b8d6d85e80677eccf8692003e97d712b25c2ec5e3a00c"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-emit-wait.json",
+      "bytes": 3357,
+      "sha256": "7f7d813db4afb9df1c339e8e0f2c1edeb9a1d1e2a9168b3ce76b31b6f0bd379a"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-emit-watch@polling.json",
+      "bytes": 8145,
+      "sha256": "a495be24fba968899d1c8aa906a76bb38cfe7508085d5aec8dbd5330c33b5d84"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-polling-watch-inputs.json",
+      "bytes": 8741,
+      "sha256": "49ab5fe7e3084e2cf44b9f955f3f318be38e6701661567675320a33c6307b171"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-producer-file-identity.json",
+      "bytes": 5175,
+      "sha256": "7864fd9fb20afac320a42ce72a81a0d1e456d8ceb00f5ace3bd46a424732a5d1"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-producer-identity.json",
+      "bytes": 7813,
+      "sha256": "8601f2bba9d18b4b6f899ee33d6357b7aecdf8a6842efa78062a35c48c850f2e"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-producer-identity@polling.json",
+      "bytes": 7816,
+      "sha256": "af3a9510ccd2e1ee7f06572944d813e228bdaf2cdf92ceef926b2c570299370f"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-producer-relative-path.json",
+      "bytes": 2656,
+      "sha256": "1565ea396d85f4b1fe36c1456da8cfc1684eaf7c08bbf7fdfc2d9e63cae0d943"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-target-auto-fallback.json",
+      "bytes": 8565,
+      "sha256": "94cc48cbe62a7918b6d356dc9e347979678f5716b706146eacdb53e7c30739e3"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-target-build-tool-off.json",
+      "bytes": 3193,
+      "sha256": "306e93154f6db8c3107b0374a205f1b5dca75a2dc59b529f8705155237a3f28b"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-target-discovery-off.json",
+      "bytes": 2803,
+      "sha256": "6cf225ae307ed5346821148be4404b4f211f3880aa78e7426d749fa09cc3c68b"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-target-explicit.json",
+      "bytes": 3206,
+      "sha256": "8566abd43ff23a823e14f9b7842a0359b541241fc5eb4ab31c7450f69675d088"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-target-fallback-mismatch.json",
+      "bytes": 2352,
+      "sha256": "95a8f474c70b210c8448bb428e650d181e4552cb4a197c08c2794fd95a0f2ec5"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-target-fallback-preserve.json",
+      "bytes": 6546,
+      "sha256": "b8f013fe7999a218bebcd1bec44719e7a38958121b3011098c36b38b9fabe267"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-target-invalid.json",
+      "bytes": 2056,
+      "sha256": "74cb93efc26280a4f5639f606d11626002621883c7d27831ad20151dde12c638"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-target-live.json",
+      "bytes": 7270,
+      "sha256": "f07afab02d124634745c28815f490d94279aeec6539c0fc9249ad28ca4f70a73"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-target-mismatch-cold.json",
+      "bytes": 2935,
+      "sha256": "10119b6a3d4c01c3ae8b71497e69ec43c0b8cff3c646f90b7432cea0096030d8"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-target-mismatch.json",
+      "bytes": 4864,
+      "sha256": "37ab7f312c53d24c315a5795496d2a5b35ef7f94f0364ce7dcf2314592319873"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-target-project.json",
+      "bytes": 3092,
+      "sha256": "642f500782011610bd65d36f255ddd809cf640a2cd3c45d5f9bf0c201bbe2027"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-target-provider-excluded.json",
+      "bytes": 3186,
+      "sha256": "0e54fba344397ec7c933477eff66f7b7a6d33c09b69e53dd4ce42c76d786e314"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-target-race.json",
+      "bytes": 6889,
+      "sha256": "1e8ad8794b06279da06e28afb3fda11a633cbc0fc84cda1be71c6ef4d2b747aa"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-target-selection.json",
+      "bytes": 11082,
+      "sha256": "bfdb26430503f62b2bac3ebec902a412c5ab2efbe15bb08ebffa4bd0c6621a84"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-target-selection@polling.json",
+      "bytes": 11077,
+      "sha256": "fc1c3d7979005b11693c8804f9446f17889f9f54c28af83984477d4d794e8ff2"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-target-windows.json",
+      "bytes": 11711,
+      "sha256": "4fe3423e694ee258cd9581fdef4735a4ba7ca1170ff3eded431ad363c6697bf0"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-watched-source-structure.json",
+      "bytes": 39534,
+      "sha256": "fbd98145203eedf4a78a25df76902e0a80c248cbdc87954c1b5d020c470b3714"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/mcpp-watched-source-structure.log",
+      "bytes": 86474,
+      "sha256": "26c9d5c13a95801a96e9afc0785ae989b1c435100680d2a3c3deb5df0105c07f"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/provisional-no-prime.json",
+      "bytes": 2876,
+      "sha256": "2b05287abb657cc5cf07c831fe0a74aa75205307fa1876a5aa3d3613858c813a"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/summary.json",
+      "bytes": 27929,
+      "sha256": "18d3ae41ce4df74272f525305e9971bd4496f149bd7a4e26b3b413df5257c758"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/fixtures-release/untrusted.json",
+      "bytes": 3358,
+      "sha256": "92240f14cc576e6c698ba13435c4b819339aa3a2b3b96b89c043c0ca23dbc2e4"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/focused-fixed-run.log",
+      "bytes": 268,
+      "sha256": "a2a569e8be7262a763f3d87c1d27edb75180a5adca324b2e8e71cd5fd5d6d197"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/focused-fixed-tests.json",
+      "bytes": 1317,
+      "sha256": "ae977cf3e4f4bc4abfd6ff9dc36d97afa4a1c6e199b7e36b25811f0523607cf0"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/focused-run.log",
+      "bytes": 149,
+      "sha256": "9427e4ad290ee8b4523d74dd7b555271b27ce54d3f57b0e15fbe7da68aa15aee"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/focused-terminal-summary.json",
+      "bytes": 557,
+      "sha256": "30fb56d5d550faa12eea4131e028ecbfa8129ec20fd5dc2d80f76172bcd943ff"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/focused-tests.json",
+      "bytes": 897,
+      "sha256": "348610787cc6fae8b222d8a83a24c4d3b64c6d3b14ae3ffd2cdf25148d80520d"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/release-test_answer_routing-fixed.log",
+      "bytes": 46071,
+      "sha256": "73789653ea8191418634018ae6ab59b1cebd37db75445d365665a00950f3c57e"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/release-test_scan-fixed.log",
+      "bytes": 3069,
+      "sha256": "f89600bf99420a2131eae7a3af62d1dcadc07b1bfa4a47730fe30b327665a979"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/release-test_session-fixed.log",
+      "bytes": 1883,
+      "sha256": "73fbd6a0af2cc4eddc952bdca8fbe57e424f661d8a7e90b3210951309bf8b3da"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/run-both-fixture-profiles.py",
+      "bytes": 785,
+      "sha256": "a90585b1510979c981c54583d7dbc093f4e859819ad2b5087f9e22236657fc87"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/run-fixtures.py",
+      "bytes": 2149,
+      "sha256": "ff1a741036d65200146b5f0d4c00b809e818e7a2db25d5ed1725b5bda05eaa8b"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/run-focused-fixed.py",
+      "bytes": 1227,
+      "sha256": "9f347ecd048c922d83d11de381f7b39f7dbcc2d2165d6d645e059e0dcc70900f"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/run-focused.py",
+      "bytes": 1079,
+      "sha256": "a8079145b1398a7ed2010acf753dfdd244a653e3e3096aba00dd49311f9371be"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/session-test-compilation-amendment.json",
+      "bytes": 422,
+      "sha256": "c2cca8bdb92cd94729610db3a7b15a712a4efb9359c143583933ac2c18e289e1"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/source-after-session-test-fix.json",
+      "bytes": 3570,
+      "sha256": "40b5c21b7359a46cafaa415980bce502b38315336c342d9dd64f545096654e13"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/source-before-validation-untracked.tar",
+      "bytes": 81920,
+      "sha256": "d13ef544b866a51191831e441bcfd3738a6201d9f9d2e4bda7f49f9376496276"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/source-before-validation.json",
+      "bytes": 3570,
+      "sha256": "bcd832cb12eecddb376d81311ddd05d581c1131433981e81d563749c56c49085"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/source-before-validation.patch",
+      "bytes": 96141,
+      "sha256": "095cd26959db08f4cb899c10ea89c5c86b5d6c9b9b2495bad9c8f47adca0919f"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/specs-current.log",
+      "bytes": 196502,
+      "sha256": "8ad2536e742c7be936800c9ffbc82a1c3193fc12a3dff556185a9b9f5d8b49dc"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/test-workspaces-run.log",
+      "bytes": 90,
+      "sha256": "306c8c82e5c95f96a51215cb342e024f0db648035792b77925b4ffc60851277c"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/test-workspaces.py",
+      "bytes": 1175,
+      "sha256": "40380e5d4cb0fe220fd712d2eaf2c1845a453bcb21dbf16faffb309d9dc53cc4"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/test_session-after-fix.cpp",
+      "bytes": 2900,
+      "sha256": "6e9178a9b23310628bc4af93042c1916f3ca3d5349613c2dce5df2fc5f379c0d"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/workspace-builds.json",
+      "bytes": 649,
+      "sha256": "1a7e62c1e722793cdc378ea198e8a56c481e5a44e04f010d48b83d13ab0d85a3"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/workspace-tests-dev.log",
+      "bytes": 133602,
+      "sha256": "ac877d6c69ade38af9e35c86ed9f4411b8817274affd58698fb1fe66f03acddb"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/workspace-tests-release.log",
+      "bytes": 133618,
+      "sha256": "949a56c74e88a1369fd9f1551fbdde0473658927bcacbe5fdabcffe54dd0e288"
+    },
+    {
+      "path": ".payload-cache/59-63-source-watch-and-zed/workspace-tests.json",
+      "bytes": 895,
+      "sha256": "23af01284fe61b54ad87b33dcf30e6abbcf94cf040b345cbeed898c9c0e98ace"
+    },
+    {
+      "path": ".payload-cache/59-63-watched-source-structure/macro-preprocess-proof.json",
+      "bytes": 424,
+      "sha256": "e9d0755a03b22d7a62950b74542ca1699fb3dd906d7cb16f70ba09d53d74666d"
+    },
+    {
+      "path": ".payload-cache/59-63-watched-source-structure/old-product-exit.json",
+      "bytes": 1308,
+      "sha256": "a6936e5127399cd32a3959347818d0816e686d6c766dd855143c6fcb8af18121"
+    },
+    {
+      "path": ".payload-cache/59-63-watched-source-structure/old-product-measure.json",
+      "bytes": 14365,
+      "sha256": "1d1e4ddc8da2f2646d96a0d81fec74601346774a30e4672c832beb85b4d95e9b"
+    },
+    {
+      "path": ".payload-cache/59-63-watched-source-structure/old-product.log",
+      "bytes": 59181,
+      "sha256": "10758c08f3930e9e1985012f89f95ad4451da7e94b047180589f7795a4c67d28"
+    }
+  ],
+  "omitted": [
+    "ELF executables, PCM/object/index/build caches, full workspace copies, 30MB generated module-memos.json seed, unbounded verbose server logs; selected original measures, first failures, stack/parser excerpts and provenance are retained"
+  ],
+  "historicalStateNotice": "59-63-current-state.json and real-target-integration/state.json are historical snapshots. HANDOFF.md and actual terminal JSON override stale live/pending labels."
+}

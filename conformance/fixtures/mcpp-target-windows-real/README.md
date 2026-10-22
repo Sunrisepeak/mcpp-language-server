@@ -20,6 +20,8 @@ uses the published CDB rather than that default. Checks cover the requested and
 effective targets, actual engine command, architecture-dependent module constant,
 module navigation, and diagnostics in both source files. The constant also has a
 pointer-size assertion, making inconsistent architecture preprocessing visible.
+The module imports `std` and uses `std::is_same_v`, so the generated database
+also exercises the real installed standard-library module set.
 
 The empty `[target.i686-windows-msvc]` section is a legitimate project custom
 target declaration: mcpp's built-in target list does not include this spelling.
@@ -30,7 +32,9 @@ manifest, resolving it to the declared target before checking SDK availability.
 
 The strict expected CDB flags are `--target=i686-pc-windows-msvc` and
 `--target=x86_64-pc-windows-msvc`. In the pinned mcpp v2026.9.30.2 sources,
-`src/build/prepare/toolchain.cpp` derives `crossTargetFlag` using `llvm_triple()`;
+`src/build/prepare/toolchain.cpp` derives `crossTargetFlag` using `llvm_triple()`
+whenever a target is explicitly selected with a Clang driver; this condition
+does not require the selected target to differ from the host;
 `modules/toolchain-model/src/triple.cppm` adds `-pc-windows-msvc`;
 `src/toolchain/hostflags.cppm` passes that token into the compile flags; and
 `src/build/compile_commands.cppm` writes those tokens into `arguments`.
@@ -53,3 +57,16 @@ The pinned producer also accepted the canonical i686 alias before reporting the
 same missing SDK. No CDB was generated locally, so there are no local generated
 CDB hashes or full end-to-end pass claims. Windows CI is the native acceptance
 gate; a Linux SDK failure does not establish that gate has passed.
+
+A separate Linux preflight with pinned mcpp 2026.9.30.2 and explicit
+`x86_64-linux-gnu` confirmed that this project without `import std` produces
+only its project set. With the standard import and type assertion present, real
+`emit build-database` produces both the project set and `mcpp:std` (two units),
+and the existing specification validator accepts the complete envelope. This
+checks the standard-library contract on Linux, not the Windows target chain.
+
+The same Linux preflight ran real `build --configure-only --target
+x86_64-linux-gnu`: both project CDB entries retained the explicit
+`--target=x86_64-unknown-linux-gnu` token despite selecting the host architecture.
+This supports the explicit-host flag path; native Windows CDB spelling remains
+a strict CI assertion.

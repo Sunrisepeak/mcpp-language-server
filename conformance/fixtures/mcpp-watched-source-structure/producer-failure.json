@@ -1,0 +1,19 @@
+{
+  "version": "2026.10.22.3",
+  "defaultTarget": "x86_64-unknown-linux-gnu",
+  "callLog": "mcpp-calls.jsonl",
+  "requireOffline": true,
+  "watch": [
+    "mcpp.toml",
+    "src/**/*.cppm",
+    "src/**/*.cpp"
+  ],
+  "diagnostics": [
+    {
+      "code": "CONTROLLED_FAILURE",
+      "severity": "error",
+      "source": "mcpp",
+      "message": "no model for this controlled invocation"
+    }
+  ]
+}

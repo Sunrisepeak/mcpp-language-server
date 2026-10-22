@@ -33,7 +33,10 @@ A few things are worth knowing:
   first time, then three times what its last run took, between 1 and 10 minutes; the project's cached
   model serves meanwhile, or its sources when there is none (`mcppls.producerTimeout` sets a fixed
   limit instead). Saving a source does not run it: a saved source whose module declaration and
-  imports are unchanged only updates the index. The build tool is asked again when a build file, a
+  imports are unchanged only updates the index. When conditional compilation excludes an import,
+  a successful description can still confirm that source structure, so later body-only saves do
+  not repeatedly ask for the same graph. Preprocessing changes, failed descriptions and files
+  changed while discovery runs retain conservative rechecks. The build tool is asked again when a build file, a
   non-source input or a source's module structure changes, and edits that keep coming are one run —
   the wait before it grows with how long the build tool takes, up to a minute.
 - **The run is offline.** A build description is a question about the project, not an errand, so

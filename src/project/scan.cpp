@@ -35,11 +35,17 @@ private:
     std::size_t at_ { 0 };
     bool lineStart_ { true };
     int conditionalDepth_ { 0 };
+    std::string directives_;
+    bool retainDirectives_ { false };
+    bool directivesComplete_ { true };
 
 public:
-    explicit Lexer(std::string_view text) : text_ { text }, at_ { base::byte_order_mark_size(text) } {}
+    explicit Lexer(std::string_view text, bool retainDirectives = false)
+        : text_ { text }, at_ { base::byte_order_mark_size(text) }, retainDirectives_ { retainDirectives } {}
 
     int conditional_depth() const { return conditionalDepth_; }
+    std::string take_directives() { return std::move(directives_); }
+    bool directives_complete() const { return directivesComplete_; }
 
     // The next token outside comments, literals' interiors and preprocessor directives.
     std::optional<Token> next(bool wantHeaderName) {
@@ -71,6 +77,7 @@ public:
                 directive_();
                 continue;
             }
+            if (c == '#') directivesComplete_ = false;
             const bool startsLine { lineStart_ };
             lineStart_ = false;
             const std::size_t begin { at_ };
@@ -164,6 +171,7 @@ private:
     }
 
     void directive_() {
+        const auto begin { at_ };
         std::size_t cursor { at_ + 1 };
         while (cursor < text_.size() && is_space(text_[cursor])) ++cursor;
         std::size_t nameEnd { cursor };
@@ -183,6 +191,10 @@ private:
                 continue;
             }
             ++at_;
+        }
+        if (retainDirectives_) {
+            directives_.append(text_.substr(begin, at_ - begin));
+            directives_.push_back('\n');
         }
         lineStart_ = true;
     }
@@ -359,9 +371,9 @@ std::vector<SyntaxToken> scan_syntax_tokens(std::string_view text) {
     return tokens;
 }
 
-ScanResult scan_source(std::string_view text) {
+ScanResult scan_source(std::string_view text, bool retainPreprocessor) {
     ScanResult result;
-    Lexer lexer { text };
+    Lexer lexer { text, retainPreprocessor };
     int braceDepth { 0 };
     std::optional<Token> token { lexer.next(false) };
     while (token) {
@@ -387,7 +399,11 @@ ScanResult scan_source(std::string_view text) {
         const bool isImport { token->text == "import" };
         const bool conditional { lexer.conditional_depth() > 0 };
         token = lexer.next(isImport);
-        if (!token) break;
+        if (!token) {
+            if (isImport) result.importsComplete = false;
+            else result.declarationsComplete = false;
+            break;
+        }
 
         if (isImport && (token->kind == TokenKind::header_name || token->kind == TokenKind::string)) {
             ImportDeclaration import;
@@ -402,16 +418,26 @@ ScanResult scan_source(std::string_view text) {
                 result.imports.push_back(std::move(import));
                 if (conditional) result.uncertain = true;
                 token = lexer.next(false);
-            }
+            } else result.importsComplete = false;
             continue;
         }
         // A contextual keyword is a declaration only when a name or partition follows.
         const bool nameFollows { token->kind == TokenKind::identifier || (isImport && token->kind == TokenKind::punctuation && token->text == ":") };
-        if (!nameFollows) continue;
+        if (!nameFollows) {
+            if (isImport) result.importsComplete = false;
+            else if (token->text != ";") result.declarationsComplete = false;
+            continue;
+        }
         NameParse name { parse_name(lexer, token, isImport) };
-        if (!name.ok) continue;
+        if (!name.ok) {
+            if (isImport) result.importsComplete = false;
+            else result.declarationsComplete = false;
+            continue;
+        }
         skip_attributes(lexer, token);
         if (!token || token->kind != TokenKind::punctuation || token->text != ";") {
+            if (isImport) result.importsComplete = false;
+            else result.declarationsComplete = false;
             // The directive's line ended first: `import hello.greet` with its `;` not typed yet.
             if (isImport && (!token || token->startsLine)) {
                 const base::Range range { position_in(text, name.begin), position_in(text, name.end) };
@@ -431,6 +457,8 @@ ScanResult scan_source(std::string_view text) {
             result.uncertain = true;
         }
     }
+    result.preprocessorComplete = lexer.directives_complete();
+    result.preprocessorDirectives = lexer.take_directives();
     return result;
 }
 

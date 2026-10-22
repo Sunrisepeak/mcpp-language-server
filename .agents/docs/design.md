@@ -168,6 +168,15 @@ nothing (#30). The build tool's hard deadline follows how long it took last time
 time, then three times the last run, 1 to 10 minutes), and a saved source reruns it only when its
 module structure changes.
 
+A source's lexical imports can differ from the producer's preprocessed dependency graph.
+After a successful, valid answer, the workspace can acknowledge the watched source structure
+captured before that run, including its preprocessor directive lines. A body-only save of that
+acknowledged structure need not rediscover the same graph. Confirmation is session-local and
+belongs to the current model generation and native producer identity; changed file stamps,
+pending reloads, failed/rejected answers and unknown preprocessing retain the conservative path.
+Only already watched source paths are captured, under a shared 32 MiB read bound. Source
+creation/deletion and manifest, target or producer changes keep their existing reload behavior.
+
 **Observability.** One occurrence must be enough to see why. clangd logs at `info` into a ring in
 memory; crashes, stuck or spinning clangd, files set aside, backed-off restarts and a workaround
 whose premise is seen broken each write an incident under the workspace's cache (the newest twenty,

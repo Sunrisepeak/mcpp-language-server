@@ -178,8 +178,12 @@ jobs:
           EOF
           cat > "$RUNNER_TEMP/in-termux.sh" <<'EOF'
           set -eu
-          yes | pkg update -y || true
-          pkg install -y proot-distro
+          # Use the official seed instead of pkg's randomly selected mirrors:
+          # https://github.com/termux/termux-packages/wiki/Mirrors
+          # A stale mirror previously advertised a proot-distro package it no longer served.
+          printf '%s\n' 'deb https://packages.termux.dev/apt/termux-main stable main' > "$PREFIX/etc/apt/sources.list"
+          apt-get update
+          apt-get install -y proot-distro
           proot-distro install debian
           proot-distro login debian --bind /mnt/work:/work --bind /mnt/scripts:/mnt/scripts -- bash -c 'test -r /mnt/scripts/in-debian.sh && exec bash /mnt/scripts/in-debian.sh'
           EOF
@@ -318,6 +322,13 @@ jobs:
                 --fixture conformance/fixtures/${{ matrix.fixture }} --workspace-dir "$work/workspace" --cache-dir "$work/$cache" \
                 --stage "$name" --timeout 900 --measure "$results/${{ matrix.fixture }}-${{ matrix.round }}-$name.json" "$@"; then
               failed="$failed $name"
+              # Keep the original failed stage's complete server logs before later
+              # stages rotate them. This runs after the measured process exits.
+              if [ -d "$work/$cache/logs" ]; then
+                mkdir -p "$results/failed-$name/logs"
+                cp -a "$work/$cache/logs/." "$results/failed-$name/logs/" ||
+                  echo "::warning::could not preserve all $name server logs"
+              fi
             fi
             echo "::endgroup::"
           }

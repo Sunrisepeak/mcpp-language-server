@@ -1,0 +1,51 @@
+--- a/clang-tools-extra/clangd/ModuleValidationCache.h
++++ b/clang-tools-extra/clangd/ModuleValidationCache.h
+@@ -1,3 +1,9 @@
++  /// Samples the same publication counter as snapshot(), without copying entries.
++  uint64_t changeCount() {
++    std::lock_guard<std::mutex> Lock(Mutex);
++    return Changes;
++  }
++
+   /// For the store (ModuleMemoStore.h): every entry, by key, and how many
+   /// entries have been made so far.
+   std::vector<std::pair<std::string, std::shared_ptr<const Entry>>>
+--- a/clang-tools-extra/clangd/ModuleDependencyScanCache.h
++++ b/clang-tools-extra/clangd/ModuleDependencyScanCache.h
+@@ -1,3 +1,9 @@
++  /// Samples the same publication counter as snapshot(), without copying scans.
++  uint64_t changeCount() {
++    std::lock_guard<std::mutex> Lock(Mu);
++    return Stores.load();
++  }
++
+   /// What the store writes: every live scan whose manifest can be replayed
+   /// in another session, and the kept ones not yet replayed in this one.
+   std::vector<KeptScan> snapshot(uint64_t &StoredSoFar) {
+--- a/clang-tools-extra/clangd/ModuleMemoStore.cpp
++++ b/clang-tools-extra/clangd/ModuleMemoStore.cpp
+@@ -466,7 +466,7 @@
+     Wake.notify_all();
+     if (Worker.joinable())
+       Worker.join();
+-    write();
++    write(/*CheckForChanges=*/false);
+   }
+ 
+ private:
+@@ -508,7 +508,14 @@
+             .count());
+   }
+ 
+-  void write() {
++  void write(bool CheckForChanges = true) {
++    // Poll publication counters before copying snapshots or building JSON.
++    // Each read uses the same lock as its snapshot. A racing mutation remains
++    // dirty for the next tick. flush() retains the original snapshot path.
++    if (CheckForChanges &&
++        getModuleValidationCache().changeCount() == WrittenVerdicts &&
++        getModuleDependencyScanCache().changeCount() == WrittenScans)
++      return;
+     uint64_t Verdicts = 0, Scans = 0;
+     Value Root = memos(Verdicts, Scans);
+     if (Verdicts == WrittenVerdicts && Scans == WrittenScans)

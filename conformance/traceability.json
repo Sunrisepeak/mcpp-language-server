@@ -895,6 +895,12 @@
   ],
   "S2-5-1": [
     {
+      "check": "mcpp-watched-source-structure/DIRECTIVE-CHANGE-STILL-EMITS"
+    },
+    {
+      "check": "mcpp-watched-source-structure/LATER-STRUCTURE-GETS-ITS-OWN-RUN"
+    },
+    {
       "check": "mcpp-emit-watch/W1-named-input"
     },
     {

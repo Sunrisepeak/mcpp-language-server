@@ -2791,6 +2791,49 @@ public:
             }
         }
 
+        // Freeze the same response population used above before a diagnostic probe or post-check
+        // report can deliver late answers. This observes existing requests, without pumping the
+        // client, asking anything, or reading another clock. JSON is built only after sampling.
+        constexpr std::size_t COMPLETION_TRACE_LIMIT { 256 };
+        struct CompletionTraceEntry {
+            std::size_t index;
+            std::int64_t id;
+            Clock::time_point sent;
+            std::optional<Clock::time_point> answered;
+            bool error;
+            std::optional<std::size_t> items;
+            std::optional<bool> incomplete;
+        };
+        struct CompletionTrace {
+            std::size_t total;
+            std::vector<CompletionTraceEntry> entries;
+            std::optional<CompletionTraceEntry> slowestSuccessful;
+            std::optional<CompletionTraceEntry> slowestAnswered;
+        };
+        const auto capture_trace = [&](const std::vector<std::int64_t>& ids) {
+            CompletionTrace trace { ids.size(), {}, std::nullopt, std::nullopt };
+            trace.entries.reserve(std::min(ids.size(), COMPLETION_TRACE_LIMIT));
+            for (std::size_t index { 0 }; index < ids.size(); ++index) {
+                const auto& request { client_.asyncRequests.at(ids[index]) };
+                const Json& result { request.result };
+                const Json* items { result.is_array() ? &result : result.is_object() ? lsp::find(result, "items") : nullptr };
+                const Json* incomplete { result.is_object() ? lsp::find(result, "isIncomplete") : nullptr };
+                CompletionTraceEntry entry { index, ids[index], request.sent, request.answered, request.isError,
+                    items != nullptr && items->is_array() ? std::optional { items->size() } : std::nullopt,
+                    incomplete != nullptr && incomplete->is_boolean() ? std::optional { incomplete->get<bool>() } : std::nullopt };
+                if (trace.entries.size() < COMPLETION_TRACE_LIMIT) trace.entries.push_back(entry);
+                if (!entry.answered) continue;
+                const auto slower = [&](const std::optional<CompletionTraceEntry>& previous) {
+                    return !previous || *entry.answered - entry.sent > *previous->answered - previous->sent;
+                };
+                if (slower(trace.slowestAnswered)) trace.slowestAnswered = entry;
+                if (!entry.error && slower(trace.slowestSuccessful)) trace.slowestSuccessful = entry;
+            }
+            return trace;
+        };
+        const CompletionTrace completionTrace { capture_trace(completions) };
+        const CompletionTrace importerTrace { capture_trace(importerCompletions) };
+
         // Diagnostics after the typing stops: a real mistake is typed at once and how long its diagnostic takes is timed.
         std::optional<double> refresh;
         if (const auto probe = check.find("diagnostic-probe"); probe != check.end() && probe->is_object()) {
@@ -2896,6 +2939,96 @@ public:
                        { "restarts", restarts }, { "filesSetAside", setAside }, { "diagnosticsRefresh", refresh ? Json(*refresh) : Json(nullptr) },
                        { "statesSeen", statesSeen }, { "doomed", doomed }, { "moduleFailedDiagnostics", moduleFailedDiagnostics }, { "stalledSamples", stalledSamples },
                        { "firstOpenSeconds", firstOpen ? Json(*firstOpen) : Json(nullptr) } };
+        const auto trace_json = [&](const CompletionTrace& trace) {
+            const auto nanoseconds_since = [&](Clock::time_point at) {
+                return std::chrono::duration_cast<std::chrono::nanoseconds>(at - began).count();
+            };
+            const auto entry_json = [&](const CompletionTraceEntry& entry) {
+                return Json { { "index", entry.index }, { "id", entry.id }, { "sentNanoseconds", nanoseconds_since(entry.sent) },
+                    { "answeredNanoseconds", entry.answered ? Json(nanoseconds_since(*entry.answered)) : Json(nullptr) },
+                    { "elapsedNanoseconds", entry.answered ? Json(std::chrono::duration_cast<std::chrono::nanoseconds>(*entry.answered - entry.sent).count()) : Json(nullptr) },
+                    { "elapsedSeconds", entry.answered ? Json(seconds_between(entry.sent, *entry.answered)) : Json(nullptr) },
+                    { "error", entry.error }, { "items", entry.items ? Json(*entry.items) : Json(nullptr) },
+                    { "isIncomplete", entry.incomplete ? Json(*entry.incomplete) : Json(nullptr) } };
+            };
+            Json entries = Json::array();
+            for (const auto& entry : trace.entries) entries.push_back(entry_json(entry));
+            return Json { { "origin", "typing-start" }, { "population", "original-completion-statistics" },
+                { "limit", COMPLETION_TRACE_LIMIT }, { "total", trace.total }, { "dropped", trace.total - trace.entries.size() },
+                { "entries", std::move(entries) },
+                // These are separate from the ordered prefix: a truncated trace never hides its
+                // slowest answer, and the successful one reproduces the original latency max.
+                { "slowestSuccessful", trace.slowestSuccessful ? entry_json(*trace.slowestSuccessful) : Json(nullptr) },
+                { "slowestAnswered", trace.slowestAnswered ? entry_json(*trace.slowestAnswered) : Json(nullptr) } };
+        };
+        summary["completionTrace"] = trace_json(completionTrace);
+        // These are the reports already taken by the check. Keep the method's public
+        // counters/distributions at both boundaries: its recent engine samples can roll out
+        // before a later timeline report. They are cumulative/recent, not per-check percentiles.
+        const auto completion_stats = [](const Json& root) -> Json {
+            const Json* stats { lsp::find_path(root, { "requests", "textDocument/completion" }) };
+            if (stats == nullptr || !stats->is_object()) return nullptr;
+            Json snapshot = Json::object();
+            for (const std::string_view key : { "count", "empty", "errors", "cancelled", "p50Ms", "p95Ms", "maxMs", "engineAnswered",
+                                                "engineP50Ms", "engineP95Ms", "overheadP50Ms", "overheadP95Ms" }) {
+                const Json* value { lsp::find(*stats, key) };
+                snapshot[std::string { key }] = value != nullptr && value->is_number() ? *value : Json(nullptr);
+            }
+            const Json* lastAt { lsp::find(*stats, "lastAt") };
+            snapshot["lastAt"] = lastAt != nullptr && lastAt->is_string() ? *lastAt : Json(nullptr);
+            const Json* by { lsp::find(*stats, "answeredBy") };
+            snapshot["answeredBy"] = nullptr;
+            if (by != nullptr && by->is_object()) {
+                snapshot["answeredBy"] = Json::object();
+                for (const auto& item : by->items()) if (item.value().is_number()) snapshot["answeredBy"][item.key()] = item.value();
+            }
+            return snapshot;
+        };
+        const auto slow_total = [](const Json& root) -> std::optional<std::uint64_t> {
+            const Json* value { lsp::find_path(root, { "eventTotals", "slow-request" }) };
+            if (value == nullptr || !value->is_number_integer() || value->get<std::int64_t>() < 0) return std::nullopt;
+            return value->get<std::uint64_t>();
+        };
+        const auto slowBefore { slow_total(before) }, slowAfter { slow_total(after) };
+        constexpr std::size_t SLOW_TRACE_LIMIT { 256 };
+        const Json* events { lsp::find(after, "events") };
+        const bool eventsAvailable { events != nullptr && events->is_array() };
+        std::size_t recentSlowCount { 0 };
+        Json slowEvents = Json::array();
+        if (eventsAvailable) {
+            for (const auto& event : *events) {
+                if (!event.is_object() || event.value("kind", std::string {}) != "slow-request") continue;
+                ++recentSlowCount;
+                Json entry = Json::object();
+                const Json* at { lsp::find(event, "at") };
+                entry["at"] = at != nullptr && at->is_string() ? *at : Json(nullptr);
+                for (const std::string_view field : { "method", "ms", "outcome", "answeredBy" }) {
+                    const Json* value { lsp::find_path(event, { "detail", field }) };
+                    entry[std::string { field }] = value != nullptr && (field == "ms" ? value->is_number() : value->is_string()) ? *value : Json(nullptr);
+                }
+                if (slowEvents.size() == SLOW_TRACE_LIMIT) slowEvents.erase(slowEvents.begin());
+                slowEvents.push_back(std::move(entry));
+            }
+        }
+        const bool totalsComparable { slowBefore && slowAfter && *slowAfter >= *slowBefore };
+        const auto added { totalsComparable ? std::optional { *slowAfter - *slowBefore } : std::nullopt };
+        // Recent events are chronological suffixes of the cumulative journal. Counters expose
+        // omitted new events; timestamps alone cannot establish that every slow request survived.
+        const bool coverageKnown { added && eventsAvailable && recentSlowCount <= *slowAfter };
+        const std::uint64_t retainedNew { coverageKnown ? std::min(*added, static_cast<std::uint64_t>(slowEvents.size())) : 0 };
+        summary["serverCompletionEvidence"] = Json {
+            { "requestsBefore", completion_stats(before) }, { "requestsAfter", completion_stats(after) },
+            { "recentSampleLimit", 256 }, { "statisticsScope", "cumulative counters and recent samples; not per-check percentile deltas" },
+            { "slowRequests", Json {
+                { "totalBefore", slowBefore ? Json(*slowBefore) : Json(nullptr) }, { "totalAfter", slowAfter ? Json(*slowAfter) : Json(nullptr) },
+                { "added", added ? Json(*added) : Json(nullptr) }, { "limit", SLOW_TRACE_LIMIT },
+                { "afterRecentCount", eventsAvailable ? Json(recentSlowCount) : Json(nullptr) },
+                { "droppedByTraceLimit", eventsAvailable ? Json(recentSlowCount - slowEvents.size()) : Json(nullptr) },
+                { "newRetained", coverageKnown ? Json(retainedNew) : Json(nullptr) },
+                { "newNotRetained", coverageKnown ? Json(*added - retainedNew) : Json(nullptr) },
+                { "eventsAfter", eventsAvailable ? std::move(slowEvents) : Json(nullptr) }
+            } }
+        };
         if (!reask.empty()) {
             summary["wordTrace"] = std::move(wordTrace);
             summary["wordTraceLimit"] = WORD_TRACE_LIMIT;
@@ -2904,7 +3037,8 @@ public:
         std::string importerBrief;
         if (withImporter) {
             summary["importer"] = Json { { "file", importerFile }, { "completions", importerCompletions.size() }, { "answered", importerAnswered.size() },
-                                         { "empty", importerEmpty }, { "completion", importerLatency }, { "moduleFailedDiagnostics", importerModuleFailed } };
+                                         { "empty", importerEmpty }, { "completion", importerLatency }, { "completionTrace", trace_json(importerTrace) },
+                                         { "moduleFailedDiagnostics", importerModuleFailed } };
             importerBrief = std::format(", importer {} completions p95 {:.2f}s {} empty {} module-failed", importerCompletions.size(), importerLatency["p95"].get<double>(),
                                         importerEmpty, importerModuleFailed);
         }

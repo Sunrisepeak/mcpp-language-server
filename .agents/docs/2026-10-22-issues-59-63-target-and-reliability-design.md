@@ -254,33 +254,19 @@ nightly 的 proot-distro login 增加 `/mnt/scripts:/mnt/scripts` 绑定或将�
 - 上游 mcpp 基线 `0e79128a`：`src/build/compile_commands.cppm`（根 CDB 发布语义）；`src/build/execute.cppm`（内部记录及限制）；`src/build/prepare/toolchain.cpp`（默认目标）；`src/cli.cppm`（emit 的 target/profile 参数）。这些是核查事实，不是新增稳定协议承诺。
 - 当次复现临时材料位于 `/tmp/mcppls-issue-audit/`；临时目录不作为长期验收依赖，实施时转为仓库内 fixture。此前口头归因以本文 §2 的证据分级为准。
 
-## 13. 实施检查点（最终验收尚未完成）
+## 13. 当前实施与验收状态
 
-- 已实现目标配置、自动提取、当前 producer 确认、动态切换及状态展示；补齐旧 CDB 回退校验和冷启动拒绝错误架构的竞态。
-- 已修 UTF-8 artifact 输出、Termux 脚本绑定及 polling watch 注册初期漏事件；有界 CDB 读取不依赖事前 stat 维持内存上限。
-- 当前 Linux 工作区检查点：dev/release 各 40 个单测执行体通过，22 组目标/身份/polling conformance 通过，规范和仓库检查通过。二进制 hash、范围及原始记录索引见 [验证简报](2026-10-22-issues-59-63-evidence/README.md#validation)。
-- 真实 VS Code E2E 通过：44 passing、1 项平台专用 pending；准确 release-profile 二进制 hash 与验证范围见简报。发布 VSIX 的安装/升级仍需单独验证。
-- U15 已以真实模块完成活动修复停顿判断。原 xlings cold/warm/edits/long 完整链路曾通过，U13 保留 600 秒、0.01 core、10% RSS 门槛；该次 CPU 为 0.007208 core，RSS 净变化为 -50.28%。另一个无文件/无索引的隔离实验定位到内置引擎未变 memo JSON 的周期性分配，属于已知未修局限；原 gate 通过不能证明该局限消失。详见 [简报的 memo 结论](2026-10-22-issues-59-63-evidence/README.md#memo)。最终重放中的失败也在简报中保留。
-- 原 mcpp 四核 cold/warm/edits 已通过；U8 在该链路撤销时新增实际构建为零。两逻辑核的完整 edits/faults 验收仍在进行，不以窄场景替代。不会通过放宽既有预算结束性能验收。
-- 尚未完成：全平台 CI、Termux 实际环境、性能最终重放、最终自审、squash 合入、release 与下载/升级验证。单 PR 将保持草稿直到验收完整。
+实现与验收分开记录。详细历史、原失败、复现命令与证据边界统一见[验证简报](2026-10-22-issues-59-63-evidence/README.md)，不将完整原始日志放入 PR；先前检查点仍可从 Git 历史核对。
 
-后续自审补充：target-only 设置更新仅调度 mcpp 根，不重跑其他 provider；无关 provider 的模型比较不纳入 mcpp 选择身份。真实 LSP 回归在修前观察到额外 model-unchanged，修后不再出现。轮询生命周期对照：四次移除根目录，修前遗留四条线程，修后回到相同线程基线。对应原始记录由简报的索引定位，不在 PR 内展开 JSON。
+| 项目 | 当前事实 | 尚需完成 |
+|---|---|---|
+| 跟随 target、项目配置、producer 身份与缓存 | 已实现；包含 Windows 路径别名、workspace 成员归属、未信任根回退、错误架构与迟到结果拒收 | 最终提交的全部平台 CI；真实 mcpp Windows i686→x64→i686 生产链 |
+| UTF-8、连接写入、状态一致性与恢复 | 已实现 UTF-8 artifact、队列写入、同步 apply 后发布状态、只读接口 rename 保护、implementation sweep 与磁盘恢复 | 新产品完整 workspace、LSP、编辑器与发布验证 |
+| 源文件重复 discovery | 独立旧产品反例已证明；新实现确认有效 run-start 结构、文件 stamp、代数与 producer 身份，预处理文本仅按需采集，未知 import/header-unit 语法保守重查 | 完整 70 项 LSP fixture 与最终 CI；不能将其冒充历史 U15 的已证实归因 |
+| Zed 与 Termux | 已修正 Termux 官方包源/内层绑定；新增 Zed file-as-folder 过滤及自身引擎初始化/进程检查；预装 PATH clangd 保留 Zed 默认独立启动 | 实际新 CI 的安装、原生 Zed 及产品检查，不用静态检查代替 |
+| 新增原生回归 | dev/release 均通过 scan 23 cases/146 assertions、Workspace 29/399、Session 3/12；Session 首次测试编译错误已修正并保留日志 | 本地两 profile 全 workspace 各 58 程序及 LSP 各 32 组已通过，实际结果见交接；新 commit 仍需远端验证 |
+| 平台与性能 | `1341938` 曾有原本地九阶段 53 项与 PR CI 通过，但其 nightly 有四项真实失败；`e01e1c1` CI/nightly 仍失败。一次新 trace 诊断为 25 项/1 失败，U7a 受保存前 AST 崩溃后的隔离影响 | 原预算不变的新产品完整性能链与所有 CI；历史慢请求、RSS 增长和底层 AST 崩溃未被完整归因 |
+| 引擎范围 | [memo 提案](2026-10-22-issues-59-63-evidence/engine-memory-proposal.md) 仅供本地 review；周期无变化仍构造完整 JSON 的缺陷已证明，未修改或发布引擎 | 当前仅同步 mcppls 工作和交接，不实施引擎修复；不发布 issue 评论或变更状态，不承诺修复全部 RSS 增长 |
+| 合入与交付 | PR64 已合入，发布预检后补修集中在 draft PR65；0.0.17 尚未发布，两个原 0.0.16 升级环境保持原状 | 最终 review、精确提交 squash、新 main CI/draft release、12 个实际下载资产、本地运行及两个原 profile 升级、正式发布后下载/OpenVSX 校验，最后提供上传目录 |
 
-只读交叉自审另发现 clang-cl 探测遗漏目标参数，会把正确 i686/ARM64 命令读成宿主 x64 并被新校验拒收。已补目标参数传递及有区分力的 host/target 单测，保留 cl.exe 原行为；补修后 Linux dev/release 各 40 个执行体通过，仍需最终提交的原生 CI 验收。
-
-U8 两逻辑核完整重放随后确实未通过：undo 窗口有 28 次实际构建。原 release key 全部保留，最终 release 引擎也能复用它们。进一步 PCM 元数据与进程时序证明：旧 dev 引擎退出前读到了原地更新的 release CDB，产生 dev 依赖闭包与 release 命令混合的新 key。这里同时存在实验与驱动缺陷：runner 的 ready 判断在 dev 准备 `done=0 / wanted=140` 时已允许撤销；驱动在旧进程未完全退出时发布新 CDB。
-
-补修任务：runner 在改变配置前、撤销前及撤销后检查明确的有限工作状态并有界等待，不用 CPU/RSS 或固定延时选择起点，保留等待活动与原零重建门槛；驱动对需要重启的计划保留最新待发布快照，旧进程 reaped 后才发布 CDB 和生成 prime 文件，再启动新进程。普通无需重启的增量更新仍直接发布。写入失败不得记成功或启动读取旧配置的新引擎，应保留待发布计划供明确重试。新增 native regression 后先以旧实现确认失败，再统一编译、测试并重跑原两逻辑核链路；目前这组补修尚未验收。
-
-原两核完整链暴露另一个调度缺陷：普通模型 apply 重置 implementation sweep 完成状态后，没有待处理队列或新的 prime completion 时不会再调用 pump。900 s drain 最终同时看到 sweep 未完成、未调度，不能视为空闲。已在成功增量 apply 后调用既有 pump，遵循原工作/安静期判断；native 同计划重应用对照在旧实现有 4 个断言失败，补修 dev/release 各 40 个执行体及 engine 65 cases / 650 assertions 全通过，仍待完整新字节链及最终 CI。历史原链结果与独立 runner SIGSEGV 均保留在验证简报，不能由这一项修复替代验收。
-
-最终自审补充恢复边界：首份或普通增量 CDB 单次写失败后，用户修复磁盘直接重启，不应依赖另一次 apply 才恢复接受流量和模块/implementation 元数据。start_process 在无接收流量状态下，发布保留的完整快照后重新应用，再启动；保留首次写失败提前返回，不让旧进程采用尚未发布的状态。新增只失败一次直接恢复的原生对照覆盖首份与增量计划，旧实现 5 个断言失败，补修 dev/release 各 40 执行体通过；其余最终验收继续。
-
-原生 Windows CI 暴露 CDB 中 8.3 短名与工作区长名被当成不同项目的问题。目标提取、有效目标校验和模型 profile 现统一使用平台规范路径判断归属，保留原编译参数和嵌套项目边界。另修未信任 mcpp 根对扫描回退模型错误执行 producer 选择代数校验引起的无限重载；可信根的过期结果拒收保持有效。新 Workspace 对照在旧 guard 有 6 个断言失败；补修 dev/release 各 40 执行体通过（engine 67/693，target 9/92），24 组真实 LSP 通过。新字节原生 CI、完整性能与发布升级仍待验收，结果统一记入简报。
-
-workspace 声明成员自身的别名身份也必须保留：原路径/一层 glob 匹配失败时，以声明成员目录的规范身份再核对，按一次归属快照缓存，保持嵌套与外部项目排除。对应旧实现行为对照为 8 个断言失败；正式结果与最终字节统一由简报更新。
-
-
-发布预检后的状态自审：`072c230` 首轮 CI 的 U15-edits 出现 13/min > 12/min，原产物缺逐次状态时间，原因未确定。独立 native 对照证明 engine apply 的同步回调会提前发布新 profile；采用同步 apply 内的状态批次边界，所有参与引擎完成后发布一次，不改异步状态和既有 hold。runner 同时保存紧凑转换轨迹及严格 `<60s` 窗口支撑，保持原计数/门槛。旧产品恰一项断言失败、补修 dev/release 回归通过；其余新产品验证仍待完成，正式结果统一由简报记录。
-
-最终范围审计补充：`1341938` 产品 PR CI 与原九阶段本地 53 项均通过，但原 Windows target fixture 使用 mock producer，不足以证明 §5/§10 的真实 mcpp 双目标生产链。新增真实 Windows fixture 以 mcpp 实际生成的完整 i686/x64 CDB 在同一会话切换，保留原模拟场景用于错误与竞态验证；该新增项须原生 CI 实际通过后才满足验收。产品/runner 未因此调整预算或实现。正式发布与原 0.0.16 profile 升级仍需后续实际执行。
+依赖顺序仍为：源码冻结 → 两 profile 全量验证 → 最终源版本 CI/nightly 与完整性能验收 → 最终 review/squash → 新 main 与候选 release 验证 → 实际升级 → 正式发布及下载回验。不能以一次通过覆盖原失败，不能通过预算、等待起点、缓存谱系或冷却缩短制造通过。

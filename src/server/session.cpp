@@ -29,6 +29,32 @@ import mcppls.bundle.writer;
 
 namespace mcppls::server {
 
+std::vector<WorkspaceFolder> workspace_folders(const nlohmann::json& params, std::string_view fallbackDirectory) {
+    auto folder = [](const std::string& uri) -> std::optional<WorkspaceFolder> {
+        auto path = base::uri_to_path(uri);
+        if (!path || platform::fs::is_regular_file(*path)) return std::nullopt;
+        return WorkspaceFolder { *path, uri };
+    };
+    std::vector<WorkspaceFolder> found;
+    if (const auto* folders = lsp::find(params, "workspaceFolders"); folders != nullptr && folders->is_array()) {
+        for (const auto& entry : *folders) {
+            if (auto uri = lsp::string_at(entry, "uri")) {
+                if (auto named = folder(*uri)) found.push_back(std::move(*named));
+            }
+        }
+        if (!found.empty()) return found;
+    }
+    if (auto uri = lsp::string_at(params, "rootUri")) {
+        if (auto named = folder(*uri)) return { std::move(*named) };
+    }
+    if (auto path = lsp::string_at(params, "rootPath"); path && !path->empty() && !platform::fs::is_regular_file(*path)) {
+        const std::string normalized { base::normalize_path(*path) };
+        return { WorkspaceFolder { normalized, base::path_to_uri(normalized) } };
+    }
+    const std::string current { fallbackDirectory };
+    return { WorkspaceFolder { current, base::path_to_uri(current) } };
+}
+
 namespace {
 
 using Json = nlohmann::json;
@@ -517,38 +543,18 @@ private:
     }
 
     // A workspace folder: the path it names, and the URI the client named it by.
-    struct Folder {
-        std::string path;
-        std::string uri;
-    };
+    using Folder = WorkspaceFolder;
 
     static std::optional<Folder> folder_of_uri_(const std::string& uri) {
         auto path = base::uri_to_path(uri);
-        if (!path) return std::nullopt;
+        if (!path || platform::fs::is_regular_file(*path)) return std::nullopt;
         return Folder { *path, uri };
     }
 
     // Every folder `initialize` names, or the single root a pre-3.6 client implies (design 13.1
     // predates multi-root; usable plan W9.1 is additive over it).
     std::vector<Folder> workspace_roots_(const Json& params) const {
-        std::vector<Folder> found;
-        if (const Json* folders = lsp::find(params, "workspaceFolders"); folders != nullptr && folders->is_array()) {
-            for (const auto& folder : *folders) {
-                if (auto uri = lsp::string_at(folder, "uri")) {
-                    if (auto named = folder_of_uri_(*uri)) found.push_back(std::move(*named));
-                }
-            }
-            if (!found.empty()) return found;
-        }
-        if (auto uri = lsp::string_at(params, "rootUri")) {
-            if (auto named = folder_of_uri_(*uri)) return { std::move(*named) };
-        }
-        if (auto path = lsp::string_at(params, "rootPath"); path && !path->empty()) {
-            const std::string normalized { base::normalize_path(*path) };
-            return { Folder { normalized, base::path_to_uri(normalized) } };
-        }
-        const std::string current { platform::fs::current_directory() };
-        return { Folder { current, base::path_to_uri(current) } };
+        return workspace_folders(params, platform::fs::current_directory());
     }
 
     // `isFirst` wires the session's own `initialize` response to this root's engine settling

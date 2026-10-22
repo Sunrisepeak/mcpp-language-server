@@ -21,7 +21,8 @@
 #
 #   recommended   `"language_servers": ["mcppls", "!clangd"]` in the user's settings (Z-2): within
 #                 60 s mcppls has been initialized by "Zed", been sent the file and published
-#                 diagnostics for it, and Zed started no clangd of its own
+#                 diagnostics for it, its own clangd completed initialization and remains alive,
+#                 and Zed started no clangd of its own (this does not await every module BMI)
 #   default       Zed's own settings (Z-3): mcppls answers all the same, and Zed's clangd is started
 #                 beside it; that both ran is recorded, because it is what the README tells users
 #                 to turn off
@@ -32,8 +33,8 @@
 #   ZED_EDITOR, MCPPLS_PAYLOAD, MCPPLS_DEVTOOLS   required
 #   ZED_SMOKE_DIR        scratch directory (default: a new temporary one, removed on success)
 #   ZED_SMOKE_BUDGET     seconds for mcppls to answer (default 60)
-#   ZED_SMOKE_REQUIRE_CLANGD=1   `default` needs Zed's clangd running, not just started: Zed
-#                                downloads it from GitHub, which a machine without network cannot do
+#   ZED_SMOKE_REQUIRE_CLANGD=1   `default` needs Zed's clangd running, not just attempted;
+#                                CI preinstalls it on PATH using Zed's default binary lookup
 set -euo pipefail
 
 mode=${1:-recommended}
@@ -151,6 +152,25 @@ has_client()      { zed_said | grep -qx 'client Zed'; }
 has_didopen()     { zed_said | grep -q "^didopen .*/$file\$"; }
 has_diagnostics() { mcppls_said | grep -q "^diagnostics .*/$file "; }
 
+# Inspect the actual initialize, not just the command line that was meant to open a directory.
+# Zed can otherwise make the first file a single-file worktree before opening its parent folder.
+has_directory_workspace() {
+  python3 "$here/lsp_frames.py" "$root/lsp-in.log" --directory-workspace
+}
+
+# Initialization is proved by the engine's own protocol log and a live direct child of mcppls,
+# not by module-layer diagnostics or Zed's separate clangd. Module preparation may still continue.
+has_mcppls_engine() {
+  local pid
+  grep -qsE 'clangd \(.*\): .*<-- initialized' "$root"/cache/logs/server-*.log || return 1
+  for pid in $(server_pids); do
+    if ps -eo ppid=,comm= | awk -v parent="$pid" '$1 == parent && $2 ~ /^clangd/ { found=1 } END { exit !found }'; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 # ---------------------------------------------------------------------------------------------
 # The extension, installed the way a release is checked: linked into Zed's data directory, the
 # payload put where the extension looks for it.
@@ -190,11 +210,12 @@ say "starting Zed ($mode settings) on $workspace"
          XDG_CACHE_HOME="$root/home/.cache" XDG_RUNTIME_DIR="$root/run" SHELL=/bin/bash \
          ZED_ALLOW_EMULATED_GPU=1 MCPPLS_CACHE_DIR="$root/cache" MCPPLS_LOG_LEVEL=debug \
          PATH="$root/bin:$PATH"
-  exec "$editor" "$workspace/$file" "$workspace"
+  exec "$editor" "$workspace" "$workspace/$file"
 ) > "$root/zed.out" 2>&1 &
 zed_pid=$!
 
 wait_for 'mcppls is initialized by a client named "Zed"' has_client
+wait_for 'the actual LSP workspace folders name directories' has_directory_workspace
 wait_for "mcppls is sent $file (didOpen)" has_didopen
 wait_for "mcppls publishes diagnostics for $file" has_diagnostics
 
@@ -204,6 +225,7 @@ has_log()       { ls "$root"/cache/logs/server-*.log >/dev/null 2>&1; }
 has_debug_log() { grep -qs '\[debug\]' "$root"/cache/logs/server-*.log; }
 wait_for "mcppls wrote its log under MCPPLS_CACHE_DIR" has_log
 wait_for "the log is at debug level (--log-level debug reached the server)" has_debug_log
+wait_for "mcppls's own clangd completed initialization and is alive" has_mcppls_engine
 
 mcppls_pid=$(server_pids | head -1)
 test -n "$mcppls_pid" || fail "no mcppls process while Zed is showing its answers"
@@ -218,7 +240,7 @@ case "$mode" in
     summary "Zed ($mode settings): mcppls (pid $mcppls_pid) answered within $((SECONDS - started)) s; Zed started no clangd"
     ;;
   default)
-    # Zed downloads clangd on first use (tens of megabytes from GitHub) before it starts it.
+    # Zed first checks PATH (preinstalled in CI), then downloads if none is usable.
     clangd_deadline=$((SECONDS + 240))
     clangd=''
     until clangd=$(zed_clangd_pid); do

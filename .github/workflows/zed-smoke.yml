@@ -50,7 +50,11 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends xvfb mesa-vulkan-drivers libvulkan1 libegl1 libgl1 libgbm1 \
-              libxkbcommon0 libxkbcommon-x11-0 libwayland-client0 libx11-xcb1 libxcb1 libfontconfig1 libasound2t64
+              libxkbcommon0 libxkbcommon-x11-0 libwayland-client0 libx11-xcb1 libxcb1 libfontconfig1 libasound2t64 clangd
+          # Zed's default lookup tries PATH before downloading from GitHub. Keep its default
+          # server selection and require the independently started process, without testing downloads.
+          command -v clangd
+          clangd --version
       - name: Zed ${{ env.ZED_VERSION }}
         id: zed-cache
         uses: actions/cache@v6
@@ -81,7 +85,7 @@ jobs:
           MCPPLS_PAYLOAD: ${{ github.workspace }}/payload
           MCPPLS_DEVTOOLS: ${{ github.workspace }}/stage/mcppls-devtools
           ZED_SMOKE_DIR: ${{ runner.temp }}/zs
-          # Zed downloads its clangd from GitHub on first use; here that has to work.
+          # The preinstalled PATH clangd must be started by Zed beside mcppls.
           ZED_SMOKE_REQUIRE_CLANGD: '1'
         run: xvfb-run -a -s '-screen 0 1280x1024x24' editors/zed/tests/smoke.sh ${{ matrix.mode }}
       - uses: actions/upload-artifact@v7
@@ -92,6 +96,7 @@ jobs:
             ${{ runner.temp }}/zs/*.log
             ${{ runner.temp }}/zs/zed.out
             ${{ runner.temp }}/zs/cache/logs
+            ${{ runner.temp }}/zs/cache/bundles
             ${{ runner.temp }}/zs/home/.local/share/zed/logs
           if-no-files-found: ignore
           retention-days: 7

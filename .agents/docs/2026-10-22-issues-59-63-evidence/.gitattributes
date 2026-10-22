@@ -1,0 +1,2 @@
+# Unified diff context for an empty line is a literal single space.
+engine-memory-*.patch whitespace=-blank-at-eol

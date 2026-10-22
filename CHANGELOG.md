@@ -38,12 +38,22 @@ The bundled engine remains [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak
 
 ### Reliability and measurements
 
+- A successful producer description can acknowledge a watched source's lexical imports even
+  when preprocessing excludes some of them from the active graph. Body-only saves then avoid
+  repeatedly describing the same structure; changed directives, failures and in-flight edits
+  retain conservative rediscovery.
+- An existing source file named as an LSP workspace folder is ignored in favor of the client's
+  valid directory roots. Zed file worktrees no longer make clangd start with a source file as
+  its working directory.
 - Child-connection messages are encoded by the writer, after an owned snapshot is queued.
   Large JSON serialization no longer runs on the caller's event loop; FIFO order, framing and
   UTF-8 replacement are preserved. A writer encoding failure ends the connection without terminating the server.
 - A workspace publishes its status after every participating engine finishes applying a plan.
   Synchronous engine callbacks no longer expose the new profile before that application completes.
   Timeline measurements retain compact transition timestamps and the busiest minute's evidence.
+- Typing measurements retain bounded request timestamps and the slowest successful reply,
+  together with the existing before/after server reports. Sampling, timeout and latency budgets
+  are unchanged; truncated or recent evidence is identified explicitly.
 - Renaming a symbol owned by mcpp's read-only engine interface is refused even from project
   references when the compiler returns only project edits. Definition and declaration ownership
   are checked before edits; unresolved or stale ownership returns an error without partial changes.

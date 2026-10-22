@@ -178,3 +178,39 @@ Windows 原生环境仍运行完整 `ux-modules-windows` fixture，以原 `asked
 以 `mcpp test answer_routing --profile release` 运行 Workspace 的确定性回归。先在旧 `072c230` 产品上只加入相同测试：同步 apply 回调组应恰好失败一项，输出尚未 commit 就发布的新 profile；无回调组及最终通知断言均通过。再应用产品补修，dev/release 都应通过。真实 clangd 的对应回调是 apply 内 `update_quarantine_issue_()` 调用 host；该对照证明状态提交边界，不证明原 CI 最忙一分钟的具体原因。保留两次日志、退出码、测试 patch 和 workspace 源码 SHA。
 
 使用匹配 profile 的新 runner 执行 `mcpp test conformance`，其中 fake LSP 故意触发状态转换超预算，要求失败 measure 仍保留可重算的 trace/window。重复 progress 不算转换；restart 不计转换且重置前态；整数纳秒保留严格 60 秒边界。重新运行原 UX 场景时，先登记用途、产品/runner SHA、fixture/pin、CPU 和缓存谱系；不改 `maxChangesPerMinute=12`、采样或时长。首次失败保留，单次后续通过不能自行证明原因或稳定性；实际结果按源版本独立汇报。
+
+## 13. 补全延迟的请求支持点
+
+`MCPPLS_CONFORMANCE="$runner" mcpp test test_conformance --profile "$build_profile"`
+覆盖原采样结束后才到达的回复、错误回复以及超过 256 个请求的截断。
+新 runner 在原统计完成后、额外 probe/report 前冻结回答集合，再输出请求编号、
+相对发送/回答纳秒、结果数量和 incomplete；不复制候选文本或路径。前 256 条之外
+的最慢成功/已回答请求单独保留，不能因截断丢失 max 的支持点。
+旧 runner 跑相同新增测试应失败，原有测试仍通过。
+
+真实 UX 使用第 2 节原命令、输入、CPU 和 cache lineage，不增加轮询或修改预算。
+每个 typing check 的 serverStats 来自已有前后 report，recent distributions 是
+最近采样而非该 check 的精确增量；slow journal 有缺失和覆盖边界，不能据晚期
+report 的较快 p95 判断先前慢请求来自客户端。保留第一次 measure、完整 server
+日志及 SHA；只有四阶段进程树全部退出后才分析日志，不在测量期间扫描 PCM。
+
+## 14. 被条件编译排除的 import 与保存重载
+
+完成对应 profile 构建后，运行 `mcpp test test_scan --profile "$build_profile"`
+和 `mcpp test test_answer_routing --profile "$build_profile"`，然后执行完整 fixture：
+
+```bash
+"$runner" run --server "$server" --payload "$audit_dir/released/payload" \
+  --fixture conformance/fixtures/mcpp-watched-source-structure \
+  --workspace-dir "$audit_dir/watched-source-workspace" \
+  --cache-dir "$audit_dir/watched-source-cache" \
+  --timeout 60 --measure "$audit_dir/watched-source.json" --verbose \
+  > "$audit_dir/watched-source.log" 2>&1
+```
+
+fixture 的 README 区分旧 28 项负对照与扩展后的 70 项。旧 `1341938` 对原 28 项
+有 11 次 emit、14 个失败检查，其中包含计数级联。扩展项保留原断言，并验证
+预处理指令变化、producer 失败后重试、生成期间结构再次变化以及 target/provider
+变化。Workspace 单元回归另覆盖尚未送达的 watch 与 A→B→A 字节恢复；确认需要
+开始时结构及未变化的文件 stamp，不读取完成时结构来冒充 producer 已处理输入。
+这些是独立的正确性对照，不把它们当作历史 U15 13/min 的已证实归因。

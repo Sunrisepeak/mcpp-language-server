@@ -1,0 +1,633 @@
+{
+  "name": "mcpp-watched-source-structure",
+  "description": "G-5: a lexical import inside #if 0 is correctly absent from the producer dependency graph. Describe its first structure change once, then do not re-emit for body-only saves or repeated identical watch events after the unchanged valid model answers. A second structure change, manifest input, target selection and actual producer replacement must still reload. This isolates a repeat-scheduling defect and does not assign the original U15 frequency failure a cause. Preprocessor input changes still emit; failed answers do not acknowledge their structure, and a structure changed during a delayed producer run requires its own subsequent run. A second real source starts with an active conditional import whose dependencies equal the lexical names: disabling it must emit both before and after acknowledgement, and the producer recordings update that unit requires accordingly.",
+  "prepare": [
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--copy-self",
+      "producer/mcpp.exe"
+    ],
+    [
+      "{runner-dir}/mcppls-mock-mcpp{exe}",
+      "--copy-self",
+      "replacement/mcpp.exe"
+    ]
+  ],
+  "server-arguments": [
+    "--mcpp",
+    "{workspace}/producer/mcpp.exe"
+  ],
+  "initialization-options": {
+    "buildDiscovery.mcppTarget": "project"
+  },
+  "checks": [
+    {
+      "id": "INITIAL",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "timeout": 60,
+      "profile-target": "x86_64-unknown-linux-gnu",
+      "producer-version": "2026.10.22.1"
+    },
+    {
+      "id": "INITIAL-EMIT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 1,
+      "settle": 3
+    },
+    {
+      "id": "CONDITIONAL-STRUCTURE-CHANGE",
+      "kind": "write-file",
+      "file": "src/main.cpp",
+      "notify": true,
+      "timeout": 30,
+      "content": "import target.platform;\n#if 0\nimport disabled.alpha;\n#endif\n\nint target_user() { return architecture_bits() + 0; }\n",
+      "expect-reload": true
+    },
+    {
+      "id": "CONDITIONAL-MODEL-READY",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "timeout": 60
+    },
+    {
+      "id": "STRUCTURE-DESCRIBED-ONCE",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 2,
+      "settle": 3
+    },
+    {
+      "id": "BODY-ONLY-ONE",
+      "kind": "write-file",
+      "file": "src/main.cpp",
+      "notify": true,
+      "timeout": 30,
+      "content": "import target.platform;\n#if 0\nimport disabled.alpha;\n#endif\n\nint target_user() { return architecture_bits() + 1; }\n",
+      "expect-reload": false,
+      "settle": 5
+    },
+    {
+      "id": "BODY-ONLY-ONE-NO-EMIT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 2,
+      "settle": 3
+    },
+    {
+      "id": "BODY-ONLY-TWO",
+      "kind": "write-file",
+      "file": "src/main.cpp",
+      "notify": true,
+      "timeout": 30,
+      "content": "import target.platform;\n#if 0\nimport disabled.alpha;\n#endif\n\nint target_user() { return architecture_bits() + 2; }\n",
+      "expect-reload": false,
+      "settle": 5
+    },
+    {
+      "id": "BODY-ONLY-TWO-NO-EMIT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 2,
+      "settle": 3
+    },
+    {
+      "id": "SAME-BYTES-AGAIN",
+      "kind": "write-file",
+      "file": "src/main.cpp",
+      "notify": true,
+      "timeout": 30,
+      "content": "import target.platform;\n#if 0\nimport disabled.alpha;\n#endif\n\nint target_user() { return architecture_bits() + 2; }\n",
+      "expect-reload": false,
+      "settle": 5
+    },
+    {
+      "id": "SAME-BYTES-AGAIN-NO-EMIT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 2,
+      "settle": 3
+    },
+    {
+      "id": "NEXT-REAL-LEXICAL-STRUCTURE",
+      "kind": "write-file",
+      "file": "src/main.cpp",
+      "notify": true,
+      "timeout": 30,
+      "content": "import target.platform;\n#if 0\nimport disabled.alpha;\nimport disabled.beta;\n#endif\n\nint target_user() { return architecture_bits() + 2; }\n",
+      "expect-reload": true
+    },
+    {
+      "id": "NEXT-STRUCTURE-READY",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "timeout": 60
+    },
+    {
+      "id": "NEXT-STRUCTURE-EMITTED",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 3,
+      "settle": 3
+    },
+    {
+      "id": "MANIFEST-INPUT-CHANGE",
+      "kind": "write-file",
+      "file": "mcpp.toml",
+      "notify": true,
+      "timeout": 30,
+      "content": "[package]\nname = \"target-fixture\"\nversion = \"0.1.1\"\n",
+      "expect-reload": true
+    },
+    {
+      "id": "MANIFEST-READY",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "timeout": 60
+    },
+    {
+      "id": "MANIFEST-STILL-RELOADS",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 4,
+      "settle": 3
+    },
+    {
+      "id": "EXPLICIT-TARGET-CHANGE",
+      "kind": "configuration",
+      "settings": {
+        "mcppls": {
+          "buildDiscovery.mcppTarget": "x86_64-unknown-linux-gnu"
+        }
+      }
+    },
+    {
+      "id": "EXPLICIT-TARGET-READY",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "timeout": 60,
+      "target-mode": "explicit",
+      "target-requested": "x86_64-unknown-linux-gnu",
+      "target-source": "configuration",
+      "target-pending": false
+    },
+    {
+      "id": "TARGET-STILL-RELOADS",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 5,
+      "settle": 3,
+      "arguments-contains": [
+        "--target",
+        "x86_64-unknown-linux-gnu"
+      ]
+    },
+    {
+      "id": "NEXT-BODY-AFTER-TARGET",
+      "kind": "write-file",
+      "file": "src/main.cpp",
+      "notify": true,
+      "timeout": 30,
+      "content": "import target.platform;\n#if 0\nimport disabled.alpha;\nimport disabled.beta;\n#endif\n\nint target_user() { return architecture_bits() + 3; }\n",
+      "expect-reload": false,
+      "settle": 5
+    },
+    {
+      "id": "TARGET-BODY-NO-EMIT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 5,
+      "settle": 3
+    },
+    {
+      "id": "UPGRADE-RECORDING-ONLY",
+      "kind": "write-file",
+      "file": "mcpp-mock.json",
+      "replace": {
+        "from": "2026.10.22.1",
+        "with": "2026.10.22.2"
+      },
+      "notify": false,
+      "expect-reload": false,
+      "settle": 1
+    },
+    {
+      "id": "REPLACE-PRODUCER-IDENTITY",
+      "kind": "write-file",
+      "file": "producer/mcpp.exe",
+      "notify": true,
+      "timeout": 45,
+      "content-from": "replacement/mcpp.exe",
+      "expect-reload": true
+    },
+    {
+      "id": "NEW-PRODUCER-READY",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "timeout": 60,
+      "producer-version": "2026.10.22.2",
+      "target-mode": "explicit"
+    },
+    {
+      "id": "PRODUCER-STILL-RELOADS",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 6,
+      "settle": 3,
+      "version": "2026.10.22.2"
+    },
+    {
+      "id": "NEXT-BODY-AFTER-PRODUCER",
+      "kind": "write-file",
+      "file": "src/main.cpp",
+      "notify": true,
+      "timeout": 30,
+      "content": "import target.platform;\n#if 0\nimport disabled.alpha;\nimport disabled.beta;\n#endif\n\nint target_user() { return architecture_bits() + 4; }\n",
+      "expect-reload": false,
+      "settle": 5
+    },
+    {
+      "id": "PRODUCER-BODY-NO-EMIT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 6,
+      "settle": 3
+    },
+    {
+      "id": "PREPROCESSOR-INPUT-CHANGES",
+      "kind": "write-file",
+      "file": "src/main.cpp",
+      "notify": true,
+      "timeout": 30,
+      "replace": {
+        "from": "#if 0",
+        "with": "#if (0)"
+      },
+      "expect-reload": true
+    },
+    {
+      "id": "PREPROCESSOR-INPUT-READY",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "timeout": 60
+    },
+    {
+      "id": "DIRECTIVE-CHANGE-STILL-EMITS",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 7,
+      "settle": 3
+    },
+    {
+      "id": "BODY-AFTER-DIRECTIVE",
+      "kind": "write-file",
+      "file": "src/main.cpp",
+      "notify": true,
+      "timeout": 30,
+      "content": "import target.platform;\n#if (0)\nimport disabled.alpha;\nimport disabled.beta;\n#endif\n\nint target_user() { return architecture_bits() + 5; }\n",
+      "expect-reload": false,
+      "settle": 5
+    },
+    {
+      "id": "DIRECTIVE-BODY-NO-EMIT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 7,
+      "settle": 3
+    },
+    {
+      "id": "CONTROLLED-PRODUCER-FAILURE",
+      "kind": "write-file",
+      "file": "mcpp-mock.json",
+      "content-from": "producer-failure.json",
+      "notify": false,
+      "expect-reload": false,
+      "settle": 0
+    },
+    {
+      "id": "STRUCTURE-WHICH-FAILS-TO-DESCRIBE",
+      "kind": "write-file",
+      "file": "src/main.cpp",
+      "notify": true,
+      "timeout": 30,
+      "content": "import target.platform;\n#if (0)\nimport disabled.alpha;\nimport disabled.beta;\nimport disabled.gamma;\n#endif\n\nint target_user() { return architecture_bits() + 5; }\n",
+      "expect-reload": true
+    },
+    {
+      "id": "FAILED-DESCRIPTION-WAS-ATTEMPTED",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 8,
+      "settle": 3
+    },
+    {
+      "id": "FAILED-DESCRIPTION-KEEPS-MODEL",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "degraded",
+      "timeout": 60
+    },
+    {
+      "id": "PRODUCER-RECOVERS",
+      "kind": "write-file",
+      "file": "mcpp-mock.json",
+      "content-from": "producer-success.json",
+      "notify": false,
+      "expect-reload": false,
+      "settle": 0
+    },
+    {
+      "id": "SAME-STRUCTURE-RETRIES-AFTER-FAILURE",
+      "kind": "write-file",
+      "file": "src/main.cpp",
+      "notify": true,
+      "timeout": 30,
+      "content": "import target.platform;\n#if (0)\nimport disabled.alpha;\nimport disabled.beta;\nimport disabled.gamma;\n#endif\n\nint target_user() { return architecture_bits() + 6; }\n",
+      "expect-reload": true
+    },
+    {
+      "id": "RECOVERED-STRUCTURE-READY",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "timeout": 60,
+      "producer-version": "2026.10.22.3"
+    },
+    {
+      "id": "FAILED-STRUCTURE-WAS-NOT-ACKNOWLEDGED",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 9,
+      "settle": 3
+    },
+    {
+      "id": "BODY-AFTER-SUCCESSFUL-RETRY",
+      "kind": "write-file",
+      "file": "src/main.cpp",
+      "notify": true,
+      "timeout": 30,
+      "content": "import target.platform;\n#if (0)\nimport disabled.alpha;\nimport disabled.beta;\nimport disabled.gamma;\n#endif\n\nint target_user() { return architecture_bits() + 7; }\n",
+      "expect-reload": false,
+      "settle": 5
+    },
+    {
+      "id": "SUCCESSFUL-RETRY-ACKNOWLEDGED",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 9,
+      "settle": 3
+    },
+    {
+      "id": "DELAY-THE-NEXT-DESCRIPTION",
+      "kind": "write-file",
+      "file": "mcpp-mock.json",
+      "content-from": "producer-slow.json",
+      "notify": false,
+      "expect-reload": false,
+      "settle": 0
+    },
+    {
+      "id": "START-INFLIGHT-STRUCTURE",
+      "kind": "write-file",
+      "file": "src/main.cpp",
+      "notify": true,
+      "timeout": 30,
+      "content": "import target.platform;\n#if (0)\nimport disabled.alpha;\nimport disabled.beta;\nimport disabled.gamma;\nimport disabled.delta;\n#endif\n\nint target_user() { return architecture_bits() + 7; }\n",
+      "expect-reload": true
+    },
+    {
+      "id": "INFLIGHT-RUN-STARTED",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 10,
+      "settle": 1
+    },
+    {
+      "id": "STRUCTURE-CHANGES-WHILE-PRODUCER-RUNS",
+      "kind": "write-file",
+      "file": "src/main.cpp",
+      "notify": true,
+      "timeout": 30,
+      "content": "import target.platform;\n#if (0)\nimport disabled.alpha;\nimport disabled.beta;\nimport disabled.gamma;\nimport disabled.delta;\nimport disabled.epsilon;\n#endif\n\nint target_user() { return architecture_bits() + 7; }\n"
+    },
+    {
+      "id": "NEXT-DESCRIPTION-IS-FAST",
+      "kind": "write-file",
+      "file": "mcpp-mock.json",
+      "content-from": "producer-success.json",
+      "notify": false,
+      "expect-reload": false,
+      "settle": 0
+    },
+    {
+      "id": "LATER-STRUCTURE-GETS-ITS-OWN-RUN",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 11,
+      "settle": 7
+    },
+    {
+      "id": "LATER-STRUCTURE-READY",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "timeout": 60
+    },
+    {
+      "id": "BODY-AFTER-INFLIGHT-STRUCTURE",
+      "kind": "write-file",
+      "file": "src/main.cpp",
+      "notify": true,
+      "timeout": 30,
+      "content": "import target.platform;\n#if (0)\nimport disabled.alpha;\nimport disabled.beta;\nimport disabled.gamma;\nimport disabled.delta;\nimport disabled.epsilon;\n#endif\n\nint target_user() { return architecture_bits() + 8; }\n",
+      "expect-reload": false,
+      "settle": 5
+    },
+    {
+      "id": "LATER-STRUCTURE-ACKNOWLEDGED",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 11,
+      "settle": 3
+    },
+    {
+      "id": "DISABLED-CONDITION-PRODUCER",
+      "kind": "write-file",
+      "file": "mcpp-mock.json",
+      "content-from": "producer-condition-off.json",
+      "notify": false,
+      "expect-reload": false,
+      "settle": 0
+    },
+    {
+      "id": "FIRST-WATCH-DISABLES-ACTIVE-IMPORT",
+      "kind": "write-file",
+      "file": "src/condition.cpp",
+      "content": "#if 0\nimport target.platform;\n#endif\nint condition_user() { return 0; }\n",
+      "notify": true,
+      "expect-reload": true,
+      "settle": 5,
+      "timeout": 30
+    },
+    {
+      "id": "FIRST-WATCH-DISABLED-READY",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "timeout": 60
+    },
+    {
+      "id": "FIRST-WATCH-DISABLED-COUNT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 12,
+      "settle": 3
+    },
+    {
+      "id": "ENABLED-CONDITION-PRODUCER",
+      "kind": "write-file",
+      "file": "mcpp-mock.json",
+      "content-from": "producer-condition-on.json",
+      "notify": false,
+      "expect-reload": false,
+      "settle": 0
+    },
+    {
+      "id": "RESTORE-ACTIVE-IMPORT",
+      "kind": "write-file",
+      "file": "src/condition.cpp",
+      "content": "#if 1\nimport target.platform;\n#endif\nint condition_user() { return 0; }\n",
+      "notify": true,
+      "expect-reload": true,
+      "settle": 5,
+      "timeout": 30
+    },
+    {
+      "id": "ACTIVE-IMPORT-RESTORED-READY",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "timeout": 60
+    },
+    {
+      "id": "ACTIVE-IMPORT-RESTORED-COUNT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 13,
+      "settle": 3
+    },
+    {
+      "id": "ACTIVE-CONDITIONAL-BODY-ONLY",
+      "kind": "write-file",
+      "file": "src/condition.cpp",
+      "content": "#if 1\nimport target.platform;\n#endif\nint condition_user() { return 1; }\n",
+      "notify": true,
+      "expect-reload": false,
+      "settle": 5,
+      "timeout": 30
+    },
+    {
+      "id": "ACTIVE-CONDITIONAL-BODY-READY",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "timeout": 60
+    },
+    {
+      "id": "ACTIVE-CONDITIONAL-BODY-COUNT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 13,
+      "settle": 3
+    },
+    {
+      "id": "DISABLED-CONDITION-PRODUCER-AGAIN",
+      "kind": "write-file",
+      "file": "mcpp-mock.json",
+      "content-from": "producer-condition-off.json",
+      "notify": false,
+      "expect-reload": false,
+      "settle": 0
+    },
+    {
+      "id": "BASELINED-ACTIVE-IMPORT-DISABLED",
+      "kind": "write-file",
+      "file": "src/condition.cpp",
+      "content": "#if 0\nimport target.platform;\n#endif\nint condition_user() { return 1; }\n",
+      "notify": true,
+      "expect-reload": true,
+      "settle": 5,
+      "timeout": 30
+    },
+    {
+      "id": "BASELINED-CONDITION-DISABLED-READY",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "timeout": 60
+    },
+    {
+      "id": "BASELINED-CONDITION-DISABLED-COUNT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 14,
+      "settle": 3
+    },
+    {
+      "id": "INACTIVE-CONDITIONAL-BODY-ONLY",
+      "kind": "write-file",
+      "file": "src/condition.cpp",
+      "content": "#if 0\nimport target.platform;\n#endif\nint condition_user() { return 2; }\n",
+      "notify": true,
+      "expect-reload": false,
+      "settle": 5,
+      "timeout": 30
+    },
+    {
+      "id": "INACTIVE-CONDITIONAL-BODY-READY",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "timeout": 60
+    },
+    {
+      "id": "INACTIVE-CONDITIONAL-BODY-COUNT",
+      "kind": "producer-call-log",
+      "file": "mcpp-calls.jsonl",
+      "command": "emit",
+      "count": 14,
+      "settle": 3
+    }
+  ]
+}

@@ -105,6 +105,15 @@ std::string structure_of(const project::ScanResult& scan) {
     return key;
 }
 
+std::optional<std::string> described_source_structure(std::string_view text, const project::ScanResult& scan) {
+    // The scanner recognizes ordinary # directives. Alternate directive tokens are
+    // deliberately unacknowledged instead of guessing how the compiler processes them.
+    if (text.contains("%:") || text.contains("?" "?=") || text.contains("_Pragma") || text.contains("__pragma")
+        || text.contains("__LINE__") || text.contains("__COUNTER__") || !scan.preprocessorComplete) return std::nullopt;
+    if (!scan.importsComplete || !scan.declarationsComplete || std::ranges::any_of(scan.imports, [](const auto& import) { return import.isHeaderUnit; })) return std::nullopt;
+    return structure_of(scan) + "\npreprocessor-inputs\n" + scan.preprocessorDirectives;
+}
+
 // The inputs a producer named in its database's watch list (S2 5), shared with the polling worker.
 struct WatchPatterns {
     std::atomic<bool> stopped { false };
@@ -480,6 +489,15 @@ struct Workspace::Impl final : engine::Host {
     bool loading { false };
     bool applyingPlan { false };
     bool reloadAfterLoad { false };
+    // A lexical source structure can legitimately differ from the producer's active
+    // dependency graph (#if 0, for example). Remember only inputs a valid answer covered.
+    std::map<std::string, std::string> producerSourcePaths;
+    std::map<std::string, std::string> loadingSourceStructures;
+    std::map<std::string, platform::fs::FileStamp> loadingSourceStamps;
+    std::map<std::string, std::string> describedSourceStructures;
+    int describedSourceGeneration { -1 };
+    std::string loadingSourceProducerIdentity;
+    std::string describedSourceProducerIdentity;
     project::TargetSelection targetSelection;
     bool targetReadPending { false };
     int targetReadRetries { 0 };
@@ -2528,6 +2546,51 @@ struct Workspace::Impl final : engine::Host {
         }
     }
 
+    void capture_source_structures() {
+        loadingSourceStructures.clear();
+        loadingSourceStamps.clear();
+        loadingSourceProducerIdentity = producer_file_identity();
+        // Only sources reported by the producer's watcher, never a recursive scan.
+        // Capture before dispatch: a later disk edit is not evidence this run read it.
+        std::size_t remaining { 32 * 1024 * 1024 };
+        for (const auto& [key, path] : producerSourcePaths) {
+            if (remaining == 0) break;
+            const auto before = platform::fs::stamp(path);
+            if (!before || before->size > remaining) continue;
+            const auto text = platform::fs::read_file(path, remaining);
+            if (!text) break; // a failed bounded read may already have consumed the remaining budget
+            remaining -= text->size();
+            if (platform::fs::stamp(path) == before) {
+                if (auto structure = described_source_structure(*text, project::scan_source(*text, true))) {
+                    loadingSourceStructures.emplace(key, std::move(*structure));
+                    loadingSourceStamps.emplace(key, *before);
+                }
+            }
+        }
+    }
+
+    void confirm_source_structures(const project::ProjectModel& loaded) {
+        if (loaded.source == project::SourceKind::inferred || !loaded.issues.empty() || reloadAfterLoad
+            || loadingSourceProducerIdentity != producer_file_identity()
+            || (!loaded.producer.empty() && !producerPath.empty() && !base::same_path(loaded.producer, producerPath))) return;
+        std::set<std::string> units;
+        for (const auto& set : loaded.database.sets) {
+            for (const auto& unit : set.units) units.insert(base::path_key(spec::absolute_source(unit)));
+        }
+        describedSourceStructures.clear();
+        for (const auto& [key, structure] : loadingSourceStructures) {
+            const auto path = producerSourcePaths.find(key);
+            const auto stamp = loadingSourceStamps.find(key);
+            if (units.contains(key) && path != producerSourcePaths.end() && stamp != loadingSourceStamps.end()
+                && platform::fs::stamp(path->second) == std::optional { stamp->second }
+                && matches_watch_entries(loaded.watch, root, path->second)) {
+                describedSourceStructures.emplace(key, structure);
+            }
+        }
+        describedSourceGeneration = modelGeneration;
+        describedSourceProducerIdentity = loadingSourceProducerIdentity;
+    }
+
     void start_model_load() {
         if (loading) {
             reloadAfterLoad = true;
@@ -2541,6 +2604,7 @@ struct Workspace::Impl final : engine::Host {
         loading = true;
         remember_described_inputs(true);
         const int generation { ++modelGeneration };
+        capture_source_structures();
         project::LoadOptions load;
         load.trusted = options.trusted;
         load.cacheDirectory = cacheDirectory;
@@ -2792,6 +2856,7 @@ struct Workspace::Impl final : engine::Host {
         }
         keptModelNotice.clear();
         staleModelReason.clear();
+        confirm_source_structures(*loadedModel);
         adopt_model(std::move(loadedModel), "producer");
     }
 
@@ -4261,7 +4326,35 @@ void Workspace::handle_watched_files(const Json& changes) {
         // pause in typing: on GalTranslPP a minute of CPU each time, beside clangd. An edit inside functions leaves
         // the model as it is; the index and the plan already have it.
         // What is on disk is what the producer reads: an open file changed under the editor (a checkout) counts too.
-        if (producerInput && (type != 2 || !diskText || impl_->model_structure_differs(path, project::scan_source(*diskText)))) reload = true;
+        if (producerInput) {
+            const std::string key { base::path_key(path) };
+            if (type == 3) {
+                impl_->producerSourcePaths.erase(key);
+                impl_->describedSourceStructures.erase(key);
+                impl_->loadingSourceStructures.erase(key);
+                impl_->loadingSourceStamps.erase(key);
+            } else {
+                impl_->producerSourcePaths.insert_or_assign(key, path);
+            }
+            bool differs { true };
+            if (type == 2 && diskText) {
+                const auto scan { project::scan_source(*diskText, true) };
+                const auto structure { described_source_structure(*diskText, scan) };
+                const auto known = impl_->describedSourceStructures.find(key);
+                if (impl_->describedSourceGeneration == impl_->modelGeneration && known != impl_->describedSourceStructures.end()) {
+                    differs = !structure || known->second != *structure
+                        || impl_->describedSourceProducerIdentity != impl_->producer_file_identity();
+                } else {
+                    // Conditional imports need one actual answer even when the old model
+                    // happens to list the same lexical names (for example #if 1 -> #if 0).
+                    differs = !structure || scan.uncertain || impl_->model_structure_differs(path, scan);
+                    const auto started = impl_->loadingSourceStructures.find(key);
+                    if (started != impl_->loadingSourceStructures.end()
+                        && (!structure || started->second != *structure || !impl_->loading || !impl_->staleModelReason.empty())) differs = true;
+                }
+            }
+            if (differs) reload = true;
+        }
         if (open) continue;
         if (impl_->model && impl_->model->source == project::SourceKind::inferred && type != 2) reload = true;
         else replan = true;
