@@ -255,8 +255,9 @@ bool run_prepare(const Json& command, const std::string& workspace, bool verbose
     options.environment = environment;
     auto result = mcppls::platform::run(std::move(options), std::chrono::minutes { 20 });
     if (!result || result->exitCode != 0 || result->timedOut) {
-        say("prepare failed: {}", lsp::dump(command));
-        if (result) say("{}\n{}", result->output, result->error);
+        say("prepare failed: {} (program {})", lsp::dump(command), program);
+        if (result) say("exit code {}, timed out {}\n{}\n{}", result->exitCode, result->timedOut, result->output, result->error);
+        else say("{}", result.error().message);
         return false;
     }
     if (verbose) say("prepare: {}\n{}", lsp::dump(command), result->output);

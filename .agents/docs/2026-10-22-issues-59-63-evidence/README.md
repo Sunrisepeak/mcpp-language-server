@@ -48,6 +48,10 @@ U8 修复同时处理驱动和测量：需要重启时，新 CDB/生成输入等
 <a id="validation"></a>
 ## 当前本地补修检查点
 
+`2d36600` 的 nightly macOS 原生 conformance 实际失败（run `39694307079`，job `119552078685`）：mock producer 在准备步骤直接异常退出，旧 generated-module 场景因此反复超时，并非新 target 断言已运行。真实 cross artifact 的初始化表与反汇编确认：24 字节全局默认 target 字符串超过 libc++ SSO 22 字节，在 `okm_early_init` 前调用 allocator；后者读取尚为空的 `libc.auxv`。代码签名页哈希全部一致；未采集 Mac crash report，不把静态证据说成完整平台运行证明。原 artifact、SHA 和最小反汇编保存在 `.payload-cache/59-63-macos-mock-startup/`。
+
+补修仅把 mock 状态放进 `main` 并显式传参，另给原生两 profile 和打包工具增加协议启动检查；prepare 失败显示程序、退出码及超时状态。release server SHA 仍为下表 730294c5，原九阶段性能产品字节不变。Linux dev/release 已构建，mock 启动与 runner native 各 6 cases / 65 assertions 通过；dev 31 组完整 LSP 场景通过。release 场景与原生 macOS CI 仍须验证，当前失败未放行。同期 Windows 第一组、ARM64 与 Linux 目标场景均通过；Windows 原 U17 为 40/24=1.67、零超时，旧 73/24 失败与未决根因仍保留。
+
 路径身份、未信任回退及声明成员别名补修使用同一组冻结 release server/runner；同一 server 字节的原完整性能链已完成；最后原生平台 CI 和交付升级仍待验证。测试 helper 的后续字节单独标记，不混称性能 runner。
 
 | 检查 | 结果 | 原始记录（`.payload-cache/59-63-member-alias/`；特殊前缀另注） |

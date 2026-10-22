@@ -84,6 +84,9 @@ jobs:
           case "$runner" in *$'\n'*) echo "ambiguous conformance runner build"; exit 1 ;; esac
           runner="$PWD/$runner"
           "$runner" version
+          mock="${runner%/*}/mcppls-mock-mcpp"
+          if [ "$RUNNER_OS" = Windows ]; then mock="$mock.exe"; fi
+          "$mock" --protocol-version
           if [ "$RUNNER_OS" = Windows ]; then runner=$(cygpath -w "$runner"); fi
           echo "MCPPLS_CONFORMANCE=$runner" >> "$GITHUB_ENV"
       - name: Executables run
@@ -498,6 +501,11 @@ jobs:
           name: payload-${{ matrix.platform }}
       - name: Unpack the payload
         run: tar -xzf payload-${{ matrix.platform }}.tar.gz && ls payload stage
+      - name: The packaged mock producer starts on this host
+        run: |
+          set -euo pipefail
+          exe=''; [ "$RUNNER_OS" != Windows ] || exe='.exe'
+          "stage/mcppls-mock-mcpp$exe" --protocol-version
       - name: Run the fixtures
         env:
           CONFORMANCE_CLANGXX: ${{ runner.os == 'Linux' && !matrix.cross-tools && '~/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++' || '' }}

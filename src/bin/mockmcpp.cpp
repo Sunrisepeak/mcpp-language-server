@@ -43,11 +43,15 @@ using Json = nlohmann::ordered_json;
 namespace {
 
 constexpr std::string_view VERSION { "0.0.0-mock" };
-std::string producerVersion { VERSION };
-std::string requestedTarget;
-std::string defaultTarget { "x86_64-unknown-linux-gnu" };
+// Keep state construction in main: this Mach-O runtime's allocator initialization
+// can follow translation-unit constructors, so those constructors must not allocate.
+struct ProducerState {
+    std::string producerVersion { VERSION };
+    std::string requestedTarget;
+    std::string defaultTarget { "x86_64-unknown-linux-gnu" };
+};
 
-std::string expand(std::string_view text, const std::string& root) {
+std::string expand(std::string_view text, const std::string& root, const ProducerState& state) {
     std::string out;
     for (std::size_t i { 0 }; i < text.size();) {
         if (text.substr(i).starts_with("${")) {
@@ -57,7 +61,7 @@ std::string expand(std::string_view text, const std::string& root) {
                 if (name == "root") {
                     out += root;
                 } else if (name == "target") {
-                    out += requestedTarget.empty() ? defaultTarget : requestedTarget;
+                    out += state.requestedTarget.empty() ? state.defaultTarget : state.requestedTarget;
                 } else if (name == "compiler") {
                     const auto configured = mcppls::platform::env::get("CONFORMANCE_CLANGXX");
                     std::string compiler { configured && !configured->empty() ? *configured : std::string {} };
@@ -94,11 +98,11 @@ std::string expand(std::string_view text, const std::string& root) {
     return out;
 }
 
-void expand_all(Json& value, const std::string& root) {
+void expand_all(Json& value, const std::string& root, const ProducerState& state) {
     if (value.is_string()) {
-        value = expand(value.get<std::string>(), root);
+        value = expand(value.get<std::string>(), root, state);
     } else if (value.is_array() || value.is_object()) {
-        for (auto& child : value) expand_all(child, root);
+        for (auto& child : value) expand_all(child, root, state);
     }
 }
 
@@ -120,13 +124,13 @@ std::string mock_config_path() {
     return base::join_path(fs::current_directory(), "mcpp-mock.json");
 }
 
-Json envelope(std::string_view kind, Json data, Json diagnostics, Json effects) {
+Json envelope(const ProducerState& state, std::string_view kind, Json data, Json diagnostics, Json effects) {
     Json document = Json::object();
     document["schemaVersion"] = 1;
     document["kind"] = kind;
     document["kindVersion"] = 1;
     document["effects"] = std::move(effects);
-    document["mcpp"] = Json { { "version", producerVersion }, { "protocol", Json { { "min", 1 }, { "max", 1 } } } };
+    document["mcpp"] = Json { { "version", state.producerVersion }, { "protocol", Json { { "min", 1 }, { "max", 1 } } } };
     if (!data.is_null()) document["data"] = std::move(data);
     document["diagnostics"] = std::move(diagnostics);
     return document;
@@ -154,7 +158,7 @@ std::string fingerprint(const std::string& root) {
 // 2026.8.8.4, before mcpp.build-database and `emit build-database` existed), so the server's L2
 // fallback is exercised — `mcpp build --configure-only` (below) instead, and where even that fails
 // or the project has none of its own, the project's already-there compile_commands.json.
-int protocol_version(bool oldProtocol) {
+int protocol_version(bool oldProtocol, const ProducerState& state) {
     Json document = Json::object();
     document["schemaVersion"] = 1;
     document["kind"] = "mcpp.protocol";
@@ -164,12 +168,12 @@ int protocol_version(bool oldProtocol) {
     document["commands"] = oldProtocol ? Json::object()
                                        : Json { { "emit build-database", Json { { "effects", Json::array({ "init-mcpp-home", "read-project", "network",
                                                                                                             "write-global-cache", "exec-build-script" }) } } } };
-    document["mcpp"] = Json { { "version", oldProtocol ? std::string { "2026.8.8.4" } : producerVersion } };
+    document["mcpp"] = Json { { "version", oldProtocol ? std::string { "2026.8.8.4" } : state.producerVersion } };
     std::println("{}", document.dump(2));
     return 0;
 }
 
-int emit_build_database(std::span<const std::string> arguments) {
+int emit_build_database(std::span<const std::string> arguments, const ProducerState& state) {
     std::string format;
     for (std::size_t i { 0 }; i < arguments.size(); ++i) {
         if (arguments[i] == "--format" && i + 1 < arguments.size()) format = arguments[++i];
@@ -184,7 +188,7 @@ int emit_build_database(std::span<const std::string> arguments) {
     if (!text) {
         const Json diagnostics = Json::array({ Json { { "code", "MCPP_MOCK_NO_DATA" }, { "severity", "error" }, { "source", "mcpp" },
                                                       { "message", "this fixture recorded no mcpp-mock.json" } } });
-        std::println("{}", envelope("mcpp.build-database", nullptr, diagnostics, Json::array({ "read-project" })).dump(2));
+        std::println("{}", envelope(state, "mcpp.build-database", nullptr, diagnostics, Json::array({ "read-project" })).dump(2));
         return 1;
     }
     Json recorded = Json::parse(*text, nullptr, false);
@@ -200,7 +204,7 @@ int emit_build_database(std::span<const std::string> arguments) {
         if (!offline || offline->empty() || *offline == "0") {
             const Json diagnostics = Json::array({ Json { { "code", "MCPP_MOCK_NOT_OFFLINE" }, { "severity", "error" }, { "source", "mcpp" },
                                                           { "message", "this fixture requires MCPP_OFFLINE in the producer's environment and it was not set" } } });
-            std::println("{}", envelope("mcpp.build-database", nullptr, diagnostics, Json::array({ "read-project" })).dump(2));
+            std::println("{}", envelope(state, "mcpp.build-database", nullptr, diagnostics, Json::array({ "read-project" })).dump(2));
             return 1;
         }
     }
@@ -217,12 +221,12 @@ int emit_build_database(std::span<const std::string> arguments) {
     }
     // Delay after reading this invocation's immutable recording; a newer target can arrive meanwhile.
     const auto delay { recorded.value("delayMs", 0) };
-    if (delay > 0 && (!recorded.contains("delayTarget") || recorded.value("delayTarget", std::string {}) == requestedTarget)) {
+    if (delay > 0 && (!recorded.contains("delayTarget") || recorded.value("delayTarget", std::string {}) == state.requestedTarget)) {
         std::this_thread::sleep_for(std::chrono::milliseconds { std::min(delay, 30000) });
     }
-    expand_all(recorded, root);
+    expand_all(recorded, root, state);
     if (!recorded.contains("database")) {
-        std::println("{}", envelope("mcpp.build-database", nullptr, recorded.value("diagnostics", Json::array()), Json::array({ "read-project" })).dump(2));
+        std::println("{}", envelope(state, "mcpp.build-database", nullptr, recorded.value("diagnostics", Json::array()), Json::array({ "read-project" })).dump(2));
         return 1;
     }
     // {"rewriteEachRun": ["<file>", ...]} (plan 2026-10-14 A1, mcpp-community/mcpp#807): files every run writes again with
@@ -242,7 +246,7 @@ int emit_build_database(std::span<const std::string> arguments) {
     // and the command exits non-zero.
     const Json diagnostics = recorded.value("diagnostics", Json::array());
     const bool partial { std::ranges::any_of(diagnostics, [](const Json& diagnostic) { return diagnostic.value("severity", std::string {}) == "error"; }) };
-    std::println("{}", envelope("mcpp.build-database", std::move(data), diagnostics, Json::array({ "read-project" })).dump(2));
+    std::println("{}", envelope(state, "mcpp.build-database", std::move(data), diagnostics, Json::array({ "read-project" })).dump(2));
     return partial ? 1 : 0;
 }
 
@@ -268,6 +272,7 @@ int hang(const Json& how, std::span<const std::string> self) {
 }
 
 int main(int argc, char* argv[]) {
+    ProducerState state;
     const std::vector<std::string> arguments { argv + 1, argv + argc };
     // The descendant of a hang: it only has to stay alive, holding whatever it was given.
     if (arguments.size() == 2 && arguments[0] == "--mock-hold") {
@@ -275,8 +280,8 @@ int main(int argc, char* argv[]) {
         return 0;
     }
     for (std::size_t i { 0 }; i < arguments.size(); ++i) {
-        if (arguments[i] == "--target" && i + 1 < arguments.size()) requestedTarget = arguments[++i];
-        else if (arguments[i].starts_with("--target=")) requestedTarget = arguments[i].substr(9);
+        if (arguments[i] == "--target" && i + 1 < arguments.size()) state.requestedTarget = arguments[++i];
+        else if (arguments[i].starts_with("--target=")) state.requestedTarget = arguments[i].substr(9);
     }
     if (arguments.size() == 2 && arguments[0] == "--copy-self") {
         const auto ownArguments = mcppls::platform::env::arguments();
@@ -291,7 +296,7 @@ int main(int argc, char* argv[]) {
     }
     if (arguments.size() == 2 && arguments[0] == "--write-target-cdb") {
         const std::string root { fs::current_directory() };
-        const std::string compiler { expand("${compiler}", root) };
+        const std::string compiler { expand("${compiler}", root, state) };
         const Json commands = Json::array({ Json { { "directory", root }, { "file", "src/main.cpp" },
             { "arguments", Json::array({ compiler, "--target=" + arguments[1], "-std=c++23", "-c", "src/main.cpp" }) } } });
         (void)fs::write_file(base::join_path(root, "mcpp-calls.jsonl"), "");
@@ -303,11 +308,11 @@ int main(int argc, char* argv[]) {
     if (auto text = fs::read_file(mock_config_path())) {
         const Json recorded = Json::parse(*text, nullptr, false);
         if (recorded.is_object()) {
-            producerVersion = recorded.value("version", std::string { VERSION });
-            defaultTarget = recorded.value("defaultTarget", defaultTarget);
+            state.producerVersion = recorded.value("version", std::string { VERSION });
+            state.defaultTarget = recorded.value("defaultTarget", state.defaultTarget);
             if (const std::string calls { recorded.value("callLog", std::string {}) }; !calls.empty()) {
                 const std::string path { base::join_path(fs::current_directory(), calls) };
-                const std::string line { Json { { "arguments", arguments }, { "version", producerVersion } }.dump() + "\n" };
+                const std::string line { Json { { "arguments", arguments }, { "version", state.producerVersion } }.dump() + "\n" };
                 (void)fs::write_file(path, fs::read_file(path).value_or("") + line);
             }
         }
@@ -328,15 +333,15 @@ int main(int argc, char* argv[]) {
         }
         oldProtocol = recorded.is_object() && recorded.value("oldProtocol", false);
     }
-    if (arguments.size() == 1 && arguments[0] == "--protocol-version") return protocol_version(oldProtocol);
+    if (arguments.size() == 1 && arguments[0] == "--protocol-version") return protocol_version(oldProtocol, state);
     // 2026.8.8.4 has no `emit build-database` at all; it falls through to "not simulated" below,
     // the way an unknown subcommand of a real old mcpp would (the server's own protocol-version
     // check keeps it from ever asking in the first place).
     if (!oldProtocol && arguments.size() >= 2 && arguments[0] == "emit" && arguments[1] == "build-database") {
-        return emit_build_database(std::span<const std::string> { arguments }.subspan(2));
+        return emit_build_database(std::span<const std::string> { arguments }.subspan(2), state);
     }
     if (!arguments.empty() && arguments[0] == "--version") {
-        std::println("mcpp {}", producerVersion);
+        std::println("mcpp {}", state.producerVersion);
         return 0;
     }
     // `mcpp build --configure-only`: the server's L2 fallback once mcpp advertises no

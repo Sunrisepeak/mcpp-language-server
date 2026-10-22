@@ -123,3 +123,13 @@ CONFORMANCE_CLANGXX="$HOME/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang
 ```
 
 旧 helper 的 C1 会报告无法打开 `~/.../model.mcpp.json`；修复后应实际注入缓存、拒绝不一致模型并重新取得 i686 结果，原完整 fixture 零失败。只有截到 C1 的旧诊断对照不能代替这份完整验收。
+
+## 6. 平台测试工具先确认能启动
+
+在目标平台运行同一组构建产物，先执行以下命令，再运行完整 fixture；Windows 加 `.exe` 后缀。这能在几秒内暴露 mock 的进程启动问题，不能替代后续原 conformance 断言。旧 macOS cross artifact 在进入 `main` 前分配全局字符串、早于 allocator 初始化，导致真实 producer 模拟从未运行；修复后应返回正常协议 JSON 与退出码 0。
+
+```bash
+"${runner%/*}/mcppls-mock-mcpp" --protocol-version
+```
+
+CI 同时检查原生 dev/release 和 payload 内打包的 mock。旧失败的 artifact SHA、初始化顺序及必要反汇编另保存在本地 `.payload-cache/59-63-macos-mock-startup/`；Linux 上的静态 Mach-O 分析不能代替 macOS 原生运行。
