@@ -35,3 +35,10 @@ cached fallbacks and proves that their full latency teaches the next request's a
 The fake LSP also exposes a partial owned BMI copy until its reported diagnostics work finishes:
 cache-reuse checks must drain that work, accept the finished copy, and still reject new builds,
 missing work state and a wait that never finishes.
+
+The same Workspace tests resolve definition and declaration ownership before a rename in a
+workspace with read-only engine sources. A compiler that returns only project edits must not
+rename an interface symbol; writable symbols still work. The controls cover both location
+forms, shared deadlines, advisory cancellation, stale models/documents, closed-file stamps,
+and synchronous callbacks. The unchanged `mcpp-build-programs` R1 fixture checks the editor
+contract with the real engine.

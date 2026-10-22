@@ -1,6 +1,6 @@
 # #59 / #63 验证简报
 
-日期：2026-10-22 JST。**产品原九阶段已通过；平台验收仍有 SC4 测量失败待修补验证，PR 保持草稿。**
+日期：2026-10-22 JST。**SC4 修补后的 PR CI 已全绿；nightly 暴露只读符号重命名保护缺口，补修验证中，PR 保持草稿。**
 
 本目录只收结论、[复现步骤](reproduce.md)和 [SHA-256 索引](raw-index.tsv)。45 份原始记录共 26,769 行，已移出 PR；失败、对照、日志与 core 均保留。源码边界见 [设计方案](../2026-10-22-issues-59-63-target-and-reliability-design.md)。
 
@@ -14,10 +14,11 @@
 | U8 配置撤销 | 真实发现旧引擎消费新 CDB：需要重启时，等旧进程 reaped 才发布新 CDB/生成输入。另修增量 implementation sweep 丢调度、发布失败后的完整恢复。等待显式有限工作，零重建预算不变。 |
 | U15 停顿 | 节点 done 不变不等于引擎没工作。记录真实 module completion 与无活动间隔，不虚增完成计数；保留原节点间隔、60 s 门槛及零 stalled 断言。 |
 | U17 输入补全 | 后台引擎回答漏记文件 pace，延迟也只记 detach 后尾段。现从原请求起计时并记一次，等待上限、完整性标志与输入不变。旧实现同回归 4 个断言失败，修后通过。 |
+| 只读符号 R1 | Windows nightly 从 `build.mcpp` 重命名接口 `cxxflag` 时仅返回项目引用修改，绕过既有文件过滤。属于 mcppls 的保护缺口：先解析 definition/declaration 归属，再请求修改；只读、未知、过期、取消或超时均不返回部分修改。项目/可写库符号仍可编辑，未改 mcpp 或引擎。 |
 | 测试供给 | 修 UTF-8 裁剪与写失败处理、Termux 内层脚本绑定、ARM64 mock 的绝对 compiler 路径、缓存注入使用真实路径。Mac mock 全局字符串早于 allocator 初始化，已移到 main；原生平台证明通过。 |
 
 <a id="validation"></a>
-## 最新产品证据
+## 已完成检查点（不替代新增产品验证）
 
 产品提交 `bcc9cbe`，本地 release server SHA `a958f0c8d20a02326c2b49741a6139daa8773d920a2bc95b433644f1baeba288`；原九阶段 runner SHA `53bd21e2cea543eb0572d02ba72df16c2478eed177557b040af50f1aea00fe43`。后续 SC4 仅改 runner，身份另记，不能混称字节相同。
 
@@ -39,11 +40,17 @@
 
 有限工作 76.093 s / 0.966528 core 单列，不混入空闲起点。记录为 `.payload-cache/59-63-performance/{mcpp-background-pace-final-two-core,xlings-background-pace-final-staged}-*`；两份 summary 和 envelope 记录版本、SHA、阶段退出码。构建/测试 CPU 24–31；producer 固定 2026.9.30.2。逻辑核不冒充物理核心。
 
-## 当前 SC4 测量修补
+## SC4 修补及新增 R1 验证
 
 首次失败的 warm 导航为 0.469 s，SC4 于 0.490 s 报新增 owned `generation-1-2/payload.pcm`，main prerequisite 约 0.50 s 才完成；warm 日志没有重建记录。上游 read-copy 先创建文件、分块写入，再完成登记；旧 SC4 按 size 排除副本，存在扫描到短副本的竞态。现场没有该文件当时的 size/hash/ledger，不能断言本轮确切原因。
 
 确定性 fake-LSP 在报告 diagnostics busy 时暴露短副本，报告结束时才补齐。旧 runner 同回归 3 个断言失败，报相同 added。SC4 cold/warm 先有界 drain 显式引擎工作，再执行原比较；缺失/超时、真实新 BMI 仍失败，首导航和零重建断言不变。dev/release 各 8 cases / 146 assertions 零失败，真实引擎原 cold/warm 两种 profile 也通过；首导航仍受原 15/5 s 门槛约束。新 release runner SHA 为 `4aa331d189f1a0f759a9ffae878672d6f6f867c30de382bb668b55d2131a8360`，server 字节不变，九阶段 fixture 不走该 SC4 路径。原日志、timing artifact 与反证在 `.payload-cache/59-63-background-completion-pace/`；操作见 [复现第 8 节](reproduce.md#8-sc4-先完成引擎工作再比较缓存)。
+
+SC4 后提交 `9f84df0` 的 PR CI 39711971572 全绿（61 success / 1 expected skip）；Linux、Windows、macOS 原 timing 的 cold/warm 均零失败且 SC4/cacheDrain 通过，首次导航分别 4.603/0.531、8.690/0.525、5.163/0.581 秒。Windows 首次 U17 为 44/24；同头 nightly 为 45/24，均通过，nightly 的失败是另一项 R1，只返回两处项目修改。不能将 PR CI 全绿视为 nightly 全绿。
+
+R1 补修使用同一原始请求的两阶段共享 10 秒预算，校验模型、打开文档版本/正文或闭合文件 stamp；本地取消先终结请求再通知引擎，迟到回调不能推进。Location/LocationLink 的路径和范围均校验。原 R1 断言不变，详细反证与修后结果保留在 `.payload-cache/59-63-rename-ownership/`；见 [复现第 9 节](reproduce.md#9-只读接口符号不能只改项目引用)。本次服务端字节改变，需重新跑原九阶段，前表只作历史检查点。
+
+R1 补修本地 dev/release 全 workspace 均为 6 members / 57 programs / 0 failed；答案路由均 27 cases / 345 assertions。旧产品同测试为 10 failed cases / 151 failed assertions，日志直接保留项目部分 WorkspaceEdit（并非所有计数都是独立缺陷）。真实构建程序完整场景两 profile 均零失败且项目未变；dev 的 31 组 LSP 和实际 VS Code 44 passing / 1 macOS-only pending 亦通过。release LSP 重放与新二进制原九阶段、平台验收继续进行，尚不作为交付完成。新 release server SHA `edd8f16c6096351a2725cd977dcb06e0eb14dee64b0bfeac34f893f0beacee57`，身份及日志见上述新目录。
 
 ## 历史失败与反证仍保留
 

@@ -67,8 +67,10 @@ A few things are worth knowing:
   cross build. An import across the two — a target importing `mcpp` or a library of
   `[build-dependencies]`, `build.mcpp` importing a module of the targets — is an error, as it is for
   mcpp. The engine interface under `<MCPP_HOME>/engine/<version>/modules` belongs to mcpp and is
-  read-only: no formatting, code action or rename edits it, and VS Code opens it read-only. With an
-  older mcpp, `build.mcpp` is not read, and a note in the file names the mcpp that describes it.
+  read-only: no formatting, code action or rename edits it, and VS Code opens it read-only. Renaming
+  a symbol declared or defined there is also refused from project code, so it cannot leave a partial
+  rename. Project and writable library symbols remain editable; if ownership cannot be resolved,
+  the rename returns an error without edits. With an older mcpp, `build.mcpp` is not read, and a note in the file names the mcpp that describes it.
 - **An older mcpp** without `emit build-database` is not the end of it: if a newer mcpp is installed
   elsewhere on the machine (the xlings package store, mcpp's own registry store), mcppls asks *that*
   one instead, read-only and offline the same way, only to describe the project — the project still

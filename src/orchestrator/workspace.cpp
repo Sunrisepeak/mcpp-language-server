@@ -371,6 +371,7 @@ struct Workspace::Impl final : engine::Host {
         std::optional<Json> error;
         bool cancelled { false };
         bool merging { false };
+        bool renamePreflight { false };
         engine::RequestView view;
         Json params;
         std::string path;
@@ -1152,6 +1153,10 @@ struct Workspace::Impl final : engine::Host {
             return;
         }
         if (selection.answerers.empty()) {
+            if (job.method == "textDocument/rename" && !readOnlySources.empty()) {
+                fail_rename_ownership(jobId, "no compiler can resolve the symbol");
+                return;
+            }
             finish_job(jobId, Json(nullptr));
             return;
         }
@@ -1171,6 +1176,10 @@ struct Workspace::Impl final : engine::Host {
             && (!answer::is_jump(job.asked->kind) || job.found->certainty == answer::Certainty::certain)) {
             const auto at = job.started + kept_answer_wait(job);
             job.budgetAt = job.budgetAt ? std::min(*job.budgetAt, at) : at;
+        }
+        if (job.method == "textDocument/rename" && !readOnlySources.empty()) {
+            preflight_rename(jobId);
+            return;
         }
         ask_next(jobId);
     }
@@ -1454,6 +1463,121 @@ struct Workspace::Impl final : engine::Host {
         return false;
     }
 
+    void fail_rename_ownership(std::uint64_t jobId, std::string_view reason) {
+        finish_job_with_error(jobId, Json { { "code", lsp::REQUEST_FAILED },
+            { "message", std::format("Cannot confirm rename ownership: {}", reason) } });
+    }
+
+    // A compiler can return only the editable references of an imported symbol. Resolve its
+    // definition and declaration owners before asking for edits, rather than treating
+    // that partial edit as proof of safety. Both lookups share the original deadline.
+    void preflight_rename(std::uint64_t jobId, bool declaration = false,
+                          std::optional<platform::fs::FileStamp> closedStamp = std::nullopt) {
+        Job& job = jobs.at(jobId);
+        const std::string uri { uri_of_params(job.params) };
+        const Document* document { documents_.find(uri) };
+        if (coreEngine == nullptr || !position_of(job.params)) {
+            fail_rename_ownership(jobId, "the symbol's document or compiler is unavailable");
+            return;
+        }
+        if (!declaration && document == nullptr) closedStamp = platform::fs::stamp(job.path);
+        if (declaration && closedStamp && document != nullptr) {
+            fail_rename_ownership(jobId, "the closed document was opened while resolving the symbol");
+            return;
+        }
+        if (document == nullptr && !closedStamp) {
+            fail_rename_ownership(jobId, "the closed document has no stable file stamp");
+            return;
+        }
+        const std::optional<std::int64_t> version = document != nullptr
+            ? std::optional<std::int64_t> { document->version } : std::nullopt;
+        const auto generation = modelGeneration;
+        const auto ownerModel = model;
+        job.renamePreflight = true;
+        if (!declaration) job.budgetAt = job.started + *answer_budget("textDocument/definition");
+        const std::string method { declaration ? "textDocument/declaration" : "textDocument/definition" };
+        Json params = job.params;
+        params.erase("newName");
+        const Json request = lsp::make_request(job.clientId, method, params);
+        const engine::RequestView view { method, &params, job.path, job.text };
+        coreEngine->request(view, request, [this, jobId, uri, version, generation, ownerModel, declaration, closedStamp](engine::Answer answer) {
+            const auto current = jobs.find(jobId);
+            if (current == jobs.end() || !current->second.renamePreflight) return;
+            if (!current->second.budgetAt || Clock::now() >= *current->second.budgetAt) {
+                fail_rename_ownership(jobId, "symbol ownership lookup timed out");
+                return;
+            }
+            if (answer.kind == engine::Answer::Kind::cancelled) {
+                finish_job_cancelled(jobId);
+                return;
+            }
+            const Document* now = documents_.find(uri);
+            const bool sameDocument { version ? now != nullptr && now->version == *version && now->text == current->second.text
+                : now == nullptr && closedStamp && platform::fs::stamp(current->second.path) == closedStamp };
+            if (generation != modelGeneration || ownerModel != model || !sameDocument) {
+                fail_rename_ownership(jobId, "the document or project changed while resolving the symbol");
+                return;
+            }
+            if (answer.kind != engine::Answer::Kind::result) {
+                fail_rename_ownership(jobId, "the compiler did not resolve the symbol");
+                return;
+            }
+            const auto range_valid = [](const Json* range) {
+                if (range == nullptr || !range->is_object()) return false;
+                const auto start = range->find("start"), end = range->find("end");
+                if (start == range->end() || end == range->end() || !start->is_object() || !end->is_object()) return false;
+                const auto sl = lsp::int_at(*start, "line"), sc = lsp::int_at(*start, "character");
+                const auto el = lsp::int_at(*end, "line"), ec = lsp::int_at(*end, "character");
+                return sl && sc && el && ec && *sl >= 0 && *sc >= 0 && *el >= 0 && *ec >= 0
+                    && std::pair { *sl, *sc } <= std::pair { *el, *ec };
+            };
+            std::vector<std::string> owners;
+            const auto location = [&](const Json& entry) {
+                if (!entry.is_object()) return false;
+                const bool link { entry.contains("targetUri") };
+                const Json* target = lsp::find(entry, link ? "targetUri" : "uri");
+                if (target == nullptr || !target->is_string() || !range_valid(lsp::find(entry, link ? "targetRange" : "range"))
+                    || (link && !range_valid(lsp::find(entry, "targetSelectionRange")))) return false;
+                if (link) {
+                    const auto point = [](const Json& position) {
+                        return std::pair { *lsp::int_at(position, "line"), *lsp::int_at(position, "character") };
+                    };
+                    const Json& range { entry["targetRange"] };
+                    const Json& selection { entry["targetSelectionRange"] };
+                    if (point(selection["start"]) < point(range["start"]) || point(range["end"]) < point(selection["end"])) return false;
+                }
+                const std::string path { path_of_uri(target->get<std::string>()) };
+                if (path.empty()) return false;
+                owners.push_back(path);
+                return true;
+            };
+            bool resolved { false };
+            if (answer.value.is_array()) {
+                resolved = !answer.value.empty();
+                for (const auto& entry : answer.value) if (!location(entry)) resolved = false;
+            } else {
+                resolved = location(answer.value);
+            }
+            if (!resolved) {
+                fail_rename_ownership(jobId, "the compiler returned no valid definition location");
+                return;
+            }
+            for (const auto& path : owners) {
+                if (readOnlySources.contains(base::path_key(path))) {
+                    finish_job_with_error(jobId, read_only_error(path));
+                    return;
+                }
+            }
+            if (!declaration) {
+                preflight_rename(jobId, true, closedStamp);
+                return;
+            }
+            current->second.renamePreflight = false;
+            current->second.budgetAt.reset();
+            ask_next(jobId);
+        });
+    }
+
     Json read_only_error(std::string_view path) const {
         return Json { { "code", lsp::REQUEST_FAILED },
                       { "message", std::format("{} is mcpp's engine interface, which mcpp writes for each of its versions and which is not edited",
@@ -1552,6 +1676,12 @@ struct Workspace::Impl final : engine::Host {
     // finished first, so the engines' answers to the cancellation find nothing to finish. The core engine's own
     // timeouts and watchdogs still see the request until clangd lets go of it.
     void answer_without_core(std::uint64_t jobId) {
+        if (jobs.at(jobId).renamePreflight) {
+            const Json id = jobs.at(jobId).clientId;
+            fail_rename_ownership(jobId, "symbol ownership lookup timed out");
+            if (coreEngine != nullptr) coreEngine->cancel(id);
+            return;
+        }
         if (jobs.at(jobId).found && serve_kept(jobId)) return;
         Job& job = jobs.at(jobId);
         const Json clientId = job.clientId;   // `=`: braces make an array holding it (CWG 2137)
@@ -4144,6 +4274,15 @@ void Workspace::handle_watched_files(const Json& changes) {
 }
 
 void Workspace::cancel(const Json& id) {
+    for (const auto& [jobId, job] : impl_->jobs) {
+        if (!job.renamePreflight || job.clientId != id) continue;
+        const Json engineId = job.clientId;
+        impl_->finish_job_cancelled(jobId);
+        // Cancellation is advisory to a compiler: retire the client job first so a
+        // later successful lookup cannot advance to declaration or rename.
+        if (impl_->coreEngine != nullptr) impl_->coreEngine->cancel(engineId);
+        return;
+    }
     if (impl_->cancel_into_background(id)) return;
     for (const auto& engine : impl_->engines) engine->cancel(id);
 }

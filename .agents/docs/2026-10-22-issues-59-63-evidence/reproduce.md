@@ -152,3 +152,10 @@ Windows 原生环境仍运行完整 `ux-modules-windows` fixture，以原 `asked
 `MCPPLS_CONFORMANCE="$runner" mcpp test --profile "$build_profile" conformance` 包含确定性回归：fake LSP 先暴露一份短 owned std copy，并报告 `filesAwaitingDiagnostics > 0`；后续 report 才补齐同字节副本并报告工作结束。旧 runner 不等工作结束，立刻报新增 BMI；新 runner 应接受补齐的副本。不同大小的新 BMI、缺失工作状态、永远未完成三种情况仍必须失败，cold 也要 drain 后才能建立 warm 的基线。
 
 真实引擎则运行原完整 `conformance/fixtures/timing`，同一 workspace/cache 依次 cold 与 `--expect-warm`，保持导航门槛 15/5 秒。`SC4-std-reused.measure.cacheDrain` 保留等待时长和末态；首导航仍是最初回答的时间，不能由后续 drain 改写。CI 的 `timing-<platform>` artifact 同时保留 cold/warm JSON；首次失败与后续修补结果分别记录。
+
+
+## 9. 只读接口符号不能只改项目引用
+
+原 `conformance/fixtures/mcpp-build-programs` 的 R1 从 `build.mcpp` 中的 `cxxflag` 引用重命名，必须返回 `-32803`。设置 `MCPPLS_BUILD_PROGRAMS_MCPP` 为支持构建程序数据库的真实 mcpp，按前述 runner/server/payload 命令运行该完整 fixture；不要更改 R1 的预期。Windows nightly 39712494651 曾返回两处项目修改而遗漏只读接口，属于 mcppls 的保护缺口；不能据此断言上游遗漏的具体原因。
+
+`mcpp test answer_routing` 的 HeldCore 对照在旧产品 `9f84df0` 上应用同一份测试：rename 会自动返回真实的项目 WorkspaceEdit，definition/declaration 则独立控制。修复后只读 definition 或 declaration（含 Location / Location[] / LocationLink[]）均拒绝，项目/可写库及闭合文档仍可成功。两阶段共用原始 10 秒预算；取消、晚回调、文档/模型变化、缺失或无效位置均不得继续产生修改，全同步回调也需成功且只回答一次。保留旧产品失败日志、测试及产品 SHA，再对固定产品执行 dev/release 全 workspace 和真实 LSP；不能用后来通过覆盖旧失败。

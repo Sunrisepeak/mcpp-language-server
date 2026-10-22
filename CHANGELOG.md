@@ -38,6 +38,10 @@ The bundled engine remains [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak
 
 ### Reliability and measurements
 
+- Renaming a symbol owned by mcpp's read-only engine interface is refused even from project
+  references when the compiler returns only project edits. Definition and declaration ownership
+  are checked before edits; unresolved or stale ownership returns an error without partial changes.
+
 - Completion and signature-help answers arriving after a cached fallback now teach the file's
   existing adaptive wait using the entire engine request, including the foreground wait. Slow
   background answers no longer disappear from that history or report only their final tail.
