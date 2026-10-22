@@ -1,6 +1,6 @@
 # #59 / #63 验证简报
 
-日期：2026-10-22 JST。**SC4 修补后的 PR CI 已全绿；nightly 暴露只读符号重命名保护缺口，补修验证中，PR 保持草稿。**
+日期：2026-10-22 JST。**R1 产品补修本地已通过；新 CI 的 CPU 采样测试与原九阶段 warm 超时仍待解决，PR 保持草稿。**
 
 本目录只收结论、[复现步骤](reproduce.md)和 [SHA-256 索引](raw-index.tsv)。45 份原始记录共 26,769 行，已移出 PR；失败、对照、日志与 core 均保留。源码边界见 [设计方案](../2026-10-22-issues-59-63-target-and-reliability-design.md)。
 
@@ -51,6 +51,10 @@ SC4 后提交 `9f84df0` 的 PR CI 39711971572 全绿（61 success / 1 expected s
 R1 补修使用同一原始请求的两阶段共享 10 秒预算，校验模型、打开文档版本/正文或闭合文件 stamp；本地取消先终结请求再通知引擎，迟到回调不能推进。Location/LocationLink 的路径和范围均校验。原 R1 断言不变，详细反证与修后结果保留在 `.payload-cache/59-63-rename-ownership/`；见 [复现第 9 节](reproduce.md#9-只读接口符号不能只改项目引用)。本次服务端字节改变，需重新跑原九阶段，前表只作历史检查点。
 
 R1 补修本地 dev/release 全 workspace 均为 6 members / 57 programs / 0 failed；答案路由均 27 cases / 345 assertions。旧产品同测试为 10 failed cases / 151 failed assertions，日志直接保留项目部分 WorkspaceEdit（并非所有计数都是独立缺陷）。真实构建程序完整场景两 profile 均零失败且项目未变；dev 的 31 组 LSP 和实际 VS Code 44 passing / 1 macOS-only pending 亦通过。release LSP 重放与新二进制原九阶段、平台验收继续进行，尚不作为交付完成。新 release server SHA `edd8f16c6096351a2725cd977dcb06e0eb14dee64b0bfeac34f893f0beacee57`，身份及日志见上述新目录。
+
+新提交 `f6ec554` 的 PR/nightly macOS release 均在既有 CPU 测试失败：固定 wall 2 s 后忙进程只增加 0.09/0.08 CPU s，低于原 >0.5 门槛；不能由此确认实际调度量或排除 sampler 缺陷。测试补修先以独立 native CPU oracle 完成 ≥0.75 CPU s，再测原 subject；READY/START/DONE 共用原 30 s 硬期限，原 CPU 断言不变。Linux dev/release 各 23 cases / 91 assertions 通过，native work 约 0.75 s、subject 增量 0.74/0.75 s；sampler 单次既有界限及清理可越过工作期限，迟到仍失败，macOS 原生验证待 CI；见[复现第 10 节](reproduce.md#10-cpu-采样前先确认实际-cpu-工作完成)。另一 macOS conformance 失败发生在 checkout DNS，产品测试尚未启动，首轮日志均保留。
+
+同一新产品的原性能首轮 mcpp warm ready **15.219 s > 12 s**，真实失败；176 已有模块零重建/零首次构建、零错误/重启。producer/model/首次导航很快，慢段位于引擎 prerequisite reuse 检查与扫描。该段采样约 0.343 core；前检查点约 1.353 core，总 CPU 工作近似相当，但缺当时 IO、调度及宿主 pressure 证据，不归因外部负载或认定产品无关。其余阶段继续，不能将旧九阶段通过或后来诊断通过替代本轮失败。
 
 ## 历史失败与反证仍保留
 

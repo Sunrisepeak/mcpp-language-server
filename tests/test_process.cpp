@@ -15,10 +15,45 @@ import mcppls.platform.stdio;
 import mcppls.lsp.connection;
 import nlohmann.json;
 
+// Darwin's native libSystem entry point, already linked by openkal-macos. Do not
+// use std::clock: openkal-musl 0.19.1 maps CPU clock IDs to its monotonic clock.
+#if !defined(__MCPP_TARGET_WINDOWS__) && !defined(__MCPP_TARGET_LINUX__)
+extern "C" std::uint64_t clock_gettime_nsec_np(int clock);
+#endif
+
 namespace platform = mcppls::platform;
 namespace base = mcppls::base;
 
 namespace {
+
+// An independent work oracle: neither platform::cpu_seconds nor its /proc/ps
+// reader. Linux asks the native kernel clock; Darwin asks native libSystem.
+std::optional<double> native_self_cpu_seconds() {
+#if defined(__MCPP_TARGET_LINUX__)
+    struct NativeTime { std::int64_t seconds, nanoseconds; } time {};
+#if defined(__x86_64__)
+    long result { 228 }, clock { 2 }, address { reinterpret_cast<long>(&time) };
+    __asm__ __volatile__("syscall" : "+a"(result), "+D"(clock), "+S"(address) : : "rcx", "r11", "memory", "cc");
+#elif defined(__aarch64__)
+    register long number __asm__("x8") { 113 };
+    register long result __asm__("x0") { 2 };
+    register long address __asm__("x1") { reinterpret_cast<long>(&time) };
+    __asm__ __volatile__("svc 0" : "+r"(result), "+r"(address) : "r"(number) : "memory", "cc");
+#else
+    return std::nullopt;
+#endif
+#if defined(__x86_64__) || defined(__aarch64__)
+    if (result != 0) return std::nullopt;
+    return static_cast<double>(time.seconds) + static_cast<double>(time.nanoseconds) / 1e9;
+#endif
+#elif defined(__MCPP_TARGET_WINDOWS__)
+    return std::nullopt;
+#else
+    // Apple Libc/include/_time.h: CLOCK_PROCESS_CPUTIME_ID = 12 (musl's 2 is different).
+    // Apple Libc/gen/clock_gettime.c: this clock sums getrusage(self)'s user + system time.
+    return static_cast<double>(clock_gettime_nsec_np(12)) / 1e9;
+#endif
+}
 
 std::string self_path() {
     const auto arguments = platform::env::arguments();
@@ -42,12 +77,42 @@ int child_main(std::span<const std::string> arguments) {
         std::this_thread::sleep_for(std::chrono::seconds { 30 });
         return 0;
     }
-    if (mode == "--spin") {
-        // A core kept busy for up to 30 s: what a compile looks like to platform::cpu_seconds.
+    if (mode == "--cpu-idle") {
+        (void)platform::stdio::write_output("ready\n");
+        (void)platform::stdio::read_input();   // stay alive and idle until the parent ends the test
+        return 0;
+    }
+    if (mode == "--spin-cpu") {
+        (void)platform::stdio::write_output("ready\n");
+        std::string start;
+        while (!start.ends_with('\n') && start.size() < 64) {
+            const auto part = platform::stdio::read_input();
+            if (!part || part->empty()) return 101;
+            start += *part;
+        }
+        if (start != "start\n") return 101;
+        const auto before = native_self_cpu_seconds();
+        if (!before) {
+            (void)platform::stdio::write_output("cpu-oracle-unavailable\n");
+            return 102;
+        }
         const auto until = std::chrono::steady_clock::now() + std::chrono::seconds { 30 };
         volatile std::uint64_t sink { 0 };
-        while (std::chrono::steady_clock::now() < until) sink = sink + 1;
-        return 0;
+        bool completed { false };
+        double completedCpu { 0 };
+        while (std::chrono::steady_clock::now() < until) {
+            for (int i { 0 }; i < 4096; ++i) sink = sink + 1;
+            const auto cpu = native_self_cpu_seconds();
+            if (!cpu || *cpu < *before) {
+                (void)platform::stdio::write_output("cpu-oracle-invalid\n");
+                return 103;
+            }
+            completedCpu = *cpu - *before;
+            if (completedCpu >= 0.75) { completed = true; break; }
+        }
+        (void)platform::stdio::write_output(completed ? std::format("done {:.9f}\n", completedCpu) : "cpu-work-timeout\n");
+        (void)platform::stdio::read_input();   // keep the completed process available to cpu_seconds
+        return completed ? 0 : 104;
     }
     if (mode == "--env") {
         (void)platform::stdio::write_output(platform::env::get(arguments[2]).value_or("<unset>"));
@@ -207,20 +272,58 @@ int main() {
         expect(platform::parse_cpu_time("2-00:00:01") == std::optional<double> { 172801.0 });
         expect(!platform::parse_cpu_time("").has_value() && !platform::parse_cpu_time("1:x").has_value()
                && !platform::parse_cpu_time("1:2:3:4").has_value() && !platform::parse_cpu_time(":05").has_value());
-        auto idle = platform::Process::spawn({ .program = self, .arguments = { "--sleep" } });
-        auto busy = platform::Process::spawn({ .program = self, .arguments = { "--spin" } });
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds { 30 };
+        auto idle = platform::Process::spawn({ .program = self, .arguments = { "--cpu-idle" } });
+        auto busy = platform::Process::spawn({ .program = self, .arguments = {
+            mcppls::os::FAMILY == mcppls::os::Family::windows ? "--cpu-idle" : "--spin-cpu" } });
         expect(fatal(idle.has_value() && busy.has_value()));
+        struct Cleanup {
+            platform::Process& idle;
+            platform::Process& busy;
+            ~Cleanup() { idle.kill(); busy.kill(); (void)idle.wait(); (void)busy.wait(); }
+        } cleanup { *idle, *busy };
+        const auto announced = [&](platform::Process& process, std::string_view expected, std::string* message = nullptr) {
+            std::string text;
+            while (std::chrono::steady_clock::now() < deadline && text.size() < 128) {
+                const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+                if (left.count() <= 0) break;
+                auto bytes = process.read_output_for(left);
+                if (!bytes || !*bytes || (**bytes).empty()) return false;
+                text += **bytes;
+                if (text.ends_with('\n')) {
+                    if (message != nullptr) { *message = text; return text.starts_with(expected); }
+                    return text == expected;
+                }
+            }
+            return false;
+        };
+        expect(fatal(announced(*idle, "ready\n") && announced(*busy, "ready\n"))) << "children did not become ready within the shared 30 s bound";
         const auto read = [](const platform::Process& process) -> std::optional<double> {
             const auto pid = process.native_pid();
             return pid ? platform::cpu_seconds(*pid) : std::nullopt;
         };
         const auto idleBefore = read(*idle);
         const auto busyBefore = read(*busy);
-        std::this_thread::sleep_for(std::chrono::seconds { 2 });
+        std::optional<double> nativeWork;
+        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::windows) {
+            expect(fatal(busy->write("start\n").has_value()));
+            std::string done;
+            expect(fatal(announced(*busy, "done ", &done))) << "independent native CPU work did not complete within the shared 30 s bound: " << done;
+            const std::string_view number { base::trim(std::string_view { done }.substr(5)) };
+            double seconds { 0 };
+            const auto [end, error] = std::from_chars(number.data(), number.data() + number.size(), seconds);
+            expect(fatal(error == std::errc {} && end == number.data() + number.size() && std::isfinite(seconds) && seconds >= 0.75))
+                << "invalid independent CPU-work acknowledgement: " << done;
+            nativeWork = seconds;
+        }
         const auto idleAfter = read(*idle);
         const auto busyAfter = read(*busy);
+        const auto value = [](const std::optional<double>& number) { return number ? std::format("{:.9f}", *number) : std::string { "unavailable" }; };
+        std::println("cpu-seconds evidence: independent native work={}s; idle {} -> {}; busy {} -> {}",
+                     value(nativeWork), value(idleBefore), value(idleAfter), value(busyBefore), value(busyAfter));
+        expect(std::chrono::steady_clock::now() < deadline) << "CPU sampling exceeded the shared 30 s bound";
         if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
-            expect(!idleBefore && !busyBefore) << "no process times on Windows";
+            expect(!idleBefore && !busyBefore) << "no native pid for process times on Windows";
         } else {
             expect(fatal(idleBefore && idleAfter && busyBefore && busyAfter));
             expect(*idleAfter - *idleBefore < 0.2) << *idleBefore << " -> " << *idleAfter;
@@ -239,10 +342,6 @@ int main() {
             }
         }
         expect(platform::thread_cpu(0).empty());
-        idle->kill();
-        busy->kill();
-        (void)idle->wait();
-        (void)busy->wait();
     };
 
     // X-6 (plan 2026-10-03): the platform can name this process and tell incarnations apart.

@@ -159,3 +159,10 @@ Windows 原生环境仍运行完整 `ux-modules-windows` fixture，以原 `asked
 原 `conformance/fixtures/mcpp-build-programs` 的 R1 从 `build.mcpp` 中的 `cxxflag` 引用重命名，必须返回 `-32803`。设置 `MCPPLS_BUILD_PROGRAMS_MCPP` 为支持构建程序数据库的真实 mcpp，按前述 runner/server/payload 命令运行该完整 fixture；不要更改 R1 的预期。Windows nightly 39712494651 曾返回两处项目修改而遗漏只读接口，属于 mcppls 的保护缺口；不能据此断言上游遗漏的具体原因。
 
 `mcpp test answer_routing` 的 HeldCore 对照在旧产品 `9f84df0` 上应用同一份测试：rename 会自动返回真实的项目 WorkspaceEdit，definition/declaration 则独立控制。修复后只读 definition 或 declaration（含 Location / Location[] / LocationLink[]）均拒绝，项目/可写库及闭合文档仍可成功。两阶段共用原始 10 秒预算；取消、晚回调、文档/模型变化、缺失或无效位置均不得继续产生修改，全同步回调也需成功且只回答一次。保留旧产品失败日志、测试及产品 SHA，再对固定产品执行 dev/release 全 workspace 和真实 LSP；不能用后来通过覆盖旧失败。
+
+
+## 10. CPU 采样前先确认实际 CPU 工作完成
+
+`mcpp test process` 和 `mcpp test process --profile release` 保留原 `busy CPU > 0.5 s`、`idle CPU < 0.2 s` 断言。旧测试固定等 2 秒 wall time，不能保证获得 0.5 秒 CPU；PR/nightly 的 macOS release 首轮分别只读到 0.09/0.08 秒增量。它们仍是真失败，不能据此排除产品 sampler 的问题。
+
+子进程 READY 后由父进程先采样，再发送 START；子进程用独立 native process CPU 时钟确认累计至少 0.75 秒并发送 DONE，保持进程存活供父进程再次采样。父进程的工作与握手共用原 30 秒期限；sampler 每次调用另有既有界限（macOS 的 ps 为 2 秒），清理也可能越过工作期限，迟到采样仍失败。记录 native work 和两组 before/after；独立工作未完成、时钟不可用或 subject 读数不足均失败。Linux oracle 直接 native clock syscall，macOS 直接 libSystem 的 Darwin CPU clock（ID 12），不使用 subject `/proc`/`ps` 读取器；当前 OpenKAL 的 `std::clock` 实际走 monotonic，不能充当 CPU oracle。该改动只涉及测试，不更改产品 sampler 或性能输入/预算。

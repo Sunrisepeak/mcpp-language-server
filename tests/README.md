@@ -42,3 +42,10 @@ rename an interface symbol; writable symbols still work. The controls cover both
 forms, shared deadlines, advisory cancellation, stale models/documents, closed-file stamps,
 and synchronous callbacks. The unchanged `mcpp-build-programs` R1 fixture checks the editor
 contract with the real engine.
+
+`test_process` starts its CPU sample after both children acknowledge readiness. The busy child
+then acknowledges at least 0.75 seconds of independently measured native process CPU, before
+blocking for the parent sample. The original busy >0.5 / idle <0.2 CPU-second gates remain;
+work and handshakes share a 30-second deadline. Existing bounded sampler calls and process
+cleanup may finish after that deadline; a late sample still fails. No CPU share is assumed from wall time.
+The oracle bypasses the subject reader and OpenKAL's monotonic implementation of `std::clock`.
