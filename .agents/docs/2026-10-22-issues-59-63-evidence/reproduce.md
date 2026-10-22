@@ -172,3 +172,9 @@ Windows 原生环境仍运行完整 `ux-modules-windows` fixture，以原 `asked
 运行两种 profile 的完整 `mcpp test process`。原 nonreader 测试仍发送 64 条、每条 64 KiB，要求全部 send 在 2 秒内返回、stop 在 10 秒内结束；现在同时记录实际耗时。Release 39732244483 的原 macOS dev 失败日志保存在 `.payload-cache/59-63-delivery/release-macos-dev-first-failure.log`，不得以另一次通过或放宽时限替代它。
 
 双 framing 的真实 echo 子进程回归检查 FIFO、发送后修改或销毁原 JSON 的快照独立性、UTF-8 replacement；退出的 peer 必须拒绝继续发送并完成 stop。新 writer 在锁外使用既有 dump/encode_frame，编码异常必须转换成连接失败，不能逃出线程；没有添加生产测试 hook 或伪造损坏 JSON 来触发 OOM。该异常隔离有代码审查，不能宣称已经完成原生 OOM 故障注入。
+
+## 12. 同步 apply 的状态快照与时间线证据
+
+以 `mcpp test answer_routing --profile release` 运行 Workspace 的确定性回归。先在旧 `072c230` 产品上只加入相同测试：同步 apply 回调组应恰好失败一项，输出尚未 commit 就发布的新 profile；无回调组及最终通知断言均通过。再应用产品补修，dev/release 都应通过。真实 clangd 的对应回调是 apply 内 `update_quarantine_issue_()` 调用 host；该对照证明状态提交边界，不证明原 CI 最忙一分钟的具体原因。保留两次日志、退出码、测试 patch 和 workspace 源码 SHA。
+
+使用匹配 profile 的新 runner 执行 `mcpp test conformance`，其中 fake LSP 故意触发状态转换超预算，要求失败 measure 仍保留可重算的 trace/window。重复 progress 不算转换；restart 不计转换且重置前态；整数纳秒保留严格 60 秒边界。重新运行原 UX 场景时，先登记用途、产品/runner SHA、fixture/pin、CPU 和缓存谱系；不改 `maxChangesPerMinute=12`、采样或时长。首次失败保留，单次后续通过不能自行证明原因或稳定性；实际结果按源版本独立汇报。

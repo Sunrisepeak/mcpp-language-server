@@ -3434,22 +3434,56 @@ public:
 
         // State changes in the busiest minute, and the times the status was `error`.
         std::vector<Clock::time_point> changes;
+        std::vector<std::size_t> changeTraceIndices;
+        Json transitionTrace = Json::array();
+        const auto analyzedSamples { samples.size() }; // root_report below may pump later statuses; these alone were counted
         std::string previous;
         int errors { 0 };
-        for (const auto& sample : samples) {
+        for (std::size_t i { 0 }; i < samples.size(); ++i) {
+            const auto& sample = samples[i];
+            const bool changed { !previous.empty() && sample.state != previous && sample.state != "restart" };
+            // Only initial states, reset boundaries and counted changes: no full status or paths.
+            // Integer timestamps preserve the strict <60s boundary without JSON-double rounding.
+            if (previous.empty() || changed || sample.state == "restart") {
+                transitionTrace.push_back(Json {
+                    { "sampleIndex", i }, { "seconds", seconds_between(begin_, sample.at) },
+                    { "sinceStartNanoseconds", std::chrono::duration_cast<std::chrono::nanoseconds>(sample.at - begin_).count() },
+                    { "kind", sample.state == "restart" ? "restart" : changed ? "change" : "initial" },
+                    { "from", previous.empty() ? Json(nullptr) : Json(previous) }, { "to", sample.state }, { "counted", changed },
+                    { "done", sample.done }, { "total", sample.total }, { "issues", sample.issues }
+                });
+            }
             if (sample.state == "restart") {
                 previous.clear();
                 continue;
             }
             if (sample.state == "error") ++errors;
-            if (!previous.empty() && sample.state != previous) changes.push_back(sample.at);
+            if (changed) {
+                changes.push_back(sample.at);
+                changeTraceIndices.push_back(transitionTrace.size() - 1);
+            }
             previous = sample.state;
         }
         std::size_t busiest { 0 };
+        std::size_t busiestBegin { 0 };
         for (std::size_t i { 0 }; i < changes.size(); ++i) {
             std::size_t inWindow { 0 };
             for (std::size_t j { i }; j < changes.size() && changes[j] - changes[i] < std::chrono::seconds { 60 }; ++j) ++inWindow;
-            busiest = std::max(busiest, inWindow);
+            if (inWindow > busiest) { busiest = inWindow; busiestBegin = i; }
+        }
+        Json busiestWindow = nullptr;
+        if (busiest > 0) {
+            Json support = Json::array();
+            for (std::size_t i { busiestBegin }; i < busiestBegin + busiest; ++i) support.push_back(changeTraceIndices[i]);
+            const auto start { changes[busiestBegin] };
+            busiestWindow = Json {
+                { "startSeconds", seconds_between(begin_, start) },
+                { "endSecondsExclusive", seconds_between(begin_, start + std::chrono::seconds { 60 }) },
+                { "startNanoseconds", std::chrono::duration_cast<std::chrono::nanoseconds>(start - begin_).count() },
+                { "endNanosecondsExclusive", std::chrono::duration_cast<std::chrono::nanoseconds>(start + std::chrono::seconds { 60 } - begin_).count() },
+                { "lastChangeSeconds", seconds_between(begin_, changes[busiestBegin + busiest - 1]) },
+                { "count", busiest }, { "traceIndices", std::move(support) }
+            };
         }
 
         // Ready, and prepared: the first `ready` that held, and the last one after a preparation, from the start of the run.
@@ -3491,6 +3525,8 @@ public:
             else enforce_max(check, "preparedSeconds", prepared, "preparation finished at", "s", failures);
         }
         Json summary { { "statuses", samples.size() }, { "longestStallSeconds", longestStall }, { "stateChanges", changes.size() }, { "busiestMinuteChanges", busiest },
+                       { "stateTransitionTrace", std::move(transitionTrace) }, { "stateTransitionStatusSamples", analyzedSamples },
+                       { "stateTransitionObservedThroughSeconds", seconds_between(begin_, now) }, { "busiestMinuteWindow", std::move(busiestWindow) },
                        { "errorStates", errors }, { "clangdRestarts", root.is_object() ? Json(clangdRestarts) : Json(nullptr) },
                        { "firstReadySeconds", firstReady ? Json(*firstReady) : Json(nullptr) }, { "preparedSeconds", prepared ? Json(*prepared) : Json(nullptr) },
                        { "serverRestarts", client_.restartMarks.size() },

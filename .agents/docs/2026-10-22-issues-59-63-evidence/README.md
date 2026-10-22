@@ -1,6 +1,6 @@
 # #59 / #63 验证简报
 
-日期：2026-10-22 JST。**PR #64 已合入；合入前 CI/nightly 与最终完整九阶段通过。发布预检新发现 macOS dev 的发送时限失败，补修与新验证进行中，尚未发布。**
+日期：2026-10-22 JST。**PR #64 已合入；合入前 CI/nightly 与最终完整九阶段通过。发布预检的 macOS 发送时限补修已通过本地及首轮原生检查；新 CI 的 U15 状态频率失败仍待验收，尚未发布。**
 
 本目录只收结论、[复现步骤](reproduce.md)和 [SHA-256 索引](raw-index.tsv)。45 份原始记录共 26,769 行，已移出 PR；失败、对照、日志与 core 均保留。源码边界见 [设计方案](../2026-10-22-issues-59-63-target-and-reliability-design.md)。
 
@@ -63,6 +63,14 @@ R1 补修本地 dev/release 全 workspace 均为 6 members / 57 programs / 0 fai
 另一次预登记的完整九阶段最终验收为 9 exit 0 / 53 checks / 0 failed，保留原 CPU、pins、producer、cache lineage 和门槛；mcpp warm 3.824 秒，U8 undo 均为 0。原 600 秒 xlings idle 为 0.004819 core、RSS 1258.30→1121.86 MiB，有限工作单列。此前 15.219 秒失败仍未归因，未因新通过改写。该检查点于 `fd869bd` squash 合入；原始材料及小型终态摘要保存在 `.payload-cache/59-63-performance/light-observer-final-acceptance-f6ec554/`。
 
 随后 draft Release 39732244483 的 macOS dev job 119670268987 在原 `test_process.cpp` 发送检查失败：4 MiB 入队应小于 2 秒；CPU oracle 测试通过。旧断言未打印实际耗时，不能给出精确超时值或归因宿主。代码确认 JSON 编码仍在调用线程同步执行；补修将拥有所有权的 JSON 快照交给 writer 编码、写入，保持 FIFO、UTF-8 和两种 framing，并隔离 writer 编码异常。原 4 MiB / 2 秒及 stop 10 秒门槛不变；新产品必须重新验收，不能借用前述产品通过。见[复现第 11 节](reproduce.md#11-发送队列的编码与快照)。
+
+## 新增状态一致性回归与证据边界
+
+`072c230` 的 CI 39735383721 有真实 U15-edits 失败：最忙一分钟 13 次状态转换，超过原 12 次门槛；169 次采样、总 28 次转换、两次配置重启、零 error。其余 cold/warm/typing/graph/config undo/faults 通过不抵消该失败。原 artifact 只有汇总，旋转 server 日志也没有完整 status 轨迹，**不能确定这 13 次的原因**。
+
+独立回归证明同步 apply 的一致性缺陷：真实 clangd 在安装新 primer/安排重启前会调用 `host.status_changed()`，workspace 此时已采用新 profile。相同回调时序的定制 core 在旧产品上仅一个断言失败，暴露了引擎尚未 commit 的新 profile/ready；无回调对照通过。补修只合并同一同步 apply 栈内的状态通知，所有参与引擎完成后发布；不增加延时、不扩展 hold、不隐藏异步状态。修后 dev/release 各 28 cases / 357 assertions 通过，其他验证仍在进行。这一独立缺陷不能冒充首个 13 次失败的归因。
+
+runner 新增紧凑 `stateTransitionTrace` 与 `busiestMinuteWindow`：保存初始状态、重启边界和实际计数的转换，带整数纳秒及采样索引，能按原严格 `<60s` 窗口重算。只保留 issue code，不复制完整 status 或路径；原采样、计数和门槛不变。完整新产品性能链与平台 CI/nightly 尚未完成。见[复现第 12 节](reproduce.md#12-同步-apply-的状态快照与时间线证据)。
 
 ## 历史失败与反证仍保留
 

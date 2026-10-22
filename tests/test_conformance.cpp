@@ -53,6 +53,7 @@ int serve() {
     const bool never { std::ranges::find(arguments, "--drain-never") != arguments.end() };
     const bool missing { std::ranges::find(arguments, "--drain-missing") != arguments.end() };
     const bool restarting { std::ranges::find(arguments, "--drain-restarting") != arguments.end() };
+    const bool timelineStates { std::ranges::find(arguments, "--timeline-states") != arguments.end() };
     int reports { 0 }, changes { 0 }, completions { 0 };
     const auto send = [](const Json& message) { return platform::stdio::write_output(lsp::encode_frame(message)); };
     const auto status = [&](std::string state) { return send(lsp::make_notification("cxxModules/status", Json { { "state", std::move(state) } })); };
@@ -66,6 +67,28 @@ int serve() {
             const Json& request { **frame };
             const std::string method { request.value("method", std::string {}) };
             if (method == "exit") return 0;
+            if (timelineStates && method == "initialized") {
+                const auto sample = [&](std::string state, int done, int total, std::string issue = {}) {
+                    Json issues = Json::array();
+                    if (!issue.empty()) issues.push_back(Json { { "code", issue }, { "message", "private-status-text" } });
+                    return send(lsp::make_notification("cxxModules/status", Json {
+                        { "state", std::move(state) }, { "progress", Json { { "done", done }, { "total", total } } }, { "issues", std::move(issues) }
+                    }));
+                };
+                (void)sample("loading", 0, 3);
+                (void)sample("loading", 1, 3); // Progress changes are not state transitions.
+                (void)sample("preparing", 1, 3, "preparation-stalled");
+                (void)sample("preparing", 2, 3);
+                (void)sample("ready", 3, 3);
+                (void)sample("error", 3, 3, "mock-state-error");
+                (void)sample("ready", 3, 3);
+                // Exercise the exact sentinel recorded by Client::reset without a slow OS kill.
+                (void)sample("restart", 0, 0);
+                (void)sample("ready", 0, 2);
+                (void)sample("loading", 0, 2);
+                (void)sample("ready", 2, 2);
+                (void)sample("ready", 2, 2);
+            }
             if (drain && method == "initialized") {
                 if (!cacheMode.empty()) {
                     (void)fs::create_directories(base::parent_path(readCopy));
@@ -225,6 +248,54 @@ int main() {
             expect(result->exitCode == 1) << result->output << result->error;
             expect(result->output.find("engine work evidence unavailable") != std::string::npos);
         }
+    };
+    "a failed timeline preserves exact counted transitions and restart boundaries"_test = [&] {
+        const Json sample { { "name", "timing" }, { "server-arguments", Json::array({ "--timeline-states" }) },
+            { "checks", Json::array({
+                Json { { "id", "PUMP" }, { "kind", "hover-contains" }, { "file", "main.cpp" }, { "at", Json::array({ 0, 0 }) }, { "expect", "中文" } },
+                Json { { "id", "STATES" }, { "kind", "timeline" }, { "budget", Json { { "maxChangesPerMinute", 5 } } } }
+            }) }
+        };
+        expect(fs::write_file(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());
+        const auto result = invoke(measure, evidence);
+        expect(fatal(result.has_value()));
+        expect(result->exitCode == 1) << result->output << result->error;
+        const auto document = fs::read_file(measure);
+        expect(fatal(document.has_value()));
+        const Json summary = Json::parse(*document);
+        expect(summary["checks"][0]["ok"] == true);
+        expect(summary["checks"][1]["ok"] == false);
+        const Json& timeline = summary["checks"][1]["measure"];
+        expect(timeline["stateChanges"] == 6 && timeline["busiestMinuteChanges"] == 6);
+        expect(fatal(timeline.contains("stateTransitionTrace") && timeline.contains("stateTransitionStatusSamples")
+                     && timeline.contains("busiestMinuteWindow"))) << "the failing gate must retain its transition evidence";
+        expect(timeline["stateTransitionStatusSamples"] == 12 && timeline["errorStates"] == 1);
+        const Json& trace = timeline["stateTransitionTrace"];
+        expect(fatal(trace.is_array() && trace.size() == 9));
+        expect(trace[0]["kind"] == "initial" && trace[0]["from"].is_null() && trace[0]["counted"] == false);
+        expect(trace[1]["from"] == "loading" && trace[1]["to"] == "preparing");
+        expect(trace[1]["done"] == 1 && trace[1]["total"] == 3 && trace[1]["issues"] == Json::array({ "preparation-stalled" }));
+        expect(trace[5]["kind"] == "restart" && trace[5]["to"] == "restart" && trace[5]["counted"] == false);
+        expect(trace[6]["kind"] == "initial" && trace[6]["from"].is_null() && trace[6]["counted"] == false);
+        Json counted = Json::array();
+        std::int64_t previous { -1 };
+        for (std::size_t i { 0 }; i < trace.size(); ++i) {
+            const auto at { trace[i]["sinceStartNanoseconds"].get<std::int64_t>() };
+            expect(at >= previous && trace[i]["seconds"].get<double>() >= 0.0);
+            previous = at;
+            if (trace[i]["counted"].get<bool>()) counted.push_back(i);
+        }
+        expect(counted.size() == timeline["stateChanges"].get<std::size_t>());
+        const Json& window = timeline["busiestMinuteWindow"];
+        expect(window["traceIndices"] == counted && window["count"] == counted.size());
+        const auto start { window["startNanoseconds"].get<std::int64_t>() };
+        const auto end { window["endNanosecondsExclusive"].get<std::int64_t>() };
+        expect(end - start == 60'000'000'000LL);
+        for (const auto& index : window["traceIndices"]) {
+            const auto at { trace[index.get<std::size_t>()]["sinceStartNanoseconds"].get<std::int64_t>() };
+            expect(at >= start && at < end);
+        }
+        expect(trace.dump().find("private-status-text") == std::string::npos) << "keep only issue codes, no full status";
     };
     "typing trace preserves per-word requests and records the original completion metadata"_test = [&] {
         const Json sample { { "name", "timing" }, { "checks", Json::array({ Json {

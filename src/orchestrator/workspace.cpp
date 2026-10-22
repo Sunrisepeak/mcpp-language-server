@@ -478,6 +478,7 @@ struct Workspace::Impl final : engine::Host {
     int modelGeneration { 0 };
     std::string modelDescription;            // describe_model of `model`, to recognize an unchanged reload
     bool loading { false };
+    bool applyingPlan { false };
     bool reloadAfterLoad { false };
     project::TargetSelection targetSelection;
     bool targetReadPending { false };
@@ -3073,11 +3074,20 @@ struct Workspace::Impl final : engine::Host {
                       core_wait_limit().count());
             journal.add("engine-waits-for-producer", Json { { "detected", std::string { project::to_string(detectedSource) } } });
         }
-        for (const auto& engine : engines) {
-            if (coreWaits && engine.get() == coreEngine) continue;
-            engine->apply(&plan);
+        {
+            // apply may synchronously report status before its new plan is installed.
+            // Publish only after every engine has applied this same workspace plan.
+            struct StatusBatch {
+                bool& active;
+                bool previous;
+                ~StatusBatch() { active = previous; }
+            } batch { applyingPlan, std::exchange(applyingPlan, true) };
+            for (const auto& engine : engines) {
+                if (coreWaits && engine.get() == coreEngine) continue;
+                engine->apply(&plan);
+            }
+            for (const Document* document : documents_.all()) publish_diagnostics(document->uri);
         }
-        for (const Document* document : documents_.all()) publish_diagnostics(document->uri);
         update_status();
     }
 
@@ -3467,6 +3477,7 @@ struct Workspace::Impl final : engine::Host {
 
     void update_status() {
         if (!initializeAnswered) return;   // see the field's own comment
+        if (applyingPlan) return;          // replan publishes the committed snapshot after all synchronous apply calls
         request_auto_bundles();
         const State computed { compute_state() };
         State state { computed };

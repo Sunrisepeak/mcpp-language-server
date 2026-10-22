@@ -145,14 +145,17 @@ struct Fixture {
     std::map<std::string, int> versions;
     int nextId { 1 };
 
-    explicit Fixture(std::string at = canonical_root(), std::string cache = "on", bool ready = true, std::string agent = "cached") : root { std::move(at) } {
+    explicit Fixture(std::string at = canonical_root(), std::string cache = "on", bool ready = true, std::string agent = "cached",
+                     std::function<std::unique_ptr<e::Engine>(std::shared_ptr<Held>)> coreFactory = {}) : root { std::move(at) } {
         o::SessionOptions options;
         options.answerCache = cache;
         options.answerAgent = agent;
         options.answerPrefetch = false;
-        options.engineFactories = [held = held](const auto&, const auto&, bool) {
+        options.engineFactories = [held = held, coreFactory](const auto&, const auto&, bool) {
             o::EngineFactories factories;
-            factories.core = [held] { return std::make_unique<Core>(held); };
+            factories.core = [held, coreFactory]() -> std::unique_ptr<e::Engine> {
+                return coreFactory ? coreFactory(held) : std::make_unique<Core>(held);
+            };
             return factories;
         };
         workspace = std::make_unique<o::Workspace>(root, root, options, e::PayloadPaths {}, false, false, "", events, sink);
@@ -161,15 +164,19 @@ struct Fixture {
         }
         workspace->start(Json { { "clientInfo", Json { { "name", "Visual Studio Code" } } },
                                 { "capabilities", Json { { "experimental", Json { { "cxxModules", Json { { "version", 1 }, { "completionReady", ready } } } } } } } },
-                         false, false);
+                         static_cast<bool>(coreFactory), false);
         load_model();
     }
 
     // The project: a.cpp and b.cpp, b.cpp compiled with `extra` too.
-    void load_model(const std::vector<std::string>& extra = {}, bool engineInterface = false) {
+    void load_model(const std::vector<std::string>& extra = {}, bool engineInterface = false, std::string target = {}, int generation = 1) {
         auto model = std::make_shared<mcppls::project::ProjectModel>();
         model->root = root;
         model->source = mcppls::project::SourceKind::build_database;
+        if (!target.empty()) {
+            model->profile.kind = "build-toolchain";
+            model->profile.target = std::move(target);
+        }
         mcppls::spec::Set set;
         set.name = "app";
         set.hasIde = true;
@@ -206,7 +213,7 @@ struct Fixture {
             model->database.sets.push_back(std::move(engineSet));
         }
         // As the build tool's answer to the load start() began (generation 1); a later one replaces it.
-        workspace->handle_model_loaded(1, std::move(model));
+        workspace->handle_model_loaded(generation, std::move(model));
     }
 
     ~Fixture() {
@@ -280,6 +287,7 @@ constexpr std::string_view A { "#include <x>\nvoid f() {\n    doc.size();\n    s
 
 int main() {
     using namespace mcppls::testing;
+
     const auto arguments = mcppls::platform::env::arguments();
     if (arguments.size() == 1) {
         // The workspaces keep their answers under the cache: isolated, so a user's cache is never touched.
@@ -304,6 +312,76 @@ int main() {
         std::print(std::cerr, "{}", result->error);
         return result->timedOut ? 1 : result->exitCode;
     }
+    "a model's status is published only after its synchronous engine apply commits"_test = [] {
+        struct Probe {
+            Sink* sink { nullptr };
+            bool notifyDuringApply { false };
+            unsigned callbacks { 0 };
+            unsigned commits { 0 };
+            std::vector<Json> intermediate;
+        };
+        // clangd's apply calls update_quarantine_issue_ -> host.status_changed()
+        // before updating the primer and scheduling the new plan's restart. Model that
+        // permitted reentrant callback, without inventing a timer or an engine failure.
+        class ApplyingCore : public Core {
+        public:
+            ApplyingCore(std::shared_ptr<Held> held, std::shared_ptr<Probe> probe)
+                : Core { std::move(held) }, probe_ { std::move(probe) } {}
+            void start(e::Host& host) override {
+                host_ = &host;
+                Core::start(host);
+            }
+            void apply(const mcppls::normalize::EnginePlan* plan) override {
+                if (plan == nullptr || probe_->sink == nullptr) return;
+                if (probe_->notifyDuringApply) {
+                    const auto before = probe_->sink->sent.size();
+                    ++probe_->callbacks;
+                    host_->status_changed();
+                    for (std::size_t i { before }; i < probe_->sink->sent.size(); ++i) {
+                        const auto& message = probe_->sink->sent[i];
+                        if (message.value("method", std::string {}) == "cxxModules/status") {
+                            probe_->intermediate.push_back(message["params"]);
+                        }
+                    }
+                }
+                ++probe_->commits;
+            }
+        private:
+            std::shared_ptr<Probe> probe_;
+            e::Host* host_ { nullptr };
+        };
+        for (const bool reentrant : { false, true }) {
+            auto probe = std::make_shared<Probe>();
+            probe->notifyDuringApply = reentrant;
+            Fixture f { canonical_root(), "off", true, "cached",
+                [probe](std::shared_ptr<Held> held) -> std::unique_ptr<e::Engine> {
+                    return std::make_unique<ApplyingCore>(std::move(held), probe);
+                } };
+            f.workspace->allow_status_notifications();
+            // Use the existing explicit refresh API: its asynchronous response is delivered
+            // below as generation 2. No sleep or status coalescing timeout is involved.
+            f.workspace->apply_build_program();
+            expect(f.workspace->report()["state"] == "loading") << "the replacement model is being described";
+            f.sink.sent.clear();
+            probe->sink = &f.sink;
+            f.load_model({}, false, "aarch64-unknown-linux-gnu", 2);
+            expect(probe->commits == 1u) << "the model actually reached its engine";
+            expect(probe->callbacks == (reentrant ? 1u : 0u)) << "the callback control was exercised";
+            expect(probe->intermediate.empty())
+                << "a synchronous apply callback exposed the new profile before engine commit: " << Json(probe->intermediate).dump();
+            const auto statuses = f.sink.notifications("cxxModules/status");
+            expect(statuses > 0u) << "the committed model still needs a status notification";
+            const auto last = std::ranges::find_if(f.sink.sent.rbegin(), f.sink.sent.rend(), [](const Json& message) {
+                return message.value("method", std::string {}) == "cxxModules/status";
+            });
+            if (last != f.sink.sent.rend()) {
+                expect((*last)["params"]["profile"]["target"] == "aarch64-unknown-linux-gnu");
+            }
+            // No async work or elapsed-time hold makes this assertion pass: both cases
+            // use the same completed apply, with only the real callback pattern toggled.
+            probe->sink = nullptr;
+        }
+    };
     "rename refuses an engine-interface owner even when the compiler edits only project references"_test = [] {
         for (int shape { 0 }; shape < 3; ++shape) {
             Fixture f;
