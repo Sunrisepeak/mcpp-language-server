@@ -20,8 +20,13 @@ uses the published CDB rather than that default. Checks cover the requested and
 effective targets, actual engine command, architecture-dependent module constant,
 module navigation, and diagnostics in both source files. The constant also has a
 pointer-size assertion, making inconsistent architecture preprocessing visible.
-The module imports `std` and uses `std::is_same_v`, so the generated database
-also exercises the real installed standard-library module set.
+The module does not import `std`: Clang does not support coroutines for 32-bit
+x86 MSVC targets and does not define `__cpp_impl_coroutine` there, so the MSVC
+STL's `<coroutine>` is empty and its `std` module (`<generator>`) cannot be built
+by any Clang for i686, clangd included. mcppls then reads the project with the
+semantic kit (`std-fallback-kit`), which is the right answer for such a project
+but would hide the target switch this fixture checks. The standard library module
+set of a 64-bit MSVC target is covered by `mcpp-llvm-msvc` and `mcpp-split-msvc`.
 
 The empty `[target.i686-windows-msvc]` section is a legitimate project custom
 target declaration: mcpp's built-in target list does not include this spelling.

@@ -111,8 +111,10 @@ what an idle or a crashed clangd costs you, and typing imports with autosave on.
 - The Termux nightly binds its script directory into the inner Debian rootfs, so the job can reach
   the server checks, and uses the official package source instead of a randomly picked mirror. The Zed
   smoke test uses a preinstalled clangd through Zed's own lookup instead of a GitHub download.
-- On Windows with MSVC, an mcpp project that uses `import std` needs mcpp 2026.10.5.2 or later (docs/20-projects.md);
-  a conformance fixture that needs a newer mcpp than CI's pinned one declares it (`requires-mcpp`).
+- On Windows with MSVC, an mcpp project that uses `import std` needs mcpp 2026.10.5.2 or later; for a 32-bit target it
+  is not available with Clang at all (Clang has no coroutines on 32-bit x86 MSVC, so the MSVC STL's `std` module
+  cannot be built), and such a project is read with the semantic kit (docs/20-projects.md). A conformance fixture that
+  needs a newer mcpp than CI's pinned one declares it (`requires-mcpp`).
 - **A change can be measured without being built again.** A manual nightly can test the payloads a pull request's CI
   already built (`payload-run`), run only the ux rounds (`scope`), run their edits stage several times in new server
   sessions (`ux-repeat`), and run a released server beside them on the same machines (`ux-baseline`), compared by

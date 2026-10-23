@@ -37,7 +37,8 @@ mcpp 给出的文档里列出了每个翻译单元、它的模块角色、它的
 例如执行 `mcpp build --target i686-windows-msvc` 发布编译数据库后，编辑器跟随 i686，无需再设置一次。
 这里跟随的是最近发布的编译配置；仅配置命令或随后编译失败的命令也可能发布它，不代表最近一次成功构建。
 在 Windows MSVC 下，使用 `import std` 的 mcpp 工程需要 mcpp 2026.10.5.2 或更新版本：更早的版本传给编译器的
-Windows SDK 路径以反斜杠结尾，会吞掉下一个参数，标准库模块无法构建，mcppls 以 `producer-failed` 原样显示 mcpp 的错误。
+Windows SDK 路径以反斜杠结尾，会吞掉下一个参数，标准库模块无法构建，mcppls 以 `producer-failed` 原样显示 mcpp 的错误。32 位目标（`i686-windows-msvc`）则完全不能用 Clang `import std`：
+Clang 不支持 32 位 x86 MSVC 上的协程，MSVC STL 的 `std` 模块因此无法构建，mcppls 会改用语义工具包读取这类工程并说明原因（`std-fallback-kit`）。
 
 要固定当前工程的分析平台，可在 `.vscode/settings.json` 中设置：
 

@@ -101,7 +101,10 @@ Project ownership recognizes Windows 8.3 and long directory spellings as the sam
 the compilation database's original paths and arguments are preserved. On Windows with MSVC, an
 mcpp project that uses `import std` needs mcpp 2026.10.5.2 or later: earlier releases pass the
 Windows SDK path with a trailing backslash that swallows the next argument, the standard library
-modules fail to build, and mcppls shows mcpp's own error as `producer-failed`.
+modules fail to build, and mcppls shows mcpp's own error as `producer-failed`. For a 32-bit
+target (`i686-windows-msvc`), `import std` is not available with Clang at all: Clang does not
+support coroutines on 32-bit x86 MSVC, so the MSVC STL's `std` module cannot be built, and mcppls
+reads such a project with the semantic kit and says so (`std-fallback-kit`).
 
 To fix this workspace's analysis target, put this in `.vscode/settings.json` (or use the corresponding
 LSP initialization setting in another editor):
