@@ -10,7 +10,9 @@ import mcppls.base.error;
 import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.sha256;
+import mcppls.platform.env;
 import mcppls.platform.fs;
+import mcppls.platform.process;
 
 namespace mcppls::pack::fetch {
 namespace fs = mcppls::platform::fs;
@@ -29,6 +31,27 @@ mcpplibs::tinyhttps::HttpClientConfig client_config() {
 }
 
 std::string partial_name(std::string_view target) { return std::string { target } + ".partial"; }
+
+// GitHub's answer to a release download -- a redirect to its asset host -- carries a content-security-policy
+// line of 9.2 KB (measured 2026-10-24); tinyhttps 0.3 gives up on any header line over 8 KB. curl, on every CI
+// runner and developer machine, takes such a download instead, verified the same way. Remove when tinyhttps
+// takes longer lines.
+bool header_line_too_long(std::string_view error) { return error.contains("line exceeds"); }
+
+// The download with curl, into `partial`; empty when it worked, else why not.
+std::string download_with_curl(const std::string& url, const std::string& partial) {
+    const auto curl = platform::env::find_executable("curl");
+    if (!curl) return "curl is not on PATH";
+    platform::SpawnOptions spawn;
+    spawn.program = *curl;
+    spawn.arguments = { "--fail", "--silent", "--show-error", "--location", "--connect-timeout", "30", "--output", partial, url };
+    spawn.pipeError = true;
+    const auto ran = platform::run(std::move(spawn), std::chrono::minutes { 30 });
+    if (!ran) return ran.error().message;
+    if (ran->timedOut) return "curl did not finish in time";
+    if (ran->exitCode != 0) return std::format("curl exited {}: {}", ran->exitCode, platform::last_lines(ran->error, 3));
+    return {};
+}
 
 void remove_quietly(const std::string& path) {
     std::error_code ignored;
@@ -75,16 +98,29 @@ base::Result<std::string> get(const Entry& entry, std::string_view cacheDir, int
         remove_quietly(partial);
 
         const auto answer = client.download_to_file(entry.url, std::filesystem::path { partial });
-        if (!answer.ok()) {
-            lastError = answer.error.empty() ? std::format("HTTP {}", answer.statusCode) : answer.error;
+        std::uint64_t written { static_cast<std::uint64_t>(answer.bytesWritten) };
+        std::string failed;
+        if (!answer.ok()) failed = answer.error.empty() ? std::format("HTTP {}", answer.statusCode) : answer.error;
+        if (!failed.empty() && header_line_too_long(failed)) {
+            if (!quiet) base::log::info("fetch: {} ({}); downloading it with curl", entry.url, failed);
+            remove_quietly(partial);
+            if (const auto why = download_with_curl(entry.url, partial); why.empty()) {
+                failed.clear();
+                written = fs::stamp(partial) ? fs::stamp(partial)->size : 0;
+            } else {
+                failed = std::format("{}; with curl: {}", failed, why);
+            }
+        }
+        if (!failed.empty()) {
+            lastError = failed;
         } else if (auto got = digest_of(partial); !got) {
             lastError = got.error().message;
         } else if (*got != entry.sha256) {
             lastError = std::format("sha256 mismatch for {}: the lock says {}, the download is {}",
                                     entry.file, entry.sha256, *got);
-        } else if (entry.size && static_cast<std::uint64_t>(answer.bytesWritten) != *entry.size) {
+        } else if (entry.size && written != *entry.size) {
             lastError = std::format("size mismatch for {}: the lock says {} bytes, the download is {}",
-                                    entry.file, *entry.size, answer.bytesWritten);
+                                    entry.file, *entry.size, written);
         } else {
             std::error_code failed;
             std::filesystem::rename(partial, target, failed);

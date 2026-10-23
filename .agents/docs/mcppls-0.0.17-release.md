@@ -358,3 +358,9 @@ U13 和 two-core 也走同样的方式：U13 每边 3 次（只跑 long 阶段�
   - termux、Zed（默认、推荐设置）、self-hosting 4 项、三个平台的 startup timing、最新版 mcpp 的 fixture 都通过。
 
   这次 U13 能过，是因为窗口内发生了 trim；分组现象没有变，所以 Known issues 保持不变。
+- **第一次 Release 运行（`40022574908`）在四个平台的 payload job 上都失败**：
+  - 原因：GitHub 对 release 下载的 302 响应里，现在带一行 9243 字节的 `content-security-policy`；packaging 用的 tinyhttps 0.3 一行 header 超过 8192 字节就放弃（`Incomplete headers: line exceeds 8192 bytes`）；
+  - PR CI 没有暴露：它的 payload 缓存里已经有这些包，不需要下载；
+  - 修复：PR #70，遇到这一种错误时改用 curl 下载，校验方式不变；server 不使用 tinyhttps，所以只影响发布流水线；
+  - 根本修复应在 tinyhttps（放宽行长限制），之后去掉这个回退；
+  - 这次失败的运行没有创建 tag，也没有创建 release。
