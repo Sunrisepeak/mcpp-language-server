@@ -4234,6 +4234,41 @@ public:
             } while (Clock::now() < deadline);
             return { false, why };
         }
+        if (kind == "run") {
+            // 0.0.17 XS-1 (#69): a program the user runs in the workspace while the server is up -- their own build -- exits
+            // with "exit" (0 unless given). What the server ran on the machine must not have broken it.
+            std::vector<std::string> argv;
+            for (const auto& word : check.value("command", Json::array())) argv.push_back(expand(word.get<std::string>()));
+            if (argv.empty()) return { false, "a run check names its \"command\"" };
+            std::string program { argv.front() };
+            if (!base::is_absolute_path(program)) {
+                const auto found = mcppls::platform::env::find_executable(program);
+                if (!found) return { false, std::format("{} is not on PATH", program) };
+                program = *found;
+            }
+            mcppls::platform::SpawnOptions spawn;
+            spawn.program = program;
+            spawn.arguments.assign(argv.begin() + 1, argv.end());
+            spawn.workDirectory = workspace_;
+            const auto bound = std::chrono::seconds { check.value("timeout", static_cast<int>(timeout_.count())) };
+            auto running = std::async(std::launch::async, [spawn, bound]() mutable { return mcppls::platform::run(std::move(spawn), bound); });
+            while (running.wait_for(std::chrono::milliseconds { 200 }) != std::future_status::ready) client_.drain(std::chrono::milliseconds { 0 });
+            auto result = running.get();
+            if (!result) return { false, result.error().message };
+            if (result->timedOut) return { false, std::format("{} did not finish in time", base::join(argv, " ")) };
+            const int wantedExit { check.value("exit", 0) };
+            if (result->exitCode != wantedExit) {
+                // What it said went wrong: its error lines, colours taken out, or else the end of what it printed.
+                const std::string printed { std::regex_replace(result->output + "\n" + result->error, std::regex { "\x1b\\[[0-9;]*m" }, "") };
+                std::vector<std::string> errors;
+                for (const auto line : base::split_lines(printed)) {
+                    if (line.contains("error") && errors.size() < 4) errors.emplace_back(base::trim(line));
+                }
+                return { false, std::format("{} exited {} instead of {}: {}", base::join(argv, " "), result->exitCode, wantedExit,
+                                            errors.empty() ? printed.substr(printed.size() - std::min<std::size_t>(printed.size(), 600)) : base::join(errors, " | ")) };
+            }
+            return { true, std::format("{} exited {}", base::join(argv, " "), result->exitCode) };
+        }
         if (kind == "cli") {
             // S5 7: a command of the query entries, run to completion in the workspace; its standard output is
             // one JSON document meeting the expectations, and it exits with "exit" (0 unless given).

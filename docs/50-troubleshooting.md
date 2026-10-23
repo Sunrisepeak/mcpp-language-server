@@ -102,6 +102,15 @@ finds it. If the status says `producer-install-failed` instead, the network was 
 failed; the message has xmake's error lines and the path of its `install.txt` log, and the usual cause is
 a tool the source build needs (autotools, a compiler) that is not installed.
 
+**xmake: `failed to read compiled module` in your own build, or `dependfile ... not found` in the status.**
+Both are xmake's own state going out of step with what is on disk (#24 UP-X1, UP-X2). The first: with GCC, xmake
+keeps module mapper files in its temporary directory under names that only the source's relative path decides, so
+another build of the same paths (a second build directory, another checkout of the project) leaves names of its
+modules there; running `xmake` again repairs it. mcppls 0.0.16 caused it with its private run; 0.0.17 runs xmake with a
+temporary directory of its own. The second: `xmake project -k compile_commands` trusts a module scan cache that only a
+build updates; a project described but not built since a target was added fails that way once a dependfile is gone.
+mcppls makes its own xmake state again on its own; for your own `xmake project`, building once (`xmake`) repairs it.
+
 **Go-to-definition works, completion does not, or the standard library is missing.** Look at
 `profile`. A semantic kit means no usable compiler was found; `import std` still resolves, but
 diagnostics come from libc++ rather than from your toolchain.
@@ -388,8 +397,9 @@ the one workspace instead of deleting directories by hand:
 - **Neovim**: `:McpplsResetCache`
 - **Other clients**: `workspace/executeCommand` `mcppls.resetCache`
 
-It stops the root's engines, removes its cache — the models, the engine database, and clangd's
-module cache and locks — and starts again. The logs stay. The first session afterwards is a cold
+It stops the root's engines, removes its cache — the models, the engine database, clangd's
+module cache and locks, and the private states of the build tools mcppls runs (xmake, CMake, Meson; removed
+before the next description starts, so never under one that is running) — and starts again. The logs stay. The first session afterwards is a cold
 one.
 
 Old modules are pruned by themselves: each unit keeps the built modules (BMIs) of its two newest

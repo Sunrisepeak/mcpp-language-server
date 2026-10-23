@@ -76,7 +76,7 @@ Clang 不支持 32 位 x86 MSVC 上的协程，MSVC STL 的 `std` 模块因此�
 
 ## xmake
 
-有 `xmake.lua` 就是 xmake 工程。mcppls 用 xmake 自己的命令 `xmake project -k compile_commands` 向 xmake 要一份，这个命令不编译任何东西——但它会配置并扫描模块，所以 mcppls 把 xmake 的配置目录和构建目录指向自己的缓存（`XMAKE_CONFIGDIR`、`--builddir`），你的工程保持不变：不生成、不修改、不删除里面的任何文件，包括你自己的 `compile_commands.json`。它离线运行（`--policies=package.fetch_only,network.mode:private`）：没有安装的包会让它停下，并给出和上面一样的询问。第一次描述要几秒钟（实测约 6–8 秒，大部分是 xmake 在探测工具链）；这期间工程按源码提供服务。模块角色靠扫描得到，所以 xmake 工程是 L3。
+有 `xmake.lua` 就是 xmake 工程。mcppls 用 xmake 自己的命令 `xmake project -k compile_commands` 向 xmake 要一份，这个命令不编译任何东西——但它会配置并扫描模块，所以 mcppls 把 xmake 的配置目录、构建目录和临时目录指向自己的缓存（`XMAKE_CONFIGDIR`、`--builddir`、`XMAKE_TMPDIR`），你的工程保持不变：不生成、不修改、不删除里面的任何文件，包括你自己的 `compile_commands.json`；你自己的构建也不会读到它写的任何东西（用 GCC 时，xmake 把模块 mapper 文件放在临时目录里，文件名只由源文件的相对路径决定；0.0.16 写在了那里，你下一次增量构建就会报 `failed to read compiled module`，#69）。这份私有状态是 mcppls 的缓存：xmake 本身、任何一个 `xmake.lua` 或你的 `xmake.conf` 变化时，它会从头重建；xmake 报告它已过期时（`dependfile ... not found`，一份只有构建才会更新的扫描缓存；#68）再从头重建一次；重置工作区缓存也会把它删掉。它离线运行（`--policies=package.fetch_only,network.mode:private`）：没有安装的包会让它停下，并给出和上面一样的询问。第一次描述要几秒钟（实测约 6–8 秒，大部分是 xmake 在探测工具链）；这期间工程按源码提供服务。模块角色靠扫描得到，所以 xmake 工程是 L3。
 
 模型会跟着你的操作走，不需要手动做任何事：任何一个 `xmake.lua` 变了，就重新描述工程；你自己运行 `xmake f` 也一样——mcppls 读取它留在 `.xmake/<plat>/<arch>/xmake.conf` 里的内容（只读；有多个时取最新的那个），并让自己的私有运行用同样的方式配置：平台、架构、模式（`-m debug` 得到 `-O0 -g`，而不是 release 的参数）、工具链、SDK、运行库、kind，以及你的 `xmake.lua` 声明的选项。文件里哪些键算选项，由 xmake 自己回答：mcppls 在工程里运行一次 `xmake f --help`（结果缓存在自己的缓存里，直到 `xmake` 或 `xmake.lua` 变化），只传这份列表里有的键。其余的是 xmake 写给自己的（`proxy`、`dotnet`、`dotnet_sdkver`、工具链探测结果）：`xmake f` 一律拒绝它们，所以直接跳过，也不会提示。只有 xmake 给不出可用的帮助、又拒绝了某个选项时，mcppls 才会只带标准选项再配置一次，状态栏会说明哪些没有带上。
 

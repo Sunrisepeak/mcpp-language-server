@@ -1,0 +1,28 @@
+#!/bin/sh
+# A stand-in for xmake (0.0.17 XS-1, XS-3, XS-4; #68, #24 UP-X2). It keeps what real xmake 3.1 keeps where real xmake does:
+#   xmake f ...      configures; configuring again does not repair a state (xmake's module scan cache outlives `xmake f -c`).
+#   xmake project    the first run in a state succeeds; every later one in the same state fails in xmake's own words, as a
+#                    state whose module dependfiles are gone does. A state made again from nothing succeeds once more.
+#                    The commands say whether XMAKE_TMPDIR was given inside the private directory (-DXMAKE_TMPDIR_PRIVATE).
+case "$1" in
+f)
+    : > "$XMAKE_CONFIGDIR/fake-configured"
+    exit 0
+    ;;
+project)
+    if [ -f "$XMAKE_CONFIGDIR/fake-scanned" ]; then
+        echo "error: target(hello): dependfile for 'src/main.cpp' not found at 'build/.deps/hello/linux/x86_64/release/src/main.cpp.d'" >&2
+        exit 255
+    fi
+    : > "$XMAKE_CONFIGDIR/fake-scanned"
+    compiler=$(command -v g++)
+    define=-DXMAKE_TMPDIR_SHARED
+    case "$XMAKE_TMPDIR" in "$(dirname "$XMAKE_CONFIGDIR")"/*) define=-DXMAKE_TMPDIR_PRIVATE ;; esac
+    cat > "$4/compile_commands.json" <<JSON
+[ { "directory": "$PWD", "file": "src/main.cpp", "arguments": [ "$compiler", "-std=c++20", "$define", "-c", "src/main.cpp", "-o", "main.o" ] } ]
+JSON
+    exit 0
+    ;;
+esac
+echo "fake xmake: unexpected command $*" >&2
+exit 2

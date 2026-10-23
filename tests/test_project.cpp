@@ -382,9 +382,12 @@ int main() {
     };
 
     "B-5: xmake's environment, arguments and classification"_test = [] {
-        const auto environment = p::xmake_environment("/cache/xmake/config");
-        expect(std::ranges::find(environment, std::pair<std::string, std::string> { "XMAKE_CONFIGDIR", "/cache/xmake/config" }) != environment.end());
+        const auto environment = p::xmake_environment("/cache/xmake/state/config", "/cache/xmake/state/tmp");
+        expect(std::ranges::find(environment, std::pair<std::string, std::string> { "XMAKE_CONFIGDIR", "/cache/xmake/state/config" }) != environment.end());
         expect(std::ranges::find(environment, std::pair<std::string, std::string> { "XMAKE_THEME", "plain" }) != environment.end());
+        // XS-1 (#69): the module mapper files of the private run stay out of the temporary directory the user's builds read.
+        expect(std::ranges::find(environment, std::pair<std::string, std::string> { "XMAKE_TMPDIR", "/cache/xmake/state/tmp" }) != environment.end());
+        expect(std::ranges::none_of(p::xmake_environment("/c"), [](const auto& entry) { return entry.first == "XMAKE_TMPDIR"; }));
 
         const auto offline = p::xmake_configure_arguments("/cache/xmake/build", true);
         expect(offline == (std::vector<std::string> { "f", "-c", "--confirm=no", "--policies=package.fetch_only,network.mode:private",
@@ -408,6 +411,30 @@ int main() {
         expect(p::xmake_configuration_key(true, manifest) != p::xmake_configuration_key(false, manifest));
         expect(p::xmake_configuration_key(true, manifest) != p::xmake_configuration_key(true, std::pair<std::uint64_t, std::int64_t> { 64, 2000 }));
         expect(p::xmake_configuration_key(true, manifest) == p::xmake_configuration_key(true, manifest));
+    };
+
+    "XS-2, XS-3 (#68): the private state's key, and xmake saying that state is out of date"_test = [] {
+        const std::string configuration { p::xmake_configuration_key(true, std::pair<std::uint64_t, std::int64_t> { 64, 1000 }) };
+        const std::pair<std::uint64_t, std::int64_t> tool { 4096, 7000 };
+        const std::string key { p::xmake_state_key(configuration, "/usr/bin/xmake", tool, 1000, 1) };
+        expect(key == p::xmake_state_key(configuration, "/usr/bin/xmake", tool, 1000, 1));
+        expect(key != p::xmake_state_key(configuration, "/opt/xmake", tool, 1000, 1)) << "another xmake";
+        expect(key != p::xmake_state_key(configuration, "/usr/bin/xmake", std::pair<std::uint64_t, std::int64_t> { 4096, 8000 }, 1000, 1)) << "xmake upgraded in place";
+        expect(key != p::xmake_state_key(configuration, "/usr/bin/xmake", tool, 1500, 1)) << "an included xmake.lua changed";
+        expect(key != p::xmake_state_key(configuration, "/usr/bin/xmake", tool, 1000, 2)) << "an xmake.lua was added";
+        expect(key != p::xmake_state_key(p::xmake_configuration_key(false, std::pair<std::uint64_t, std::int64_t> { 64, 1000 }), "/usr/bin/xmake", tool, 1000, 1));
+
+        // Recorded from xmake 3.1.1 and 3.1.2 (#68's bundle and a local reproduction).
+        expect(p::xmake_state_stale("error: target(json): dependfile for '/usr/include/c++/16/bits/std.compat.cc' not found at "
+                                    "'../../../.cache/mcppls/workspaces/json-parser-ddc093863fd8c441/xmake/build/.deps/json/linux/x86_64/debug/usr/include/c++/16/bits/std.compat.cc.d'"));
+        expect(p::xmake_state_stale("error: target(json): dependfile for 'module/data.cppm' not found at 'build/.deps/json/linux/x86_64/release/module/data.cppm.d'"));
+        expect(p::xmake_state_stale("error: module scanner did not run for target(json), maybe a custom `on_prepare()` script overrides the modules one"));
+        expect(p::xmake_state_stale("error: target(json): failed to load moduleinfo for 'module/data.cppm'"));
+        // The project's own errors are not the state's: they are said to the user as they are.
+        expect(!p::xmake_state_stale("error: <json-test> missing json dependency for module test/basic.cpp"));
+        expect(!p::xmake_state_stale("error: Invalid option: --fancy=y"));
+        expect(!p::xmake_state_stale("The packages(xxhash, fmt) not found, please install them first!"));
+        expect(!p::xmake_state_stale("error: json: error: failed to read compiled module: No such file or directory"));
     };
 
     "X-2: an xmake.conf is parsed as text, top-level scalars only"_test = [] {

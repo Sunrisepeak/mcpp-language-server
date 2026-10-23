@@ -41,6 +41,24 @@ what an idle or a crashed clangd costs you, and typing imports with autosave on.
 - A slow completion (two seconds and more) is recorded with where its time went -- waiting before the engine was
   asked, the engine, and what came after -- in the report's events and in diagnostic bundles.
 
+### xmake
+
+- **mcppls no longer breaks your own `xmake` build.** With GCC, xmake keeps each unit's module mapper file in its
+  temporary directory under a name only the source's relative path decides, and your builds read it. mcppls's
+  private run rewrote those files to name its own build directory, where nothing is built, and your next
+  incremental build failed with `failed to read compiled module` until you ran `xmake` again (#69). Its xmake now
+  runs with a temporary directory of its own (`XMAKE_TMPDIR`), beside the configuration and build directories it
+  already had.
+- **A project whose xmake description failed once no longer stays inferred, without its packages' include paths,
+  in every later session** (#68). xmake's module scan cache is updated only by a build; mcppls describes without
+  building and configured its state again in place, so after a target was added (or, with xmake 3.1.1, after you
+  switched mode) every `xmake project -k compile_commands` failed with `dependfile ... not found`. The private
+  state is now a cache: made again from nothing whenever xmake itself, any `xmake.lua` or your `xmake.conf`
+  changes, and once more when xmake says it is out of date. Resetting the workspace cache removes the private
+  states of build tools too (xmake, CMake, Meson), so a reset is a fresh start. The first description after the
+  upgrade takes a second or two longer.
+- Both are xmake's own behaviour as well, recorded with reproductions in #24 (UP-X1, UP-X2).
+
 ### Build targets
 
 - **mcpp analysis follows the target explicitly published in the root compilation database.**

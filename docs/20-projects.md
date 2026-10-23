@@ -159,9 +159,14 @@ Continue** configures once with the network, in that private directory).
 
 `xmake.lua` makes an xmake project. mcppls asks xmake itself, with its own command,
 `xmake project -k compile_commands`, which compiles nothing — but it configures and scans modules, so
-mcppls points xmake's configuration and build directories at its cache (`XMAKE_CONFIGDIR`,
-`--builddir`) and your project stays untouched: nothing is generated, changed or deleted in it, your
-own `compile_commands.json` included. It runs offline (`--policies=package.fetch_only,network.mode:private`):
+mcppls points xmake's configuration, build and temporary directories at its cache (`XMAKE_CONFIGDIR`,
+`--builddir`, `XMAKE_TMPDIR`) and your project stays untouched: nothing is generated, changed or deleted in it, your
+own `compile_commands.json` included, and your own builds do not read anything it wrote (with GCC, xmake keeps
+module mapper files in its temporary directory under names that only the source's relative path decides; 0.0.16
+wrote them there, and your next incremental build failed with `failed to read compiled module`, #69). That private
+state is a cache of mcppls's: it is made again from nothing whenever xmake itself, any `xmake.lua` or your
+`xmake.conf` changes, once more when xmake says it is out of date (`dependfile ... not found`, a scan cache that
+only a build updates; #68), and resetting the workspace cache removes it. It runs offline (`--policies=package.fetch_only,network.mode:private`):
 a package that is not installed stops it with the same offer as above. The first description takes a few
 seconds (about 6–8 s measured, most of it xmake detecting the toolchain); the project is served from its
 sources meanwhile. Module roles come from scanning, so an xmake project is L3.

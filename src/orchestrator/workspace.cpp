@@ -489,6 +489,7 @@ struct Workspace::Impl final : engine::Host {
     bool loading { false };
     bool applyingPlan { false };
     bool reloadAfterLoad { false };
+    bool producerStatesResetPending { false };   // XS-4: a reset asked for them to go before the next load
     // A lexical source structure can legitimately differ from the producer's active
     // dependency graph (#if 0, for example). Remember only inputs a valid answer covered.
     std::map<std::string, std::string> producerSourcePaths;
@@ -2609,6 +2610,18 @@ struct Workspace::Impl final : engine::Host {
         describedSourceProducerIdentity = loadingSourceProducerIdentity;
     }
 
+    // 0.0.17 XS-4 (#68): what a build tool made for itself in this cache (a provider's private configure directory, its id under
+    // the cache) goes with a reset too, or a state xmake no longer recovers from outlives the reset that was to clear it. Removed
+    // only while no load runs in it: a reset during a load leaves it to the start of the next one.
+    void remove_producer_states() {
+        for (const auto* provider : project::registered_providers()) {
+            const std::string directory { base::join_path(cacheDirectory, std::string { provider->id() }) };
+            if (!platform::fs::is_directory(directory)) continue;
+            platform::fs::remove_all(directory);
+            log::info("removed {}'s private state for {} ({})", provider->id(), root, directory);
+        }
+    }
+
     void start_model_load() {
         if (loading) {
             reloadAfterLoad = true;
@@ -2619,6 +2632,7 @@ struct Workspace::Impl final : engine::Host {
             update_status();
             return;
         }
+        if (std::exchange(producerStatesResetPending, false)) remove_producer_states();
         loading = true;
         remember_described_inputs(true);
         const int generation { ++modelGeneration };
@@ -4637,6 +4651,7 @@ std::uint64_t Workspace::reset_cache() {
         if (const auto stamp = platform::fs::stamp(entry)) freed += stamp->size;
         platform::fs::remove_all(entry);
     }
+    impl.producerStatesResetPending = true;   // removed as the load below starts, or the next one if one runs (XS-4)
     log::info("the cache of {} was reset on request ({} bytes freed)", root_, freed);
     impl.journal.add("cache-reset", Json { { "bytes", freed } });
     {

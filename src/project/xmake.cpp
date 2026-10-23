@@ -169,37 +169,35 @@ std::optional<Answer> missing_packages_answer(const std::string& output, bool of
     return Answer { .code = std::string { spec::INSTALL_FAILED }, .reason = xmake_install_failed_reason(missing, output), .missing = std::move(missing) };
 }
 
-// Runs xmake privately: two commands, in a directory of ours, never the project's (see the comment in the body).
-Answer run_private(const Claim& claim, const ProviderContext& context, const std::string& xmake) {
-    context.producerUsed = xmake;
+// What one run in the private state came to. `stale` (XS-3): xmake failed saying that state is out of date.
+struct Attempt {
+    Answer answer;
+    bool stale { false };
+};
 
+// Runs xmake privately in `state`: two commands, in a directory of ours, never the project's (see the comment in the body).
+Attempt run_in_state(const Claim& claim, const ProviderContext& context, const std::string& xmake, const std::string& state,
+                     const std::string& key, const std::optional<XmakeUserConfig>& user) {
     // Isolation (plan §3.5): `xmake project -k compile_commands` alone still writes `build/` into
     // the project (its implicit configuration and module dependency scan, both measured side
     // effects of that command) unless it is given a private `--builddir` -- which only `xmake f`
     // can set, so a first run is two commands; `XMAKE_CONFIGDIR` keeps the configuration itself out
-    // of the project's own `.xmake/` too.
-    const std::string configDirectory { base::join_path(context.privateDirectory, "config") };
-    const std::string buildDirectory { base::join_path(context.privateDirectory, "build") };
-    const std::string outDirectory { base::join_path(context.privateDirectory, "out") };
+    // of the project's own `.xmake/` too, and `XMAKE_TMPDIR` its module mapper files out of the
+    // temporary directory the user's own builds read (XS-1, #69).
+    const std::string configDirectory { base::join_path(state, "config") };
+    const std::string buildDirectory { base::join_path(state, "build") };
+    const std::string outDirectory { base::join_path(state, "out") };
+    const std::string tmpDirectory { base::join_path(state, "tmp") };
     (void)fs::create_directories(configDirectory);
     (void)fs::create_directories(outDirectory);
-    const auto environment { environment_with(xmake_environment(configDirectory), context.environmentWait) };
+    (void)fs::create_directories(tmpDirectory);
+    const auto environment { environment_with(xmake_environment(configDirectory, tmpDirectory), context.environmentWait) };
 
-    // Keep it simple (B-1 task 3): configure again whenever there is no private configuration yet,
-    // or it was made for another mode, another xmake.lua or another `xmake f` of the user's (the key recorded after the last success).
-    const std::string configuredMarker { base::join_path(context.privateDirectory, "configured") };
-    const std::string leftOutMarker { base::join_path(context.privateDirectory, "left-out") };
-    const auto manifestStamp { fs::stamp(claim.manifest) };
-    // X-2: the user's own `xmake f` is read, never run or written; `xmake f` resets every option it is not given (E5).
-    const auto user { read_xmake_user_config(claim.root) };
-    const std::string key { xmake_configuration_key(
-        context.offline, manifestStamp ? std::optional { std::pair { manifestStamp->size, manifestStamp->modified } } : std::nullopt,
-        user ? std::optional { std::pair { user->size, user->modified } } : std::nullopt) };
-    const bool hasConfig { fs::is_directory(configDirectory) && !fs::list_directory(configDirectory).empty() };
+    // A state is configured once, from nothing: the caller removes it when what it was made from changed (XS-2).
+    const std::string configuredMarker { base::join_path(state, "configured") };
+    const std::string leftOutMarker { base::join_path(state, "left-out") };
     const auto recorded { fs::read_file(configuredMarker) };
-    const bool stale { !recorded || *recorded != key };
-    if (!hasConfig || stale) {
-        fs::remove_all(configuredMarker);   // a failed `xmake f -c` leaves no configuration worth keeping
+    if (!recorded || *recorded != key) {
         fs::remove_all(leftOutMarker);
         // D-1: asked only when xmake.conf holds something that is neither internal nor standard; the answer is kept.
         std::vector<std::string> accepted;
@@ -235,16 +233,16 @@ Answer run_private(const Claim& claim, const ProviderContext& context, const std
             configured = configure(true);
             if (configured && configured->exitCode == 0 && !configured->timedOut) (void)fs::write_file(leftOutMarker, base::join(leftOut, ", "));
         }
-        if (!configured) return Answer { .code = configured.error().code, .reason = configured.error().message };
+        if (!configured) return { Answer { .code = configured.error().code, .reason = configured.error().message } };
         if (configured->timedOut) {
-            return Answer { .outcome = Outcome::timed_out, .code = "xmake-configure-failed", .reason = "xmake f did not finish in time" };
+            return { Answer { .outcome = Outcome::timed_out, .code = "xmake-configure-failed", .reason = "xmake f did not finish in time" } };
         }
         if (configured->exitCode != 0) {
             const std::string combined { configured->output + "\n" + configured->error };
-            if (auto packages = missing_packages_answer(combined, context.offline)) return std::move(*packages);
-            return Answer { .code = "xmake-configure-failed",
-                            .reason = std::format("xmake f failed ({}): {}", configured->exitCode,
-                                                  base::trim(configured->error.empty() ? configured->output : configured->error)) };
+            if (auto packages = missing_packages_answer(combined, context.offline)) return { std::move(*packages) };
+            return { Answer { .code = "xmake-configure-failed",
+                              .reason = std::format("xmake f failed ({}): {}", configured->exitCode,
+                                                    base::trim(configured->error.empty() ? configured->output : configured->error)) } };
         }
         (void)fs::write_file(configuredMarker, key);
     }
@@ -262,20 +260,22 @@ Answer run_private(const Claim& claim, const ProviderContext& context, const std
         .environmentWait = context.environmentWait,
         .onSoftDeadline = context.onSlow,
     });
-    if (!described) return Answer { .code = described.error().code, .reason = described.error().message };
+    if (!described) return { Answer { .code = described.error().code, .reason = described.error().message } };
     if (described->timedOut) {
-        return Answer { .outcome = Outcome::timed_out, .code = "xmake-configure-failed",
-                        .reason = "xmake project -k compile_commands did not finish in time" };
+        return { Answer { .outcome = Outcome::timed_out, .code = "xmake-configure-failed",
+                          .reason = "xmake project -k compile_commands did not finish in time" } };
     }
     if (described->exitCode != 0) {
         // D-6: the project stage reads the packages too; they can be missing here when `xmake f` did not need them.
-        if (auto packages = missing_packages_answer(described->output + "\n" + described->error, context.offline)) return std::move(*packages);
-        return Answer { .code = "xmake-configure-failed",
-                        .reason = std::format("xmake project -k compile_commands failed ({}): {}", described->exitCode,
-                                              base::trim(described->error.empty() ? described->output : described->error)) };
+        const std::string combined { described->output + "\n" + described->error };
+        if (auto packages = missing_packages_answer(combined, context.offline)) return { std::move(*packages) };
+        return { Answer { .code = "xmake-configure-failed",
+                          .reason = std::format("xmake project -k compile_commands failed ({}): {}", described->exitCode,
+                                                base::trim(described->error.empty() ? described->output : described->error)) },
+                 xmake_state_stale(combined) };
     }
     const std::string commands { base::join_path(outDirectory, "compile_commands.json") };
-    if (!fs::is_regular_file(commands)) return Answer { .code = "xmake-no-database", .reason = "xmake did not write compile_commands.json" };
+    if (!fs::is_regular_file(commands)) return { Answer { .code = "xmake-no-database", .reason = "xmake did not write compile_commands.json" } };
     Answer answer { from_result(database_from_compile_commands_file(commands, claim.root, "xmake", context.scanner, context.prober)) };
     if (answer.database) {
         if (const auto leftOut = fs::read_file(leftOutMarker); leftOut && !leftOut->empty()) {
@@ -284,7 +284,41 @@ Answer run_private(const Claim& claim, const ProviderContext& context, const std
                             "the commands may differ from your build's; run `xmake f -c` in the project to renew its configuration", *leftOut));
         }
     }
-    return answer;
+    return { std::move(answer) };
+}
+
+// XS-2, XS-3 (#68): the private state is a cache of this provider's, never a fact. It is kept while what it was made from is the
+// same, and otherwise removed and made again from nothing; once more, from nothing, when xmake says it is out of date.
+Answer run_private(const Claim& claim, const ProviderContext& context, const std::string& xmake) {
+    context.producerUsed = xmake;
+    // 0.0.16 and earlier kept the state in the private directory itself, configured again in place: removed, made again in `state`.
+    for (const std::string_view legacy : { "config", "build", "out", "configured", "left-out" }) {
+        fs::remove_all(base::join_path(context.privateDirectory, legacy));
+    }
+    const std::string state { base::join_path(context.privateDirectory, "state") };
+    const auto manifestStamp { fs::stamp(claim.manifest) };
+    // X-2: the user's own `xmake f` is read, never run or written; `xmake f` resets every option it is not given (E5).
+    const auto user { read_xmake_user_config(claim.root) };
+    std::int64_t manifestsModified { 0 };
+    const auto manifests { xmake_manifests(claim) };
+    for (const auto& manifest : manifests) {
+        if (const auto stamp = fs::stamp(manifest)) manifestsModified = std::max(manifestsModified, stamp->modified);
+    }
+    const auto toolStamp { fs::stamp(xmake) };
+    const std::string key { xmake_state_key(
+        xmake_configuration_key(context.offline, manifestStamp ? std::optional { std::pair { manifestStamp->size, manifestStamp->modified } } : std::nullopt,
+                                user ? std::optional { std::pair { user->size, user->modified } } : std::nullopt),
+        xmake, toolStamp ? std::optional { std::pair { toolStamp->size, toolStamp->modified } } : std::nullopt, manifestsModified, manifests.size()) };
+    const auto recorded { fs::read_file(base::join_path(state, "configured")) };
+    const bool kept { recorded && *recorded == key };
+    if (!kept) fs::remove_all(state);
+    auto attempt { run_in_state(claim, context, xmake, state, key, user) };
+    if (attempt.stale && kept) {
+        base::log::info("xmake's private state for {} is out of date ({}); making it again from nothing", claim.root, attempt.answer.reason);
+        fs::remove_all(state);
+        attempt = run_in_state(claim, context, xmake, state, key, user);
+    }
+    return std::move(attempt.answer);
 }
 
 } // namespace
@@ -466,8 +500,22 @@ bool xmake_commands_out_of_date(std::int64_t commandsModified, std::span<const s
     return std::ranges::any_of(inputsModified, [&](std::int64_t modified) { return modified > commandsModified; });
 }
 
-std::vector<std::pair<std::string, std::string>> xmake_environment(std::string_view configDirectory) {
-    return { { "XMAKE_CONFIGDIR", std::string { configDirectory } }, { "XMAKE_THEME", "plain" } };
+std::vector<std::pair<std::string, std::string>> xmake_environment(std::string_view configDirectory, std::string_view tmpDirectory) {
+    std::vector<std::pair<std::string, std::string>> environment { { "XMAKE_CONFIGDIR", std::string { configDirectory } }, { "XMAKE_THEME", "plain" } };
+    if (!tmpDirectory.empty()) environment.emplace_back("XMAKE_TMPDIR", std::string { tmpDirectory });
+    return environment;
+}
+
+std::string xmake_state_key(std::string_view configurationKey, std::string_view xmake,
+                            std::optional<std::pair<std::uint64_t, std::int64_t>> tool, std::int64_t manifestsModified, std::size_t manifests) {
+    return std::format("{}\nxmake {} {} {}\nmanifests {} {}", configurationKey, xmake, tool ? tool->first : 0, tool ? tool->second : 0,
+                       manifestsModified, manifests);
+}
+
+bool xmake_state_stale(std::string_view output) {
+    // xmake 3.1's own words (rules/c++/modules/support.lua, load_moduleinfo).
+    return (output.contains("dependfile for '") && output.contains("' not found at '")) || output.contains("module scanner did not run for target(")
+        || output.contains("failed to load moduleinfo for '");
 }
 
 std::string xmake_configuration_key(bool offline, std::optional<std::pair<std::uint64_t, std::int64_t>> manifest,

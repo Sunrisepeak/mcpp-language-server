@@ -343,3 +343,10 @@ U13 和 two-core 也走同样的方式：U13 每边 3 次（只跑 long 阶段�
   - 基线的 U8-config 和 U13 都等满了 900 s：0.0.16 不报告后台工作状态，runner 一直等到超时。`e9482fa` 改为
     看到这种情况立即判定，结论不变。
   - 以上结果已带给你决定（§6.3），你选择按现状发布；U13 和 U6 max 写进了 CHANGELOG 的 Known issues。
+- **xmake 增修（#68、#69）**：按 [2026-10-24-0.0.17-xmake-sandbox-design.md](2026-10-24-0.0.17-xmake-sandbox-design.md) 并入本 PR，只改 mcppls。
+  - XS-1：私有运行加 `XMAKE_TMPDIR`；
+  - XS-2：私有状态按 key 丢弃重建；
+  - XS-3：xmake 报状态过期时重建一次；
+  - XS-4：reset 清构建工具的私有状态。
+
+  三个新 fixture 在 0.0.16 上失败、新版通过。xmake 侧的问题登记在 #24 的 UP-X1、UP-X2。

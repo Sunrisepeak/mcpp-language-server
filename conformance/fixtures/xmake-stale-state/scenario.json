@@ -1,0 +1,130 @@
+{
+  "name": "xmake-stale-state",
+  "description": "0.0.17 XS-1, XS-3, XS-4 (#68, #24 UP-X2), against a stand-in xmake (fake-bin/xmake, first on the server's PATH; POSIX only) whose private state goes out of date the way real xmake's does: the first `xmake project` in a state succeeds, every later one in it fails with `dependfile ... not found`, and configuring again does not repair it. (a) The first session describes the project, with XMAKE_TMPDIR inside mcppls's private directory. (b) The editor is closed and opened again (the server is killed and started on the same cache): the next session meets the out-of-date state, discards it and makes it again from nothing once, and the model stays xmake's -- 0.0.16 failed there in every later session, kept the last model as stale, and a reset did not help. (c) Resetting the cache removes the private state too, so the load after it starts from nothing and does not fail at all. Tool runs are counted per server session.",
+  "server-path-prepend": "{workspace}/fake-bin",
+  "prepare": [
+    [
+      "chmod",
+      "+x",
+      "{workspace}/fake-bin/xmake"
+    ]
+  ],
+  "checks": [
+    {
+      "id": "A1",
+      "kind": "status",
+      "source": "xmake",
+      "state": "ready",
+      "timeout": 60
+    },
+    {
+      "id": "A2-the-temporary-directory-is-mcppls-s",
+      "kind": "engine-command",
+      "file": "src/main.cpp",
+      "contains": [
+        "-DXMAKE_TMPDIR_PRIVATE"
+      ],
+      "absent": [
+        "-DXMAKE_TMPDIR_SHARED"
+      ],
+      "timeout": 30
+    },
+    {
+      "id": "B1-the-editor-opens-the-project-again",
+      "kind": "fault",
+      "action": "kill-server",
+      "recover-probe": {
+        "kind": "definition",
+        "file": "src/main.cpp",
+        "at": [
+          0,
+          4
+        ],
+        "expect": "src/main.cpp"
+      },
+      "wait-seconds": 60,
+      "budget": {
+        "usesPrimaryCache": true,
+        "orphans": 0
+      },
+      "open": [
+        "src/main.cpp"
+      ]
+    },
+    {
+      "id": "B2-the-state-was-made-again-once",
+      "kind": "report",
+      "timeout": 30,
+      "expect": [
+        {
+          "path": "/roots/0/toolRuns/*/purpose",
+          "equals": "producer",
+          "min-matches": 2,
+          "max-matches": 2
+        },
+        {
+          "path": "/roots/0/toolRuns/*/purpose",
+          "equals": "configure",
+          "min-matches": 1,
+          "max-matches": 1
+        },
+        {
+          "path": "/roots/0/events/*/kind",
+          "equals": "model-stale",
+          "max-matches": 0
+        },
+        {
+          "path": "/roots/0/project/source",
+          "equals": "xmake"
+        }
+      ]
+    },
+    {
+      "id": "B3-ready",
+      "kind": "status",
+      "source": "xmake",
+      "state": "ready",
+      "timeout": 30
+    },
+    {
+      "id": "C1-reset",
+      "kind": "execute-command",
+      "command": "mcppls.resetCache"
+    },
+    {
+      "id": "C2-the-load-after-it-starts-from-nothing",
+      "kind": "report",
+      "timeout": 30,
+      "expect": [
+        {
+          "path": "/roots/0/toolRuns/*/purpose",
+          "equals": "producer",
+          "min-matches": 3,
+          "max-matches": 3
+        },
+        {
+          "path": "/roots/0/toolRuns/*/purpose",
+          "equals": "configure",
+          "min-matches": 2,
+          "max-matches": 2
+        },
+        {
+          "path": "/roots/0/events/*/kind",
+          "equals": "model-stale",
+          "max-matches": 0
+        }
+      ]
+    },
+    {
+      "id": "C3-ready",
+      "kind": "status",
+      "source": "xmake",
+      "state": "ready",
+      "timeout": 30
+    },
+    {
+      "id": "U1-the-project-directory-is-as-it-was",
+      "kind": "workspace-unchanged"
+    }
+  ]
+}
