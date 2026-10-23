@@ -7,7 +7,7 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
-## [0.0.17] — 2026-10-23
+## [0.0.17] — 2026-10-24
 
 The bundled engine is [mcppls-clangd 0.0.17](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.17)
 (`23.1.0-mcppls.5`), released together with this version. This release is about following an mcpp build target,
