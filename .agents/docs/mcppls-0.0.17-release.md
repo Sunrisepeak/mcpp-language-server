@@ -280,8 +280,8 @@ U13 和 two-core 也走同样的方式：U13 每边 3 次（只跑 long 阶段�
 - [x] M4：two-core 两轮在同机 A/B（每轮 edits 重复 4 次）中通过
 - [x] M5：三个 OS 都通过，原因已写入 §10
 - [x] C4：win32 上 `mcpp-target-windows-real` 实际通过（PR CI）
-- [ ] C5：termux 和 Zed 默认模式没有在本轮 nightly 中复验（A/B nightly 只跑了 ux）
-- [~] PR CI 全绿（引擎候选、正式引擎、xmake 增修各一轮）；nightly 只跑了一次 ux A/B，ux-xlings 第 1 轮 U13 失败（与 0.0.16 同一原因），按 §6.3 带给你决定
+- [x] C5：完整 nightly `40009683587`（`e278a58`，复用 PR CI 的 payload）中 termux + proot-distro、Zed 默认与推荐设置都通过
+- [~] PR CI 全绿（引擎候选、正式引擎、xmake 增修各一轮）。nightly 两次：ux A/B（`39889041291`）中 ux-xlings 第 1 轮 U13 失败（与 0.0.16 同一原因），按 §6.3 带给你决定；完整 nightly `40009683587` **全部通过**（U13：ux-xlings −8.5%、ux-mcpp −22.2%，窗口内都有 trim，所以已知问题仍然成立）
 - [ ] 原九阶段的本地完整重跑没有做；本地验证改为：发布资产校验、真实会话、0.0.16 缓存的升级接管
 - [x] D5：最终树里没有证据包（`fcb3450` 之后已删除）
 - [ ] 发布流程完成；关闭 #63、更新 #59（issue 状态按你的指示不改）
@@ -353,3 +353,8 @@ U13 和 two-core 也走同样的方式：U13 每边 3 次（只跑 long 阶段�
   - XS-4：reset 清构建工具的私有状态。
 
   三个新 fixture 在 0.0.16 上失败、新版通过。xmake 侧的问题登记在 #24 的 UP-X1、UP-X2。
+- **完整 nightly（`40009683587`，`e278a58`，`scope=all`，复用 PR CI `40002265045` 的 payload）全部通过**：
+  - ux 8 轮全部通过：U15 最忙一分钟 ux-mcpp 7、ux-xlings 2；U13 ux-xlings −8.5%、ux-mcpp −22.2%；
+  - termux、Zed（默认、推荐设置）、self-hosting 4 项、三个平台的 startup timing、最新版 mcpp 的 fixture 都通过。
+
+  这次 U13 能过，是因为窗口内发生了 trim；分组现象没有变，所以 Known issues 保持不变。
