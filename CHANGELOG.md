@@ -15,10 +15,10 @@ what an idle or a crashed clangd costs you, and typing imports with autosave on.
 
 ### The engine
 
-- **An idle clangd no longer grows.** The engine kept the memos of a project's module checks on disk by building the
-  JSON of all of them every 30 seconds, and only then finding nothing had changed; the allocator kept what each write
-  built and freed, and ten idle minutes could add hundreds of megabytes (#59 U13). It now writes only when a memo
-  changed (engine patch 0036).
+- **An idle clangd does next to nothing.** The engine kept the memos of a project's module checks on disk by building
+  the JSON of all of them every 30 seconds, and only then finding nothing had changed. It now writes only when a memo
+  changed (engine patch 0036): over ten idle minutes clangd uses about a tenth of the CPU it did. Its memory can still
+  grow while idle; see Known issues.
 - The engine's module workers work in sanitizer builds again (0037), which is how the engine's own nightly tests the
   module paths for memory errors; and its releases publish the unstripped clangd for Linux and macOS beside the
   stripped one, so a crash's stack can be named.
@@ -119,6 +119,18 @@ what an idle or a crashed clangd costs you, and typing imports with autosave on.
   already built (`payload-run`), run only the ux rounds (`scope`), run their edits stage several times in new server
   sessions (`ux-repeat`), and run a released server beside them on the same machines (`ux-baseline`), compared by
   `mcppls-devtools measure compare`; a manual nightly of a branch can test a candidate engine (docs/92-release.md).
+  A released server that does not report its background work fails the checks that wait for it at once, instead of
+  after their 15-minute bound.
+
+### Known issues
+
+- **clangd's memory can grow while idle** (#59 U13). On one of the nightly's two real projects, when the allocator
+  had just given memory back before the idle ten minutes, clangd's resident memory rose by about half over them with
+  almost no CPU; 0.0.16 did the same. The memo writes were not the cause (above), and a local run of the same
+  sequence does not reproduce it. 0.0.18 looks at it with the engine's own memory accounting.
+- **The slowest completion while typing with autosave is about 0.2 s slower than in 0.0.16** on the nightly's
+  machines (one request in about 125, still well inside the 3-second budget; the 95th percentile is unchanged). It
+  is probably where a deferred project reload now lands; a local comparison did not reproduce the difference.
 
 ## [0.0.16] — 2026-10-14
 

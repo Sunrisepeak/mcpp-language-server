@@ -328,3 +328,18 @@ U13 和 two-core 也走同样的方式：U13 每边 3 次（只跑 long 阶段�
   `ci.yml` 一启动就失败（startup_failure），所以改为继承调用方的权限，只有 nightly 授予 `actions: read`。
 - **M6 未实施**：clangd 的 `$/memoryUsage` 要经过 mcppls 转发，涉及协议面。U13 的效果改由同机 A/B 直接衡量
   （`ux-baseline`、`measure compare`）。
+- **同机 A/B（nightly `39889041291`，payload 来自 PR CI `39887785592`，`ux-repeat=4`，`ux-baseline=v0.0.16`）**：
+  - U15 最忙一分钟的状态变化：ux-mcpp 第 2 轮 12 → 7.5，第 3 轮 12 → 6（W4 的目标达成）。
+  - U5/U16/U7a 在噪声范围内。U6 补全 **max** 两轮都偏高：0.73 / 0.88 s，对比 0.58 / 0.64 s；p95 不变
+    （0.46 / 0.53 s，对比 0.48 / 0.52 s）。按 §5 的 2σ 规则，第 2 轮通过、第 3 轮不通过。慢样本固定落在 U6 脚本中输入
+    import 行的前后，并且都是 1000 项的补全，耗时在 clangd 内（mcppls 开销 1–3 ms）。猜测是 W4 推迟的 reload
+    落到了大补全上，未证实：本地 3×3 二分（新版 / W4 关闭 / 0.0.16，`taskset -c 0-3`）去掉前 10 s 后 max 的中位数为
+    0.62 / 0.61 / 0.59 s，没有复现差异。
+  - ux-xlings 第 1 轮 U13：+57.9%（687 → 1085 MB），空闲 CPU 0.0006 核（0.0.16 约 0.006）。ux-mcpp 第 1 轮 U13 −24.6%
+    （窗口内有 trim）。与 §1.4 的两组现象相同：E1 去掉了空闲时的 memo 序列化（CPU 降一个数量级），但 RSS 增长
+    不是它造成的。本地 cold → long 同一 payload 为 +0.0%，复现不了；空闲窗口的 server 日志在 CI 上已被轮转掉。
+    E1 验收（RSS 增长 < 5%）**未达成**，记为已知问题，0.0.18 用 M6（`$/memoryUsage`）取证。
+  - 同一轮 edits-2 的 U5 "diagnostics after typing" 6.54 s（预算 6.0），基线在相同位置是 6.38 s，判为机器问题。
+  - 基线的 U8-config 和 U13 都等满了 900 s：0.0.16 不报告后台工作状态，runner 一直等到超时。`e9482fa` 改为
+    看到这种情况立即判定，结论不变。
+  - 以上结果已带给你决定（§6.3），你选择按现状发布；U13 和 U6 max 写进了 CHANGELOG 的 Known issues。
