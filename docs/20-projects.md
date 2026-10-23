@@ -33,9 +33,14 @@ A few things are worth knowing:
   first time, then three times what its last run took, between 1 and 10 minutes; the project's cached
   model serves meanwhile, or its sources when there is none (`mcppls.producerTimeout` sets a fixed
   limit instead). Saving a source does not run it: a saved source whose module declaration and
-  imports are unchanged only updates the index. The build tool is asked again when a build file, a
+  imports are unchanged only updates the index. When conditional compilation excludes an import,
+  a successful description can still confirm that source structure, so later body-only saves do
+  not repeatedly ask for the same graph. Preprocessing changes, failed descriptions and files
+  changed while discovery runs retain conservative rechecks. The build tool is asked again when a build file, a
   non-source input or a source's module structure changes, and edits that keep coming are one run —
-  the wait before it grows with how long the build tool takes, up to a minute.
+  the wait before it grows with how long the build tool takes, up to a minute. A save of a file you
+  are still typing in (autosave while you type an import) waits until that file has been quiet for
+  two seconds, at most thirty, so a typed import is one run, made once you pause.
 - **The run is offline.** A build description is a question about the project, not an errand, so
   the server asks it with `MCPP_OFFLINE` set. If the project's dependencies are not on the machine
   yet, mcpp says so, and nothing waits for you to decide anything:
@@ -93,7 +98,13 @@ after `mcpp build --target i686-windows-msvc` publishes that database, analysis 
 another editor setting. This follows the latest published compilation configuration, which can also
 come from a configure-only command or a failed compilation; it does not certify a successful build.
 Project ownership recognizes Windows 8.3 and long directory spellings as the same location;
-the compilation database's original paths and arguments are preserved.
+the compilation database's original paths and arguments are preserved. On Windows with MSVC, an
+mcpp project that uses `import std` needs mcpp 2026.10.5.2 or later: earlier releases pass the
+Windows SDK path with a trailing backslash that swallows the next argument, the standard library
+modules fail to build, and mcppls shows mcpp's own error as `producer-failed`. For a 32-bit
+target (`i686-windows-msvc`), `import std` is not available with Clang at all: Clang does not
+support coroutines on 32-bit x86 MSVC, so the MSVC STL's `std` module cannot be built, and mcppls
+reads such a project with the semantic kit and says so (`std-fallback-kit`).
 
 To fix this workspace's analysis target, put this in `.vscode/settings.json` (or use the corresponding
 LSP initialization setting in another editor):
@@ -148,9 +159,14 @@ Continue** configures once with the network, in that private directory).
 
 `xmake.lua` makes an xmake project. mcppls asks xmake itself, with its own command,
 `xmake project -k compile_commands`, which compiles nothing — but it configures and scans modules, so
-mcppls points xmake's configuration and build directories at its cache (`XMAKE_CONFIGDIR`,
-`--builddir`) and your project stays untouched: nothing is generated, changed or deleted in it, your
-own `compile_commands.json` included. It runs offline (`--policies=package.fetch_only,network.mode:private`):
+mcppls points xmake's configuration, build and temporary directories at its cache (`XMAKE_CONFIGDIR`,
+`--builddir`, `XMAKE_TMPDIR`) and your project stays untouched: nothing is generated, changed or deleted in it, your
+own `compile_commands.json` included, and your own builds do not read anything it wrote (with GCC, xmake keeps
+module mapper files in its temporary directory under names that only the source's relative path decides; 0.0.16
+wrote them there, and your next incremental build failed with `failed to read compiled module`, #69). That private
+state is a cache of mcppls's: it is made again from nothing whenever xmake itself, any `xmake.lua` or your
+`xmake.conf` changes, once more when xmake says it is out of date (`dependfile ... not found`, a scan cache that
+only a build updates; #68), and resetting the workspace cache removes it. It runs offline (`--policies=package.fetch_only,network.mode:private`):
 a package that is not installed stops it with the same offer as above. The first description takes a few
 seconds (about 6–8 s measured, most of it xmake detecting the toolchain); the project is served from its
 sources meanwhile. Module roles come from scanning, so an xmake project is L3.

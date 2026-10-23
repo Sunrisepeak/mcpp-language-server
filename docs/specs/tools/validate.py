@@ -329,8 +329,12 @@ def mcpp_contract(name, doc):
           all(sorted(s["visible-sets"]) == sorted(n for n in names if n != s["name"] and (n in programs) == (s["name"] in programs))
               for s in sets))
     std_sets = {s["name"] for s in sets for tu in s["translation-units"] if {"std", "std.compat"} & set(tu.get("provides", {}))}
+    # The standard library modules the build compiles (S1 section 7): none when no unit imports them -- a 32-bit MSVC
+    # target cannot build MSVC's std with Clang, so mcpp-target-windows-real imports nothing of it.
+    std_expected = {"mcpp:std"} | ({"mcpp:std:host"} if programs else set())
+    std_imported = any({"std", "std.compat"} & set(tu.get("requires", [])) for s in sets for tu in s["translation-units"])
     check(f"mcpp {name}: the standard library modules are units of mcpp:std, and of mcpp:std:host for build programs",
-          std_sets == {"mcpp:std"} | ({"mcpp:std:host"} if programs else set()))
+          std_sets == std_expected if std_imported else std_sets <= std_expected)
     check(f"mcpp {name}: <package>:test sets hold tests", all(s["ide"].get("kind") == "test" for s in sets if s["name"].endswith(":test")))
     check(f"mcpp {name}: <package>:build sets are executables, the build programs",
           all(s["ide"].get("kind") == "executable" for s in sets if s["name"].endswith(":build")))

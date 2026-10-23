@@ -105,6 +105,15 @@ std::string structure_of(const project::ScanResult& scan) {
     return key;
 }
 
+std::optional<std::string> described_source_structure(std::string_view text, const project::ScanResult& scan) {
+    // The scanner recognizes ordinary # directives. Alternate directive tokens are
+    // deliberately unacknowledged instead of guessing how the compiler processes them.
+    if (text.contains("%:") || text.contains("?" "?=") || text.contains("_Pragma") || text.contains("__pragma")
+        || text.contains("__LINE__") || text.contains("__COUNTER__") || !scan.preprocessorComplete) return std::nullopt;
+    if (!scan.importsComplete || !scan.declarationsComplete || std::ranges::any_of(scan.imports, [](const auto& import) { return import.isHeaderUnit; })) return std::nullopt;
+    return structure_of(scan) + "\npreprocessor-inputs\n" + scan.preprocessorDirectives;
+}
+
 // The inputs a producer named in its database's watch list (S2 5), shared with the polling worker.
 struct WatchPatterns {
     std::atomic<bool> stopped { false };
@@ -478,7 +487,18 @@ struct Workspace::Impl final : engine::Host {
     int modelGeneration { 0 };
     std::string modelDescription;            // describe_model of `model`, to recognize an unchanged reload
     bool loading { false };
+    bool applyingPlan { false };
     bool reloadAfterLoad { false };
+    bool producerStatesResetPending { false };   // XS-4: a reset asked for them to go before the next load
+    // A lexical source structure can legitimately differ from the producer's active
+    // dependency graph (#if 0, for example). Remember only inputs a valid answer covered.
+    std::map<std::string, std::string> producerSourcePaths;
+    std::map<std::string, std::string> loadingSourceStructures;
+    std::map<std::string, platform::fs::FileStamp> loadingSourceStamps;
+    std::map<std::string, std::string> describedSourceStructures;
+    int describedSourceGeneration { -1 };
+    std::string loadingSourceProducerIdentity;
+    std::string describedSourceProducerIdentity;
     project::TargetSelection targetSelection;
     bool targetReadPending { false };
     int targetReadRetries { 0 };
@@ -518,6 +538,13 @@ struct Workspace::Impl final : engine::Host {
     // Fix plan F13: a change to a file's imports or module declaration made in the editor is planned once the file
     // has been quiet this long, so a name being typed is not planned letter by letter.
     static constexpr std::chrono::milliseconds EDIT_SETTLE { 2000 };
+    // 0.0.17 W4 (#59 U15): a structure reload that saves of a file still being typed in asked for waits until the file
+    // is quiet (EDIT_SETTLE after its last change). With autosave, every pause while an import is typed is a save that
+    // changes the file's imports; each was a run of the producer and a loading state of its own. Edits that keep coming
+    // put it off no longer than EDIT_DEFER_LIMIT after the first save that waited, so the model is never left behind.
+    static constexpr std::chrono::seconds EDIT_DEFER_LIMIT { 30 };
+    std::set<std::string, std::less<>> reloadWaitsFor;   // path keys of the files being typed in
+    std::optional<Clock::time_point> reloadDeferredSince;
     std::optional<Clock::time_point> loadGiveUpAt;       // the producer has not answered: take what there is (design 4.1)
     std::optional<Clock::time_point> lastResortAt;       // nothing at all came: serve without a database rather than nothing
     std::optional<Clock::time_point> sdkCheckAt;
@@ -1926,9 +1953,20 @@ struct Workspace::Impl final : engine::Host {
             recent.push_back(ms);
             if (recent.size() > 64) recent.pop_front();
         }
-        if (ms >= 5000) {
-            journal.add("slow-request", Json { { "method", job.method }, { "file", job.path }, { "ms", static_cast<std::int64_t>(ms) },
-                                               { "outcome", std::string { outcome } }, { "answeredBy", job.answeredBy } });
+        // A completion a person notices is slow from two seconds on (0.0.17 M3, #59 U5/U6: a typing session's slowest answers were
+        // 6-8 s, and nothing said where the time went); anything else from five. Where it went: waiting before an engine was asked
+        // (queueMs), the engine (engineMs), and what came after its answer -- merging, the answer layer, the reply (answerMs).
+        const bool completion { job.method == lsp::method::TEXT_DOCUMENT_COMPLETION };
+        if (ms >= (completion ? 2000 : 5000)) {
+            Json detail { { "method", job.method }, { "file", job.path }, { "ms", static_cast<std::int64_t>(ms) },
+                          { "outcome", std::string { outcome } }, { "answeredBy", job.answeredBy } };
+            const auto milliseconds = [](Clock::duration span) { return static_cast<std::int64_t>(std::chrono::duration<double, std::milli>(span).count()); };
+            if (job.engineSentAt) detail["queueMs"] = milliseconds(*job.engineSentAt - job.started);
+            if (job.engineSentAt && job.engineRepliedAt) {
+                detail["engineMs"] = milliseconds(*job.engineRepliedAt - *job.engineSentAt);
+                detail["answerMs"] = milliseconds(Clock::now() - *job.engineRepliedAt);
+            }
+            journal.add("slow-request", std::move(detail));
         }
     }
 
@@ -2527,6 +2565,63 @@ struct Workspace::Impl final : engine::Host {
         }
     }
 
+    void capture_source_structures() {
+        loadingSourceStructures.clear();
+        loadingSourceStamps.clear();
+        loadingSourceProducerIdentity = producer_file_identity();
+        // Only sources reported by the producer's watcher, never a recursive scan.
+        // Capture before dispatch: a later disk edit is not evidence this run read it.
+        std::size_t remaining { 32 * 1024 * 1024 };
+        for (const auto& [key, path] : producerSourcePaths) {
+            if (remaining == 0) break;
+            const auto before = platform::fs::stamp(path);
+            if (!before || before->size > remaining) continue;
+            const auto text = platform::fs::read_file(path, remaining);
+            if (!text) break; // a failed bounded read may already have consumed the remaining budget
+            remaining -= text->size();
+            if (platform::fs::stamp(path) == before) {
+                if (auto structure = described_source_structure(*text, project::scan_source(*text, true))) {
+                    loadingSourceStructures.emplace(key, std::move(*structure));
+                    loadingSourceStamps.emplace(key, *before);
+                }
+            }
+        }
+    }
+
+    void confirm_source_structures(const project::ProjectModel& loaded) {
+        if (loaded.source == project::SourceKind::inferred || !loaded.issues.empty() || reloadAfterLoad
+            || loadingSourceProducerIdentity != producer_file_identity()
+            || (!loaded.producer.empty() && !producerPath.empty() && !base::same_path(loaded.producer, producerPath))) return;
+        std::set<std::string> units;
+        for (const auto& set : loaded.database.sets) {
+            for (const auto& unit : set.units) units.insert(base::path_key(spec::absolute_source(unit)));
+        }
+        describedSourceStructures.clear();
+        for (const auto& [key, structure] : loadingSourceStructures) {
+            const auto path = producerSourcePaths.find(key);
+            const auto stamp = loadingSourceStamps.find(key);
+            if (units.contains(key) && path != producerSourcePaths.end() && stamp != loadingSourceStamps.end()
+                && platform::fs::stamp(path->second) == std::optional { stamp->second }
+                && matches_watch_entries(loaded.watch, root, path->second)) {
+                describedSourceStructures.emplace(key, structure);
+            }
+        }
+        describedSourceGeneration = modelGeneration;
+        describedSourceProducerIdentity = loadingSourceProducerIdentity;
+    }
+
+    // 0.0.17 XS-4 (#68): what a build tool made for itself in this cache (a provider's private configure directory, its id under
+    // the cache) goes with a reset too, or a state xmake no longer recovers from outlives the reset that was to clear it. Removed
+    // only while no load runs in it: a reset during a load leaves it to the start of the next one.
+    void remove_producer_states() {
+        for (const auto* provider : project::registered_providers()) {
+            const std::string directory { base::join_path(cacheDirectory, std::string { provider->id() }) };
+            if (!platform::fs::is_directory(directory)) continue;
+            platform::fs::remove_all(directory);
+            log::info("removed {}'s private state for {} ({})", provider->id(), root, directory);
+        }
+    }
+
     void start_model_load() {
         if (loading) {
             reloadAfterLoad = true;
@@ -2537,9 +2632,11 @@ struct Workspace::Impl final : engine::Host {
             update_status();
             return;
         }
+        if (std::exchange(producerStatesResetPending, false)) remove_producer_states();
         loading = true;
         remember_described_inputs(true);
         const int generation { ++modelGeneration };
+        capture_source_structures();
         project::LoadOptions load;
         load.trusted = options.trusted;
         load.cacheDirectory = cacheDirectory;
@@ -2791,6 +2888,7 @@ struct Workspace::Impl final : engine::Host {
         }
         keptModelNotice.clear();
         staleModelReason.clear();
+        confirm_source_structures(*loadedModel);
         adopt_model(std::move(loadedModel), "producer");
     }
 
@@ -3073,11 +3171,20 @@ struct Workspace::Impl final : engine::Host {
                       core_wait_limit().count());
             journal.add("engine-waits-for-producer", Json { { "detected", std::string { project::to_string(detectedSource) } } });
         }
-        for (const auto& engine : engines) {
-            if (coreWaits && engine.get() == coreEngine) continue;
-            engine->apply(&plan);
+        {
+            // apply may synchronously report status before its new plan is installed.
+            // Publish only after every engine has applied this same workspace plan.
+            struct StatusBatch {
+                bool& active;
+                bool previous;
+                ~StatusBatch() { active = previous; }
+            } batch { applyingPlan, std::exchange(applyingPlan, true) };
+            for (const auto& engine : engines) {
+                if (coreWaits && engine.get() == coreEngine) continue;
+                engine->apply(&plan);
+            }
+            for (const Document* document : documents_.all()) publish_diagnostics(document->uri);
         }
-        for (const Document* document : documents_.all()) publish_diagnostics(document->uri);
         update_status();
     }
 
@@ -3107,12 +3214,34 @@ struct Workspace::Impl final : engine::Host {
     // `fromEdits`: asked for by changes under the workspace rather than by a build description. Such a reload waits as
     // long as the producer takes to answer (at most a minute), so edits that keep coming are one run, not a queue of them.
     // A reload a build description asked for is not put off by edits that follow it: it reads them too.
-    void schedule_reload(bool fromEdits = false) {
+    // `typing`: of the files whose changes asked for it, those still being typed in (W4); the reload waits for them.
+    void schedule_reload(bool fromEdits = false, const std::vector<std::string>& typing = {}) {
         using namespace std::chrono_literals;
         if (fromEdits && reloadAt && !reloadMovable) return;
+        const auto now { Clock::now() };
         const auto wait = fromEdits ? std::clamp<std::chrono::milliseconds>(std::chrono::milliseconds { lastProducerMs }, 1500ms, 60s) : 1500ms;
-        reloadAt = Clock::now() + wait;
+        reloadAt = now + wait;
         reloadMovable = fromEdits;
+        if (!fromEdits) {
+            reloadWaitsFor.clear();
+            reloadDeferredSince.reset();
+            return;
+        }
+        reloadWaitsFor.insert(typing.begin(), typing.end());
+        defer_reload_while_typing(now);
+    }
+
+    // W4: the pending reload put off until the files it waits for are quiet, within EDIT_DEFER_LIMIT of the first wait.
+    void defer_reload_while_typing(Clock::time_point now) {
+        if (!reloadAt || !reloadMovable) return;
+        std::optional<Clock::time_point> quiet;
+        for (const auto& key : reloadWaitsFor) {
+            const auto edited = editedAt.find(key);
+            if (edited != editedAt.end() && edited->second + EDIT_SETTLE > now) quiet = std::max(quiet.value_or(now), edited->second + EDIT_SETTLE);
+        }
+        if (!quiet) return;
+        if (!reloadDeferredSince) reloadDeferredSince = now;
+        reloadAt = std::max(*reloadAt, std::min(*quiet, *reloadDeferredSince + EDIT_DEFER_LIMIT));
     }
 
     // K-7: the issues nothing here recovers from by itself.
@@ -3467,6 +3596,7 @@ struct Workspace::Impl final : engine::Host {
 
     void update_status() {
         if (!initializeAnswered) return;   // see the field's own comment
+        if (applyingPlan) return;          // replan publishes the committed snapshot after all synchronous apply calls
         request_auto_bundles();
         const State computed { compute_state() };
         State state { computed };
@@ -3902,6 +4032,8 @@ struct Workspace::Impl final : engine::Host {
         phase("the workspace lease and dead instances");
         if (reloadAt && *reloadAt <= now) {
             reloadAt.reset();
+            reloadWaitsFor.clear();
+            reloadDeferredSince.reset();
             start_model_load();
         }
         if (targetRetryAt && *targetRetryAt <= now) {
@@ -4129,6 +4261,7 @@ void Workspace::did_change(const Json& message, const Json& params) {
     if (!document->path.empty()) {
         if (impl_->answers_) impl_->answers_->changed(document->path);
         impl_->editedAt[base::path_key(document->path)] = Clock::now();
+        if (impl_->reloadWaitsFor.contains(base::path_key(document->path))) impl_->defer_reload_while_typing(Clock::now());
         impl_->note_recent_file(document->path);
         impl_->index.update(document->path, document->text);
         impl_->note_structure_change(document->path, true);
@@ -4195,6 +4328,7 @@ void Workspace::handle_watched_files(const Json& changes) {
     bool reload { false };
     bool describedAgain { false };   // a build file or another input of the producer's, not a source: reloaded without the edit delay
     bool replan { false };
+    std::vector<std::string> typing;   // W4: changed sources whose structure differs and that are being typed in
     for (const auto& change : changes) {
         const std::string path { impl_->path_of_uri(change.value("uri", std::string {})) };
         if (path.empty()) continue;
@@ -4250,7 +4384,39 @@ void Workspace::handle_watched_files(const Json& changes) {
         // pause in typing: on GalTranslPP a minute of CPU each time, beside clangd. An edit inside functions leaves
         // the model as it is; the index and the plan already have it.
         // What is on disk is what the producer reads: an open file changed under the editor (a checkout) counts too.
-        if (producerInput && (type != 2 || !diskText || impl_->model_structure_differs(path, project::scan_source(*diskText)))) reload = true;
+        if (producerInput) {
+            const std::string key { base::path_key(path) };
+            if (type == 3) {
+                impl_->producerSourcePaths.erase(key);
+                impl_->describedSourceStructures.erase(key);
+                impl_->loadingSourceStructures.erase(key);
+                impl_->loadingSourceStamps.erase(key);
+            } else {
+                impl_->producerSourcePaths.insert_or_assign(key, path);
+            }
+            bool differs { true };
+            if (type == 2 && diskText) {
+                const auto scan { project::scan_source(*diskText, true) };
+                const auto structure { described_source_structure(*diskText, scan) };
+                const auto known = impl_->describedSourceStructures.find(key);
+                if (impl_->describedSourceGeneration == impl_->modelGeneration && known != impl_->describedSourceStructures.end()) {
+                    differs = !structure || known->second != *structure
+                        || impl_->describedSourceProducerIdentity != impl_->producer_file_identity();
+                } else {
+                    // Conditional imports need one actual answer even when the old model
+                    // happens to list the same lexical names (for example #if 1 -> #if 0).
+                    differs = !structure || scan.uncertain || impl_->model_structure_differs(path, scan);
+                    const auto started = impl_->loadingSourceStructures.find(key);
+                    if (started != impl_->loadingSourceStructures.end()
+                        && (!structure || started->second != *structure || !impl_->loading || !impl_->staleModelReason.empty())) differs = true;
+                }
+            }
+            if (differs) {
+                reload = true;
+                const auto edited = impl_->editedAt.find(key);
+                if (open && edited != impl_->editedAt.end() && Clock::now() - edited->second < Impl::EDIT_SETTLE) typing.push_back(key);
+            }
+        }
         if (open) continue;
         if (impl_->model && impl_->model->source == project::SourceKind::inferred && type != 2) reload = true;
         else replan = true;
@@ -4258,7 +4424,7 @@ void Workspace::handle_watched_files(const Json& changes) {
     if (reload || replan) {
         for (const auto& engine : impl_->engines) engine->sources_changed();
     }
-    if (reload) impl_->schedule_reload(!describedAgain);
+    if (reload) impl_->schedule_reload(!describedAgain, typing);
     else if (replan) impl_->schedule_replan();
     // 0.0.13 W10 (#53): clangd refuses the whole notification for one change that is not a file ("clangd only supports
     // 'file' URI scheme for workspace files"), and the files beside it went unseen; only file: URIs go on.
@@ -4485,6 +4651,7 @@ std::uint64_t Workspace::reset_cache() {
         if (const auto stamp = platform::fs::stamp(entry)) freed += stamp->size;
         platform::fs::remove_all(entry);
     }
+    impl.producerStatesResetPending = true;   // removed as the load below starts, or the next one if one runs (XS-4)
     log::info("the cache of {} was reset on request ({} bytes freed)", root_, freed);
     impl.journal.add("cache-reset", Json { { "bytes", freed } });
     {

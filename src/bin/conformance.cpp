@@ -264,6 +264,48 @@ bool run_prepare(const Json& command, const std::string& workspace, bool verbose
     return true;
 }
 
+// A dotted version's numbers ("2026.10.5.2"), compared number by number; empty when it has none.
+std::vector<long> version_numbers(std::string_view text) {
+    std::vector<long> numbers;
+    for (const auto part : std::views::split(text, '.')) {
+        long value { 0 };
+        const std::string_view piece { part.begin(), part.end() };
+        const auto [end, error] = std::from_chars(piece.data(), piece.data() + piece.size(), value);
+        if (error != std::errc {} || end != piece.data() + piece.size()) return {};
+        numbers.push_back(value);
+    }
+    return numbers;
+}
+
+// "requires-mcpp": {"executable": "{env:MCPPLS_REAL_MCPP|mcpp}", "at-least": "2026.10.5.2"}: a fixture that runs a real
+// mcpp says which release it needs, and gets that sentence instead of the compiler errors an older mcpp gives in the
+// middle of its prepare steps. Empty when the mcpp asked is recent enough, else why the fixture cannot run.
+std::string missing_mcpp(const Json& requirement, const Expansion& expansion) {
+    if (!requirement.is_object()) return {};
+    const std::string wanted { requirement.value("at-least", std::string {}) };
+    std::string program { expand(requirement.value("executable", std::string { "mcpp" }), expansion) };
+    if (program.empty()) program = "mcpp";
+    if (!base::is_absolute_path(program)) {
+        auto found = mcppls::platform::env::find_executable(program);
+        if (!found) return std::format("the fixture needs mcpp {} or later, and {} is not on PATH", wanted, program);
+        program = *found;
+    }
+    mcppls::platform::SpawnOptions options;
+    options.program = program;
+    options.arguments = { "--version" };
+    auto result = mcppls::platform::run(std::move(options), std::chrono::seconds { 60 });
+    if (!result || result->exitCode != 0 || result->timedOut) return std::format("the fixture needs mcpp {} or later, and {} --version failed", wanted, program);
+    // "mcpp 2026.10.11.1": the last word of the first line.
+    std::string_view line { result->output };
+    line = line.substr(0, line.find_first_of("\r\n"));
+    const std::string_view version { line.substr(line.find_last_of(' ') == std::string_view::npos ? 0 : line.find_last_of(' ') + 1) };
+    const auto have = version_numbers(version), need = version_numbers(wanted);
+    if (have.empty() || need.empty() || std::ranges::lexicographical_compare(have, need)) {
+        return std::format("the fixture needs mcpp {} or later, and {} is {}", wanted, program, version.empty() ? std::string_view { "of no version" } : version);
+    }
+    return {};
+}
+
 // A file's size and FNV-1a digest, read a block at a time: a build tree holds files far larger than a check needs to keep.
 std::optional<std::string> digest(const std::string& path) {
     std::ifstream stream { std::filesystem::path { path }, std::ios::binary };
@@ -2791,6 +2833,49 @@ public:
             }
         }
 
+        // Freeze the same response population used above before a diagnostic probe or post-check
+        // report can deliver late answers. This observes existing requests, without pumping the
+        // client, asking anything, or reading another clock. JSON is built only after sampling.
+        constexpr std::size_t COMPLETION_TRACE_LIMIT { 256 };
+        struct CompletionTraceEntry {
+            std::size_t index;
+            std::int64_t id;
+            Clock::time_point sent;
+            std::optional<Clock::time_point> answered;
+            bool error;
+            std::optional<std::size_t> items;
+            std::optional<bool> incomplete;
+        };
+        struct CompletionTrace {
+            std::size_t total;
+            std::vector<CompletionTraceEntry> entries;
+            std::optional<CompletionTraceEntry> slowestSuccessful;
+            std::optional<CompletionTraceEntry> slowestAnswered;
+        };
+        const auto capture_trace = [&](const std::vector<std::int64_t>& ids) {
+            CompletionTrace trace { ids.size(), {}, std::nullopt, std::nullopt };
+            trace.entries.reserve(std::min(ids.size(), COMPLETION_TRACE_LIMIT));
+            for (std::size_t index { 0 }; index < ids.size(); ++index) {
+                const auto& request { client_.asyncRequests.at(ids[index]) };
+                const Json& result { request.result };
+                const Json* items { result.is_array() ? &result : result.is_object() ? lsp::find(result, "items") : nullptr };
+                const Json* incomplete { result.is_object() ? lsp::find(result, "isIncomplete") : nullptr };
+                CompletionTraceEntry entry { index, ids[index], request.sent, request.answered, request.isError,
+                    items != nullptr && items->is_array() ? std::optional { items->size() } : std::nullopt,
+                    incomplete != nullptr && incomplete->is_boolean() ? std::optional { incomplete->get<bool>() } : std::nullopt };
+                if (trace.entries.size() < COMPLETION_TRACE_LIMIT) trace.entries.push_back(entry);
+                if (!entry.answered) continue;
+                const auto slower = [&](const std::optional<CompletionTraceEntry>& previous) {
+                    return !previous || *entry.answered - entry.sent > *previous->answered - previous->sent;
+                };
+                if (slower(trace.slowestAnswered)) trace.slowestAnswered = entry;
+                if (!entry.error && slower(trace.slowestSuccessful)) trace.slowestSuccessful = entry;
+            }
+            return trace;
+        };
+        const CompletionTrace completionTrace { capture_trace(completions) };
+        const CompletionTrace importerTrace { capture_trace(importerCompletions) };
+
         // Diagnostics after the typing stops: a real mistake is typed at once and how long its diagnostic takes is timed.
         std::optional<double> refresh;
         if (const auto probe = check.find("diagnostic-probe"); probe != check.end() && probe->is_object()) {
@@ -2896,6 +2981,97 @@ public:
                        { "restarts", restarts }, { "filesSetAside", setAside }, { "diagnosticsRefresh", refresh ? Json(*refresh) : Json(nullptr) },
                        { "statesSeen", statesSeen }, { "doomed", doomed }, { "moduleFailedDiagnostics", moduleFailedDiagnostics }, { "stalledSamples", stalledSamples },
                        { "firstOpenSeconds", firstOpen ? Json(*firstOpen) : Json(nullptr) } };
+        const auto trace_json = [&](const CompletionTrace& trace) {
+            const auto nanoseconds_since = [&](Clock::time_point at) {
+                return std::chrono::duration_cast<std::chrono::nanoseconds>(at - began).count();
+            };
+            const auto entry_json = [&](const CompletionTraceEntry& entry) {
+                return Json { { "index", entry.index }, { "id", entry.id }, { "sentNanoseconds", nanoseconds_since(entry.sent) },
+                    { "answeredNanoseconds", entry.answered ? Json(nanoseconds_since(*entry.answered)) : Json(nullptr) },
+                    { "elapsedNanoseconds", entry.answered ? Json(std::chrono::duration_cast<std::chrono::nanoseconds>(*entry.answered - entry.sent).count()) : Json(nullptr) },
+                    { "elapsedSeconds", entry.answered ? Json(seconds_between(entry.sent, *entry.answered)) : Json(nullptr) },
+                    { "error", entry.error }, { "items", entry.items ? Json(*entry.items) : Json(nullptr) },
+                    { "isIncomplete", entry.incomplete ? Json(*entry.incomplete) : Json(nullptr) } };
+            };
+            Json entries = Json::array();
+            for (const auto& entry : trace.entries) entries.push_back(entry_json(entry));
+            return Json { { "origin", "typing-start" }, { "population", "original-completion-statistics" },
+                { "limit", COMPLETION_TRACE_LIMIT }, { "total", trace.total }, { "dropped", trace.total - trace.entries.size() },
+                { "entries", std::move(entries) },
+                // These are separate from the ordered prefix: a truncated trace never hides its
+                // slowest answer, and the successful one reproduces the original latency max.
+                { "slowestSuccessful", trace.slowestSuccessful ? entry_json(*trace.slowestSuccessful) : Json(nullptr) },
+                { "slowestAnswered", trace.slowestAnswered ? entry_json(*trace.slowestAnswered) : Json(nullptr) } };
+        };
+        summary["completionTrace"] = trace_json(completionTrace);
+        // These are the reports already taken by the check. Keep the method's public
+        // counters/distributions at both boundaries: its recent engine samples can roll out
+        // before a later timeline report. They are cumulative/recent, not per-check percentiles.
+        const auto completion_stats = [](const Json& root) -> Json {
+            const Json* stats { lsp::find_path(root, { "requests", "textDocument/completion" }) };
+            if (stats == nullptr || !stats->is_object()) return nullptr;
+            Json snapshot = Json::object();
+            for (const std::string_view key : { "count", "empty", "errors", "cancelled", "p50Ms", "p95Ms", "maxMs", "engineAnswered",
+                                                "engineP50Ms", "engineP95Ms", "overheadP50Ms", "overheadP95Ms" }) {
+                const Json* value { lsp::find(*stats, key) };
+                snapshot[std::string { key }] = value != nullptr && value->is_number() ? *value : Json(nullptr);
+            }
+            const Json* lastAt { lsp::find(*stats, "lastAt") };
+            snapshot["lastAt"] = lastAt != nullptr && lastAt->is_string() ? *lastAt : Json(nullptr);
+            const Json* by { lsp::find(*stats, "answeredBy") };
+            snapshot["answeredBy"] = nullptr;
+            if (by != nullptr && by->is_object()) {
+                snapshot["answeredBy"] = Json::object();
+                for (const auto& item : by->items()) if (item.value().is_number()) snapshot["answeredBy"][item.key()] = item.value();
+            }
+            return snapshot;
+        };
+        const auto slow_total = [](const Json& root) -> std::optional<std::uint64_t> {
+            const Json* value { lsp::find_path(root, { "eventTotals", "slow-request" }) };
+            if (value == nullptr || !value->is_number_integer() || value->get<std::int64_t>() < 0) return std::nullopt;
+            return value->get<std::uint64_t>();
+        };
+        const auto slowBefore { slow_total(before) }, slowAfter { slow_total(after) };
+        constexpr std::size_t SLOW_TRACE_LIMIT { 256 };
+        const Json* events { lsp::find(after, "events") };
+        const bool eventsAvailable { events != nullptr && events->is_array() };
+        std::size_t recentSlowCount { 0 };
+        Json slowEvents = Json::array();
+        if (eventsAvailable) {
+            for (const auto& event : *events) {
+                if (!event.is_object() || event.value("kind", std::string {}) != "slow-request") continue;
+                ++recentSlowCount;
+                Json entry = Json::object();
+                const Json* at { lsp::find(event, "at") };
+                entry["at"] = at != nullptr && at->is_string() ? *at : Json(nullptr);
+                for (const std::string_view field : { "method", "ms", "outcome", "answeredBy", "queueMs", "engineMs", "answerMs" }) {
+                    const Json* value { lsp::find_path(event, { "detail", field }) };
+                    const bool number { field.ends_with("ms") || field.ends_with("Ms") };
+                    entry[std::string { field }] = value != nullptr && (number ? value->is_number() : value->is_string()) ? *value : Json(nullptr);
+                }
+                if (slowEvents.size() == SLOW_TRACE_LIMIT) slowEvents.erase(slowEvents.begin());
+                slowEvents.push_back(std::move(entry));
+            }
+        }
+        const bool totalsComparable { slowBefore && slowAfter && *slowAfter >= *slowBefore };
+        const auto added { totalsComparable ? std::optional { *slowAfter - *slowBefore } : std::nullopt };
+        // Recent events are chronological suffixes of the cumulative journal. Counters expose
+        // omitted new events; timestamps alone cannot establish that every slow request survived.
+        const bool coverageKnown { added && eventsAvailable && recentSlowCount <= *slowAfter };
+        const std::uint64_t retainedNew { coverageKnown ? std::min(*added, static_cast<std::uint64_t>(slowEvents.size())) : 0 };
+        summary["serverCompletionEvidence"] = Json {
+            { "requestsBefore", completion_stats(before) }, { "requestsAfter", completion_stats(after) },
+            { "recentSampleLimit", 256 }, { "statisticsScope", "cumulative counters and recent samples; not per-check percentile deltas" },
+            { "slowRequests", Json {
+                { "totalBefore", slowBefore ? Json(*slowBefore) : Json(nullptr) }, { "totalAfter", slowAfter ? Json(*slowAfter) : Json(nullptr) },
+                { "added", added ? Json(*added) : Json(nullptr) }, { "limit", SLOW_TRACE_LIMIT },
+                { "afterRecentCount", eventsAvailable ? Json(recentSlowCount) : Json(nullptr) },
+                { "droppedByTraceLimit", eventsAvailable ? Json(recentSlowCount - slowEvents.size()) : Json(nullptr) },
+                { "newRetained", coverageKnown ? Json(retainedNew) : Json(nullptr) },
+                { "newNotRetained", coverageKnown ? Json(*added - retainedNew) : Json(nullptr) },
+                { "eventsAfter", eventsAvailable ? std::move(slowEvents) : Json(nullptr) }
+            } }
+        };
         if (!reask.empty()) {
             summary["wordTrace"] = std::move(wordTrace);
             summary["wordTraceLimit"] = WORD_TRACE_LIMIT;
@@ -2904,7 +3080,8 @@ public:
         std::string importerBrief;
         if (withImporter) {
             summary["importer"] = Json { { "file", importerFile }, { "completions", importerCompletions.size() }, { "answered", importerAnswered.size() },
-                                         { "empty", importerEmpty }, { "completion", importerLatency }, { "moduleFailedDiagnostics", importerModuleFailed } };
+                                         { "empty", importerEmpty }, { "completion", importerLatency }, { "completionTrace", trace_json(importerTrace) },
+                                         { "moduleFailedDiagnostics", importerModuleFailed } };
             importerBrief = std::format(", importer {} completions p95 {:.2f}s {} empty {} module-failed", importerCompletions.size(), importerLatency["p95"].get<double>(),
                                         importerEmpty, importerModuleFailed);
         }
@@ -3434,22 +3611,56 @@ public:
 
         // State changes in the busiest minute, and the times the status was `error`.
         std::vector<Clock::time_point> changes;
+        std::vector<std::size_t> changeTraceIndices;
+        Json transitionTrace = Json::array();
+        const auto analyzedSamples { samples.size() }; // root_report below may pump later statuses; these alone were counted
         std::string previous;
         int errors { 0 };
-        for (const auto& sample : samples) {
+        for (std::size_t i { 0 }; i < samples.size(); ++i) {
+            const auto& sample = samples[i];
+            const bool changed { !previous.empty() && sample.state != previous && sample.state != "restart" };
+            // Only initial states, reset boundaries and counted changes: no full status or paths.
+            // Integer timestamps preserve the strict <60s boundary without JSON-double rounding.
+            if (previous.empty() || changed || sample.state == "restart") {
+                transitionTrace.push_back(Json {
+                    { "sampleIndex", i }, { "seconds", seconds_between(begin_, sample.at) },
+                    { "sinceStartNanoseconds", std::chrono::duration_cast<std::chrono::nanoseconds>(sample.at - begin_).count() },
+                    { "kind", sample.state == "restart" ? "restart" : changed ? "change" : "initial" },
+                    { "from", previous.empty() ? Json(nullptr) : Json(previous) }, { "to", sample.state }, { "counted", changed },
+                    { "done", sample.done }, { "total", sample.total }, { "issues", sample.issues }
+                });
+            }
             if (sample.state == "restart") {
                 previous.clear();
                 continue;
             }
             if (sample.state == "error") ++errors;
-            if (!previous.empty() && sample.state != previous) changes.push_back(sample.at);
+            if (changed) {
+                changes.push_back(sample.at);
+                changeTraceIndices.push_back(transitionTrace.size() - 1);
+            }
             previous = sample.state;
         }
         std::size_t busiest { 0 };
+        std::size_t busiestBegin { 0 };
         for (std::size_t i { 0 }; i < changes.size(); ++i) {
             std::size_t inWindow { 0 };
             for (std::size_t j { i }; j < changes.size() && changes[j] - changes[i] < std::chrono::seconds { 60 }; ++j) ++inWindow;
-            busiest = std::max(busiest, inWindow);
+            if (inWindow > busiest) { busiest = inWindow; busiestBegin = i; }
+        }
+        Json busiestWindow = nullptr;
+        if (busiest > 0) {
+            Json support = Json::array();
+            for (std::size_t i { busiestBegin }; i < busiestBegin + busiest; ++i) support.push_back(changeTraceIndices[i]);
+            const auto start { changes[busiestBegin] };
+            busiestWindow = Json {
+                { "startSeconds", seconds_between(begin_, start) },
+                { "endSecondsExclusive", seconds_between(begin_, start + std::chrono::seconds { 60 }) },
+                { "startNanoseconds", std::chrono::duration_cast<std::chrono::nanoseconds>(start - begin_).count() },
+                { "endNanosecondsExclusive", std::chrono::duration_cast<std::chrono::nanoseconds>(start + std::chrono::seconds { 60 } - begin_).count() },
+                { "lastChangeSeconds", seconds_between(begin_, changes[busiestBegin + busiest - 1]) },
+                { "count", busiest }, { "traceIndices", std::move(support) }
+            };
         }
 
         // Ready, and prepared: the first `ready` that held, and the last one after a preparation, from the start of the run.
@@ -3491,6 +3702,8 @@ public:
             else enforce_max(check, "preparedSeconds", prepared, "preparation finished at", "s", failures);
         }
         Json summary { { "statuses", samples.size() }, { "longestStallSeconds", longestStall }, { "stateChanges", changes.size() }, { "busiestMinuteChanges", busiest },
+                       { "stateTransitionTrace", std::move(transitionTrace) }, { "stateTransitionStatusSamples", analyzedSamples },
+                       { "stateTransitionObservedThroughSeconds", seconds_between(begin_, now) }, { "busiestMinuteWindow", std::move(busiestWindow) },
                        { "errorStates", errors }, { "clangdRestarts", root.is_object() ? Json(clangdRestarts) : Json(nullptr) },
                        { "firstReadySeconds", firstReady ? Json(*firstReady) : Json(nullptr) }, { "preparedSeconds", prepared ? Json(*prepared) : Json(nullptr) },
                        { "serverRestarts", client_.restartMarks.size() },
@@ -3536,6 +3749,10 @@ public:
 
     // ---- resources ----
 
+    // A server that does not report its background work (one before 0.0.17, run beside this one as a
+    // baseline) never will: waiting out the bound for it only delays the same verdict.
+    static constexpr std::string_view WORK_NOT_REPORTED { "the engine does not report its background work state" };
+
     // Eligibility is task state, never a low CPU sample chosen to pass the idle CPU budget.
     // In particular an empty implementation queue before its delayed full sweep is not idle.
     static std::string background_work(const Json& root) {
@@ -3555,7 +3772,7 @@ public:
                 || !implementations.contains("sweepComplete") || !implementations.contains("sweepScheduled")
                 || !implementations.contains("queued") || !implementations.contains("running") || !index.contains("active")
                 || !details.contains("pendingRequests") || !details.contains("filesAwaitingDiagnostics")
-                || !details.contains("deferredRequests") || !details.contains("heldRequests")) return "the engine does not report its background work state";
+                || !details.contains("deferredRequests") || !details.contains("heldRequests")) return std::string { WORK_NOT_REPORTED };
             if (!details.value("handshakeDone", false) || !details.value("accepting", false) || details.value("restartScheduled", false))
                 return "the engine is starting or waiting for a restart";
             if (preparation.value("running", 0L) > 0 || preparation.value("done", 0L) < preparation.value("wanted", 0L)) return "module preparation is unfinished";
@@ -3584,7 +3801,7 @@ public:
         do {
             result.report = root_report(true, std::chrono::seconds { 2 });
             result.unfinished = background_work(result.report);
-            if (result.unfinished.empty() || Clock::now() >= deadline) break;
+            if (result.unfinished.empty() || result.unfinished == WORK_NOT_REPORTED || Clock::now() >= deadline) break;
             client_.pump_until(std::min(deadline, Clock::now() + std::chrono::seconds { 2 }));
         } while (Clock::now() < deadline);
         const auto until { Clock::now() };
@@ -4017,6 +4234,41 @@ public:
             } while (Clock::now() < deadline);
             return { false, why };
         }
+        if (kind == "run") {
+            // 0.0.17 XS-1 (#69): a program the user runs in the workspace while the server is up -- their own build -- exits
+            // with "exit" (0 unless given). What the server ran on the machine must not have broken it.
+            std::vector<std::string> argv;
+            for (const auto& word : check.value("command", Json::array())) argv.push_back(expand(word.get<std::string>()));
+            if (argv.empty()) return { false, "a run check names its \"command\"" };
+            std::string program { argv.front() };
+            if (!base::is_absolute_path(program)) {
+                const auto found = mcppls::platform::env::find_executable(program);
+                if (!found) return { false, std::format("{} is not on PATH", program) };
+                program = *found;
+            }
+            mcppls::platform::SpawnOptions spawn;
+            spawn.program = program;
+            spawn.arguments.assign(argv.begin() + 1, argv.end());
+            spawn.workDirectory = workspace_;
+            const auto bound = std::chrono::seconds { check.value("timeout", static_cast<int>(timeout_.count())) };
+            auto running = std::async(std::launch::async, [spawn, bound]() mutable { return mcppls::platform::run(std::move(spawn), bound); });
+            while (running.wait_for(std::chrono::milliseconds { 200 }) != std::future_status::ready) client_.drain(std::chrono::milliseconds { 0 });
+            auto result = running.get();
+            if (!result) return { false, result.error().message };
+            if (result->timedOut) return { false, std::format("{} did not finish in time", base::join(argv, " ")) };
+            const int wantedExit { check.value("exit", 0) };
+            if (result->exitCode != wantedExit) {
+                // What it said went wrong: its error lines, colours taken out, or else the end of what it printed.
+                const std::string printed { std::regex_replace(result->output + "\n" + result->error, std::regex { "\x1b\\[[0-9;]*m" }, "") };
+                std::vector<std::string> errors;
+                for (const auto line : base::split_lines(printed)) {
+                    if (line.contains("error") && errors.size() < 4) errors.emplace_back(base::trim(line));
+                }
+                return { false, std::format("{} exited {} instead of {}: {}", base::join(argv, " "), result->exitCode, wantedExit,
+                                            errors.empty() ? printed.substr(printed.size() - std::min<std::size_t>(printed.size(), 600)) : base::join(errors, " | ")) };
+            }
+            return { true, std::format("{} exited {}", base::join(argv, " "), result->exitCode) };
+        }
         if (kind == "cli") {
             // S5 7: a command of the query entries, run to completion in the workspace; its standard output is
             // one JSON document meeting the expectations, and it exits with "exit" (0 unless given).
@@ -4322,6 +4574,11 @@ public:
             }
             if (check.contains("count") && calls.size() != check["count"].get<std::size_t>())
                 return { false, std::format("{} calls instead of {}", calls.size(), check["count"].get<std::size_t>()) };
+            // "min-count" / "max-count": a bound instead of an exact number, for runs whose count is timing's (0.0.17 W4).
+            if (check.contains("min-count") && calls.size() < check["min-count"].get<std::size_t>())
+                return { false, std::format("{} calls, fewer than {}", calls.size(), check["min-count"].get<std::size_t>()) };
+            if (check.contains("max-count") && calls.size() > check["max-count"].get<std::size_t>())
+                return { false, std::format("{} calls, more than {}", calls.size(), check["max-count"].get<std::size_t>()) };
             if (calls.empty()) return { check.contains("count") && check["count"].get<std::size_t>() == 0, "no matching producer calls" };
             if (const auto expected = check.find("expect"); expected != check.end()) {
                 const auto [held, why] = expectations_hold(calls, *expected);
@@ -5045,6 +5302,10 @@ int run(Options options) {
             return 2;
         }
         prepareEnvironment = prepare_environment(options.msvcEnvironment);
+    }
+    if (const auto missing = missing_mcpp(scenario.value("requires-mcpp", Json {}), expansion); !missing.empty()) {
+        say("FAIL requires-mcpp: {}", missing);
+        return 1;
     }
     if (!alreadyPrepared) {
         for (const auto& command : scenario.value("prepare", Json::array())) {
@@ -5799,21 +6060,31 @@ int prepare_clangd_cannot_load() {
 // Fix plan F3: a clangd that crashes the way clangd 23.1 did on Windows in issue #23 -- its crash context on standard
 // error, naming a file that is not the one being edited, and then gone -- once, 25 seconds after it starts; every
 // later start is the payload's real clangd. POSIX only: the stand-in is a shell script around the real one.
-int prepare_clangd_crash_context(const std::string& payload) {
+// `crashFile` (relative to the workspace) is the file the context names; empty, the stand-in prints no context and is
+// gone the way a clangd killed from outside is (0.0.17 W5: clangd-exit-strike).
+int prepare_crashing_clangd(std::string_view kind, const std::string& payload, std::string_view crashFile) {
     if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
-        say("clangd-crash-context: POSIX only");
+        say("{}: POSIX only", kind);
         return 2;
     }
     const std::string workspace { fs::current_directory() };
     const std::string real { base::join_path(payload, "clangd/bin/clangd") };
     if (!fs::exists(real)) {
-        say("clangd-crash-context: no clangd at {}", real);
+        say("{}: no clangd at {}", kind, real);
         return 1;
     }
     const std::string directory { base::join_path(workspace, "stand-in") };
     (void)fs::create_directories(directory);
     const std::string crashed { base::join_path(directory, "crashed-once") };
-    const std::string crasher { base::join_path(workspace, "src/crasher.cpp") };
+    const std::string crasher { crashFile.empty() ? std::string {} : base::join_path(workspace, crashFile) };
+    const std::string context { crasher.empty() ? std::string {} : std::format(
+        "echo 'PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace.' >&2\n"
+        "echo 'Signalled during AST worker action: Build AST' >&2\n"
+        "echo '  Filename: {}' >&2\n"
+        "echo '  Directory: {}' >&2\n"
+        "echo '  Command Line: clang++ -std=c++23 -c -- {}' >&2\n"
+        "echo '  Version: 1' >&2\n",
+        crasher, workspace, crasher) };
     const std::string script { std::format(
         "#!/bin/sh\n"
         "real='{}'\n"
@@ -5829,22 +6100,17 @@ int prepare_clangd_crash_context(const std::string& payload) {
         // on the slowest Intel macOS runners, which killed the stand-in before its designed crash).
         "end=$(( $(date +%s) + 25 ))\n"
         "while [ $(date +%s) -lt $end ]; do i=0; while [ $i -lt 5000 ]; do i=$((i+1)); done; done\n"
-        "echo 'PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace.' >&2\n"
-        "echo 'Signalled during AST worker action: Build AST' >&2\n"
-        "echo '  Filename: {}' >&2\n"
-        "echo '  Directory: {}' >&2\n"
-        "echo '  Command Line: clang++ -std=c++23 -c -- {}' >&2\n"
-        "echo '  Version: 1' >&2\n"
+        "{}"
         "kill -KILL $child\n"
-        "exit 139\n",
-        real, crashed, crashed, crasher, workspace, crasher) };
+        "exit {}\n",
+        real, crashed, crashed, context, crasher.empty() ? 137 : 139) };
     const std::string clangd { base::join_path(directory, "clangd") };
     if (auto written = fs::write_file(clangd, script); !written) {
-        say("clangd-crash-context: {}", written.error().message);
+        say("{}: {}", kind, written.error().message);
         return 1;
     }
     if (auto marked = fs::make_executable(std::vector<std::string> { clangd }); !marked) {
-        say("clangd-crash-context: {}", marked.error().message);
+        say("{}: {}", kind, marked.error().message);
         return 1;
     }
     return 0;
@@ -5926,13 +6192,15 @@ int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "compdb-clangxx-msvc-std") return prepare_compdb_msvc_std(false);
     if (kind == "generated-module-old-mcpp") return prepare_generated_module_compdb(argument);
     if (kind == "clangd-cannot-load") return prepare_clangd_cannot_load();
-    if (kind == "clangd-crash-context") return prepare_clangd_crash_context(argument);
+    if (kind == "clangd-crash-context") return prepare_crashing_clangd(kind, argument, "src/crasher.cpp");
+    if (kind == "clangd-crash-closure") return prepare_crashing_clangd(kind, argument, "src/main.cpp");
+    if (kind == "clangd-exit-strike") return prepare_crashing_clangd(kind, argument, "");
     if (kind == "compdb-rejected-command") return prepare_compdb_rejected_command(argument);
     if (kind == "compdb-mixed-standards") return prepare_compdb_mixed_standards(argument);
     if (kind == "xmake-stale-compdb") return prepare_marked_compdb(kind, argument.empty() ? std::string { "g++" } : argument, "-DSTALE_COMPDB", "-std=c++17");
     if (kind == "compdb-midwrite") return prepare_marked_compdb(kind, argument.empty() ? std::string { "clang++" } : argument, "-DVERSION_ONE", "-std=c++23");
     if (kind == "compdb-lto-msvc") return prepare_compdb_lto_msvc(argument);
-    say("prepare: unknown fixture kind {} (heavy-headers, s1-two-sets, payload-corrupt, producer-candidate, delayed-producer, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, compdb-rejected-command, compdb-mixed-standards, xmake-stale-compdb, compdb-midwrite)", kind);
+    say("prepare: unknown fixture kind {} (heavy-headers, s1-two-sets, payload-corrupt, producer-candidate, delayed-producer, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, clangd-crash-closure, clangd-exit-strike, compdb-rejected-command, compdb-mixed-standards, xmake-stale-compdb, compdb-midwrite)", kind);
     return 2;
 }
 

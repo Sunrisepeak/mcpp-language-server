@@ -229,10 +229,128 @@ int main() {
             sent = sent && (*connection)->send(nlohmann::json { { "jsonrpc", "2.0" }, { "method", "m" }, { "params", big } }).has_value();
         }
         expect(sent);
-        expect(std::chrono::steady_clock::now() - started < 2s) << "4 MB to a peer that reads none of it";
+        const auto sendElapsed = std::chrono::steady_clock::now() - started;
+        expect(sendElapsed < 2s) << "4 MB to a peer that reads none of it; actual "
+                               << std::chrono::duration<double>(sendElapsed).count() << " s";
         const auto stopping = std::chrono::steady_clock::now();
         (*connection)->stop(200ms);
-        expect(std::chrono::steady_clock::now() - stopping < 10s) << "the writer, blocked in a write, lets go once the peer is gone";
+        const auto stopElapsed = std::chrono::steady_clock::now() - stopping;
+        std::println("connection nonreader evidence: 64 x 64 KiB send={:.9f}s; stop={:.9f}s",
+                     std::chrono::duration<double>(sendElapsed).count(), std::chrono::duration<double>(stopElapsed).count());
+        expect(stopElapsed < 10s) << "the writer, blocked in a write, lets go once the peer is gone; actual "
+                                 << std::chrono::duration<double>(stopElapsed).count() << " s";
+    };
+
+    "connection writer drains owned snapshots in FIFO order through both framings"_test = [&] {
+        using namespace std::chrono_literals;
+        using Json = nlohmann::json;
+        for (const auto framing : { mcppls::lsp::Framing::content_length, mcppls::lsp::Framing::lines }) {
+            const std::string_view framingName { framing == mcppls::lsp::Framing::lines ? "lines" : "content-length" };
+            struct Received {
+                std::mutex mutex;
+                std::condition_variable ready;
+                std::vector<Json> messages;
+                bool release { false };
+                bool gateTimedOut { false };
+                bool closed { false };
+            } received;
+            auto connection = mcppls::lsp::Connection::start(
+                { .program = self, .arguments = { "--echo" } },
+                [&](Json message) {
+                    std::unique_lock lock { received.mutex };
+                    received.messages.push_back(std::move(message));
+                    received.ready.notify_all();
+                    // Hold the first reply while later messages queue. A large following frame
+                    // also supplies backpressure, so the writer must own queued nested values.
+                    if (received.messages.size() == 1
+                        && !received.ready.wait_for(lock, 20s, [&] { return received.release; })) received.gateTimedOut = true;
+                },
+                [&] {
+                    const std::lock_guard lock { received.mutex };
+                    received.closed = true;
+                    received.ready.notify_all();
+                }, {}, framing);
+            expect(fatal(connection.has_value())) << framingName;
+            // On any assertion/exception unwind, release the callback before Connection joins it.
+            struct Release {
+                Received& received;
+                void open() {
+                    { const std::lock_guard lock { received.mutex }; received.release = true; }
+                    received.ready.notify_all();
+                }
+                ~Release() { open(); }
+            } release { received };
+            std::vector<Json> expected;
+            const auto send = [&](Json message) {
+                expected.push_back(message);
+                return (*connection)->send(std::move(message)).has_value();
+            };
+            bool sent { send(Json { { "jsonrpc", "2.0" }, { "id", 0 }, { "result", "first" } }) };
+            bool firstArrived { false };
+            {
+                std::unique_lock lock { received.mutex };
+                firstArrived = received.ready.wait_for(lock, 20s, [&] { return !received.messages.empty() || received.closed; })
+                            && !received.messages.empty();
+            }
+            expect(firstArrived) << framingName << " first echo did not arrive";
+            sent = send(Json { { "jsonrpc", "2.0" }, { "id", 1 }, { "result", std::string(4 * 1024 * 1024, 'b') } }) && sent;
+            Json original { { "jsonrpc", "2.0" }, { "id", 2 },
+                            { "result", { { "nested", { { "text", "h\xC3\xA9llo \xF0\x9F\x98\x80\n" },
+                                                        { "values", Json::array({ 1, 2, 3 }) } } } } } };
+            expected.push_back(original);
+            sent = (*connection)->send(original).has_value() && sent;
+            original["result"]["nested"]["text"] = "changed after send";
+            original["result"]["nested"]["values"][0] = 99;
+            original.clear();
+            {
+                Json temporary { { "jsonrpc", "2.0" }, { "id", 3 }, { "result", Json::array({ "temporary", 7 }) } };
+                expected.push_back(temporary);
+                sent = (*connection)->send(std::move(temporary)).has_value() && sent;
+            } // The moved-from source is destroyed before the writer is released.
+            Json invalid { { "jsonrpc", "2.0" }, { "id", 4 }, { "result", std::string { "A\xFF\xFE" "Z" } } };
+            expected.push_back(Json { { "jsonrpc", "2.0" }, { "id", 4 }, { "result", "A\xEF\xBF\xBD\xEF\xBF\xBD" "Z" } });
+            sent = (*connection)->send(std::move(invalid)).has_value() && sent;
+            sent = send(Json { { "jsonrpc", "2.0" }, { "id", 5 }, { "result", "last" } }) && sent;
+            release.open();
+            // Stop without first waiting for all replies: normal shutdown must drain the queue,
+            // close stdin, then allow --echo to finish and the reader to deliver every reply.
+            (*connection)->stop(20s);
+            expect(sent) << framingName;
+            expect(!received.gateTimedOut) << framingName << " first-reply gate timed out";
+            expect(received.closed && (*connection)->closed()) << framingName;
+            expect(received.messages.size() == expected.size()) << framingName << " expected " << expected.size()
+                                                               << " replies, received " << received.messages.size();
+            for (std::size_t i { 0 }; i < std::min(received.messages.size(), expected.size()); ++i) {
+                expect(received.messages[i] == expected[i]) << framingName << " reply " << i << " differs from its sent snapshot";
+            }
+            expect(!(*connection)->send(Json { { "after", "stop" } }).has_value()) << framingName;
+            (*connection)->stop(200ms); // Repeated cleanup must remain harmless after a normal drain.
+        }
+    };
+
+    "connection reports a departed peer and stopping it cleans up"_test = [&] {
+        using namespace std::chrono_literals;
+        std::mutex mutex;
+        std::condition_variable ready;
+        bool closed { false };
+        auto connection = mcppls::lsp::Connection::start(
+            { .program = self, .arguments = { "--exit", "0" } }, [](nlohmann::json) {},
+            [&] { const std::lock_guard lock { mutex }; closed = true; ready.notify_all(); });
+        expect(fatal(connection.has_value()));
+        bool observedClosed { false };
+        {
+            std::unique_lock lock { mutex };
+            observedClosed = ready.wait_for(lock, 20s, [&] { return closed; });
+        }
+        expect(observedClosed) << "the real child exited without closing the connection";
+        const auto sent = (*connection)->send(nlohmann::json { { "jsonrpc", "2.0" }, { "method", "after-exit" } });
+        expect(!sent.has_value());
+        if (!sent) expect(sent.error().code == "connection-closed" || sent.error().code == "connection-write") << sent.error().code;
+        const auto stopping = std::chrono::steady_clock::now();
+        (*connection)->stop(200ms);
+        (*connection)->stop(200ms);
+        expect(std::chrono::steady_clock::now() - stopping < 10s) << "departed peer cleanup";
+        expect((*connection)->closed());
     };
 
     "writing after the child exits returns an error and preserves the parent"_test = [&] {

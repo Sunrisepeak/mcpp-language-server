@@ -7,10 +7,57 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
-## [0.0.17] — 2026-10-22
+## [0.0.17] — 2026-10-24
 
-The bundled engine remains [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.16)
-(`23.1.0-mcppls.4`).
+The bundled engine is [mcppls-clangd 0.0.17](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.17)
+(`23.1.0-mcppls.5`), released together with this version. This release is about following an mcpp build target,
+what an idle or a crashed clangd costs you, and typing imports with autosave on.
+
+### The engine
+
+- **An idle clangd does next to nothing.** The engine kept the memos of a project's module checks on disk by building
+  the JSON of all of them every 30 seconds, and only then finding nothing had changed. It now writes only when a memo
+  changed (engine patch 0036): over ten idle minutes clangd uses about a tenth of the CPU it did. Its memory can still
+  grow while idle; see Known issues.
+- The engine's module workers work in sanitizer builds again (0037), which is how the engine's own nightly tests the
+  module paths for memory errors; and its releases publish the unstripped clangd for Linux and macOS beside the
+  stripped one, so a crash's stack can be named.
+
+### Typing and saving
+
+- **Typing an import with autosave on no longer asks the build tool at every pause.** A save that changes a file's
+  imports asks for the project model again; while that file is still being typed in, the request now waits until it
+  has been quiet for two seconds (never more than thirty), so a typed import is one run of mcpp, not one per save,
+  and the status no longer turns `loading` and back every couple of seconds (#59 U15).
+
+### When clangd exits
+
+- **A clangd that is killed (or stops with no crash report) no longer takes the file you are typing in away from it
+  for two minutes.** An exit that names no file is a strike against the files clangd was working on, not a verdict:
+  only a second such exit on the same file within ten minutes sets it aside (#59 U9).
+- **A file clangd crashed on goes back to it once the modules it imports are built again**, instead of after its
+  whole two-minute term: what it crashed on may have been one of those modules, half rebuilt. It goes back once for
+  each such build; another crash sets it aside for a doubled term, as before (#59 U7a).
+- A slow completion (two seconds and more) is recorded with where its time went -- waiting before the engine was
+  asked, the engine, and what came after -- in the report's events and in diagnostic bundles.
+
+### xmake
+
+- **mcppls no longer breaks your own `xmake` build.** With GCC, xmake keeps each unit's module mapper file in its
+  temporary directory under a name only the source's relative path decides, and your builds read it. mcppls's
+  private run rewrote those files to name its own build directory, where nothing is built, and your next
+  incremental build failed with `failed to read compiled module` until you ran `xmake` again (#69). Its xmake now
+  runs with a temporary directory of its own (`XMAKE_TMPDIR`), beside the configuration and build directories it
+  already had.
+- **A project whose xmake description failed once no longer stays inferred, without its packages' include paths,
+  in every later session** (#68). xmake's module scan cache is updated only by a build; mcppls describes without
+  building and configured its state again in place, so after a target was added (or, with xmake 3.1.1, after you
+  switched mode) every `xmake project -k compile_commands` failed with `dependfile ... not found`. The private
+  state is now a cache: made again from nothing whenever xmake itself, any `xmake.lua` or your `xmake.conf`
+  changes, and once more when xmake says it is out of date. Resetting the workspace cache removes the private
+  states of build tools too (xmake, CMake, Meson), so a reset is a fresh start. The first description after the
+  upgrade takes a second or two longer.
+- Both are xmake's own behaviour as well, recorded with reproductions in #24 (UP-X1, UP-X2).
 
 ### Build targets
 
@@ -38,6 +85,22 @@ The bundled engine remains [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak
 
 ### Reliability and measurements
 
+- A successful producer description can acknowledge a watched source's lexical imports even
+  when preprocessing excludes some of them from the active graph. Body-only saves then avoid
+  repeatedly describing the same structure; changed directives, failures and in-flight edits
+  retain conservative rediscovery.
+- An existing source file named as an LSP workspace folder is ignored in favor of the client's
+  valid directory roots. Zed file worktrees no longer make clangd start with a source file as
+  its working directory.
+- Child-connection messages are encoded by the writer, after an owned snapshot is queued.
+  Large JSON serialization no longer runs on the caller's event loop; FIFO order, framing and
+  UTF-8 replacement are preserved. A writer encoding failure ends the connection without terminating the server.
+- A workspace publishes its status after every participating engine finishes applying a plan.
+  Synchronous engine callbacks no longer expose the new profile before that application completes.
+  Timeline measurements retain compact transition timestamps and the busiest minute's evidence.
+- Typing measurements retain bounded request timestamps and the slowest successful reply,
+  together with the existing before/after server reports. Sampling, timeout and latency budgets
+  are unchanged; truncated or recent evidence is identified explicitly.
 - Renaming a symbol owned by mcpp's read-only engine interface is refused even from project
   references when the compiler returns only project edits. Definition and declaration ownership
   are checked before edits; unresolved or stale ownership returns an error without partial changes.
@@ -53,8 +116,6 @@ The bundled engine remains [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak
   files. A navigation answered from the previous session's cache can otherwise expose a partially
   written BMI read copy. Missing work state or an expired wait fails; navigation budgets and the
   zero-rebuild assertion remain unchanged.
-- Unchanged persistent memo snapshots in the bundled engine can still allocate memory during
-  idle periods. The engine remains unchanged; this release does not claim to fix that allocation.
 - Module builds completed inside a preparation closure count as real activity for stall detection,
   without incrementing the completed-prime counter. Resource and configuration measurements keep
   the engine activity and rebuild evidence needed to distinguish ongoing work from a stall.
@@ -66,7 +127,28 @@ The bundled engine remains [mcppls-clangd 0.0.16](https://github.com/Sunrisepeak
 - After a cache write failure, fixing the disk and restarting clangd restores analysis directly;
   changing the project again is no longer needed to recover the failed plan.
 - The Termux nightly binds its script directory into the inner Debian rootfs, so the job can reach
-  the server checks. The existing best-effort policy for Termux and two-core rounds is unchanged.
+  the server checks, and uses the official package source instead of a randomly picked mirror. The Zed
+  smoke test uses a preinstalled clangd through Zed's own lookup instead of a GitHub download.
+- On Windows with MSVC, an mcpp project that uses `import std` needs mcpp 2026.10.5.2 or later; for a 32-bit target it
+  is not available with Clang at all (Clang has no coroutines on 32-bit x86 MSVC, so the MSVC STL's `std` module
+  cannot be built), and such a project is read with the semantic kit (docs/20-projects.md). A conformance fixture that
+  needs a newer mcpp than CI's pinned one declares it (`requires-mcpp`).
+- **A change can be measured without being built again.** A manual nightly can test the payloads a pull request's CI
+  already built (`payload-run`), run only the ux rounds (`scope`), run their edits stage several times in new server
+  sessions (`ux-repeat`), and run a released server beside them on the same machines (`ux-baseline`), compared by
+  `mcppls-devtools measure compare`; a manual nightly of a branch can test a candidate engine (docs/92-release.md).
+  A released server that does not report its background work fails the checks that wait for it at once, instead of
+  after their 15-minute bound.
+
+### Known issues
+
+- **clangd's memory can grow while idle** (#59 U13). On one of the nightly's two real projects, when the allocator
+  had just given memory back before the idle ten minutes, clangd's resident memory rose by about half over them with
+  almost no CPU; 0.0.16 did the same. The memo writes were not the cause (above), and a local run of the same
+  sequence does not reproduce it. 0.0.18 looks at it with the engine's own memory accounting.
+- **The slowest completion while typing with autosave is about 0.2 s slower than in 0.0.16** on the nightly's
+  machines (one request in about 125, still well inside the 3-second budget; the 95th percentile is unchanged). It
+  is probably where a deferred project reload now lands; a local comparison did not reproduce the difference.
 
 ## [0.0.16] — 2026-10-14
 

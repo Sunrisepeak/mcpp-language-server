@@ -18,7 +18,7 @@ mcpp 给出的文档里列出了每个翻译单元、它的模块角色、它的
 
 有几点要注意：
 
-- **它最多可以跑多久，什么时候会再跑。** 构建工具的硬性时限是：第一次 5 分钟，之后是上一次运行用时的三倍，最短 1 分钟、最长 10 分钟；这期间由工程缓存的模型提供服务，没有缓存时按源码提供服务（`mcppls.producerTimeout` 可以改成固定时限）。保存源文件不会重新运行它：一个保存后模块声明和 import 都没变的源文件，只更新索引。只有构建文件、非源码输入或某个源文件的模块结构变化时才会再次询问构建工具，而且持续不断的编辑只算一次运行——运行前的等待会随构建工具的耗时变长，最长一分钟。
+- **它最多可以跑多久，什么时候会再跑。** 构建工具的硬性时限是：第一次 5 分钟，之后是上一次运行用时的三倍，最短 1 分钟、最长 10 分钟；这期间由工程缓存的模型提供服务，没有缓存时按源码提供服务（`mcppls.producerTimeout` 可以改成固定时限）。保存源文件不会重新运行它：一个保存后模块声明和 import 都没变的源文件，只更新索引。只有构建文件、非源码输入或某个源文件的模块结构变化时才会再次询问构建工具，而且持续不断的编辑只算一次运行——运行前的等待会随构建工具的耗时变长，最长一分钟。正在输入的文件被保存时（比如边输入 import 边自动保存），这次运行会等到该文件停止输入两秒之后再进行，最多等三十秒，所以输入一个 import 只运行一次，在你停下来之后。
 - **这一步是离线的。** 获取构建描述是查询工程信息，而不是替用户执行任务，所以服务端以 `MCPP_OFFLINE` 发起查询。如果项目依赖的东西机器上还没有，mcpp 会说明这一点，而且不需要等你做任何决定：
   - 工程立即按源码提供服务（L4），mcpp 能描述的部分照常使用；
   - 右下角的通知提供 **Download and Continue**（这一次允许构建工具联网）、**Run in Terminal**（你的代理和凭证在那里）和 **Don't Ask Again**。它可以一直不点；每个工作区、每组缺失的东西只问一次；
@@ -36,6 +36,9 @@ mcpp 给出的文档里列出了每个翻译单元、它的模块角色、它的
 `compile_commands.json`；项目源码明确使用同一目标平台时，mcppls 将该目标传给 mcpp，重新获取模块构建描述。
 例如执行 `mcpp build --target i686-windows-msvc` 发布编译数据库后，编辑器跟随 i686，无需再设置一次。
 这里跟随的是最近发布的编译配置；仅配置命令或随后编译失败的命令也可能发布它，不代表最近一次成功构建。
+在 Windows MSVC 下，使用 `import std` 的 mcpp 工程需要 mcpp 2026.10.5.2 或更新版本：更早的版本传给编译器的
+Windows SDK 路径以反斜杠结尾，会吞掉下一个参数，标准库模块无法构建，mcppls 以 `producer-failed` 原样显示 mcpp 的错误。32 位目标（`i686-windows-msvc`）则完全不能用 Clang `import std`：
+Clang 不支持 32 位 x86 MSVC 上的协程，MSVC STL 的 `std` 模块因此无法构建，mcppls 会改用语义工具包读取这类工程并说明原因（`std-fallback-kit`）。
 
 要固定当前工程的分析平台，可在 `.vscode/settings.json` 中设置：
 
@@ -73,7 +76,7 @@ mcpp 给出的文档里列出了每个翻译单元、它的模块角色、它的
 
 ## xmake
 
-有 `xmake.lua` 就是 xmake 工程。mcppls 用 xmake 自己的命令 `xmake project -k compile_commands` 向 xmake 要一份，这个命令不编译任何东西——但它会配置并扫描模块，所以 mcppls 把 xmake 的配置目录和构建目录指向自己的缓存（`XMAKE_CONFIGDIR`、`--builddir`），你的工程保持不变：不生成、不修改、不删除里面的任何文件，包括你自己的 `compile_commands.json`。它离线运行（`--policies=package.fetch_only,network.mode:private`）：没有安装的包会让它停下，并给出和上面一样的询问。第一次描述要几秒钟（实测约 6–8 秒，大部分是 xmake 在探测工具链）；这期间工程按源码提供服务。模块角色靠扫描得到，所以 xmake 工程是 L3。
+有 `xmake.lua` 就是 xmake 工程。mcppls 用 xmake 自己的命令 `xmake project -k compile_commands` 向 xmake 要一份，这个命令不编译任何东西——但它会配置并扫描模块，所以 mcppls 把 xmake 的配置目录、构建目录和临时目录指向自己的缓存（`XMAKE_CONFIGDIR`、`--builddir`、`XMAKE_TMPDIR`），你的工程保持不变：不生成、不修改、不删除里面的任何文件，包括你自己的 `compile_commands.json`；你自己的构建也不会读到它写的任何东西（用 GCC 时，xmake 把模块 mapper 文件放在临时目录里，文件名只由源文件的相对路径决定；0.0.16 写在了那里，你下一次增量构建就会报 `failed to read compiled module`，#69）。这份私有状态是 mcppls 的缓存：xmake 本身、任何一个 `xmake.lua` 或你的 `xmake.conf` 变化时，它会从头重建；xmake 报告它已过期时（`dependfile ... not found`，一份只有构建才会更新的扫描缓存；#68）再从头重建一次；重置工作区缓存也会把它删掉。它离线运行（`--policies=package.fetch_only,network.mode:private`）：没有安装的包会让它停下，并给出和上面一样的询问。第一次描述要几秒钟（实测约 6–8 秒，大部分是 xmake 在探测工具链）；这期间工程按源码提供服务。模块角色靠扫描得到，所以 xmake 工程是 L3。
 
 模型会跟着你的操作走，不需要手动做任何事：任何一个 `xmake.lua` 变了，就重新描述工程；你自己运行 `xmake f` 也一样——mcppls 读取它留在 `.xmake/<plat>/<arch>/xmake.conf` 里的内容（只读；有多个时取最新的那个），并让自己的私有运行用同样的方式配置：平台、架构、模式（`-m debug` 得到 `-O0 -g`，而不是 release 的参数）、工具链、SDK、运行库、kind，以及你的 `xmake.lua` 声明的选项。文件里哪些键算选项，由 xmake 自己回答：mcppls 在工程里运行一次 `xmake f --help`（结果缓存在自己的缓存里，直到 `xmake` 或 `xmake.lua` 变化），只传这份列表里有的键。其余的是 xmake 写给自己的（`proxy`、`dotnet`、`dotnet_sdkver`、工具链探测结果）：`xmake f` 一律拒绝它们，所以直接跳过，也不会提示。只有 xmake 给不出可用的帮助、又拒绝了某个选项时，mcppls 才会只带标准选项再配置一次，状态栏会说明哪些没有带上。
 

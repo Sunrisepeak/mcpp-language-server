@@ -8,10 +8,29 @@ name: nightly
 on:
   schedule:
     - cron: '30 18 * * *'
+  # A manual run can test what a pull request's CI already built, and only the ux rounds, as many
+  # times as asked, beside a released server: a change is measured without being built again
+  # (docs/92-release.md, "Measuring a change").
   workflow_dispatch:
+    inputs:
+      payload-run:
+        description: A CI run of this branch whose payloads to test (its run id); empty builds them here
+        default: ''
+      scope:
+        description: 'all: every job; ux: only the ux rounds (and their budgets and comparison)'
+        type: choice
+        options: [all, ux]
+        default: all
+      ux-repeat:
+        description: How many times each ux round runs its edits stage, each in a new server session
+        default: '1'
+      ux-baseline:
+        description: A release (v0.0.16) whose server runs the same stages beside this one, on the same machine
+        default: ''
 
 permissions:
   contents: read
+  actions: read   # another run's payload artifacts (payload-run)
 
 env:
   # The build pins live in .github/versions.env and are exported by .github/actions/setup-mcpp,
@@ -20,6 +39,7 @@ env:
 
 jobs:
   ci:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.payload-run == '' }}
     uses: ./.github/workflows/ci.yml
 
   # The Zed extension in a real Zed (editors/zed/tests/smoke.sh), on the payload ci.yml just built.
@@ -27,14 +47,16 @@ jobs:
   zed:
     name: real Zed
     needs: ci
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && inputs.scope != 'ux' }}
     uses: ./.github/workflows/zed-smoke.yml
+    with:
+      payload-run: ${{ inputs.payload-run }}
 
   timing:
     name: startup timing (${{ matrix.platform }})
     needs: ci
     # Timings and self-hosting need only the payloads: a failure elsewhere in CI does not skip them.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && inputs.scope != 'ux' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -49,11 +71,10 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: ./.github/actions/payload
         with:
-          name: payload-${{ matrix.platform }}
-      - name: Unpack the payload
-        run: tar -xzf payload-${{ matrix.platform }}.tar.gz
+          platform: ${{ matrix.platform }}
+          run-id: ${{ inputs.payload-run }}
       - name: Three cold and warm starts
         run: |
           set -euo pipefail
@@ -80,7 +101,7 @@ jobs:
   mcpp-latest:
     name: mcpp fixtures with the latest mcpp (linux-x64)
     needs: ci
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && inputs.scope != 'ux' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -93,11 +114,10 @@ jobs:
       - uses: ./.github/actions/setup-mcpp
       - name: GCC 16, which mcpp-gcc builds with
         run: mcpp toolchain install gcc 16.1.0
-      - uses: actions/download-artifact@v8
+      - uses: ./.github/actions/payload
         with:
-          name: payload-linux-x64
-      - name: Unpack the payload
-        run: tar -xzf payload-linux-x64.tar.gz
+          platform: linux-x64
+          run-id: ${{ inputs.payload-run }}
       - name: The mcpp fixtures
         run: |
           set -euo pipefail
@@ -129,7 +149,7 @@ jobs:
   termux:
     name: termux + proot-distro Debian (linux-arm64)
     needs: ci
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && inputs.scope != 'ux' }}
     continue-on-error: true
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
@@ -138,15 +158,12 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: ./.github/actions/payload
         with:
-          name: payload-linux-arm64
-      - name: Unpack the payload
-        run: |
-          set -euo pipefail
-          tar -xzf payload-linux-arm64.tar.gz
-          # The container's user is not the runner's: what it reads has to be readable.
-          chmod -R a+rX payload stage conformance
+          platform: linux-arm64
+          run-id: ${{ inputs.payload-run }}
+      # The container's user is not the runner's: what it reads has to be readable.
+      - run: chmod -R a+rX payload stage conformance
       # Runs in the Debian rootfs, as its root, with the checkout bound at /work. The same three
       # checks as the `proot` job, on a server started directly (there is no wrapper: the whole
       # session is already under proot).
@@ -178,8 +195,12 @@ jobs:
           EOF
           cat > "$RUNNER_TEMP/in-termux.sh" <<'EOF'
           set -eu
-          yes | pkg update -y || true
-          pkg install -y proot-distro
+          # Use the official seed instead of pkg's randomly selected mirrors:
+          # https://github.com/termux/termux-packages/wiki/Mirrors
+          # A stale mirror previously advertised a proot-distro package it no longer served.
+          printf '%s\n' 'deb https://packages.termux.dev/apt/termux-main stable main' > "$PREFIX/etc/apt/sources.list"
+          apt-get update
+          apt-get install -y proot-distro
           proot-distro install debian
           proot-distro login debian --bind /mnt/work:/work --bind /mnt/scripts:/mnt/scripts -- bash -c 'test -r /mnt/scripts/in-debian.sh && exec bash /mnt/scripts/in-debian.sh'
           EOF
@@ -197,7 +218,7 @@ jobs:
   self-hosting:
     name: self-hosting (${{ matrix.fixture }}, ${{ matrix.platform }})
     needs: ci
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && inputs.scope != 'ux' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     strategy:
@@ -238,11 +259,10 @@ jobs:
           xlings install mcpp@2026.8.8.4 -y -g
           xlings use mcpp "$MCPP_VERSION"
           mcpp --version
-      - uses: actions/download-artifact@v8
+      - uses: ./.github/actions/payload
         with:
-          name: payload-${{ matrix.platform }}
-      - name: Unpack the payload
-        run: tar -xzf payload-${{ matrix.platform }}.tar.gz
+          platform: ${{ matrix.platform }}
+          run-id: ${{ inputs.payload-run }}
       - name: The fixture, timed
         run: |
           set -euo pipefail
@@ -295,37 +315,82 @@ jobs:
           xlings install mcpp@2026.9.21.1 -y -g
           xlings use mcpp "$MCPP_VERSION"
           mcpp --version
-      - uses: actions/download-artifact@v8
+      - uses: ./.github/actions/payload
         with:
-          name: payload-linux-x64
-      - name: Unpack the payload
-        run: tar -xzf payload-linux-x64.tar.gz
+          platform: linux-x64
+          run-id: ${{ inputs.payload-run }}
+      # ux-baseline: the release's own server and stage tools, beside this run's; its own workspace
+      # and cache, since the two servers' caches are not each other's.
+      - name: The baseline release
+        if: inputs.ux-baseline != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/baseline"
+          gh release download '${{ inputs.ux-baseline }}' --repo '${{ github.repository }}' --pattern payload-linux-x64.tar.gz --dir "$RUNNER_TEMP/baseline"
+          tar -xzf "$RUNNER_TEMP/baseline/payload-linux-x64.tar.gz" -C "$RUNNER_TEMP/baseline"
+          "$RUNNER_TEMP/baseline/payload/bin/mcppls" --version
       - name: The stages
+        env:
+          REPEAT: ${{ inputs.ux-repeat || '1' }}
+          BASELINE: ${{ inputs.ux-baseline }}
         run: |
           set -euo pipefail
           nproc
           cat /proc/loadavg
+          case "$REPEAT" in ''|*[!0-9]*|0) echo "::error::ux-repeat is a positive number, not '$REPEAT'"; exit 1 ;; esac
           results="$RUNNER_TEMP/ux-results"
           work="$RUNNER_TEMP/ux-work"
           mkdir -p "$results" "$work"
           # The two-core round pins the runner and, through it, the server and clangd it starts.
           pin=(); [ -n "${{ matrix.cores }}" ] && pin=(taskset -c "${{ matrix.cores }}")
           failed=''
+          # run_stage <server: this|baseline> <stage> <measure suffix> <cache> [runner arguments]: the
+          # baseline's server runs in a workspace and cache of its own, measured into a directory of its
+          # own (an artifact the budgets leave out); the runner and the fixture are this run's for both,
+          # so only the server differs.
           run_stage() {
-            local name="$1" cache="$2"; shift 2
-            echo "::group::${{ matrix.fixture }} ${{ matrix.round }} $name"
-            if ! ${pin[@]+"${pin[@]}"} stage/mcppls-conformance run --server payload/bin/mcppls --payload payload \
-                --fixture conformance/fixtures/${{ matrix.fixture }} --workspace-dir "$work/workspace" --cache-dir "$work/$cache" \
-                --stage "$name" --timeout 900 --measure "$results/${{ matrix.fixture }}-${{ matrix.round }}-$name.json" "$@"; then
-              failed="$failed $name"
+            local server="$1" name="$2" suffix="$3" cache="$4"; shift 4
+            local payload=payload into="$results" space="$work" label="$name$suffix"
+            if [ "$server" = baseline ]; then
+              payload="$RUNNER_TEMP/baseline/payload" into="$RUNNER_TEMP/ux-baseline-results" space="$work/baseline" label="$label (baseline $BASELINE)"
+            fi
+            mkdir -p "$into" "$space"
+            echo "::group::${{ matrix.fixture }} ${{ matrix.round }} $label"
+            if ! ${pin[@]+"${pin[@]}"} stage/mcppls-conformance run --server "$payload/bin/mcppls" --payload "$payload" \
+                --fixture conformance/fixtures/${{ matrix.fixture }} --workspace-dir "$space/workspace" --cache-dir "$space/$cache" \
+                --stage "$name" --timeout 900 --measure "$into/${{ matrix.fixture }}-${{ matrix.round }}-$name$suffix.json" "$@"; then
+              if [ "$server" = this ]; then failed="$failed $name$suffix"; else echo "::warning::the baseline failed $name$suffix"; fi
+              # Keep the original failed stage's complete server logs before later
+              # stages rotate them. This runs after the measured process exits.
+              if [ -d "$space/$cache/logs" ]; then
+                mkdir -p "$into/failed-$name$suffix/logs"
+                cp -a "$space/$cache/logs/." "$into/failed-$name$suffix/logs/" ||
+                  echo "::warning::could not preserve all $name$suffix server logs"
+              fi
             fi
             echo "::endgroup::"
           }
-          run_stage cold cache-a
-          run_stage warm cache-a --expect-warm
-          run_stage edits cache-a --expect-warm
-          run_stage faults cache-b
-          if [ "${{ matrix.round }}" = 1 ]; then run_stage long cache-a --expect-warm; fi
+          servers=(this); [ -n "$BASELINE" ] && servers=(this baseline)
+          for server in "${servers[@]}"; do
+            run_stage "$server" cold '' cache-a
+            run_stage "$server" warm '' cache-a --expect-warm
+          done
+          # The edits stage REPEAT times, a new server session each, on what cold and warm prepared: the
+          # typing and save scenarios (U5, U6, U7a, U15) sampled that many times without building again.
+          # Beside a baseline the two alternate A B B A, so that a slower stretch of the machine is
+          # shared between them.
+          for i in $(seq 1 "$REPEAT"); do
+            suffix=''; [ "$REPEAT" -gt 1 ] && suffix="-$i"
+            order=("${servers[@]}")
+            if [ -n "$BASELINE" ] && [ $((i % 2)) -eq 0 ]; then order=(baseline this); fi
+            for server in "${order[@]}"; do run_stage "$server" edits "$suffix" cache-a --expect-warm; done
+          done
+          run_stage this faults '' cache-b
+          if [ "${{ matrix.round }}" = 1 ]; then
+            for server in "${servers[@]}"; do run_stage "$server" long '' cache-a --expect-warm; done
+          fi
           {
             echo "### ${{ matrix.fixture }}, round ${{ matrix.round }}"
             echo
@@ -344,6 +409,11 @@ jobs:
         with:
           name: nightly-ux-${{ matrix.fixture }}-${{ matrix.round }}
           path: ${{ runner.temp }}/ux-results
+      - uses: actions/upload-artifact@v7
+        if: always() && inputs.ux-baseline != ''
+        with:
+          name: nightly-ux-${{ matrix.fixture }}-${{ matrix.round }}-baseline
+          path: ${{ runner.temp }}/ux-baseline-results
 
   # U-* (0.0.8 plan §3.4): every scenario's numbers over the night's rounds, for setting each budget from what was
   # measured (1.3 x the 95th percentile over two weeks of nights) instead of widening it after a slow runner. The
@@ -355,11 +425,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/payload
         with:
-          name: payload-linux-x64
-      - name: Unpack the payload
-        run: tar -xzf payload-linux-x64.tar.gz
+          platform: linux-x64
+          run-id: ${{ inputs.payload-run }}
       - uses: actions/download-artifact@v8
         with:
           pattern: nightly-ux-ux-*-[123]
@@ -369,7 +439,19 @@ jobs:
           set -euo pipefail
           stage/mcppls-devtools measure budgets ux-rounds | tee ux-budgets.md
           { echo '### ux budgets over the night'"'"'s rounds'; echo; cat ux-budgets.md; } >> "$GITHUB_STEP_SUMMARY"
+      # ux-baseline: each scenario's numbers beside the release's, from the same machines and stages.
+      - uses: actions/download-artifact@v8
+        if: inputs.ux-baseline != ''
+        with:
+          pattern: nightly-ux-ux-*-[123]-baseline
+          path: ux-baseline
+      - name: Beside the baseline
+        if: inputs.ux-baseline != ''
+        run: |
+          set -euo pipefail
+          stage/mcppls-devtools measure compare ux-rounds ux-baseline | tee ux-compare.md
+          { echo '### ux beside ${{ inputs.ux-baseline }}'; echo; cat ux-compare.md; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         with:
           name: nightly-ux-budgets
-          path: ux-budgets.md
+          path: ux-*.md

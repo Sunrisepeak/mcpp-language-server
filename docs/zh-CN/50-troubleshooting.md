@@ -76,6 +76,8 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **“xmake needs libtool, libpthread-stubs downloaded”。** 这些名字不是你的代码缺的库：它们是 xmake 为你的 `xmake.lua` 所要求的包而要下载或构建的东西，包括构建工具（设成从源码构建的包会带进自己的构建工具，比如 `libtool`、`meson`），而 mcppls 保持离线，不会自己去下载。有三条路：在通知里选 **Download and Continue**；在终端里运行 `xmake`（做完后会重新读取描述）；或者用系统包管理器安装（`apt install libtool libpthread-stubs0-dev`、`pacman -S libtool`、`brew install libtool`）——xmake 的包定义里写了对应的系统包，找到系统里的就直接用。如果状态里写的是 `producer-install-failed`，说明已允许联网、安装本身失败了；消息里有 xmake 的 `error:` 行和 `install.txt` 日志的路径，常见原因是源码构建需要的工具（autotools、编译器）没有安装。
 
+**xmake：你自己的构建报 `failed to read compiled module`，或者状态里出现 `dependfile ... not found`。** 两者都是 xmake 自己的状态和磁盘上的内容对不上（#24 UP-X1、UP-X2）。前者：用 GCC 时，xmake 把模块 mapper 文件放在临时目录里，文件名只由源文件的相对路径决定，所以同样路径的另一次构建（另一个构建目录、工程的另一份 checkout）会把它自己模块的路径留在那里；再运行一次 `xmake` 即可恢复。mcppls 0.0.16 的私有运行会引起这个问题；0.0.17 让 xmake 使用自己的临时目录。后者：`xmake project -k compile_commands` 依赖一份只有构建才会更新的模块扫描缓存；加了 target 之后只描述、从没构建过的工程，一旦某个 dependfile 不在了就会这样失败。mcppls 会自己重建它的 xmake 状态；如果是你自己运行的 `xmake project`，构建一次（`xmake`）即可恢复。
+
 **所有功能失效，任何位置都无法跳转到定义。** 看报告里的 `project.source`。如果一个用了构建系统的项目里它是 `inferred`，说明构建工具没有给出答复；原因在 `project.issues` 和 `toolRuns` 的最后一条里。常见原因是构建工具需要下载东西：这时状态栏会提议在你的终端里运行它。
 
 **跳转到定义能用，补全不能用，或者标准库缺失。** 看 `profile`。语义工具包意味着没找到可用的编译器；`import std` 仍然能解析，但诊断来自 libc++，不是来自你的工具链。
@@ -122,7 +124,7 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **clangd 反复重启。** 看 `engines[].restarts`、`engines[].details.restartBudget` 和 `events` 日志。每种原因各有十分钟三次的重启额度：引擎数据库变化（`plan`）、恢复停止应答或空转的 clangd（`recovery`）、clangd 退出（`crash`）。用完之后，同类的下一次重启依次等待一、二、四、八分钟——是退避而不是拒绝，所以卡住的 clangd 总能恢复——状态会说明（`engine-restart-capped`）并提供 **Restart clangd** 按钮（其他编辑器用 `workspace/executeCommand` `mcppls.restartEngine`），它立即重启且从不计入额度。切换工具链、profile 或 context 也从不计入，模块编译不过从来不是重启的理由。引擎数据库的每次变化都会记入日志并写明改了什么（`engine database changed: … compiled otherwise (main.cpp: argument 3: -O0 -> -O2)`），重启密集时能直接看到原因。
 
-**“clangd crashed while building NormalJsonTranslator.Core.cpp”。** clangd 会说明它在哪个文件上崩溃（崩溃上下文），隔离的就是这个文件：它改由 mcppls 自己的引擎应答，同时重启一个不带它的 clangd。报告里的 `engines[].details.lastExit` 有退出码、文件、clangd 当时在做什么，Windows 上还有异常码。五分钟内退出五次之后，clangd 会在 1、2、4、8 分钟后重新启动，状态会说明（`engine-crash-loop`，带 **Restart clangd**）；它不会在本次会话里被放弃。clangd 稳定运行满一分钟后，崩溃和超时这两类 issue 会自行清除。最后的办法见[下文](#mcppls-无法自行恢复时)。
+**“clangd crashed while building NormalJsonTranslator.Core.cpp”。** clangd 会说明它在哪个文件上崩溃（崩溃上下文），隔离的就是这个文件：它改由 mcppls 自己的引擎应答，同时重启一个不带它的 clangd。它在以下情况交回 clangd：文件本身有改动；隔离期满（两分钟，再次让 clangd 崩溃则翻倍）；或者它导入的模块重新构建完成（只交回一次，因为它可能正是在某个重建到一半的模块上崩溃的）。clangd 退出时没有指明文件（被杀掉或内存不足），它当时在处理的文件只记一次警告，不会被隔离；同一个文件在十分钟内第二次碰到这种退出，才会被隔离。报告里的 `engines[].details.lastExit` 有退出码、文件、clangd 当时在做什么，Windows 上还有异常码。五分钟内退出五次之后，clangd 会在 1、2、4、8 分钟后重新启动，状态会说明（`engine-crash-loop`，带 **Restart clangd**）；它不会在本次会话里被放弃。clangd 稳定运行满一分钟后，崩溃和超时这两类 issue 会自行清除。最后的办法见[下文](#mcppls-无法自行恢复时)。
 
 **“mcpp could not describe tools/updater/mcpp.toml”。** 构建工具描述了工作区的其余部分，并说明了它没能描述的那一部分（例如某个成员的构建程序失败）；那部分的文件按其余部分提供的信息来读，其余部分照常工作（`producer-partial`，S2 0.3.0）。修好消息里指出的问题，下次重新加载就会一并描述它。
 
@@ -166,7 +168,7 @@ Windows 上补全还慢在哪里、这一版做了什么，看日志里的 `Comp
 - **Neovim**：`:McpplsResetCache`
 - **其他客户端**：`workspace/executeCommand` `mcppls.resetCache`
 
-它会停掉这个根目录的引擎，删除它的缓存——模型、引擎数据库，以及 clangd 的模块缓存和锁——然后重新开始。日志保留。之后的第一次会话是冷启动。
+它会停掉这个根目录的引擎，删除它的缓存——模型、引擎数据库、clangd 的模块缓存和锁，以及 mcppls 运行的构建工具（xmake、CMake、Meson）的私有状态（在下一次描述开始前删除，不会删在正在运行的描述底下）——然后重新开始。日志保留。之后的第一次会话是冷启动。
 
 旧的模块会自动清理：每个单元保留它最新两条编译命令构建出的模块（BMI），更旧的在 clangd 启动时于后台删除。`mcppls cache --prune` 会对所有没有实例打开的工作区做同样的清理。
 

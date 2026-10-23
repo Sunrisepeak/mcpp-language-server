@@ -1,9 +1,13 @@
 {
   "name": "mcpp-build-programs",
-  "description": "A package whose build.mcpp imports mcpp's engine interface and a library of [build-dependencies], gen, and which has a package, both, in both tables, described by mcpp's own `emit build-database` (mcpp 2026.10.11.1, mcpp-community/mcpp#797): build.mcpp is read as C++ with the arguments of its own set, its imports resolve in the build programs' graph, navigation reaches the engine interface, the target reads both as it builds it, and an import across the two configurations is diagnosed. MCPPLS_BUILD_PROGRAMS_MCPP names an mcpp of that version or later, which CI installs beside the pinned one; unset, the mcpp on PATH is asked.",
+  "description": "A package whose build.mcpp imports mcpp's engine interface and a library of [build-dependencies], gen, and which has a package, both, in both tables, described by mcpp's own `emit build-database` (mcpp 2026.10.11.1, mcpp-community/mcpp#797): build.mcpp is read as C++ with the arguments of its own set, its imports resolve in the build programs' graph, navigation reaches the engine interface, the target reads both as it builds it, and an import across the two configurations is diagnosed. MCPPLS_REAL_MCPP names an mcpp of that version or later, which CI installs beside the pinned one; unset, the mcpp on PATH is asked.",
+  "requires-mcpp": {
+    "executable": "{env:MCPPLS_REAL_MCPP|mcpp}",
+    "at-least": "2026.10.11.1"
+  },
   "server-arguments": [
     "--mcpp",
-    "{env:MCPPLS_BUILD_PROGRAMS_MCPP|}"
+    "{env:MCPPLS_REAL_MCPP|}"
   ],
   "checks": [
     {

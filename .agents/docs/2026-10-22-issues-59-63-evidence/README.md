@@ -1,6 +1,8 @@
 # #59 / #63 验证简报
 
-日期：2026-10-22 JST。**R1 产品补修本地已通过；新 CI 的 CPU 采样测试与原九阶段 warm 超时仍待解决，PR 保持草稿。**
+交接获取修正：源码、四份引擎提案及精简证据现随 PR 分支提交。见 [HANDOFF.md](HANDOFF.md) 和[证据恢复入口](portable-handoff/README.md)，不再要求接手者拥有原机器的 `.payload-cache`。两 profile 完整 workspace 各 58 程序、LSP 各 32 组（含 70 项 fixture）均已通过；新源版本远端 CI 与性能问题仍待验证。
+
+日期：2026-10-22 JST。**PR #64 已合入；PR #65 的产品补修在提交 `1341938` 通过 PR CI 与本地原九阶段。最终范围审计补充真实 mcpp Windows 双目标链，新增验收仍待原生 CI；nightly 和正式发布/升级尚未完成。**
 
 本目录只收结论、[复现步骤](reproduce.md)和 [SHA-256 索引](raw-index.tsv)。45 份原始记录共 26,769 行，已移出 PR；失败、对照、日志与 core 均保留。源码边界见 [设计方案](../2026-10-22-issues-59-63-target-and-reliability-design.md)。
 
@@ -56,6 +58,59 @@ R1 补修本地 dev/release 全 workspace 均为 6 members / 57 programs / 0 fai
 
 同一新产品的原性能首轮 mcpp warm ready **15.219 s > 12 s**，真实失败；176 已有模块零重建/零首次构建、零错误/重启。producer/model/首次导航很快，慢段位于引擎 prerequisite reuse 检查与扫描。该段采样约 0.343 core；前检查点约 1.353 core，总 CPU 工作近似相当，但缺当时 IO、调度及宿主 pressure 证据，不归因外部负载或认定产品无关。其余阶段继续，不能将旧九阶段通过或后来诊断通过替代本轮失败。
 
+## 合入检查点与发布前发送补修
+
+`38366b9` 的 PR CI 39720450692 为 61 success / 1 expected skip；proot 首次下载 VS Code 超时，单项原样重试后实际 LSP/editor 通过，首日志保留。nightly 39720447763 为 62 success / 4 expected skips，全部八组 UX 的 34 阶段 / 207 检查实际通过。固定 observer 对照四组 cold→firstwarm 全部退出 0，warm 为 3.92/4.06/4.16/3.98 秒，没有证明观察器导致首次超时。
+
+另一次预登记的完整九阶段最终验收为 9 exit 0 / 53 checks / 0 failed，保留原 CPU、pins、producer、cache lineage 和门槛；mcpp warm 3.824 秒，U8 undo 均为 0。原 600 秒 xlings idle 为 0.004819 core、RSS 1258.30→1121.86 MiB，有限工作单列。此前 15.219 秒失败仍未归因，未因新通过改写。该检查点于 `fd869bd` squash 合入；原始材料及小型终态摘要保存在 `.payload-cache/59-63-performance/light-observer-final-acceptance-f6ec554/`。
+
+随后 draft Release 39732244483 的 macOS dev job 119670268987 在原 `test_process.cpp` 发送检查失败：4 MiB 入队应小于 2 秒；CPU oracle 测试通过。旧断言未打印实际耗时，不能给出精确超时值或归因宿主。代码确认 JSON 编码仍在调用线程同步执行；补修将拥有所有权的 JSON 快照交给 writer 编码、写入，保持 FIFO、UTF-8 和两种 framing，并隔离 writer 编码异常。原 4 MiB / 2 秒及 stop 10 秒门槛不变；新产品必须重新验收，不能借用前述产品通过。见[复现第 11 节](reproduce.md#11-发送队列的编码与快照)。
+
+## 新增状态一致性回归与证据边界
+
+`072c230` 的 CI 39735383721 有真实 U15-edits 失败：最忙一分钟 13 次状态转换，超过原 12 次门槛；169 次采样、总 28 次转换、两次配置重启、零 error。其余 cold/warm/typing/graph/config undo/faults 通过不抵消该失败。原 artifact 只有汇总，旋转 server 日志也没有完整 status 轨迹，**不能确定这 13 次的原因**。
+
+独立回归证明同步 apply 的一致性缺陷：真实 clangd 在安装新 primer/安排重启前会调用 `host.status_changed()`，workspace 此时已采用新 profile。相同回调时序的定制 core 在旧产品上仅一个断言失败，暴露了引擎尚未 commit 的新 profile/ready；无回调对照通过。补修只合并同一同步 apply 栈内的状态通知，所有参与引擎完成后发布；不增加延时、不扩展 hold、不隐藏异步状态。修后 dev/release 各 28 cases / 357 assertions 通过，其他验证仍在进行。这一独立缺陷不能冒充首个 13 次失败的归因。
+
+runner 新增紧凑 `stateTransitionTrace` 与 `busiestMinuteWindow`：保存初始状态、重启边界和实际计数的转换，带整数纳秒及采样索引，能按原严格 `<60s` 窗口重算。只保留 issue code，不复制完整 status 或路径；原采样、计数和门槛不变。完整新产品性能链与平台 CI/nightly 尚未完成。见[复现第 12 节](reproduce.md#12-同步-apply-的状态快照与时间线证据)。
+
+## 补修产品最终本地验收与真实 Windows 生产链边界
+
+提交 `1341938` 的 PR CI 39742414940 为 **46 success / 1 条件跳过**。两种 profile 各 6 members / 57 programs、31 组真实 LSP、原完整 build-programs 与实际 VS Code（44 passing / 1 平台专用 pending）均零失败。原九阶段单次完整运行 **9 exit 0 / 53 checks / 0 failed**，fixture、CPU、producer、cache lineage 与预算保持原值；mcpp/xlings warm ready 为 **6.572 / 2.435 秒 <12 秒**，已有模块分别 176/111，均零重建；xlings 另有 39 首次构建。U8 撤销均零重建，U15 edits 最忙一分钟为 4/2 次。
+
+原 600 秒 xlings idle 为 **0.004954 core**，RSS **1108.40→1129.73 MiB（+1.92%）**；之前 62.021 秒有限工作单列，不混入空闲值。独立重算全部状态轨迹和严格 `<60s` 窗口，9 个 observer 均正常结束，303 个观测到的 PID/birth 身份已退出；1 秒采样可能漏掉瞬时子进程。终态摘要在 `.payload-cache/59-63-performance/light-observer-final-acceptance-status-1341938/terminal-summary.json`，原 13/min 与 15.219 秒失败及其未归因边界不变。
+
+范围审计发现：原 `mcpp-target-windows` 是 mock producer + 真实 clangd，它证明目标传递和条件声明，但不能代替设计要求的真实 mcpp 原生双目标生产链。新增 `mcpp-target-windows-real` 使用真实 `mcpp build --configure-only --target` 生成两份完整 CDB，不改写条目；同一会话切换 i686→x64→i686，校验 auto 来源、实际引擎命令、32/64/32 条件声明、导航与诊断。Windows 原生 CI 实际通过前，该项保持待验收；没有把 mock 通过扩大为真实生产链通过。
+
+## 134 nightly 首次失败与后续修复边界
+
+`1341938` 的 nightly [39742450508](https://github.com/Sunrisepeak/mcpp-language-server/actions/runs/39742450508) 最终为 **58 success / 4 failure / 4 skipped**，不能由本地九阶段或 PR CI 通过替代：
+
+| 首次失败 | 原始门槛与观测 | 当前结论 |
+|---|---|---|
+| mcpp round 2 | U5 p95 2.374 s / max 8.264 s；U6 max 6.384 s，超过 1/3/3 s 预算 | 未归因。server completion max 8.262 s 与客户端一致，不能只归为 runner 接收延迟 |
+| mcpp round 1 | U15 edits 最忙一分钟 13 次 >12 | 重算跨度 59,999,840,473 ns，确实在严格 `<60s` 内；全部支持点位于 U6 autosave，不能归给后续 U8 |
+| xlings two-core | U5 timeout 1；U7a p95/max 1.53 s >1.5 s | 保留实际失败，best effort 不等于通过 |
+| xlings round 1 | 原 600 s idle CPU 0.006108 core；RSS 948.086→1188.250 MiB，增长 25.33% >10% | idle 前 126.419 s 有限工作单列；idle 无引擎活动事件。独立 memo 分配问题不能冒充本次全部增长的精确归因 |
+
+原日志和四组 measure 保存在本地 `.payload-cache/59-63-real-target-integration/first134-nightly-*`；U15 的逐点重算为 `first134-nightly-mcpp-round1-window-recompute.json`。PR 仅保留本简报和复现入口，不提交完整原始输出。
+
+新的 completion trace runner 已在 dev/release 各通过 11 cases / 443 assertions；旧 runner 跑新增测试恰有两项失败，原九项通过。trace 冻结原采样回答集合后才构建 JSON，保留最多 256 条有序请求及覆盖全部请求的最慢支持点，不改变采样、超时或门槛。使用旧产品和新 trace runner 的单次四阶段诊断已结束：25 checks / 1 failure，168 个观测 PID/birth 身份均退出。U5/U6 本次 max 为 0.861/0.707 s，未复现历史慢请求，不能解释或抹去原失败；唯一 U7a failure 是 importer diagnostics 107.25 s >33 s。完整证据显示一个 importer 在保存前 clangd AST 崩溃后被隔离，其他七个约 5.6 s 内重发，迟到 importer 约两分钟后恢复；底层崩溃与安全恢复条件仍在审查。**这不是产品性能修复或新产品验收**。
+
+另有独立真实 LSP 反例：合法 `#if 0` import 被 producer 正确排除，旧产品却因 lexical/model 差异，对 body-only 和相同字节保存重复 emit。新 fixture 在旧产品上为 11 次 emit、14 个失败检查（包括计数级联，非 14 个独立缺陷）；修复须确认成功生成开始时的结构，保留失败重试、生成中变化、预处理变化、target/producer/manifest 的重载。产品修改仍在验证，**不宣称它解释了历史 13/min**。
+
+`e01e1c1` 的 Windows job 在 schema precheck 提前失败：新真实目标 fixture 未使用 `std`，实际 producer 不输出原契约要求的 `mcpp:std`。fixture 已补真实 `import std` 和类型断言；Linux 上真实 pinned producer 的 schema 对照通过，原 validator 未放宽；Windows 真正双目标 LSP 验收仍待新 CI。新增 artifact 保存 schema 阶段最初的 producer envelope，即使尚未进入 LSP fixture 也可审查。
+
+## e01 CI 与 Zed/Termux 的新增失败
+
+`e01e1c1` 的 PR CI [39752365858](https://github.com/Sunrisepeak/mcpp-language-server/actions/runs/39752365858) 最终 **45 success / 1 failure / 1 skipped**；唯一失败为上述 Windows schema precheck。nightly [39752360539](https://github.com/Sunrisepeak/mcpp-language-server/actions/runs/39752360539) 尚未结束，另已保存两个实际失败：
+
+- Termux 随机镜像对 `proot-distro_5.6.0_all.deb` 返回 404，在 Debian login 和任何产品验证前退出。修订固定[官方主源](https://github.com/termux/termux-packages/wiki/Mirrors)，不再吞 update 失败，原 bind/LSP 检查保留；静态 shell/YAML 检查通过，实际容器验证待新 CI。
+- Zed 默认模式 240 秒内没有自己的 clangd，日志记录 GitHub API 403。CI 修订预装 PATH clangd，仍要求 Zed 按默认设置亲自启动独立进程；这不再声称测试自动下载。
+- 同一 Zed artifact 还证明独立产品兼容缺口：`workspaceFolders` 指向真实 `.cppm` 文件，而 `rootUri` 是目录；mcppls 采用文件作为 clangd cwd，出现 `engine-start-failed`。修订忽略已有普通文件的 folder 项并沿原目录回退顺序选择，不把文件的 parent 猜成项目。新 native 回归及真实 Zed 复验待执行。
+
+原 smoke 仅需任意 diagnostics，模块层错误也可满足，故新 smoke 同时要求 mcppls 自身 clangd 完成协议初始化并存活，不能用 Zed 的另一个 clangd 代替；这仍不宣称全部 BMI 准备完成。原始 initialize、server 日志和首次失败完整 job log 保存在本地 `zed-smoke-default-first/` 和 `nightly-{termux,zed}-*-first.log`。artifact 将补收自动诊断包，以便下一次启动失败保留更精确的错误。上述源修改均尚未经过新产品完整验证。
+
 ## 历史失败与反证仍保留
 
 | 记录 | 结论边界 |
@@ -82,4 +137,4 @@ R1 补修本地 dev/release 全 workspace 均为 6 members / 57 programs / 0 fai
 - [raw-index.tsv](raw-index.tsv) 为逐文件大小与 SHA，不按通过筛选；本地历史快照 `.payload-cache/59-63-evidence-raw/checkpoint-20261021T202025Z-5e19005.tar.gz`，SHA `674b5072ddfb27204aef5bc2de61cf13ad38176f3e5a79c00a5cda382e15a8c0`。
 - 快照后的记录独立保存在上述目录、envelope 与 CI artifacts，不混入旧索引。较完整的历史叙述还可从 Git 的 `bcc9cbe` 版简报读取。
 - 已结束日志的 `.log.gz` 为无损压缩，`compressed-logs.jsonl` 记录原始字节数/SHA/解压核验；core 保留本地。早期丢失的 `/tmp` 跟踪不冒充完整证据。
-- 空间不足只清理本项目过期、无进程引用的构建中间文件；当前冻结、升级 profile、性能缓存、日志及 core 不动。清理范围与保留二进制 SHA 另有 JSON 记录。
+- 空间不足只清理本项目过期、无进程引用的构建中间文件。2026-10-22 另清理 32 个历史独立性能 cache 内的 10,170 个 PCM/对象文件，释放 11,077,361,664 B；保留这些运行的 JSON、日志和输入，历史缓存已不能据此复用重跑。当前诊断与验收缓存、冻结二进制、升级 profile、日志和 core 不动。逐文件元数据和进程引用检查见本地 `cleanup-2026-10-22-obsolete-performance-{plan,report}.json`。

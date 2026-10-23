@@ -1,0 +1,239 @@
+{
+  "name": "mcpp-target-windows-real",
+  "description": "Real mcpp with LLVM and the Windows MSVC environment publishes unmodified i686 and x64 compile databases. In one LSP session, the root CDB switches i686\u2192x64\u2192i686, overriding the manifest x64 default; actual analysis targets, engine commands, conditional module constants (32/64/32), navigation and diagnostics follow. No mocked producer or rewritten CDB entries.",
+  "requires-mcpp": {
+    "executable": "{env:MCPPLS_REAL_MCPP|mcpp}",
+    "at-least": "2026.10.5.2"
+  },
+  "prepare-environment": "msvc",
+  "prepare": [
+    [
+      "{env:MCPPLS_REAL_MCPP|mcpp}",
+      "build",
+      "--configure-only",
+      "--target",
+      "i686-windows-msvc"
+    ],
+    [
+      "cmake",
+      "-E",
+      "copy",
+      "compile_commands.json",
+      "recorded-i686.json"
+    ],
+    [
+      "{env:MCPPLS_REAL_MCPP|mcpp}",
+      "build",
+      "--configure-only",
+      "--target",
+      "x86_64-windows-msvc"
+    ],
+    [
+      "cmake",
+      "-E",
+      "copy",
+      "compile_commands.json",
+      "recorded-x86_64.json"
+    ],
+    [
+      "{env:MCPPLS_REAL_MCPP|mcpp}",
+      "build",
+      "--configure-only",
+      "--target",
+      "i686-windows-msvc"
+    ]
+  ],
+  "server-arguments": [
+    "--mcpp",
+    "{env:MCPPLS_REAL_MCPP|mcpp}"
+  ],
+  "checks": [
+    {
+      "id": "TARGET-STATUS-1-i686",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "profile-kind": "build-toolchain",
+      "profile-compiler": "clang",
+      "profile-target": "i686-pc-windows-msvc",
+      "target-mode": "auto",
+      "target-requested": "i686-pc-windows-msvc",
+      "target-source": "compile-commands",
+      "target-pending": false,
+      "timeout": 120
+    },
+    {
+      "id": "ENGINE-1-i686",
+      "kind": "engine-command",
+      "file": "src/main.cpp",
+      "contains": [
+        "--target=i686-pc-windows-msvc"
+      ],
+      "timeout": 60
+    },
+    {
+      "id": "ARCH-1-32",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        2,
+        23
+      ],
+      "expect": "32",
+      "timeout": 120
+    },
+    {
+      "id": "DIAGNOSTICS-1-main",
+      "kind": "diagnostics-empty",
+      "file": "src/main.cpp",
+      "timeout": 120
+    },
+    {
+      "id": "DIAGNOSTICS-1-module",
+      "kind": "diagnostics-empty",
+      "file": "src/platform.cppm",
+      "timeout": 120
+    },
+    {
+      "id": "MODULE-1",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        0,
+        12
+      ],
+      "expect": "src/platform.cppm",
+      "timeout": 60
+    },
+    {
+      "id": "PUBLISH-2-x86_64",
+      "kind": "write-file",
+      "file": "compile_commands.json",
+      "content-from": "recorded-x86_64.json",
+      "expect-reload": true,
+      "timeout": 120
+    },
+    {
+      "id": "TARGET-STATUS-2-x86_64",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "profile-kind": "build-toolchain",
+      "profile-compiler": "clang",
+      "profile-target": "x86_64-pc-windows-msvc",
+      "target-mode": "auto",
+      "target-requested": "x86_64-pc-windows-msvc",
+      "target-source": "compile-commands",
+      "target-pending": false,
+      "timeout": 120
+    },
+    {
+      "id": "ENGINE-2-x86_64",
+      "kind": "engine-command",
+      "file": "src/main.cpp",
+      "contains": [
+        "--target=x86_64-pc-windows-msvc"
+      ],
+      "timeout": 60
+    },
+    {
+      "id": "ARCH-2-64",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        2,
+        23
+      ],
+      "expect": "64",
+      "timeout": 120
+    },
+    {
+      "id": "DIAGNOSTICS-2-main",
+      "kind": "diagnostics-empty",
+      "file": "src/main.cpp",
+      "timeout": 120
+    },
+    {
+      "id": "DIAGNOSTICS-2-module",
+      "kind": "diagnostics-empty",
+      "file": "src/platform.cppm",
+      "timeout": 120
+    },
+    {
+      "id": "MODULE-2",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        0,
+        12
+      ],
+      "expect": "src/platform.cppm",
+      "timeout": 60
+    },
+    {
+      "id": "PUBLISH-3-i686",
+      "kind": "write-file",
+      "file": "compile_commands.json",
+      "content-from": "recorded-i686.json",
+      "expect-reload": true,
+      "timeout": 120
+    },
+    {
+      "id": "TARGET-STATUS-3-i686",
+      "kind": "status",
+      "source": "mcpp",
+      "state": "ready",
+      "profile-kind": "build-toolchain",
+      "profile-compiler": "clang",
+      "profile-target": "i686-pc-windows-msvc",
+      "target-mode": "auto",
+      "target-requested": "i686-pc-windows-msvc",
+      "target-source": "compile-commands",
+      "target-pending": false,
+      "timeout": 120
+    },
+    {
+      "id": "ENGINE-3-i686",
+      "kind": "engine-command",
+      "file": "src/main.cpp",
+      "contains": [
+        "--target=i686-pc-windows-msvc"
+      ],
+      "timeout": 60
+    },
+    {
+      "id": "ARCH-3-32",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        2,
+        23
+      ],
+      "expect": "32",
+      "timeout": 120
+    },
+    {
+      "id": "DIAGNOSTICS-3-main",
+      "kind": "diagnostics-empty",
+      "file": "src/main.cpp",
+      "timeout": 120
+    },
+    {
+      "id": "DIAGNOSTICS-3-module",
+      "kind": "diagnostics-empty",
+      "file": "src/platform.cppm",
+      "timeout": 120
+    },
+    {
+      "id": "MODULE-3",
+      "kind": "definition",
+      "file": "src/main.cpp",
+      "at": [
+        0,
+        12
+      ],
+      "expect": "src/platform.cppm",
+      "timeout": 60
+    }
+  ]
+}

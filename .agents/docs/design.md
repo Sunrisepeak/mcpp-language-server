@@ -168,6 +168,15 @@ nothing (#30). The build tool's hard deadline follows how long it took last time
 time, then three times the last run, 1 to 10 minutes), and a saved source reruns it only when its
 module structure changes.
 
+A source's lexical imports can differ from the producer's preprocessed dependency graph.
+After a successful, valid answer, the workspace can acknowledge the watched source structure
+captured before that run, including its preprocessor directive lines. A body-only save of that
+acknowledged structure need not rediscover the same graph. Confirmation is session-local and
+belongs to the current model generation and native producer identity; changed file stamps,
+pending reloads, failed/rejected answers and unknown preprocessing retain the conservative path.
+Only already watched source paths are captured, under a shared 32 MiB read bound. Source
+creation/deletion and manifest, target or producer changes keep their existing reload behavior.
+
 **Observability.** One occurrence must be enough to see why. clangd logs at `info` into a ring in
 memory; crashes, stuck or spinning clangd, files set aside, backed-off restarts and a workaround
 whose premise is seen broken each write an incident under the workspace's cache (the newest twenty,
@@ -306,12 +315,12 @@ before anything is published (`docs/92-release.md`).
 - mcpp analysis can pass an explicit platform with `mcppls.buildDiscovery.mcppTarget`, or follow
   the root compilation database's unique explicit target in `auto` mode. This does not recover
   the full profile/toolchain/features or prove which build last succeeded (2026-10-22 target design).
-- The bundled `23.1.0-mcppls.4` engine constructs persistent memo JSON every 30 seconds before
-  checking whether its counters changed. An isolated session with retained memos and no opened
-  files reproduces idle RSS growth from those discarded snapshots. Persistence remains enabled
-  for warm reuse; mcppls does not hide the allocation with a delay or a changed resource budget.
-  The source attribution and upstream-side fix required are recorded in
-  [the U13 brief](2026-10-22-issues-59-63-evidence/README.md#memo); no workaround is applied.
+- The bundled `23.1.0-mcppls.5` engine no longer serializes unchanged memos (engine patch 0036;
+  `23.1.0-mcppls.4` built the JSON of every memo each 30 seconds before checking its counters), and
+  an idle clangd's CPU fell by an order of magnitude. Its resident memory can still grow over the
+  nightly's ten idle minutes when the allocator gave memory back just before them; that growth was
+  not caused by the memo writes and is not attributed yet ([0.0.17 release record](mcppls-0.0.17-release.md),
+  section 10). mcppls does not hide it with a delay or a changed resource budget.
 - openkal cannot lower a child's scheduling priority, so clangd's cold-start module builds compete
   with the editor (plan 2026-09-30 R-9, deferred).
 - Windows gives no CPU reading of clangd yet (plan 2026-09-30 K-1, deferred), so the stuck-clangd

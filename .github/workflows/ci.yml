@@ -245,14 +245,20 @@ jobs:
           chmod +x host-devtools cross/*
       # A candidate engine (docs/92-release.md, "A new engine"): packaging/engine-candidate.json names
       # a mcppls-clangd PR's CI run, whose packaged part replaces the lock's clangd, so the two are
-      # tested together before the engine is released. Only a pull request (or a manual CI run) may.
+      # tested together before the engine is released. Only a pull request, or a manual CI or nightly
+      # run of a branch other than main, may: the nightly's ux rounds are where an engine change to
+      # idle memory or typing latency shows, and they have to see the engine before it is released.
       - name: Candidate engine
         id: candidate
         run: |
           set -euo pipefail
           file=packaging/engine-candidate.json
           [ -f "$file" ] || exit 0
-          if [ '${{ github.event_name }}' != pull_request ] && { [ '${{ github.event_name }}' != workflow_dispatch ] || [ '${{ github.workflow }}' != CI ]; }; then
+          manual=no
+          if [ '${{ github.event_name }}' = workflow_dispatch ] && [ '${{ github.ref }}' != refs/heads/main ]; then
+            case '${{ github.workflow }}' in CI|nightly) manual=yes ;; esac
+          fi
+          if [ '${{ github.event_name }}' != pull_request ] && [ "$manual" = no ]; then
             echo "::error::$file names an unreleased engine; it is for a pull request's CI, not ${{ github.workflow }} (${{ github.event_name }}). Release the engine, switch packaging/payload.lock.json to it and remove the file."
             exit 1
           fi
@@ -321,30 +327,30 @@ jobs:
           - platform: linux-x64
             part: 1 of 2
             os: ubuntu-24.04
-            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mingw mcpp-split-gcc mcpp-watch multi-root mcpp-llvm mcpp-build-programs mcpp-watch@polling mcpp-emit mcpp-rules-generated s1-two-sets compdb-lto-msvc failure-at-base@vscode generated-module-negotiated typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins compdb-rejected-command compdb-mixed-standards mcpp-emit-partial mcpp-emit-partial-download compdb-midwrite xmake-basic xmake-late-config xmake-user-mode xmake-no-standard xmake-needs-download ux-modules-qt mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-target-selection@polling mcpp-producer-identity@polling mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve
+            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mingw mcpp-split-gcc mcpp-watch multi-root mcpp-llvm mcpp-build-programs mcpp-watch@polling mcpp-emit mcpp-rules-generated s1-two-sets compdb-lto-msvc failure-at-base@vscode generated-module-negotiated typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins compdb-rejected-command compdb-mixed-standards mcpp-emit-partial mcpp-emit-partial-download compdb-midwrite xmake-basic xmake-late-config xmake-user-mode xmake-no-standard xmake-needs-download xmake-shared-tmp xmake-target-then-mode xmake-stale-state ux-modules-qt mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-target-selection@polling mcpp-producer-identity@polling mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve mcpp-watched-source-structure mcpp-autosave-import-typing
           - platform: linux-x64
             part: 2 of 2
             os: ubuntu-24.04
             extras: true
-            fixtures: inferred inferred-bom typing-pause module-fails-in-import save-plan build-discovery-off engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-provisioned mcpp-emit-watch mcpp-emit-watch@polling mcpp-emit-edits mcpp-build-programs-cross cmake-clang cmake-clang-bdb cmake-fetchcontent-offline watch-polling payload-corrupt clangd-cannot-load generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed failure-at-base failure-at-base@neovim completion-keywords diagnostic-bundle clangd-crash-context mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views format-explicit preparation-after-idle build-program-broken build-program-gated build-program-manual
+            fixtures: inferred inferred-bom typing-pause module-fails-in-import save-plan build-discovery-off engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-provisioned mcpp-emit-watch mcpp-emit-watch@polling mcpp-emit-edits mcpp-build-programs-cross cmake-clang cmake-clang-bdb cmake-fetchcontent-offline watch-polling payload-corrupt clangd-cannot-load generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed failure-at-base failure-at-base@neovim completion-keywords diagnostic-bundle clangd-crash-context clangd-exit-strike clangd-crash-closure mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views format-explicit preparation-after-idle build-program-broken build-program-gated build-program-manual
           # generated-module{,-old-mcpp,-negotiated}'s mcpp-mock.json bakes in a POSIX driver path
           # (${env:HOME}/.mcpp/registry/..., no {exe}); it resolves the same way here as on Linux, so
           # these run on macOS but are left off win32-x64 below rather than fixed unverified.
           - platform: darwin-arm64
             os: macos-14
             extras: true
-            fixtures: inferred inferred-bom typing-pause module-fails-in-import save-plan build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-build-programs mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views format-explicit build-program-broken build-program-gated build-program-manual mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve
+            fixtures: inferred inferred-bom typing-pause module-fails-in-import save-plan build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-build-programs mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context clangd-exit-strike clangd-crash-closure mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views format-explicit build-program-broken build-program-gated build-program-manual mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve mcpp-watched-source-structure mcpp-autosave-import-typing
           # No mcpp on the arm64 runner: the server and mock producers are cross-built. Most
           # fixtures use the semantic kit; the SDK-free target fixtures probe distribution clang,
           # installed below. Module faults, a corrupt payload and polling are included.
           - platform: linux-arm64
             os: ubuntu-24.04-arm
             cross-tools: true
-            fixtures: inferred inferred-bom typing-pause module-fails-in-import build-discovery-off engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve
+            fixtures: inferred inferred-bom typing-pause module-fails-in-import build-discovery-off engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context clangd-exit-strike clangd-crash-closure inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve mcpp-watched-source-structure mcpp-autosave-import-typing
           - platform: win32-x64
             part: 1 of 2
             os: windows-2022
-            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-split-msvc cmake-msvc-std compdb-clangxx-msvc-std multi-root compdb-clang-cl-std mcpp-llvm-msvc mcpp-build-programs failure-at-base@vscode typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins ux-modules-windows mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve
+            fixtures: mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-split-msvc cmake-msvc-std compdb-clangxx-msvc-std multi-root compdb-clang-cl-std mcpp-llvm-msvc mcpp-build-programs failure-at-base@vscode typing-import typing-import-spin workaround-canaries typing-autosave module-edit-autosave partial-scan-standins ux-modules-windows mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-target-windows-real mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve mcpp-watched-source-structure mcpp-autosave-import-typing
           - platform: win32-x64
             part: 2 of 2
             os: windows-2022
@@ -382,13 +388,18 @@ jobs:
           done
           xmake --version | head -1
           g++ --version | head -1
-      # mcpp-community/mcpp#797: mcpp-build-programs needs an mcpp whose build database describes build programs. It is
-      # installed beside the pinned one, which stays the default, and named to the fixture by MCPPLS_BUILD_PROGRAMS_MCPP.
-      - name: The mcpp that describes build programs
+      # A fixture that needs a newer mcpp than the pinned one says so in its scenario.json ("requires-mcpp"; the runner
+      # checks the version and says what it found). That release is installed beside the pinned one, which stays the
+      # default, and named to the fixtures by MCPPLS_REAL_MCPP.
+      - name: The mcpp the fixtures that require one run with
         if: '!matrix.cross-tools'
         run: |
           set -euo pipefail
-          case " ${{ matrix.fixtures }} " in *" mcpp-build-programs "*) ;; *) exit 0 ;; esac
+          wanted=no
+          for fixture in ${{ matrix.fixtures }}; do
+            grep -q '"requires-mcpp"' "conformance/fixtures/${fixture%@*}/scenario.json" 2>/dev/null && wanted=yes
+          done
+          [ "$wanted" = yes ] || exit 0
           # From mcpp's own release, its checksum checked: the index snapshot the pinned xlings syncs can lag a new mcpp
           # by days (2026.10.11.1 was in xim-pkgindex, not yet in the snapshot), and the pinned mcpp stays the default.
           case "$RUNNER_OS-$(uname -m)" in
@@ -398,8 +409,8 @@ jobs:
             Windows-*) platform=windows-x86_64; ext=zip ;;
             *) echo "::error::no mcpp release for $RUNNER_OS-$(uname -m)"; exit 1 ;;
           esac
-          archive="mcpp-$MCPP_BUILD_PROGRAMS_VERSION-$platform.$ext"
-          base="https://github.com/mcpp-community/mcpp/releases/download/v$MCPP_BUILD_PROGRAMS_VERSION"
+          archive="mcpp-$MCPP_FIXTURE_VERSION-$platform.$ext"
+          base="https://github.com/mcpp-community/mcpp/releases/download/v$MCPP_FIXTURE_VERSION"
           temp="$RUNNER_TEMP"; python=python3
           if [ "$RUNNER_OS" = Windows ]; then temp=$(cygpath -u "$RUNNER_TEMP"); python=python; fi
           curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$temp/$archive" "$base/$archive"
@@ -407,15 +418,15 @@ jobs:
           expected=$(cut -d' ' -f1 "$temp/$archive.sha256")
           actual=$("$python" -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$temp/$archive")
           [ "$expected" = "$actual" ] || { echo "::error::$archive: sha256 $actual, the release says $expected"; exit 1; }
-          rm -rf "$temp/mcpp-build-programs" && mkdir -p "$temp/mcpp-build-programs"
-          "$python" -c "import shutil,sys; shutil.unpack_archive(sys.argv[1], sys.argv[2])" "$temp/$archive" "$temp/mcpp-build-programs"
+          rm -rf "$temp/mcpp-fixture" && mkdir -p "$temp/mcpp-fixture"
+          "$python" -c "import shutil,sys; shutil.unpack_archive(sys.argv[1], sys.argv[2])" "$temp/$archive" "$temp/mcpp-fixture"
           exe=''; [ "$RUNNER_OS" = Windows ] && exe='.exe'
-          mcpp="$temp/mcpp-build-programs/mcpp-$MCPP_BUILD_PROGRAMS_VERSION-$platform/bin/mcpp$exe"
+          mcpp="$temp/mcpp-fixture/mcpp-$MCPP_FIXTURE_VERSION-$platform/bin/mcpp$exe"
           chmod +x "$mcpp" 2>/dev/null || true
           "$mcpp" --version
           mcpp --version
           if [ "$RUNNER_OS" = Windows ]; then mcpp=$(cygpath -m "$mcpp"); fi
-          echo "MCPPLS_BUILD_PROGRAMS_MCPP=$mcpp" >> "$GITHUB_ENV"
+          echo "MCPPLS_REAL_MCPP=$mcpp" >> "$GITHUB_ENV"
       # usable plan W3, closing the loop with mcpp itself: what `mcpp emit build-database` prints for
       # each of this host's mcpp fixtures, against the S1 and S2 schemas, S1's semantic rules and the
       # contract of mcpp-community/mcpp#636 (docs/specs/tools/validate.py). The fixtures below then have the
@@ -439,7 +450,7 @@ jobs:
             [ -f "$source/mcpp.toml" ] && [ ! -f "$source/mcpp-mock.json" ] || continue
             [ -e "$temp/mcpp-emit/$fixture.json" ] && continue
             mkdir -p "$temp/mcpp-emit" && cp -R "$source" "$temp/mcpp-emit/$fixture"
-            emit=mcpp; [ "$fixture" = mcpp-build-programs ] && emit="$MCPPLS_BUILD_PROGRAMS_MCPP"
+            emit=mcpp; grep -q '"requires-mcpp"' "$source/scenario.json" && emit="${MCPPLS_REAL_MCPP:-mcpp}"
             (cd "$temp/mcpp-emit/$fixture" && "$emit" emit build-database --format json > "$temp/mcpp-emit/$fixture.json")
             envelopes+=("$temp/mcpp-emit/$fixture.json")
           done
@@ -534,6 +545,12 @@ jobs:
             case "$fixture" in
               cmake-clang-bdb) path_prefix="$RUNNER_TEMP/cmake-4.4.2/bin:" ;;
               cmake-msvc-bdb|cmake-clang-cl) fixture_extra=(--msvc-env "$RUNNER_TEMP/msvc-bdb.env") ;;
+              # Preserve the real producer's first CDBs and server log independently
+              # of the diagnostic rerun: no reconstructed or rewritten target entries.
+              mcpp-target-windows-real)
+                local evidence="$RUNNER_TEMP/mcpp-target-windows-real-first"
+                case " $* " in *" --verbose "*) evidence="$RUNNER_TEMP/mcpp-target-windows-real-diagnostic" ;; esac
+                fixture_extra+=(--workspace-dir "$evidence/workspace" --cache-dir "$evidence/cache") ;;
               # usable plan W9.3: the fallback runs only when the client never declares
               # didChangeWatchedFiles.dynamicRegistration. NAME@polling runs fixture NAME that way.
               watch-polling|*@polling) fixture_extra+=(--no-dynamic-watch) ;;
@@ -571,11 +588,31 @@ jobs:
             exit 1
           fi
 
+      # Preserve the first producer envelopes even when schema validation stops
+      # the job before any LSP fixture starts.
+      - uses: actions/upload-artifact@v7
+        if: always() && !matrix.cross-tools
+        with:
+          name: producer-envelopes-${{ matrix.platform }}-${{ matrix.part || 'full' }}
+          path: ${{ runner.temp }}/mcpp-emit/*.json
+          if-no-files-found: ignore
+
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: conformance-measures-${{ matrix.platform }}-${{ matrix.part || 'full' }}
           path: ${{ runner.temp }}/conformance-measures/*.json
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v7
+        if: always() && contains(matrix.fixtures, 'mcpp-target-windows-real')
+        with:
+          name: real-mcpp-target-cdb-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/mcpp-target-windows-real-*/workspace/mcpp-target-windows-real/recorded-*.json
+            ${{ runner.temp }}/mcpp-target-windows-real-*/workspace/mcpp-target-windows-real/compile_commands.json
+            ${{ runner.temp }}/mcpp-target-windows-real-*/cache/logs/*.log
+            ${{ runner.temp }}/mcpp-target-windows-real-*/cache/workspaces/**/model.mcpp.json
           if-no-files-found: ignore
 
       # Issue #23 fix plan F18: the bundles diagnostic-bundle exported on this runner's own account, whose

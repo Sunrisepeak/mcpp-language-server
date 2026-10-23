@@ -1,0 +1,64 @@
+{
+  "name": "xmake-shared-tmp",
+  "description": "0.0.17 XS-1 (#69, #24 UP-X1): with GCC, xmake keeps each unit's module mapper file in its temporary directory under a name only the source's relative path decides, and the user's own builds read it. The user built the project (prepare); mcppls describes it privately; then the user changes the module's implementation unit and builds again. In 0.0.16 the private run had rewritten the mapper files to name its own build directory, where nothing was ever built, and that build failed (`failed to read compiled module`); its xmake now runs with XMAKE_TMPDIR in its own directory, so the user's build is untouched.",
+  "prepare": [
+    [
+      "xmake",
+      "f",
+      "-y",
+      "-m",
+      "debug"
+    ],
+    [
+      "xmake",
+      "-y"
+    ]
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "xmake",
+      "tier": 3,
+      "state": "ready",
+      "timeout": 120
+    },
+    {
+      "id": "E1-the-module-is-described",
+      "kind": "engine-command",
+      "file": "src/greet.cpp",
+      "contains": [
+        "-std=c++23"
+      ],
+      "timeout": 30
+    },
+    {
+      "id": "W1-the-project-directory-is-as-it-was",
+      "kind": "workspace-unchanged"
+    },
+    {
+      "id": "U1-the-user-changes-the-implementation",
+      "kind": "write-file",
+      "file": "src/greet.cpp",
+      "replace": {
+        "from": "return 42;",
+        "with": "return 40 + 2;"
+      }
+    },
+    {
+      "id": "B1-and-builds-again",
+      "kind": "run",
+      "command": [
+        "xmake",
+        "-y"
+      ],
+      "timeout": 300
+    },
+    {
+      "id": "U2-put-back",
+      "kind": "write-file",
+      "file": "src/greet.cpp",
+      "restore": true
+    }
+  ]
+}

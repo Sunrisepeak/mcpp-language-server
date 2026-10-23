@@ -166,3 +166,51 @@ Windows 原生环境仍运行完整 `ux-modules-windows` fixture，以原 `asked
 `mcpp test process` 和 `mcpp test process --profile release` 保留原 `busy CPU > 0.5 s`、`idle CPU < 0.2 s` 断言。旧测试固定等 2 秒 wall time，不能保证获得 0.5 秒 CPU；PR/nightly 的 macOS release 首轮分别只读到 0.09/0.08 秒增量。它们仍是真失败，不能据此排除产品 sampler 的问题。
 
 子进程 READY 后由父进程先采样，再发送 START；子进程用独立 native process CPU 时钟确认累计至少 0.75 秒并发送 DONE，保持进程存活供父进程再次采样。父进程的工作与握手共用原 30 秒期限；sampler 每次调用另有既有界限（macOS 的 ps 为 2 秒），清理也可能越过工作期限，迟到采样仍失败。记录 native work 和两组 before/after；独立工作未完成、时钟不可用或 subject 读数不足均失败。Linux oracle 直接 native clock syscall，macOS 直接 libSystem 的 Darwin CPU clock（ID 12），不使用 subject `/proc`/`ps` 读取器；当前 OpenKAL 的 `std::clock` 实际走 monotonic，不能充当 CPU oracle。该改动只涉及测试，不更改产品 sampler 或性能输入/预算。
+
+## 11. 发送队列的编码与快照
+
+运行两种 profile 的完整 `mcpp test process`。原 nonreader 测试仍发送 64 条、每条 64 KiB，要求全部 send 在 2 秒内返回、stop 在 10 秒内结束；现在同时记录实际耗时。Release 39732244483 的原 macOS dev 失败日志保存在 `.payload-cache/59-63-delivery/release-macos-dev-first-failure.log`，不得以另一次通过或放宽时限替代它。
+
+双 framing 的真实 echo 子进程回归检查 FIFO、发送后修改或销毁原 JSON 的快照独立性、UTF-8 replacement；退出的 peer 必须拒绝继续发送并完成 stop。新 writer 在锁外使用既有 dump/encode_frame，编码异常必须转换成连接失败，不能逃出线程；没有添加生产测试 hook 或伪造损坏 JSON 来触发 OOM。该异常隔离有代码审查，不能宣称已经完成原生 OOM 故障注入。
+
+## 12. 同步 apply 的状态快照与时间线证据
+
+以 `mcpp test answer_routing --profile release` 运行 Workspace 的确定性回归。先在旧 `072c230` 产品上只加入相同测试：同步 apply 回调组应恰好失败一项，输出尚未 commit 就发布的新 profile；无回调组及最终通知断言均通过。再应用产品补修，dev/release 都应通过。真实 clangd 的对应回调是 apply 内 `update_quarantine_issue_()` 调用 host；该对照证明状态提交边界，不证明原 CI 最忙一分钟的具体原因。保留两次日志、退出码、测试 patch 和 workspace 源码 SHA。
+
+使用匹配 profile 的新 runner 执行 `mcpp test conformance`，其中 fake LSP 故意触发状态转换超预算，要求失败 measure 仍保留可重算的 trace/window。重复 progress 不算转换；restart 不计转换且重置前态；整数纳秒保留严格 60 秒边界。重新运行原 UX 场景时，先登记用途、产品/runner SHA、fixture/pin、CPU 和缓存谱系；不改 `maxChangesPerMinute=12`、采样或时长。首次失败保留，单次后续通过不能自行证明原因或稳定性；实际结果按源版本独立汇报。
+
+## 13. 补全延迟的请求支持点
+
+`MCPPLS_CONFORMANCE="$runner" mcpp test test_conformance --profile "$build_profile"`
+覆盖原采样结束后才到达的回复、错误回复以及超过 256 个请求的截断。
+新 runner 在原统计完成后、额外 probe/report 前冻结回答集合，再输出请求编号、
+相对发送/回答纳秒、结果数量和 incomplete；不复制候选文本或路径。前 256 条之外
+的最慢成功/已回答请求单独保留，不能因截断丢失 max 的支持点。
+旧 runner 跑相同新增测试应失败，原有测试仍通过。
+
+真实 UX 使用第 2 节原命令、输入、CPU 和 cache lineage，不增加轮询或修改预算。
+每个 typing check 的 serverStats 来自已有前后 report，recent distributions 是
+最近采样而非该 check 的精确增量；slow journal 有缺失和覆盖边界，不能据晚期
+report 的较快 p95 判断先前慢请求来自客户端。保留第一次 measure、完整 server
+日志及 SHA；只有四阶段进程树全部退出后才分析日志，不在测量期间扫描 PCM。
+
+## 14. 被条件编译排除的 import 与保存重载
+
+完成对应 profile 构建后，运行 `mcpp test test_scan --profile "$build_profile"`
+和 `mcpp test test_answer_routing --profile "$build_profile"`，然后执行完整 fixture：
+
+```bash
+"$runner" run --server "$server" --payload "$audit_dir/released/payload" \
+  --fixture conformance/fixtures/mcpp-watched-source-structure \
+  --workspace-dir "$audit_dir/watched-source-workspace" \
+  --cache-dir "$audit_dir/watched-source-cache" \
+  --timeout 60 --measure "$audit_dir/watched-source.json" --verbose \
+  > "$audit_dir/watched-source.log" 2>&1
+```
+
+fixture 的 README 区分旧 28 项负对照与扩展后的 70 项。旧 `1341938` 对原 28 项
+有 11 次 emit、14 个失败检查，其中包含计数级联。扩展项保留原断言，并验证
+预处理指令变化、producer 失败后重试、生成期间结构再次变化以及 target/provider
+变化。Workspace 单元回归另覆盖尚未送达的 watch 与 A→B→A 字节恢复；确认需要
+开始时结构及未变化的文件 stamp，不读取完成时结构来冒充 producer 已处理输入。
+这些是独立的正确性对照，不把它们当作历史 U15 13/min 的已证实归因。

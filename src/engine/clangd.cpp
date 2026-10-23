@@ -481,8 +481,20 @@ private:
         // Fix plan F16: set aside for what is on disk, not in the editor: it goes back when the disk is fixed.
         bool onDisk { false };
         std::string modelOrigin;    // the model's source then (fix plan F4: a provisional model's verdicts do not outlive it)
+        // 0.0.17 W5 (#59 U7a): set aside for an exit of clangd, the modules it imports as they were built then
+        // (closure_identity_). Once they are built again, and differently, it goes back to clangd once.
+        std::optional<std::string> crashClosure;
     };
     std::map<std::string, Aside, std::less<>> aside_;                  // path key
+    // W5: an exit of clangd that names no file (a kill, the OOM killer) is not yet a file's fault: the files it was busy
+    // with get a strike, and a file that gets a second within EXIT_STRIKE_WINDOW is set aside, as a crash naming it is.
+    static constexpr std::chrono::minutes EXIT_STRIKE_WINDOW { 10 };
+    std::map<std::string, Clock::time_point, std::less<>> exitStrikes_;     // path key -> its strike
+    // W5: how many times each module has been built (clangd's "Built module"), for the closure identity of a file set
+    // aside after an exit; and the identities each such file already went back to clangd with.
+    std::map<std::string, std::uint64_t, std::less<>> moduleBuilds_;
+    std::map<std::string, std::set<std::string>, std::less<>> crashRetried_;   // path key -> closure identities tried
+    bool closureRetryCheck_ { false };
     std::map<std::string, std::string, std::less<>> fileStatus_;       // client URI -> clangd's last textDocument/clangd.fileStatus state
     // robustness design C10: a definition that clangd finds only as a declaration in a module's interface is looked for in that
     // module's other units, which are opened in clangd without the editor (background units) and closed again when unused.
@@ -1387,6 +1399,8 @@ public:
         } else if (kind == "module-built") {
             const std::string module { event.value("module", std::string {}) };
             ++moduleBuildCompletions_;
+            ++moduleBuilds_[module];
+            closureRetryCheck_ = closureRetryCheck_ || !aside_.empty();
             lastCompletedModule_ = module;
             lastModuleBuiltAt_ = Clock::now();
             // #59 U15: clangd can build a whole closure before its prime TU completes. These
@@ -1514,6 +1528,8 @@ public:
         // So the status settles into ready or degraded on its own, not only when something else wakes
         // the event loop (real-project plan RP1.4, design P7).
         if (primer_.busy() && lastPrimeProgressAt_) consider(*lastPrimeProgressAt_ + options_.preparationStallTimeout);
+        // W5: a file set aside after an exit is looked at again once preparation is done with its rebuilt modules.
+        if (closureRetryCheck_) consider(Clock::now() + std::chrono::seconds { 1 });
         for (const auto& [key, held] : held_) {
             if (const auto joined = joinedAt_.find(key); joined != joinedAt_.end()) consider(joined->second + DATABASE_REREAD);
             else if (!held.planned) consider(held.since + PLAN_PATIENCE);
@@ -1637,6 +1653,7 @@ public:
         } else if (restart) {
             request_restart_("clangd did not answer initialize");
         }
+        if (closureRetryCheck_ && !primer_.busy()) retry_after_closure_rebuilt_();
         for (const auto& key : quarantine_.due(now)) {
             // Nor is a file whose text on disk would stall clangd (fix plan F16): it waits for the disk, or the database.
             if (const auto aside = aside_.find(key); aside != aside_.end() && aside->second.onDisk) {
@@ -2925,12 +2942,26 @@ private:
             log::warning("clangd exited with {} ({})", *code, host_->root_directory());
         }
         incident_("engine-crash", lastExit_, std::vector<std::string> { suspects.begin(), suspects.end() });
+        const auto now = Clock::now();
+        std::erase_if(exitStrikes_, [&](const auto& item) { return now - item.second > EXIT_STRIKE_WINDOW; });
         for (const auto& path : suspects) {
+            const std::string key { base::path_key(path) };
             // A file whose text on disk is known to stall clangd (fix plan F16) is what crashed it on Windows, where
             // UP-01 crashes instead of spinning: it goes back when the disk is fixed, not when a crash's term is up.
-            const bool onDisk { diskHazards_.contains(base::path_key(path)) };
+            const bool onDisk { diskHazards_.contains(key) };
+            // W5 (#59 U9): an exit nothing names a file for was set aside for two minutes on the first time: a clangd
+            // killed while a file was being typed in took that file from clangd. Now the first is a strike.
+            if (!known && !onDisk && !exitStrikes_.contains(key)) {
+                exitStrikes_.emplace(key, now);
+                log::info("clangd exited while working on {} ({}); it stays with clangd, and a second exit within {} minutes sets it aside",
+                          path, host_->root_directory(), EXIT_STRIKE_WINDOW.count());
+                host_->record_event("exit-strike", Json { { "file", path } });
+                continue;
+            }
+            exitStrikes_.erase(key);
             set_aside_(path, known ? std::format("clangd crashed while building it ({})", context->second.action) : std::string { "clangd exited while working on it" },
                        Reclaim::no, false, std::nullopt, onDisk);
+            if (const auto aside = aside_.find(key); aside != aside_.end() && !onDisk) aside->second.crashClosure = closure_identity_(key);
         }
         host_->status_changed();
     }
@@ -3473,6 +3504,60 @@ private:
     // it is let finish for DISK_SETTLE, and clangd is restarted without the file if it has not by then.
     enum class Reclaim { no, if_busy, now, after_build };
 
+    // W5: the modules a file imports, transitively (the plan's), each with how many times clangd has built it: what it
+    // was compiled against. Empty for a file that imports nothing the plan knows.
+    std::set<std::string> closure_of_(std::string_view key) const {
+        std::set<std::string> closure;
+        std::vector<std::string> pending;
+        if (const auto imports = fileImports_.find(key); imports != fileImports_.end()) pending = imports->second;
+        while (!pending.empty()) {
+            std::string module { std::move(pending.back()) };
+            pending.pop_back();
+            if (!closure.insert(module).second) continue;
+            if (const auto requires_ = moduleRequires_.find(module); requires_ != moduleRequires_.end()) {
+                pending.insert(pending.end(), requires_->second.begin(), requires_->second.end());
+            }
+        }
+        return closure;
+    }
+
+    std::string closure_identity_(std::string_view key) const {
+        std::string identity;
+        for (const auto& module : closure_of_(key)) {
+            const auto built = moduleBuilds_.find(module);
+            identity += std::format("{}={};", module, built == moduleBuilds_.end() ? 0 : built->second);
+        }
+        return identity;
+    }
+
+    // W5 (#59 U7a): a file set aside after clangd exited on it goes back once its modules have been built again and
+    // differently -- what it crashed on may well have been one of them, in the middle of being rebuilt -- and only once
+    // for each such closure: an exit on it after that sets it aside for a doubled term, as before. Asked when modules
+    // were built, once preparation is done; a closure with a module that failed to build stays as it is.
+    void retry_after_closure_rebuilt_() {
+        closureRetryCheck_ = false;
+        std::vector<std::string> retried;
+        for (const auto& [key, aside] : aside_) {
+            if (!aside.crashClosure || aside.crashClosure->empty() || !quarantine_.contains(key)) continue;
+            const std::string identity { closure_identity_(key) };
+            if (identity == *aside.crashClosure || crashRetried_[key].contains(identity)) continue;
+            if (std::ranges::any_of(closure_of_(key), [&](const std::string& module) { return modulesFailedAt_.contains(module); })) continue;
+            crashRetried_[key].insert(identity);
+            retried.push_back(key);
+        }
+        for (const auto& key : retried) {
+            quarantine_.release(key);
+            aside_.erase(key);
+            for (const auto& document : host_->documents()) {
+                if (document.path.empty() || base::path_key(document.path) != key) continue;
+                log::info("handing {} back to clangd ({}): the modules it imports were built again since clangd exited on it", document.path, host_->root_directory());
+                host_->record_event("file-handed-back", Json { { "file", document.path }, { "why", "the modules it imports were built again" } });
+                if (accepting_ && !excluded_path_(document.path)) open_or_hold_(document, true);
+            }
+        }
+        if (!retried.empty()) update_quarantine_issue_();
+    }
+
     void set_aside_(const std::string& path, std::string_view why, Reclaim reclaim, bool moduleFailed = false,
                     std::optional<std::size_t> spunOn = std::nullopt, bool onDisk = false) {
         const std::string key { base::path_key(path) };
@@ -3857,6 +3942,7 @@ private:
     // wrong with that one -- exits, restarts, files set aside -- says nothing about this one.
     void forget_provisional_verdicts_() {
         crashes_.clear();
+        exitStrikes_.clear();
         earlyExits_ = 0;
         restartGate_.reset();
         std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-crashed" || issue.code == "engine-restart-capped"; });
@@ -4172,6 +4258,7 @@ private:
         stuckAtCap_ = false;
         std::erase_if(issues_, [](const Issue& issue) { return issue.code == "engine-crashed" || issue.code == "engine-timeout" || issue.code == "engine-crash-loop"; });
         crashes_.clear();
+        exitStrikes_.clear();
         crashLoops_ = 0;
         if (unavailable_ && !incompatible_) unavailable_ = false;
         host_->record_event("engine-restart-requested", Json { { "filesHandedBack", released } });

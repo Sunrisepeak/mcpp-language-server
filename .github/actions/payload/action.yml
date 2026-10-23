@@ -1,0 +1,28 @@
+name: The payload
+description: >-
+  Download a platform's payload artifact and unpack it (payload/ and stage/): the one this run built,
+  or the one another run of this repository built (nightly's `payload-run`, which tests a pull
+  request's own bytes instead of building them again).
+inputs:
+  platform:
+    description: The payload's platform (linux-x64, linux-arm64, darwin-arm64, win32-x64)
+    required: true
+  run-id:
+    description: The run that built it; empty for this run
+    default: ''
+runs:
+  using: composite
+  steps:
+    - if: inputs.run-id == ''
+      uses: actions/download-artifact@v8
+      with:
+        name: payload-${{ inputs.platform }}
+    - if: inputs.run-id != ''
+      uses: actions/download-artifact@v8
+      with:
+        name: payload-${{ inputs.platform }}
+        run-id: ${{ inputs.run-id }}
+        github-token: ${{ github.token }}
+    - name: Unpack the payload
+      shell: bash
+      run: tar -xzf payload-${{ inputs.platform }}.tar.gz

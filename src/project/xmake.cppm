@@ -12,9 +12,23 @@ export namespace mcppls::project {
 
 // `XMAKE_CONFIGDIR=<private>/config`, `XMAKE_THEME=plain` (plan §3.5): the configuration directory
 // xmake would otherwise write into the project's own `.xmake/`, and a theme with no interactive
-// prompt or color codes to strip out of a captured log. A free function so tests can check it
-// without spawning xmake.
-std::vector<std::pair<std::string, std::string>> xmake_environment(std::string_view configDirectory);
+// prompt or color codes to strip out of a captured log. `XMAKE_TMPDIR=<private>/tmp` (0.0.17 XS-1, #69,
+// #24 UP-X1): with GCC, xmake keeps each unit's module mapper file in its temporary directory under a
+// name only the source's relative path decides, and the user's own builds read it; a private run that
+// wrote it there pointed the user's next incremental build at modules that were never built. A free
+// function so tests can check it without spawning xmake.
+std::vector<std::pair<std::string, std::string>> xmake_environment(std::string_view configDirectory, std::string_view tmpDirectory = {});
+
+// 0.0.17 XS-2 (#68, #24 UP-X2): what the private xmake state was made from. The configuration key, and the xmake that made it
+// (its path, size and time) and every xmake.lua of the project (the newest time, and how many: a target added in an included
+// file is a change too). The state is kept only while this is the same; otherwise it is removed and made again from nothing,
+// never configured again in place: xmake's module scan cache, which only a build updates, outlives `xmake f -c`.
+std::string xmake_state_key(std::string_view configurationKey, std::string_view xmake,
+                            std::optional<std::pair<std::uint64_t, std::int64_t>> tool, std::int64_t manifestsModified, std::size_t manifests);
+
+// 0.0.17 XS-3: xmake said its private state is out of date -- a module unit's dependfile its scan cache counts on is gone, or
+// the scan it expects did not run -- rather than anything about the project. Such a state is discarded and made again once.
+bool xmake_state_stale(std::string_view output);
 
 // One scalar the user's own `xmake f` left in `.xmake/<plat>/<arch>/xmake.conf` (X-2, plan 0.0.8 part 2):
 // a string, or a true/false (`flag`), which xmake takes back as `--name=y|n`.

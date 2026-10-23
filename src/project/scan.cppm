@@ -36,9 +36,15 @@ struct ScanResult {
     // diagnostics; a module a file needs all the same (required_names).
     std::vector<ImportDeclaration> unterminatedImports;
     bool uncertain { false };
+    // Exact directive logical lines, including continuations and comments. A producer
+    // may preprocess imports differently even when their lexical names stay the same.
+    std::string preprocessorDirectives;
+    bool preprocessorComplete { true }; // false when a code-level # could not be classified as a directive
+    bool importsComplete { true };      // false when an import needs preprocessing or is not fully parsed
+    bool declarationsComplete { true }; // false when a module declaration is not fully parsed
 };
 
-ScanResult scan_source(std::string_view text);
+ScanResult scan_source(std::string_view text, bool retainPreprocessor = false);
 
 // A minimal token for syntax highlighting a module declaration or import (design doc 2026-09-25
 // K/§7): produced from the text alone, complete or not, so a person still typing `import hello.`

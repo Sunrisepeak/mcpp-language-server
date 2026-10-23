@@ -1,0 +1,126 @@
+--- a/clang-tools-extra/clangd/ModuleMemoStore.h
++++ b/clang-tools-extra/clangd/ModuleMemoStore.h
+@@ -44,6 +44,10 @@
+ llvm::json::Value moduleMemosJSON();
+ size_t adoptModuleMemos(const llvm::json::Value &Memos);
+ 
++/// Native-test seams. Poll is allowed only after flush joined the worker.
++size_t moduleMemosJSONBuildCountForTest();
++bool pollModuleMemoStoreForTest();
++
+ } // namespace clang::clangd
+ 
+ #endif
+--- a/clang-tools-extra/clangd/ModuleMemoStore.cpp
++++ b/clang-tools-extra/clangd/ModuleMemoStore.cpp
+@@ -17,6 +17,7 @@
+ #include "llvm/Support/MemoryBuffer.h"
+ #include "llvm/Support/Path.h"
+ #include "llvm/Support/raw_ostream.h"
++#include <atomic>
+ #include <chrono>
+ #include <condition_variable>
+ #include <mutex>
+@@ -24,6 +25,8 @@
+ 
+ namespace clang::clangd {
+ namespace {
++
++std::atomic<size_t> JSONBuilds{0};
+ 
+ constexpr int FormatVersion = 2;
+ constexpr llvm::StringLiteral FileName = "module-memos.json";
+@@ -392,6 +395,7 @@
+ // ---- the whole --------------------------------------------------------------
+ 
+ Value memos(uint64_t &Verdicts, uint64_t &Scans) {
++  JSONBuilds.fetch_add(1, std::memory_order_relaxed);
+   auto VerdictSnapshot = getModuleValidationCache().snapshot(Verdicts);
+   auto ScanSnapshot = getModuleDependencyScanCache().snapshot(Scans);
+   Array VerdictsJSON;
+@@ -443,6 +447,13 @@
+ public:
+   explicit Store(std::string Directory) : Directory(std::move(Directory)) {}
+ 
++  bool pollForTest() {
++    if (Worker.joinable())
++      return false; // never race the periodic writer with the test
++    write();
++    return true;
++  }
++
+   void start() {
+     Worker = std::thread([this] {
+       load();
+@@ -578,7 +589,17 @@
+     S->flush();
+ }
+ 
++size_t moduleMemosJSONBuildCountForTest() {
++  return JSONBuilds.load(std::memory_order_relaxed);
++}
++
++bool pollModuleMemoStoreForTest() {
++  Store *S = theStore();
++  return S && S->pollForTest();
++}
++
+ llvm::json::Value moduleMemosJSON() {
++
+   uint64_t Verdicts, Scans;
+   return memos(Verdicts, Scans);
+ }
+--- a/clang-tools-extra/clangd/unittests/PrerequisiteModulesTest.cpp
++++ b/clang-tools-extra/clangd/unittests/PrerequisiteModulesTest.cpp
+@@ -1 +1,2 @@
+ #include "ModuleMemoStore.h"
++#include "llvm/Support/MemoryBuffer.h"
+--- a/clang-tools-extra/clangd/unittests/PrerequisiteModulesTest.cpp
++++ b/clang-tools-extra/clangd/unittests/PrerequisiteModulesTest.cpp
+@@ -1 +1,46 @@
++// Run this lifecycle canary in an isolated process: Store is a process singleton.
++// Poll uses the real periodic write path, after flush has joined its worker.
++TEST_F(PrerequisiteModulesTests, UnchangedMemosDoNotConstructJSON) {
++  writeTestFile(TestDir, "quiet-input.cpp", "int before;\n");
++  writeTestFile(TestDir, "quiet.pcm", "identity-only test payload");
++  const auto Input = getFullPath("quiet-input.cpp");
++  const auto BMI = getFullPath("quiet.pcm");
++  const auto File = getFullPath("quiet-memos/module-memos.json");
++  auto Identity = ModuleValidationCache::identityOf(Input);
++  ASSERT_TRUE(Identity);
++  getModuleValidationCache().markFresh(BMI, "quiet-canary", {{Input, *Identity}});
++  const auto Before = moduleMemosJSONBuildCountForTest();
++  startModuleMemoStore(getFullPath("quiet-memos"));
++  flushModuleMemoStore();
++  const auto First = moduleMemosJSONBuildCountForTest();
++  EXPECT_EQ(First, Before + 1);
++  std::string InitialBytes;
++  {
++    auto InitialFile = llvm::MemoryBuffer::getFile(File);
++    ASSERT_TRUE(InitialFile);
++    InitialBytes = (*InitialFile)->getBuffer().str();
++  } // close the mapping before a later rename, including on Windows
++  for (unsigned I = 0; I != 10; ++I)
++    ASSERT_TRUE(pollModuleMemoStoreForTest());
++  EXPECT_EQ(moduleMemosJSONBuildCountForTest(), First);
++  {
++    auto QuietFile = llvm::MemoryBuffer::getFile(File);
++    ASSERT_TRUE(QuietFile);
++    EXPECT_EQ((*QuietFile)->getBuffer(), InitialBytes);
++  }
++  // Dirty data still builds JSON and reaches disk on the same periodic path.
++  writeTestFile(TestDir, "quiet-input.cpp", "int after_changed;\n");
++  Identity = ModuleValidationCache::identityOf(Input);
++  ASSERT_TRUE(Identity);
++  getModuleValidationCache().markFresh(BMI, "quiet-canary", {{Input, *Identity}});
++  ASSERT_TRUE(pollModuleMemoStoreForTest());
++  EXPECT_EQ(moduleMemosJSONBuildCountForTest(), First + 1);
++  auto ChangedFile = llvm::MemoryBuffer::getFile(File);
++  ASSERT_TRUE(ChangedFile);
++  EXPECT_NE((*ChangedFile)->getBuffer(), InitialBytes);
++  // Final flush deliberately keeps the pre-fix snapshot behavior.
++  flushModuleMemoStore();
++  EXPECT_EQ(moduleMemosJSONBuildCountForTest(), First + 2);
++}
++
+ TEST_F(PrerequisiteModulesTests, MemosKeptForTheNextSession) {

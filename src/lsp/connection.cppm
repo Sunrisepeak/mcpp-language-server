@@ -30,11 +30,10 @@ private:
     std::jthread writer_;
     std::mutex outMutex_;
     std::condition_variable outReady_;
-    std::deque<std::string> outgoing_;
+    std::deque<Json> outgoing_;
     bool outClosing_ { false };                   // stop(): no more sends; the writer closes the input once the queue is out
     std::atomic<bool> writeFailed_ { false };
     std::atomic<bool> closed_ { false };
-    Framing framing_ { Framing::content_length };
 
 public:
     Connection() = default;
@@ -48,8 +47,9 @@ public:
     static base::Result<std::unique_ptr<Connection>> start(platform::SpawnOptions options, MessageHandler onMessage,
                                                            ClosedHandler onClosed, ErrorLineHandler onErrorLine = {},
                                                            Framing framing = Framing::content_length);
-    // Queues the message for the writer thread; fails only once the peer is gone or a write failed.
-    base::Result<void> send(const Json& message);
+    // Queues an owned snapshot; the writer encodes it and writes it in order. Success means
+    // accepted, not delivered. A later encoding/write failure is visible to subsequent sends.
+    base::Result<void> send(Json message);
     // Ends the peer: closes its input, waits up to `grace`, then terminates it.
     void stop(std::chrono::milliseconds grace);
     bool closed() const { return closed_.load(); }

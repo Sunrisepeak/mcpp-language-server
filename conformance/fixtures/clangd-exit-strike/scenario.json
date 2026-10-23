@@ -1,0 +1,132 @@
+{
+  "name": "clangd-exit-strike",
+  "description": "0.0.17 W5 (#59 U9), Linux and macOS: the stand-in clangd (`prepare clangd-exit-strike`) is killed 25 seconds in, the way an editor's kill or the OOM killer ends it: no crash context names a file. The editor is typing in src/main.cpp. Up to 0.0.16 that file was set aside from clangd for two minutes; now the exit is a strike against it, the file stays with clangd, and clangd answers for it again as soon as it is back. A second unexplained exit on the same file within ten minutes still sets it aside.",
+  "prepare": [
+    [
+      "{conformance}",
+      "prepare",
+      "clangd-exit-strike",
+      "{payload}"
+    ]
+  ],
+  "server-arguments": [
+    "--clangd",
+    "{workspace}/stand-in/clangd",
+    "--no-discover"
+  ],
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "state": "ready",
+      "engine-name": "clangd"
+    },
+    {
+      "id": "W1-warmed-up",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet",
+      "timeout": 90
+    },
+    {
+      "id": "T1-editing-when-it-crashes",
+      "kind": "type-text",
+      "file": "src/main.cpp",
+      "line": 2,
+      "steps": [
+        "i",
+        "in",
+        "int",
+        "int x",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        "int x;",
+        ""
+      ],
+      "interval-ms": 500,
+      "answer-within": 15
+    },
+    {
+      "id": "R1-a-strike-not-a-verdict",
+      "kind": "report",
+      "timeout": 30,
+      "expect": [
+        {
+          "path": "/roots/0/events/*/kind",
+          "equals": "engine-exit"
+        },
+        {
+          "path": "/roots/0/events/*/kind",
+          "equals": "exit-strike"
+        },
+        {
+          "path": "/roots/0/engines/*/details/filesSetAside",
+          "max-items": 0
+        }
+      ]
+    },
+    {
+      "id": "T2-main-keeps-clangd",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        4,
+        31
+      ],
+      "expect": "greet",
+      "timeout": 25
+    }
+  ]
+}

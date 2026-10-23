@@ -12,6 +12,45 @@ using mcppls::spec::Role;
 int main() {
     using namespace mcppls::testing;
 
+    "source acknowledgement preserves preprocessor inputs independently of lexical import names"_test = [] {
+        const auto disabled = scan_source("/* prefix */ #if /* condition\n continued */ 0\nimport hidden;\n#endif\nint value() { return 1; }\n", true);
+        const auto enabled = scan_source("/* prefix */ #if /* condition\n continued */ 1\nimport hidden;\n#endif\nint value() { return 1; }\n", true);
+        expect(required_names(disabled) == required_names(enabled));
+        expect(disabled.preprocessorDirectives != enabled.preprocessorDirectives)
+            << "the same import names can have different effective dependency graphs";
+        expect(disabled.preprocessorDirectives == "#if /* condition\n continued */ 0\n#endif\n");
+        const auto body = scan_source("/* prefix */ #if /* condition\n continued */ 0\nimport hidden;\n#endif\nint value() { return 2; }\n", true);
+        expect(disabled.preprocessorDirectives == body.preprocessorDirectives);
+        const auto macro = scan_source("#define FLAG \\\n 0\n#if FLAG\nimport hidden;\n#endif\n", true);
+        expect(macro.preprocessorDirectives == "#define FLAG \\\n 0\n#if FLAG\n#endif\n");
+        const auto literal = scan_source("// #define COMMENT 1\nconst char* text = \"#if 1\";\n", true);
+        expect(literal.preprocessorDirectives.empty() && literal.preprocessorComplete);
+        expect(!scan_source("int x; /* across\n lines */ #if 0\nimport hidden;\n#endif\n").preprocessorComplete)
+            << "an unclassified code-level # must not acknowledge a source";
+        const std::string_view text { "#define FEATURE 1\nexport module sample;\n#if FEATURE\nimport hidden;\n#endif\n" };
+        const auto ordinary = scan_source(text), retained = scan_source(text, true);
+        expect(ordinary.preprocessorDirectives.empty() && !retained.preprocessorDirectives.empty());
+        expect(fatal(ordinary.declaration.has_value() && retained.declaration.has_value()));
+        expect(ordinary.declaration->module == retained.declaration->module
+               && ordinary.declaration->isExported == retained.declaration->isExported
+               && ordinary.declaration->nameRange == retained.declaration->nameRange);
+        expect(required_names(ordinary) == required_names(retained) && role_of(ordinary) == role_of(retained));
+        const auto active = scan_source("#define SELECT(x) x\nimport SELECT(active);\n", true);
+        const auto other = scan_source("#define SELECT(x) x\nimport SELECT(other);\n", true);
+        expect(active.preprocessorDirectives == other.preprocessorDirectives && required_names(active) == required_names(other));
+        expect(!active.importsComplete && !other.importsComplete)
+            << "macro arguments after import can change real dependencies without changing lexical names";
+        expect(!scan_source("export module unfinished").declarationsComplete);
+        expect(!scan_source("export module SELECT(active);\n", true).declarationsComplete);
+        expect(scan_source("module;\nexport module complete;\n").declarationsComplete);
+        const auto oneHeader = scan_source("import \"one.hpp\";\n", true);
+        const auto twoHeaders = scan_source("import \"two.hpp\";\n", true);
+        expect(required_names(oneHeader) == required_names(twoHeaders));
+        expect(fatal(oneHeader.imports.size() == 1 && twoHeaders.imports.size() == 1));
+        expect(oneHeader.imports[0].isHeaderUnit && twoHeaders.imports[0].isHeaderUnit
+               && oneHeader.imports[0].header != twoHeaders.imports[0].header);
+    };
+
     "the fixture's primary interface"_test = [] {
         const auto result = scan_source("export module hello.greet;\nexport import :detail;\nimport std;\n\n"
                                         "export namespace hello {\n  std::string greet(std::string_view who) { return detail::prefix() + std::string(who); }\n}\n");

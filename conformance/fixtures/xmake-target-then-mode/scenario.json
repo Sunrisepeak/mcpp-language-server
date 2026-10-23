@@ -1,0 +1,86 @@
+{
+  "name": "xmake-target-then-mode",
+  "description": "0.0.17 XS-2 (#68, #24 UP-X2): a module library with `import std`, described by mcppls and never built. The user adds a test target that depends on the library, then switches their own configuration to release. xmake's module scan cache, which only a build updates, still counts the library as scanned, and with xmake 3.1.1 every `xmake project -k compile_commands` in a state configured again in place then fails (`dependfile ... not found`): 0.0.16 fell back to inferring the project and kept failing until its cache was removed by hand. The private state is now made again from nothing whenever what it was made from changes, so the model stays xmake's and follows release.",
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "xmake",
+      "tier": 3,
+      "state": "ready",
+      "timeout": 180
+    },
+    {
+      "id": "W1-a-test",
+      "kind": "write-file",
+      "file": "test/basic.cpp",
+      "content": "import json;\nimport std;\n\nint main() { return json::decode(\"y\").text.size() == 1 ? 0 : 1; }\n"
+    },
+    {
+      "id": "W2-its-target",
+      "kind": "write-file",
+      "file": "xmake.lua",
+      "replace": {
+        "from": "target(\"app\")",
+        "with": "target(\"json-test\")\n    set_kind(\"binary\")\n    add_deps(\"json\")\n    add_files(\"test/*.cpp\")\n\ntarget(\"app\")"
+      },
+      "expect-reload": true,
+      "timeout": 60
+    },
+    {
+      "id": "S2-ready-with-the-test",
+      "kind": "status",
+      "source": "xmake",
+      "state": "ready",
+      "timeout": 180
+    },
+    {
+      "id": "W3-release",
+      "kind": "write-file",
+      "file": ".xmake/linux/x86_64/xmake.conf",
+      "replace": {
+        "from": "mode = \"debug\"",
+        "with": "mode = \"release\""
+      },
+      "expect-reload": true,
+      "timeout": 60
+    },
+    {
+      "id": "S3-ready-in-release",
+      "kind": "status",
+      "source": "xmake",
+      "state": "ready",
+      "timeout": 180
+    },
+    {
+      "id": "E1-the-test-in-release",
+      "kind": "engine-command",
+      "file": "test/basic.cpp",
+      "contains": [
+        "-DNDEBUG"
+      ],
+      "timeout": 60
+    },
+    {
+      "id": "R1-xmake-answered",
+      "kind": "report",
+      "timeout": 20,
+      "expect": [
+        {
+          "path": "/roots/0/project/source",
+          "equals": "xmake"
+        },
+        {
+          "path": "/roots/0/project/issues/*/code",
+          "equals": "xmake-configure-failed",
+          "max-matches": 0
+        },
+        {
+          "path": "/roots/0/events/*/kind",
+          "equals": "model-stale",
+          "max-matches": 0
+        }
+      ]
+    }
+  ]
+}
