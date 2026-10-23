@@ -311,6 +311,20 @@ U13 和 two-core 也走同样的方式：U13 每边 3 次（只跑 long 阶段�
 - **E5 根因**：module worker 用 `RLIMIT_AS` 限制地址空间，而 sanitizer 运行时启动时就已映射了数 TB 的 shadow 内存，
   所以 worker 的第一次 mmap 就失败（"module worker failed: ERROR: Failed to mmap"）。新补丁 0037 在 sanitizer 构建下
   让上限只约束 worker 在已有映射之外新增的部分。本地 ASan+UBSan 构建下三个 lit 测试和 soak 的 kill/restart 循环都通过。
-- **E3**：sanitizer 构建现在可用了（E5），U7a 的崩溃可以拿它在本地复现；复现结果记录在 #59。
+- **E3 未复现**：用本地 ASan+UBSan 构建的 clangd（E5 修好之后才可用），在真实 ux-mcpp 上完整跑了一遍
+  cold、warm、edits（U5、U6、U16、U7a、U8）：没有任何 sanitizer 报告，没有 crash context；两次重启都是计划内的
+  （引擎数据库变化）。几个预算检查因为 ASan 变慢而超时，与崩溃无关。U7a 的根因按约定记为未解决，影响由 W5 规则 ②
+  兜住（`clangd-crash-closure`）。
+- **M5（W3）根因**：新加的诊断输出显示 Windows 上只发出了 65 个补全请求。Windows 的 sleep 精度是 15.6 ms，
+  "1000 Hz 打一秒"实际只有约 64 次按键，mock 故意放慢的第 270 个请求根本没有发出。所以"统计和 trace 不是同一组请求"
+  这个最初的解释不成立，"最慢的那个落在 256 之前"也只是表象。测试改为 100 Hz 打 6 秒，三个 OS 上都至少有 300 个请求。
+- **C4（W2）的真正阻碍不是 mcpp 版本**：换成 2026.10.11.1 之后 prepare 能通过了，但 clangd 构建 MSVC 的 `std.ixx`
+  失败（`<generator>: unknown type name 'suspend_always'`）。原因是 Clang 对 32 位 x86 MSVC 目标不定义
+  `__cpp_impl_coroutine`（见 clang 的 `InitPreprocessor.cpp`："Support for coroutines on 32-bit x86 Microsoft
+  platforms is incomplete"），MSVC STL 的 `<coroutine>` 因此为空。也就是说，任何 Clang 都无法为 i686 构建 MSVC 的
+  `std` 模块，mcppls 退回语义工具包是正确的做法。`fcb3450` 给这个 fixture 加的 `import std` 已撤掉；64 位 MSVC 的
+  `std` 仍由 `mcpp-llvm-msvc`、`mcpp-split-msvc` 覆盖。这一限制已写进 docs/20-projects.md。
+- **CI 权限**：本仓库默认的 token 只有 contents/packages 读权限。`zed-smoke.yml` 声明 `actions: read` 会让
+  `ci.yml` 一启动就失败（startup_failure），所以改为继承调用方的权限，只有 nightly 授予 `actions: read`。
 - **M6 未实施**：clangd 的 `$/memoryUsage` 要经过 mcppls 转发，涉及协议面。U13 的效果改由同机 A/B 直接衡量
   （`ux-baseline`、`measure compare`）。
