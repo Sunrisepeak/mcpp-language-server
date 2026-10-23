@@ -3749,6 +3749,10 @@ public:
 
     // ---- resources ----
 
+    // A server that does not report its background work (one before 0.0.17, run beside this one as a
+    // baseline) never will: waiting out the bound for it only delays the same verdict.
+    static constexpr std::string_view WORK_NOT_REPORTED { "the engine does not report its background work state" };
+
     // Eligibility is task state, never a low CPU sample chosen to pass the idle CPU budget.
     // In particular an empty implementation queue before its delayed full sweep is not idle.
     static std::string background_work(const Json& root) {
@@ -3768,7 +3772,7 @@ public:
                 || !implementations.contains("sweepComplete") || !implementations.contains("sweepScheduled")
                 || !implementations.contains("queued") || !implementations.contains("running") || !index.contains("active")
                 || !details.contains("pendingRequests") || !details.contains("filesAwaitingDiagnostics")
-                || !details.contains("deferredRequests") || !details.contains("heldRequests")) return "the engine does not report its background work state";
+                || !details.contains("deferredRequests") || !details.contains("heldRequests")) return std::string { WORK_NOT_REPORTED };
             if (!details.value("handshakeDone", false) || !details.value("accepting", false) || details.value("restartScheduled", false))
                 return "the engine is starting or waiting for a restart";
             if (preparation.value("running", 0L) > 0 || preparation.value("done", 0L) < preparation.value("wanted", 0L)) return "module preparation is unfinished";
@@ -3797,7 +3801,7 @@ public:
         do {
             result.report = root_report(true, std::chrono::seconds { 2 });
             result.unfinished = background_work(result.report);
-            if (result.unfinished.empty() || Clock::now() >= deadline) break;
+            if (result.unfinished.empty() || result.unfinished == WORK_NOT_REPORTED || Clock::now() >= deadline) break;
             client_.pump_until(std::min(deadline, Clock::now() + std::chrono::seconds { 2 }));
         } while (Clock::now() < deadline);
         const auto until { Clock::now() };
