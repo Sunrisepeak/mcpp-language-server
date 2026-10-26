@@ -22,7 +22,7 @@ clion = {}
 [dependencies]
 mcppls-os = { path = "../../modules/os" }
 openkal-llvm-runtime.workspace = true
-openkal-musl.workspace         = true   # by branch until published, as below
+openkal-musl.workspace         = true
 cmdline.workspace              = true
 mcppls-base                    = { path = "../../modules/base" }
 mcppls-platform                = { path = "../../modules/platform" }
@@ -33,17 +33,3 @@ json.workspace = true
 
 [dev-dependencies]
 mcppls-testing = { path = "../../modules/testing" }
-
-# The family beneath, by branch until it is published (the root's [workspace.dependencies] says
-# why): a member built with -p is its own root, and only a root's declaration outranks a version.
-[target.'cfg(os = "linux")'.dependencies]
-openkal.workspace       = true
-openkal-linux.workspace = true
-
-[target.'cfg(os = "macos")'.dependencies]
-openkal.workspace       = true
-openkal-macos.workspace = true
-
-[target.'cfg(windows)'.dependencies]
-openkal.workspace         = true
-openkal-windows.workspace = true

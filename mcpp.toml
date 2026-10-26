@@ -24,22 +24,15 @@ members = [
 
 # One version of each third-party package for every member.
 [workspace.dependencies]
-# The operating-system layer: mcpplibs.os over openkal (mcpp design 2026-10-26 part 2), and the
-# C library and C++ run-time openkal-musl and openkal-llvm-runtime put above openkal.
-os                   = { git = "https://github.com/mcpplibs/os.git", branch = "os-0.1.0-paths" }
-openkal-llvm-runtime = { git = "https://github.com/mcpplibs/openkal-llvm-runtime.git", branch = "openkal-0.17.0" }
-openkal-musl         = { git = "https://github.com/mcpplibs/openkal-musl.git", branch = "openkal-0.17.0", default-features = false, features = ["posix"] }
-# THE FAMILY BENEATH, BY THE SAME BRANCH, UNTIL IT IS PUBLISHED. openkal-musl and the runtime name
-# these by version, and a program's own declaration outranks a version requirement (mcpp
-# docs/05-dependencies.md), so each program of this workspace names them here. They are removed,
-# not changed to versions, once the index carries the release: the versions then come from the
-# packages that need them.
-openkal              = { git = "https://github.com/mcpplibs/openkal.git", branch = "openkal-0.17.0" }
-openkal-linux        = { git = "https://github.com/mcpplibs/openkal-linux.git", branch = "openkal-0.17.0", features = ["standalone"] }
-openkal-macos        = { git = "https://github.com/mcpplibs/openkal-macos.git", branch = "openkal-0.17.0", features = ["standalone"] }
-openkal-windows      = { git = "https://github.com/mcpplibs/openkal-windows.git", branch = "openkal-0.17.0", features = ["standalone"] }
-openkal-ld           = { git = "https://github.com/mcpplibs/openkal-image.git", branch = "openkal-0.17.0" }
-openkal-tools        = { git = "https://github.com/mcpplibs/openkal-image.git", branch = "openkal-0.17.0" }
+# The operating-system layer: mcpplibs.os over openkal (mcpp design 2026-10-26 part 2), the C
+# library and C++ run-time openkal-musl and openkal-llvm-runtime put above openkal, and for an ok
+# image the format's library and tools. The openkal implementation of each system is os's and
+# openkal-musl's dependency, named by them; no program here names it.
+os                   = "0.2.0"
+openkal-llvm-runtime = "0.16.3"
+openkal-musl         = { version = "0.22.3", default-features = false, features = ["posix"] }
+openkal-ld           = "0.1.1"
+openkal-tools        = "0.1.1"
 cmdline              = "0.0.2"
 tinyhttps            = "0.3.1"
 
@@ -97,23 +90,12 @@ cmdline.workspace              = true
 mcppls-base                    = { path = "modules/base" }
 mcppls-os                      = { path = "modules/os" }
 mcppls-platform                = { path = "modules/platform" }
-openkal.workspace              = true   # by branch until published (see [workspace.dependencies])
 
 [dependencies.nlohmann]
 json.workspace = true
 
 [dev-dependencies]
 mcppls-testing = { path = "modules/testing" }
-
-# The family beneath, by branch until it is published (see [workspace.dependencies]).
-[target.'cfg(os = "linux")'.dependencies]
-openkal-linux.workspace = true
-
-[target.'cfg(os = "macos")'.dependencies]
-openkal-macos.workspace = true
-
-[target.'cfg(windows)'.dependencies]
-openkal-windows.workspace = true
 
 # An ok image (`<arch>-openkal`, M2/M3): one server per architecture, which okrun runs on Linux,
 # macOS and Windows. The C library and the C++ run-time are the same packages in their image form;
