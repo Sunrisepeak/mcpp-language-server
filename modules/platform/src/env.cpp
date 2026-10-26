@@ -12,29 +12,15 @@ namespace osenv = mcpplibs::os::env;
 
 std::vector<std::string> variables() { return osenv::variables(); }
 
-std::optional<std::string> get(std::string_view name) {
-    if (auto value = osenv::get(name)) return value;
-    if (mcppls::os::family() == mcppls::os::Family::windows) {
-        // Windows names compare without regard to case ("Path" is PATH).
-        for (const auto& entry : osenv::variables()) {
-            const auto equals = entry.find('=', 1);
-            if (equals != std::string::npos && base::iequals_ascii(std::string_view { entry }.substr(0, equals), name))
-                return entry.substr(equals + 1);
-        }
-    }
-    return std::nullopt;
-}
+// Names compare without case on Windows, as that system compares them; mcpplibs.os answers so.
+std::optional<std::string> get(std::string_view name) { return osenv::get(name); }
 
 namespace {
 
+// A list of directories in the host's separator (mcpplibs.os), normalized.
 std::vector<std::string> split_path_list(std::string_view pathList) {
     std::vector<std::string> result;
-    for (auto piece : base::split(pathList, mcppls::os::path_list_separator())) {
-        piece = base::trim(piece);
-        if (piece.size() >= 2 && piece.front() == '"' && piece.back() == '"') piece = piece.substr(1, piece.size() - 2);
-        if (piece.empty()) continue;
-        result.push_back(base::normalize_path(piece));
-    }
+    for (const auto& piece : osenv::split_list(pathList)) result.push_back(base::normalize_path(piece.generic_string()));
     return result;
 }
 

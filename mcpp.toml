@@ -26,7 +26,7 @@ members = [
 [workspace.dependencies]
 # The operating-system layer: mcpplibs.os over openkal (mcpp design 2026-10-26 part 2), and the
 # C library and C++ run-time openkal-musl and openkal-llvm-runtime put above openkal.
-os                   = { git = "https://github.com/mcpplibs/os.git", branch = "os-0.1.0" }
+os                   = { git = "https://github.com/mcpplibs/os.git", branch = "os-0.1.0-paths" }
 openkal-llvm-runtime = { git = "https://github.com/mcpplibs/openkal-llvm-runtime.git", branch = "openkal-0.17.0" }
 openkal-musl         = { git = "https://github.com/mcpplibs/openkal-musl.git", branch = "openkal-0.17.0", default-features = false, features = ["posix"] }
 # THE FAMILY BENEATH, BY THE SAME BRANCH, UNTIL IT IS PUBLISHED. openkal-musl and the runtime name
