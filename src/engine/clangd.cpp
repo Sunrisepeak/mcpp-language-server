@@ -1418,7 +1418,7 @@ public:
             // version after version while its status says "parsing main file" throughout; each build is timed on its own.
             // clangd names the file as the system spells it: D:\src\... on Windows, where documents are D:/src/...
             std::string file { event.value("file", std::string {}) };
-            if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) std::ranges::replace(file, '\\', '/');
+            if (mcppls::os::family() == mcppls::os::Family::windows) std::ranges::replace(file, '\\', '/');
             const std::string key { base::path_key(file) };
             for (const auto& document : host_->documents()) {
                 if (!document.path.empty() && base::path_key(document.path) == key) {
@@ -1887,13 +1887,13 @@ private:
         // does. Only a verified maintained engine has the option (an external clangd would refuse to start).
         config.inProcessModuleBuilds = !options_.verifiedFeatures.empty() && !platform::sandbox().empty();
         // Its owned module cache bounds isolated workers, which it has on Linux only; elsewhere a bound fails every build.
-        if (!options_.verifiedFeatures.empty() && mcppls::os::FAMILY == mcppls::os::Family::linux) config.ownedCachePayloadMiB = options_.ownedCachePayloadMiB;
+        if (!options_.verifiedFeatures.empty() && mcppls::os::family() == mcppls::os::Family::linux) config.ownedCachePayloadMiB = options_.ownedCachePayloadMiB;
         if (base::to_lower_ascii(options_.formatFallbackStyle) == "mcpp" && !options_.mcppFormatStyle)
             add_issue_(Issue { "format-style-unavailable", "the selected engine does not declare the mcpp formatting style", "mcppls.showLogs", "environment" });
         config.modulesSupport = modulesSupport_;   // WA-CLANGD-009
         // 0.0.14 Windows plan. A2: lists complete in one answer; C1: preambles in memory where that is the cheaper store.
         if (options_.completionResultLimit > 0) config.resultLimit = options_.completionResultLimit;
-        config.preambleStorage = preamble_storage(options_.preambleStorage, mcppls::os::FAMILY == mcppls::os::Family::windows, total_memory_bytes());
+        config.preambleStorage = preamble_storage(options_.preambleStorage, mcppls::os::family() == mcppls::os::Family::windows, total_memory_bytes());
         // By the features the verified engine declares (an external clangd is given none of these).
         const auto declares = [&](std::string_view feature) { return std::ranges::find(options_.verifiedFeatures, feature) != options_.verifiedFeatures.end(); };
         if (declares("managed-input-roots")) config.managedInputRoots = managed_package_stores();

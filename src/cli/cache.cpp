@@ -7,7 +7,6 @@ module mcppls.cli.cache;
 import std;
 import nlohmann.json;
 import mcpplibs.cmdline;
-import mcppls.arch;
 import mcppls.base.path;
 import mcppls.base.version;
 import mcppls.bundle.writer;
@@ -226,8 +225,8 @@ int report(const std::string& workspaces, bool instancesOnly, bool listModules, 
 // editor and no server, so those facts render as "(unknown)" and the prompt says to look.
 Json prompt_facts() {
     return Json { { "version", std::string { base::VERSION } },
-                  { "os", std::string { mcppls::os::FAMILY_NAME } },
-                  { "arch", std::string_view { mcppls::arch::ARCH == mcppls::arch::Arch::aarch64 ? "arm64" : "x64" } },
+                  { "os", std::string { mcppls::os::family_name() } },
+                  { "arch", std::string_view { mcppls::os::arch_name() } },
                   { "cacheRoot", platform::dirs::cache_directory() },
                   { "logDirectory", base::join_path(platform::dirs::cache_directory(), "logs") },
                   { "bundlesDirectory", bundle::default_directory() } };

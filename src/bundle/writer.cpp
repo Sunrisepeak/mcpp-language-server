@@ -112,15 +112,15 @@ std::string unquoted(std::string_view value) {
 }
 
 Json operating_system() {
-    Json os { { "platform", std::string { mcppls::os::PLATFORM } }, { "family", std::string { mcppls::os::FAMILY_NAME } } };
-    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
+    Json os { { "platform", std::string { mcppls::os::platform() } }, { "family", std::string { mcppls::os::family_name() } } };
+    if (mcppls::os::family() == mcppls::os::Family::linux) {
         if (auto release = read_text("/proc/sys/kernel/osrelease")) os["kernel"] = std::string { base::trim(*release) };
         if (auto release = read_text("/etc/os-release")) {
             for (const auto line : base::split_lines(*release)) {
                 if (line.starts_with("PRETTY_NAME=")) os["distribution"] = unquoted(line.substr(12));
             }
         }
-    } else if constexpr (mcppls::os::FAMILY == mcppls::os::Family::macos) {
+    } else if (mcppls::os::family() == mcppls::os::Family::macos) {
         if (auto versions = system_answer("sw_vers", {})) {
             os["name"] = field(*versions, "ProductName");
             os["version"] = field(*versions, "ProductVersion");
@@ -133,7 +133,7 @@ Json operating_system() {
 }
 
 Json memory() {
-    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
+    if (mcppls::os::family() == mcppls::os::Family::linux) {
         if (auto info = read_text("/proc/meminfo")) {
             for (const auto line : base::split_lines(*info)) {
                 if (!line.starts_with("MemTotal:")) continue;
@@ -143,7 +143,7 @@ Json memory() {
                 return Json { { "totalBytes", kib * 1024 } };
             }
         }
-    } else if constexpr (mcppls::os::FAMILY == mcppls::os::Family::macos) {
+    } else if (mcppls::os::family() == mcppls::os::Family::macos) {
         if (auto bytes = system_answer("sysctl", { "-n", "hw.memsize" })) {
             std::uint64_t total { 0 };
             const auto digits = base::trim(*bytes);
@@ -159,7 +159,7 @@ Json locale() {
     for (const std::string_view name : { "LANG", "LC_ALL", "LC_CTYPE" }) {
         if (auto value = platform::env::get(name)) locale[std::string { name }] = *value;
     }
-    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+    if (mcppls::os::family() == mcppls::os::Family::windows) {
         // The ANSI code page is what a narrow string from the system is in (issue #23 had a GBK machine).
         if (auto answer = system_answer("reg", { "query", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage", "/v", "ACP" })) {
             for (const auto line : base::split_lines(*answer)) {
@@ -514,7 +514,7 @@ std::expected<BundleResult, BundleFailure> write_bundle(const BundleInput& input
     Json manifest {
         { "format", FORMAT_VERSION },
         { "generatedAt", utc_now("{:%FT%TZ}") },
-        { "generator", Json { { "name", "mcppls" }, { "version", std::string { base::VERSION } }, { "platform", std::string { mcppls::os::PLATFORM } } } },
+        { "generator", Json { { "name", "mcppls" }, { "version", std::string { base::VERSION } }, { "platform", std::string { mcppls::os::platform() } } } },
         { "options", Json { { "redacted", options.redact }, { "hideProjectPaths", options.hideProjectPaths }, { "sourceExcerpts", options.sourceExcerpts },
                              { "includeDumps", options.includeDumps }, { "sizeCapBytes", options.sizeCap } } },
         { "redaction", options.redact ? Json { { "rules", result.redactions }, { "residueCheck", "passed" } }

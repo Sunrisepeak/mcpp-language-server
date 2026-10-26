@@ -36,16 +36,18 @@ and the server must not carry lives in a member the server does not depend on.
 | Member | What | Depends on |
 |---|---|---|
 | `.` (root) | `mcppls`, and its own test and generation programs: `mcppls-conformance`, `mcppls-lspgen`, the two mocks | base, platform |
-| `modules/base` | errors, paths, text, globbing, sha256, URIs, logging, the product version | openkal |
-| `modules/platform` | files, processes, environment, directories, loopback sockets — the only package that talks to openkal | base |
+| `modules/os` | `mcppls.os`: the system the program runs upon, in mcppls' names (`family()`, `platform()`) | mcpplibs.os |
+| `modules/base` | errors, paths, text, globbing, sha256, URIs, logging, the product version | os |
+| `modules/platform` | files, processes, environment, directories, loopback sockets — the only package that reaches the operating system, through mcpplibs.os | base, os |
 | `modules/pack` | verified downloads, archives, payload and kit assembly, release checks | base, platform, tinyhttps, libarchive |
 | `tools/devtools` | `mcppls-devtools` | base, platform, pack |
 | `tools/model-gateway` | `mcppls-model`, the reference model gateway | openkal, tinyhttps |
 
 `mcpp build -p <member>` and `mcpp test -p <member>` reach one member; `--workspace` reaches all of
-them (the root package is reached by the plain command). `modules/os/*` hold the six platform
-constants, and are the only place a platform may differ (`mcppls-devtools check os-surface`);
-`modules/arch/*` give them the architecture, so `PLATFORM` says `linux-arm64` on an arm64 build.
+them (the root package is reached by the plain command). The system is a value, never a
+preprocessor branch: `mcppls::os::family()` is mcpplibs.os's `host()`, a constant expression on a
+native build and the loaded system in an ok image (`<arch>-openkal`), and `platform()` names it with
+the architecture, so an arm64 build says `linux-arm64` (`mcppls-devtools check os-surface`).
 The platforms themselves are the rows of `packaging/payload.lock.json`; the VS Code extension,
 `release.manifest.json` and CI's per-platform jobs list the same ones (`mcppls-devtools check
 platforms`).
@@ -143,6 +145,6 @@ release's evidence archive, not in the tree.
   with one line.
 - `--json` for anything CI or an agent reads. Errors are one sentence that says what to do.
 - Files, processes and the environment go through `mcppls.platform`, never the C library or the
-  operating system directly; a platform difference is one of the six constants or nothing.
+  operating system directly; a platform difference is a branch on `mcppls::os::family()` or nothing.
 - Update the tables above in the same change (`mcppls-devtools check docs` compares them with
   `--help`).

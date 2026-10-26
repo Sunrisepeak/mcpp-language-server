@@ -398,6 +398,11 @@ jobs:
           find artifacts -type f \( -name '*.vsix' -o -name 'payload-*.tar.gz' \
                                  -o -name 'mcppls-zed-*.tar.gz' -o -name 'mcppls-clion-*.zip' \) \
                -exec cp {} release/ \;
+          # The ok images (M2), one per architecture, named for the release.
+          version='${{ needs.plugins.outputs.version }}'
+          for arch in x86_64 aarch64; do
+            cp "$(find artifacts -type f -name "mcppls-$arch.oke" | head -1)" "release/mcppls-$version-$arch.oke"
+          done
           ls -l release
       # The Linux payload artifact carries the devtools the same run built (stage/mcppls-devtools),
       # a static openkal executable, so this job needs no toolchain.

@@ -173,15 +173,110 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
+  # The server as an ok image (M2): one per architecture, built once on Linux, which okrun runs on
+  # every system of that architecture (mcpp design 2026-10-26 part 2, §8.5). These are the bytes
+  # every platform's server carries: the M3 jobs below check theirs against them.
+  server-image:
+    name: server image (${{ matrix.arch }}-openkal)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - name: Build the image
+        run: |
+          set -euo pipefail
+          mcpp build --profile release --target ${{ matrix.arch }}-openkal
+          image=$(find target/${{ matrix.arch }}-openkal -type f -name mcppls.oke -path '*/bin/*' | head -1)
+          [ -n "$image" ] || { echo "::error::no mcppls.oke was published"; exit 1; }
+          mkdir -p image && cp "$image" image/mcppls-${{ matrix.arch }}.oke
+          (cd image && sha256sum * | tee SHA256SUMS-${{ matrix.arch }})
+      - name: The image carries no archive or TLS code
+        run: |
+          set -euo pipefail
+          mcpp build -p devtools
+          devtools=$(find target -type f -name mcppls-devtools -path '*/bin/*' | head -1)
+          "$devtools" check binary --server image/mcppls-${{ matrix.arch }}.oke
+      - name: The image runs through okrun here
+        if: matrix.arch == 'x86_64'
+        run: |
+          set -euo pipefail
+          okrun=$(find ~/.mcpp/build-cache -type f -name okrun -path '*openkal-tools*' | head -1)
+          [ -n "$okrun" ] || { echo "::error::okrun was not built"; exit 1; }
+          "$okrun" image/mcppls-x86_64.oke version
+      - uses: actions/upload-artifact@v7
+        with:
+          name: server-image-${{ matrix.arch }}
+          path: image
+          retention-days: 7
+
+  # The server every payload carries (M3): a program of each system that carries the image of its
+  # architecture as a section and runs it through libokrun. Packed on its own system (the runner
+  # borrows that system's C and C++ run-time), and checked to carry the image byte for byte.
+  server-m3:
+    name: server M3 (${{ matrix.platform }})
+    needs: server-image
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x64,    os: ubuntu-24.04,     arch: x86_64,  exe: '' }
+          - { platform: linux-arm64,  os: ubuntu-24.04-arm, arch: aarch64, exe: '' }
+          - { platform: win32-x64,    os: windows-2022,     arch: x86_64,  exe: '.exe' }
+          - { platform: darwin-arm64, os: macos-14,         arch: aarch64, exe: '' }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - uses: actions/download-artifact@v8
+        with:
+          name: server-image-${{ matrix.arch }}
+          path: image
+      - name: Pack
+        run: |
+          set -euo pipefail
+          mcpp pack --profile release --target ${{ matrix.arch }}-openkal --mode self-contained --format dir -o m3
+          built=$(find target/${{ matrix.arch }}-openkal -type f -name mcppls.oke -path '*/bin/*' | head -1)
+          want=$(cut -d' ' -f1 image/SHA256SUMS-${{ matrix.arch }})
+          got=$(sha256sum "$built" | cut -d' ' -f1)
+          echo "image built on Linux $want, here $got"
+          [ "$want" = "$got" ] || { echo "::error::the image built here is not the one built on Linux"; exit 1; }
+          mkdir -p server && cp target/dist/m3/bin/mcppls${{ matrix.exe }} server/
+          (cd server && sha256sum * | tee SHA256SUMS)
+      - name: The program runs
+        run: |
+          set -euo pipefail
+          server/mcppls${{ matrix.exe }} version
+          mkdir -p "$RUNNER_TEMP/m3-project/src"
+          printf '[package]\nname = "m3"\nversion = "0.1.0"\n' > "$RUNNER_TEMP/m3-project/mcpp.toml"
+          printf 'int main() { return 0; }\n' > "$RUNNER_TEMP/m3-project/src/main.cpp"
+          MCPPLS_CACHE_DIR="$RUNNER_TEMP/m3-cache" server/mcppls${{ matrix.exe }} report --root "$RUNNER_TEMP/m3-project" > report.json
+          grep -q '"engine"' report.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: server-m3-${{ matrix.platform }}
+          path: server
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
   # Payloads: the server, trimmed clangd 23.1 and the mcppls-kit (design 15.2).
   # linux-x64 and win32-x64 are assembled on Linux; darwin-arm64 needs a macOS host
   # for lipo and the libc++ configure; linux-arm64 an arm64 Linux host, whose dpkg has
-  # the aarch64 C headers the kit carries. The Windows, macOS and Linux arm64
-  # executables come from the cross-build job, unchanged (W11). `cross-tools` marks a
-  # runner with no mcpp, where the cross-built devtools does the packaging.
+  # the aarch64 C headers the kit carries. The server is the M3 program of the platform
+  # (server-m3), carried byte for byte; the test tools come from the cross-build job,
+  # unchanged (W11). `cross-tools` marks a runner with no mcpp, where the cross-built
+  # devtools does the packaging.
   payload:
     name: payload (${{ matrix.platform }})
-    needs: cross-build
+    needs: [cross-build, server-m3]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     strategy:
@@ -230,6 +325,11 @@ jobs:
         with:
           name: cross-${{ matrix.cross }}
           path: cross
+      - name: The platform's server (M3)
+        uses: actions/download-artifact@v8
+        with:
+          name: server-m3-${{ matrix.platform }}
+          path: server
       # The packaging tool has to run on THIS host. On macOS and arm64 Linux that is the
       # cross-built one; a Linux runner assembling the Windows payload builds its own (the
       # cross-built one is a .exe).
@@ -285,7 +385,8 @@ jobs:
             jq '{version: .["engine-version"], fork: .["fork-commit"], sha256, features}' "$part/engine.json"
             engine=(--clangd "$part" --candidate)
           fi
-          server="cross/mcppls${{ matrix.exe }}"
+          server="server/mcppls${{ matrix.exe }}"
+          chmod +x "$server"
           runner="cross/mcppls-conformance${{ matrix.exe }}"
           mock="cross/mcppls-mock-mcpp${{ matrix.exe }}"
           mockModel="cross/mcppls-mock-model${{ matrix.exe }}"
@@ -293,11 +394,11 @@ jobs:
           ./host-devtools payload --platform ${{ matrix.platform }} --server "$server" ${engine[@]+"${engine[@]}"} --out payload --cache "$PAYLOAD_CACHE"
           ./host-devtools payload --verify payload --json > "$RUNNER_TEMP/verify.json"
           cat "$RUNNER_TEMP/verify.json"
-          if [ -f cross/SHA256SUMS ]; then
-            # The payload carries the cross-built executable byte for byte.
-            want=$(grep " mcppls${{ matrix.exe }}\$" cross/SHA256SUMS | cut -d' ' -f1)
+          if [ -f server/SHA256SUMS ]; then
+            # The payload carries the platform's M3 program byte for byte.
+            want=$(grep " mcppls${{ matrix.exe }}\$" server/SHA256SUMS | cut -d' ' -f1)
             got=$(grep -o '"sha256": *"[0-9a-f]*"' "$RUNNER_TEMP/verify.json" | head -1 | grep -o '[0-9a-f]\{64\}')
-            echo "cross-built $want, payload $got"
+            echo "M3 $want, payload $got"
             [ "$want" = "$got" ]
           fi
           mkdir -p stage && cp "$runner" "$mock" "$mockModel" "$packer" stage/
@@ -1555,6 +1656,6 @@ jobs:
 
   release-checks:
     name: release checks
-    needs: [packaging-changes, specifications, build-test, cross-build, payload, conformance, clean-machine, vscode-e2e, neovim, bench-validate]
+    needs: [packaging-changes, specifications, build-test, cross-build, server-image, server-m3, payload, conformance, clean-machine, vscode-e2e, neovim, bench-validate]
     if: needs.packaging-changes.outputs.changed == 'true'
     uses: ./.github/workflows/release-checks.yml

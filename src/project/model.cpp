@@ -274,7 +274,7 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
             if (!infer.facts && options.discoverCompilers && !kitRequested) {
                 const auto candidates = toolchain::discover_compilers(options.runner);
                 // On Windows the machine's own Visual Studio comes first when it has the std module (design 9.3, D27).
-                if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+                if (mcppls::os::family() == mcppls::os::Family::windows) {
                     for (const auto& candidate : candidates) {
                         if (candidate.origin != "visual-studio" || candidate.family != spec::Family::msvc) continue;
                         auto facts = prober(candidate.driver, std::vector<std::string> {});

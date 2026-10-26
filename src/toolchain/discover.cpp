@@ -23,7 +23,7 @@ void add(std::vector<CompilerCandidate>& out, std::string driver, std::string_vi
 
 // <store>/xim-x-gcc/<version>/bin/g++ and <store>/xim-x-llvm/<version>/bin/clang++, newest first.
 void add_store(std::vector<CompilerCandidate>& out, std::string_view store, std::string_view origin) {
-    const std::string suffix { mcppls::os::EXECUTABLE_SUFFIX };
+    const std::string suffix { mcppls::os::executable_suffix() };
     for (const auto& [package, driver] : { std::pair { "xim-x-llvm", "clang++" }, std::pair { "xim-x-gcc", "g++" } }) {
         auto versions = platform::fs::list_directory(base::join_path(store, package));
         std::ranges::sort(versions, std::greater<> {});
@@ -34,7 +34,7 @@ void add_store(std::vector<CompilerCandidate>& out, std::string_view store, std:
 } // namespace
 
 bool macos_developer_tools_present() {
-    if constexpr (mcppls::os::FAMILY != mcppls::os::Family::macos) {
+    if (mcppls::os::family() != mcppls::os::Family::macos) {
         return false;
     } else {
         // The order xcrun follows: DEVELOPER_DIR, the directory `xcode-select -s` recorded, then the defaults.
@@ -52,7 +52,7 @@ std::vector<CompilerCandidate> discover_compilers(const Runner& runner) {
     std::vector<CompilerCandidate> out;
     // On macOS the compilers in /usr/bin are shims; without developer tools, probing one asks the
     // person to install them (usable plan W5.4: the extension asks once, the server never).
-    const bool shimsUsable { mcppls::os::FAMILY != mcppls::os::Family::macos || macos_developer_tools_present() };
+    const bool shimsUsable { mcppls::os::family() != mcppls::os::Family::macos || macos_developer_tools_present() };
     for (std::string_view name : { "c++", "g++", "clang++", "cl", "clang-cl" }) {
         auto found = platform::env::find_executable(name);
         if (!found) continue;
@@ -62,10 +62,10 @@ std::vector<CompilerCandidate> discover_compilers(const Runner& runner) {
     const std::string home { platform::dirs::home_directory() };
     add_store(out, base::join_path(home, ".mcpp/registry/data/xpkgs"), "mcpp");
     add_store(out, base::join_path(home, ".xlings/data/xpkgs"), "xlings");
-    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::macos) {
+    if (mcppls::os::family() == mcppls::os::Family::macos) {
         add(out, "/opt/homebrew/opt/llvm/bin/clang++", "homebrew");
     }
-    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+    if (mcppls::os::family() == mcppls::os::Family::windows) {
         const std::string vswhere { "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe" };
         if (platform::fs::is_regular_file(vswhere)) {
             const std::vector<std::string> argv { vswhere, "-latest", "-products", "*", "-requires",

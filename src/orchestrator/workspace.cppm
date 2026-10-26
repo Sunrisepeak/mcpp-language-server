@@ -86,8 +86,10 @@ struct SessionOptions {
     // mcppls.index.primeImplementationUnits (0.0.6 plan §2.6, §9 T5): whether implementation units
     // are opened in the background so go-to-definition reaches them (T5's work; T1 only carries it).
     std::string primeImplementationUnits { "auto" };
-    // This program, to run `mcppls review` for an editor's review command (overall design 7.7).
-    std::string serverExecutable;
+    // What starts this program again, to run `mcppls review` for an editor's review command
+    // (overall design 7.7), the daemon and the login shell's environment report: the executable, or
+    // an ok image's loader and the image.
+    std::vector<std::string> serverCommand;
     // Given by the composition root; a test can substitute engines that start no process.
     std::function<EngineFactories(const SessionOptions&, const engine::PayloadPaths&, bool payloadCorrupt)> engineFactories;
     // The configuration registry resolved against the command line (config settings §9 T1):

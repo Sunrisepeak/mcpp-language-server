@@ -16,8 +16,8 @@ namespace {
 namespace fs = mcppls::platform::fs;
 namespace archive = mcppls::pack::archive;
 
-constexpr bool WINDOWS { mcppls::os::FAMILY == mcppls::os::Family::windows };
-constexpr bool MACOS { mcppls::os::FAMILY == mcppls::os::Family::macos };
+bool windows() { return mcppls::os::family() == mcppls::os::Family::windows; }
+bool macos() { return mcppls::os::family() == mcppls::os::Family::macos; }
 
 std::optional<std::string> absolute_variable(std::string_view name) {
     auto value = platform::env::get(name);
@@ -58,7 +58,7 @@ std::optional<std::string> extension_id(const std::string& directory) {
 }
 
 std::string jetbrains_directory() {
-    if constexpr (WINDOWS) {
+    if (windows()) {
         if (auto roaming = absolute_variable("APPDATA")) return base::join_path(*roaming, "JetBrains");
         return base::join_path(platform::dirs::home_directory(), "AppData/Roaming/JetBrains");
     } else {
@@ -86,10 +86,10 @@ std::optional<std::pair<int, int>> clion_version(std::string_view name) {
 } // namespace
 
 std::string user_data_directory() {
-    if constexpr (WINDOWS) {
+    if (windows()) {
         if (auto local = absolute_variable("LOCALAPPDATA")) return *local;
         return base::join_path(platform::dirs::home_directory(), "AppData/Local");
-    } else if constexpr (MACOS) {
+    } else if (macos()) {
         return base::join_path(platform::dirs::home_directory(), "Library/Application Support");
     } else {
         if (auto xdg = absolute_variable("XDG_DATA_HOME")) return *xdg;
@@ -100,7 +100,7 @@ std::string user_data_directory() {
 std::string server_directory() { return base::join_path(user_data_directory(), "mcppls/payload"); }
 
 std::string zed_directory() {
-    return base::join_path(user_data_directory(), (WINDOWS || MACOS) ? "Zed" : "zed");
+    return base::join_path(user_data_directory(), (windows() || macos()) ? "Zed" : "zed");
 }
 
 base::Result<ZedInstall> install_zed(const std::string& zedDirectory, const std::string& source) {
@@ -160,7 +160,7 @@ std::vector<std::string> clion_plugin_directories() {
         if (!version) continue;
         // Linux keeps plugins directly in the versioned data directory; macOS and Windows keep
         // them in its `plugins/` (JetBrains, "Directories used by the IDE").
-        found.emplace_back(*version, (WINDOWS || MACOS) ? base::join_path(path, "plugins") : path);
+        found.emplace_back(*version, (windows() || macos()) ? base::join_path(path, "plugins") : path);
     }
     std::ranges::sort(found, std::greater {}, [](const auto& entry) { return entry.first; });
     std::vector<std::string> directories;

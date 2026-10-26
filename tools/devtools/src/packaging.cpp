@@ -47,7 +47,7 @@ std::optional<std::string> server_for(const std::string& root, const cmdline::Pa
     }
     ServerBuild build {};
     if (arguments.is_flag_set("dev")) build.profile = "dev";
-    if (platformName != mcppls::os::PLATFORM) {
+    if (platformName != mcppls::os::platform()) {
         const auto lockData = load_lock(root);
         if (!lockData) return std::nullopt;
         auto row = pack::lock::platform(*lockData, platformName);
@@ -66,7 +66,7 @@ std::optional<std::string> server_for(const std::string& root, const cmdline::Pa
 }
 
 std::optional<std::string> parse_platform(const std::string& root, const cmdline::ParsedArgs& arguments) {
-    const std::string given { arguments.value("platform").value_or(std::string { mcppls::os::PLATFORM }) };
+    const std::string given { arguments.value("platform").value_or(std::string { mcppls::os::platform() }) };
     const auto lockData = load_lock(root);
     if (!lockData) return std::nullopt;
     const auto known = pack::lock::platform_names(*lockData);
@@ -397,9 +397,9 @@ int put_payload(const std::string& root, const cmdline::ParsedArgs& arguments, c
         }
         return 0;
     }
-    auto server = server_for(root, arguments, mcppls::os::PLATFORM);
+    auto server = server_for(root, arguments, mcppls::os::platform());
     if (!server) return 2;
-    const auto payload = assemble_payload(root, mcppls::os::PLATFORM, directory,
+    const auto payload = assemble_payload(root, mcppls::os::platform(), directory,
                                           arguments.value("clangd").value_or(""), arguments.value("kit").value_or(""),
                                           *server, base::join_path(root, ".payload-cache"), std::nullopt, true, false);
     return payload.built ? 0 : 1;
@@ -419,7 +419,7 @@ int build_vscode(const std::string& root, const cmdline::ParsedArgs& arguments, 
     }
     if (!step("compiling the extension", *npm, { "run", "compile" }, extension)) return 1;
 
-    const std::string target { payload_platform(base::join_path(extension, "payload")).value_or(std::string { mcppls::os::PLATFORM }) };
+    const std::string target { payload_platform(base::join_path(extension, "payload")).value_or(std::string { mcppls::os::platform() }) };
     const std::string vsix { arguments.value("out").value_or(
         base::join_path(root, std::format("target/pack/mcppls-{}.vsix", target))) };
     (void) platform::fs::create_directories(base::parent_path(vsix));
@@ -461,7 +461,7 @@ std::vector<std::string> clion_directories(const cmdline::ParsedArgs& arguments)
 int install_server(const std::string& root, const cmdline::ParsedArgs& arguments) {
     const std::string directory { server_directory(arguments) };
     if (const int status = put_payload(root, arguments, directory); status != 0) return status;
-    std::println("server: {}", base::join_path(directory, std::format("bin/mcppls{}", mcppls::os::EXECUTABLE_SUFFIX)));
+    std::println("server: {}", base::join_path(directory, std::format("bin/mcppls{}", mcppls::os::executable_suffix())));
     return 0;
 }
 
@@ -539,7 +539,7 @@ int command_extension(const cmdline::ParsedArgs& arguments) {
     }
 
     for (const Editor editor : editors) {
-        std::println("mcppls-devtools: {} extension for {}", editor_name(editor), mcppls::os::PLATFORM);
+        std::println("mcppls-devtools: {} extension for {}", editor_name(editor), mcppls::os::platform());
         if (editor == Editor::zed) {
             const std::string source { plugin.value_or(base::join_path(root, "editors/zed")) };
             if (!plugin && !build_zed(root)) return 1;

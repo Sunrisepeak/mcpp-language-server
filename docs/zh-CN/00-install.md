@@ -52,7 +52,7 @@ release 里的每个文件都列在它的 `MANIFEST.md` 里，说明是什么、
 
 ## 从源码构建
 
-服务端基于 [openkal](https://github.com/mcpplibs/openkal) 用 C++23 modules 写成，用 [mcpp](https://github.com/mcpp-community/mcpp) 构建：
+服务端基于 [mcpplibs.os](https://github.com/mcpplibs/os)（其下为 [openkal](https://github.com/mcpplibs/openkal)）用 C++23 modules 写成，用 [mcpp](https://github.com/mcpp-community/mcpp) 构建：
 
 ```bash
 mcpp build                                        # 服务端
@@ -71,6 +71,8 @@ mcpp run -p devtools -- extension --install       # payload、扩展，装进 VS
 | 只要 payload，给其他编辑器用 | `mcpp run -p devtools -- payload` |
 | 复用已经构建好的 clangd 或 kit | `... -- payload --clangd DIR --kit DIR` |
 | 其他平台的服务端 | `mcpp build --target aarch64-macos` / `--target x86_64-windows-gnu` / `--target aarch64-linux-musl` |
+| 服务端的 ok 映像，每种架构一份（M2） | `mcpp build --release --target x86_64-openkal`（或 `aarch64-openkal`）；`okrun mcppls.oke serve` 在 Linux、macOS 与 Windows 上运行它 |
+| 携带该映像的本系统程序（M3），即 payload 中的服务端 | `mcpp pack --release --target x86_64-openkal --mode self-contained --format dir -o m3` |
 
 **零配置。** 打包需要什么，都写在 `mcpp.toml` 的 `[xlings.workspace]` 里——VS Code 扩展需要 Node，Zed 需要 Rust——工具启动前 `mcpp run` 会先把这些准备好。payload 本身（clangd、语义工具包）由工具用 C++ 组装，不涉及任何解释器。所有贡献者会用到的命令都在 [93-devtools.md](93-devtools.md) 里。Gradle 和它要用的 JDK 放在 `clion` feature 后面（`mcpp run --features clion ...`），这样不构建那个插件的人就不用下载它们。没有什么需要手动安装，工具也不会背着你装东西：需要什么，只写在这一份 manifest 里。
 

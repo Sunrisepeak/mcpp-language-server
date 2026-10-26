@@ -1,4 +1,4 @@
-// Child processes over openkal.process: start a program, talk to it through
+// Child processes over mcpplibs.os.process: start a program, talk to it through
 // pipes, wait for it with or without a bound, and end it.
 export module mcppls.platform.process;
 
@@ -41,10 +41,9 @@ public:
     static base::Result<Process> spawn(const SpawnOptions& options);
 
     bool valid() const;
-    // The OS process id, best-effort: on the POSIX backends (Linux, macOS) openkal's process
-    // handle IS the pid it waits on with wait4/waitpid, so a caller that needs to look at this
-    // child from outside (a stress check's CPU/RSS sampler, for one) can. nullopt on Windows,
-    // where the handle is not a pid, and whenever there is no process to ask about.
+    // The identifier the system gives the child (its pid), for a caller that looks at it from
+    // outside (a stress check's CPU/RSS sampler, cpu_seconds); nullopt once it has ended or when
+    // there is no process to ask about.
     std::optional<std::int64_t> native_pid() const;
     base::Result<void> write(std::string_view bytes);      // thread-safe
     // Blocks until bytes arrive. An empty string means the stream ended.
@@ -109,23 +108,19 @@ base::Result<RunResult> run(SpawnOptions options, std::chrono::milliseconds time
 // The last lines of a stream, for a record that must stay small.
 std::string last_lines(std::string_view text, std::size_t lines);
 
-// The CPU time, user and system together, that a running process has used so far, where the
-// platform can say: /proc on Linux, ps(1) on macOS. nullopt on Windows (openkal exposes no process
-// times and a handle is not a pid there) and whenever the process cannot be read.
+// The CPU time, user and system together, that a running process has used so far
+// (mcpplibs.os.process `describe`); nullopt whenever the process cannot be asked about.
 std::optional<double> cpu_seconds(std::int64_t pid);
-// Whether a process is running, where the platform can say: /proc on Linux, ps(1) on macOS, the
-// process handle on Windows; a process that has exited and not been reaped yet (a zombie) is not
-// running. nullopt whenever the answer cannot be read -- which is not the same as "gone".
+// Whether a process is running; a process that has exited and not been reaped yet (a zombie) is
+// not. nullopt whenever the answer cannot be read -- which is not the same as "gone".
 std::optional<bool> process_alive(std::int64_t pid);
-// ps(1)'s cumulative "time" column, "[[dd-]hh:]mm:ss[.ss]", in seconds.
-std::optional<double> parse_cpu_time(std::string_view text);
 
-// X-6 (plan 2026-10-03): who a process is, as far as this boot can say -- its pid and a string that
-// is stable for one incarnation of it (Linux: stat's starttime; macOS: the kernel's birth time;
-// Windows: what GetProcessTimes reports). A pid another process has since taken answers with a
-// different `started`, so a lease that names pid and `started` is taken over only when both say
-// "the same live process"; on Windows that check finally exists, where before it never could.
-// nullopt when the platform cannot say -- a caller falls back to the heartbeat alone, as before.
+// X-6 (plan 2026-10-03): who a process is -- its pid and a string that is stable for one
+// incarnation of it and different for the next owner of the pid: `ok:<started_ns>`, the start
+// mcpplibs.os reports on every system. A lease that names pid and `started` is taken over only
+// when both say "the same live process"; an older server wrote `started` in another scheme, which
+// cannot be compared with this one, and such a lease is judged by liveness alone
+// (`same_identity_scheme`). nullopt when the platform cannot say.
 struct ProcessIdentity {
     std::int64_t pid { 0 };
     std::string started;
@@ -134,6 +129,8 @@ std::optional<ProcessIdentity> process_identity(std::int64_t pid);
 // This process's own identity, named in the lease and in an instance's own `instance.json` so that
 // the next server can tell a crashed owner from a reused pid.
 std::optional<ProcessIdentity> process_self();
+// Whether two `started` strings are of one scheme, so that comparing them means something.
+bool same_identity_scheme(std::string_view a, std::string_view b);
 
 // One thread of a process and the CPU time it has used so far (an incident's "which thread spins").
 struct ThreadCpu {
@@ -145,7 +142,7 @@ struct ThreadCpu {
 // elsewhere, where only the whole process's time is known (cpu_seconds).
 std::vector<ThreadCpu> thread_cpu(std::int64_t pid);
 
-// The openkal preopened directory that contains an absolute path, and the path
+// The supplied directory (mcpplibs.os.fs `locate`) that contains an absolute path, and the path
 // beneath it. Exposed for tests and for callers that need to explain a failure.
 struct PreopenMatch {
     std::string preopenName;

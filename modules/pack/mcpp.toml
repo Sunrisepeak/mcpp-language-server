@@ -13,6 +13,8 @@ license     = "Apache-2.0"
 kind = "lib"
 
 [dependencies]
+mcppls-os = { path = "../os" }
+os.workspace = true
 openkal-llvm-runtime.workspace = true
 tinyhttps.workspace = true
 mcppls-base = { path = "../base" }
@@ -26,15 +28,6 @@ libarchive.workspace = true
 
 [dev-dependencies]
 mcppls-testing = { path = "../testing" }
-
-[target.'cfg(os = "linux")'.dependencies]
-mcppls-os-linux = { path = "../os/linux" }
-
-[target.'cfg(os = "macos")'.dependencies]
-mcppls-os-macos = { path = "../os/macos" }
-
-[target.'cfg(windows)'.dependencies]
-mcppls-os-windows = { path = "../os/windows" }
 
 [lib]
 path = "src/pack.cppm"

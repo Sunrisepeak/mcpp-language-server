@@ -37,8 +37,9 @@ std::optional<DaemonInfo> find_daemon(std::string_view root);
 // Serves in the foreground until stopped or idle; returns the exit status.
 int run_daemon(const DaemonOptions& options);
 
-// Starts `executable daemon run --root <root> <arguments>` detached, and waits for it to say where it is.
-base::Result<DaemonInfo> start_daemon(std::string_view executable, std::string_view root, std::span<const std::string> arguments,
+// Starts `<self> daemon run --root <root> <arguments>` detached, `self` being the words that start this
+// program again (an ok image's loader and image, or the executable), and waits for it to say where it is.
+base::Result<DaemonInfo> start_daemon(std::span<const std::string> self, std::string_view root, std::span<const std::string> arguments,
                                       std::chrono::milliseconds timeout);
 
 // A control request, answered with one JSON line.

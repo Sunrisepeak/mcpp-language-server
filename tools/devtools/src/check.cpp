@@ -18,51 +18,14 @@ namespace {
 constexpr std::array<std::string_view, 2> SOURCE_EXTENSIONS { ".cppm", ".cpp" };
 constexpr std::array<std::string_view, 0> NO_SKIP {};
 
-// ---- os-surface: ported from tools/check_os_surface.py -----------------------------------------
+// ---- os-surface: the system is a value, never a preprocessor branch -----------------------------
 
-constexpr std::array<std::string_view, 6> SIX {
-    "FAMILY", "FAMILY_NAME", "EXECUTABLE_SUFFIX", "PATH_LIST_SEPARATOR", "PLATFORM", "CASE_INSENSITIVE_PATHS",
+// The macros a platform branch would test. mcppls.os answers the system as `family()`, a constant
+// expression on a native target and the loaded system in an ok image, so code branches with `if`;
+// a `#if` on any of these is a branch the image build would take for every system at once.
+constexpr std::array<std::string_view, 8> PLATFORM_MACROS {
+    "__MCPP_TARGET_", "_WIN32", "_WIN64", "__APPLE__", "__linux__", "__MACH__", "__unix__", "__ANDROID__",
 };
-
-// The NAME in a line shaped `inline constexpr <type> NAME {` -- the first all-caps token on the
-// line that is immediately followed (after any spaces) by '{'. `Family` (the enum type) does not
-// qualify because it contains lowercase letters; `FAMILY` (the constant) does. Mirrors
-// check_os_surface.py's `DECL` regex without pulling in <regex> for one shape.
-std::optional<std::string> declared_name(std::string_view line) {
-    const std::string_view trimmed { base::trim(line) };
-    if (!trimmed.starts_with("inline constexpr")) return std::nullopt;
-    std::size_t i { 0 };
-    while (i < trimmed.size()) {
-        if (trimmed[i] >= 'A' && trimmed[i] <= 'Z') {
-            const std::size_t start { i };
-            std::size_t j { i + 1 };
-            while (j < trimmed.size() &&
-                   ((trimmed[j] >= 'A' && trimmed[j] <= 'Z') || (trimmed[j] >= '0' && trimmed[j] <= '9') || trimmed[j] == '_')) {
-                ++j;
-            }
-            std::size_t k { j };
-            while (k < trimmed.size() && (trimmed[k] == ' ' || trimmed[k] == '\t')) ++k;
-            if (k < trimmed.size() && trimmed[k] == '{') return std::string { trimmed.substr(start, j - start) };
-            i = j;
-        } else {
-            ++i;
-        }
-    }
-    return std::nullopt;
-}
-
-std::string erase_six(std::string_view text) {
-    std::string out;
-    for (const auto line : base::split_lines(text)) {
-        if (const auto name = declared_name(line); name && std::ranges::find(SIX, *name) != SIX.end()) {
-            out += "<" + *name + ">\n";
-        } else {
-            out += std::string { line };
-            out += "\n";
-        }
-    }
-    return out;
-}
 
 // ---- layers / versions: a minimal TOML line scanner --------------------------------------------
 // Enough to answer "what section is this key in, and is its value a bare quoted string, a
@@ -143,76 +106,49 @@ int layer_of_path(std::string_view path) {
     if (path == "modules/base") return 1;
     if (path == "modules/platform") return 2;
     if (path == "modules/pack") return 3;
-    if (path.starts_with("modules/os/")) return 0;
+    if (path == "modules/os") return 0;
     return 4;   // root "." and every tools/* member: the application layer
 }
 
 } // namespace
 
 base::Result<Report> os_surface(const std::string& root) {
-    const std::string osDir { base::join_path(root, "modules/os") };
-    std::vector<std::string> paths;
-    // `list_directory` already returns each child joined onto `osDir`; the file this looks for is
-    // one level under that child, not under `osDir` again.
-    for (const auto& child : fs::list_directory(osDir)) {
-        const std::string candidate { base::join_path(child, "src/os.cppm") };
-        if (fs::is_regular_file(candidate)) paths.push_back(candidate);
-    }
-    std::ranges::sort(paths);
-
     Report report {};
-    if (paths.size() < 3) {
+    const std::string osModule { base::join_path(root, "modules/os/src/os.cppm") };
+    if (!fs::is_regular_file(osModule)) {
         report.ok = false;
-        report.problems.push_back(std::format("{}/*/src/os.cppm matched {} file(s); expected at least three (linux, macos, windows)",
-                                              osDir, paths.size()));
+        report.problems.push_back(std::format("{} is missing: the system mcppls runs upon is named there", osModule));
         return report;
     }
-
-    std::vector<std::string> texts;
-    for (const auto& path : paths) {
-        auto text = fs::read_file(path);
-        if (!text) return std::unexpected { text.error() };
-        texts.push_back(*text);
-    }
-
-    for (std::size_t fi { 0 }; fi < paths.size(); ++fi) {
-        std::vector<std::string> declared;
-        for (const auto line : base::split_lines(texts[fi])) {
-            if (auto name = declared_name(line)) declared.push_back(*name);
-        }
-        for (const auto& name : declared) {
-            if (std::ranges::find(SIX, name) == SIX.end()) {
-                report.ok = false;
-                report.problems.push_back(std::format(
-                    "{} declares `{}`, which is not one of the six platform constants -- a fact every target agrees on is not a platform fact",
-                    paths[fi], name));
-            }
-        }
-        for (const auto six : SIX) {
-            const auto count = std::ranges::count(declared, six);
-            if (count == 0) {
-                report.ok = false;
-                report.problems.push_back(std::format("{} does not declare `{}`", paths[fi], six));
-            } else if (count > 1) {
-                report.ok = false;
-                report.problems.push_back(std::format("{} declares `{}` more than once", paths[fi], six));
+    auto paths = all_member_paths(root);
+    if (!paths) return std::unexpected { paths.error() };
+    std::size_t files { 0 };
+    for (const auto& member : *paths) {
+        for (const std::string_view dir : { "src", "tests" }) {
+            const std::string at { member == "." ? base::join_path(root, dir) : base::join_path(root, member + "/" + std::string { dir }) };
+            if (!fs::is_directory(at)) continue;
+            for (const auto& file : fs::list_files(at, SOURCE_EXTENSIONS, NO_SKIP)) {
+                auto text = fs::read_file(file);
+                if (!text) return std::unexpected { text.error() };
+                ++files;
+                std::size_t lineNumber { 0 };
+                for (const auto line : base::split_lines(*text)) {
+                    ++lineNumber;
+                    const auto trimmed = base::trim(line);
+                    if (!trimmed.starts_with("#if") && !trimmed.starts_with("#elif")) continue;
+                    for (const auto macro : PLATFORM_MACROS) {
+                        if (!trimmed.contains(macro)) continue;
+                        report.ok = false;
+                        report.problems.push_back(std::format(
+                            "{}:{} branches on {} in the preprocessor; ask mcppls::os::family() instead, which an ok image "
+                            "answers for the system it runs upon", file, lineNumber, macro));
+                        break;
+                    }
+                }
             }
         }
     }
-
-    const std::string reference { erase_six(texts[0]) };
-    for (std::size_t i { 1 }; i < texts.size(); ++i) {
-        if (erase_six(texts[i]) != reference) {
-            report.ok = false;
-            report.problems.push_back(std::format("{} and {} differ outside the six platform constants -- every such "
-                                                  "difference is a platform branch this program did not have",
-                                                  paths[0], paths[i]));
-        }
-    }
-
-    if (report.ok) {
-        report.notes.push_back(std::format("OK: {} os modules, {} platform constants, no other difference", paths.size(), SIX.size()));
-    }
+    if (report.ok) report.notes.push_back(std::format("OK: {} sources, no preprocessor platform branch; the system is mcppls.os's", files));
     return report;
 }
 
@@ -227,7 +163,7 @@ base::Result<Report> layers(const std::string& root) {
     };
     std::vector<MemberInfo> infos;
     std::map<std::string, int> layerOf {
-        { "openkal-llvm-runtime", 0 }, { "openkal-linux", 0 }, { "mcppls-os-linux", 0 }, { "mcppls-os-macos", 0 }, { "mcppls-os-windows", 0 },
+        { "openkal-llvm-runtime", 0 }, { "openkal-musl", 0 }, { "os", 0 }, { "mcppls-os", 0 },
     };
 
     for (const auto& path : *paths) {
@@ -276,24 +212,29 @@ base::Result<Report> layers(const std::string& root) {
         }
     }
 
-    // Only modules/platform, the three os packages, and modules/base/src/log.cpp (the one named
-    // exception in §3.1) may `import openkal.*`.
+    // The operating system is reached through mcpplibs.os, and only from modules/platform,
+    // modules/os (mcppls.os) and modules/base/src/log.cpp (the one named exception in §3.1);
+    // openkal itself is imported from nowhere: mcpplibs.os is the layer above it.
     for (const auto& info : infos) {
         const std::string srcDir { info.path == "." ? base::join_path(root, "src") : base::join_path(root, info.path + "/src") };
         if (!fs::is_directory(srcDir)) continue;
-        const bool wholeMemberAllowed { info.path == "modules/platform" };
+        const bool wholeMemberAllowed { info.path == "modules/platform" || info.path == "modules/os" };
         for (const auto& file : fs::list_files(srcDir, SOURCE_EXTENSIONS, NO_SKIP)) {
             const bool isBaseLogException { info.path == "modules/base" && file.ends_with("/log.cpp") };
-            if (wholeMemberAllowed || isBaseLogException) continue;
             auto text = fs::read_file(file);
             if (!text) return std::unexpected { text.error() };
             std::size_t lineNumber { 0 };
             for (const auto line : base::split_lines(*text)) {
                 ++lineNumber;
-                if (base::trim(line).starts_with("import openkal.")) {
+                const auto trimmed = base::trim(line);
+                if (trimmed.starts_with("import openkal.")) {
+                    report.ok = false;
+                    report.problems.push_back(std::format("{}:{} imports openkal.*, which is reached through mcpplibs.os (§3.1)",
+                                                          file, lineNumber));
+                } else if (trimmed.starts_with("import mcpplibs.os") && !wholeMemberAllowed && !isBaseLogException) {
                     report.ok = false;
                     report.problems.push_back(std::format(
-                        "{}:{} imports openkal.*, but only modules/platform and modules/base/src/log.cpp may (§3.1)",
+                        "{}:{} imports mcpplibs.os, but only modules/platform, modules/os and modules/base/src/log.cpp may (§3.1)",
                         file, lineNumber));
                 }
             }
@@ -302,8 +243,8 @@ base::Result<Report> layers(const std::string& root) {
 
     if (report.ok) {
         report.notes.push_back("layers: every member depends only on strictly lower layers; mcppls-pack is reachable "
-                               "from no product; openkal.* is imported from nowhere else but modules/platform and "
-                               "modules/base's one exception");
+                               "from no product; mcpplibs.os is imported from nowhere else but modules/platform, "
+                               "modules/os and modules/base's one exception, and openkal.* from nowhere");
     }
     return report;
 }
@@ -815,7 +756,7 @@ cmdline::App check_command(bool& handled, int& status) {
     (void) command.description("Repository invariants: platform surface, layering, versions, scripts, tracked tree, platforms, the built binary");
 
     (void) command.subcommand("os-surface")
-        .description("The platform surface is six constants (ported from tools/check_os_surface.py)")
+        .description("No source branches on the platform in the preprocessor: the system is mcppls.os's family()")
         .option("json").help("Structured output");
 
     (void) command.subcommand("layers")

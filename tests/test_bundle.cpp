@@ -352,7 +352,7 @@ int main() {
         if (!base::is_absolute_path(self)) self = base::join_path(fs::current_directory(), self);
         const std::string directory { base::join_path(mcppls::platform::dirs::temp_directory(),
                                                       std::format("mcppls-test-bundle-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-        const bool windows { mcppls::os::FAMILY == mcppls::os::Family::windows };
+        const bool windows { mcppls::os::family() == mcppls::os::Family::windows };
         const std::string home { base::join_path(directory, windows ? std::format("Users/{}", LONG_USER) : std::format("home/{}", LONG_USER)) };
         (void)fs::create_directories(home);
         std::vector<std::string> environment;

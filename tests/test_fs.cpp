@@ -119,7 +119,7 @@ int main() {
         expect(fatal(a.has_value() && b.has_value()));
         expect(*a != *b);
         expect(fs::file_identity(base::join_path(root, "identity/./first.txt")) == a);
-        if constexpr (base::NATIVE_PATH_STYLE == base::PathStyle::windows) {
+        if (base::native_path_style() == base::PathStyle::windows) {
             std::string upper { first };
             std::ranges::transform(upper, upper.begin(), [](char c) { return c >= 'a' && c <= 'z' ? static_cast<char>(c - 32) : c; });
             expect(fs::file_identity(upper) == a) << upper;
@@ -130,7 +130,7 @@ int main() {
     // Symbolic links need a privilege on Windows. What stands for them there is
     // the short alias a volume gives a long name: RUNNER~1 for runneradmin.
     "a file reached by another name has one canonical name"_test = [&] {
-        if constexpr (base::NATIVE_PATH_STYLE == base::PathStyle::windows) {
+        if (base::native_path_style() == base::PathStyle::windows) {
             expect(fs::canonical_path("c:\\dir\\f.txt") == "C:/dir/f.txt") << fs::canonical_path("c:\\dir\\f.txt");
             const std::string temporary { mcppls::platform::dirs::temp_directory() };
             std::string aliased;

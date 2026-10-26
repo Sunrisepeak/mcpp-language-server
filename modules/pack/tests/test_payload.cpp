@@ -128,7 +128,7 @@ int main(int argc, char* argv[]) {
     const auto lockData = lock_with_clangd_version();
 
     "maintained engine assembly requires matching immutable identity before replacing output"_test = [&] {
-        const std::string platform { mcppls::os::PLATFORM == "win32-x64" ? "linux-x64" : "win32-x64" };
+        const std::string platform { mcppls::os::platform() == "win32-x64" ? "linux-x64" : "win32-x64" };
         const std::string clangdDir { make_clangd_directory(work, platform) };
         const std::string kitDir { make_kit_directory(work) };
         const std::string out { base::join_path(work, "payload-identified") };
@@ -193,7 +193,7 @@ int main(int argc, char* argv[]) {
         expect(fs::is_regular_file(base::join_path(*assembled, "licenses/LLVM-LICENSE.TXT")));
         expect(fs::is_regular_file(base::join_path(*assembled, "payload.json")));
 
-        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::windows) {
+        if (mcppls::os::family() != mcppls::os::Family::windows) {
             const auto serverMode = std::filesystem::status(base::join_path(*assembled, "bin/mcppls")).permissions();
             expect((serverMode & std::filesystem::perms::owner_exec) != std::filesystem::perms::none);
             const auto clangdMode = std::filesystem::status(base::join_path(*assembled, "clangd/bin/clangd")).permissions();
@@ -328,7 +328,7 @@ int main(int argc, char* argv[]) {
         expect(fatal(copied.has_value())) << (copied ? std::string {} : copied.error().message);
         if (!copied) return;
         expect(fs::is_regular_file(base::join_path(*copied, "bin/mcppls")));
-        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::windows) {
+        if (mcppls::os::family() != mcppls::os::Family::windows) {
             const auto mode = std::filesystem::status(base::join_path(*copied, "bin/mcppls")).permissions();
             expect((mode & std::filesystem::perms::owner_exec) != std::filesystem::perms::none);
         }

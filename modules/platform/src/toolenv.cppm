@@ -35,7 +35,7 @@ struct Environment {
 
 // `self` is this executable, which the login shell runs to report its environment. `shell` names
 // the shell to ask; empty takes $SHELL, then /bin/sh. Tests name one they control.
-void configure(Mode mode, std::string self, std::string shell = {});
+void configure(Mode mode, std::vector<std::string> self, std::string shell = {});
 Mode mode();
 
 // Starts the resolution if it has not started. Returns at once.

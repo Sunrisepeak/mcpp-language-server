@@ -109,7 +109,7 @@ base::Result<bool> strip_linux(const std::string& binary, bool hostArchitecture)
 }
 
 base::Result<void> thin_and_strip_macos(const std::string& binary, std::string_view appleArch) {
-    if constexpr (mcppls::os::FAMILY != mcppls::os::Family::macos) {
+    if (mcppls::os::family() != mcppls::os::Family::macos) {
         return base::fail("clangd-host", "a darwin clangd needs a macOS host (lipo, strip -x and codesign)");
     } else {
         auto lipo = env::find_executable("lipo");
@@ -170,7 +170,7 @@ base::Result<void> license_from_lock(const lock::Lock& lockData, const std::stri
 // The first line of `clangd --version`, when this host runs the binary (trim_clangd.py's
 // `host_runs_it`: PLATFORM already folds in family and architecture).
 base::Result<std::optional<std::string>> version_line(const std::string& binary, std::string_view platformName) {
-    if (platformName != mcppls::os::PLATFORM) return std::optional<std::string> {};
+    if (platformName != mcppls::os::platform()) return std::optional<std::string> {};
     auto out = run_tool(binary, { "--version" });
     if (!out) return std::unexpected { out.error() };
     const auto lines = base::split_lines(*out);
@@ -263,7 +263,7 @@ base::Result<Result> trim(const Options& options, const lock::Lock& lockData) {
     bool stripped { false };
     if (options.strip) {
         if (target->os == targets::Os::linux) {
-            auto ran = strip_linux(binary, options.platform == mcppls::os::PLATFORM);
+            auto ran = strip_linux(binary, options.platform == mcppls::os::platform());
             if (!ran) return std::unexpected { ran.error() };
             stripped = *ran;
         } else if (target->os == targets::Os::darwin) {

@@ -29,10 +29,10 @@ int main() {
     };
 
     "native style follows the target"_test = [] {
-        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
-            expect(NATIVE_PATH_STYLE == PathStyle::windows);
+        if (mcppls::os::family() == mcppls::os::Family::windows) {
+            expect(native_path_style() == PathStyle::windows);
         } else {
-            expect(NATIVE_PATH_STYLE == PathStyle::posix);
+            expect(native_path_style() == PathStyle::posix);
         }
     };
 

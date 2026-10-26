@@ -34,7 +34,7 @@ std::optional<std::string> tool(std::string_view name, std::string_view whatItIs
 // How a server build is asked for: a profile and, optionally, a target triple.
 struct ServerBuild {
     std::string profile { "release" };   // what a payload ships
-    std::string target;                  // empty: this host's own openkal target
+    std::string target;                  // empty: this system's program carrying the image (M3)
 };
 
 // The server `mcpp build` produced for `build`: built if it was not, and found by the fingerprint

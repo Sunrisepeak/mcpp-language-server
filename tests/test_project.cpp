@@ -939,6 +939,44 @@ int main() {
         fs::remove_all(root);
     };
 
+    // mcpplibs #71: mcpp 2026.10.26.2 writes no root compile_commands.json by default; the build's
+    // result record names the configuration's database, and an older mcpp's root copy is the rest.
+    "the mcpp fallback reads the database mcpp's last build names, then a root copy"_test = [] {
+        const std::string root { make_root("mcpp-last-result") };
+        write(root, "main.cpp", "int main() { return 0; }\n");
+        write(root, "mcpp.toml", "[package]\nname = \"app\"\n");
+        expect(p::mcpp_fallback_database(root).empty()) << "nothing a build left";
+        const std::string configuration { b::join_path(root, "target/x86_64-linux-gnu/0123456789abcdef") };
+        const nlohmann::json commands = nlohmann::json::array({ {
+            { "directory", root }, { "file", "main.cpp" }, { "arguments", { "clang++", "-c", "main.cpp" } }
+        } });
+        write(configuration, "compile_commands.json", commands.dump());
+        write(configuration, "result.json", nlohmann::json { { "schemaVersion", 1 }, { "kind", "mcpp.result" }, { "kindVersion", 1 },
+            { "data", { { "status", "ok" }, { "compileDatabase", b::join_path(configuration, "compile_commands.json") } } } }.dump());
+        write(b::join_path(root, "target"), ".last-result.json", nlohmann::json { { "schemaVersion", 1 }, { "kind", "mcpp.last-result" },
+            { "kindVersion", 1 }, { "data", { { "result", b::join_path(configuration, "result.json") }, { "status", "ok" } } } }.dump());
+        expect(p::mcpp_fallback_database(root) == b::join_path(configuration, "compile_commands.json")) << p::mcpp_fallback_database(root);
+        write(root, "compile_commands.json", commands.dump());
+        expect(p::mcpp_fallback_database(root) == b::join_path(configuration, "compile_commands.json")) << "the record comes first";
+        fs::remove_all(configuration);
+        expect(p::mcpp_fallback_database(root) == b::join_path(root, "compile_commands.json")) << "a record naming nothing that exists yields";
+        write(b::join_path(root, "target"), ".last-result.json", "{ not json");
+        expect(p::mcpp_fallback_database(root) == b::join_path(root, "compile_commands.json")) << "an unreadable pointer yields";
+
+        p::ProviderContext context;
+        context.trusted = true;
+        context.runBuildTool = false;
+        context.scanner = p::file_scanner();
+        context.prober = [](std::string_view, std::span<const std::string>) -> std::optional<mcppls::toolchain::ToolchainFacts> {
+            return std::nullopt;
+        };
+        const p::Detection detection { .kind = p::SourceKind::mcpp, .root = root, .manifest = b::join_path(root, "mcpp.toml") };
+        expect(p::load_mcpp(detection, context).has_value()) << "the fallback describes the project without mcpp";
+        const auto watched = p::McppProvider {}.watch_inputs(p::Claim {});
+        expect(std::ranges::contains(watched, std::string { p::MCPP_LAST_RESULT })) << "a build, whoever ran it, is seen";
+        fs::remove_all(root);
+    };
+
     "workspace keys are stable and distinct"_test = [] {
         expect(p::workspace_key("/home/u/project") == p::workspace_key("/home/u/project/"));
         expect(p::workspace_key("/home/u/project") != p::workspace_key("/home/u/project2"));
@@ -1288,9 +1326,9 @@ version = "1"
     "other mcpp executables are found newest first, and the resolved one is excluded"_test = [] {
         const std::string home { make_root("mcpp-store") };
         for (std::string_view version : { "2026.8.8.4", "2026.9.21.3", "2026.9.9.1" }) {
-            write(home, std::format(".xlings/data/xpkgs/xim-x-mcpp/{}/bin/mcpp{}", version, mcppls::os::EXECUTABLE_SUFFIX), "#!/bin/sh\n");
+            write(home, std::format(".xlings/data/xpkgs/xim-x-mcpp/{}/bin/mcpp{}", version, mcppls::os::executable_suffix()), "#!/bin/sh\n");
         }
-        const std::string resolved { b::join_path(home, std::format(".xlings/data/xpkgs/xim-x-mcpp/2026.8.8.4/bin/mcpp{}", mcppls::os::EXECUTABLE_SUFFIX)) };
+        const std::string resolved { b::join_path(home, std::format(".xlings/data/xpkgs/xim-x-mcpp/2026.8.8.4/bin/mcpp{}", mcppls::os::executable_suffix())) };
         const auto others = p::other_mcpp_executables(resolved, home);
         expect(fatal(others.size() == 2u)) << others.size();
         expect(others.front().contains("2026.9.21.3")) << others.front();

@@ -1,7 +1,7 @@
 module mcppls.base.log;
 
 import std;
-import openkal.stream;
+import mcpplibs.os;
 
 namespace mcppls::base::log {
 
@@ -77,13 +77,7 @@ void write(Level level, std::string_view message) {
         gSink(line);
         return;
     }
-    std::size_t done { 0 };
-    while (done < line.size()) {
-        const auto written = kal_stream_write(kal_stderr(), line.data() + done, line.size() - done);
-        if (written <= 0) break;
-        done += static_cast<std::size_t>(written);
-    }
-    kal_stream_flush(kal_stderr());
+    (void)mcpplibs::os::stdio::write_error(line);
 }
 
 bool add_file(std::string_view path, std::uintmax_t maxBytes, int keep) {

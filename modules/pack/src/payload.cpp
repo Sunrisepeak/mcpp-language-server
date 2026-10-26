@@ -329,7 +329,7 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
 
     // Only when this host can actually run what it just assembled: a cross-assembled payload's
     // clangd cannot be started here to ask it, and asking would be the wrong question anyway.
-    if (options.platform == mcppls::os::PLATFORM) {
+    if (options.platform == mcppls::os::platform()) {
         auto reported = run_capture(base::join_path(out, "clangd/bin/clangd" + exe), { "--version" });
         if (!reported) return std::unexpected { reported.error() };
         const std::string_view report { *reported };
@@ -386,7 +386,7 @@ std::vector<std::string> verify(std::string_view payloadDirectory) {
         if (entry.value("version", std::string {}).empty()) problems.push_back(std::format("{}.version is empty", part));
         auto found = needFile(expected, part);
         if (found && suffix(platform).empty()) {
-            if constexpr (mcppls::os::FAMILY != mcppls::os::Family::windows) {
+            if (mcppls::os::family() != mcppls::os::Family::windows) {
                 const auto permissions = std::filesystem::status(*found).permissions();
                 const auto anyExec = std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec;
                 if ((permissions & anyExec) == std::filesystem::perms::none) problems.push_back(std::format("{} is not executable", expected));

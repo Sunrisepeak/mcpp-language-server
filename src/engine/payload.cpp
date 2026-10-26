@@ -76,8 +76,8 @@ std::string kit_version(std::string_view kitRoot) {
 
 PayloadPaths resolve_payload(const PayloadRequest& requested) {
     PayloadPaths paths;
-    paths.platform = std::string { mcppls::os::PLATFORM };
-    const std::string suffix { mcppls::os::EXECUTABLE_SUFFIX };
+    paths.platform = std::string { mcppls::os::platform() };
+    const std::string suffix { mcppls::os::executable_suffix() };
     PayloadRequest request { requested };
     if (request.payloadDirectory.empty()) request.payloadDirectory = enclosing_payload();
     std::string payloadKit;
@@ -112,7 +112,7 @@ PayloadPaths resolve_payload(const PayloadRequest& requested) {
                 paths.platform = document.value("platform", paths.platform);
                 // Payload version 4 (mcppls.pack.payload's IDENTIFIED_PAYLOAD_VERSION) binds the engine's identity.
                 if (document.value("payload-version", 0) == 4) {
-                    if (paths.platform != os::PLATFORM) paths.identityProblem = "engine payload platform does not match this host";
+                    if (paths.platform != os::platform()) paths.identityProblem = "engine payload platform does not match this host";
                     auto decoded = base::decode_engine_identity(clangd == nullptr ? nlohmann::json {} : clangd->value("identity", nlohmann::json {}));
                     if (!decoded) paths.identityProblem = decoded.error().message;
                     else paths.engineIdentity = std::move(*decoded);
@@ -189,7 +189,7 @@ PayloadPaths resolve_payload(const PayloadRequest& requested) {
 }
 
 std::string macos_sdk_path() {
-    if constexpr (mcppls::os::FAMILY != mcppls::os::Family::macos) {
+    if (mcppls::os::family() != mcppls::os::Family::macos) {
         return {};
     } else {
         if (auto sdkroot = platform::env::get("SDKROOT"); sdkroot && platform::fs::is_directory(*sdkroot)) return base::normalize_path(*sdkroot);

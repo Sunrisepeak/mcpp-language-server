@@ -10,7 +10,7 @@ export namespace mcppls::base {
 
 std::string percent_decode(std::string_view text);
 std::string percent_encode_path(std::string_view path);
-Result<std::string> uri_to_path(std::string_view uri, PathStyle style = NATIVE_PATH_STYLE);
-std::string path_to_uri(std::string_view path, PathStyle style = NATIVE_PATH_STYLE);
+Result<std::string> uri_to_path(std::string_view uri, PathStyle style = native_path_style());
+std::string path_to_uri(std::string_view path, PathStyle style = native_path_style());
 
 } // namespace mcppls::base

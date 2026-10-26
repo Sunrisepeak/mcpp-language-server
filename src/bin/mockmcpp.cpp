@@ -71,7 +71,7 @@ std::string expand(std::string_view text, const std::string& root, const Produce
                             auto versions = fs::list_directory(base::join_path(home, store));
                             std::ranges::sort(versions, std::greater {});
                             for (const auto& version : versions) {
-                                const std::string candidate { base::join_path(version, "bin/clang++") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+                                const std::string candidate { base::join_path(version, "bin/clang++") + std::string { mcppls::os::executable_suffix() } };
                                 if (fs::is_regular_file(candidate)) { compiler = candidate; break; }
                             }
                             if (!compiler.empty()) break;

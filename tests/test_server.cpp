@@ -1030,7 +1030,7 @@ int main() {
     "on macOS background indexing yields to cold module work unless the user chooses its priority"_test = [] {
         cld::ProcessConfig config;
         const std::string defaultPriority { "--background-index-priority=background" };
-        const bool macos { mcppls::os::FAMILY == mcppls::os::Family::macos };
+        const bool macos { mcppls::os::family() == mcppls::os::Family::macos };
         expect(std::ranges::count(cld::clangd_arguments(config), defaultPriority) == (macos ? 1 : 0));
         for (const auto& choice : std::vector<std::vector<std::string>> {
                  { "--background-index-priority=normal" }, { "-background-index-priority=low" },

@@ -243,18 +243,20 @@ int run_daemon(const DaemonOptions& options) {
     return 0;
 }
 
-base::Result<DaemonInfo> start_daemon(std::string_view executable, std::string_view root, std::span<const std::string> arguments, std::chrono::milliseconds timeout) {
+base::Result<DaemonInfo> start_daemon(std::span<const std::string> self, std::string_view root, std::span<const std::string> arguments, std::chrono::milliseconds timeout) {
     const std::string discovery { discovery_path(root) };
     const std::string before { platform::fs::read_file(discovery).value_or(std::string {}) };
     platform::SpawnOptions spawn;
-    spawn.program = std::string { executable };
-    spawn.arguments = { "daemon", "run", "--root", std::string { root } };
+    if (self.empty()) return base::fail("daemon-start", "the server does not know its own executable");
+    spawn.program = self.front();
+    spawn.arguments.assign(self.begin() + 1, self.end());
+    spawn.arguments.insert(spawn.arguments.end(), { "daemon", "run", "--root", std::string { root } });
     spawn.arguments.insert(spawn.arguments.end(), arguments.begin(), arguments.end());
     spawn.workDirectory = std::string { root };
     // A daemon holding its starter's standard output would keep an agent waiting for that output to end.
     // POSIX: fresh channels, closed once the daemon is up. Windows: no streams at all, since a start that
     // places streams hands the child every inheritable handle, the starter's own streams among them.
-    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+    if (mcppls::os::family() == mcppls::os::Family::windows) {
         spawn.noStreams = true;
     } else {
         spawn.pipeInput = true;

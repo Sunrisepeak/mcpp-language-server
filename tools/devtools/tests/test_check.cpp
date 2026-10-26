@@ -43,7 +43,7 @@ int main() {
     using namespace mcppls::testing;
     const std::string root { repository_root() };
 
-    "os-surface: this tree's three os packages declare exactly the six constants"_test = [&] {
+    "os-surface: no source of this tree branches on the platform in the preprocessor"_test = [&] {
         auto report = check::os_surface(root);
         expect(report.has_value());
         if (!report) return;

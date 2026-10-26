@@ -177,6 +177,10 @@ class McpplsClionTest : UsefulTestCase() {
         val probes = ExtensionPointName<ClionWorkspaceProbe>("io.github.sunrisepeak.mcppls.workspaceProbe").extensionList
         assertEquals(listOf(CidrWorkspaceProbe::class.java), probes.map { it.javaClass })
         assertFalse(probes.single().isModelled(project))
+        // mcpp writes no project-root compile_commands.json unless the project asks for one (mcpp
+        // 2026.10.26.2), so CLion loads no compilation database here and the project stays mcppls's.
+        assertFalse("no root compile_commands.json in an mcpp project", java.io.File(project.basePath!!, "compile_commands.json").exists())
+        assertFalse("the mcpp project is not CLion's", ClionModel.models(project))
     }
 
     fun testCMakeProjectIsClionsByDefault() {

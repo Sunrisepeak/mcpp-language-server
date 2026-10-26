@@ -15,7 +15,7 @@ import mcppls.base.path;
 import mcppls.pack.archive;
 import mcppls.platform.fs;
 import mcppls.os;
-import openkal.fs;
+import mcpplibs.os;
 
 namespace ar = mcppls::pack::archive;
 namespace fs = mcppls::platform::fs;
@@ -52,20 +52,10 @@ bool write_archive(const std::string& path, std::string_view format, const std::
         // arrives in 8.3 short form (`C:/Users/RUNNER~1/...`), and the
         // question that settles it is which spelling the program holds --
         // so it prints them rather than leaving it to be inferred.
-        const kal_uintptr count { kal_fs_preopen_count() };
+        const auto names = mcpplibs::os::fs::preopens();
         std::println(stderr, "  the program holds {} preopened director{}:",
-                     count, count == 1 ? "y" : "ies");
-        for (kal_uintptr i = 0; i < count; ++i) {
-            kal_dir dir {};
-            std::string name(1024, '\0');
-            kal_uintptr length {};
-            if (kal_fs_preopen(i, &dir, name.data(), name.size(), &length) != kal_ok) {
-                std::println(stderr, "    [{}] <could not be read>", i);
-                continue;
-            }
-            name.resize(length);
-            std::println(stderr, "    [{}] '{}'", i, name);
-        }
+                     names.size(), names.size() == 1 ? "y" : "ies");
+        for (std::size_t i = 0; i < names.size(); ++i) std::println(stderr, "    [{}] '{}'", i, names[i]);
         return false;
     };
     ::archive* out = ::archive_write_new();
@@ -270,7 +260,7 @@ int main() {
         const auto exeMode = std::filesystem::status(base::join_path(out, "bin/clangd")).permissions();
         const auto dataMode =
             std::filesystem::status(base::join_path(out, "lib/clang/20/include/stddef.h")).permissions();
-        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+        if (mcppls::os::family() == mcppls::os::Family::windows) {
             expect(exeMode == dataMode);
         } else {
             expect((exeMode & std::filesystem::perms::owner_exec) != std::filesystem::perms::none);
@@ -439,7 +429,7 @@ int main() {
         // The writer carries the source file's execute bit, and on Windows a file has none to carry
         // (the extraction test above says why that is not a no-op to assert away). So there the
         // program and the data file must look alike; elsewhere they must differ.
-        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+        if (mcppls::os::family() == mcppls::os::Family::windows) {
             expect(executable_bit("mcppls-1.0-linux-x86_64/bin/tool") == executable_bit("mcppls-1.0-linux-x86_64/LICENSE"));
         } else {
             expect(executable_bit("mcppls-1.0-linux-x86_64/bin/tool"));
@@ -459,7 +449,7 @@ int main() {
         auto header = fs::read_file(base::join_path(out, "kit/include/header.h"));
         expect(header.has_value() && *header == "typedef");
         const auto toolMode = std::filesystem::status(base::join_path(out, "bin/tool")).permissions();
-        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::windows) {
+        if (mcppls::os::family() != mcppls::os::Family::windows) {
             expect((toolMode & std::filesystem::perms::owner_exec) != std::filesystem::perms::none);
         }
     };

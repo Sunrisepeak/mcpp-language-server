@@ -15,44 +15,18 @@ import mcppls.platform.stdio;
 import mcppls.lsp.connection;
 import nlohmann.json;
 
-// Darwin's native libSystem entry point, already linked by openkal-macos. Do not
-// use std::clock: openkal-musl 0.19.1 maps CPU clock IDs to its monotonic clock.
-#if !defined(__MCPP_TARGET_WINDOWS__) && !defined(__MCPP_TARGET_LINUX__)
-extern "C" std::uint64_t clock_gettime_nsec_np(int clock);
-#endif
-
 namespace platform = mcppls::platform;
 namespace base = mcppls::base;
 
 namespace {
 
-// An independent work oracle: neither platform::cpu_seconds nor its /proc/ps
-// reader. Linux asks the native kernel clock; Darwin asks native libSystem.
+// An independent work oracle: the C library's processor clock (`std::clock`, which openkal-musl
+// answers from this program's own kal_program_info since 0.22), not platform::cpu_seconds, which
+// asks about another program by its identifier through mcpplibs.os.
 std::optional<double> native_self_cpu_seconds() {
-#if defined(__MCPP_TARGET_LINUX__)
-    struct NativeTime { std::int64_t seconds, nanoseconds; } time {};
-#if defined(__x86_64__)
-    long result { 228 }, clock { 2 }, address { reinterpret_cast<long>(&time) };
-    __asm__ __volatile__("syscall" : "+a"(result), "+D"(clock), "+S"(address) : : "rcx", "r11", "memory", "cc");
-#elif defined(__aarch64__)
-    register long number __asm__("x8") { 113 };
-    register long result __asm__("x0") { 2 };
-    register long address __asm__("x1") { reinterpret_cast<long>(&time) };
-    __asm__ __volatile__("svc 0" : "+r"(result), "+r"(address) : "r"(number) : "memory", "cc");
-#else
-    return std::nullopt;
-#endif
-#if defined(__x86_64__) || defined(__aarch64__)
-    if (result != 0) return std::nullopt;
-    return static_cast<double>(time.seconds) + static_cast<double>(time.nanoseconds) / 1e9;
-#endif
-#elif defined(__MCPP_TARGET_WINDOWS__)
-    return std::nullopt;
-#else
-    // Apple Libc/include/_time.h: CLOCK_PROCESS_CPUTIME_ID = 12 (musl's 2 is different).
-    // Apple Libc/gen/clock_gettime.c: this clock sums getrusage(self)'s user + system time.
-    return static_cast<double>(clock_gettime_nsec_np(12)) / 1e9;
-#endif
+    const std::clock_t now { std::clock() };
+    if (now == static_cast<std::clock_t>(-1)) return std::nullopt;
+    return static_cast<double>(now) / 1'000'000.0;   // CLOCKS_PER_SEC, which POSIX fixes at a million
 }
 
 std::string self_path() {
@@ -364,36 +338,26 @@ int main() {
         if (!written) expect(written.error().code == "process-write");
     };
 
-    "native_pid is the process a signal of 0 reaches while it runs, or nullopt on Windows"_test = [&] {
+    "native_pid is the child's identifier while it runs, on every system"_test = [&] {
         auto process = platform::Process::spawn({ .program = self, .arguments = { "--sleep" } });
         expect(fatal(process.has_value())) << (process ? "" : process.error().message);
         const auto pid { process->native_pid() };
-        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
-            expect(!pid.has_value());
-        } else {
-            expect(fatal(pid.has_value()));
-            expect(*pid > 0) << *pid;
-            if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
-                expect(platform::fs::is_directory(std::format("/proc/{}", *pid))) << *pid;
-            }
+        expect(fatal(pid.has_value()));
+        expect(*pid > 0) << *pid;
+        expect(platform::process_alive(*pid) == std::optional<bool> { true }) << *pid;
+        if (mcppls::os::family() == mcppls::os::Family::linux) {
+            expect(platform::fs::is_directory(std::format("/proc/{}", *pid))) << *pid;
         }
         process->kill();
         (void)process->wait();
-        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::windows) expect(!process->native_pid().has_value());
+        expect(!process->native_pid().has_value());
     };
 
     // StuckWatch in the clangd engine tells a stuck clangd from a busy one by this.
-    "cpu_seconds tells a busy child from an idle one, where the platform can say"_test = [&] {
-        expect(platform::parse_cpu_time("0:01.50") == std::optional<double> { 1.5 });
-        expect(platform::parse_cpu_time(" 12:03.25\n") == std::optional<double> { 723.25 });
-        expect(platform::parse_cpu_time("01:02:03") == std::optional<double> { 3723.0 });
-        expect(platform::parse_cpu_time("2-00:00:01") == std::optional<double> { 172801.0 });
-        expect(!platform::parse_cpu_time("").has_value() && !platform::parse_cpu_time("1:x").has_value()
-               && !platform::parse_cpu_time("1:2:3:4").has_value() && !platform::parse_cpu_time(":05").has_value());
+    "cpu_seconds tells a busy child from an idle one, on every system"_test = [&] {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds { 30 };
         auto idle = platform::Process::spawn({ .program = self, .arguments = { "--cpu-idle" } });
-        auto busy = platform::Process::spawn({ .program = self, .arguments = {
-            mcppls::os::FAMILY == mcppls::os::Family::windows ? "--cpu-idle" : "--spin-cpu" } });
+        auto busy = platform::Process::spawn({ .program = self, .arguments = { "--spin-cpu" } });
         expect(fatal(idle.has_value() && busy.has_value()));
         struct Cleanup {
             platform::Process& idle;
@@ -423,7 +387,7 @@ int main() {
         const auto idleBefore = read(*idle);
         const auto busyBefore = read(*busy);
         std::optional<double> nativeWork;
-        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::windows) {
+        {
             expect(fatal(busy->write("start\n").has_value()));
             std::string done;
             expect(fatal(announced(*busy, "done ", &done))) << "independent native CPU work did not complete within the shared 30 s bound: " << done;
@@ -440,18 +404,14 @@ int main() {
         std::println("cpu-seconds evidence: independent native work={}s; idle {} -> {}; busy {} -> {}",
                      value(nativeWork), value(idleBefore), value(idleAfter), value(busyBefore), value(busyAfter));
         expect(std::chrono::steady_clock::now() < deadline) << "CPU sampling exceeded the shared 30 s bound";
-        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
-            expect(!idleBefore && !busyBefore) << "no native pid for process times on Windows";
-        } else {
-            expect(fatal(idleBefore && idleAfter && busyBefore && busyAfter));
-            expect(*idleAfter - *idleBefore < 0.2) << *idleBefore << " -> " << *idleAfter;
-            expect(*busyAfter - *busyBefore > 0.5) << *busyBefore << " -> " << *busyAfter;
-        }
+        expect(fatal(idleBefore && idleAfter && busyBefore && busyAfter));
+        expect(*idleAfter - *idleBefore < 0.2) << *idleBefore << " -> " << *idleAfter;
+        expect(*busyAfter - *busyBefore > 0.5) << *busyBefore << " -> " << *busyAfter;
         expect(!platform::cpu_seconds(0).has_value());
         // Fix plan F17.2: an incident says which thread of the engine is busy, where the platform can say.
         if (const auto pid = busy->native_pid()) {
             const auto threads = platform::thread_cpu(*pid);
-            if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
+            if (mcppls::os::family() == mcppls::os::Family::linux) {
                 expect(fatal(!threads.empty()));
                 const auto busiest = std::ranges::max_element(threads, {}, &platform::ThreadCpu::seconds);
                 expect(busiest->seconds > 0.5 && busiest->id > 0 && !busiest->name.empty()) << busiest->name << " " << busiest->seconds;
@@ -465,7 +425,7 @@ int main() {
     // X-6 (plan 2026-10-03): the platform can name this process and tell incarnations apart.
     "process_self is the process asking, and process_identity answers for a live pid"_test = [&] {
         const auto self = platform::process_self();
-        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+        if (mcppls::os::family() == mcppls::os::Family::windows) {
             expect(self.has_value()) << "Windows names its own pid and start";
         } else {
             expect(fatal(self.has_value()));
@@ -488,7 +448,7 @@ int main() {
     // live process" and a restart within the lease expiry starts cold in a private directory --
     // the ux budget caught it as 222 s where 25 was allowed.
     "a zombie has no identity, so its lease is taken over"_test = [&] {
-        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
+        if (mcppls::os::family() == mcppls::os::Family::linux) {
             // A shell that starts a child, ignores SIGCHLD (so it never reaps) and becomes a sleep:
             // the child exits, stays a zombie for as long as this test runs, and names itself.
             platform::SpawnOptions options;
@@ -579,7 +539,7 @@ int main() {
     // ("UNC paths are not supported") and runs in the Windows directory instead,
     // so a batch file started in a project ran somewhere else.
     "the command interpreter runs in the work directory"_test = [&] {
-        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::windows) {
+        if (mcppls::os::family() != mcppls::os::Family::windows) {
             return;
         } else {
             const std::string directory { base::join_path(platform::dirs::temp_directory(),

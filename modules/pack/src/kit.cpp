@@ -323,17 +323,17 @@ base::Result<nlohmann::ordered_json> recipe_libcxx_source(const Options& options
     // HOST this is running on, which is where mcppls.os's compile-time constant belongs.
     const auto parsed = targets::parse(options.platform);
     if (!parsed) return base::fail("kit-platform", std::format("{} is not an <os>-<arch> platform name", options.platform));
-    if (parsed->os == targets::Os::darwin && mcppls::os::FAMILY != mcppls::os::Family::macos) {
+    if (parsed->os == targets::Os::darwin && mcppls::os::family() != mcppls::os::Family::macos) {
         return base::fail("kit-host", std::format("{} configures libc++ for Apple platforms and needs a macOS host", options.platform));
     }
-    if (parsed->os == targets::Os::linux && mcppls::os::FAMILY != mcppls::os::Family::linux) {
+    if (parsed->os == targets::Os::linux && mcppls::os::family() != mcppls::os::Family::linux) {
         return base::fail("kit-host", std::format("{} takes the C library headers from a Linux host", options.platform));
     }
     // dpkg lists the headers of the host's own architecture (/usr/include/<host triple>/...), so
     // without --sysroot-include a Linux kit is built on a host of the architecture it is for.
-    if (parsed->os == targets::Os::linux && options.sysrootIncludeDir.empty() && options.platform != mcppls::os::PLATFORM) {
+    if (parsed->os == targets::Os::linux && options.sysrootIncludeDir.empty() && options.platform != mcppls::os::platform()) {
         return base::fail("kit-host", std::format("{} takes its C library headers from dpkg on a {} host, or from --sysroot-include; "
-                                                  "this host is {}", options.platform, options.platform, mcppls::os::PLATFORM));
+                                                  "this host is {}", options.platform, options.platform, mcppls::os::platform()));
     }
 
     std::string archive { options.sourceArchive };

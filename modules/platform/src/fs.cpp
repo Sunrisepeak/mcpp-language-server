@@ -4,9 +4,8 @@ import std;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
-import openkal.fs;
+import mcpplibs.os;
 import mcppls.platform.dirs;
-import mcppls.platform.preopen;
 import mcppls.os;
 
 namespace mcppls::platform::fs {
@@ -17,7 +16,6 @@ std::filesystem::path native(std::string_view path) { return std::filesystem::pa
 
 std::string from_native(const std::filesystem::path& path) { return base::normalize_path(path.generic_string()); }
 
-std::atomic<std::uint64_t> gTemporaryCounter { 0 };
 
 } // namespace
 
@@ -79,22 +77,11 @@ base::Result<void> write_file(std::string_view path, std::string_view content) {
     return {};
 }
 
+// mcpplibs.os's: a sibling with a name no other writer takes, made durable, then renamed over the
+// name in one step, which replaces an existing file on every system.
 base::Result<void> write_file_atomic(std::string_view path, std::string_view content) {
-    const std::string temporary { std::format("{}.tmp-{}-{}", path,
-        std::chrono::steady_clock::now().time_since_epoch().count(), gTemporaryCounter.fetch_add(1)) };
-    if (auto written = write_file(temporary, content); !written) return written;
-    std::error_code error;
-    std::filesystem::rename(native(temporary), native(path), error);
-    if (error) {
-        // Some systems refuse to replace an existing file by rename.
-        std::filesystem::remove(native(path), error);
-        error.clear();
-        std::filesystem::rename(native(temporary), native(path), error);
-    }
-    if (error) {
-        std::filesystem::remove(native(temporary), error);
-        return base::fail("write-file", std::format("cannot replace {}", path));
-    }
+    if (auto written = mcpplibs::os::fs::write_atomic(native(path), content); !written)
+        return base::fail("write-file", std::format("cannot replace {}: {}", path, written.error().message()));
     return {};
 }
 
@@ -217,18 +204,14 @@ std::string current_directory() {
 }
 
 std::optional<FileIdentity> file_identity(std::string_view path) {
-    const auto resolved = resolve_name(path);
-    if (!resolved || resolved->remainder.empty()) return std::nullopt;
-    kal_node_info info { kal::fs::info_for_caller() };
-    const std::string& name { resolved->remainder };
-    if (kal_fs_info(resolved->directory, name.data(), name.size(), 0, kal::fs::field::identity, &info) != kal_ok) return std::nullopt;
-    if ((info.present & kal::fs::field::identity) == 0) return std::nullopt;
-    return FileIdentity { info.identity[0], info.identity[1] };
+    const auto identity = mcpplibs::os::fs::identity_of(native(path));
+    if (!identity) return std::nullopt;
+    return FileIdentity { identity->volume, identity->index };
 }
 
 std::string canonical_path(std::string_view path) {
     if (path.empty()) return {};
-    if constexpr (base::NATIVE_PATH_STYLE == base::PathStyle::windows) {
+    if (base::native_path_style() == base::PathStyle::windows) {
         // A short alias always carries a '~'. A component that does is looked up
         // among its parent's entries, which are listed by their long names, and
         // replaced by the one that is the same file.
@@ -264,37 +247,17 @@ std::string canonical_path(std::string_view path) {
 
 namespace mcppls::platform::fs {
 
+// Whether a node may be started is recorded by some volumes and not by others (openkal
+// KAL_FS_PROP_EXECUTABLE): Windows' decide by the extension, so there is nothing to grant and
+// nothing that could have been withheld, and that answer is success. Asked of mcpplibs.os rather
+// than through std::filesystem::permissions, which on such a volume reported an error and failed
+// every extraction that held one executable (the fault address was "chmod\n": the category of the
+// error read as a pointer).
 base::Result<void> make_executable(std::span<const std::string> paths) {
-    // WINDOWS HAS NO EXECUTE BIT, AND ASKING FOR ONE IS NOT A NO-OP THERE.
-    //
-    // What makes a file runnable on Windows is its extension, so there is
-    // nothing to grant and nothing that could have been withheld. Asked
-    // anyway, `std::filesystem::permissions` reports an error, and this
-    // function then failed every extraction that contained one executable ---
-    // `ar::extract` returned `unexpected`, `test_archive.cpp:109` saw an
-    // empty result, and `:110` dereferenced it. The fault address was
-    // 0x0000646f6d68630a, which is "chmod\n": the category of the error
-    // object being read as a pointer.
-    if constexpr (os::FAMILY == os::Family::windows) {
-        (void)paths;
-        return {};
-    }
     for (const auto& path : paths) {
-        std::error_code failed;
-        // All three execute bits, always, and that is not tidiness.
-        //
-        // openkal-musl grants a chmod only for a mode it can honestly report back, and what it
-        // reports is one read triple and one write triple, each all-set or all-clear (a capability
-        // volume has no per-class mode word). Asking for owner_exec alone would produce 0744, which
-        // is not a shape it can express, and it refuses with ENOSYS rather than rounding -- so the
-        // narrower-looking request is the one that silently fails. 0666 | 0111 = 0777 is expressible.
-        std::filesystem::permissions(path,
-                                     std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec
-                                         | std::filesystem::perms::others_exec,
-                                     std::filesystem::perm_options::add, failed);
-        if (failed) {
-            return base::fail("chmod", std::format("cannot make {} executable: {}", path, failed.message()));
-        }
+        auto marked = mcpplibs::os::fs::set_executable(native(path), true);
+        if (!marked && marked.error().code != mcpplibs::os::errc::not_supported)
+            return base::fail("chmod", std::format("cannot make {} executable: {}", path, marked.error().message()));
     }
     return {};
 }

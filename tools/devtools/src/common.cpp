@@ -37,7 +37,7 @@ std::optional<std::string> upward(std::string directory) {
 
 // Windows cannot start a batch file directly: the command interpreter runs it.
 std::pair<std::string, std::vector<std::string>> runnable(const std::string& program, std::vector<std::string> arguments) {
-    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+    if (mcppls::os::family() == mcppls::os::Family::windows) {
         const std::string lowered { base::to_lower_ascii(program) };
         if (lowered.ends_with(".cmd") || lowered.ends_with(".bat")) {
             std::vector<std::string> wrapped { "/d", "/c", program };
@@ -121,6 +121,21 @@ std::optional<std::string> tool(std::string_view name, std::string_view whatItIs
 base::Result<std::string> locate_server(const std::string& root, const ServerBuild& build) {
     auto mcpp = env::find_executable("mcpp");
     if (!mcpp) return base::fail("devtools-mcpp", "mcpp is not on PATH, so the server cannot be built; pass --server");
+    // THIS SYSTEM'S SERVER IS THE PROGRAM CARRYING THE OK IMAGE (M3), as CI's payloads ship it: the
+    // image of this architecture (`<arch>-openkal`) as a section of a program of this system, which
+    // libokrun runs. Another platform's is that platform's native build: an M3 is packed on the
+    // system it runs on, because its runner borrows that system's C and C++ run-time.
+    if (build.target.empty()) {
+        const std::string image { std::format("{}-openkal", mcppls::os::ARCH == mcppls::os::Arch::aarch64 ? "aarch64" : "x86_64") };
+        const std::vector<std::string> arguments { "pack", "--profile", build.profile, "--target", image,
+                                                   "--mode", "self-contained", "--format", "dir", "-o", "devtools-server" };
+        std::println("  building the server: mcpp {}", base::join(arguments, " "));
+        auto packed = capture(*mcpp, arguments, root, std::chrono::hours { 1 });
+        if (!packed) return std::unexpected { packed.error() };
+        const std::string server { base::join_path(root, std::format("target/dist/devtools-server/bin/mcppls{}", mcppls::os::executable_suffix())) };
+        if (!fs::is_regular_file(server)) return base::fail("devtools-mcpp", std::format("mcpp pack wrote no {}", server));
+        return server;
+    }
     std::vector<std::string> arguments { "build", "--profile", build.profile, "--print-fingerprint" };
     if (!build.target.empty()) {
         arguments.push_back("--target");

@@ -184,7 +184,7 @@ struct Expansion {
 // and mutates it, then points server-arguments' own --payload at the mutated copy);
 // "{conformance}" is this program, whose `prepare` command generates what a fixture needs.
 std::string expand(std::string word, const Expansion& expansion = {}) {
-    word = base::replace_all(word, "{exe}", mcppls::os::EXECUTABLE_SUFFIX);
+    word = base::replace_all(word, "{exe}", mcppls::os::executable_suffix());
     word = base::replace_all(word, "{workspace}", expansion.workspace);
     word = base::replace_all(word, "{runner-dir}", expansion.runnerDirectory);
     word = base::replace_all(word, "{payload}", expansion.payload);
@@ -209,7 +209,7 @@ std::optional<std::vector<std::string>> prepare_environment(const std::string& o
     if (overlayFile.empty()) return std::nullopt;
     auto text = fs::read_file(overlayFile);
     if (!text) return std::nullopt;
-    const bool caseInsensitive { mcppls::os::FAMILY == mcppls::os::Family::windows };
+    const bool caseInsensitive { mcppls::os::family() == mcppls::os::Family::windows };
     auto key = [&](std::string_view entry) {
         std::string name { entry.substr(0, entry.find('=')) };
         return caseInsensitive ? base::to_lower_ascii(name) : name;
@@ -235,7 +235,7 @@ bool run_prepare(const Json& command, const std::string& workspace, bool verbose
         // Found where the step runs: a developer environment may put another version of a tool first.
         std::optional<std::string> pathList;
         if (environment) {
-            const bool caseInsensitive { mcppls::os::FAMILY == mcppls::os::Family::windows };
+            const bool caseInsensitive { mcppls::os::family() == mcppls::os::Family::windows };
             for (const auto& entry : *environment) {
                 const std::string name { entry.substr(0, entry.find('=')) };
                 if (caseInsensitive ? base::to_lower_ascii(name) == "path" : name == "PATH") pathList = entry.substr(entry.find('=') + 1);
@@ -1305,7 +1305,7 @@ public:
     // No-op wherever the pid or /proc are not available: `finish()` then reports null, as design 1
     // asks for anything a platform cannot measure.
     explicit ProcessSampler(std::optional<std::int64_t> rootPid) {
-        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::linux) {
+        if (mcppls::os::family() != mcppls::os::Family::linux) {
             (void)rootPid;
             return;
         } else {
@@ -1591,7 +1591,7 @@ public:
 
 // SIGKILL where the platform names processes by number. False elsewhere: a fault the platform cannot cause is skipped, not passed.
 bool kill_process(std::int64_t pid) {
-    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+    if (mcppls::os::family() == mcppls::os::Family::windows) {
         (void)pid;
         return false;
     } else {
@@ -1651,7 +1651,7 @@ private:
 
 public:
     explicit ClangdWatcher(std::function<std::int64_t()> serverPid) : serverPid_ { std::move(serverPid) } {
-        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::linux) {
+        if (mcppls::os::family() == mcppls::os::Family::linux) {
             if (!fs::is_directory("/proc")) return;
             active_ = true;
             thread_ = std::jthread { [this](std::stop_token token) {
@@ -2298,7 +2298,7 @@ public:
 
     // The clangd of the run: --clangd, else the payload's.
     std::string clangd_program() const {
-        return !options_.clangd.empty() ? options_.clangd : base::join_path(options_.payload, "clangd/bin/clangd") + std::string { mcppls::os::EXECUTABLE_SUFFIX };
+        return !options_.clangd.empty() ? options_.clangd : base::join_path(options_.payload, "clangd/bin/clangd") + std::string { mcppls::os::executable_suffix() };
     }
 
     // A check's "retired-by": the capability that retires the workaround whose defect the check watches, for an engine
@@ -5445,8 +5445,8 @@ int run(Options options) {
         // `only-on`: the operating systems a check holds on ("linux", "macos", "windows"); a defect that shows
         // differently elsewhere (a crash instead of a spin) is checked by its own entry there.
         if (const auto onlyOn = check.find("only-on"); onlyOn != check.end() && onlyOn->is_array()) {
-            const std::string_view here { mcppls::os::FAMILY == mcppls::os::Family::windows ? "windows"
-                                          : mcppls::os::FAMILY == mcppls::os::Family::macos ? "macos" : "linux" };
+            const std::string_view here { mcppls::os::family() == mcppls::os::Family::windows ? "windows"
+                                          : mcppls::os::family() == mcppls::os::Family::macos ? "macos" : "linux" };
             if (std::ranges::none_of(*onlyOn, [&](const Json& os) { return os.is_string() && os.get<std::string>() == here; })) {
                 say("SKIP {} {} (only on {})", id, check.value("kind", std::string {}), lsp::dump(*onlyOn));
                 continue;
@@ -5565,7 +5565,7 @@ int run(Options options) {
 
 // A path as a tool on this host spells it: Windows compilers and their databases take backslashes.
 std::string native(std::string path) {
-    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) std::ranges::replace(path, '/', '\\');
+    if (mcppls::os::family() == mcppls::os::Family::windows) std::ranges::replace(path, '/', '\\');
     return path;
 }
 
@@ -5907,7 +5907,7 @@ int prepare_producer_candidate(const std::string& home) {
         return 1;
     }
     const std::string self { absolute(mcppls::platform::env::arguments().front()) };
-    const std::string mock { base::join_path(base::parent_path(self), "mcppls-mock-mcpp") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+    const std::string mock { base::join_path(base::parent_path(self), "mcppls-mock-mcpp") + std::string { mcppls::os::executable_suffix() } };
     auto mockContent = fs::read_file(mock);
     if (!mockContent) {
         say("producer-candidate: {} is not built (needs mcppls-mock-mcpp beside mcppls-conformance)", mock);
@@ -5915,7 +5915,7 @@ int prepare_producer_candidate(const std::string& home) {
     }
     const std::string binaryDirectory { base::join_path(home, ".xlings/data/xpkgs/xim-x-mcpp/9999.0.0/bin") };
     (void)fs::create_directories(binaryDirectory);
-    const std::string binaryPath { base::join_path(binaryDirectory, "mcpp") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+    const std::string binaryPath { base::join_path(binaryDirectory, "mcpp") + std::string { mcppls::os::executable_suffix() } };
     if (auto written = fs::write_file(binaryPath, *mockContent); !written) {
         say("producer-candidate: {}", written.error().message);
         return 1;
@@ -6031,7 +6031,7 @@ int prepare_failure_at_base(const std::string& argument) {
 // started: the loader's message and exit, on every host.
 int prepare_clangd_cannot_load() {
     const std::string self { absolute(mcppls::platform::env::arguments().front()) };
-    const std::string mock { base::join_path(base::parent_path(self), "mcppls-mock-mcpp") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+    const std::string mock { base::join_path(base::parent_path(self), "mcppls-mock-mcpp") + std::string { mcppls::os::executable_suffix() } };
     auto mockContent = fs::read_file(mock);
     if (!mockContent) {
         say("clangd-cannot-load: {} is not built (needs mcppls-mock-mcpp beside mcppls-conformance)", mock);
@@ -6039,7 +6039,7 @@ int prepare_clangd_cannot_load() {
     }
     const std::string directory { base::join_path(fs::current_directory(), "stand-in") };
     (void)fs::create_directories(directory);
-    const std::string clangd { base::join_path(directory, "clangd") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+    const std::string clangd { base::join_path(directory, "clangd") + std::string { mcppls::os::executable_suffix() } };
     if (auto written = fs::write_file(clangd, *mockContent); !written) {
         say("clangd-cannot-load: {}", written.error().message);
         return 1;
@@ -6063,7 +6063,7 @@ int prepare_clangd_cannot_load() {
 // `crashFile` (relative to the workspace) is the file the context names; empty, the stand-in prints no context and is
 // gone the way a clangd killed from outside is (0.0.17 W5: clangd-exit-strike).
 int prepare_crashing_clangd(std::string_view kind, const std::string& payload, std::string_view crashFile) {
-    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+    if (mcppls::os::family() == mcppls::os::Family::windows) {
         say("{}: POSIX only", kind);
         return 2;
     }
@@ -6120,12 +6120,12 @@ int prepare_crashing_clangd(std::string_view kind, const std::string& payload, s
 // `emit build-database` and lets every other command through at once, so the server plans with what it scanned itself
 // meanwhile and then receives the build tool's model. POSIX only.
 int prepare_delayed_producer(const std::string& seconds) {
-    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+    if (mcppls::os::family() == mcppls::os::Family::windows) {
         say("delayed-producer: POSIX only");
         return 2;
     }
     const std::string self { absolute(mcppls::platform::env::arguments().front()) };
-    const std::string mock { base::join_path(base::parent_path(self), "mcppls-mock-mcpp") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+    const std::string mock { base::join_path(base::parent_path(self), "mcppls-mock-mcpp") + std::string { mcppls::os::executable_suffix() } };
     if (!fs::exists(mock)) {
         say("delayed-producer: {} is not built (needs mcppls-mock-mcpp beside mcppls-conformance)", mock);
         return 1;

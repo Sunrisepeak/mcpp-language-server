@@ -104,7 +104,7 @@ std::string self_path() {
 }
 
 std::optional<std::string> find_tool(std::string_view name) {
-    const std::string exe { std::string { name } + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+    const std::string exe { std::string { name } + std::string { mcppls::os::executable_suffix() } };
     const std::string binDir { base::parent_path(self_path()) };
     const std::string bucketDir { base::parent_path(binDir) };
     const std::string tripleDir { base::parent_path(bucketDir) };

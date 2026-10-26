@@ -37,7 +37,6 @@ import mcppls.project.mcpp;
 import mcppls.project.target;
 import mcppls.project.modelcache;
 import mcppls.normalize.plan;
-import mcppls.arch;
 import mcppls.bundle.writer;
 import mcppls.engine;
 import mcppls.engine.payload;
@@ -895,8 +894,8 @@ struct Workspace::Impl final : engine::Host {
         Json facts { { "version", std::string { base::VERSION } },
                      { "root", root },
                      { "cacheRoot", workspaceDirectory_ },
-                     { "os", std::string { mcppls::os::FAMILY_NAME } },
-                     { "arch", std::string_view { mcppls::arch::ARCH == mcppls::arch::Arch::aarch64 ? "arm64" : "x64" } },
+                     { "os", std::string { mcppls::os::family_name() } },
+                     { "arch", std::string_view { mcppls::os::arch_name() } },
                      { "logDirectory", base::parent_path(log::file_path()) },
                      { "bundlesDirectory", bundle::default_directory() } };
         if (clientParams.is_object()) {
@@ -934,7 +933,7 @@ struct Workspace::Impl final : engine::Host {
     // The engines are given every file under the one name the model uses for it (v1 design 14.3's
     // "one file, one name"): clangd matches an unsaved buffer to the module source it builds by name.
     std::string engine_uri(std::string_view uri) const override {
-        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+        if (mcppls::os::family() == mcppls::os::Family::windows) {
             const std::string path { path_of_uri(uri) };
             if (path.size() < 2 || path[1] != ':') return std::string { uri };
             return "file:///" + path.substr(0, 2) + base::percent_encode_path(std::string_view { path }.substr(2));
@@ -3419,7 +3418,7 @@ struct Workspace::Impl final : engine::Host {
     }
 
     Json about_json() const {
-        Json about { { "server", std::string { base::VERSION } }, { "platform", std::string { mcppls::os::PLATFORM } }, { "startedAt", startedAtUtc } };
+        Json about { { "server", std::string { base::VERSION } }, { "platform", std::string { mcppls::os::platform() } }, { "startedAt", startedAtUtc } };
         if (const std::string extension { extension_version() }; !extension.empty()) about["extension"] = extension;
         if (const Json* info = lsp::find(clientParams, "clientInfo"); info != nullptr && info->is_object()) {
             about["editor"] = Json { { "name", info->value("name", std::string {}) }, { "version", info->value("version", std::string {}) } };
@@ -3454,7 +3453,7 @@ struct Workspace::Impl final : engine::Host {
         } else if (kit) {
             profile = Json { { "kind", "semantic-kit" }, { "stdlib", std::format("{} {}", kit->stdlibName, kit->stdlibVersion) }, { "target", kit->target } };
         } else {
-            profile = Json { { "kind", "semantic-kit" }, { "stdlib", "unknown" }, { "target", std::string { mcppls::os::PLATFORM } } };
+            profile = Json { { "kind", "semantic-kit" }, { "stdlib", "unknown" }, { "target", std::string { mcppls::os::platform() } } };
         }
         return profile;
     }
@@ -4157,7 +4156,7 @@ void Workspace::start(Json clientParams, bool clientSupportsStatus, bool usePoll
     impl_->startedAtUtc = std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
     impl_->startup = Impl::Startup {};
     impl_->startup.beganUtc = impl_->startedAtUtc;
-    log::info("mcppls {} ({}) root {}", base::VERSION, mcppls::os::PLATFORM, root_);
+    log::info("mcppls {} ({}) root {}", base::VERSION, mcppls::os::platform(), root_);
     {
         // 0.0.13 W7: the versions in the log's first lines, so a log read alone says what ran.
         const Json about = impl_->about_json();
@@ -4896,13 +4895,14 @@ void Workspace::set_context(const Json& id, std::string_view context) {
 bool Workspace::start_review(const Json& arguments) {
     if (impl_->reviewProcess) return false;
     const auto& options = impl_->options;
-    if (options.serverExecutable.empty()) {
+    if (options.serverCommand.empty()) {
         log::warning("cannot review {}: the server does not know its own executable", root_);
         return false;
     }
     platform::SpawnOptions spawn;
-    spawn.program = options.serverExecutable;
-    spawn.arguments = { "review", "--format", "lsp", "--root", root_ };
+    spawn.program = options.serverCommand.front();
+    spawn.arguments.assign(options.serverCommand.begin() + 1, options.serverCommand.end());
+    spawn.arguments.insert(spawn.arguments.end(), { "review", "--format", "lsp", "--root", root_ });
     const Json settings = arguments.is_array() && !arguments.empty() && arguments[0].is_object() ? arguments[0] : Json::object();
     if (auto base = lsp::string_at(settings, "base"); base && !base->empty()) spawn.arguments.insert(spawn.arguments.end(), { "--base", *base });
     if (!options.payloadDirectory.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--payload", options.payloadDirectory });

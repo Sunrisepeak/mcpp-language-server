@@ -160,7 +160,7 @@ base::Result<std::vector<CompileCommand>> read_compile_commands(std::string_view
     if (!text) return std::unexpected { text.error() };
     nlohmann::json document = nlohmann::json::parse(*text, nullptr, false);
     if (document.is_discarded()) return base::fail("compdb-invalid", std::format("{} is not valid JSON", path));
-    const CommandSyntax syntax { mcppls::os::FAMILY == mcppls::os::Family::windows ? CommandSyntax::windows : CommandSyntax::posix };
+    const CommandSyntax syntax { mcppls::os::family() == mcppls::os::Family::windows ? CommandSyntax::windows : CommandSyntax::posix };
     return parse_compile_commands(document, syntax);
 }
 

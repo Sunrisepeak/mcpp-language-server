@@ -85,7 +85,7 @@ std::vector<std::string> other_mcpp_executables(std::string_view resolved, std::
         auto versions = platform::fs::list_directory(packageDirectory);
         std::ranges::sort(versions, [](const std::string& a, const std::string& b) { return mcpp_version_less(base::file_name(b), base::file_name(a)); });
         for (const auto& version : versions) {
-            const std::string candidate { base::join_path(version, "bin/mcpp") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+            const std::string candidate { base::join_path(version, "bin/mcpp") + std::string { mcppls::os::executable_suffix() } };
             if (!platform::fs::is_regular_file(candidate)) continue;
             if (base::same_path(candidate, resolved)) continue;
             if (std::ranges::find_if(found, [&](const std::string& existing) { return base::same_path(existing, candidate); }) != found.end()) continue;
@@ -415,8 +415,38 @@ std::optional<base::Result<InferredDatabase>> emit_build_database(const std::str
 
 } // namespace
 
+std::string mcpp_fallback_database(std::string_view root) {
+    const std::string project { root };
+    // A relative path in a record is the project's: mcpp writes them absolute, and a hand-copied
+    // tree keeps its own target/.
+    const auto at_root = [&](const std::string& path) { return base::is_absolute_path(path) ? base::normalize_path(path) : base::join_path(project, path); };
+    const auto json_of = [](const std::string& path) -> std::optional<nlohmann::json> {
+        auto text = platform::fs::read_file(path, 4 * 1024 * 1024);
+        if (!text) return std::nullopt;
+        auto parsed = nlohmann::json::parse(*text, nullptr, false);
+        if (parsed.is_discarded() || !parsed.is_object()) return std::nullopt;
+        return parsed;
+    };
+    if (const auto last = json_of(base::join_path(project, std::string { MCPP_LAST_RESULT }));
+        last && last->value("kind", std::string {}) == "mcpp.last-result") {
+        const auto data = last->find("data");
+        if (data != last->end() && data->is_object() && data->contains("result") && (*data)["result"].is_string()) {
+            if (const auto record = json_of(at_root((*data)["result"].get<std::string>()));
+                record && record->value("kind", std::string {}) == "mcpp.result") {
+                const auto recordData = record->find("data");
+                if (recordData != record->end() && recordData->is_object() && recordData->contains("compileDatabase")
+                    && (*recordData)["compileDatabase"].is_string()) {
+                    const std::string database { at_root((*recordData)["compileDatabase"].get<std::string>()) };
+                    if (platform::fs::is_regular_file(database)) return database;
+                }
+            }
+        }
+    }
+    const std::string rootCopy { base::join_path(project, "compile_commands.json") };
+    return platform::fs::is_regular_file(rootCopy) ? rootCopy : std::string {};
+}
+
 base::Result<InferredDatabase> load_mcpp(const Detection& detection, const ProviderContext& context) {
-    const std::string commandsPath { base::join_path(detection.root, "compile_commands.json") };
     std::vector<std::pair<std::string, std::string>> notices;
     std::string failure;   // why mcpp produced no compile database, in its own words
     if (context.targetSelection.mode == "explicit" && context.targetSelection.requestedTarget.empty()) {
@@ -509,12 +539,14 @@ base::Result<InferredDatabase> load_mcpp(const Detection& detection, const Provi
                                                  version.empty() ? std::string { "this mcpp" } : std::format("mcpp {}", version)));
             }
         } else {
-            base::log::info("mcpp was not found; using an existing compile_commands.json if there is one");
+            base::log::info("mcpp was not found; using the compile database its last build left, if there is one");
             base::log::info("  mcpp >= {} gives exact module information (mcpp emit build-database)",
                             base::MINIMUM_MCPP_VERSION);
         }
     }
-    if (!platform::fs::is_regular_file(commandsPath)) {
+    // Asked after mcpp ran: `build --configure-only` above is what writes either of them.
+    const std::string commandsPath { mcpp_fallback_database(detection.root) };
+    if (commandsPath.empty()) {
         if (!context.trusted) return base::fail("mcpp-no-database", "the workspace is not trusted, so mcpp was not run");
         if (!context.runBuildTool) return base::fail("mcpp-no-database", "mcppls.buildTool is off, so mcpp was not run");
         return base::fail("mcpp-no-database", failure.empty() ? std::string { "mcpp did not produce compile_commands.json" }
@@ -549,9 +581,7 @@ std::optional<Claim> McppProvider::detect(std::string_view root) const {
     claim.confidence = 100;
     claim.root = std::string { root };
     claim.manifest = manifest;
-    if (const std::string commands { base::join_path(std::string { root }, "compile_commands.json") }; platform::fs::is_regular_file(commands)) {
-        claim.compileCommands = commands;
-    }
+    if (std::string commands { mcpp_fallback_database(root) }; !commands.empty()) claim.compileCommands = std::move(commands);
     return claim;
 }
 
@@ -567,7 +597,7 @@ Answer McppProvider::describe(const Claim& claim, const ProviderContext& context
 }
 
 std::vector<std::string> McppProvider::watch_inputs(const Claim&) const {
-    return { "mcpp.toml", "mcpp.lock", ".xlings.json", "compile_commands.json" };
+    return { "mcpp.toml", "mcpp.lock", ".xlings.json", "compile_commands.json", std::string { MCPP_LAST_RESULT } };
 }
 
 } // namespace mcppls::project

@@ -25,7 +25,7 @@ namespace cmdline = mcpplibs::cmdline;
 constexpr std::string_view REVIEW_SUBDIR { "tools/bench/review" };
 
 std::string host_name() {
-    switch (mcppls::os::FAMILY) {
+    switch (mcppls::os::family()) {
     case mcppls::os::Family::windows: return "windows";
     case mcppls::os::Family::macos: return "macos";
     default: return "linux";

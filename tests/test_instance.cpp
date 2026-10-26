@@ -65,7 +65,7 @@ int main() {
     // C-5 (plan 2026-09-30): a server that crashed left its lease fresh, the editor restarted it at once, and the new one
     // took itself for a second instance and started cold in a private directory. A lease names its process now.
     "a fresh lease whose process is gone, or whose pid another process has, is taken over at once"_test = [] {
-        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::linux) return;   // the heartbeat alone decides elsewhere
+        if (mcppls::os::family() != mcppls::os::Family::linux) return;   // the heartbeat alone decides elsewhere
         const std::string workspace { scratch("lease-owner") };
         const auto now = std::chrono::system_clock::now();
         const auto heartbeat = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
@@ -78,7 +78,12 @@ int main() {
         const auto self = fs::read_file("/proc/self/stat");
         expect(fatal(self.has_value()));
         const std::int64_t pid { std::stoll(self->substr(0, self->find(' '))) };
-        (void)fs::write_file(lease, Json { { "token", "reused" }, { "heartbeat", heartbeat }, { "pid", pid }, { "started", "1" } }.dump());
+        // An older server's lease names its start in another scheme, and its pid is alive: it keeps its workspace.
+        (void)fs::write_file(lease, Json { { "token", "older" }, { "heartbeat", heartbeat }, { "pid", pid }, { "started", "1" } }.dump());
+        auto beside = orch::WorkspaceLease::acquire(workspace, now + std::chrono::seconds { 2 });
+        expect(beside.shared()) << "a live pid under a lease of another scheme is not taken over";
+        beside.release();
+        (void)fs::write_file(lease, Json { { "token", "reused" }, { "heartbeat", heartbeat }, { "pid", pid }, { "started", "ok:1" } }.dump());
         auto reused = orch::WorkspaceLease::acquire(workspace, now + std::chrono::seconds { 2 });
         expect(!reused.shared()) << "the pid is another process's now";
         // The live owner itself: a second instance still works in a private directory.
@@ -125,16 +130,16 @@ int main() {
 
     "identified payloads validate their engine while explicit external engines inherit no capabilities"_test = [] {
         const std::string payload { scratch("payload-v4") };
-        const std::string relative { "clangd/bin/clangd" + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+        const std::string relative { "clangd/bin/clangd" + std::string { mcppls::os::executable_suffix() } };
         (void)fs::create_directories(mcppls::base::join_path(payload, "clangd/bin"));
         (void)fs::write_file(mcppls::base::join_path(payload, relative), "fixture engine");
         write_kit(mcppls::base::join_path(payload, "kit"), "23.1.0");
         const std::string digest { mcppls::base::sha256_hex("fixture engine") };
         Json identity { { "engine-version", "23.1.0-mcppls.1" }, { "llvm-base-version", "23.1.0" },
                         { "llvm-commit", std::string(40, 'a') }, { "fork-commit", std::string(40, 'b') },
-                        { "patch-series-sha256", std::string(64, 'c') }, { "platform", mcppls::os::PLATFORM },
+                        { "patch-series-sha256", std::string(64, 'c') }, { "platform", mcppls::os::platform() },
                         { "sha256", digest }, { "features", Json::array({ "semantic-tokens-range" }) } };
-        Json manifest { { "payload-version", 4 }, { "platform", mcppls::os::PLATFORM },
+        Json manifest { { "payload-version", 4 }, { "platform", mcppls::os::platform() },
                         { "engines", Json { { "clangd", Json { { "version", "23.1.0-mcppls.1" }, { "path", relative }, { "identity", identity } } } } },
                         { "files", Json { { relative, Json { { "size", 14 }, { "sha256", digest } } } } } };
         const auto write = [&] { (void)fs::write_file(mcppls::base::join_path(payload, "payload.json"), manifest.dump()); };
@@ -159,7 +164,7 @@ int main() {
 
     "a payload that declares no clangd still finds one in the conventional place"_test = [] {
         const std::string payload { scratch("payload-conventional") };
-        const std::string clangd { mcppls::base::join_path(payload, std::string { "clangd/bin/clangd" } + std::string { mcppls::os::EXECUTABLE_SUFFIX }) };
+        const std::string clangd { mcppls::base::join_path(payload, std::string { "clangd/bin/clangd" } + std::string { mcppls::os::executable_suffix() }) };
         (void)fs::create_directories(mcppls::base::join_path(payload, "clangd/bin"));
         (void)fs::write_file(clangd, "not really clangd");
         (void)fs::write_file(mcppls::base::join_path(payload, "payload.json"), Json { { "payload-version", 3 }, { "platform", "linux-x64" } }.dump());

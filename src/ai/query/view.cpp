@@ -50,7 +50,7 @@ std::string View::path_of(std::string_view file) const {
 std::string View::display(std::string_view path) const {
     if (auto relative = base::relative_path(path, root()); relative && base::is_within(path, root())) {
         std::string name { *relative };
-        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) std::ranges::replace(name, '\\', '/');
+        if (mcppls::os::family() == mcppls::os::Family::windows) std::ranges::replace(name, '\\', '/');
         return name;
     }
     return std::string { path };

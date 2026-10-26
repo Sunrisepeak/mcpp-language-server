@@ -143,7 +143,7 @@ struct Kernel::Impl {
     struct ToolWiring {
         explicit ToolWiring(std::shared_ptr<EventChannel> channel, const SessionOptions& session) {
             platform::toolenv::configure(platform::toolenv::parse_mode(session.toolEnvironment).value_or(platform::toolenv::Mode::automatic),
-                                         session.serverExecutable);
+                                         session.serverCommand);
             platform::toolenv::begin();
             platform::toolrun::set_recorder([channel](const platform::toolrun::Record& record) {
                 if (record.root.empty()) return;

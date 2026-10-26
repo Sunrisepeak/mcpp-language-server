@@ -4,7 +4,8 @@
 # every executable of that package, so anything a tool needs and the server must not carry (a
 # network client, an archive reader) lives in a member the server does not depend on.
 #
-#   modules/base, modules/platform   shared by the server, the tools and the gateway
+#   modules/base, modules/os,
+#   modules/platform                 shared by the server, the tools and the gateway
 #   modules/pack                     packaging only: tinyhttps, libarchive
 #   tools/devtools                   mcppls-devtools, the one entry for project work (docs/93-devtools.md)
 #   tools/model-gateway              mcppls-model
@@ -14,6 +15,7 @@
 [workspace]
 members = [
     "modules/base",
+    "modules/os",
     "modules/platform",
     "modules/pack",
     "tools/devtools",
@@ -22,10 +24,22 @@ members = [
 
 # One version of each third-party package for every member.
 [workspace.dependencies]
-openkal-llvm-runtime = "=0.15.1"   # exact, both of these: a plain caret version floats openkal-llvm-runtime
-openkal-musl         = "=0.19.1"   # to 0.15.4, which pulls openkal-musl 0.20.1, which asks for openkal(-linux) 0.16.1 --
-                                   # two releases above the vendored openkal-linux 0.15.1 (vendor/README.md says when
-                                   # that goes away, and these pins with it)
+# The operating-system layer: mcpplibs.os over openkal (mcpp design 2026-10-26 part 2), and the
+# C library and C++ run-time openkal-musl and openkal-llvm-runtime put above openkal.
+os                   = { git = "https://github.com/mcpplibs/os.git", branch = "os-0.1.0" }
+openkal-llvm-runtime = { git = "https://github.com/mcpplibs/openkal-llvm-runtime.git", branch = "openkal-0.17.0" }
+openkal-musl         = { git = "https://github.com/mcpplibs/openkal-musl.git", branch = "openkal-0.17.0", default-features = false, features = ["posix"] }
+# THE FAMILY BENEATH, BY THE SAME BRANCH, UNTIL IT IS PUBLISHED. openkal-musl and the runtime name
+# these by version, and a program's own declaration outranks a version requirement (mcpp
+# docs/05-dependencies.md), so each program of this workspace names them here. They are removed,
+# not changed to versions, once the index carries the release: the versions then come from the
+# packages that need them.
+openkal              = { git = "https://github.com/mcpplibs/openkal.git", branch = "openkal-0.17.0" }
+openkal-linux        = { git = "https://github.com/mcpplibs/openkal-linux.git", branch = "openkal-0.17.0", features = ["standalone"] }
+openkal-macos        = { git = "https://github.com/mcpplibs/openkal-macos.git", branch = "openkal-0.17.0", features = ["standalone"] }
+openkal-windows      = { git = "https://github.com/mcpplibs/openkal-windows.git", branch = "openkal-0.17.0", features = ["standalone"] }
+openkal-ld           = { git = "https://github.com/mcpplibs/openkal-image.git", branch = "openkal-0.17.0" }
+openkal-tools        = { git = "https://github.com/mcpplibs/openkal-image.git", branch = "openkal-0.17.0" }
 cmdline              = "0.0.2"
 tinyhttps            = "0.3.1"
 
@@ -37,7 +51,7 @@ libarchive = "3.8.7"
 
 [package]
 name        = "mcpp-language-server"
-version     = "0.0.17"
+version     = "0.0.18"
 description = "Compiler-agnostic C++ modules language server"
 license     = "Apache-2.0"
 authors     = ["Sunrisepeak"]
@@ -81,7 +95,9 @@ openkal-llvm-runtime.workspace = true
 openkal-musl.workspace = true
 cmdline.workspace              = true
 mcppls-base                    = { path = "modules/base" }
+mcppls-os                      = { path = "modules/os" }
 mcppls-platform                = { path = "modules/platform" }
+openkal.workspace              = true   # by branch until published (see [workspace.dependencies])
 
 [dependencies.nlohmann]
 json.workspace = true
@@ -89,23 +105,25 @@ json.workspace = true
 [dev-dependencies]
 mcppls-testing = { path = "modules/testing" }
 
-# Platform facts are a package chosen by the target, consumed with `if constexpr`.
+# The family beneath, by branch until it is published (see [workspace.dependencies]).
 [target.'cfg(os = "linux")'.dependencies]
-mcppls-os-linux = { path = "modules/os/linux" }
-
-# openkal-musl (below openkal-llvm-runtime) asks for openkal-linux by `version`; a `path` here is
-# a declaration of another kind, and the root's declaration wins (mcpp docs/05-dependencies.md,
-# "When two declarations of one dependency disagree") -- so the build compiles vendor/openkal-linux,
-# the 0.15.0 release plus the two termux/PRoot fixes, and warns once that it did. Linux only: the
-# other operating systems' openkal packages are untouched. Drop this and vendor/openkal-linux when
-# a release carries the fixes (vendor/README.md).
-openkal-linux = { path = "vendor/openkal-linux" }
+openkal-linux.workspace = true
 
 [target.'cfg(os = "macos")'.dependencies]
-mcppls-os-macos = { path = "modules/os/macos" }
+openkal-macos.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-mcppls-os-windows = { path = "modules/os/windows" }
+openkal-windows.workspace = true
+
+# An ok image (`<arch>-openkal`, M2/M3): one server per architecture, which okrun runs on Linux,
+# macOS and Windows. The C library and the C++ run-time are the same packages in their image form;
+# okld finishes the image and okrun runs it, both built for this machine.
+[target.'cfg(os = "openkal")'.dependencies]
+openkal-ld.workspace = true
+
+[target.'cfg(os = "openkal")'.build-dependencies]
+openkal-tools = { workspace = true, tools = ["okld", "okrun"] }
+
 
 # What packaging needs, declared rather than fetched at runtime.
 #

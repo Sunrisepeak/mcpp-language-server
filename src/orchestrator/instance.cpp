@@ -89,7 +89,10 @@ void write_instance(bool shared, std::string_view workspaceDirectory, std::strin
 bool lease_owner_gone(std::int64_t pid, std::string_view started) {
     if (pid <= 0 || started.empty()) return false;
     const auto owner = platform::process_identity(pid);
-    if (owner) return owner->started != started;
+    // A lease an older server wrote names its start in another scheme, which says nothing about
+    // this one's: such a lease is judged by liveness alone, so an upgrade never takes a live
+    // server's workspace over.
+    if (owner && platform::same_identity_scheme(owner->started, started)) return owner->started != started;
     // Who it is cannot be read; whether it is ANY process still can. Only a definite "no such
     // process" is a gone owner -- anything else (another user's process on Windows, a ps(1) that
     // hiccuped) leaves the heartbeat to decide, exactly as before X-6.

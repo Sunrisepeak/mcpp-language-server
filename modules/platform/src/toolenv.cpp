@@ -40,7 +40,7 @@ struct State {
     std::mutex mutex;
     std::condition_variable done;
     Mode mode { Mode::automatic };
-    std::string self;
+    std::vector<std::string> self;
     std::string shell;
     bool started { false };
     bool finished { false };
@@ -78,11 +78,14 @@ std::string single_quoted(std::string_view text) {
     return quoted;
 }
 
-Environment resolve_from_login_shell(const std::string& self, const std::string& configuredShell) {
+Environment resolve_from_login_shell(const std::vector<std::string>& self, const std::string& configuredShell) {
     const auto started = std::chrono::steady_clock::now();
     if (self.empty()) return editor_environment("the server does not know its own executable");
     const std::string shell { login_shell(configuredShell) };
     const std::string marker { std::format("MCPPLS-ENVIRONMENT-{}", std::chrono::steady_clock::now().time_since_epoch().count()) };
+    // The words that start this program again, an ok image's loader first.
+    std::string command_line;
+    for (const auto& word : self) command_line += (command_line.empty() ? "" : " ") + single_quoted(word);
 
     auto environment = env::variables();
     // The same two a shell configuration can test to skip its heavy half; VS Code sets the first.
@@ -91,7 +94,7 @@ Environment resolve_from_login_shell(const std::string& self, const std::string&
 
     SpawnOptions options {
         .program = shell,
-        .arguments = { "-l", "-i", "-c", std::format("{} print-environment {}", single_quoted(self), marker) },
+        .arguments = { "-l", "-i", "-c", std::format("{} print-environment {}", command_line, marker) },
         .environment = environment,
     };
     // A shell configuration that waits for input, or for the network, must not keep the server
@@ -129,7 +132,7 @@ Environment resolve_from_login_shell(const std::string& self, const std::string&
 void resolve_now() {
     auto& value = state();
     Mode mode {};
-    std::string self;
+    std::vector<std::string> self;
     std::string shell;
     {
         std::lock_guard lock { value.mutex };
@@ -140,7 +143,7 @@ void resolve_now() {
     Environment environment;
     if (mode == Mode::editor) {
         environment = editor_environment("mcppls.toolEnvironment is editor");
-    } else if constexpr (os::FAMILY == os::Family::windows) {
+    } else if (os::family() == os::Family::windows) {
         // A graphical program on Windows takes its environment from the registry, which is what a
         // terminal takes too. There is no login shell to ask.
         environment = editor_environment("this process's environment (Windows)");
@@ -172,7 +175,7 @@ std::optional<Mode> parse_mode(std::string_view name) {
 
 std::string_view mode_name(Mode mode) { return mode == Mode::editor ? "editor" : "auto"; }
 
-void configure(Mode mode, std::string self, std::string shell) {
+void configure(Mode mode, std::vector<std::string> self, std::string shell) {
     auto& value = state();
     std::lock_guard lock { value.mutex };
     value.mode = mode;
@@ -248,7 +251,7 @@ std::vector<std::string> merge(const std::vector<std::string>& base, const std::
         for (std::size_t index { 0 }; index < merged.size(); ++index) {
             const auto [existing, unused] = split_variable(merged[index]);
             (void) unused;
-            const bool same { os::CASE_INSENSITIVE_PATHS
+            const bool same { os::case_insensitive_paths()
                                   ? base::iequals_ascii(existing, name)
                                   : existing == name };
             if (same) return index;

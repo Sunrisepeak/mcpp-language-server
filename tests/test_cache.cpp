@@ -264,6 +264,9 @@ int main() {
         if (self) {
             expect(!lease_owner_gone(self->pid, self->started)) << "the process writing this lease is not gone";
             expect(lease_owner_gone(self->pid, self->started + "!")) << "the same pid with another incarnation is";
+            // A lease an older server wrote (its start in another scheme: a clock-tick count, a date)
+            // cannot be compared with this identity, and a live owner keeps its workspace.
+            expect(!lease_owner_gone(self->pid, "4242")) << "an older server's live lease is not taken over";
         }
         // A pid nothing answers for is gone on every platform; an unreadable identity is NOT death
         // (another user's process on Windows), but that case needs one to exist -- the definite

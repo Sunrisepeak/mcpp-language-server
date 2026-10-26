@@ -195,7 +195,7 @@ TargetSelection select_mcpp_target(std::string_view root, std::string_view selec
         }
     }
     // Reuse the platform-aware splitter (including Windows quoting) without expanding response files.
-    auto commands = parse_compile_commands(document, mcppls::os::FAMILY == mcppls::os::Family::windows ? CommandSyntax::windows : CommandSyntax::posix);
+    auto commands = parse_compile_commands(document, mcppls::os::family() == mcppls::os::Family::windows ? CommandSyntax::windows : CommandSyntax::posix);
     if (!commands) {
         selected.reason = "the root compilation database cannot be read: " + commands.error().message;
         return selected;

@@ -38,7 +38,7 @@ std::vector<std::string> clangd_arguments(const ProcessConfig& config) {
     // uses Background QoS. On Linux both are SCHED_IDLE, and Windows' background
     // mode also lowers I/O priority, unmeasured for indexing, so only macOS
     // changes. Keep the index and respect an explicit user choice.
-    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::macos) {
+    if (mcppls::os::family() == mcppls::os::Family::macos) {
         const bool indexPriorityGiven { std::ranges::any_of(config.extraArguments, [](const std::string& argument) {
             return argument == "--background-index-priority" || argument == "-background-index-priority"
                    || argument.starts_with("--background-index-priority=") || argument.starts_with("-background-index-priority=");

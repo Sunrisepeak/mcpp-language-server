@@ -30,7 +30,7 @@ int main() {
     };
 
     "a value is reported as it was set"_test = [] {
-        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+        if (mcppls::os::family() == mcppls::os::Family::windows) {
             const auto interpreter = env::get("ComSpec");
             expect(fatal(interpreter.has_value()));
             expect(interpreter->contains('\\') && !interpreter->contains('/')) << *interpreter;
@@ -40,7 +40,7 @@ int main() {
     };
 
     "a system executable is found on PATH"_test = [] {
-        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+        if (mcppls::os::family() == mcppls::os::Family::windows) {
             const auto found = env::find_executable("cmd");
             expect(fatal(found.has_value()));
             expect(base::file_name(*found) == "cmd.exe" || base::file_name(*found) == "CMD.EXE") << *found;
@@ -56,11 +56,11 @@ int main() {
         const std::string first { base::join_path(mcppls::platform::dirs::temp_directory(),
             std::format("mcppls-test-env-first-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
         const std::string second { first + "-second" };
-        const std::string name { std::string { "mcppls-fake-tool" } + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+        const std::string name { std::string { "mcppls-fake-tool" } + std::string { mcppls::os::executable_suffix() } };
         (void)mcppls::platform::fs::create_directories(first);
         (void)mcppls::platform::fs::create_directories(second);
         (void)mcppls::platform::fs::write_file(base::join_path(second, name), "");
-        const std::string pathList { first + std::string { mcppls::os::PATH_LIST_SEPARATOR } + second };
+        const std::string pathList { first + std::string { mcppls::os::path_list_separator() } + second };
         const auto found = env::find_executable("mcppls-fake-tool", pathList);
         expect(found.has_value() && base::same_path(*found, base::join_path(second, name))) << found.value_or("<none>");
         expect(!env::find_executable("mcppls-fake-tool").has_value()) << "not on this process's PATH";
@@ -79,7 +79,7 @@ int main() {
             std::format("mcppls-test-env-shim-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
         (void)mcppls::platform::fs::create_directories(root);
 
-        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+        if (mcppls::os::family() == mcppls::os::Family::windows) {
             // npm's layout: the shim, and the shell script beside it. The shim is the answer.
             (void)mcppls::platform::fs::write_file(base::join_path(root, "mcppls-fake-npm.cmd"), "");
             (void)mcppls::platform::fs::write_file(base::join_path(root, "mcppls-fake-npm"), "");
@@ -98,7 +98,7 @@ int main() {
         }
 
         // Everywhere: a dotted name is not a name with an extension, so it is still suffixed.
-        const std::string dotted { std::string { "mcppls-fake-1.13" } + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+        const std::string dotted { std::string { "mcppls-fake-1.13" } + std::string { mcppls::os::executable_suffix() } };
         (void)mcppls::platform::fs::write_file(base::join_path(root, dotted), "");
         const auto byAppending = env::find_executable("mcppls-fake-1.13", root);
         expect(byAppending.has_value() && base::same_path(*byAppending, base::join_path(root, dotted)))
@@ -174,15 +174,15 @@ int main() {
     // `print-environment`, and reads what comes back between the markers. A shell that greets, sets
     // variables or prints anything else does not disturb the answer.
     "the login shell's environment is read through a real shell"_test = [] {
-        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+        if (mcppls::os::family() == mcppls::os::Family::windows) {
             return;   // a graphical program takes its environment from the registry; there is no shell to ask
         } else {
             namespace toolenv = mcppls::platform::toolenv;
             namespace fs = mcppls::platform::fs;
-            const auto arguments = env::arguments();
-            std::string self { arguments.empty() ? std::string {} : arguments.front() };
-            if (!base::is_absolute_path(self)) self = base::join_path(fs::current_directory(), self);
-            self = base::normalize_path(self);
+            // What starts this program again: the executable, or an ok image's loader and image.
+            const auto self = env::self_command();
+            expect(fatal(!self.empty()));
+            expect(base::is_absolute_path(self.front())) << self.front();
             if (!fs::is_regular_file("/bin/sh")) return;
 
             toolenv::reset();

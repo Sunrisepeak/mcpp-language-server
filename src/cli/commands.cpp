@@ -84,7 +84,7 @@ Loaded load(std::string_view root, const cmdline::ParsedArgs& args, bool trusted
     options.offline = session.buildTool != "online";
     options.producerHard = session.producerTimeout.count() > 0 ? std::chrono::milliseconds { session.producerTimeout }
         : std::chrono::milliseconds { options.offline ? std::chrono::minutes { 5 } : std::chrono::minutes { 10 } };
-    platform::toolenv::configure(platform::toolenv::parse_mode(session.toolEnvironment).value_or(platform::toolenv::Mode::automatic), session.serverExecutable);
+    platform::toolenv::configure(platform::toolenv::parse_mode(session.toolEnvironment).value_or(platform::toolenv::Mode::automatic), session.serverCommand);
     if (options.trusted) platform::toolenv::begin();
     options.environmentWait = options.trusted ? std::chrono::seconds { 10 } : std::chrono::seconds { 0 };
     loaded.model = project::load_project(root, options);
@@ -360,7 +360,7 @@ int run(int argc, char* argv[]) {
             if (daemon && !ai::mcp::control(*daemon, "status")) daemon.reset();
             if (!daemon) {
                 const auto options = session_options(args);
-                auto started = ai::mcp::start_daemon(options.serverExecutable, root, daemon_arguments(args), std::chrono::seconds { 60 });
+                auto started = ai::mcp::start_daemon(options.serverCommand, root, daemon_arguments(args), std::chrono::seconds { 60 });
                 if (started) daemon = *started;
                 else base::log::warning("the workspace daemon did not start ({}); serving this connection alone", started.error().message);
             }
@@ -422,7 +422,7 @@ int run(int argc, char* argv[]) {
             status = 0;
             return;
         }
-        auto started = ai::mcp::start_daemon(session_options(args).serverExecutable, root, daemon_arguments(args), std::chrono::seconds { 60 });
+        auto started = ai::mcp::start_daemon(session_options(args).serverCommand, root, daemon_arguments(args), std::chrono::seconds { 60 });
         if (!started) {
             std::println(std::cerr, "daemon start: {}", started.error().message);
             status = 2;
@@ -464,7 +464,7 @@ int run(int argc, char* argv[]) {
     (void)versionCommand.description("Print the version");
     (void)versionCommand.action([&](const cmdline::ParsedArgs&) {
         handled = true;
-        std::println("mcppls {} ({}; S1 {}; clangd {})", base::VERSION, mcppls::os::PLATFORM, spec::PROFILE_VERSION, base::CLANGD_VERSION);
+        std::println("mcppls {} ({}; S1 {}; clangd {})", base::VERSION, mcppls::os::platform(), spec::PROFILE_VERSION, base::CLANGD_VERSION);
     });
     (void)app.subcommand(std::move(versionCommand));
     const int parsed { app.run(argc, argv) };

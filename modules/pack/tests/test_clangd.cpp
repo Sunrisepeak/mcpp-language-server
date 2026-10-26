@@ -4,7 +4,7 @@
 // The win32-x64 platform is used for the selection/extraction tests because it is the one
 // platform trim_clangd.py never strips or runs `--version` against (`--zip` bypasses the lock and
 // network entirely), so the fixture's fake binary content never has to be a real executable; the
-// win32-x64 fixture never matches this host's own mcppls::os::PLATFORM on the CI machines
+// win32-x64 fixture never matches this host's own mcppls::os::platform() on the CI machines
 // this runs on (Linux, macOS), so the "this host can run it" branch never fires for it either.
 #include <archive.h>
 #include <archive_entry.h>
@@ -77,7 +77,7 @@ std::string runnable_clangd() {
 // trim_clangd.py drops (a lib under the same major, a share/ tree).
 //
 // The "binary" is this test program (runnable_clangd): on the one host whose
-// mcppls::os::PLATFORM matches the platform under test, the trim executes it to read
+// mcppls::os::platform() matches the platform under test, the trim executes it to read
 // `--version`, the way trim_clangd.py's `host_runs_it` did.
 std::vector<Member> release_members(std::string_view exeName) {
     return {
@@ -208,7 +208,7 @@ int main(int argc, char* argv[]) {
             }, lockData);
             expect(fatal(result.has_value())) << (result ? std::string {} : result.error().message);
             if (!result) continue;
-            if constexpr (mcppls::os::FAMILY != mcppls::os::Family::windows) {
+            if (mcppls::os::family() != mcppls::os::Family::windows) {
                 const auto permissions = std::filesystem::status(result->binary).permissions();
                 expect((permissions & std::filesystem::perms::owner_exec) != std::filesystem::perms::none);
             }
@@ -250,7 +250,7 @@ int main(int argc, char* argv[]) {
         if (!result) return;
         expect(result->clangMajor == "23");
         expect(fs::is_regular_file(base::join_path(result->directory, "LICENSE.TXT")));
-        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::windows) {
+        if (mcppls::os::family() != mcppls::os::Family::windows) {
             const auto permissions = std::filesystem::status(result->binary).permissions();
             expect((permissions & std::filesystem::perms::owner_exec) != std::filesystem::perms::none);
         }
@@ -312,7 +312,7 @@ int main(int argc, char* argv[]) {
     };
 
     "a darwin-arm64 thin-and-strip needs a macOS host"_test = [&] {
-        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::macos) {
+        if (mcppls::os::family() == mcppls::os::Family::macos) {
             // This is exactly the host the real thing needs; nothing to assert about refusing it.
         } else {
             const std::string zip { base::join_path(work, "clangd-darwin-strip.zip") };
@@ -332,7 +332,7 @@ int main(int argc, char* argv[]) {
     // one test by trimming for this host's own PLATFORM (which matches, and reads the
     // fixture script's line) and for a platform two steps away in the tuple (which never does).
     "the version line is read only when this host can run what was just trimmed"_test = [&] {
-        const std::string here { mcppls::os::PLATFORM };
+        const std::string here { mcppls::os::platform() };
         const std::string elsewhere { here == "linux-x64" ? "darwin-arm64" : "linux-x64" };
 
         const std::string hereZip { base::join_path(work, "clangd-here.zip") };

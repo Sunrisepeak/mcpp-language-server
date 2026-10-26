@@ -8,6 +8,6 @@ import mcppls.os;
 export namespace mcppls::base {
 
 // Whether `path` matches `pattern`; both are '/'-separated and compared segment by segment.
-bool glob_match(std::string_view pattern, std::string_view path, bool caseInsensitive = mcppls::os::CASE_INSENSITIVE_PATHS);
+bool glob_match(std::string_view pattern, std::string_view path, bool caseInsensitive = mcppls::os::case_insensitive_paths());
 
 } // namespace mcppls::base

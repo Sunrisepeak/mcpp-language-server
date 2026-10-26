@@ -446,7 +446,7 @@ private:
         // anything needs it (design 4.3): an editor started from a desktop entry has none of the
         // user's shell configuration, and a build tool found through the wrong PATH is another build.
         platform::toolenv::configure(platform::toolenv::parse_mode(options_.toolEnvironment).value_or(platform::toolenv::Mode::automatic),
-                                     options_.serverExecutable);
+                                     options_.serverCommand);
         platform::toolenv::begin();
         // Every external run reaches the journal of the workspace it belongs to (design 4.6). The
         // runner records from whatever thread ran the program; the event loop is the only place

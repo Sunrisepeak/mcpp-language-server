@@ -83,8 +83,8 @@ for it. Termux's PRoot, which many setups run a Linux system under, is a support
 
 ## From source
 
-The server is C++23 modules on [openkal](https://github.com/mcpplibs/openkal), built with
-[mcpp](https://github.com/mcpp-community/mcpp):
+The server is C++23 modules on [mcpplibs.os](https://github.com/mcpplibs/os) over
+[openkal](https://github.com/mcpplibs/openkal), built with [mcpp](https://github.com/mcpp-community/mcpp):
 
 ```bash
 mcpp build                                        # the server
@@ -105,6 +105,8 @@ step and how long it took. If something it needs is missing it says which and ho
 | Only the payload, for another editor | `mcpp run -p devtools -- payload` |
 | Reuse a clangd or kit you already built | `... -- payload --clangd DIR --kit DIR` |
 | Another platform's server | `mcpp build --target aarch64-macos` / `--target x86_64-windows-gnu` / `--target aarch64-linux-musl` |
+| The server as an ok image, one per architecture (M2) | `mcpp build --release --target x86_64-openkal` (or `aarch64-openkal`); `okrun mcppls.oke serve` runs it on Linux, macOS and Windows |
+| This system's program carrying that image (M3), as a payload ships it | `mcpp pack --release --target x86_64-openkal --mode self-contained --format dir -o m3` |
 
 **Zero setup.** What packaging needs is declared in `mcpp.toml`'s `[xlings.workspace]` — Node for
 the VS Code extension, Rust for Zed — so `mcpp run` provisions it before the tool starts. The

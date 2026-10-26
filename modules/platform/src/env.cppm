@@ -18,5 +18,9 @@ std::optional<std::string> find_executable(std::string_view name);
 std::optional<std::string> find_executable(std::string_view name, std::string_view pathList);
 // This program's own command-line arguments, argv[0] included.
 std::vector<std::string> arguments();
+// What starts this program again (mcpplibs.os `self_command`): its executable, or, built as an
+// ok image, the loader that runs it and the image. Absolute, normalized; empty when the system
+// names neither.
+std::vector<std::string> self_command();
 
 } // namespace mcppls::platform::env

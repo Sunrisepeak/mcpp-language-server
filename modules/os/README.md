@@ -1,20 +1,12 @@
 # os
 
-Three packages, `linux`, `macos` and `windows`, each exporting the same module,
-`mcppls.os`, with the same shape: `Family`, `FAMILY`, `FAMILY_NAME`,
-`EXECUTABLE_SUFFIX`, `PATH_LIST_SEPARATOR`, `PLATFORM`,
-`CASE_INSENSITIVE_PATHS`. Only one of the three is ever in a build's dependency
-graph — `mcpp.toml`'s `[target.'cfg(os = "...")'.dependencies]` picks it by the
-build target, so it is a compile-time choice, not a runtime one.
+`mcppls.os`, the system mcppls runs upon in mcppls' own names: `Family` and `family()`,
+`family_name()`, `executable_suffix()`, `path_list_separator()`, `case_insensitive_paths()`,
+`ARCH`, `arch_name()`, and `platform()` --- `linux-x64`, `darwin-arm64`, `win32-x64`, the name VS
+Code gives an extension target and the key of a payload, a VSIX and
+`packaging/payload.lock.json`'s platforms.
 
-The one thing to get right: because exactly one package is present, code
-consumes these as compile-time constants with `if constexpr (mcppls::os::FAMILY
-== ...)`, never with `#ifdef` — there is no preprocessor macro to branch on, and
-no need for one, since the platform never varies within a single build. The
-value differences live entirely in `<platform>/src/os.cppm`; everything else
-about each package (`mcpp.toml`) is identical.
-
-`PLATFORM` is the one constant that also depends on the architecture: `linux-x64` or
-`linux-arm64`, the name VS Code gives the target and the key of a payload, a VSIX and
-`packaging/payload.lock.json`'s platforms. Each package takes the architecture from
-[`modules/arch`](../arch/README.md), which the target picks the same way it picks the OS.
+Every answer is [mcpplibs.os](https://github.com/mcpplibs/os)'s `host()`. Built for a system it is a
+constant expression, so `if (mcppls::os::family() == mcppls::os::Family::windows)` folds and no
+preprocessor branch is needed; built as an ok image (`<arch>-openkal`) it is answered when the image
+is loaded, so one image follows the system it runs upon. `IS_IMAGE` says which of the two a build is.

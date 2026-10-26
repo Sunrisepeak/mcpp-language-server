@@ -69,7 +69,7 @@ int main() {
         write(external, "int external;\n");
         const std::string canonical { fs::canonical_path(physical) };
         std::string alias { physical }; // Windows TEMP can already contain a nonprivileged 8.3 alias.
-        if constexpr (b::NATIVE_PATH_STYLE != b::PathStyle::windows) {
+        if (b::native_path_style() != b::PathStyle::windows) {
             alias = b::join_path(root, "identity/project-alias");
             std::error_code error;
             std::filesystem::create_directory_symlink(physical, alias, error);
@@ -98,7 +98,7 @@ int main() {
         expect(throughCanonical.owns(b::join_path(alias, "members/one/src/one.cpp"))) << "declared workspace members remain part of the project";
         expect(!throughCanonical.owns(b::join_path(alias, "nested/main.cpp"))) << "a separate nested project is still excluded";
         expect(!throughCanonical.owns(external));
-        if constexpr (b::NATIVE_PATH_STYLE != b::PathStyle::windows) {
+        if (b::native_path_style() != b::PathStyle::windows) {
             const std::string linkedExternal { b::join_path(physical, "src/external.cpp") };
             std::error_code error;
             std::filesystem::create_symlink(external, linkedExternal, error);
@@ -108,7 +108,7 @@ int main() {
         const auto unit = [&](const std::string& file, const std::string& target) {
             return p::CompileCommand { alias, file, {}, { "clang++", "--target=" + target, "-c", file } };
         };
-        if constexpr (b::NATIVE_PATH_STYLE != b::PathStyle::windows) {
+        if (b::native_path_style() != b::PathStyle::windows) {
             for (const std::string member : { "members/literal-alias", "glob-members/glob-alias" }) {
                 const std::string memberSource { b::join_path(alias, member + "/src/member.cpp") };
                 expect(throughCanonical.owns(memberSource)) << member;

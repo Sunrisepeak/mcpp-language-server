@@ -33,6 +33,17 @@ std::vector<std::string> other_mcpp_executables(std::string_view resolved, std::
 // build directory's build.ninja stages that BMI, and std-module.json beside it records the
 // sources and the commands. Empty when the commands name no staged std BMI or the record is unreadable.
 std::vector<CompileCommand> mcpp_standard_units(std::span<const CompileCommand> commands);
+// The compile database a build of this project left, for when mcpp cannot be asked (mcpplibs
+// issue #71). mcpp 2026.10.26.2 writes no project-root `compile_commands.json` unless the project
+// asks for one; every build writes `target/.last-result.json` (kind `mcpp.last-result`), which names
+// the configuration's `result.json`, whose `compileDatabase` is that configuration's database. That
+// one first; the root copy an older mcpp wrote when the pointer is missing or names nothing that
+// exists. Empty when neither is there.
+std::string mcpp_fallback_database(std::string_view root);
+// The file every build of the project rewrites (atomically), whoever ran it: a terminal, an agent's
+// shell, an IDE. Watching it tells the server a build finished.
+inline constexpr std::string_view MCPP_LAST_RESULT { "target/.last-result.json" };
+
 base::Result<InferredDatabase> load_mcpp(const Detection& detection, const ProviderContext& context);
 
 // B-1: mcpp's own `BuildSystemProvider` (registry order: first -- design §2.1 keeps mcpp as the

@@ -406,7 +406,7 @@ EnginePlan plan_engine(const PlanInput& input) {
             }
 
             const bool importable { spec::is_importable(candidate.role) };
-            const auto syntax { mcppls::os::FAMILY == mcppls::os::Family::windows ? project::CommandSyntax::windows
+            const auto syntax { mcppls::os::family() == mcppls::os::Family::windows ? project::CommandSyntax::windows
                                                                                   : project::CommandSyntax::posix };
             // S1 section 9 rule 1: options, when the producer stated them, decide the unit's semantics; they
             // are written in the toolchain's dialect and take the translation a build's arguments take.

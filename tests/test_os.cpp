@@ -1,18 +1,17 @@
 import std;
-import mcppls.arch;
 import mcppls.os;
 
 int main() {
     using namespace mcppls::os;
-    const std::string_view arch { mcppls::arch::ARCH == mcppls::arch::Arch::aarch64 ? "arm64" : "x64" };
-    bool ok { true };
-    if constexpr (FAMILY == Family::windows) {
-        ok = EXECUTABLE_SUFFIX == ".exe" && PATH_LIST_SEPARATOR == ';' && PLATFORM == std::format("win32-{}", arch);
-    } else if constexpr (FAMILY == Family::macos) {
-        ok = EXECUTABLE_SUFFIX.empty() && PATH_LIST_SEPARATOR == ':' && PLATFORM == std::format("darwin-{}", arch);
+    const std::string_view arch { arch_name() };
+    bool ok { arch == (ARCH == Arch::aarch64 ? "arm64" : "x64") };
+    if (family() == Family::windows) {
+        ok = ok && executable_suffix() == ".exe" && path_list_separator() == ';' && platform() == std::format("win32-{}", arch);
+    } else if (family() == Family::macos) {
+        ok = ok && executable_suffix().empty() && path_list_separator() == ':' && platform() == std::format("darwin-{}", arch);
     } else {
-        ok = EXECUTABLE_SUFFIX.empty() && PATH_LIST_SEPARATOR == ':' && PLATFORM == std::format("linux-{}", arch);
+        ok = ok && executable_suffix().empty() && path_list_separator() == ':' && platform() == std::format("linux-{}", arch);
     }
-    std::println("test_os: family={} platform={} ok={}", FAMILY_NAME, PLATFORM, ok);
+    std::println("test_os: family={} platform={} image={} ok={}", family_name(), platform(), IS_IMAGE, ok);
     return ok ? 0 : 1;
 }

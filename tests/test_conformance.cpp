@@ -30,7 +30,7 @@ std::optional<std::string> runner_path() {
     if (const auto configured = platform::env::get("MCPPLS_CONFORMANCE"); configured && !configured->empty()) return *configured;
     const std::string triple { base::parent_path(base::parent_path(base::parent_path(self_path()))) };
     for (const auto& bucket : fs::list_directory(triple)) {
-        const std::string path { base::join_path(base::join_path(bucket, "bin"), "mcppls-conformance" + std::string { mcppls::os::EXECUTABLE_SUFFIX }) };
+        const std::string path { base::join_path(base::join_path(bucket, "bin"), "mcppls-conformance" + std::string { mcppls::os::executable_suffix() }) };
         if (fs::is_regular_file(path)) return path;
     }
     return std::nullopt;
@@ -492,7 +492,7 @@ int main() {
     };
     "module reuse drains partial read copies and preserves cold, rebuild and missing-state checks"_test = [&] {
         // Owned payloads are Linux's cache representation; its source scanner uses POSIX paths.
-        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::linux) return;
+        if (mcppls::os::family() != mcppls::os::Family::linux) return;
         const std::string cache { base::join_path(root, "module-cache") };
         const std::string source { base::join_path(cache, "std.cppm") };
         const std::string stable { base::join_path(cache, "modules/.owned-payload-v1/generation-0-1/payload.pcm") };

@@ -108,11 +108,16 @@ orchestrator::SessionOptions session_options(const cmdline::ParsedArgs& args) {
     options.answerPrefetch = settings.bool_value("answer.prefetch");
     options.answerAgent = settings.string_value("answer.agent");
     options.completionProvenance = settings.string_value("completion.provenance");
-    // This very program, for the reviews an editor asks for: named as the process started it, else found on PATH.
-    if (const auto arguments = platform::env::arguments(); !arguments.empty()) {
-        const std::string started { arguments.front() };
-        const bool hasDirectory { started.find('/') != std::string::npos || started.find('\\') != std::string::npos };
-        options.serverExecutable = hasDirectory ? absolute(started) : platform::env::find_executable(started).value_or("");
+    // This very program, for the reviews an editor asks for: as the system names it (an ok image's
+    // loader and image included), else as the process was started, else found on PATH.
+    options.serverCommand = platform::env::self_command();
+    if (options.serverCommand.empty()) {
+        if (const auto arguments = platform::env::arguments(); !arguments.empty()) {
+            const std::string started { arguments.front() };
+            const bool hasDirectory { started.find('/') != std::string::npos || started.find('\\') != std::string::npos };
+            if (auto found = hasDirectory ? std::optional<std::string> { absolute(started) } : platform::env::find_executable(started))
+                options.serverCommand = { *found };
+        }
     }
     return options;
 }

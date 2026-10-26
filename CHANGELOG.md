@@ -7,6 +7,47 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.18] — 2026-10-27
+
+The bundled engine is unchanged ([mcppls-clangd 0.0.17](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.17),
+`23.1.0-mcppls.5`). This release moves the server onto [mcpplibs.os](https://github.com/mcpplibs/os), ships it as
+one ok image per architecture, and follows the build record mcpp 2026.10.26.2 writes.
+
+### One server per architecture
+
+- **The server in every payload is the program of its system that carries the ok image of its architecture (M3).**
+  The image (`x86_64-openkal`, `aarch64-openkal`) is built once, and the Linux, macOS and Windows programs of an
+  architecture carry the same bytes, which CI checks against the image it built; libokrun runs it. Nothing changes
+  for an editor: `bin/mcppls` is where it was. The images themselves are release assets
+  (`mcppls-<version>-x86_64.oke`, `-aarch64.oke`), which `okrun` runs on any of the three systems (M2).
+- The server names what starts it again (`review`, the workspace daemon, the login shell's environment report) as
+  the system does, an image's loader included.
+
+### mcpp projects
+
+- **The compile database a build left is found where mcpp 2026.10.26.2 puts it.** That mcpp writes no
+  project-root `compile_commands.json` unless the project asks for one; when mcpp cannot be asked, mcppls reads the
+  database named by `target/.last-result.json` and the configuration's `result.json`, and an older mcpp's root copy
+  only when that record is missing (#71).
+- **A build in a terminal, an agent's shell or an IDE refreshes the project model.** `target/.last-result.json`,
+  which every build rewrites, is one of the inputs mcppls watches.
+
+### The platform layer
+
+- Files, processes, the environment, directories, loopback connections and the standard streams go through
+  mcpplibs.os. The system is a value (`mcppls::os::family()`), never a preprocessor branch, so the same source
+  builds for a system and as an image.
+- **Removed workarounds.** WA-PLATFORM-001 (the Darwin pipe protection): openkal-macos ignores SIGPIPE for its own
+  writes. The early PRoot start by `execve` and the patched copy of openkal-linux under `vendor/`: openkal-linux
+  0.18 starts programs that way from the first start under PRoot, and keeps every register PRoot rewrites. The
+  Win32 declarations for process times and identity, and the Windows loopback reads in slices: mcpplibs.os
+  answers both on every system, and openkal-windows' sockets carry both directions at once.
+- **A process's CPU time and identity are known on every system**, Windows and macOS included, from openkal's
+  program information instead of `/proc` and `ps(1)`. A workspace lease an older server wrote names its start in
+  another scheme and is judged by whether its process is alive, so an upgrade never takes over a live server's
+  workspace.
+- On Windows a program found on PATH by a bare name is never the extension-less file beside its `.cmd` shim.
+
 ## [0.0.17] — 2026-10-24
 
 The bundled engine is [mcppls-clangd 0.0.17](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.17)
