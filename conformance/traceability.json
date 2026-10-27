@@ -1139,7 +1139,7 @@
   "S3-4-24": [
     {
       "script": "src/server/session.cpp",
-      "contains": "for (std::size_t i { 5 }; i < automatic.size(); ++i) platform::fs::remove_all(automatic[i]);"
+      "contains": "for (std::size_t i { 5 }; i < automatic.size(); ++i) std::filesystem::remove_all(automatic[i], ignored);"
     }
   ],
   "S3-4-25": [
@@ -1699,7 +1699,7 @@
   "S5-6-5": [
     {
       "script": "src/ai/mcp/server.cpp",
-      "contains": "platform::stdio::write_output(message.dump() + \"\\n\")"
+      "contains": "os::stdio::write_output(message.dump() + \"\\n\")"
     }
   ],
   "S5-7-1": [

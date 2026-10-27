@@ -42,7 +42,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Unit tests on each host, and every executable starts. `--workspace` reaches every member:
-  # modules/base, platform and pack, tools/devtools, and tools/model-gateway, whose tests run the
+  # modules/base, toolrun and pack, tools/devtools, and tools/model-gateway, whose tests run the
   # gateway against a mock provider (tools/model-gateway/README.md "Tests") -- so the gateway is
   # built and tested on each host's openkal target here, with no job of its own.
   build-test:
