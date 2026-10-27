@@ -56,7 +56,9 @@ it under `"[cpp]"` and `"[c]"` keeps yours (the log says so, once).
 grammar the extension adds (at once, as you type), and by the server's semantic tokens (module
 names as the token type `module`, which themes color as a namespace unless you give it a color of
 its own in `editor.semanticTokenColorCustomizations`). VS Code's own C++ grammar leaves `import`
-uncolored.
+uncolored. The rest of a file's colours are clangd's: they appear at once from what clangd last gave
+and are corrected as soon as clangd has rebuilt the file, so a large file keeps its colours while you
+type and is coloured at once when it is opened again unchanged.
 
 **Turning it off for one workspace.** `mcppls.enable` (default `true`, per workspace) keeps mcppls
 off; **C++ Modules: Turn Off in This Workspace** and **Turn On in This Workspace** set it, and the

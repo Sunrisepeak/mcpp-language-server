@@ -13,6 +13,31 @@ The bundled engine is unchanged ([mcppls-clangd 0.0.17](https://github.com/Sunri
 `23.1.0-mcppls.5`). This release moves the server onto [mcpplibs.os](https://github.com/mcpplibs/os), ships it as
 one ok image per architecture, and follows the build record mcpp 2026.10.26.2 writes.
 
+### Colours of large files
+
+The semantic tokens of a file need clangd's syntax tree of the whole file; a completion needs only its preamble and
+the text. In a 10 000-line file importing three modules the first completion came at 0.66 s and the colours at 2.96 s,
+and every edit sent the whole file's tokens again, 1 015 373 bytes (`tokens-large-file`, mcpp design 2026-10-28 §11.1).
+
+- **Colours come at once and follow the text.** The server keeps clangd's last tokens of each open file, moves them
+  with every edit (a token the edit touches waits for clangd) and answers from them at once; a
+  `workspace/semanticTokens/refresh` follows within 20 ms when clangd's answer differs from what the editor shows.
+  After an edit the answer comes in 0.02 s (was 0.97 s, the typing pause and the rebuild). An editor that cannot be
+  refreshed waits for clangd, as before.
+- **A file opened again is coloured before clangd has read it.** The tokens of a saved text are kept on disk
+  (`tokens/` in the workspace's cache, the newest 1000 within 64 MiB), under a key of the text, the command, the
+  versions of mcppls and clangd, and the module interfaces the file reads; any other key is a miss. A warm open of
+  the large file has clangd's colours at 0.05 s, before its first completion at 0.15 s (were 0.76 s and 0.22 s).
+- **An edit sends the change, not the file.** Every whole answer carries a `resultId`, and `full/delta` is answered
+  with one edit: 71 bytes after inserting a line.
+- **A range is cut from the whole**, at once, so `range` is declared whether or not clangd answers range requests.
+- Merging clangd's tokens with mcppls's own is one pass over each (was a comparison of every pair), without JSON in
+  between.
+- `cxxModules/report` counts the answers by kind (`semanticTokens.answers`), the kept files' hits and writes, the
+  refreshes and the server's own time per answer. `mcppls-devtools bench tokens` measures the fixture, and CI's
+  bench-validate job holds the criteria: on a warm open the colours come no later than the first completion, an edit's
+  answer is under 5% of the file's, and every change reaches the editor by refresh.
+
 ### One server per architecture
 
 - **The server in every payload is the program of its system that carries the ok image of its architecture (M3).**
@@ -47,6 +72,13 @@ one ok image per architecture, and follows the build record mcpp 2026.10.26.2 wr
   another scheme and is judged by whether its process is alive, so an upgrade never takes over a live server's
   workspace.
 - On Windows a program found on PATH by a bare name is never the extension-less file beside its `.cmd` shim.
+
+### Building mcppls
+
+- The toolchain is `llvm@23.1.3`, the LLVM mcpp pins for the ok-image rows: its packages carry an arm64 Linux
+  `clang++` and a Windows `ld.lld`, which the server M3 programs of those systems need.
+- The CLion tests open an mcpp project as it is after `mcpp build` and check that CLion's Compilation Database does
+  not take it (#71).
 
 ## [0.0.17] — 2026-10-24
 

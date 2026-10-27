@@ -168,9 +168,11 @@ Windows 上补全还慢在哪里、这一版做了什么，看日志里的 `Comp
 - **Neovim**：`:McpplsResetCache`
 - **其他客户端**：`workspace/executeCommand` `mcppls.resetCache`
 
-它会停掉这个根目录的引擎，删除它的缓存——模型、引擎数据库、clangd 的模块缓存和锁，以及 mcppls 运行的构建工具（xmake、CMake、Meson）的私有状态（在下一次描述开始前删除，不会删在正在运行的描述底下）——然后重新开始。日志保留。之后的第一次会话是冷启动。
+它会停掉这个根目录的引擎，删除它的缓存——模型、引擎数据库、保存的语义 token、clangd 的模块缓存和锁，以及 mcppls 运行的构建工具（xmake、CMake、Meson）的私有状态（在下一次描述开始前删除，不会删在正在运行的描述底下）——然后重新开始。日志保留。之后的第一次会话是冷启动。
 
 旧的模块会自动清理：每个单元保留它最新两条编译命令构建出的模块（BMI），更旧的在 clangd 启动时于后台删除。`mcppls cache --prune` 会对所有没有实例打开的工作区做同样的清理。
+
+保存的语义 token（`tokens/`，每个已保存的文档一个文件）自行保持在最新的 1000 个文件、64 MiB 以内；`mcppls cache --format json` 中计为 `tokens`。
 
 缓存的其余部分有预算看管（`mcppls.cache.maxBytes`，默认每工作区 4 GB）：clangd 崩溃后遗留的 copy-on-read 副本会在下一个 clangd 启动前被清扫，死实例的目录按心跳回收，仍然超出预算的部分只报告——绝不动已发布的模块本体。在 **VS Code** 里看状态栏（悬停看分解，点击打开菜单，其中 **Sweep the Module Cache** 只清理没有引擎占用的东西，不重启、不重编），或者用 `mcppls cache --format json` 看分类数字、`mcppls cache --prune --dry-run` 预演清理。
 
