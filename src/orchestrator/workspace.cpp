@@ -315,6 +315,10 @@ struct Workspace::Impl final : engine::Host {
     highlights::Store highlights;
     std::uint64_t tokensAsked { 0 };                    // for the ids of the requests the server asks of its own
     std::size_t tokensWritten { 0 };                    // H2: files written since the directory was last pruned
+    // H2: when the compiler is asked to confirm tokens read from disk -- a moment after the open, so the request does not
+    // compete with the file's first completion (the key cannot name the headers the file includes; the compiler can).
+    static constexpr std::chrono::milliseconds TOKENS_CONFIRM_DELAY { 1500 };
+    std::map<std::string, Clock::time_point, std::less<>> tokensConfirmAt;
     // Diagnostics published by engines other than mcppls's own, per engine and client URI.
     std::map<std::string, std::map<std::string, Json, std::less<>>, std::less<>> engineDiagnostics;
     std::map<std::string, std::string, std::less<>> publishedDiagnostics;
@@ -1045,6 +1049,7 @@ struct Workspace::Impl final : engine::Host {
         consider(statusFlushAt);
         consider(leaseRenewAt);
         consider(tokensRefreshAt);
+        for (const auto& [uri, at] : tokensConfirmAt) consider(at);
         for (const auto& [id, job] : jobs) consider(job.budgetAt);
         for (const auto& [id, late] : lateCompletions) consider(late.until);
         for (const auto& [id, background] : background_) consider(background.until);
@@ -1283,8 +1288,8 @@ struct Workspace::Impl final : engine::Host {
         if (kept != nullptr && kept->known && kept->exact && kept->version == document->version) {
             request.fromKept = true;
             ++highlights.counters.exact;
-            // H2: what the disk held is confirmed by the compiler once, in the background.
-            if (kept->fromCache && coreCan && clientSupportsTokensRefresh) ask_core_tokens(uri);
+            // H2: what the disk held is confirmed by the compiler once, in the background, a moment later.
+            if (kept->fromCache && coreCan && clientSupportsTokensRefresh) tokensConfirmAt.try_emplace(uri, Clock::now() + TOKENS_CONFIRM_DELAY);
         } else if (kept != nullptr && coreCan && clientSupportsTokensRefresh) {
             request.fromKept = true;
             ++highlights.counters.standIn;
@@ -4413,6 +4418,15 @@ struct Workspace::Impl final : engine::Host {
             update_status();
         }
         phase("the engine wait and the status");
+        for (auto it = tokensConfirmAt.begin(); it != tokensConfirmAt.end();) {
+            if (it->second > now) {
+                ++it;
+                continue;
+            }
+            const std::string uri { it->first };
+            it = tokensConfirmAt.erase(it);
+            if (const highlights::Kept* kept { highlights.find(uri) }; kept != nullptr && kept->fromCache) ask_core_tokens(uri);
+        }
         if (tokensRefreshAt && *tokensRefreshAt <= now) {
             tokensRefreshAt.reset();
             // A request, not a notification (LSP 3.16): its answer carries nothing, and an id the session cannot
@@ -4618,6 +4632,7 @@ void Workspace::did_close(const Json& message, const Json& params) {
     const Document document { *found };
     impl_->documents_.close(uri);
     impl_->highlights.forget(uri);
+    impl_->tokensConfirmAt.erase(uri);
     if (!document.path.empty()) {
         if (impl_->answers_) impl_->answers_->changed(document.path);   // what it has is the disk's again
         impl_->forget_recent_file(document.path);
