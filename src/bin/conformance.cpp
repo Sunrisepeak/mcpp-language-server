@@ -495,6 +495,9 @@ public:
         Json result = nullptr;
     };
     std::map<std::int64_t, AsyncRequest> asyncRequests;
+    // Every `workspace/semanticTokens/refresh` the server asked for, when it arrived: an editor asks for the tokens of the
+    // files it shows again on one (the tokens-latency check does).
+    std::vector<Clock::time_point> tokensRefreshes;
     // The server's OS pid where the platform can say; read by the clangd watcher's thread, so atomic.
     std::atomic<std::int64_t> serverPid { -1 };
 
@@ -686,6 +689,8 @@ public:
                     if (registration.value("method", std::string {}) != "workspace/didChangeWatchedFiles") continue;
                     watchers[registration.value("id", std::string {})] = registration.value("registerOptions", Json::object()).value("watchers", Json::array());
                 }
+            } else if (method == "workspace/semanticTokens/refresh") {
+                tokensRefreshes.push_back(Clock::now());
             } else if (method == "client/unregisterCapability") {
                 // The protocol spells the field "unregisterations".
                 for (const auto& registration : message["params"].value("unregisterations", Json::array())) {
@@ -2292,6 +2297,209 @@ public:
         Json summary { { "phase", phase }, { "rounds", rounds }, { "seconds", seconds_since(began) }, { "kinds", std::move(kinds) }, { "requests", std::move(requests) },
                        { "firstAnswers", std::move(firstAnswers) }, { "engineShare", std::move(shares) } };
         return finish_measure(std::move(failures), std::move(summary), std::format("{}, {} round(s): {}", phase, rounds, base::join(brief, "; ")));
+    }
+
+    // ---- semantic tokens of a large file (mcpp design 2026-10-28 §11.1) ----
+
+    // A token only a compiler gives: mcppls's own module-syntax tokens are keywords, modules and namespaces.
+    static bool compiler_token(const DecodedToken& token) {
+        return !token.type.empty() && token.type != "keyword" && token.type != "module" && token.type != "namespace";
+    }
+
+    // A SemanticTokensDelta's edits applied to the data they were computed against (LSP 3.16: sorted, not overlapping).
+    static bool apply_token_edits(Json& data, const Json& edits) {
+        if (!data.is_array() || !edits.is_array()) return false;
+        std::vector<std::pair<std::size_t, const Json*>> ordered;
+        for (const auto& edit : edits) ordered.emplace_back(edit.value("start", std::size_t { 0 }), &edit);
+        std::ranges::sort(ordered, std::greater {}, &std::pair<std::size_t, const Json*>::first);
+        for (const auto& [start, edit] : ordered) {
+            const std::size_t count { edit->value("deleteCount", std::size_t { 0 }) };
+            if (start + count > data.size()) return false;
+            Json replaced = Json::array();
+            for (std::size_t i { 0 }; i < start; ++i) replaced.push_back(data[i]);
+            for (const auto& value : edit->value("data", Json::array())) replaced.push_back(value);
+            for (std::size_t i { start + count }; i < data.size(); ++i) replaced.push_back(data[i]);
+            data = std::move(replaced);
+        }
+        return true;
+    }
+
+    // `textDocument/didOpen` of a large file, then a completion and the file's semantic tokens asked at once, as an editor
+    // asks them; each is asked again when its answer is not yet the compiler's: the tokens when the server asks for a
+    // refresh, or after `poll-ms` without one, the completion after `interval-ms`. Then one line is inserted (`edit`:
+    // {"line", "text"}) and the tokens are asked for as a delta of the last answer, until the inserted line has a token
+    // only the compiler gives. Measures the seconds from didOpen to the first completion that is right (`expect`, a label
+    // prefix) and to the first tokens that are the compiler's, the bytes of the full answer and of the first answer after
+    // the edit, and the seconds after the edit until any answer and until the updated one; `refreshes` and `polls` count
+    // how the updates were asked for. Budget: `firstTokens`, `tokensAfterCompletion` (first tokens minus first completion,
+    // in seconds: 0 says not after), `editUpdated`, `editShare` (the edit's answer over the full answer, in bytes),
+    // `polls`.
+    std::pair<bool, std::string> run_tokens_latency(const Json& check, const std::string& file) {
+        const std::chrono::milliseconds interval { check.value("interval-ms", 200) };
+        const std::chrono::milliseconds poll { check.value("poll-ms", 2000) };
+        const std::string expect { check.value("expect", std::string {}) };
+        const std::size_t refreshesBefore { client_.tokensRefreshes.size() };
+        int polls { 0 };
+        const std::string original { text_of(file) };
+        const auto opened = Clock::now();
+        open(file, original);
+
+        struct Asking {
+            std::optional<std::int64_t> id;
+            Clock::time_point next {};
+            std::size_t refreshesSeen { 0 };
+        };
+        const auto tokens_params = [&](const std::string& previous) {
+            Json params { { "textDocument", Json { { "uri", uri(file) } } } };
+            if (!previous.empty()) params["previousResultId"] = previous;
+            return params;
+        };
+        Json lastData = Json::array();
+        std::string lastResultId;
+        // An answer to full or full/delta made whole: the data it stands for, and its resultId.
+        const auto take_tokens = [&](const Json& result) {
+            if (!result.is_object()) return;
+            if (const auto edits = result.find("edits"); edits != result.end()) {
+                if (!apply_token_edits(lastData, *edits)) lastData = Json::array();
+            } else {
+                lastData = result.value("data", Json::array());
+            }
+            lastResultId = result.value("resultId", std::string {});
+        };
+        const auto ask_tokens = [&](Asking& asking) {
+            const bool delta { !lastResultId.empty() };
+            asking.id = client_.send_async(delta ? "textDocument/semanticTokens/full/delta" : "textDocument/semanticTokens/full",
+                                           tokens_params(delta ? lastResultId : std::string {}));
+            asking.refreshesSeen = client_.tokensRefreshes.size();
+        };
+        // Whether the server asked for a refresh since this question was asked; else whether a poll is due.
+        const auto ask_again_due = [&](Asking& asking, Clock::time_point answered) {
+            if (client_.tokensRefreshes.size() > asking.refreshesSeen) return true;
+            if (Clock::now() >= answered + poll) {
+                ++polls;
+                return true;
+            }
+            return false;
+        };
+
+        std::optional<double> firstCompletion;
+        std::optional<double> firstAnyTokens;
+        std::optional<double> firstTokens;
+        std::size_t fullBytes { 0 };
+        std::size_t tokenCount { 0 };
+        Asking completionAsk;
+        Asking tokensAsk;
+        std::optional<Clock::time_point> tokensAnsweredAt;
+        completionAsk.id = client_.send_async("textDocument/completion", completion_params(check, file));
+        ask_tokens(tokensAsk);
+        const auto deadline = opened + timeout_;
+        while ((!firstCompletion || !firstTokens) && Clock::now() < deadline && client_.unusable().empty()) {
+            client_.pump_until(Clock::now() + std::chrono::milliseconds { 10 });
+            if (!firstCompletion) {
+                if (completionAsk.id) {
+                    const auto& asked = client_.asyncRequests[*completionAsk.id];
+                    if (asked.answered) {
+                        if (!asked.isError && probe_right("completion", expect, asked.result)) firstCompletion = seconds_between(opened, *asked.answered);
+                        completionAsk.id.reset();
+                        completionAsk.next = Clock::now() + interval;
+                    }
+                } else if (Clock::now() >= completionAsk.next) {
+                    completionAsk.id = client_.send_async("textDocument/completion", completion_params(check, file));
+                }
+            }
+            if (!firstTokens) {
+                if (tokensAsk.id) {
+                    const auto& asked = client_.asyncRequests[*tokensAsk.id];
+                    if (asked.answered) {
+                        tokensAsk.id.reset();
+                        tokensAnsweredAt = *asked.answered;
+                        if (!asked.isError) {
+                            take_tokens(asked.result);
+                            if (!firstAnyTokens) firstAnyTokens = seconds_between(opened, *asked.answered);
+                            const auto decoded = decode_semantic_tokens(Json { { "data", lastData } }, original);
+                            if (std::ranges::any_of(decoded, compiler_token)) {
+                                firstTokens = seconds_between(opened, *asked.answered);
+                                fullBytes = lsp::dump(Json { { "data", lastData } }).size();
+                                tokenCount = decoded.size();
+                            }
+                        }
+                    }
+                } else if (tokensAnsweredAt && ask_again_due(tokensAsk, *tokensAnsweredAt)) {
+                    ask_tokens(tokensAsk);
+                }
+            }
+        }
+
+        std::vector<std::string> failures;
+        if (const std::string unusable { client_.unusable() }; !unusable.empty()) failures.push_back(unusable);
+        if (!firstCompletion) failures.push_back(std::format("no completion starting with '{}' came", expect));
+        if (!firstTokens) failures.push_back("no semantic tokens of the compiler's came");
+
+        // The edit: one line inserted, the tokens asked for as a delta of the last answer.
+        std::optional<double> editFirstAnswer;
+        std::optional<double> editUpdated;
+        std::size_t editBytes { 0 };
+        const Json edit = check.value("edit", Json::object());
+        const int editLine { edit.value("line", -1) };
+        if (firstTokens && editLine >= 0) {
+            const std::string inserted { edit.value("text", std::string {}) };
+            std::vector<std::string> lines;
+            for (const auto line : base::split_lines(original)) lines.emplace_back(line);
+            const std::size_t at { std::min<std::size_t>(static_cast<std::size_t>(editLine), lines.size()) };
+            lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(at), inserted);
+            const std::string edited { base::join(lines, "\n") + (original.ends_with('\n') ? "\n" : "") };
+            const auto changedAt = Clock::now();
+            change(file, edited);
+            tokensAnsweredAt.reset();
+            ask_tokens(tokensAsk);
+            const auto editDeadline = changedAt + timeout_;
+            while (!editUpdated && Clock::now() < editDeadline && client_.unusable().empty()) {
+                client_.pump_until(Clock::now() + std::chrono::milliseconds { 10 });
+                if (tokensAsk.id) {
+                    const auto& asked = client_.asyncRequests[*tokensAsk.id];
+                    if (!asked.answered) continue;
+                    tokensAsk.id.reset();
+                    tokensAnsweredAt = *asked.answered;
+                    if (asked.isError) continue;
+                    if (!editFirstAnswer) {
+                        editFirstAnswer = seconds_between(changedAt, *asked.answered);
+                        editBytes = lsp::dump(asked.result).size();
+                    }
+                    take_tokens(asked.result);
+                    const auto decoded = decode_semantic_tokens(Json { { "data", lastData } }, edited);
+                    if (std::ranges::any_of(decoded, [&](const DecodedToken& token) { return token.line == static_cast<int>(at) && compiler_token(token); })) {
+                        editUpdated = seconds_between(changedAt, *asked.answered);
+                    }
+                } else if (tokensAnsweredAt && ask_again_due(tokensAsk, *tokensAnsweredAt)) {
+                    ask_tokens(tokensAsk);
+                }
+            }
+            change(file, original);
+            if (!editUpdated) failures.push_back("the inserted line never had the compiler's tokens");
+        }
+
+        const auto refreshes = client_.tokensRefreshes.size() - refreshesBefore;
+        const std::optional<double> afterCompletion { firstTokens && firstCompletion ? std::optional<double> { *firstTokens - *firstCompletion } : std::nullopt };
+        const std::optional<double> editShare { editBytes > 0 && fullBytes > 0 ? std::optional<double> { static_cast<double>(editBytes) / static_cast<double>(fullBytes) }
+                                                                                : std::nullopt };
+        enforce_max(check, "firstTokens", firstTokens, "first compiler tokens", "s", failures);
+        enforce_max(check, "tokensAfterCompletion", afterCompletion, "first compiler tokens after the first completion", "s", failures);
+        enforce_max(check, "editUpdated", editUpdated, "tokens of the inserted line", "s", failures);
+        enforce_max(check, "editShare", editShare, "the edit's answer over the full answer", "", failures);
+        enforce_max(check, "polls", static_cast<double>(polls), "tokens asked again without a refresh", "", failures);
+        const auto optional_json = [](const std::optional<double>& value) { return value ? Json(*value) : Json(nullptr); };
+        const Json report = root_report();
+        Json summary { { "firstCompletion", optional_json(firstCompletion) }, { "firstAnyTokens", optional_json(firstAnyTokens) },
+                       { "firstTokens", optional_json(firstTokens) }, { "tokensAfterCompletion", optional_json(afterCompletion) },
+                       { "tokens", tokenCount }, { "fullBytes", fullBytes }, { "editFirstAnswer", optional_json(editFirstAnswer) },
+                       { "editUpdated", optional_json(editUpdated) }, { "editBytes", editBytes }, { "editShare", optional_json(editShare) },
+                       { "refreshes", refreshes }, { "polls", polls },
+                       { "server", report.is_object() ? report.value("semanticTokens", Json(nullptr)) : Json(nullptr) } };
+        const auto shown = [](const std::optional<double>& value) { return value ? std::format("{:.2f}s", *value) : std::string { "never" }; };
+        return finish_measure(std::move(failures), std::move(summary),
+                              std::format("completion {}, tokens {} (any {}), {} tokens in {} bytes; edit: answered {}, updated {}, {} bytes; {} refresh(es), {} poll(s)",
+                                          shown(firstCompletion), shown(firstTokens), shown(firstAnyTokens), tokenCount, fullBytes,
+                                          shown(editFirstAnswer), shown(editUpdated), editBytes, refreshes, polls));
     }
 
     // ---- clangd on its own (M-3, M-2 of plan 0.0.9) ----
@@ -5093,6 +5301,7 @@ public:
         if (kind == "clangd-lsp") return run_clangd_lsp(check, file);
         if (kind == "completion-baseline") return run_completion_baseline(check, file);
         if (kind == "latency") return run_latency(check);
+        if (kind == "tokens-latency") return run_tokens_latency(check, file);
         if (kind == "typing") return run_typing(check, file);
         if (kind == "typing-diagnostics") return run_typing_diagnostics(check, file);
         if (kind == "edit-save") return run_edit_save(check);
@@ -5362,6 +5571,8 @@ int run(Options options) {
         // editors/vscode/src/extension.ts: the full block, plus how it tells the server it
         // arbitrates language-feature conflicts with other C++ extensions itself.
         capabilities["experimental"] = Json { { "cxxModules", Json { { "version", 1 }, { "status", true }, { "graph", true }, { "contexts", true } } } };
+        // vscode-languageclient declares it: the editor asks for the tokens of what it shows again when told to.
+        capabilities["workspace"]["semanticTokens"] = Json { { "refreshSupport", true } };
         initializationOptions["conflictArbitration"] = "client";
         break;
     case Options::ClientProfile::zed:
@@ -5374,6 +5585,9 @@ int run(Options options) {
         }
         break;
     }
+    // A scenario's own "client-capabilities", merged into whatever the profile declares (the tokens-latency fixture declares
+    // workspace.semanticTokens.refreshSupport, as VS Code does, under every profile).
+    if (const auto extra = scenario.find("client-capabilities"); extra != scenario.end() && extra->is_object()) capabilities.merge_patch(*extra);
     // A scenario's own "initialization-options" object, merged on top of whatever the client
     // profile above set -- design doc 2026-09-25 K/§7's conformance cases ask for
     // {"semanticTokens": {"moduleType": true}} this way, without a client profile of their own.
@@ -6181,8 +6395,76 @@ int prepare_heavy_headers(const std::string& argument) {
     return 0;
 }
 
+// mcpp design 2026-10-28 §11.1: a source of <argument> lines (default 10000) that imports std and three modules of the
+// project, in src/, and the three modules: functions of ten lines each, every one naming types, functions and members of
+// the modules, so the compiler's semantic tokens of the file are many and each line has some. The first function's fourth
+// line is `    acc.add(...)` (line 10), where the tokens-latency fixture asks for a completion after `acc.`.
+int prepare_large_module_file(const std::string& argument) {
+    const int lines { argument.empty() ? 10000 : std::max(100, std::atoi(argument.c_str())) };
+    const std::string root { fs::current_directory() };
+    const std::vector<std::pair<std::string, std::string>> modules {
+        { "src/bench/geometry.cppm",
+          "export module bench.geometry;\nimport std;\n\nexport namespace bench::geometry {\n"
+          "struct Point {\n    double x { 0 };\n    double y { 0 };\n};\n\n"
+          "class Polygon {\npublic:\n    void add(Point point) { points_.push_back(point); }\n"
+          "    std::size_t size() const { return points_.size(); }\n    double perimeter() const;\n\nprivate:\n"
+          "    std::vector<Point> points_;\n};\n\n"
+          "double distance(Point a, Point b) { return std::hypot(a.x - b.x, a.y - b.y); }\n\n"
+          "double Polygon::perimeter() const {\n    double total { 0 };\n"
+          "    for (std::size_t i { 1 }; i < points_.size(); ++i) total += distance(points_[i - 1], points_[i]);\n"
+          "    return total;\n}\n} // namespace bench::geometry\n" },
+        { "src/bench/text.cppm",
+          "export module bench.text;\nimport std;\n\nexport namespace bench::text {\n"
+          "enum class Case { lower, upper, title };\n\n"
+          "std::vector<std::string> split(std::string_view text, char separator) {\n    std::vector<std::string> parts;\n"
+          "    std::size_t start { 0 };\n    for (std::size_t i { 0 }; i <= text.size(); ++i) {\n"
+          "        if (i == text.size() || text[i] == separator) {\n            parts.emplace_back(text.substr(start, i - start));\n"
+          "            start = i + 1;\n        }\n    }\n    return parts;\n}\n\n"
+          "std::string with_case(std::string text, Case wanted) {\n"
+          "    for (auto& c : text) c = wanted == Case::upper ? static_cast<char>(std::toupper(c)) : static_cast<char>(std::tolower(c));\n"
+          "    return text;\n}\n} // namespace bench::text\n" },
+        { "src/bench/numeric.cppm",
+          "export module bench.numeric;\n\nexport namespace bench::numeric {\n"
+          "template <class T>\nconstexpr T clamp(T value, T low, T high) { return value < low ? low : high < value ? high : value; }\n\n"
+          "constexpr int square(int value) { return value * value; }\n\n"
+          "struct Accumulator {\n    long total { 0 };\n    void add(long value) { total += value; }\n};\n"
+          "} // namespace bench::numeric\n" },
+    };
+    for (const auto& [relative, text] : modules) {
+        const std::string path { base::join_path(root, relative) };
+        (void)fs::create_directories(base::parent_path(path));
+        if (auto written = fs::write_file(path, text); !written) {
+            say("prepare: {}", written.error().message);
+            return 1;
+        }
+    }
+    std::string text { "import std;\nimport bench.geometry;\nimport bench.text;\nimport bench.numeric;\n\nnamespace large {\n" };
+    const int functions { std::max(1, (lines - 12) / 10) };
+    for (int n { 0 }; n < functions; ++n) {
+        text += std::format("int compute_{}(int value) {{\n", n);
+        text += "    bench::numeric::Accumulator acc;\n";
+        text += "    bench::geometry::Polygon shape;\n";
+        text += "    shape.add(bench::geometry::Point { 0.0, static_cast<double>(value) });\n";
+        text += "    acc.add(bench::numeric::square(value) + static_cast<long>(shape.size()));\n";
+        text += "    const auto words = bench::text::split(\"a,b,c\", ',');\n";
+        text += "    acc.add(static_cast<long>(words.size()) + static_cast<long>(shape.perimeter()));\n";
+        text += "    const auto shout = bench::text::with_case(words.front(), bench::text::Case::upper);\n";
+        text += "    return static_cast<int>(bench::numeric::clamp(acc.total + static_cast<long>(shout.size()), 0L, 1000L));\n";
+        text += "}\n";
+    }
+    text += "} // namespace large\n\nint main() {\n    int sum { 0 };\n";
+    text += std::format("    for (int i {{ 0 }}; i < {}; ++i) sum += large::compute_0(i);\n", functions);
+    text += "    std::println(\"{}\", sum);\n}\n";
+    if (auto written = fs::write_file(base::join_path(root, "src/large.cpp"), text); !written) {
+        say("prepare: {}", written.error().message);
+        return 1;
+    }
+    return 0;
+}
+
 int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "heavy-headers") return prepare_heavy_headers(argument);
+    if (kind == "large-module-file") return prepare_large_module_file(argument);
     if (kind == "s1-two-sets") return prepare_s1_two_sets(argument);
     if (kind == "payload-corrupt") return prepare_payload_corrupt(argument);
     if (kind == "producer-candidate") return prepare_producer_candidate(argument);
@@ -6200,7 +6482,7 @@ int prepare(const std::string& kind, const std::string& argument) {
     if (kind == "xmake-stale-compdb") return prepare_marked_compdb(kind, argument.empty() ? std::string { "g++" } : argument, "-DSTALE_COMPDB", "-std=c++17");
     if (kind == "compdb-midwrite") return prepare_marked_compdb(kind, argument.empty() ? std::string { "clang++" } : argument, "-DVERSION_ONE", "-std=c++23");
     if (kind == "compdb-lto-msvc") return prepare_compdb_lto_msvc(argument);
-    say("prepare: unknown fixture kind {} (heavy-headers, s1-two-sets, payload-corrupt, producer-candidate, delayed-producer, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, clangd-crash-closure, clangd-exit-strike, compdb-rejected-command, compdb-mixed-standards, xmake-stale-compdb, compdb-midwrite)", kind);
+    say("prepare: unknown fixture kind {} (heavy-headers, large-module-file, s1-two-sets, payload-corrupt, producer-candidate, delayed-producer, failure-at-base, compdb-clang-cl-std, compdb-clangxx-msvc-std, generated-module-old-mcpp, clangd-cannot-load, compdb-lto-msvc, clangd-crash-context, clangd-crash-closure, clangd-exit-strike, compdb-rejected-command, compdb-mixed-standards, xmake-stale-compdb, compdb-midwrite)", kind);
     return 2;
 }
 
