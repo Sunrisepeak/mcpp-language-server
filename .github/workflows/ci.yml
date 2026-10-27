@@ -622,9 +622,11 @@ jobs:
           "stage/mcppls-mock-mcpp$exe" --protocol-version
       - name: Run the fixtures
         env:
-          CONFORMANCE_CLANGXX: ${{ runner.os == 'Linux' && !matrix.cross-tools && '~/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++' || '' }}
+          # LLVM_VERSION (.github/versions.env) is put in below: one pin for the toolchain and this path.
+          CONFORMANCE_CLANGXX: ${{ runner.os == 'Linux' && !matrix.cross-tools && '~/.mcpp/registry/data/xpkgs/xim-x-llvm/LLVM_VERSION/bin/clang++' || '' }}
         run: |
           set -euo pipefail
+          CONFORMANCE_CLANGXX="${CONFORMANCE_CLANGXX/LLVM_VERSION/$LLVM_VERSION}"
           export CONFORMANCE_CLANGXX="${CONFORMANCE_CLANGXX/#\~/$HOME}"
           if [ "${{ matrix.cross-tools }}" = true ]; then
             # S1 toolchain drivers are absolute paths; this host has distribution clang,
