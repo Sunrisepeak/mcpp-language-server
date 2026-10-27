@@ -243,14 +243,16 @@ jobs:
       - name: Pack
         run: |
           set -euo pipefail
+          # macOS has shasum, not sha256sum; both print "<digest>  <file>".
+          sha256() { if command -v sha256sum > /dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
           mcpp pack --profile release --target ${{ matrix.arch }}-openkal --mode self-contained --format dir -o m3
           built=$(find target/${{ matrix.arch }}-openkal -type f -name mcppls.oke -path '*/bin/*' | head -1)
           want=$(cut -d' ' -f1 image/SHA256SUMS-${{ matrix.arch }})
-          got=$(sha256sum "$built" | cut -d' ' -f1)
+          got=$(sha256 "$built" | cut -d' ' -f1)
           echo "image built on Linux $want, here $got"
           [ "$want" = "$got" ] || { echo "::error::the image built here is not the one built on Linux"; exit 1; }
           mkdir -p server && cp target/dist/m3/bin/mcppls${{ matrix.exe }} server/
-          (cd server && sha256sum * | tee SHA256SUMS)
+          (cd server && sha256 * | tee SHA256SUMS)
       - name: The program runs
         run: |
           set -euo pipefail
