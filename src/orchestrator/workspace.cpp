@@ -3461,6 +3461,13 @@ struct Workspace::Impl final : engine::Host {
         if (answers_ && !planCommands_.empty() && commands != planCommands_) answers_->everything_changed();
         if (commands != planCommands_) highlights.unsettle_all();
         planCommands_ = std::move(commands);
+        // H2: a document asked for before its command was known is looked up on disk now; a hit is told to the client.
+        for (const Document* document : documents_.all()) {
+            highlights::Kept* kept { highlights.find(document->uri) };
+            if (kept == nullptr || kept->known || kept->cacheChecked || document->path.empty()) continue;
+            read_kept_tokens(*document, *kept);
+            if (kept->known && kept->givenVersion) request_tokens_refresh(TOKENS_REFRESH_SOON);
+        }
         for (const auto& file : plan.excludedFiles) plannedFiles.insert(base::path_key(file));
         structures.clear();
         for (const auto& path : index.files()) {
