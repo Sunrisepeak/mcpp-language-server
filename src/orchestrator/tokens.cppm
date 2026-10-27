@@ -41,9 +41,9 @@ Legend build_legend(const Json& coreCapabilities);
 
 // The `semanticTokensProvider` entry this server advertises: `legend`'s types and modifiers,
 // `full: { delta: true }` (every whole answer carries a resultId, and a `full/delta` naming the
-// last one is answered with its edits: mcpp design 2026-10-28 §11.1, H3), and `range` only when
-// `range` says every engine can answer one: clangd 23.1 has no range request, and advertising it
-// had clients send one clangd rejects with "method not found".
+// last one is answered with its edits: mcpp design 2026-10-28 §11.1, H3), and `range` when `range`
+// is true -- the server cuts a range from the whole file's tokens itself (H5), so an engine without
+// range requests (clangd 23.1) is no reason to leave it out.
 Json provider_capability(const Legend& legend, bool range);
 
 // One token, decoded to absolute position: `length` and `startChar` are UTF-16 code units, as LSP

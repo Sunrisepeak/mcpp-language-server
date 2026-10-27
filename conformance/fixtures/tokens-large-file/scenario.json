@@ -1,6 +1,6 @@
 {
   "name": "tokens-large-file",
-  "description": "mcpp design 2026-10-28 §11.1 (P10): a file of 10000 lines that imports std and three modules of its project (no build system: the semantic kit), opened as an editor opens it, with a completion and its semantic tokens asked for at once; then a line is inserted and the tokens are asked for as a delta of the last answer. Two stages on one cache: cold (nothing kept) and warm (a second server; what the first kept is there). The client declares workspace.semanticTokens.refreshSupport, as VS Code does, and asks for the tokens again on a refresh; it polls only when no refresh comes, and a poll is over budget. The budgets are the design's criteria: on a warm open the compiler's tokens are not later than the first completion; after the edit the server sends the change, not the file (editShare); the inserted line gets the compiler's tokens through a refresh. The measures carry the server's own counters (cxxModules/report semanticTokens).",
+  "description": "mcpp design 2026-10-28 §11.1 (P10): a file of 10000 lines that imports std and three modules of its project (no build system: the semantic kit), opened as an editor opens it, with a completion and its semantic tokens asked for at once; then a line is inserted and the tokens are asked for as a delta of the last answer. Two stages on one cache: cold (nothing kept) and warm (a second server; what the first kept is there). The client declares workspace.semanticTokens.refreshSupport, as VS Code does, and asks for the tokens again on a refresh; it polls only when no refresh comes, and a poll is over budget. The budgets are the design's criteria: on a warm open the compiler's tokens are not later than the first completion; after the edit the server sends the change, not the file (editShare); the inserted line gets the compiler's tokens through a refresh; a range is cut from what is kept (T3). The measures carry the server's own counters (cxxModules/report semanticTokens).",
   "prepare": [
     ["{conformance}", "prepare", "large-module-file", "10000"]
   ],
@@ -26,6 +26,18 @@
       "expect": "add",
       "edit": { "line": 11, "text": "    const int edited = bench::numeric::square(value);" },
       "budget": { "tokensAfterCompletion": 0.0, "editShare": 0.05, "polls": 0 }
+    },
+    {
+      "id": "T3-range",
+      "kind": "semantic-tokens",
+      "stage": "warm",
+      "file": "src/large.cpp",
+      "range": { "start": { "line": 6, "character": 0 }, "end": { "line": 9, "character": 0 } },
+      "expect": [
+        { "line": 6, "text": "compute_0", "type": "function", "modifiers": ["declaration"] },
+        { "line": 6, "text": "value", "type": "parameter" },
+        { "line": 7, "text": "acc", "type": "variable", "modifiers": ["declaration"] }
+      ]
     }
   ]
 }
