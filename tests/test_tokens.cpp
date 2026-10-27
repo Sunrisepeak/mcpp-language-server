@@ -187,11 +187,10 @@ int main() {
         expect(tokens[0].line == 0 && tokens[0].startChar == 1 && tokens[1].startChar == 5 && tokens[2].line == 2);
     };
 
-    "provider_capability advertises full, no delta, and range only when every engine answers it"_test = [] {
+    "provider_capability advertises full with delta, and range only when every engine answers it"_test = [] {
         const Json capability = tokens::provider_capability(tokens::build_legend(Json::object()), true);
-        expect(capability.value("full", false) == true);
+        expect(capability["full"].is_object() && capability["full"].value("delta", false) == true);
         expect(capability.value("range", false) == true);
-        expect(!capability.contains("delta"));
         expect(capability["legend"]["tokenTypes"].is_array() && !capability["legend"]["tokenTypes"].empty());
         expect(tokens::provider_capability(tokens::build_legend(Json::object()), false).value("range", true) == false);
         // clangd 23.1 declares full (with delta) and no range: a range request would be rejected by it.

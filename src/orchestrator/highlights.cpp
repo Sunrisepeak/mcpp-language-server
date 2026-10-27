@@ -148,6 +148,20 @@ std::vector<Token> within(std::span<const Token> tokens, const base::Range& rang
     return out;
 }
 
+Json edits_between(std::span<const std::uint32_t> previous, std::span<const std::uint32_t> next) {
+    Json edits = Json::array();
+    std::size_t prefix { 0 };
+    const std::size_t shorter { std::min(previous.size(), next.size()) };
+    while (prefix < shorter && previous[prefix] == next[prefix]) ++prefix;
+    if (prefix == previous.size() && prefix == next.size()) return edits;
+    std::size_t suffix { 0 };
+    while (suffix < shorter - prefix && previous[previous.size() - 1 - suffix] == next[next.size() - 1 - suffix]) ++suffix;
+    const auto inserted = next.subspan(prefix, next.size() - suffix - prefix);
+    edits.push_back(Json { { "start", prefix }, { "deleteCount", previous.size() - suffix - prefix },
+                           { "data", Json::array_t(inserted.begin(), inserted.end()) } });
+    return edits;
+}
+
 std::uint64_t digest(std::span<const Token> tokens) {
     std::uint64_t value { 1469598103934665603ULL };
     const auto mix = [&](std::uint64_t part) {
@@ -292,6 +306,13 @@ void Store::unsettle_except(std::string_view uri) {
     }
 }
 
+std::string Store::remember(std::string_view uri, std::vector<std::uint32_t> data) {
+    Kept& kept { at(uri) };
+    kept.resultId = std::to_string(nextResult_++);
+    kept.sent = std::move(data);
+    return kept.resultId;
+}
+
 void Store::composed(double milliseconds) {
     counters.composeMs.push_back(milliseconds);
     while (counters.composeMs.size() > 256) counters.composeMs.pop_front();
@@ -301,7 +322,8 @@ Json Store::report() const {
     std::vector<double> sorted { counters.composeMs.begin(), counters.composeMs.end() };
     std::ranges::sort(sorted);
     const auto at = [&](double share) { return sorted.empty() ? 0.0 : sorted[std::min(sorted.size() - 1, static_cast<std::size_t>(share * static_cast<double>(sorted.size())))]; };
-    return Json { { "answers", Json { { "exact", counters.exact }, { "standIn", counters.standIn }, { "waited", counters.waited } } },
+    return Json { { "answers", Json { { "exact", counters.exact }, { "standIn", counters.standIn }, { "waited", counters.waited },
+                                      { "deltas", counters.deltas } } },
                   { "cache", Json { { "hits", counters.cacheHits }, { "misses", counters.cacheMisses }, { "writes", counters.cacheWrites } } },
                   { "refreshes", counters.refreshes },
                   { "dropped", counters.dropped },

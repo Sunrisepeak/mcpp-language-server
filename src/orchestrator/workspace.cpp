@@ -379,6 +379,7 @@ struct Workspace::Impl final : engine::Host {
         enum class Kind { full, delta, range };
         Kind kind { Kind::full };
         std::string uri;
+        std::string previousResultId;                     // a delta's: the answer the client holds
         std::optional<base::Range> range;
         bool fromKept { false };                          // answered from what is kept: the core engine was not asked for it
         bool answered { false };                          // an engine gave a result
@@ -1256,7 +1257,12 @@ struct Workspace::Impl final : engine::Host {
         Job& job = jobs.at(jobId);
         TokensRequest request;
         request.uri = uri;
-        if (job.method == lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL_DELTA) request.kind = TokensRequest::Kind::delta;
+        if (job.method == lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL_DELTA) {
+            request.kind = TokensRequest::Kind::delta;
+            if (const Json* previous { lsp::find(job.params, "previousResultId") }; previous != nullptr && previous->is_string()) {
+                request.previousResultId = previous->get<std::string>();
+            }
+        }
         if (job.method == lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_RANGE) {
             request.kind = TokensRequest::Kind::range;
             request.range = range_of(job.params);
@@ -1373,7 +1379,19 @@ struct Workspace::Impl final : engine::Host {
         const std::vector<tokens::Token>& core { fromKept ? kept->core : request.core ? *request.core : request.native };
         std::vector<tokens::Token> merged { &core == &request.native ? request.native : tokens::merge_tokens(core, request.native) };
         if (request.kind == TokensRequest::Kind::range && request.range) merged = highlights::within(merged, *request.range);
-        Json result = tokens::result_of(tokens::encode_data(merged));
+        std::vector<std::uint32_t> data { tokens::encode_data(merged) };
+        Json result;
+        if (request.kind == TokensRequest::Kind::range || kept == nullptr) {
+            result = tokens::result_of(data);
+        } else if (request.kind == TokensRequest::Kind::delta && !request.previousResultId.empty() && request.previousResultId == kept->resultId) {
+            // H3: the edits of the client's last answer, under a new resultId.
+            Json edits = highlights::edits_between(kept->sent, data);
+            ++highlights.counters.deltas;
+            result = Json { { "resultId", highlights.remember(request.uri, std::move(data)) }, { "edits", std::move(edits) } };
+        } else {
+            const std::string resultId { highlights.remember(request.uri, data) };
+            result = tokens::result_of(kept->sent, resultId);
+        }
         if (const Document* document { documents_.find(request.uri) }; kept != nullptr && document != nullptr && request.kind != TokensRequest::Kind::range) {
             kept->givenVersion = document->version;
             kept->givenDigest = highlights::digest(fromKept && kept->version == document->version ? kept->core : std::span<const tokens::Token> {});

@@ -40,9 +40,10 @@ struct Legend {
 Legend build_legend(const Json& coreCapabilities);
 
 // The `semanticTokensProvider` entry this server advertises: `legend`'s types and modifiers,
-// `full: true` (no delta -- this server never hands out a resultId a delta could build on), and
-// `range` only when `range` says every engine can answer one: clangd 23.1 has no range request,
-// and advertising it had clients send one clangd rejects with "method not found".
+// `full: { delta: true }` (every whole answer carries a resultId, and a `full/delta` naming the
+// last one is answered with its edits: mcpp design 2026-10-28 §11.1, H3), and `range` only when
+// `range` says every engine can answer one: clangd 23.1 has no range request, and advertising it
+// had clients send one clangd rejects with "method not found".
 Json provider_capability(const Legend& legend, bool range);
 
 // One token, decoded to absolute position: `length` and `startChar` are UTF-16 code units, as LSP

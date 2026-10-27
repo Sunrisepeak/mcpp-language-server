@@ -4,7 +4,8 @@
 // last answered for a document is kept here and moved with every edit since, so a request is answered at
 // once and corrected by `workspace/semanticTokens/refresh` once the compiler has caught up (H1); what it
 // answered for a file's saved text is kept on disk, so the next open of the same text, under the same
-// command, compiler and modules, is answered from there before the compiler has read a line (H2). Nothing
+// command, compiler and modules, is answered from there before the compiler has read a line (H2); and a
+// client that holds the last answer is sent only what changed (H3). Nothing
 // here talks to an engine or a client: the workspace does, and asks this store what to answer.
 export module mcppls.orchestrator.highlights;
 
@@ -38,6 +39,11 @@ void shift(std::vector<Token>& tokens, const Edit& edit);
 
 // `tokens` (sorted) that overlap `range`, for `textDocument/semanticTokens/range`.
 std::vector<Token> within(std::span<const Token> tokens, const base::Range& range);
+
+// LSP's SemanticTokensEdit[] that turns `previous` into `next` (H3): one edit, of what lies between their common
+// prefix and common suffix -- the relative encoding keeps both long for an edit anywhere, an inserted line included,
+// which changes one `deltaLine` after it; none when they are equal.
+Json edits_between(std::span<const std::uint32_t> previous, std::span<const std::uint32_t> next);
 
 // A digest of tokens, to tell whether the compiler's latest answer is what a client already has.
 std::uint64_t digest(std::span<const Token> tokens);
@@ -75,6 +81,9 @@ struct Kept {
     bool fromCache { false };            // read from disk (H2) and not yet answered by the compiler, which is asked to confirm
     bool cacheChecked { false };         // the disk was asked once for this open
     std::string writtenKey;              // the key the disk holds for this document, so the same answer is not written twice
+    // H3: the last whole answer given, which a `full/delta` request names by its resultId.
+    std::string resultId;
+    std::vector<std::uint32_t> sent;
     // What the client was given last: the version, the digest of the compiler's tokens in it, and whether they
     // were exact. A compiler answer that differs from it, for the same version, is a reason to refresh.
     std::optional<std::int64_t> givenVersion;
@@ -86,6 +95,7 @@ struct Counters {
     std::uint64_t exact { 0 };      // answered from tokens the compiler gave for this very text
     std::uint64_t standIn { 0 };    // answered at once from moved (or no) tokens, and refreshed when the compiler answers
     std::uint64_t waited { 0 };     // waited for the compiler: a client that cannot be refreshed, or nothing kept to stand in
+    std::uint64_t deltas { 0 };     // answered with the edits of the client's last answer
     std::uint64_t refreshes { 0 };  // refreshes asked because the compiler's answer was not what the client had
     std::uint64_t dropped { 0 };    // compiler answers for a version whose edits are no longer known
     std::uint64_t cacheHits { 0 };
@@ -107,6 +117,7 @@ private:
     };
     std::map<std::string, Kept, std::less<>> kept_;
     std::map<std::string, std::deque<Change>, std::less<>> log_;
+    std::uint64_t nextResult_ { 1 };
 
 public:
     Counters counters;
@@ -128,6 +139,9 @@ public:
     // kept answer still stands in, and none is exact.
     void unsettle_all();
     void unsettle_except(std::string_view uri);
+
+    // H3: `data` kept as the document's last whole answer, under a new resultId, which is returned.
+    std::string remember(std::string_view uri, std::vector<std::uint32_t> data);
 
     void composed(double milliseconds);
     Json report() const;

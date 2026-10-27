@@ -115,6 +115,33 @@ int main() {
         expect(!store.find("file:///a.cpp")->exact && store.find("file:///a.cpp")->known);
     };
 
+    "a delta is the one edit between the common prefix and suffix, and applies back"_test = [] {
+        const std::vector<std::uint32_t> previous { 0, 0, 6, 15, 0, 1, 4, 3, 2, 0, 2, 0, 5, 12, 0 };
+        // A line inserted after the first token: one token added, the next one's deltaLine grows by one.
+        const std::vector<std::uint32_t> next { 0, 0, 6, 15, 0, 1, 2, 4, 7, 0, 1, 4, 3, 2, 0, 2, 0, 5, 12, 0 };
+        const Json edits = highlights::edits_between(previous, next);
+        expect(fatal(edits.is_array() && edits.size() == 1u));
+        std::vector<std::uint32_t> applied { previous };
+        const std::size_t start { edits[0]["start"].get<std::size_t>() };
+        const std::size_t count { edits[0]["deleteCount"].get<std::size_t>() };
+        std::vector<std::uint32_t> inserted;
+        for (const auto& value : edits[0]["data"]) inserted.push_back(value.get<std::uint32_t>());
+        applied.erase(applied.begin() + static_cast<std::ptrdiff_t>(start), applied.begin() + static_cast<std::ptrdiff_t>(start + count));
+        applied.insert(applied.begin() + static_cast<std::ptrdiff_t>(start), inserted.begin(), inserted.end());
+        expect(applied == next);
+        expect(inserted.size() <= 6u) << "the edit carries the change, not the file";
+        expect(highlights::edits_between(next, next).empty());
+    };
+
+    "every whole answer is remembered under a new resultId"_test = [] {
+        highlights::Store store;
+        const std::string first { store.remember("file:///a.cpp", { 0, 0, 1, 2, 0 }) };
+        const std::string second { store.remember("file:///a.cpp", { 0, 0, 1, 3, 0 }) };
+        expect(first != second);
+        expect(store.find("file:///a.cpp")->resultId == second);
+        expect(store.find("file:///a.cpp")->sent == std::vector<std::uint32_t> { 0, 0, 1, 3, 0 });
+    };
+
     "kept tokens round-trip through the disk's form, and only under their key"_test = [] {
         const highlights::CacheFile file { "key-1", { { 0, 0, 6, 15, 0 }, { 0, 7, 3, 27, 1 }, { 900, 4, 128, 12, 0x30000 } } };
         const std::string bytes { highlights::encode_cache(file) };
