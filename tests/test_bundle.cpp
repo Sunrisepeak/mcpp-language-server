@@ -4,20 +4,18 @@
 import std;
 import nlohmann.json;
 import mcppls.testing;
-import mcppls.os;
 import mcppls.base.path;
 import mcppls.base.sha256;
-import mcppls.platform.dirs;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.platform.process;
 import mcppls.bundle.redact;
 import mcppls.bundle.zip;
 import mcppls.bundle.writer;
+import mcpplibs.os;
+import mcppls.base.home;
+
+namespace os = mcpplibs::os;
 
 namespace bundle = mcppls::bundle;
 namespace base = mcppls::base;
-namespace fs = mcppls::platform::fs;
 using Json = nlohmann::json;
 
 namespace {
@@ -58,12 +56,13 @@ bundle::Identity windows_user() {
 constexpr std::string_view LONG_USER { "averylongusernameforbundles" };
 
 int write_bundle_as_child(const std::string& directory, std::string_view mode) {
-    const std::string home { mcppls::platform::dirs::home_directory() };
-    const std::string cache { mcppls::platform::dirs::cache_directory() };
+    std::error_code ignored;
+    const std::string home { base::home_directory() };
+    const std::string cache { base::cache_directory() };
     const std::string root { base::join_path(home, "projects/hello") };
     const std::string rootCache { base::join_path(cache, "workspaces/hello-1") };
-    (void)fs::create_directories(base::join_path(root, "src"));
-    (void)fs::create_directories(base::join_path(cache, "logs"));
+    (void)std::filesystem::create_directories(base::join_path(root, "src"), ignored);
+    (void)std::filesystem::create_directories(base::join_path(cache, "logs"), ignored);
     std::string backslashed { home };
     std::ranges::replace(backslashed, '/', '\\');
     const std::string lines { std::format(
@@ -73,21 +72,21 @@ int write_bundle_as_child(const std::string& directory, std::string_view mode) {
         "mcppls 2026-09-26T01:02:05Z [info] uri file://{0}/projects/hello/src/main.cpp as {2}\\\\projects\\\\hello\n"
         "mcppls 2026-09-26T01:02:06Z [info] {3} opened main.cpp, mail {3}@example.org, GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123456789\n",
         home, root, backslashed, LONG_USER) };
-    (void)fs::write_file(base::join_path(cache, "logs/server-20260926-010203-ab12.log"), lines);
-    (void)fs::write_file(base::join_path(cache, "logs/server-20260926-010203-ab12.log.1"), lines);
+    (void)os::fs::write(base::join_path(cache, "logs/server-20260926-010203-ab12.log"), lines);
+    (void)os::fs::write(base::join_path(cache, "logs/server-20260926-010203-ab12.log.1"), lines);
     const std::string incident { base::join_path(rootCache, "incidents/20260926T010207.000Z-spin") };
-    (void)fs::create_directories(incident);
+    (void)std::filesystem::create_directories(incident, ignored);
     const Json incidentJson {
         { "kind", "spin" }, { "root", root }, { "files", Json::array({ base::join_path(root, "src/main.cpp") }) },
         { "excerpts", Json::array({ Json { { "file", base::join_path(root, "src/main.cpp") }, { "line", 3 }, { "buffer", "import hello.greet;" },
                                            { "disk", "import hello." } } }) },
     };
-    (void)fs::write_file(base::join_path(incident, "incident.json"), incidentJson.dump(2));
-    (void)fs::write_file(base::join_path(incident, "clangd.log"), lines);
-    (void)fs::create_directories(base::join_path(rootCache, "contexts/default/cdb"));
+    (void)os::fs::write(base::join_path(incident, "incident.json"), incidentJson.dump(2));
+    (void)os::fs::write(base::join_path(incident, "clangd.log"), lines);
+    (void)std::filesystem::create_directories(base::join_path(rootCache, "contexts/default/cdb"), ignored);
     const Json database = Json::array({ Json { { "directory", root }, { "file", base::join_path(root, "src/main.cpp") },
                                                { "arguments", Json::array({ "clang++", "-DAPI_KEY=\"s3cr3t-value\"", "-DVERSION=3", "-c", base::join_path(root, "src/main.cpp") }) } } });
-    (void)fs::write_file(base::join_path(rootCache, "contexts/default/cdb/compile_commands.json"), database.dump(1));
+    (void)os::fs::write(base::join_path(rootCache, "contexts/default/cdb/compile_commands.json"), database.dump(1));
     const Json report {
         { "generatedAt", "2026-09-26T01:02:08Z" },
         { "server", Json { { "name", "mcppls" }, { "version", "test" }, { "logFile", base::join_path(cache, "logs/server-20260926-010203-ab12.log") } } },
@@ -112,7 +111,7 @@ int write_bundle_as_child(const std::string& directory, std::string_view mode) {
             noise += std::format("{:08x}", state);
             if (noise.size() % 64 == 0) noise += '\n';
         }
-        (void)fs::write_file(base::join_path(cache, "logs/server-20260925-010203-cd34.log"), noise);
+        (void)os::fs::write(base::join_path(cache, "logs/server-20260925-010203-cd34.log"), noise);
         options.sizeCap = 512 * 1024;
     }
     auto written = bundle::write_bundle(input, options);
@@ -128,7 +127,7 @@ int write_bundle_as_child(const std::string& directory, std::string_view mode) {
 
 int main() {
     {
-        const auto arguments = mcppls::platform::env::arguments();
+        const auto arguments = os::env::arguments();
         if (arguments.size() == 4 && arguments[1] == "bundle-child") std::_Exit(write_bundle_as_child(arguments[2], arguments[3]));
     }
     using namespace mcppls::testing;
@@ -347,16 +346,17 @@ int main() {
     // The fixture of the plan's F18 acceptance: a user whose long name is in every path, a bundle
     // written by a process that sees that user as its own, and not one file of it naming them.
     "a bundle of a user whose name is everywhere names them nowhere"_test = [] {
-        const auto arguments = mcppls::platform::env::arguments();
+        std::error_code ignored;
+        const auto arguments = os::env::arguments();
         std::string self { arguments.front() };
-        if (!base::is_absolute_path(self)) self = base::join_path(fs::current_directory(), self);
-        const std::string directory { base::join_path(mcppls::platform::dirs::temp_directory(),
+        if (!base::is_absolute_path(self)) self = base::join_path(base::current_directory(), self);
+        const std::string directory { base::join_path(base::spelled(os::dirs::temp()),
                                                       std::format("mcppls-test-bundle-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-        const bool windows { mcppls::os::family() == mcppls::os::Family::windows };
+        const bool windows { os::host() == os::platform::windows };
         const std::string home { base::join_path(directory, windows ? std::format("Users/{}", LONG_USER) : std::format("home/{}", LONG_USER)) };
-        (void)fs::create_directories(home);
+        (void)std::filesystem::create_directories(home, ignored);
         std::vector<std::string> environment;
-        for (const auto& variable : mcppls::platform::env::variables()) {
+        for (const auto& variable : os::env::variables()) {
             const std::string name { variable.substr(0, variable.find('=', 1)) };
             static constexpr std::array<std::string_view, 9> REPLACED { "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "USER", "USERNAME", "LOGNAME",
                                                                         "MCPPLS_CACHE_DIR", "XDG_CACHE_HOME" };
@@ -369,13 +369,12 @@ int main() {
         environment.push_back(std::format("USERNAME={}", LONG_USER));
         environment.push_back(std::format("MCPPLS_CACHE_DIR={}", base::join_path(home, ".cache/mcppls")));
         for (const bool excerpts : { true, false }) {
-            auto run = mcppls::platform::run(mcppls::platform::SpawnOptions { .program = self, .arguments = { "bundle-child", directory, excerpts ? "excerpts" : "none" },
-                                                                             .environment = environment },
-                                             mcppls::platform::RunBounds { .hard = std::chrono::seconds { 60 } }, "");
+            auto run = mcpplibs::os::process::run(mcpplibs::os::process::spawn_options { .program = self, .args = { "bundle-child", directory, excerpts ? "excerpts" : "none" }, .env = mcpplibs::os::env::assignments(environment), .clear_env = true },
+                                             mcpplibs::os::process::bounds { .hard = std::chrono::seconds { 60 } });
             expect(fatal(run.has_value()));
-            expect(fatal(run->exitCode == 0)) << run->output << run->error;
-            const Json result = Json::parse(run->output);
-            const auto archive = fs::read_file(result.value("path", std::string {}));
+            expect(fatal(run->status.success())) << run->out << run->err;
+            const Json result = Json::parse(run->out);
+            const auto archive = os::fs::read(result.value("path", std::string {}));
             expect(fatal(archive.has_value()));
             expect(archive->size() == result.value("bytes", std::size_t { 0 }));
             expect(archive->size() < bundle::DEFAULT_SIZE_CAP);
@@ -412,11 +411,11 @@ int main() {
         }
         // Over its cap, a bundle leaves out the oldest log first, says so, and keeps what matters most.
         {
-            auto run = mcppls::platform::run(mcppls::platform::SpawnOptions { .program = self, .arguments = { "bundle-child", directory, "cap" }, .environment = environment },
-                                             mcppls::platform::RunBounds { .hard = std::chrono::seconds { 60 } }, "");
-            expect(fatal(run.has_value() && run->exitCode == 0)) << (run ? run->output + run->error : std::string {});
-            const Json result = Json::parse(run->output);
-            const auto archive = fs::read_file(result.value("path", std::string {}));
+            auto run = mcpplibs::os::process::run(mcpplibs::os::process::spawn_options { .program = self, .args = { "bundle-child", directory, "cap" }, .env = mcpplibs::os::env::assignments(environment), .clear_env = true },
+                                             mcpplibs::os::process::bounds { .hard = std::chrono::seconds { 60 } });
+            expect(fatal(run.has_value() && run->status.success())) << (run ? run->out + run->err : std::string {});
+            const Json result = Json::parse(run->out);
+            const auto archive = os::fs::read(result.value("path", std::string {}));
             expect(fatal(archive.has_value()));
             expect(archive->size() <= 512 * 1024) << archive->size();
             const auto files = unzip(*archive);
@@ -428,7 +427,7 @@ int main() {
                 expect(files.contains(std::string { kept })) << kept;
             }
         }
-        fs::remove_all(directory);
+        std::filesystem::remove_all(directory, ignored);
     };
 
     return report();

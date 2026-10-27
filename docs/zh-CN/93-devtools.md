@@ -28,15 +28,16 @@ mcpp run -p devtools -- extension --editor vscode --install  # payload、VS Code
 
 | 成员 | 是什么 | 依赖 |
 |---|---|---|
-| `.`（根目录） | `mcppls`，以及它自己的测试和生成程序：`mcppls-conformance`、`mcppls-lspgen`、两个 mock | base, platform |
-| `modules/os` | `mcppls.os`：程序所运行的系统，以 mcppls 的名称给出（`family()`、`platform()`） | mcpplibs.os |
-| `modules/base` | 错误处理、路径、文本、globbing、sha256、URI、日志、产品版本号 | os |
-| `modules/platform` | 文件、进程、环境变量、目录、回环 socket——唯一经 mcpplibs.os 触及操作系统的包 | base、os |
-| `modules/pack` | 校验下载、归档、payload 和 kit 的组装、发布检查 | base, platform, tinyhttps, libarchive |
-| `tools/devtools` | `mcppls-devtools` | base, platform, pack |
+| `.`（根目录） | `mcppls`，以及它自己的测试和生成程序：`mcppls-conformance`、`mcppls-lspgen`、两个 mock | base, toolrun, mcpplibs.os |
+| `modules/base` | 错误处理、路径、文本、globbing、sha256、URI、日志、产品版本号、mcppls 的目录与 payload 名称、channel | mcpplibs.os |
+| `modules/toolrun` | 服务端与工具运行项目程序的方式：登录 shell 的环境、离线、有界并记录的运行、PATH 规则 | base, mcpplibs.os |
+| `modules/pack` | 校验下载、归档、payload 和 kit 的组装、发布检查 | base, toolrun, tinyhttps, libarchive |
+| `tools/devtools` | `mcppls-devtools` | base, toolrun, pack |
+
+操作系统是 mcpplibs.os 的，每个成员直接调用它：文件、进程、环境变量、目录、回环 socket 与标准流。mcppls 不在它之上另设一层；`modules/base` 与 `modules/toolrun` 只放 mcppls 自己的东西（它的缓存目录、payload 名称、不经相对 PATH 项找程序的规则）。
 | `tools/model-gateway` | `mcppls-model`，参考实现的 model gateway | openkal, tinyhttps |
 
-`mcpp build -p <member>` 和 `mcpp test -p <member>` 只作用于一个成员；`--workspace` 作用于全部成员（根包用不带参数的命令就能作用到）。系统是值而不是预处理分支：`mcppls::os::family()` 即 mcpplibs.os 的 `host()`，原生构建中为常量表达式，ok 映像（`<arch>-openkal`）中为装载时的系统；`platform()` 连同架构给出名称，所以 arm64 构建为 `linux-arm64`（`mcppls-devtools check os-surface`）。平台本身就是 `packaging/payload.lock.json` 里的各行；VS Code 扩展、`release.manifest.json` 和 CI 按平台运行的 job 列出的必须是同一组平台（`mcppls-devtools check platforms`）。
+`mcpp build -p <member>` 和 `mcpp test -p <member>` 只作用于一个成员；`--workspace` 作用于全部成员（根包用不带参数的命令就能作用到）。系统是值而不是预处理分支：mcpplibs.os 的 `host()` 在原生构建中为常量表达式，ok 映像（`<arch>-openkal`）中为装载时的系统；`mcppls::base::payload_platform()` 连同架构给出名称，所以 arm64 构建为 `linux-arm64`（`mcppls-devtools check os-surface`）。平台本身就是 `packaging/payload.lock.json` 里的各行；VS Code 扩展、`release.manifest.json` 和 CI 按平台运行的 job 列出的必须是同一组平台（`mcppls-devtools check platforms`）。
 
 ## 按任务分类的命令
 
@@ -118,5 +119,5 @@ CI 里的每一步，调用的都是 `mcpp` 或 `mcppls-devtools`；同样的参
 - 逻辑放进一个库模块——打包相关的数据放 `modules/pack`，其余放 `tools/devtools/src`——旁边配一个测试（`mcpp test -p pack`、`mcpp test -p devtools`）。命令本身只负责解析参数、调用这个模块。
 - `tools/devtools/src/` 下每个命令一个模块，导出一个 `cmdline::App`；`main.cpp` 加一行就能接上它。
 - 给 CI 或 Agent 读取的东西都要有 `--json`。报错用一句话说清该怎么做。
-- 文件、进程和环境变量都走 `mcppls.platform`，不直接用 C 标准库或操作系统接口；平台差异只能是对 `mcppls::os::family()` 的分支。
+- 文件、进程和环境变量都走 mcpplibs.os（`std::filesystem` 能表达的用它），不直接用 C 标准库或操作系统接口；平台差异只能是对 `mcpplibs::os::host()` 的分支。项目的程序经 `mcppls::toolrun` 运行。
 - 同一次改动里把上面的表也更新掉（`mcppls-devtools check docs` 会拿它们跟 `--help` 的输出做比对）。

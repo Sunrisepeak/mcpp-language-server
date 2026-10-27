@@ -4,11 +4,12 @@ import std;
 import nlohmann.json;
 import mcppls.testing;
 import mcppls.base.path;
-import mcppls.platform.fs;
 import mcppls.devtools.bench.review;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace bench = mcppls::devtools::bench;
-namespace fs = mcppls::platform::fs;
 namespace base = mcppls::base;
 
 namespace {
@@ -75,9 +76,10 @@ int main() {
     };
 
     "the snapshot is a map of relative path to content digest"_test = [&] {
+        std::error_code ignored;
         const std::string dir { temp_dir("snap") };
-        (void) fs::create_directories(base::join_path(dir, "src"));
-        (void) fs::write_file(base::join_path(dir, "src/main.cpp"), "int main(){}");
+        (void)std::filesystem::create_directories(base::join_path(dir, "src"), ignored);
+        (void) os::fs::write(base::join_path(dir, "src/main.cpp"), "int main(){}");
         auto snapshot = bench::review_snapshot(dir);
         expect(snapshot.is_object());
         expect(snapshot.contains("src/main.cpp"));
@@ -87,11 +89,11 @@ int main() {
 
     "two snapshots of the same unchanged tree are equal; a changed file differs"_test = [&] {
         const std::string dir { temp_dir("snap-eq") };
-        (void) fs::write_file(base::join_path(dir, "f.txt"), "same");
+        (void) os::fs::write(base::join_path(dir, "f.txt"), "same");
         const auto before = bench::review_snapshot(dir);
         const auto unchanged = bench::review_snapshot(dir);
         expect(before == unchanged);
-        (void) fs::write_file(base::join_path(dir, "f.txt"), "different");
+        (void) os::fs::write(base::join_path(dir, "f.txt"), "different");
         const auto after = bench::review_snapshot(dir);
         expect(!(before == after));
         std::filesystem::remove_all(dir);

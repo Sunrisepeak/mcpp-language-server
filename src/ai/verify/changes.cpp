@@ -5,7 +5,6 @@ import nlohmann.json;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.base.uri;
-import mcppls.platform.fs;
 import mcppls.spec.database;
 import mcppls.spec.query;
 import mcppls.project.git;
@@ -49,6 +48,7 @@ std::vector<std::string> provided_by(const index::ModuleIndex& moduleIndex, std:
 } // namespace
 
 query::Outcome<Verification> verify_changes(query::View& view, const ChangeOptions& options, Clock::time_point deadline) {
+    std::error_code ignored;
     auto& workspace = view.kernel().workspace();
     view.refresh();
     (void)view.settle(deadline);
@@ -71,7 +71,7 @@ query::Outcome<Verification> verify_changes(query::View& view, const ChangeOptio
     }
     for (const auto& file : options.files) {
         const std::string path { view.path_of(file) };
-        changes.push_back(Changed { path, platform::fs::exists(path) ? 2 : 3 });
+        changes.push_back(Changed { path, std::filesystem::exists(path, ignored) ? 2 : 3 });
     }
     if (changes.empty()) return std::unexpected { query::invalid_arguments("no changed files: name files, or ask for the working tree's changes") };
 
@@ -113,7 +113,7 @@ query::Outcome<Verification> verify_changes(query::View& view, const ChangeOptio
     // An interface that changed can break every unit that can use it.
     for (const auto& name : modules) {
         for (const auto& path : query::module_neighbourhood(view, name, options.budget * 4).files) {
-            if (platform::fs::exists(path)) add(path, "importer");
+            if (std::filesystem::exists(path, ignored)) add(path, "importer");
         }
     }
     for (std::size_t i { 0 }; i < toCheck.size(); ++i) {

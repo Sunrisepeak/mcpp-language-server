@@ -35,18 +35,22 @@ and the server must not carry lives in a member the server does not depend on.
 
 | Member | What | Depends on |
 |---|---|---|
-| `.` (root) | `mcppls`, and its own test and generation programs: `mcppls-conformance`, `mcppls-lspgen`, the two mocks | base, platform |
-| `modules/os` | `mcppls.os`: the system the program runs upon, in mcppls' names (`family()`, `platform()`) | mcpplibs.os |
-| `modules/base` | errors, paths, text, globbing, sha256, URIs, logging, the product version | os |
-| `modules/platform` | files, processes, environment, directories, loopback sockets — the only package that reaches the operating system, through mcpplibs.os | base, os |
-| `modules/pack` | verified downloads, archives, payload and kit assembly, release checks | base, platform, tinyhttps, libarchive |
-| `tools/devtools` | `mcppls-devtools` | base, platform, pack |
+| `.` (root) | `mcppls`, and its own test and generation programs: `mcppls-conformance`, `mcppls-lspgen`, the two mocks | base, toolrun, mcpplibs.os |
+| `modules/base` | errors, paths, text, globbing, sha256, URIs, logging, the product version, mcppls's directories and payload names, a channel | mcpplibs.os |
+| `modules/toolrun` | how the server and the tools run a project's programs: the login shell's environment, offline, bounded and recorded runs, the PATH policy | base, mcpplibs.os |
+| `modules/pack` | verified downloads, archives, payload and kit assembly, release checks | base, toolrun, tinyhttps, libarchive |
+| `tools/devtools` | `mcppls-devtools` | base, toolrun, pack |
 | `tools/model-gateway` | `mcppls-model`, the reference model gateway | openkal, tinyhttps |
+
+The operating system is mcpplibs.os's, called directly from every member: files, processes, the
+environment, directories, loopback sockets and the standard streams. mcppls keeps no layer of its
+own over it; `modules/base` and `modules/toolrun` hold only what is mcppls's (its cache directory,
+its payload names, its rule that a program is never found through a relative PATH entry).
 
 `mcpp build -p <member>` and `mcpp test -p <member>` reach one member; `--workspace` reaches all of
 them (the root package is reached by the plain command). The system is a value, never a
-preprocessor branch: `mcppls::os::family()` is mcpplibs.os's `host()`, a constant expression on a
-native build and the loaded system in an ok image (`<arch>-openkal`), and `platform()` names it with
+preprocessor branch: mcpplibs.os's `host()` is a constant expression on a native build and the
+loaded system in an ok image (`<arch>-openkal`), and `mcppls::base::payload_platform()` names it with
 the architecture, so an arm64 build says `linux-arm64` (`mcppls-devtools check os-surface`).
 The platforms themselves are the rows of `packaging/payload.lock.json`; the VS Code extension,
 `release.manifest.json` and CI's per-platform jobs list the same ones (`mcppls-devtools check
@@ -145,7 +149,8 @@ release's evidence archive, not in the tree.
 - One module per command in `tools/devtools/src/`, exporting a `cmdline::App`; `main.cpp` adds it
   with one line.
 - `--json` for anything CI or an agent reads. Errors are one sentence that says what to do.
-- Files, processes and the environment go through `mcppls.platform`, never the C library or the
-  operating system directly; a platform difference is a branch on `mcppls::os::family()` or nothing.
+- Files, processes and the environment go through mcpplibs.os (and `std::filesystem` for what it
+  says), never the C library or the operating system directly; a platform difference is a branch on
+  `mcpplibs::os::host()` or nothing. A project's programs are run through `mcppls::toolrun`.
 - Update the tables above in the same change (`mcppls-devtools check docs` compares them with
   `--help`).

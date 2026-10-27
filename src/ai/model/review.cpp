@@ -4,11 +4,13 @@ import std;
 import nlohmann.json;
 import mcppls.base.path;
 import mcppls.base.sha256;
-import mcppls.platform.fs;
 import mcppls.spec.query;
 import mcppls.ai.model.source;
 import mcppls.ai.model.prompt;
 import mcppls.ai.model.schema;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::ai::model {
 
@@ -28,7 +30,7 @@ Cache::Cache(std::string directory) : directory_ { std::move(directory) } { }
 
 std::optional<Json> Cache::get(std::string_view key) const {
     if (directory_.empty()) return std::nullopt;
-    auto text = platform::fs::read_file(cache_file(directory_, key));
+    auto text = os::fs::read(cache_file(directory_, key));
     if (!text) return std::nullopt;
     Json value = Json::parse(*text, nullptr, false);
     if (value.is_discarded()) return std::nullopt;
@@ -36,9 +38,10 @@ std::optional<Json> Cache::get(std::string_view key) const {
 }
 
 void Cache::put(std::string_view key, const Json& value) const {
+    std::error_code ignored;
     if (directory_.empty()) return;
-    (void)platform::fs::create_directories(directory_);
-    (void)platform::fs::write_file_atomic(cache_file(directory_, key), value.dump());
+    (void)std::filesystem::create_directories(directory_, ignored);
+    (void)os::fs::write_atomic(cache_file(directory_, key), value.dump());
 }
 
 std::string review_cache_key(std::string_view templateVersion, std::string_view model, const std::vector<Message>& messages) {

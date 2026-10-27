@@ -2,8 +2,9 @@ module mcppls.project.boundary;
 
 import std;
 import mcppls.base.path;
-import mcppls.platform.fs;
+import mcpplibs.os;
 
+namespace os = mcpplibs::os;
 namespace mcppls::project {
 
 namespace {
@@ -11,7 +12,8 @@ namespace {
 constexpr std::array<std::string_view, 5> MANIFESTS { "mcpp.toml", "CMakeLists.txt", "xmake.lua", "meson.build", "compile_commands.json" };
 constexpr std::array<std::string_view, 3> NESTING { "CMakeLists.txt", "xmake.lua", "meson.build" };
 
-bool has(std::string_view directory, std::string_view manifest) { return platform::fs::is_regular_file(base::join_path(directory, manifest)); }
+bool has(std::string_view directory, std::string_view manifest) {
+    std::error_code ignored; return std::filesystem::is_regular_file(base::join_path(directory, manifest), ignored); }
 
 // `path` relative to `root`, with '/' separators; empty when `path` is not inside it.
 std::string relative_to(std::string_view root, std::string_view path) {
@@ -90,11 +92,11 @@ std::optional<std::string> find_project_root(std::string_view directory) {
 std::string enclosing_project_root(std::string_view directory) { return find_project_root(directory).value_or(std::string { directory }); }
 
 ProjectBoundaries::ProjectBoundaries(std::string_view outer)
-    : outer_ { outer }, canonicalOuter_ { platform::fs::canonical_path(outer) } {
+    : outer_ { outer }, canonicalOuter_ { base::canonical_path(outer) } {
     for (const std::string_view manifest : NESTING) {
         if (has(outer_, manifest)) outerNesting_.push_back(manifest);
     }
-    if (const auto manifest = platform::fs::read_file(base::join_path(outer_, "mcpp.toml"))) members_ = workspace_members(*manifest);
+    if (const auto manifest = os::fs::read(base::join_path(outer_, "mcpp.toml"))) members_ = workspace_members(*manifest);
 }
 
 bool ProjectBoundaries::owns(std::string_view file) const {
@@ -103,21 +105,22 @@ bool ProjectBoundaries::owns(std::string_view file) const {
     const std::string key { base::path_key(parent) };
     auto found = canonicalDirectories_.find(key);
     if (found == canonicalDirectories_.end()) {
-        found = canonicalDirectories_.emplace(key, platform::fs::canonical_path(parent)).first;
+        found = canonicalDirectories_.emplace(key, base::canonical_path(parent)).first;
     }
     // Resolve the final component too (including POSIX source symlinks and Windows short names).
-    const std::string source { platform::fs::canonical_path(base::join_path(found->second, base::file_name(file))) };
+    const std::string source { base::canonical_path(base::join_path(found->second, base::file_name(file))) };
     return base::is_within(source, canonicalOuter_) && !crossed(source, canonicalOuter_);
 }
 
 bool ProjectBoundaries::separate(std::string_view directory) const {
+    std::error_code ignored;
     if (has(directory, "compile_commands.json")) return true;
     // A subdirectory's own CMakeLists.txt (xmake.lua, meson.build) belongs to an outer project of the same kind.
     for (const std::string_view manifest : NESTING) {
         if (has(directory, manifest) && std::ranges::find(outerNesting_, manifest) == outerNesting_.end()) return true;
     }
     if (has(directory, "mcpp.toml")) {
-        const std::string canonical { platform::fs::canonical_path(directory) };
+        const std::string canonical { base::canonical_path(directory) };
         const std::string relative { relative_to(canonicalOuter_, canonical) };
         if (std::ranges::any_of(members_, [&](const std::string& member) { return matches_member(member, relative); })) return false;
         // A declared member can itself be an alias. Compare its directory identity too,
@@ -131,10 +134,10 @@ bool ProjectBoundaries::separate(std::string_view directory) const {
                 const std::string_view relativeMember { glob ? std::string_view { pattern }.substr(0, pattern.size() - 2) : std::string_view { pattern } };
                 const std::string path { base::join_path(outer_, relativeMember) };
                 if (glob) {
-                    for (const auto& entry : platform::fs::list_directory(path)) {
-                        if (platform::fs::is_directory(entry)) canonicalMembers_->insert(base::path_key(platform::fs::canonical_path(entry)));
+                    for (const auto& entry : base::children(path)) {
+                        if (std::filesystem::is_directory(entry, ignored)) canonicalMembers_->insert(base::path_key(base::canonical_path(entry)));
                     }
-                } else canonicalMembers_->insert(base::path_key(platform::fs::canonical_path(path)));
+                } else canonicalMembers_->insert(base::path_key(base::canonical_path(path)));
             }
         }
         return !canonicalMembers_->contains(base::path_key(canonical));

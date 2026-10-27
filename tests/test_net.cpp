@@ -1,16 +1,17 @@
-// Loopback connections (overall design 6.3, experiment X2): what the workspace daemon listens on.
+// Loopback connections (overall design 6.3, experiment X2): what the workspace daemon listens on, through
+// mcpplibs.os `net` and `ipc` as the daemon reaches them.
 import std;
 import mcppls.testing;
-import mcppls.platform.net;
+import mcpplibs.os;
 
-namespace net = mcppls::platform::net;
+namespace os = mcpplibs::os;
 
 int main() {
     using namespace mcppls::testing;
 
     "a loopback connection carries bytes both ways and ends when one side is done"_test = [] {
-        auto listener = net::Listener::listen_local();
-        expect(fatal(listener.has_value())) << (listener ? std::string {} : listener.error().message);
+        auto listener = os::net::loopback_listener::listen(0);
+        expect(fatal(listener.has_value())) << (listener ? std::string {} : listener.error().message());
         expect(listener->port() > 0);
         std::optional<std::string> received;
         std::thread server { [&] {
@@ -26,8 +27,8 @@ int main() {
             (void)accepted->write("pong\n");
             accepted->close();
         } };
-        auto client = net::Connection::connect_local(listener->port());
-        expect(fatal(client.has_value())) << (client ? std::string {} : client.error().message);
+        auto client = os::net::connect_loopback(listener->port());
+        expect(fatal(client.has_value())) << (client ? std::string {} : client.error().message());
         expect(client->write("ping\n").has_value());
         // Half-closed: the server reads the end of the stream and still answers.
         client->shutdown_write();
@@ -53,20 +54,20 @@ int main() {
             }
         } }.detach();
 
-        auto listener = net::Listener::listen_local();
+        auto listener = os::net::loopback_listener::listen(0);
         expect(fatal(listener.has_value()));
         const auto open_pair = [&] {
-            std::shared_ptr<net::Connection> server;
+            std::shared_ptr<os::ipc::connection> server;
             std::thread accepting { [&] {
-                if (auto accepted = listener->accept()) server = std::make_shared<net::Connection>(std::move(*accepted));
+                if (auto accepted = listener->accept()) server = std::make_shared<os::ipc::connection>(std::move(*accepted));
             } };
-            auto client = std::make_shared<net::Connection>();
-            if (auto connected = net::Connection::connect_local(listener->port())) *client = std::move(*connected);
+            auto client = std::make_shared<os::ipc::connection>();
+            if (auto connected = os::net::connect_loopback(listener->port())) *client = std::move(*connected);
             accepting.join();
             return std::pair { server, client };
         };
         // Everything a connection receives, read on a thread of its own until the end of the stream.
-        const auto collect = [](std::shared_ptr<net::Connection> connection) {
+        const auto collect = [](std::shared_ptr<os::ipc::connection> connection) {
             return std::async(std::launch::async, [connection] {
                 std::string all;
                 while (true) {
@@ -100,14 +101,14 @@ int main() {
         expect(fatal(idle != nullptr && peer->valid()));
         auto waiting = collect(idle);
         std::this_thread::sleep_for(std::chrono::milliseconds { 200 });
-        idle->close();
+        idle->shutdown();
         expect(waiting.get().empty());
         *finished = true;
     };
 
     "tokens are random hex"_test = [] {
-        const std::string first { net::random_token() };
-        const std::string second { net::random_token() };
+        const std::string first { os::random::hex(16).value_or(std::string {}) };
+        const std::string second { os::random::hex(16).value_or(std::string {}) };
         expect(first.size() == 32u && second.size() == 32u);
         expect(first != second);
         expect(std::ranges::all_of(first, [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }));
@@ -116,11 +117,11 @@ int main() {
     "connecting where nothing listens is an error"_test = [] {
         int port { 0 };
         {
-            auto listener = net::Listener::listen_local();
+            auto listener = os::net::loopback_listener::listen(0);
             expect(fatal(listener.has_value()));
             port = listener->port();
         }
-        expect(!net::Connection::connect_local(port).has_value());
+        expect(!os::net::connect_loopback(port).has_value());
     };
 
     return report();

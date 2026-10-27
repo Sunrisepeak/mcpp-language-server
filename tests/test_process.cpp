@@ -1,28 +1,26 @@
-// The test program starts copies of itself as the child, so the same test runs
-// on every system without depending on a shell or a system utility. The one
-// exception is on Windows, where the command interpreter is itself the subject:
-// build tools there are often batch files, and those run through it.
+// How mcppls starts, speaks to and bounds programs, over mcpplibs.os `process`: the LSP connection's
+// writer and reader, the bounded runs a tool is given, the identity a lease records, and the
+// behaviours a build tool depends on (arguments, environment values, the work directory). The test
+// program starts copies of itself as the child, so the same test runs on every system without
+// depending on a shell or a system utility. The one exception is on Windows, where the command
+// interpreter is itself the subject: build tools there are often batch files, and those run through it.
 import std;
-import mcppls.os;
+import mcpplibs.os;
 import mcppls.testing;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.process;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.platform.dirs;
-import mcppls.platform.stdio;
 import mcppls.lsp.connection;
+import mcppls.orchestrator.instance;
 import nlohmann.json;
 
-namespace platform = mcppls::platform;
+namespace os = mcpplibs::os;
 namespace base = mcppls::base;
 
 namespace {
 
 // An independent work oracle: the C library's processor clock (`std::clock`, which openkal-musl
-// answers from this program's own kal_program_info since 0.22), not platform::cpu_seconds, which
-// asks about another program by its identifier through mcpplibs.os.
+// answers from this program's own kal_program_info since 0.22), not mcpplibs.os `process::describe`,
+// which asks about another program by its identifier.
 std::optional<double> native_self_cpu_seconds() {
     const std::clock_t now { std::clock() };
     if (now == static_cast<std::clock_t>(-1)) return std::nullopt;
@@ -30,19 +28,25 @@ std::optional<double> native_self_cpu_seconds() {
 }
 
 std::string self_path() {
-    const auto arguments = platform::env::arguments();
+    const auto arguments = os::env::arguments();
     std::string path { arguments.empty() ? std::string {} : arguments.front() };
-    if (!base::is_absolute_path(path)) path = base::join_path(platform::fs::current_directory(), path);
+    if (!base::is_absolute_path(path)) path = base::join_path(base::current_directory(), path);
     return base::normalize_path(path);
+}
+
+// This program again, with its input and output on pipes and its error output on this program's.
+os::process::spawn_options child(std::vector<std::string> arguments) {
+    return { .program = self_path(), .args = std::move(arguments), .in = os::process::stdio::pipe,
+             .out = os::process::stdio::pipe, .err = os::process::stdio::inherit, .bound_lifetime = true };
 }
 
 int child_main(std::span<const std::string> arguments) {
     const std::string_view mode { arguments[1] };
     if (mode == "--echo") {
         while (true) {
-            auto chunk = platform::stdio::read_input();
+            auto chunk = os::stdio::read_input();
             if (!chunk || chunk->empty()) break;
-            (void)platform::stdio::write_output(*chunk);
+            (void)os::stdio::write_output(*chunk);
         }
         return 0;
     }
@@ -52,22 +56,22 @@ int child_main(std::span<const std::string> arguments) {
         return 0;
     }
     if (mode == "--cpu-idle") {
-        (void)platform::stdio::write_output("ready\n");
-        (void)platform::stdio::read_input();   // stay alive and idle until the parent ends the test
+        (void)os::stdio::write_output("ready\n");
+        (void)os::stdio::read_input();   // stay alive and idle until the parent ends the test
         return 0;
     }
     if (mode == "--spin-cpu") {
-        (void)platform::stdio::write_output("ready\n");
+        (void)os::stdio::write_output("ready\n");
         std::string start;
         while (!start.ends_with('\n') && start.size() < 64) {
-            const auto part = platform::stdio::read_input();
+            const auto part = os::stdio::read_input();
             if (!part || part->empty()) return 101;
             start += *part;
         }
         if (start != "start\n") return 101;
         const auto before = native_self_cpu_seconds();
         if (!before) {
-            (void)platform::stdio::write_output("cpu-oracle-unavailable\n");
+            (void)os::stdio::write_output("cpu-oracle-unavailable\n");
             return 102;
         }
         const auto until = std::chrono::steady_clock::now() + std::chrono::seconds { 30 };
@@ -78,42 +82,42 @@ int child_main(std::span<const std::string> arguments) {
             for (int i { 0 }; i < 4096; ++i) sink = sink + 1;
             const auto cpu = native_self_cpu_seconds();
             if (!cpu || *cpu < *before) {
-                (void)platform::stdio::write_output("cpu-oracle-invalid\n");
+                (void)os::stdio::write_output("cpu-oracle-invalid\n");
                 return 103;
             }
             completedCpu = *cpu - *before;
             if (completedCpu >= 0.75) { completed = true; break; }
         }
-        (void)platform::stdio::write_output(completed ? std::format("done {:.9f}\n", completedCpu) : "cpu-work-timeout\n");
-        (void)platform::stdio::read_input();   // keep the completed process available to cpu_seconds
+        (void)os::stdio::write_output(completed ? std::format("done {:.9f}\n", completedCpu) : "cpu-work-timeout\n");
+        (void)os::stdio::read_input();   // keep the completed process available to cpu_seconds
         return completed ? 0 : 104;
     }
     if (mode == "--env") {
-        (void)platform::stdio::write_output(platform::env::get(arguments[2]).value_or("<unset>"));
+        (void)os::stdio::write_output(os::env::get(arguments[2]).value_or("<unset>"));
         return 0;
     }
     if (mode == "--read-relative") {
         std::ifstream stream { arguments[2] };
         std::string line;
         std::getline(stream, line);
-        (void)platform::stdio::write_output(stream || !line.empty() ? line : std::string { "<missing>" });
+        (void)os::stdio::write_output(stream || !line.empty() ? line : std::string { "<missing>" });
         return 0;
     }
     if (mode == "--arguments") {
         std::string joined;
         for (std::size_t i { 2 }; i < arguments.size(); ++i) joined += std::format("[{}]", arguments[i]);
-        (void)platform::stdio::write_output(joined);
+        (void)os::stdio::write_output(joined);
         return 0;
     }
     if (mode == "--stderr") {
-        (void)platform::stdio::write_error("to-stderr");
+        (void)os::stdio::write_error("to-stderr");
         return 3;
     }
     // Sleeps while holding whatever streams it was given, then leaves a mark. The mark is how a
     // test tells "the unit was ended" from "the sleep finished".
     if (mode == "--descendant") {
         std::this_thread::sleep_for(std::chrono::seconds { 3 });
-        (void)platform::fs::write_file(base::join_path(arguments[2], "late.txt"), "late");
+        (void)os::fs::write(base::join_path(arguments[2], "late.txt"), "late");
         return 0;
     }
     // Starts a descendant that inherits this program's standard error --- the caller's pipe ---
@@ -124,15 +128,13 @@ int child_main(std::span<const std::string> arguments) {
     // and-sleep` starts an ordinary child, whose lifetime is bound to this one.
     if (mode == "--hold-pipe" || mode == "--hold-pipe-and-sleep") {
         const bool ownUnit { mode == "--hold-pipe" };
-        auto child = platform::Process::spawn({ .program = self_path(),
-                                                .arguments = { "--descendant", arguments[2] },
-                                                .pipeInput = false, .pipeOutput = false, .pipeError = false,
-                                                .detached = ownUnit,
-                                                // Not bound to this program's lifetime, which is what a
-                                                // build tool's own children are: only ending the unit reaches them.
-                                                .boundLifetime = false });
-        if (child) child->detach();
-        (void)platform::stdio::write_output(child ? "started" : std::format("spawn-failed:{}", child.error().message));
+        // Its output goes to this program's error output (the caller's pipe). Not bound to this program's
+        // lifetime, which is what a build tool's own children are: only ending the unit reaches them.
+        auto descendant = os::process::process::spawn({ .program = self_path(), .args = { "--descendant", arguments[2] },
+                                                        .in = os::process::stdio::null, .out = os::process::stdio::error,
+                                                        .err = os::process::stdio::inherit, .own_unit = ownUnit });
+        if (descendant) descendant->detach();
+        (void)os::stdio::write_output(descendant ? "started" : std::format("spawn-failed:{}", descendant.error().message()));
         if (!ownUnit) std::this_thread::sleep_for(std::chrono::seconds { 30 });
         return 0;
     }
@@ -142,7 +144,7 @@ int child_main(std::span<const std::string> arguments) {
 } // namespace
 
 int main() {
-    const auto arguments = platform::env::arguments();
+    const auto arguments = os::env::arguments();
     // A child leaves without running the test framework's report at exit.
     if (arguments.size() >= 2 && arguments[1].starts_with("--")) std::_Exit(child_main(arguments));
 
@@ -151,12 +153,13 @@ int main() {
 
     "self path is an existing absolute file"_test = [&] {
         expect(base::is_absolute_path(self)) << self;
-        expect(platform::fs::is_regular_file(self)) << self;
+        std::error_code ignored;
+        expect(std::filesystem::is_regular_file(self, ignored)) << self;
     };
 
     "echo round trip through pipes"_test = [&] {
-        auto process = platform::Process::spawn({ .program = self, .arguments = { "--echo" } });
-        expect(fatal(process.has_value())) << (process ? "" : process.error().message);
+        auto process = os::process::process::spawn(child({ "--echo" }));
+        expect(fatal(process.has_value())) << (process ? "" : process.error().message());
         std::string collected;
         std::jthread reader { [&] {
             while (true) {
@@ -170,7 +173,7 @@ int main() {
         process->close_input();
         reader.join();
         auto status = process->wait();
-        expect(status.has_value() && *status == 0);
+        expect(status.has_value() && status->success());
         expect(collected == "hello\nfrom the parent\n") << collected;
     };
 
@@ -181,11 +184,11 @@ int main() {
                                                "quote\"inside", "back\\\"quote", "\\\\server\\share", "tab\there", "--flag=a b" };
         std::vector<std::string> arguments { "--arguments" };
         arguments.insert(arguments.end(), given.begin(), given.end());
-        auto result = platform::run({ .program = self, .arguments = arguments }, std::chrono::seconds { 60 });
+        auto result = os::process::run(child(arguments), os::process::bounds { .hard = std::chrono::seconds { 60 } });
         expect(fatal(result.has_value()));
         std::string expected;
         for (const auto& argument : given) expected += std::format("[{}]", argument);
-        expect(result->output == expected) << result->output;
+        expect(result->out == expected) << result->out;
     };
 
     // The stress check's process-tree sampler (mcppls-conformance) reads this to find the server
@@ -194,7 +197,7 @@ int main() {
     // loop with it, 11 to 13 s an edit. What is sent to a peer is queued for a writer thread of the connection's own.
     "a peer that reads nothing does not hold what is sent to it, and stopping it still ends"_test = [&] {
         using namespace std::chrono_literals;
-        auto connection = mcppls::lsp::Connection::start({ .program = self, .arguments = { "--sleep" } }, [](nlohmann::json) {}, [] {});
+        auto connection = mcppls::lsp::Connection::start(child({ "--sleep" }), [](nlohmann::json) {}, [] {});
         expect(fatal(connection.has_value())) << (connection ? "" : connection.error().message);
         const std::string big(64 * 1024, 'x');
         const auto started = std::chrono::steady_clock::now();
@@ -229,7 +232,7 @@ int main() {
                 bool closed { false };
             } received;
             auto connection = mcppls::lsp::Connection::start(
-                { .program = self, .arguments = { "--echo" } },
+                child({ "--echo" }),
                 [&](Json message) {
                     std::unique_lock lock { received.mutex };
                     received.messages.push_back(std::move(message));
@@ -308,7 +311,7 @@ int main() {
         std::condition_variable ready;
         bool closed { false };
         auto connection = mcppls::lsp::Connection::start(
-            { .program = self, .arguments = { "--exit", "0" } }, [](nlohmann::json) {},
+            child({ "--exit", "0" }), [](nlohmann::json) {},
             [&] { const std::lock_guard lock { mutex }; closed = true; ready.notify_all(); });
         expect(fatal(connection.has_value()));
         bool observedClosed { false };
@@ -328,43 +331,43 @@ int main() {
     };
 
     "writing after the child exits returns an error and preserves the parent"_test = [&] {
-        auto process = platform::Process::spawn({ .program = self, .arguments = { "--exit", "0" } });
+        auto process = os::process::process::spawn(child({ "--exit", "0" }));
         expect(fatal(process.has_value()));
         const auto status = process->wait();
         expect(fatal(status.has_value()));
-        expect(*status == 0);
+        expect(status->success());
         const auto written = process->write("peer is gone");
         expect(!written.has_value());
-        if (!written) expect(written.error().code == "process-write");
+        if (!written) expect(written.error().code == os::errc::closed) << written.error().message();
     };
 
-    "native_pid is the child's identifier while it runs, on every system"_test = [&] {
-        auto process = platform::Process::spawn({ .program = self, .arguments = { "--sleep" } });
-        expect(fatal(process.has_value())) << (process ? "" : process.error().message);
-        const auto pid { process->native_pid() };
-        expect(fatal(pid.has_value()));
-        expect(*pid > 0) << *pid;
-        expect(platform::process_alive(*pid) == std::optional<bool> { true }) << *pid;
-        if (mcppls::os::family() == mcppls::os::Family::linux) {
-            expect(platform::fs::is_directory(std::format("/proc/{}", *pid))) << *pid;
+    "the identifier is the child's while it runs, on every system"_test = [&] {
+        auto process = os::process::process::spawn(child({ "--sleep" }));
+        expect(fatal(process.has_value())) << (process ? "" : process.error().message());
+        const auto pid { process->id() };
+        expect(pid > 0) << pid;
+        const auto described = os::process::describe(pid);
+        expect(described.has_value() && !described->ended) << pid;
+        if (os::host() == os::platform::linux) {
+            std::error_code ignored;
+            expect(std::filesystem::is_directory(std::format("/proc/{}", pid), ignored)) << pid;
         }
         process->kill();
         (void)process->wait();
-        expect(!process->native_pid().has_value());
     };
 
     // StuckWatch in the clangd engine tells a stuck clangd from a busy one by this.
     "cpu_seconds tells a busy child from an idle one, on every system"_test = [&] {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds { 30 };
-        auto idle = platform::Process::spawn({ .program = self, .arguments = { "--cpu-idle" } });
-        auto busy = platform::Process::spawn({ .program = self, .arguments = { "--spin-cpu" } });
+        auto idle = os::process::process::spawn(child({ "--cpu-idle" }));
+        auto busy = os::process::process::spawn(child({ "--spin-cpu" }));
         expect(fatal(idle.has_value() && busy.has_value()));
         struct Cleanup {
-            platform::Process& idle;
-            platform::Process& busy;
+            os::process::process& idle;
+            os::process::process& busy;
             ~Cleanup() { idle.kill(); busy.kill(); (void)idle.wait(); (void)busy.wait(); }
         } cleanup { *idle, *busy };
-        const auto announced = [&](platform::Process& process, std::string_view expected, std::string* message = nullptr) {
+        const auto announced = [&](os::process::process& process, std::string_view expected, std::string* message = nullptr) {
             std::string text;
             while (std::chrono::steady_clock::now() < deadline && text.size() < 128) {
                 const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
@@ -380,9 +383,11 @@ int main() {
             return false;
         };
         expect(fatal(announced(*idle, "ready\n") && announced(*busy, "ready\n"))) << "children did not become ready within the shared 30 s bound";
-        const auto read = [](const platform::Process& process) -> std::optional<double> {
-            const auto pid = process.native_pid();
-            return pid ? platform::cpu_seconds(*pid) : std::nullopt;
+        // What the clangd engine's StuckWatch reads (ClangdProcess::cpu_reader).
+        const auto read = [](const os::process::process& process) -> std::optional<double> {
+            const auto described = os::process::describe(process.id());
+            if (!described || described->ended) return std::nullopt;
+            return static_cast<double>(described->cpu_ns) / 1e9;
         };
         const auto idleBefore = read(*idle);
         const auto busyBefore = read(*busy);
@@ -407,40 +412,37 @@ int main() {
         expect(fatal(idleBefore && idleAfter && busyBefore && busyAfter));
         expect(*idleAfter - *idleBefore < 0.2) << *idleBefore << " -> " << *idleAfter;
         expect(*busyAfter - *busyBefore > 0.5) << *busyBefore << " -> " << *busyAfter;
-        expect(!platform::cpu_seconds(0).has_value());
-        // Fix plan F17.2: an incident says which thread of the engine is busy, where the platform can say.
-        if (const auto pid = busy->native_pid()) {
-            const auto threads = platform::thread_cpu(*pid);
-            if (mcppls::os::family() == mcppls::os::Family::linux) {
+        expect(!os::process::describe(0).has_value());
+        // Fix plan F17.2: an incident says which thread of the engine is busy, where the system can say.
+        {
+            const auto threads = os::process::threads(busy->id());
+            if (os::host() == os::platform::linux) {
                 expect(fatal(!threads.empty()));
-                const auto busiest = std::ranges::max_element(threads, {}, &platform::ThreadCpu::seconds);
-                expect(busiest->seconds > 0.5 && busiest->id > 0 && !busiest->name.empty()) << busiest->name << " " << busiest->seconds;
+                const auto busiest = std::ranges::max_element(threads, {}, &os::process::thread_info::cpu_ns);
+                expect(busiest->cpu_ns > 500'000'000 && busiest->id > 0 && !busiest->name.empty()) << busiest->name << " " << busiest->cpu_ns;
             } else {
                 expect(threads.empty()) << "only Linux can say, per thread";
             }
         }
-        expect(platform::thread_cpu(0).empty());
+        expect(os::process::threads(0).empty());
     };
 
-    // X-6 (plan 2026-10-03): the platform can name this process and tell incarnations apart.
-    "process_self is the process asking, and process_identity answers for a live pid"_test = [&] {
-        const auto self = platform::process_self();
-        if (mcppls::os::family() == mcppls::os::Family::windows) {
-            expect(self.has_value()) << "Windows names its own pid and start";
-        } else {
-            expect(fatal(self.has_value()));
-        }
-        if (self.has_value()) {
-            expect(self->pid > 0);
-            expect(!self->started.empty());
-            // Asking again answers the same incarnation.
-            const auto again = platform::process_identity(self->pid);
-            expect(again.has_value() && again->started == self->started) << "stable while the process lives";
-        }
-        // A pid nothing answers for is gone (or cannot be judged), and never "the same process".
-        const auto ghost = platform::process_identity(999999999);
-        expect(!ghost.has_value() || ghost->pid != (self ? self->pid : 0));
-        expect(platform::process_identity(0) == std::nullopt) << "pid 0 is not a question";
+    // X-6 (plan 2026-10-03): the system names this process and tells incarnations apart; a lease records both.
+    "this program is named, and asking again answers the same incarnation"_test = [&] {
+        const auto me = os::process::self();
+        expect(fatal(me.has_value())) << "every system names this program and its start";
+        expect(me->id > 0);
+        expect(me->started_ns > 0);
+        const auto again = os::process::describe(me->id);
+        expect(again.has_value() && again->who == *me) << "stable while the process lives";
+        // An identifier nothing answers for is gone (or cannot be judged), and never "the same process".
+        const auto ghost = os::process::describe(999999999);
+        expect(!ghost.has_value() || ghost->who.id != me->id);
+        expect(!os::process::describe(0).has_value()) << "identifier 0 is not a question";
+        // The lease's own reading of it (instance.cpp): this process is not gone, another incarnation is.
+        const std::string started { std::format("ok:{}", me->started_ns) };
+        expect(!mcppls::orchestrator::lease_owner_gone(static_cast<std::int64_t>(me->id), started));
+        expect(mcppls::orchestrator::lease_owner_gone(static_cast<std::int64_t>(me->id), started + "!"));
     };
 
     // X-6, the ux U10 defect: a killed-but-unreaped process (a zombie) keeps its /proc entry and
@@ -448,111 +450,116 @@ int main() {
     // live process" and a restart within the lease expiry starts cold in a private directory --
     // the ux budget caught it as 222 s where 25 was allowed.
     "a zombie has no identity, so its lease is taken over"_test = [&] {
-        if (mcppls::os::family() == mcppls::os::Family::linux) {
+        if (os::host() == os::platform::linux) {
             // A shell that starts a child, ignores SIGCHLD (so it never reaps) and becomes a sleep:
             // the child exits, stays a zombie for as long as this test runs, and names itself.
-            platform::SpawnOptions options;
-            options.program = "/bin/sh";
-            options.arguments = { "-c", "trap '' CHLD; sleep 0.4 & echo $!; exec sleep 30" };
-            auto shell = platform::Process::spawn(options);
+            auto shell = os::process::process::spawn({ .program = "/bin/sh", .args = { "-c", "trap '' CHLD; sleep 0.4 & echo $!; exec sleep 30" },
+                                                       .in = os::process::stdio::null, .out = os::process::stdio::pipe,
+                                                       .err = os::process::stdio::inherit, .bound_lifetime = true });
             expect(fatal(shell.has_value()));
             const auto announced = shell->read_output_for(std::chrono::milliseconds { 2000 });
             std::int64_t zombie { 0 };
             if (announced.has_value() && announced->has_value()) zombie = std::stoll(announced->value());
             expect(fatal(zombie > 0)) << "the shell did not name its child";
             std::this_thread::sleep_for(std::chrono::milliseconds { 900 });   // the child has exited by now
-            expect(platform::process_identity(zombie) == std::nullopt) << "a zombie has no identity to answer with";
-            const auto alive = platform::process_alive(zombie);
-            expect(!alive.has_value() || !*alive) << "a zombie is not running";
+            const auto described = os::process::describe(static_cast<std::uint64_t>(zombie));
+            expect(!described.has_value() || described->ended) << "a zombie is not running";
+            expect(mcppls::orchestrator::lease_owner_gone(zombie, "ok:1")) << "and a lease it holds is taken over";
             shell->kill();
             (void)shell->wait();
         }
     };
 
-    "process_alive answers on Windows too, and never says a live pid is gone"_test = [&] {
-        if (const auto self = platform::process_self(); self && self->pid > 0) {
-            const auto alive = platform::process_alive(self->pid);
-            expect(alive.value_or(true)) << "this process is running, wherever the platform can say it or not";
+    "a live program is never said to be gone, on Windows too"_test = [&] {
+        if (const auto me = os::process::self()) {
+            const auto described = os::process::describe(me->id);
+            expect(!described || !described->ended) << "this process is running, wherever the system can say it or not";
         }
-        const auto gone = platform::process_alive(999999999);
-        expect(!gone.has_value() || !*gone) << "an unanswerable pid is gone or unknown, never alive";
+        const auto gone = os::process::describe(999999999);
+        expect(!gone.has_value() || gone->ended) << "an unanswerable identifier is gone or unknown, never alive";
     };
 
     "exit status is propagated"_test = [&] {
-        auto result = platform::run({ .program = self, .arguments = { "--exit", "7" } }, std::chrono::seconds { 60 });
+        auto result = os::process::run(child({ "--exit", "7" }), os::process::bounds { .hard = std::chrono::seconds { 60 } });
         expect(fatal(result.has_value()));
-        expect(result->exitCode == 7) << result->exitCode;
-        expect(!result->timedOut);
+        expect(result->status.code == 7 && !result->status.by_environment) << result->status.code;
+        expect(!result->timed_out);
     };
 
     "standard error is captured separately"_test = [&] {
-        auto result = platform::run({ .program = self, .arguments = { "--stderr" } }, std::chrono::seconds { 60 });
+        auto result = os::process::run(child({ "--stderr" }), os::process::bounds { .hard = std::chrono::seconds { 60 } });
         expect(fatal(result.has_value()));
-        expect(result->exitCode == 3);
-        expect(result->error == "to-stderr") << result->error;
-        expect(result->output.empty());
+        expect(result->status.code == 3);
+        expect(result->err == "to-stderr") << result->err;
+        expect(result->out.empty());
     };
 
     "a bound on waiting ends a sleeping child"_test = [&] {
         const auto started = std::chrono::steady_clock::now();
-        auto result = platform::run({ .program = self, .arguments = { "--sleep" } }, std::chrono::milliseconds { 500 });
+        auto result = os::process::run(child({ "--sleep" }), os::process::bounds { .hard = std::chrono::milliseconds { 500 } });
         const auto elapsed = std::chrono::steady_clock::now() - started;
         expect(fatal(result.has_value()));
-        expect(result->timedOut);
+        expect(result->timed_out);
         expect(elapsed < std::chrono::seconds { 20 });
     };
 
     "environment reaches the child"_test = [&] {
-        auto environment = platform::env::variables();
+        auto environment = os::env::variables();
         environment.push_back("MCPPLS_TEST_VARIABLE=from-parent");
-        auto result = platform::run({ .program = self, .arguments = { "--env", "MCPPLS_TEST_VARIABLE" },
-                                      .environment = environment }, std::chrono::seconds { 60 });
+        auto options = child({ "--env", "MCPPLS_TEST_VARIABLE" });
+        options.clear_env = true;
+        options.env = os::env::assignments(environment);
+        auto result = os::process::run(std::move(options), os::process::bounds { .hard = std::chrono::seconds { 60 } });
         expect(fatal(result.has_value()));
-        expect(result->output == "from-parent") << result->output;
+        expect(result->out == "from-parent") << result->out;
     };
 
     // A value is reported as it was set, backslashes included: a program that
     // starts the command interpreter from %ComSpec% received a forward-slashed
     // name, which the interpreter reads as switches.
     "an environment value arrives unaltered"_test = [&] {
-        auto environment = platform::env::variables();
+        auto environment = os::env::variables();
         environment.push_back("MCPPLS_TEST_PATHS=C:\\dir\\sub;\\\\host\\share\\x;a\"b");
-        auto result = platform::run({ .program = self, .arguments = { "--env", "MCPPLS_TEST_PATHS" },
-                                      .environment = environment }, std::chrono::seconds { 60 });
+        auto options = child({ "--env", "MCPPLS_TEST_PATHS" });
+        options.clear_env = true;
+        options.env = os::env::assignments(environment);
+        auto result = os::process::run(std::move(options), os::process::bounds { .hard = std::chrono::seconds { 60 } });
         expect(fatal(result.has_value()));
-        expect(result->output == "C:\\dir\\sub;\\\\host\\share\\x;a\"b") << result->output;
+        expect(result->out == "C:\\dir\\sub;\\\\host\\share\\x;a\"b") << result->out;
     };
 
     "work directory is where relative names resolve"_test = [&] {
-        const std::string directory { base::join_path(platform::dirs::temp_directory(),
+        const std::string directory { base::join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-test-process-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-        expect(fatal(platform::fs::create_directories(directory).has_value())) << directory;
-        expect(platform::fs::write_file(base::join_path(directory, "marker.txt"), "marker-content\n").has_value());
-        auto result = platform::run({ .program = self, .arguments = { "--read-relative", "marker.txt" },
-                                      .workDirectory = directory }, std::chrono::seconds { 60 });
+        expect(fatal(std::filesystem::create_directories(directory) || std::filesystem::is_directory(directory))) << directory;
+        expect(os::fs::write(base::join_path(directory, "marker.txt"), "marker-content\n").has_value());
+        auto options = child({ "--read-relative", "marker.txt" });
+        options.cwd = directory;
+        auto result = os::process::run(std::move(options), os::process::bounds { .hard = std::chrono::seconds { 60 } });
         expect(fatal(result.has_value()));
-        expect(result->output == "marker-content") << result->output;
-        platform::fs::remove_all(directory);
+        expect(result->out == "marker-content") << result->out;
+        std::filesystem::remove_all(directory);
     };
 
     // The command interpreter refuses a current directory given in the `\\?\` form
     // ("UNC paths are not supported") and runs in the Windows directory instead,
     // so a batch file started in a project ran somewhere else.
     "the command interpreter runs in the work directory"_test = [&] {
-        if (mcppls::os::family() != mcppls::os::Family::windows) {
+        if (os::host() != os::platform::windows) {
             return;
         } else {
-            const std::string directory { base::join_path(platform::dirs::temp_directory(),
+            const std::string directory { base::join_path(base::spelled(os::dirs::temp()),
                 std::format("mcppls-test-cmd-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-            expect(fatal(platform::fs::create_directories(directory).has_value())) << directory;
-            expect(platform::fs::write_file(base::join_path(directory, "marker.txt"), "marker-content").has_value());
-            const std::string interpreter { base::normalize_path(platform::env::get("ComSpec").value_or("C:/Windows/System32/cmd.exe")) };
-            auto result = platform::run({ .program = interpreter, .arguments = { "/d", "/c", "type", "marker.txt" },
-                                          .workDirectory = directory }, std::chrono::seconds { 60 });
+            expect(fatal(std::filesystem::create_directories(directory) || std::filesystem::is_directory(directory))) << directory;
+            expect(os::fs::write(base::join_path(directory, "marker.txt"), "marker-content").has_value());
+            const std::string interpreter { base::normalize_path(os::env::get("ComSpec").value_or("C:/Windows/System32/cmd.exe")) };
+            auto result = os::process::run({ .program = interpreter, .args = { "/d", "/c", "type", "marker.txt" }, .cwd = directory,
+                                             .bound_lifetime = true },
+                                           os::process::bounds { .hard = std::chrono::seconds { 60 } });
             expect(fatal(result.has_value()));
-            expect(base::trim(result->output) == "marker-content") << result->output << result->error;
-            expect(!result->error.contains("UNC")) << result->error;
-            platform::fs::remove_all(directory);
+            expect(base::trim(result->out) == "marker-content") << result->out << result->err;
+            expect(!result->err.contains("UNC")) << result->err;
+            std::filesystem::remove_all(directory);
         }
     };
 
@@ -560,71 +567,71 @@ int main() {
     // caller's pipe. Reading to the end of the stream then waits for the descendant, which is how
     // one hung index refresh kept a language server without a build database for twelve minutes.
     "a descendant holding a pipe does not hold the caller, and the unit is ended"_test = [&] {
-        const std::string directory { base::join_path(platform::dirs::temp_directory(),
+        const std::string directory { base::join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-test-hold-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-        expect(fatal(platform::fs::create_directories(directory).has_value())) << directory;
+        expect(fatal(std::filesystem::create_directories(directory) || std::filesystem::is_directory(directory))) << directory;
         const auto started = std::chrono::steady_clock::now();
-        auto result = platform::run({ .program = self, .arguments = { "--hold-pipe", directory } },
-                                    platform::RunBounds { .hard = std::chrono::seconds { 30 },
-                                                          .drain = std::chrono::seconds { 1 } });
+        auto result = os::process::run(child({ "--hold-pipe", directory }),
+                                       os::process::bounds { .hard = std::chrono::seconds { 30 }, .drain = std::chrono::seconds { 1 } });
         const auto elapsed = std::chrono::steady_clock::now() - started;
         expect(fatal(result.has_value()));
-        expect(result->exitCode == 0) << result->exitCode;
-        expect(!result->timedOut);
-        expect(result->outputHeldOpen) << "the descendant held the pipe and should have been reported";
+        expect(result->status.success()) << result->status.code;
+        expect(!result->timed_out);
+        expect(result->held_open) << "the descendant held the pipe and should have been reported";
         expect(elapsed < std::chrono::seconds { 3 }) << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
-        expect(result->output == "started") << result->output;
-        // `outputHeldOpen` is itself the proof that the descendant was alive and holding the pipe
+        expect(result->out == "started") << result->out;
+        // `held_open` is itself the proof that the descendant was alive and holding the pipe
         // through the drain: had it gone with its parent, the stream would have ended and there
         // would have been nothing to report. What happens to it afterwards is the system's own
         // business --- a unit of its own outlives the caller on POSIX and is collected with its
         // job on Windows --- and is not what this test is about.
         std::this_thread::sleep_for(std::chrono::seconds { 4 });
-        platform::fs::remove_all(directory);
+        std::filesystem::remove_all(directory);
     };
 
     // The child leaves politely when asked; what it started does not end with it (no lifetime
     // binding, as on macOS and as for anything a build tool starts through a shell). Only ending
     // the unit reaches that, and the bound must do it whether or not the child went quietly.
     "the hard bound ends what the tool started, not only the tool"_test = [&] {
-        const std::string directory { base::join_path(platform::dirs::temp_directory(),
+        const std::string directory { base::join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-test-unit-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-        expect(fatal(platform::fs::create_directories(directory).has_value())) << directory;
+        expect(fatal(std::filesystem::create_directories(directory) || std::filesystem::is_directory(directory))) << directory;
         const auto started = std::chrono::steady_clock::now();
-        auto result = platform::run({ .program = self, .arguments = { "--hold-pipe-and-sleep", directory } },
-                                    platform::RunBounds { .hard = std::chrono::milliseconds { 300 },
-                                                          .grace = std::chrono::milliseconds { 200 },
-                                                          .drain = std::chrono::milliseconds { 500 } });
+        auto result = os::process::run(child({ "--hold-pipe-and-sleep", directory }),
+                                       os::process::bounds { .hard = std::chrono::milliseconds { 300 },
+                                                             .grace = std::chrono::milliseconds { 200 },
+                                                             .drain = std::chrono::milliseconds { 500 } });
         const auto elapsed = std::chrono::steady_clock::now() - started;
         expect(fatal(result.has_value()));
-        expect(result->timedOut);
+        expect(result->timed_out);
         expect(elapsed < std::chrono::seconds { 5 }) << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
         std::this_thread::sleep_for(std::chrono::seconds { 4 });
-        expect(!platform::fs::exists(base::join_path(directory, "late.txt")));
-        platform::fs::remove_all(directory);
+        std::error_code ignored;
+        expect(!std::filesystem::exists(base::join_path(directory, "late.txt"), ignored));
+        std::filesystem::remove_all(directory);
     };
 
     "output above the limit is truncated and said to be"_test = [&] {
-        auto result = platform::run({ .program = self, .arguments = { "--arguments", std::string(4096, 'x') } },
-                                    platform::RunBounds { .hard = std::chrono::seconds { 60 }, .outputLimit = 512 });
+        auto result = os::process::run(child({ "--arguments", std::string(4096, 'x') }),
+                                       os::process::bounds { .hard = std::chrono::seconds { 60 }, .out_limit = 512 });
         expect(fatal(result.has_value()));
-        expect(result->outputTruncated);
-        expect(result->output.size() == 512) << result->output.size();
+        expect(result->out_truncated);
+        expect(result->out.size() == 512) << result->out.size();
     };
 
     "the last lines of a stream are what a record keeps"_test = [] {
-        expect(platform::last_lines("a\nb\nc\n", 2) == "b\nc") << platform::last_lines("a\nb\nc\n", 2);
-        expect(platform::last_lines("only", 3) == "only");
-        expect(platform::last_lines("", 3).empty());
+        expect(base::last_lines("a\nb\nc\n", 2) == "b\nc") << base::last_lines("a\nb\nc\n", 2);
+        expect(base::last_lines("only", 3) == "only");
+        expect(base::last_lines("", 3).empty());
     };
 
-    "a relative program path is refused"_test = [] {
-        auto process = platform::Process::spawn({ .program = "relative/program" });
+    "a program that is not there is not started"_test = [] {
+        auto process = os::process::process::spawn({ .program = "relative/program" });
         expect(!process.has_value());
     };
 
-    "every absolute path of this program matches a preopen"_test = [&] {
-        expect(platform::match_preopen(self).has_value()) << self;
+    "this program's own name lies beneath a directory it was given"_test = [&] {
+        expect(os::fs::locate(std::filesystem::path { self }).has_value()) << self;
     };
 
     return report();

@@ -1,13 +1,10 @@
 module mcppls.project.model;
 
 import std;
-import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.base.log;
-import mcppls.platform.fs;
-import mcppls.platform.dirs;
 import mcppls.spec.database;
 import mcppls.spec.discovery;
 import mcppls.spec.kit;
@@ -22,6 +19,10 @@ import mcppls.project.provider;
 import mcppls.project.providers;
 import mcppls.project.generated;
 import mcppls.project.scan;
+import mcpplibs.os;
+import mcppls.base.home;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::project {
 
@@ -39,13 +40,14 @@ std::string_view short_family(spec::Family family) {
 }
 
 bool usable_for_semantics(const toolchain::ToolchainFacts& facts) {
+    std::error_code ignored;
     if (facts.appleClang) return false;
     const bool msvc { facts.toolchain.family == spec::Family::msvc || facts.toolchain.family == spec::Family::clang_cl };
     if (facts.toolchain.family != spec::Family::gcc && facts.toolchain.family != spec::Family::clang && !msvc) return false;
     // The MSVC STL's semantics need the toolset and SDK paths the engine is given explicitly.
     if (msvc && !facts.msvc) return false;
     return facts.toolchain.stdlib && !facts.toolchain.stdlib->moduleMetadata.empty()
-        && platform::fs::is_regular_file(facts.toolchain.stdlib->moduleMetadata);
+        && std::filesystem::is_regular_file(facts.toolchain.stdlib->moduleMetadata, ignored);
 }
 
 } // namespace
@@ -126,7 +128,7 @@ std::vector<ModuleManifest> module_manifests(const ProjectModel& model, const sp
 
 ProjectModel load_project(std::string_view rootInput, const LoadOptions& options) {
     ProjectModel model;
-    model.root = platform::fs::canonical_path(rootInput);
+    model.root = base::canonical_path(rootInput);
 
     // B-1 task 1 / B-7: `mcppls.buildDiscovery.providers` (empty = every registered provider)
     // filters the registry once; a provider left out is skipped as if its files were not there, for
@@ -257,7 +259,7 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
     // treated the same as an empty one, and inference takes over. A database that is only partly
     // stale keeps its remaining units below, once loaded, rather than being discarded here.
     const auto has_existing_unit = [](const spec::Set& set) {
-        return std::ranges::any_of(set.units, [](const spec::TranslationUnit& unit) { return platform::fs::is_regular_file(spec::absolute_source(unit)); });
+        return std::ranges::any_of(set.units, [](const spec::TranslationUnit& unit) { std::error_code ignored; return std::filesystem::is_regular_file(spec::absolute_source(unit), ignored); });
     };
     if (!loaded || loaded->database.sets.empty() || std::ranges::all_of(loaded->database.sets, [](const spec::Set& set) { return set.units.empty(); })
         || std::ranges::none_of(loaded->database.sets, has_existing_unit)) {
@@ -274,7 +276,7 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
             if (!infer.facts && options.discoverCompilers && !kitRequested) {
                 const auto candidates = toolchain::discover_compilers(options.runner);
                 // On Windows the machine's own Visual Studio comes first when it has the std module (design 9.3, D27).
-                if (mcppls::os::family() == mcppls::os::Family::windows) {
+                if (os::host() == os::platform::windows) {
                     for (const auto& candidate : candidates) {
                         if (candidate.origin != "visual-studio" || candidate.family != spec::Family::msvc) continue;
                         auto facts = prober(candidate.driver, std::vector<std::string> {});
@@ -354,7 +356,7 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
     // exclusions, the module index, and clangd matching an unsaved buffer to
     // the module source it builds.
     for (auto& set : model.database.sets) {
-        for (auto& unit : set.units) unit.source = platform::fs::canonical_path(spec::absolute_source(unit));
+        for (auto& unit : set.units) unit.source = base::canonical_path(spec::absolute_source(unit));
     }
     // Stale database detection (real-project plan RP2.4): a unit whose file does not exist any more is used
     // for nothing (the caller cannot open, scan or build it), so it is dropped rather than left to
@@ -364,7 +366,8 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
     if (model.source != SourceKind::inferred) {
         std::size_t staleUnits { 0 };
         for (auto& set : model.database.sets) {
-            const auto stale = std::ranges::remove_if(set.units, [&](const spec::TranslationUnit& unit) { return !platform::fs::is_regular_file(unit.source); });
+            const auto stale = std::ranges::remove_if(set.units, [&](const spec::TranslationUnit& unit) {
+                std::error_code ignored; return !std::filesystem::is_regular_file(unit.source, ignored); });
             staleUnits += static_cast<std::size_t>(std::ranges::distance(stale));
             set.units.erase(stale.begin(), stale.end());
         }
@@ -397,7 +400,7 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
         }
         if (!missing.empty()) {
             const GeneratedSourceOptions recoveryOptions {
-                model.root, options.homeDirectory.empty() ? platform::dirs::home_directory() : options.homeDirectory, scanner
+                model.root, options.homeDirectory.empty() ? base::home_directory() : options.homeDirectory, scanner
             };
             for (const auto& name : missing) {
                 auto recovered = find_generated_source(name, recoveryOptions);
@@ -416,7 +419,7 @@ ProjectModel load_project(std::string_view rootInput, const LoadOptions& options
                     // built with, which is the best guess for a file mcppls never saw a command for
                     // (the same reasoning normalize/plan.cpp's own openSources fallback uses).
                     spec::TranslationUnit recoveredUnit { *importer };
-                    recoveredUnit.source = platform::fs::canonical_path(*recovered);
+                    recoveredUnit.source = base::canonical_path(*recovered);
                     recoveredUnit.object.clear();
                     recoveredUnit.isPrivate = false;
                     // What it imports, from the file itself: a generated module may import others (`std`).

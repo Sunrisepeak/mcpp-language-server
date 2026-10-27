@@ -4,8 +4,9 @@ import std;
 import nlohmann.json;
 import mcppls.base.error;
 import mcppls.base.path;
-import mcppls.platform.fs;
+import mcpplibs.os;
 
+namespace os = mcpplibs::os;
 namespace mcppls::spec {
 
 namespace {
@@ -85,7 +86,7 @@ base::Result<Kit> parse_kit(const nlohmann::json& document, std::string_view kit
 
 base::Result<Kit> load_kit(std::string_view kitRoot) {
     const std::string manifest { base::join_path(kitRoot, "kit.json") };
-    auto text = platform::fs::read_file(manifest);
+    auto text = os::fs::read(manifest);
     if (!text) return base::fail("kit-missing", std::format("no kit.json in {}", kitRoot));
     nlohmann::json document = nlohmann::json::parse(*text, nullptr, false);
     if (document.is_discarded()) return base::fail("kit-invalid", std::format("{} is not valid JSON", manifest));

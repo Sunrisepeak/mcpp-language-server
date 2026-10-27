@@ -4,27 +4,29 @@
 import std;
 import mcppls.testing;
 import mcppls.base.path;
-import mcppls.platform.fs;
-import mcppls.platform.dirs;
 import mcppls.devtools.version;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace version = mcppls::devtools::version;
-namespace fs = mcppls::platform::fs;
 namespace base = mcppls::base;
 
 namespace {
 
 std::string scratch(std::string_view name) {
+    std::error_code ignored;
     const std::string directory { base::join_path(
-        mcppls::platform::dirs::temp_directory(),
+        base::spelled(os::dirs::temp()),
         std::format("mcppls-test-version-{}-{}", name, std::chrono::steady_clock::now().time_since_epoch().count())) };
-    (void) fs::create_directories(directory);
+    (void)std::filesystem::create_directories(directory, ignored);
     return directory;
 }
 
 void write(const std::string& path, std::string_view content) {
-    (void) fs::create_directories(base::parent_path(path));
-    (void) fs::write_file(path, content);
+    std::error_code ignored;
+    (void)std::filesystem::create_directories(base::parent_path(path), ignored);
+    (void) os::fs::write(path, content);
 }
 
 // A minimal root with every site version.py's --check reads, all agreeing on 0.0.1.

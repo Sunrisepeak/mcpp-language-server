@@ -2,25 +2,26 @@ module mcppls.lsp.connection;
 
 import std;
 import nlohmann.json;
+import mcpplibs.os;
 import mcppls.base.error;
 import mcppls.base.log;
-import mcppls.platform.process;
 import mcppls.lsp.jsonrpc;
 
 namespace mcppls::lsp {
 
 Connection::~Connection() { stop(std::chrono::milliseconds { 500 }); }
 
-base::Result<std::unique_ptr<Connection>> Connection::start(platform::SpawnOptions options, MessageHandler onMessage,
+base::Result<std::unique_ptr<Connection>> Connection::start(mcpplibs::os::process::spawn_options options, MessageHandler onMessage,
                                                             ClosedHandler onClosed, ErrorLineHandler onErrorLine, Framing framing) {
-    options.pipeInput = true;
-    options.pipeOutput = true;
-    options.pipeError = static_cast<bool>(onErrorLine);
-    auto process = platform::Process::spawn(options);
-    if (!process) return std::unexpected { process.error() };
+    namespace process = mcpplibs::os::process;
+    options.in = process::stdio::pipe;
+    options.out = process::stdio::pipe;
+    options.err = onErrorLine ? process::stdio::pipe : process::stdio::error;
+    auto started = process::process::spawn(options);
+    if (!started) return base::fail("spawn-failed", started.error().message());
 
     auto connection = std::make_unique<Connection>();
-    connection->process_ = std::move(*process);
+    connection->process_ = std::move(*started);
     Connection* self { connection.get() };
     connection->reader_ = std::jthread { [self, framing, onMessage = std::move(onMessage), onClosed = std::move(onClosed)] {
         FrameReader reader;
@@ -141,9 +142,10 @@ void Connection::stop(std::chrono::milliseconds grace) {
 }
 
 std::optional<int> Connection::exit_code() {
-    auto waited = process_.wait_for(std::chrono::milliseconds { 0 });
+    if (!process_.valid()) return std::nullopt;
+    auto waited = process_.try_wait();
     if (!waited || !waited->has_value()) return std::nullopt;
-    return **waited;
+    return (*waited)->by_environment ? -1 : (*waited)->code;
 }
 
 } // namespace mcppls::lsp

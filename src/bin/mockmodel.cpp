@@ -23,12 +23,10 @@
 // content/json/finishReason/usage; "model" is filled in from the request when absent).
 import std;
 import nlohmann.json;
-import mcppls.platform.env;
-import mcppls.platform.fs;
+import mcpplibs.os;
 
+namespace os = mcpplibs::os;
 using Json = nlohmann::json;
-namespace platform = mcppls::platform;
-
 namespace {
 
 struct Script {
@@ -48,7 +46,7 @@ struct Script {
 Script load_script(const std::string& path) {
     Script script;
     if (path.empty()) return script;
-    auto text = platform::fs::read_file(path);
+    auto text = os::fs::read(path);
     if (!text) return script;
     Json document = Json::parse(*text, nullptr, false);
     if (document.is_discarded() || !document.is_object()) return script;
@@ -159,8 +157,8 @@ int self_check(const std::string& path) {
 } // namespace
 
 int main(int argc, char* argv[]) {
-    std::string scriptPath { platform::env::get("MCPPLS_MOCK_MODEL_SCRIPT").value_or("") };
-    tracePath = platform::env::get("MCPPLS_MOCK_MODEL_TRACE").value_or("");
+    std::string scriptPath { os::env::get("MCPPLS_MOCK_MODEL_SCRIPT").value_or("") };
+    tracePath = os::env::get("MCPPLS_MOCK_MODEL_TRACE").value_or("");
     for (int i { 1 }; i < argc; ++i) {
         const std::string_view argument { argv[i] };
         if (argument == "--script" && i + 1 < argc) scriptPath = argv[++i];

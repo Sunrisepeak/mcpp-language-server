@@ -5,22 +5,22 @@ import nlohmann.json;
 import mcppls.base.path;
 import mcppls.engine.clangd.bmi;
 import mcppls.orchestrator.instance;
-import mcppls.platform.fs;
+import mcpplibs.os;
 
+namespace os = mcpplibs::os;
 namespace mcppls::orchestrator::cache {
 
 using Json = nlohmann::json;
-
-namespace fs = mcppls::platform::fs;
 namespace bmi = mcppls::engine::clangd;
 
 namespace {
 
 std::uint64_t directory_bytes(const std::string& directory) {
+    std::error_code ignored;
     std::uint64_t total { 0 };
-    for (const auto& entry : fs::list_directory(directory)) {
-        if (fs::is_directory(entry)) total += directory_bytes(entry);
-        else if (const auto stamp = fs::stamp(entry)) total += stamp->size;
+    for (const auto& entry : base::children(directory)) {
+        if (std::filesystem::is_directory(entry, ignored)) total += directory_bytes(entry);
+        else if (const auto stamp = base::file_stamp(entry)) total += stamp->size;
     }
     return total;
 }
@@ -28,30 +28,32 @@ std::uint64_t directory_bytes(const std::string& directory) {
 // The newest file mtime in a tree, on the file clock: the only liveness signal a 0.0.8/0.0.9
 // instance left behind (C-9: it wrote no `instance.json`).
 std::int64_t newest_modified(const std::string& directory) {
+    std::error_code ignored;
     std::int64_t newest { std::numeric_limits<std::int64_t>::min() };
-    for (const auto& entry : fs::list_directory(directory)) {
-        if (fs::is_directory(entry)) newest = std::max(newest, newest_modified(entry));
-        else if (const auto stamp = fs::stamp(entry)) newest = std::max(newest, stamp->modified);
+    for (const auto& entry : base::children(directory)) {
+        if (std::filesystem::is_directory(entry, ignored)) newest = std::max(newest, newest_modified(entry));
+        else if (const auto stamp = base::file_stamp(entry)) newest = std::max(newest, static_cast<std::int64_t>(stamp->modified_ns));
     }
     return newest;
 }
 
 void sweep_into(const std::string& directory, std::int64_t before, bool dryRun, Sweep& sweep) {
-    for (const auto& entry : fs::list_directory(directory)) {
-        if (fs::is_directory(entry)) {
+    std::error_code ignored;
+    for (const auto& entry : base::children(directory)) {
+        if (std::filesystem::is_directory(entry, ignored)) {
             sweep_into(entry, before, dryRun, sweep);
             continue;
         }
         const std::string_view name { base::file_name(entry) };
         if (!name.ends_with(".pcm")) continue;
-        const auto stamp = fs::stamp(entry);
+        const auto stamp = base::file_stamp(entry);
         // Written after the bound: a generation that is alive right now may hold it mapped.
-        if (!stamp || stamp->modified >= before) continue;
+        if (!stamp || static_cast<std::int64_t>(stamp->modified_ns) >= before) continue;
         if (!bmi::is_versioned_copy(name, directory)) continue;
         if (dryRun) {
             sweep.bytes += stamp->size;
             ++sweep.files;
-        } else if (fs::remove(entry)) {
+        } else if ([&] { std::error_code failed; std::filesystem::remove(entry, failed); return !failed; }()) {
             sweep.bytes += stamp->size;
             ++sweep.files;
         } else {
@@ -70,7 +72,7 @@ struct InstanceFile {
 };
 
 std::optional<InstanceFile> instance_file(const std::string& directory) {
-    const auto text = fs::read_file(base::join_path(directory, "instance.json"));
+    const auto text = os::fs::read(base::join_path(directory, "instance.json"));
     if (!text) return std::nullopt;
     const Json document = Json::parse(*text, nullptr, false);
     if (document.is_discarded() || !document.is_object()) return std::nullopt;
@@ -94,7 +96,8 @@ bool instance_alive(const std::optional<InstanceFile>& described, std::chrono::s
 // fresh own `instance.json`, or any fresh guest directory. Used by the global budget, which must
 // not touch what another instance serves.
 bool workspace_live(const std::string& directory, std::chrono::system_clock::time_point now) {
-    if (const auto text = fs::read_file(base::join_path(directory, "owner.lease"))) {
+    std::error_code ignored;
+    if (const auto text = os::fs::read(base::join_path(directory, "owner.lease"))) {
         const Json lease = Json::parse(*text, nullptr, false);
         if (!lease.is_discarded() && lease.is_object()) {
             const auto heartbeat = lease.value("heartbeat", std::int64_t { 0 });
@@ -106,9 +109,9 @@ bool workspace_live(const std::string& directory, std::chrono::system_clock::tim
     }
     if (instance_alive(instance_file(directory), now)) return true;
     const std::string instances { base::join_path(directory, "instances") };
-    if (fs::is_directory(instances)) {
-        for (const auto& entry : fs::list_directory(instances)) {
-            if (fs::is_directory(entry) && instance_alive(instance_file(entry), now)) return true;
+    if (std::filesystem::is_directory(instances, ignored)) {
+        for (const auto& entry : base::children(instances)) {
+            if (std::filesystem::is_directory(entry, ignored) && instance_alive(instance_file(entry), now)) return true;
         }
     }
     return false;
@@ -152,23 +155,25 @@ std::optional<std::uint64_t> parse_bytes(std::string_view text) {
 }
 
 Sweep sweep_copies(std::string_view modulesRoot, std::int64_t before, bool dryRun) {
+    std::error_code ignored;
     Sweep sweep;
-    if (fs::is_directory(modulesRoot)) sweep_into(std::string { modulesRoot }, before, dryRun, sweep);
+    if (std::filesystem::is_directory(modulesRoot, ignored)) sweep_into(std::string { modulesRoot }, before, dryRun, sweep);
     return sweep;
 }
 
 std::size_t rename_dead_instances(std::string_view workspaceDirectory, std::chrono::milliseconds now, std::string_view ownToken,
                                   std::chrono::seconds grace) {
+    std::error_code ignored;
     const std::string instances { base::join_path(workspaceDirectory, "instances") };
-    if (!fs::is_directory(instances)) return 0;
+    if (!std::filesystem::is_directory(instances, ignored)) return 0;
     std::size_t renamed { 0 };
     const auto nowPoint { std::chrono::system_clock::time_point { std::chrono::duration_cast<std::chrono::system_clock::duration>(now) } };
     // The file clock is linear: its reading of "now minus the grace" is its reading of now, less
     // the grace in nanoseconds -- the same stale-before sweep_instances computes.
-    const std::int64_t staleBefore { fs::modified_now() - std::chrono::duration_cast<std::chrono::nanoseconds>(grace).count() };
-    for (const auto& entry : fs::list_directory(instances)) {
+    const std::int64_t staleBefore { base::file_time_now() - std::chrono::duration_cast<std::chrono::nanoseconds>(grace).count() };
+    for (const auto& entry : base::children(instances)) {
         const std::string name { base::file_name(entry) };
-        if (!fs::is_directory(entry) || name.find(".trash-") != std::string::npos) continue;
+        if (!std::filesystem::is_directory(entry, ignored) || name.find(".trash-") != std::string::npos) continue;
         const auto described = instance_file(entry);
         if (instance_alive(described, nowPoint)) continue;
         if (!described) {
@@ -179,21 +184,22 @@ std::size_t rename_dead_instances(std::string_view workspaceDirectory, std::chro
         }
         // Renamed aside in one cheap metadata operation; the removal (seconds to minutes on a
         // full directory) happens in the background, and a failed rename waits for the next tick.
-        if (fs::rename(entry, std::format("{}.trash-{}", entry, ownToken))) ++renamed;
+        if ([&] { std::error_code failed; std::filesystem::rename(entry, std::format("{}.trash-{}", entry, ownToken), failed); return !failed; }()) ++renamed;
     }
     return renamed;
 }
 
 Sweep sweep_instances(std::string_view workspaceDirectory, std::chrono::system_clock::time_point now,
                       std::chrono::seconds grace, bool dryRun) {
+    std::error_code ignored;
     Sweep sweep;
     const std::string instances { base::join_path(workspaceDirectory, "instances") };
-    if (!fs::is_directory(instances)) return sweep;
+    if (!std::filesystem::is_directory(instances, ignored)) return sweep;
     // The file clock is linear: its reading of "now minus the grace" is its reading of now, less
     // the grace in nanoseconds.
-    const std::int64_t staleBefore { fs::modified_now() - std::chrono::duration_cast<std::chrono::nanoseconds>(grace).count() };
-    for (const auto& entry : fs::list_directory(instances)) {
-        if (!fs::is_directory(entry)) continue;
+    const std::int64_t staleBefore { base::file_time_now() - std::chrono::duration_cast<std::chrono::nanoseconds>(grace).count() };
+    for (const auto& entry : base::children(instances)) {
+        if (!std::filesystem::is_directory(entry, ignored)) continue;
         const std::string name { base::file_name(entry) };
         if (name.find(".trash-") == std::string::npos) {
             const auto described = instance_file(entry);
@@ -209,7 +215,7 @@ Sweep sweep_instances(std::string_view workspaceDirectory, std::chrono::system_c
             ++sweep.instances;
             continue;
         }
-        const fs::Removal removed { fs::tree_remove(entry) };
+        const Removal removed { remove_tree(entry) };
         sweep.bytes += removed.bytes;
         sweep.failed += removed.failed;
         if (removed.failed == 0) ++sweep.instances;
@@ -218,15 +224,16 @@ Sweep sweep_instances(std::string_view workspaceDirectory, std::chrono::system_c
 }
 
 Sweep sweep_trash(std::string_view cacheDirectory, bool dryRun) {
+    std::error_code ignored;
     Sweep sweep;
     for (const auto& context : contexts_of(cacheDirectory)) {
         const std::string trash { base::join_path(context, "trash") };
-        if (!fs::is_directory(trash)) continue;
+        if (!std::filesystem::is_directory(trash, ignored)) continue;
         const std::uint64_t bytes { directory_bytes(trash) };
         if (dryRun) {
             sweep.bytes += bytes;
         } else {
-            const fs::Removal removed { fs::tree_remove(trash) };
+            const Removal removed { remove_tree(trash) };
             sweep.bytes += removed.bytes;
             sweep.failed += removed.failed;
         }
@@ -235,11 +242,12 @@ Sweep sweep_trash(std::string_view cacheDirectory, bool dryRun) {
 }
 
 std::vector<std::string> contexts_of(std::string_view cacheDirectory) {
+    std::error_code ignored;
     std::vector<std::string> contexts;
     const std::string root { base::join_path(cacheDirectory, "contexts") };
-    if (fs::is_directory(root)) {
-        for (const auto& entry : fs::list_directory(root)) {
-            if (fs::is_directory(entry)) contexts.push_back(entry);
+    if (std::filesystem::is_directory(root, ignored)) {
+        for (const auto& entry : base::children(root)) {
+            if (std::filesystem::is_directory(entry, ignored)) contexts.push_back(entry);
         }
     }
     return contexts;
@@ -249,14 +257,38 @@ std::string modules_root(std::string_view context) {
     return base::join_path(base::join_path(context, "cdb"), base::join_path(".cache", base::join_path("clangd", "modules")));
 }
 
+Removal remove_tree(std::string_view path) {
+    std::error_code ignored;
+    Removal removed;
+    const auto remove_one = [&](std::string_view entry) {
+        std::error_code failed;
+        std::filesystem::remove(std::filesystem::path { entry }, failed);
+        if (failed) ++removed.failed;
+    };
+    if (!std::filesystem::is_directory(std::filesystem::path { path }, ignored)) {
+        if (const auto stamp = base::file_stamp(path)) removed.bytes = stamp->size;
+        remove_one(path);
+        return removed;
+    }
+    for (const auto& entry : base::children(path)) {
+        const Removal nested { remove_tree(entry) };
+        removed.bytes += nested.bytes;
+        removed.failed += nested.failed;
+    }
+    remove_one(path);   // the now-empty directory itself
+    return removed;
+}
+
 std::uint64_t tree_bytes(std::string_view path) {
-    return fs::is_directory(path) ? directory_bytes(std::string { path }) : 0;
+    std::error_code ignored;
+    return std::filesystem::is_directory(path, ignored) ? directory_bytes(std::string { path }) : 0;
 }
 
 Sweep enforce_budget(std::string_view workspacesRoot, const Budget& budget, std::string_view ownKey,
                      std::chrono::system_clock::time_point now) {
+    std::error_code ignored;
     Sweep sweep;
-    if (!fs::is_directory(workspacesRoot) || budget.total == std::numeric_limits<std::uint64_t>::max()) return sweep;
+    if (!std::filesystem::is_directory(workspacesRoot, ignored) || budget.total == std::numeric_limits<std::uint64_t>::max()) return sweep;
     // One walk of a workspace answers both questions the budget asks of it -- how big it is, and
     // when it was last used -- where two walks doubled the cost on exactly the machines with the
     // most to walk (review 2026-10-03).
@@ -265,15 +297,16 @@ Sweep enforce_budget(std::string_view workspacesRoot, const Budget& budget, std:
         std::int64_t newest { std::numeric_limits<std::int64_t>::min() };
     };
     constexpr auto measured = [](this auto&& self, const std::string& directory) -> Measured {
+        std::error_code ignored;
         Measured whole;
-        for (const auto& entry : fs::list_directory(directory)) {
-            if (fs::is_directory(entry)) {
+        for (const auto& entry : base::children(directory)) {
+            if (std::filesystem::is_directory(entry, ignored)) {
                 const Measured nested { self(entry) };
                 whole.bytes += nested.bytes;
                 whole.newest = std::max(whole.newest, nested.newest);
-            } else if (const auto stamp = fs::stamp(entry)) {
+            } else if (const auto stamp = base::file_stamp(entry)) {
                 whole.bytes += stamp->size;
-                whole.newest = std::max(whole.newest, stamp->modified);
+                whole.newest = std::max(whole.newest, static_cast<std::int64_t>(stamp->modified_ns));
             }
         }
         return whole;
@@ -284,8 +317,8 @@ Sweep enforce_budget(std::string_view workspacesRoot, const Budget& budget, std:
     };
     std::vector<Candidate> candidates;
     std::uint64_t total { 0 };
-    for (const auto& entry : fs::list_directory(workspacesRoot)) {
-        if (!fs::is_directory(entry)) continue;
+    for (const auto& entry : base::children(workspacesRoot)) {
+        if (!std::filesystem::is_directory(entry, ignored)) continue;
         const std::string name { base::file_name(entry) };
         const Measured whole { measured(entry) };
         total += whole.bytes;
@@ -300,10 +333,10 @@ Sweep enforce_budget(std::string_view workspacesRoot, const Budget& budget, std:
     for (const auto& candidate : candidates) {
         if (total <= budget.total) break;
         const std::string contexts { base::join_path(candidate.path, "contexts") };
-        if (!fs::is_directory(contexts)) continue;
-        for (const auto& context : fs::list_directory(contexts)) {
-            if (!fs::is_directory(context)) continue;
-            const Sweep one { sweep_copies(modules_root(context), fs::modified_now()) };
+        if (!std::filesystem::is_directory(contexts, ignored)) continue;
+        for (const auto& context : base::children(contexts)) {
+            if (!std::filesystem::is_directory(context, ignored)) continue;
+            const Sweep one { sweep_copies(modules_root(context), base::file_time_now()) };
             sweep.bytes += one.bytes;
             sweep.files += one.files;
             sweep.failed += one.failed;
@@ -315,6 +348,7 @@ Sweep enforce_budget(std::string_view workspacesRoot, const Budget& budget, std:
 
 Json report(std::string_view workspaceDirectory, const Budget& budget, std::chrono::system_clock::time_point now,
             std::string_view ownToken) {
+    std::error_code ignored;
     const std::string workspace { std::string { workspaceDirectory } };
     Json contexts = Json::array();
     std::uint64_t canonicalBytes { 0 };
@@ -325,18 +359,18 @@ Json report(std::string_view workspaceDirectory, const Budget& budget, std::chro
     std::map<std::string, std::pair<std::uint64_t, std::size_t>> modules;   // name -> {bytes, copies}
     std::uint64_t trashBytes { 0 };
     const std::string contextsRoot { base::join_path(workspace, "contexts") };
-    if (fs::is_directory(contextsRoot)) {
-        for (const auto& context : fs::list_directory(contextsRoot)) {
-            if (!fs::is_directory(context)) continue;
+    if (std::filesystem::is_directory(contextsRoot, ignored)) {
+        for (const auto& context : base::children(contextsRoot)) {
+            if (!std::filesystem::is_directory(context, ignored)) continue;
             Json one { { "name", std::string { base::file_name(context) } } };
             std::uint64_t contextCanonicalBytes { 0 };
             std::size_t contextCanonicalFiles { 0 };
             std::uint64_t contextCopiesBytes { 0 };
             std::size_t contextCopiesFiles { 0 };
             const std::string modulesRoot { modules_root(context) };
-            if (fs::is_directory(modulesRoot)) {
-                for (const auto& entry : fs::list_files(modulesRoot, std::array<std::string_view, 1> { ".pcm" }, {})) {
-                    const auto stamp = fs::stamp(entry);
+            if (std::filesystem::is_directory(modulesRoot, ignored)) {
+                for (const auto& entry : base::files_under(modulesRoot, std::array<std::string_view, 1> { ".pcm" }, {})) {
+                    const auto stamp = base::file_stamp(entry);
                     if (!stamp) continue;
                     const std::string name { base::file_name(entry) };
                     const std::string module { bmi::module_of_bmi(name) };
@@ -345,7 +379,7 @@ Json report(std::string_view workspaceDirectory, const Budget& budget, std::chro
                         contextCopiesBytes += stamp->size;
                         ++modules[module].second;
                         modules[module].first += stamp->size;
-                        oldestCopy = std::min(oldestCopy, stamp->modified);
+                        oldestCopy = std::min(oldestCopy, static_cast<std::int64_t>(stamp->modified_ns));
                     } else {
                         ++contextCanonicalFiles;
                         contextCanonicalBytes += stamp->size;
@@ -359,7 +393,7 @@ Json report(std::string_view workspaceDirectory, const Budget& budget, std::chro
             one["canonical"] = Json { { "files", contextCanonicalFiles }, { "bytes", contextCanonicalBytes } };
             one["copies"] = Json { { "files", contextCopiesFiles }, { "bytes", contextCopiesBytes } };
             const std::string trash { base::join_path(context, "trash") };
-            const std::uint64_t contextTrash { fs::is_directory(trash) ? directory_bytes(trash) : 0 };
+            const std::uint64_t contextTrash { std::filesystem::is_directory(trash, ignored) ? directory_bytes(trash) : 0 };
             trashBytes += contextTrash;
             one["trash"] = Json { { "bytes", contextTrash } };
             contexts.push_back(std::move(one));
@@ -369,9 +403,9 @@ Json report(std::string_view workspaceDirectory, const Budget& budget, std::chro
     std::uint64_t instanceBytes { 0 };
     Json instanceList = Json::array();
     const std::string instances { base::join_path(workspace, "instances") };
-    if (fs::is_directory(instances)) {
-        for (const auto& entry : fs::list_directory(instances)) {
-            if (!fs::is_directory(entry)) continue;
+    if (std::filesystem::is_directory(instances, ignored)) {
+        for (const auto& entry : base::children(instances)) {
+            if (!std::filesystem::is_directory(entry, ignored)) continue;
             const auto described = instance_file(entry);
             const std::uint64_t bytes { directory_bytes(entry) };
             ++instanceCount;
@@ -396,7 +430,7 @@ Json report(std::string_view workspaceDirectory, const Budget& budget, std::chro
     const std::int64_t oldestAgeSeconds {
         oldestCopy == std::numeric_limits<std::int64_t>::max()
             ? 0
-            : std::max<std::int64_t>(0, (fs::modified_now() - oldestCopy) / std::int64_t { 1'000'000'000 })
+            : std::max<std::int64_t>(0, (base::file_time_now() - oldestCopy) / std::int64_t { 1'000'000'000 })
     };
     return Json { { "bytes", total },
                   { "modules", modules.size() },

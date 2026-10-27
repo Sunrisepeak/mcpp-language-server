@@ -2,11 +2,8 @@
 import std;
 import mcppls.testing;
 import nlohmann.json;
-import mcppls.os;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.fs;
-import mcppls.platform.dirs;
 import mcppls.spec.database;
 import mcppls.spec.discovery;
 import mcppls.spec.kit;
@@ -27,8 +24,11 @@ import mcppls.project.providers;
 import mcppls.project.modelcache;
 import mcppls.project.generated;
 import mcppls.project.scan;
+import mcpplibs.os;
 
-namespace fs = mcppls::platform::fs;
+namespace base = mcppls::base;
+
+namespace os = mcpplibs::os;
 namespace b = mcppls::base;
 namespace p = mcppls::project;
 namespace s = mcppls::spec;
@@ -36,16 +36,18 @@ namespace s = mcppls::spec;
 namespace {
 
 std::string make_root(std::string_view name) {
-    const std::string root { b::join_path(mcppls::platform::dirs::temp_directory(),
+    std::error_code ignored;
+    const std::string root { b::join_path(base::spelled(os::dirs::temp()),
         std::format("mcppls-test-project-{}-{}", name, std::chrono::steady_clock::now().time_since_epoch().count())) };
-    (void)fs::create_directories(root);
+    (void)std::filesystem::create_directories(root, ignored);
     return root;
 }
 
 void write(const std::string& root, std::string_view relative, std::string_view content) {
+    std::error_code ignored;
     const std::string path { b::join_path(root, relative) };
-    (void)fs::create_directories(b::parent_path(path));
-    (void)fs::write_file(path, content);
+    (void)std::filesystem::create_directories(b::parent_path(path), ignored);
+    (void)os::fs::write(path, content);
 }
 
 void write_fixture(const std::string& root) {
@@ -59,9 +61,11 @@ void write_fixture(const std::string& root) {
 } // namespace
 
 int main() {
+    std::error_code ignored;
     using namespace mcppls::testing;
 
     "detection order"_test = [] {
+        std::error_code ignored;
         const auto providers = p::registered_providers();
 
         const std::string mcpp { make_root("mcpp") };
@@ -112,7 +116,7 @@ int main() {
         expect(p::detect_project(mcpp, {}, withoutMcpp).kind == p::SourceKind::cmake)
             << "mcpp filtered out: CMakeLists.txt is next";
 
-        for (const auto& root : { mcpp, cmake, xmake, meson, commands, loose }) fs::remove_all(root);
+        for (const auto& root : { mcpp, cmake, xmake, meson, commands, loose }) std::filesystem::remove_all(root, ignored);
     };
 
     "tier_of and to_string cover xmake and meson"_test = [] {
@@ -126,6 +130,7 @@ int main() {
     };
 
     "inference from sources"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("infer") };
         write_fixture(root);
         const auto inferred = p::infer_database(root, p::InferOptions {}, p::file_scanner());
@@ -143,10 +148,11 @@ int main() {
         expect(set.toolchain.empty());
         const auto resolution = s::resolve_module(inferred.database, 0, "hello.greet", [](std::string_view) { return std::vector<s::ModuleEntry> {}; });
         expect(resolution.from == s::ResolvedFrom::set);
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "compile commands become sets per toolchain"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("sets") };
         write_fixture(root);
         std::vector<p::CompileCommand> commands;
@@ -169,10 +175,11 @@ int main() {
         expect(result.database.sets.front().toolchain == "gcc-16.1.0-x86_64-linux-gnu");
         expect(result.facts.size() == 1u);
         expect(s::conformance_level(result.database) == 2_i);
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "an untrusted workspace still gets a model"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("untrusted") };
         write_fixture(root);
         write(root, "mcpp.toml", "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n");
@@ -195,10 +202,11 @@ int main() {
                "session or another build once left on disk should be read just because it is sitting there";
         expect(!model.watch.empty());
         expect(model.database.sets.front().units.size() == 3u);
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "B-7: mcppls.buildDiscovery = false detects, reads and runs nothing implicitly"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("build-discovery-off") };
         write_fixture(root);
         write(root, "mcpp.toml", "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n");
@@ -212,10 +220,11 @@ int main() {
         expect(std::ranges::any_of(model.notices, [](const p::ModelIssue& notice) { return notice.code == "build-discovery-off"; }))
             << "a notice, not an issue: nothing is reduced by an explicit setting";
         expect(std::ranges::none_of(model.issues, [](const p::ModelIssue& issue) { return issue.code == "build-discovery-off"; }));
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "a producer's build database is completed, not replaced"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("database") };
         write_fixture(root);
         const std::string main { b::join_path(root, "src/main.cpp") };
@@ -243,7 +252,7 @@ int main() {
         expect(units[1].role == std::optional<s::Role> { s::Role::module_interface }) << "scanned";
         expect(units[1].providedModules.size() == 1u && units[1].providedModules[0].first == "hello.greet");
         expect(units[2].requiredModules == std::vector<std::string> { "std" }) << "kept as the producer wrote it";
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "CMake build-database gate UUIDs"_test = [] {
@@ -335,6 +344,7 @@ int main() {
     };
 
     "B-3(b): CMakePresets.json, inherits and macro expansion"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("cmake-presets") };
         write(root, "CMakeLists.txt", "project(x)\n");
         write(root, "CMakePresets.json", R"json({
@@ -360,10 +370,11 @@ int main() {
         const auto shared = std::ranges::find_if(preset->cacheVariables, [](const auto& kv) { return kv.first == "SHARED"; });
         expect(fatal(shared != preset->cacheVariables.end())) << "inherited variables are kept, not only overridden ones";
         expect(shared->second == "ON");
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "B-3(b): a hidden-only file has no chosen preset, and a user preset wins by name"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("cmake-presets-hidden") };
         write(root, "CMakeLists.txt", "project(x)\n");
         write(root, "CMakePresets.json", R"json({"version": 3, "configurePresets": [
@@ -378,7 +389,7 @@ int main() {
         const auto userWins = p::resolve_cmake_preset(root);
         expect(fatal(userWins.has_value()));
         expect(userWins->binaryDir == b::join_path(root, "build-dev-mine")) << "user presets win (same name: fully replaced)";
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "B-5: xmake's environment, arguments and classification"_test = [] {
@@ -585,6 +596,7 @@ int main() {
     };
 
     "X-2: the newest .xmake/<plat>/<arch>/xmake.conf is the user's configuration, read only"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("xmake-conf") };
         expect(!p::read_xmake_user_config(root).has_value()) << "no .xmake/: today's behaviour";
         write(root, ".xmake/linux/x86_64/xmake.conf", "{ mode = \"release\", plat = \"linux\" }");
@@ -600,7 +612,7 @@ int main() {
         expect(fatal(second.has_value()));
         expect(second->path == b::join_path(root, ".xmake/linux/arm64/xmake.conf"));
         expect(second->options.size() == 3);
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "X-2: the configuration key includes the user's xmake.conf, X-1: staleness of the project's file"_test = [] {
@@ -622,6 +634,7 @@ int main() {
     };
 
     "X-1: xmake's own file is read only when xmake cannot run, and says when it is older than xmake.lua"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("xmake-fallback") };
         write(root, "src/main.cpp", "int main() { return 0; }\n");
         write(root, "compile_commands.json",
@@ -652,15 +665,16 @@ int main() {
 
         // A file newer than xmake.lua has nothing to say.
         std::this_thread::sleep_for(std::chrono::milliseconds { 30 });
-        write(root, "compile_commands.json", fs::read_file(claim->compileCommands).value());
+        write(root, "compile_commands.json", os::fs::read(claim->compileCommands).value());
         context.trusted = false;
         const auto fresh = provider.existing(*claim, context);
         expect(fatal(fresh.has_value() && fresh->database.has_value()));
         expect(fresh->database->notices.empty());
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "B-5: xmake detect() and existing() read what is already there"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("xmake") };
         write(root, "xmake.lua", "target(\"hello\")\n    set_kind(\"binary\")\n    add_files(\"src/*.cpp\")\n");
         write(root, "src/main.cpp", "import std;\nint main() { return 0; }\n");
@@ -687,7 +701,7 @@ int main() {
         expect(answer->outcome == p::Outcome::ok);
         expect(fatal(answer->database.has_value()));
         expect(answer->database->database.generator.value_or(s::Generator {}).name == "xmake");
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "B-6: meson's setup arguments and classification"_test = [] {
@@ -703,6 +717,7 @@ int main() {
     };
 
     "B-6: meson detect() finds an existing configured build directory"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("meson") };
         write(root, "meson.build", "project('hello', 'cpp')\n");
         write(root, "builddir/meson-private/coredata.dat", "");
@@ -712,10 +727,11 @@ int main() {
         expect(fatal(claim.has_value()));
         expect(claim->buildDirectory == b::join_path(root, "builddir"));
         expect(claim->compileCommands == b::join_path(root, "builddir/compile_commands.json"));
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "a real CMake 4.4.2 build database becomes a level 2 model"_test = [] {
+        std::error_code ignored;
         // Recorded 2026-09-14 from `cmake -G Ninja -DCMAKE_CXX_COMPILER=clang++
         // -DCMAKE_EXPERIMENTAL_EXPORT_BUILD_DATABASE=70ef007e-b743-492d-9407-e35eeac03a40
         // -DCMAKE_EXPORT_BUILD_DATABASE=ON` then `cmake --build build --target
@@ -801,7 +817,7 @@ int main() {
         expect(fatal(enriched.facts.size() == 1u)) << "both sets share the same clang++ driver, so the same toolchain id";
         expect(enriched.database.sets[0].toolchain == "clang-22.1.8-x86_64-linux-gnu");
         expect(enriched.database.sets[1].toolchain == enriched.database.sets[0].toolchain);
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "mcpp manifests"_test = [] {
@@ -810,6 +826,7 @@ int main() {
     };
 
     "a package's std comes from mcpp's std build record"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("mcpp-std") };
         const std::string build { b::join_path(root, "target/x86_64-linux-gnu/3ea09e2fa2b8f653") };
         const std::string cache { b::join_path(root, "build-cache/v1/std/32dc1b80167fa105") };
@@ -847,10 +864,11 @@ int main() {
 
         user.arguments = { "/llvm/bin/clang++", "-std=c++23", "-c", user.file };
         expect(p::mcpp_standard_units(std::vector<p::CompileCommand> { user }).empty()) << "no staged std BMI, nothing to find";
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "a Visual Studio without the std module is named in a notice"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("visual-studio") };
         mcppls::toolchain::ToolchainFacts facts;
         facts.toolchain.family = s::Family::msvc;
@@ -867,7 +885,7 @@ int main() {
         expect(!p::visual_studio_notice(facts).has_value()) << "a toolset with the std module is used, not explained";
         facts.msvc.reset();
         expect(!p::visual_studio_notice(facts).has_value()) << "no Visual Studio, nothing to say";
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "producer toolchain probes keep the selected cross target and sysroot"_test = [] {
@@ -902,6 +920,7 @@ int main() {
     };
 
     "mcpp fallback validates requested target even when the producer cannot run"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("mcpp-fallback-target") };
         write(root, "main.cpp", "int main() { return 0; }\n");
         write(root, "mcpp.toml", "[package]\nname = \"app\"\n");
@@ -936,12 +955,13 @@ int main() {
         expect(fatal(fallback.has_value()));
         expect(std::ranges::any_of(fallback->issues, [](const auto& issue) { return issue.first == "mcpp-target-mismatch"; }))
             << "a missing producer cannot silently adopt another architecture's CDB";
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     // mcpplibs #71: mcpp 2026.10.26.2 writes no root compile_commands.json by default; the build's
     // result record names the configuration's database, and an older mcpp's root copy is the rest.
     "the mcpp fallback reads the database mcpp's last build names, then a root copy"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("mcpp-last-result") };
         write(root, "main.cpp", "int main() { return 0; }\n");
         write(root, "mcpp.toml", "[package]\nname = \"app\"\n");
@@ -958,7 +978,7 @@ int main() {
         expect(p::mcpp_fallback_database(root) == b::join_path(configuration, "compile_commands.json")) << p::mcpp_fallback_database(root);
         write(root, "compile_commands.json", commands.dump());
         expect(p::mcpp_fallback_database(root) == b::join_path(configuration, "compile_commands.json")) << "the record comes first";
-        fs::remove_all(configuration);
+        std::filesystem::remove_all(configuration, ignored);
         expect(p::mcpp_fallback_database(root) == b::join_path(root, "compile_commands.json")) << "a record naming nothing that exists yields";
         write(b::join_path(root, "target"), ".last-result.json", "{ not json");
         expect(p::mcpp_fallback_database(root) == b::join_path(root, "compile_commands.json")) << "an unreadable pointer yields";
@@ -974,7 +994,7 @@ int main() {
         expect(p::load_mcpp(detection, context).has_value()) << "the fallback describes the project without mcpp";
         const auto watched = p::McppProvider {}.watch_inputs(p::Claim {});
         expect(std::ranges::contains(watched, std::string { p::MCPP_LAST_RESULT })) << "a build, whoever ran it, is seen";
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "workspace keys are stable and distinct"_test = [] {
@@ -1010,6 +1030,7 @@ int main() {
 
     // One file per source, so scanned sources can never replace what the build tool said (P5).
     "each source has its own cache file, and a worse one does not overwrite a better"_test = [] {
+        std::error_code ignored;
         const std::string directory { make_root("modelcache") };
         expect(p::cache_file_name(p::SourceKind::mcpp) == "model.mcpp.json");
         expect(p::cache_file_name(p::SourceKind::inferred) == "model.inferred.json");
@@ -1033,13 +1054,14 @@ int main() {
         expect(readBack->model.level == 3) << readBack->model.level;
         expect(readBack->fingerprint == "abc" && readBack->producerVersion == "2026.9.16.1");
         expect(p::load_model(directory, p::SourceKind::cmake) == std::nullopt);
-        fs::remove_all(directory);
+        std::filesystem::remove_all(directory, ignored);
     };
 
     "the fingerprint follows the inputs, the producer and its version"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("fingerprint") };
         const std::string manifest { b::join_path(root, "mcpp.toml") };
-        expect(fatal(fs::write_file(manifest, R"([package]
+        expect(fatal(os::fs::write(manifest, R"([package]
 name = "x"
 )").has_value()));
         const std::vector<std::string> watch { "mcpp.toml" };
@@ -1049,21 +1071,22 @@ name = "x"
         expect(first != p::inputs_fingerprint(root, watch, manifest, "/opt/mcpp", "2026.9.16.1")) << "another producer is another model";
         // A changed manifest is a changed fingerprint: size and modification time both move here.
         std::this_thread::sleep_for(std::chrono::milliseconds { 20 });
-        expect(fatal(fs::write_file(manifest, R"([package]
+        expect(fatal(os::fs::write(manifest, R"([package]
 name = "x"
 version = "1"
 )").has_value()));
         expect(first != p::inputs_fingerprint(root, watch, manifest, "/usr/bin/mcpp", "2026.9.16.1")) << "an edited manifest is a new fingerprint";
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "a cached model says which input changed, and one rewritten with its own bytes is unchanged (0.0.13 W5, W6)"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("input-stamps") };
         const std::string manifest { b::join_path(root, "mcpp.toml") };
         const std::string build { b::join_path(root, "build.mcpp") };
         const std::string text { "[package]\nname = \"x\"\n" };
-        expect(fatal(fs::write_file(manifest, text).has_value()));
-        expect(fatal(fs::write_file(build, "int main() {}\n").has_value()));
+        expect(fatal(os::fs::write(manifest, text).has_value()));
+        expect(fatal(os::fs::write(build, "int main() {}\n").has_value()));
         const std::vector<std::string> watch { "mcpp.toml", "build.mcpp", "src/**/*.cppm" };
         const auto saved = p::input_stamps(root, watch, manifest, "");
         expect(saved.size() == 3u) << "the manifest once, build.mcpp, and the glob as text";
@@ -1071,18 +1094,18 @@ version = "1"
 
         // A checkout rewrites the file with the bytes it had: only its time moved.
         std::this_thread::sleep_for(std::chrono::milliseconds { 20 });
-        expect(fatal(fs::write_file(manifest, text).has_value()));
+        expect(fatal(os::fs::write(manifest, text).has_value()));
         const auto touched = p::compare_inputs(saved, p::input_stamps(root, watch, manifest, ""));
         expect(touched.unchanged && touched.touched == 1u) << touched.changed;
         expect(p::inputs_fingerprint(root, watch, manifest, "", "") != p::inputs_fingerprint(root, watch, manifest, "", "x"));
 
         // An edit is named, with what changed.
-        expect(fatal(fs::write_file(build, "int main() { return 1; }\n").has_value()));
+        expect(fatal(os::fs::write(build, "int main() { return 1; }\n").has_value()));
         const auto edited = p::compare_inputs(saved, p::input_stamps(root, watch, manifest, ""));
         expect(!edited.unchanged);
         expect(edited.changed.find("build.mcpp changed (14 -> 25 bytes)") != std::string::npos) << edited.changed;
 
-        fs::remove_all(build);
+        std::filesystem::remove_all(build, ignored);
         const auto removed = p::compare_inputs(saved, p::input_stamps(root, watch, manifest, ""));
         expect(removed.changed.find("build.mcpp was removed") != std::string::npos) << removed.changed;
 
@@ -1091,12 +1114,12 @@ version = "1"
         cached.model.source = p::SourceKind::mcpp;
         cached.inputs = saved;
         const std::string directory { b::join_path(root, "cache") };
-        (void)fs::create_directories(directory);
+        (void)std::filesystem::create_directories(directory, ignored);
         expect(fatal(p::save_model(directory, cached).has_value()));
         const auto read = p::load_model(directory, p::SourceKind::mcpp);
         expect(fatal(read.has_value()));
         expect(read->inputs == saved);
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     // The incident: mcppls's own project.level (S1's document-conformance number) and the README's
@@ -1104,6 +1127,7 @@ version = "1"
     // L3" and "inferred L2" both sounded like the good and bad case respectively, which is not what
     // either number says. `tier` is the second one; a level-1 mcpp database is still tier 1.
     "tier follows the model's source, independent of level"_test = [] {
+        std::error_code ignored;
         expect(p::tier_of(p::SourceKind::build_database) == 1_i);
         expect(p::tier_of(p::SourceKind::mcpp) == 1_i);
         expect(p::tier_of(p::SourceKind::cmake) == 2_i);
@@ -1121,7 +1145,7 @@ version = "1"
         const auto model = p::load_project(root, options);
         expect(model.source == p::SourceKind::compile_commands);
         expect(model.tier == 3_i) << "tier 3 whatever `level` this bare document happens to compute to";
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     // real-project plan RP3.1: an untrusted workspace is L4 by definition. A `compile_commands.json` or
@@ -1129,6 +1153,7 @@ version = "1"
     // fact about the build, and reading it just because it is sitting there would make "untrusted"
     // mean something less than what the docs promise (docs/20-projects.md, design 2.1).
     "an untrusted workspace ignores a stale build description already on disk"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("untrusted-stale") };
         write_fixture(root);
         write(root, "mcpp.toml", "[package]\nname = \"hello\"\n");
@@ -1145,13 +1170,14 @@ version = "1"
         expect(model.source == p::SourceKind::inferred);
         expect(model.tier == 4_i);
         expect(model.detected == p::SourceKind::mcpp);
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     // real-project plan RP2.4: a database entry naming a file that no longer exists (a deleted `target/`, a
     // `compile_commands.json` checked in from another machine) is used for what remains, not
     // discarded wholesale or left to fail some other way later.
     "a stale database entry is dropped and noted; the rest of the model is used"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("stale") };
         write(root, "src/a.cppm", "export module a;\n");
         write(root, "compile_commands.json", nlohmann::json::array({
@@ -1167,10 +1193,11 @@ version = "1"
         expect(fatal(model.database.sets.size() == 1u));
         expect(model.database.sets.front().units.size() == 1u) << "the entry naming a deleted file is dropped";
         expect(std::ranges::any_of(model.notices, [](const p::ModelIssue& n) { return n.code == "stale-database"; }));
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "a database whose every entry is stale is treated as if it did not exist"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("fully-stale") };
         write(root, "compile_commands.json", nlohmann::json::array({
             nlohmann::json { { "directory", root }, { "file", b::join_path(root, "src/deleted.cppm") },
@@ -1181,7 +1208,7 @@ version = "1"
         options.trusted = true;
         const auto model = p::load_project(root, options);
         expect(model.source == p::SourceKind::inferred) << "inference finds src/live.cppm instead";
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     // real-project plan RP2.3: before a stand-in is created for a module nothing provides, mcppls looks for
@@ -1189,6 +1216,7 @@ version = "1"
     // `compile_commands.json` outlives the `target/` a later `mcpp build` deletes and recreates, but
     // the generated file mcpp already built once is still in its own build-database cache.
     "find_generated_source verifies the module rather than taking the first file"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("recover-direct") };
         write(root, "target/.build-mcpp/deps/dep@1.0.0/out/other.cppm", "export module dep.other;\n");
         write(root, "target/.build-mcpp/deps/dep@1.0.0/out/thing.cppm", "export module dep.thing;\n");
@@ -1197,10 +1225,11 @@ version = "1"
         expect(fatal(found.has_value()));
         expect(b::file_name(*found) == "thing.cppm");
         expect(!p::find_generated_source("dep.nothing", options).has_value()) << "nothing here declares it";
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "find_generated_source takes the most recently built of several cached versions"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("recover-newest") };
         const std::string home { make_root("recover-newest-home") };
         const std::string cache { ".mcpp/cache/build-database" };
@@ -1212,8 +1241,8 @@ version = "1"
         const auto found = p::find_generated_source("dep.thing", p::GeneratedSourceOptions { root, home, p::file_scanner() });
         expect(fatal(found.has_value()));
         expect(found->contains("dep@1.0.10")) << *found;
-        fs::remove_all(root);
-        fs::remove_all(home);
+        std::filesystem::remove_all(root, ignored);
+        std::filesystem::remove_all(home, ignored);
     };
 
     "a producer's planning directory is told from any other path"_test = [] {
@@ -1224,6 +1253,7 @@ version = "1"
     };
 
     "generated build output a producer only names is read from the project's own build (qt-demo)"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("generated-output") };
         const std::string home { make_root("generated-output-home") };
         // What mcpp's emit describes for a rules-qt project: an include directory in its planning directory
@@ -1268,8 +1298,8 @@ version = "1"
         expect(built.sets[0].units[1].arguments[2] == projectOut) << "the separate spelling too";
         expect(built.sets[0].units[1].source == b::join_path(projectOut, "moc_counter.cpp"));
         expect(built.sets[0].units[1].arguments.back() == b::join_path(projectOut, "moc_counter.cpp"));
-        fs::remove_all(root);
-        fs::remove_all(home);
+        std::filesystem::remove_all(root, ignored);
+        std::filesystem::remove_all(home, ignored);
     };
 
     "a rule's inputs are not translation units, whatever command a producer gives them"_test = [] {
@@ -1286,6 +1316,7 @@ version = "1"
     };
 
     "a generated module's real source is recovered before a stand-in is needed"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("generated") };
         const std::string home { make_root("generated-home") };
         write(root, "src/main.cpp", "import dep.thing;\n\nint main() { return 0; }\n");
@@ -1308,8 +1339,8 @@ version = "1"
         expect(fatal(recovered != units.end())) << "the recovered unit joined the model instead of a stand-in";
         expect(b::file_name(recovered->source) == "thing.cppm");
         expect(std::ranges::any_of(model.notices, [](const p::ModelIssue& n) { return n.code == "generated-module-recovered"; }));
-        fs::remove_all(root);
-        fs::remove_all(home);
+        std::filesystem::remove_all(root, ignored);
+        std::filesystem::remove_all(home, ignored);
     };
 
     // real-project plan RP2.1 (producer negotiation): comparing mcpp's date-based versions numerically, not
@@ -1324,17 +1355,18 @@ version = "1"
     };
 
     "other mcpp executables are found newest first, and the resolved one is excluded"_test = [] {
+        std::error_code ignored;
         const std::string home { make_root("mcpp-store") };
         for (std::string_view version : { "2026.8.8.4", "2026.9.21.3", "2026.9.9.1" }) {
-            write(home, std::format(".xlings/data/xpkgs/xim-x-mcpp/{}/bin/mcpp{}", version, mcppls::os::executable_suffix()), "#!/bin/sh\n");
+            write(home, std::format(".xlings/data/xpkgs/xim-x-mcpp/{}/bin/mcpp{}", version, os::conventions().exe_suffix), "#!/bin/sh\n");
         }
-        const std::string resolved { b::join_path(home, std::format(".xlings/data/xpkgs/xim-x-mcpp/2026.8.8.4/bin/mcpp{}", mcppls::os::executable_suffix())) };
+        const std::string resolved { b::join_path(home, std::format(".xlings/data/xpkgs/xim-x-mcpp/2026.8.8.4/bin/mcpp{}", os::conventions().exe_suffix)) };
         const auto others = p::other_mcpp_executables(resolved, home);
         expect(fatal(others.size() == 2u)) << others.size();
         expect(others.front().contains("2026.9.21.3")) << others.front();
         expect(others.back().contains("2026.9.9.1"));
         expect(std::ranges::none_of(others, [&](const std::string& path) { return b::same_path(path, resolved); }));
-        fs::remove_all(home);
+        std::filesystem::remove_all(home, ignored);
     };
 
     // real-project plan RP3.4: a directory below the root with its own build manifest is a different project
@@ -1342,6 +1374,7 @@ version = "1"
     // general rule the incident against mcppls's own repository is one instance of, not the reason
     // for it.
     "inferred scanning does not cross into a nested project's own manifest"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("nested") };
         write(root, "src/a.cppm", "export module a;\n");
         write(root, "vendor/example/mcpp.toml", "[package]\nname = \"example\"\n");
@@ -1351,12 +1384,13 @@ version = "1"
         const auto& units = inferred.database.sets.front().units;
         expect(units.size() == 1u) << "only src/a.cppm; vendor/example is its own project";
         expect(b::file_name(units.front().source) == "a.cppm");
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     // Fix plan F5: issue #23's fallback scan took 166 of GalTranslPP's 349 units from vcpkg_installed/, and its
     // modules showed up as ambiguous. What package managers install is their packages' sources, not the project's.
     "inferred scanning leaves out what package managers install, and vcpkg packages below the root"_test = [] {
+        std::error_code ignored;
         const std::string root { make_root("packages") };
         write(root, "vcpkg.json", "{ \"name\": \"app\" }\n");   // the project's own manifest: its sources stay
         write(root, "src/a.cppm", "export module a;\n");
@@ -1372,13 +1406,14 @@ version = "1"
         std::vector<std::string> names;
         for (const auto& unit : inferred.database.sets.front().units) names.emplace_back(b::file_name(unit.source));
         expect(names == std::vector<std::string> { "a.cppm" }) << std::format("{}", names);
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     // real-project plan RP3.4: a nested manifest is a separate project only when it is not part of
     // the outer project's own build -- a CMake subdirectory of a CMake project, or a member of an
     // mcpp workspace, is not.
     "a CMake project's subdirectories and an mcpp workspace's members are not separate projects"_test = [] {
+        std::error_code ignored;
         const std::string cmake { make_root("boundary-cmake") };
         write(cmake, "CMakeLists.txt", "add_subdirectory(libs/core)\n");
         write(cmake, "libs/core/CMakeLists.txt", "add_library(core)\n");
@@ -1402,13 +1437,14 @@ version = "1"
         expect(inMcpp.separate(b::join_path(workspace, "examples/cmake"))) << "a CMake project inside an mcpp one";
         expect(p::workspace_members("[workspace]\nmembers = [\"a\", \"b/*\"]\n") == std::vector<std::string> { "a", "b/*" });
         expect(p::workspace_members("[package]\nname = \"x\"\n").empty());
-        fs::remove_all(cmake);
-        fs::remove_all(workspace);
+        std::filesystem::remove_all(cmake, ignored);
+        std::filesystem::remove_all(workspace, ignored);
     };
 
     // Plan 2026-09-27: one list of project manifests for every place that looks for a root, and a subdirectory's own
     // CMakeLists.txt, xmake.lua or meson.build belongs to the project above it.
     "the project root of a file is the outermost of a nesting build system's manifests"_test = [] {
+        std::error_code ignored;
         const std::string meson { make_root("root-meson") };
         write(meson, "meson.build", "project('p', 'cpp')\nsubdir('src')\n");
         write(meson, "src/meson.build", "executable('app', 'main.cpp')\n");
@@ -1435,10 +1471,10 @@ version = "1"
         const p::ProjectBoundaries inCMake { cmake };
         write(cmake, "third_party/lib/meson.build", "project('lib', 'cpp')\n");
         expect(inCMake.separate(b::join_path(cmake, "third_party/lib"))) << "a meson project inside a CMake one";
-        fs::remove_all(meson);
-        fs::remove_all(xmake);
-        fs::remove_all(cmake);
-        fs::remove_all(loose);
+        std::filesystem::remove_all(meson, ignored);
+        std::filesystem::remove_all(xmake, ignored);
+        std::filesystem::remove_all(cmake, ignored);
+        std::filesystem::remove_all(loose, ignored);
     };
 
     return report();

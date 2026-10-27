@@ -4,30 +4,27 @@ import std;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.platform.process;
-import mcppls.platform.toolrun;
-
+import mcppls.toolrun;
+import mcpplibs.os;
 namespace mcppls::project::git {
 
 namespace {
 
-base::Result<platform::RunResult> run_git(std::string_view directory, std::vector<std::string> arguments) {
-    const auto git = platform::env::find_executable("git");
+base::Result<mcpplibs::os::process::bounded_output> run_git(std::string_view directory, std::vector<std::string> arguments) {
+    const auto git = toolrun::find_program("git");
     if (!git) return base::fail("git-not-found", "git is not on PATH");
     // Reading must not write: `git status` otherwise refreshes the index file of the repository.
     std::vector<std::string> argv { "--no-optional-locks" };
     std::ranges::move(arguments, std::back_inserter(argv));
-    auto result = platform::toolrun::run({
+    auto result = mcppls::toolrun::run({
         .program = *git,
         .arguments = std::move(argv),
         .workDirectory = std::string { directory },
         .purpose = "git",
-        .bounds = platform::RunBounds { .hard = std::chrono::seconds { 60 } },
+        .bounds = mcpplibs::os::process::bounds { .hard = std::chrono::seconds { 60 } },
     });
     if (!result) return std::unexpected { result.error() };
-    if (result->timedOut) return base::fail("git-timeout", "git did not finish in 60 seconds");
+    if (result->timed_out) return base::fail("git-timeout", "git did not finish in 60 seconds");
     return result;
 }
 
@@ -111,11 +108,12 @@ std::vector<Change> parse_name_status(std::string_view output, std::string_view 
 }
 
 base::Result<std::string> repository_root(std::string_view directory) {
+    std::error_code ignored;
     auto result = run_git(directory, { "rev-parse", "--show-toplevel" });
     if (!result) return std::unexpected { result.error() };
-    if (result->exitCode != 0) return base::fail("not-a-repository", std::format("{} is not in a git repository", directory));
-    const std::string root { base::trim(result->output) };
-    return platform::fs::exists(root) ? platform::fs::canonical_path(root) : base::normalize_path(root);
+    if (!result->status.success()) return base::fail("not-a-repository", std::format("{} is not in a git repository", directory));
+    const std::string root { base::trim(result->out) };
+    return std::filesystem::exists(root, ignored) ? base::canonical_path(root) : base::normalize_path(root);
 }
 
 base::Result<std::vector<Change>> working_tree_changes(std::string_view directory) {
@@ -123,8 +121,8 @@ base::Result<std::vector<Change>> working_tree_changes(std::string_view director
     if (!root) return std::unexpected { root.error() };
     auto result = run_git(*root, { "status", "--porcelain=v1", "-z", "--untracked-files=all" });
     if (!result) return std::unexpected { result.error() };
-    if (result->exitCode != 0) return base::fail("git-failed", std::format("git status failed: {}", base::trim(result->error)));
-    return within(parse_status(result->output, *root), directory);
+    if (!result->status.success()) return base::fail("git-failed", std::format("git status failed: {}", base::trim(result->err)));
+    return within(parse_status(result->out, *root), directory);
 }
 
 base::Result<std::vector<Change>> changes_since(std::string_view directory, std::string_view base) {
@@ -132,11 +130,11 @@ base::Result<std::vector<Change>> changes_since(std::string_view directory, std:
     if (!root) return std::unexpected { root.error() };
     auto result = run_git(*root, { "diff", "--name-status", "-z", "-M", std::string { base } });
     if (!result) return std::unexpected { result.error() };
-    if (result->exitCode != 0) return base::fail("git-failed", std::format("git diff {} failed: {}", base, base::trim(result->error)));
-    auto changes = parse_name_status(result->output, *root);
+    if (!result->status.success()) return base::fail("git-failed", std::format("git diff {} failed: {}", base, base::trim(result->err)));
+    auto changes = parse_name_status(result->out, *root);
     // Files git does not track yet are changes against every revision.
-    if (auto status = run_git(*root, { "ls-files", "--others", "--exclude-standard", "-z" }); status && status->exitCode == 0) {
-        for (auto path : base::split(status->output, '\0')) {
+    if (auto status = run_git(*root, { "ls-files", "--others", "--exclude-standard", "-z" }); status && status->status.success()) {
+        for (auto path : base::split(status->out, '\0')) {
             if (!path.empty()) changes.push_back(Change { ChangeKind::untracked, absolute_in(*root, path), {} });
         }
     }
@@ -150,8 +148,8 @@ base::Result<std::optional<std::string>> show(std::string_view repositoryRoot, s
     std::ranges::replace(name, '\\', '/');
     auto result = run_git(repositoryRoot, { "show", std::format("{}:{}", revision, name) });
     if (!result) return std::unexpected { result.error() };
-    if (result->exitCode != 0) return std::optional<std::string> {};
-    return std::optional<std::string> { std::move(result->output) };
+    if (!result->status.success()) return std::optional<std::string> {};
+    return std::optional<std::string> { std::move(result->out) };
 }
 
 } // namespace mcppls::project::git

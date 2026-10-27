@@ -4,7 +4,7 @@
 // The win32-x64 platform is used for the selection/extraction tests because it is the one
 // platform trim_clangd.py never strips or runs `--version` against (`--zip` bypasses the lock and
 // network entirely), so the fixture's fake binary content never has to be a real executable; the
-// win32-x64 fixture never matches this host's own mcppls::os::platform() on the CI machines
+// win32-x64 fixture never matches this host's own base::payload_platform() on the CI machines
 // this runs on (Linux, macOS), so the "this host can run it" branch never fires for it either.
 #include <archive.h>
 #include <archive_entry.h>
@@ -15,15 +15,13 @@ import mcppls.base.path;
 import mcppls.pack.clangd;
 import mcppls.pack.fetch;
 import mcppls.pack.lock;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.os;
+import mcpplibs.os;
+import mcppls.base.payload;
 
+namespace os = mcpplibs::os;
 namespace clangd = mcppls::pack::clangd;
 namespace lock = mcppls::pack::lock;
 namespace base = mcppls::base;
-namespace fs = mcppls::platform::fs;
-
 namespace {
 
 struct Member {
@@ -66,10 +64,10 @@ bool write_zip(const std::string& path, const std::vector<Member>& members) {
 // and it runs on Linux and macOS but not on Windows, where every fixture that matched the host
 // failed to start (openkal error 14). The same bytes serve all three hosts.
 std::string runnable_clangd() {
-    const auto self = mcppls::platform::env::arguments();
+    const auto self = os::env::arguments();
     std::string path { base::normalize_path(self.empty() ? std::string {} : self.front()) };
-    if (!base::is_absolute_path(path)) path = base::join_path(fs::current_directory(), path);
-    return fs::read_file(path).value_or(std::string {});
+    if (!base::is_absolute_path(path)) path = base::join_path(base::current_directory(), path);
+    return os::fs::read(path).value_or(std::string {});
 }
 
 // A release shaped like the real clangd-win32-x64 zip, trimmed to what the selection cares about:
@@ -77,7 +75,7 @@ std::string runnable_clangd() {
 // trim_clangd.py drops (a lib under the same major, a share/ tree).
 //
 // The "binary" is this test program (runnable_clangd): on the one host whose
-// mcppls::os::platform() matches the platform under test, the trim executes it to read
+// base::payload_platform() matches the platform under test, the trim executes it to read
 // `--version`, the way trim_clangd.py's `host_runs_it` did.
 std::vector<Member> release_members(std::string_view exeName) {
     return {
@@ -109,6 +107,7 @@ std::string scratch_dir() {
 } // namespace
 
 int main(int argc, char* argv[]) {
+    std::error_code ignored;
     // Started as the fixture's clangd (runnable_clangd): answer the one question asked of it.
     if (argc > 1 && std::string_view { argv[1] } == "--version") {
         std::println("clangd version 23.1.0 (fixture)");
@@ -146,13 +145,13 @@ int main(int argc, char* argv[]) {
         expect(result->enginePart);
         expect(!result->stripped);
         expect(result->clangMajor == "23");
-        expect(fs::read_file(base::join_path(out, "bin/clangd")).value_or("") == binary);
-        expect(fs::read_file(base::join_path(out, "engine.json")).value_or("") == identity);
-        expect(fs::is_regular_file(base::join_path(out, "NOTICE.txt")));
-        expect(fs::is_regular_file(base::join_path(out, "licenses/GPL-3.txt")));
-        expect(fs::is_regular_file(base::join_path(out, "lib/clang/23/include/stddef.h")));
-        expect(!fs::exists(base::join_path(out, "SHA256SUMS")));
-        expect(!fs::exists(out + ".part"));
+        expect(os::fs::read(base::join_path(out, "bin/clangd")).value_or("") == binary);
+        expect(os::fs::read(base::join_path(out, "engine.json")).value_or("") == identity);
+        expect(std::filesystem::is_regular_file(base::join_path(out, "NOTICE.txt"), ignored));
+        expect(std::filesystem::is_regular_file(base::join_path(out, "licenses/GPL-3.txt"), ignored));
+        expect(std::filesystem::is_regular_file(base::join_path(out, "lib/clang/23/include/stddef.h"), ignored));
+        expect(!std::filesystem::exists(base::join_path(out, "SHA256SUMS"), ignored));
+        expect(!std::filesystem::exists(out + ".part", ignored));
     };
 
     "a maintained engine part without its license is refused"_test = [&] {
@@ -171,6 +170,7 @@ int main(int argc, char* argv[]) {
     };
 
     "win32-x64: the executable, the license and the one lib/clang/<major>/include survive"_test = [&] {
+        std::error_code ignored;
         const std::string zip { base::join_path(work, "clangd-win32.zip") };
         expect(fatal(write_zip(zip, release_members("clangd.exe"))));
 
@@ -187,11 +187,11 @@ int main(int argc, char* argv[]) {
 
         expect(result->clangMajor == "23");
         expect(!result->stripped);
-        expect(fs::is_regular_file(base::join_path(out, "bin/clangd.exe")));
-        expect(fs::is_regular_file(base::join_path(out, "LICENSE.TXT")));
-        expect(fs::is_regular_file(base::join_path(out, "lib/clang/23/include/stddef.h")));
-        expect(!fs::exists(base::join_path(out, "lib/clang/23/lib/windows/somelib.lib")));
-        expect(!fs::exists(base::join_path(out, "share")));
+        expect(std::filesystem::is_regular_file(base::join_path(out, "bin/clangd.exe"), ignored));
+        expect(std::filesystem::is_regular_file(base::join_path(out, "LICENSE.TXT"), ignored));
+        expect(std::filesystem::is_regular_file(base::join_path(out, "lib/clang/23/include/stddef.h"), ignored));
+        expect(!std::filesystem::exists(base::join_path(out, "lib/clang/23/lib/windows/somelib.lib"), ignored));
+        expect(!std::filesystem::exists(base::join_path(out, "share"), ignored));
     };
 
     "linux-x64 and darwin-arm64 set the executable bit, win32-x64 does not"_test = [&] {
@@ -208,7 +208,7 @@ int main(int argc, char* argv[]) {
             }, lockData);
             expect(fatal(result.has_value())) << (result ? std::string {} : result.error().message);
             if (!result) continue;
-            if (mcppls::os::family() != mcppls::os::Family::windows) {
+            if (os::host() != os::platform::windows) {
                 const auto permissions = std::filesystem::status(result->binary).permissions();
                 expect((permissions & std::filesystem::perms::owner_exec) != std::filesystem::perms::none);
             }
@@ -249,8 +249,8 @@ int main(int argc, char* argv[]) {
         expect(fatal(result.has_value())) << (result ? std::string {} : result.error().message);
         if (!result) return;
         expect(result->clangMajor == "23");
-        expect(fs::is_regular_file(base::join_path(result->directory, "LICENSE.TXT")));
-        if (mcppls::os::family() != mcppls::os::Family::windows) {
+        expect(std::filesystem::is_regular_file(base::join_path(result->directory, "LICENSE.TXT"), ignored));
+        if (os::host() != os::platform::windows) {
             const auto permissions = std::filesystem::status(result->binary).permissions();
             expect((permissions & std::filesystem::perms::owner_exec) != std::filesystem::perms::none);
         }
@@ -261,7 +261,7 @@ int main(int argc, char* argv[]) {
     // source entry is put in the cache first, verified by its digest, so nothing is downloaded.
     "an archive without LICENSE.TXT takes it from the entry license-from names"_test = [&] {
         const std::string cache { base::join_path(work, "license-cache") };
-        (void) fs::create_directories(cache);
+        (void)std::filesystem::create_directories(cache, ignored);
         const std::string source { base::join_path(cache, "llvm-source.zip") };
         expect(fatal(write_zip(source, { { "llvm-project/llvm/LICENSE.TXT", "the LLVM license text", false },
                                          { "llvm-project/llvm/README.txt", "not the license", false } })));
@@ -283,11 +283,12 @@ int main(int argc, char* argv[]) {
         }, withSource);
         expect(fatal(result.has_value())) << (result ? std::string {} : result.error().message);
         if (!result) return;
-        expect(fs::read_file(base::join_path(result->directory, "LICENSE.TXT")).value_or("") == "the LLVM license text");
-        expect(!fs::exists(base::join_path(result->directory, ".license-from")));
+        expect(os::fs::read(base::join_path(result->directory, "LICENSE.TXT")).value_or("") == "the LLVM license text");
+        expect(!std::filesystem::exists(base::join_path(result->directory, ".license-from"), ignored));
     };
 
     "an archive without LICENSE.TXT and no license-from keeps going without one"_test = [&] {
+        std::error_code ignored;
         std::vector<Member> members { release_members("clangd.exe") };
         std::erase_if(members, [](const Member& member) { return member.path.ends_with("LICENSE.TXT"); });
         const std::string zip { base::join_path(work, "clangd-no-license-plain.zip") };
@@ -298,7 +299,7 @@ int main(int argc, char* argv[]) {
         }, lockData);
         // The payload refuses a clangd without a license (payload.cpp); trim only selects.
         expect(fatal(result.has_value())) << (result ? std::string {} : result.error().message);
-        if (result) expect(!fs::exists(base::join_path(result->directory, "LICENSE.TXT")));
+        if (result) expect(!std::filesystem::exists(base::join_path(result->directory, "LICENSE.TXT"), ignored));
     };
 
     "an unknown platform is refused before anything is read"_test = [&] {
@@ -312,7 +313,7 @@ int main(int argc, char* argv[]) {
     };
 
     "a darwin-arm64 thin-and-strip needs a macOS host"_test = [&] {
-        if (mcppls::os::family() == mcppls::os::Family::macos) {
+        if (os::host() == os::platform::macos) {
             // This is exactly the host the real thing needs; nothing to assert about refusing it.
         } else {
             const std::string zip { base::join_path(work, "clangd-darwin-strip.zip") };
@@ -332,7 +333,7 @@ int main(int argc, char* argv[]) {
     // one test by trimming for this host's own PLATFORM (which matches, and reads the
     // fixture script's line) and for a platform two steps away in the tuple (which never does).
     "the version line is read only when this host can run what was just trimmed"_test = [&] {
-        const std::string here { mcppls::os::platform() };
+        const std::string here { base::payload_platform() };
         const std::string elsewhere { here == "linux-x64" ? "darwin-arm64" : "linux-x64" };
 
         const std::string hereZip { base::join_path(work, "clangd-here.zip") };

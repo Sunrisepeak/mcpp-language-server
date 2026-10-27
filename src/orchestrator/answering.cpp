@@ -6,9 +6,11 @@ import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.base.uri;
-import mcppls.platform.fs;
 import mcppls.orchestrator.answer;
 import mcppls.orchestrator.outline;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::orchestrator::answering {
 
@@ -98,7 +100,7 @@ void Layer::everything_changed() { total_ += std::uint64_t { 1 } << 20; }
 std::uint64_t Layer::generation_(std::string_view path) const {
     // An open file's text; a closed one's stamp on disk: both the same in the next session when nothing changed.
     if (const auto text = text_of_(path)) return mix(1, *text);
-    if (const auto stamp = platform::fs::stamp(path)) return mix(mix(2, std::to_string(stamp->size)), std::to_string(stamp->modified));
+    if (const auto stamp = base::file_stamp(path)) return mix(mix(2, std::to_string(stamp->size)), std::to_string(static_cast<std::int64_t>(stamp->modified_ns)));
     return 0;
 }
 
@@ -186,7 +188,7 @@ std::optional<Served> Layer::serve(const Asked& asked, const Found& found) const
         if (memberPlace && found.providerChanged && !found.entry.provider.empty() && found.entry.providerLine >= 0) {
             std::optional<std::string> text { text_of_(found.entry.provider) };
             if (!text) {
-                if (auto disk = platform::fs::read_file(found.entry.provider)) text = std::move(*disk);
+                if (auto disk = os::fs::read(found.entry.provider)) text = std::move(*disk);
             }
             if (text) members = outline::class_members(*text, found.entry.providerLine);
             if (members) served.provenance.source = found.source;   // the kept answer, brought up to the class as it is
@@ -209,7 +211,7 @@ std::optional<Served> Layer::serve(const Asked& asked, const Found& found) const
                 const auto& [path, line, column] = *target;
                 std::optional<std::string> text { text_of_(path) };
                 if (!text) {
-                    if (auto disk = platform::fs::read_file(path)) text = std::move(*disk);
+                    if (auto disk = os::fs::read(path)) text = std::move(*disk);
                 }
                 if (text) {
                     const auto places = outline::declarations(*text, asked.context.word);
@@ -379,12 +381,12 @@ void Layer::prefetch_came_back_empty(const Asked& asked) {
 void Layer::load() {
     if (!enabled() || settings_.cache != "on" || workspaceFile_.empty()) return;
     const auto started = Clock::now();
-    auto text = platform::fs::read_file(workspaceFile_);
+    auto text = os::fs::read(workspaceFile_);
     if (!text) return;
     Json persisted = Json::parse(*text, nullptr, false);
     if (persisted.is_discarded() || !persisted.is_object() || persisted.value("format", 0) != FILE_FORMAT || !store_.adopt(persisted.value("store", Json()))) {
         log::info("answers: {} is not one this version reads; starting without it", workspaceFile_);
-        (void)platform::fs::remove(workspaceFile_);
+        (void)[&] { std::error_code failed; std::filesystem::remove(workspaceFile_, failed); return !failed; }();
         return;
     }
     const auto adoptTypes = [&](const char* name, std::unordered_map<std::string, Type>& into) {
@@ -401,9 +403,9 @@ void Layer::load() {
     adoptTypes("spelledTypes", spelledTypes_);
     // Names (K3) every workspace with this toolchain shares.
     if (!namesDirectory_.empty()) {
-        for (const auto& file : platform::fs::list_directory(namesDirectory_)) {
+        for (const auto& file : base::children(namesDirectory_)) {
             if (!file.ends_with(".json")) continue;
-            if (auto names = platform::fs::read_file(base::join_path(namesDirectory_, file))) {
+            if (auto names = os::fs::read(base::join_path(namesDirectory_, file))) {
                 const Json shared = Json::parse(*names, nullptr, false);
                 if (!shared.is_discarded()) store_.adopt(shared);
             }
@@ -415,6 +417,7 @@ void Layer::load() {
 }
 
 void Layer::save(bool force) {
+    std::error_code ignored;
     if (!enabled() || settings_.cache != "on" || workspaceFile_.empty()) return;
     if (store_.changes() == savedAt_) return;
     if (!force && lastSave_ && Clock::now() - *lastSave_ < SAVE_EVERY) return;
@@ -437,9 +440,9 @@ void Layer::save(bool force) {
         return out;
     };
     const Json persisted { { "format", FILE_FORMAT }, { "store", std::move(all) }, { "placeTypes", typesJson(placeTypes_) }, { "spelledTypes", typesJson(spelledTypes_) } };
-    (void)platform::fs::create_directories(base::parent_path(workspaceFile_));
-    if (auto written = platform::fs::write_file_atomic(workspaceFile_, persisted.dump()); !written) {
-        log::warning("answers: could not keep them in {}: {}", workspaceFile_, written.error().message);
+    (void)std::filesystem::create_directories(base::parent_path(workspaceFile_), ignored);
+    if (auto written = os::fs::write_atomic(workspaceFile_, persisted.dump()); !written) {
+        log::warning("answers: could not keep them in {}: {}", workspaceFile_, written.error().message());
     }
     // The names, for every workspace: this one's, beside what the file has from others.
     if (!namesDirectory_.empty()) {
@@ -447,14 +450,14 @@ void Layer::save(bool force) {
         if (names["entries"].empty()) return;
         const std::string file { base::join_path(namesDirectory_, "names.json") };
         answer::Store merged { PERSISTED_BYTES };
-        if (auto text = platform::fs::read_file(file)) {
+        if (auto text = os::fs::read(file)) {
             const Json existing = Json::parse(*text, nullptr, false);
             if (!existing.is_discarded()) merged.adopt(existing);
         }
         for (const Json& one : names["entries"]) merged.erase(one.value("key", std::string {}));
         merged.adopt(names);
-        (void)platform::fs::create_directories(namesDirectory_);
-        (void)platform::fs::write_file_atomic(file, merged.to_json(true).dump());
+        (void)std::filesystem::create_directories(namesDirectory_, ignored);
+        (void)os::fs::write_atomic(file, merged.to_json(true).dump());
     }
 }
 

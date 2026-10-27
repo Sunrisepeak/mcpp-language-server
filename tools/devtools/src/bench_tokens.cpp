@@ -4,16 +4,14 @@ import std;
 import nlohmann.json;
 import mcpplibs.cmdline;
 import mcppls.base.path;
-import mcppls.platform.dirs;
-import mcppls.platform.env;
-import mcppls.platform.fs;
 import mcppls.devtools.common;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::devtools::bench {
 
 namespace {
-
-namespace fs = mcppls::platform::fs;
 using Json = nlohmann::json;
 
 std::optional<double> median(std::vector<double> values) {
@@ -86,9 +84,10 @@ std::string token_table(const Json& medians, const Json& baseline) {
 }
 
 int command_tokens(const mcpplibs::cmdline::ParsedArgs& args) {
+    std::error_code ignored;
     const std::string server { args.value("server").value_or("") };
     const std::string payload { args.value("payload").value_or("") };
-    if (server.empty() || !fs::is_regular_file(server) || payload.empty() || !fs::is_directory(payload)) {
+    if (server.empty() || !std::filesystem::is_regular_file(server, ignored) || payload.empty() || !std::filesystem::is_directory(payload, ignored)) {
         std::println(std::cerr, "bench tokens: --server PATH and --payload DIR are required");
         return 2;
     }
@@ -97,23 +96,23 @@ int command_tokens(const mcpplibs::cmdline::ParsedArgs& args) {
     std::string conformance { args.value("conformance").value_or("") };
     if (conformance.empty()) {
         // Beside this program first (the build that has the runner), then beside the server.
-        const auto self = mcppls::platform::env::self_command();
+        const auto self = os::env::self_command();
         if (!self.empty()) conformance = base::join_path(base::parent_path(self.back()), "mcppls-conformance" + suffix);
-        if (!fs::is_regular_file(conformance)) conformance = base::join_path(base::parent_path(server), "mcppls-conformance" + suffix);
+        if (!std::filesystem::is_regular_file(conformance, ignored)) conformance = base::join_path(base::parent_path(server), "mcppls-conformance" + suffix);
     }
-    if (!fs::is_regular_file(conformance)) {
+    if (!std::filesystem::is_regular_file(conformance, ignored)) {
         std::println(std::cerr, "bench tokens: no mcppls-conformance (say --conformance PATH)");
         return 2;
     }
     const int rounds { std::max(1, std::atoi(args.value("rounds").value_or("3").c_str())) };
     const std::string fixture { base::join_path(root, "conformance/fixtures/tokens-large-file") };
-    const std::string scratch { base::join_path(mcppls::platform::dirs::temp_directory(),
+    const std::string scratch { base::join_path(base::spelled(os::dirs::temp()),
                                                 std::format("mcppls-bench-tokens-{}", std::chrono::system_clock::now().time_since_epoch().count())) };
     Json measured = Json::array();
     std::vector<std::string> failed;
     for (int round { 0 }; round < rounds; ++round) {
         const std::string work { base::join_path(scratch, std::format("round-{}", round)) };
-        (void)fs::create_directories(work);
+        (void)std::filesystem::create_directories(work, ignored);
         Json one = Json::object();
         for (const std::string_view stage : { "cold", "warm" }) {
             const std::string measureFile { base::join_path(work, std::format("{}.json", stage)) };
@@ -125,7 +124,7 @@ int command_tokens(const mcpplibs::cmdline::ParsedArgs& args) {
             std::println("== round {} {} ==", round + 1, stage);
             // The runner exits 1 when a budget is over; the measure is written either way.
             (void)capture(conformance, arguments, root, std::chrono::minutes { 15 });
-            auto text = fs::read_file(measureFile);
+            auto text = os::fs::read(measureFile);
             const Json parsed = text ? Json::parse(*text, nullptr, false) : Json(nullptr);
             one[std::string { stage }] = tokens_measure(parsed);
             if (!parsed.is_object()) failed.push_back(std::format("round {} {}: no measure was written", round + 1, stage));
@@ -140,14 +139,14 @@ int command_tokens(const mcpplibs::cmdline::ParsedArgs& args) {
     const Json medians = token_medians(measured);
     Json baseline = nullptr;
     if (auto compareWith = args.value("compare")) {
-        if (auto text = fs::read_file(*compareWith)) baseline = Json::parse(*text, nullptr, false).value("medians", Json(nullptr));
+        if (auto text = os::fs::read(*compareWith)) baseline = Json::parse(*text, nullptr, false).value("medians", Json(nullptr));
         else std::println(std::cerr, "bench tokens: cannot read {}", *compareWith);
     }
     std::println("\n{}", token_table(medians, baseline));
     if (auto out = args.value("out")) {
-        (void)fs::write_file(*out, Json { { "server", server }, { "rounds", measured }, { "medians", medians } }.dump(2) + "\n");
+        (void)os::fs::write(*out, Json { { "server", server }, { "rounds", measured }, { "medians", medians } }.dump(2) + "\n");
     }
-    if (!args.is_flag_set("keep")) (void)fs::remove_all(scratch);
+    if (!args.is_flag_set("keep")) (void)std::filesystem::remove_all(scratch, ignored);
     for (const auto& failure : failed) std::println(std::cerr, "bench tokens: {}", failure);
     return failed.empty() ? 0 : 1;
 }

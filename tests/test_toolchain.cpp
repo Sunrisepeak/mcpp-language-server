@@ -3,13 +3,16 @@ import std;
 import mcppls.testing;
 import nlohmann.json;
 import mcppls.base.error;
-import mcppls.platform.process;
-import mcppls.platform.fs;
-import mcppls.platform.dirs;
 import mcppls.base.path;
 import mcppls.spec.database;
 import mcppls.toolchain.probe;
 import mcppls.project.compdb;
+import mcpplibs.os;
+
+
+namespace base = mcppls::base;
+
+namespace os = mcpplibs::os;
 
 using namespace mcppls;
 using Json = nlohmann::json;
@@ -18,19 +21,19 @@ namespace {
 
 // Answers queries from a table keyed by the joined argv.
 toolchain::Runner recorded(std::map<std::string, std::string> answers, std::map<std::string, std::string> errors = {}) {
-    return [answers = std::move(answers), errors = std::move(errors)](std::span<const std::string> argv) -> base::Result<platform::RunResult> {
+    return [answers = std::move(answers), errors = std::move(errors)](std::span<const std::string> argv) -> base::Result<mcpplibs::os::process::bounded_output> {
         std::string key;
         for (const auto& argument : argv) key += (key.empty() ? "" : " ") + argument;
-        platform::RunResult result;
+        mcpplibs::os::process::bounded_output result;
         if (auto it = answers.find(key); it != answers.end()) {
-            result.exitCode = 0;
-            result.output = it->second;
+            result.status.code = 0;
+            result.out = it->second;
         } else if (auto error = errors.find(key); error != errors.end()) {
-            result.exitCode = 0;
-            result.error = error->second;
+            result.status.code = 0;
+            result.err = error->second;
         } else {
-            result.exitCode = 1;
-            result.error = "unrecorded query: " + key;
+            result.status.code = 1;
+            result.err = "unrecorded query: " + key;
         }
         return result;
     };
@@ -146,11 +149,12 @@ int main() {
     };
 
     "Clang with libc++ chosen by include paths"_test = [] {
-        const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+        std::error_code ignored;
+        const std::string root { mcppls::base::join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-test-probe-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
         const std::string manifest { mcppls::base::join_path(root, "llvm/lib/x86_64-unknown-linux-gnu/libc++.modules.json") };
-        (void)mcppls::platform::fs::create_directories(mcppls::base::parent_path(manifest));
-        (void)mcppls::platform::fs::write_file(manifest, "{}");
+        (void)std::filesystem::create_directories(mcppls::base::parent_path(manifest), ignored);
+        (void)os::fs::write(manifest, "{}");
         const std::string c { mcppls::base::join_path(root, "llvm/bin/clang++") };
         const std::vector<std::string> command { c, "-std=c++23", "--no-default-config", "-nostdinc++",
                                                  "-isystem" + mcppls::base::join_path(root, "llvm/include/c++/v1"), "-c", "a.cpp" };
@@ -168,7 +172,7 @@ int main() {
         expect(fatal(facts->toolchain.stdlib.has_value()));
         expect(facts->toolchain.stdlib->name == "libc++");
         expect(facts->toolchain.stdlib->moduleMetadata == manifest) << facts->toolchain.stdlib->moduleMetadata;
-        mcppls::platform::fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "Clang building against libstdc++"_test = [] {

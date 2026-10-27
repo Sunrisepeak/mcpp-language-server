@@ -10,6 +10,8 @@ import mcppls.orchestrator.answer;
 import mcppls.orchestrator.answering;
 import mcppls.orchestrator.outline;
 
+namespace base = mcppls::base;
+
 using Json = nlohmann::json;
 using mcppls::base::Position;
 namespace answer = mcppls::orchestrator::answer;

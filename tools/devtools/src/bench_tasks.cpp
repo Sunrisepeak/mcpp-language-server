@@ -5,16 +5,13 @@ import nlohmann.json;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.platform.process;
-import mcppls.platform.toolrun;
+import mcpplibs.os;
+import mcppls.toolrun;
 
+namespace os = mcpplibs::os;
 namespace mcppls::devtools::bench {
 namespace {
-
-namespace fs = mcppls::platform::fs;
-namespace toolrun = mcppls::platform::toolrun;
+namespace toolrun = mcppls::toolrun;
 
 constexpr std::array<std::string_view, 7> REQUIRED_TASK_FIELDS {
     "id", "title", "prompt", "project", "check", "reference", "shape",
@@ -59,8 +56,8 @@ CheckOutcome evaluate_content_check(const ContentCheck& check, const std::string
     std::string concatenated;
     for (const auto& relative : check.files) {
         const std::string full { base::join_path(cwd, relative) };
-        auto text = fs::read_file(full);
-        if (!text) return { false, std::format("file-contains: cannot read {}: {}", full, text.error().message) };
+        auto text = os::fs::read(full);
+        if (!text) return { false, std::format("file-contains: cannot read {}: {}", full, text.error().message()) };
         concatenated += *text;
     }
     std::vector<std::string> missing;
@@ -78,7 +75,7 @@ std::string describe_command_failure(const std::vector<std::string>& command, bo
                                      int timeoutSeconds, const std::string& output, const std::string& error) {
     const std::string where { base::join(command, " ") };
     const std::string combined { output + "\n" + error };
-    const std::string tail { mcppls::platform::last_lines(combined, 15) };
+    const std::string tail { base::last_lines(combined, 15) };
     if (timedOut) return std::format("`{}` timed out after {}s\n{}", where, timeoutSeconds, tail);
     return std::format("`{}` exited {}\n{}", where, exitCode, tail);
 }
@@ -107,10 +104,11 @@ base::Result<Check> parse_check(const nlohmann::json& value) {
 }
 
 base::Result<Task> load_task(const std::string& taskDir) {
+    std::error_code ignored;
     const std::string taskJson { base::join_path(taskDir, "task.json") };
-    if (!fs::is_regular_file(taskJson)) return base::fail("bench-task", std::format("{}: no task.json", taskDir));
-    auto text = fs::read_file(taskJson);
-    if (!text) return std::unexpected { text.error() };
+    if (!std::filesystem::is_regular_file(taskJson, ignored)) return base::fail("bench-task", std::format("{}: no task.json", taskDir));
+    auto text = os::fs::read(taskJson);
+    if (!text) return base::fail("read-file", text.error());
     nlohmann::json raw;
     try {
         raw = nlohmann::json::parse(*text);
@@ -154,23 +152,24 @@ base::Result<Task> load_task(const std::string& taskDir) {
     }
 
     task.projectDir = base::join_path(taskDir, raw.at("project").get<std::string>());
-    if (!fs::is_directory(task.projectDir)) {
+    if (!std::filesystem::is_directory(task.projectDir, ignored)) {
         return base::fail("bench-task", std::format("{}: project directory {} does not exist", taskJson, task.projectDir));
     }
-    if (!fs::is_regular_file(base::join_path(task.projectDir, "mcpp.toml"))) {
+    if (!std::filesystem::is_regular_file(base::join_path(task.projectDir, "mcpp.toml"), ignored)) {
         return base::fail("bench-task", std::format("{}: {} has no mcpp.toml", taskJson, task.projectDir));
     }
     task.referencePath = base::join_path(taskDir, raw.at("reference").get<std::string>());
-    if (!fs::is_regular_file(task.referencePath)) {
+    if (!std::filesystem::is_regular_file(task.referencePath, ignored)) {
         return base::fail("bench-task", std::format("{}: reference patch {} does not exist", taskJson, task.referencePath));
     }
     return task;
 }
 
 base::Result<std::vector<Task>> discover_tasks(const std::string& tasksDir, std::optional<std::string> only) {
+    std::error_code ignored;
     std::vector<std::string> taskDirs;
-    for (const auto& child : fs::list_directory(tasksDir)) {
-        if (fs::is_regular_file(base::join_path(child, "task.json"))) taskDirs.push_back(child);
+    for (const auto& child : base::children(tasksDir)) {
+        if (std::filesystem::is_regular_file(base::join_path(child, "task.json"), ignored)) taskDirs.push_back(child);
     }
     std::ranges::sort(taskDirs);
     if (only) {
@@ -195,7 +194,7 @@ CheckOutcome run_checks(const std::vector<Check>& checks, const std::string& cwd
         }
         // toolrun needs an absolute program path (the shell's own PATH search does not apply
         // here); every check command names a program by its bare name (`mcpp`, `python3`, ...).
-        auto resolved = mcppls::platform::env::find_executable(check.command.front());
+        auto resolved = toolrun::find_program(check.command.front());
         if (!resolved) {
             return { false, std::format("`{}` is not on PATH", check.command.front()) };
         }
@@ -206,14 +205,14 @@ CheckOutcome run_checks(const std::vector<Check>& checks, const std::string& cwd
             .workDirectory = cwd,
             .purpose = "bench",
             .network = toolrun::Network::allowed,
-            .bounds = mcppls::platform::RunBounds { .hard = std::chrono::seconds { timeoutSeconds } },
+            .bounds = mcpplibs::os::process::bounds { .hard = std::chrono::seconds { timeoutSeconds } },
         });
         if (!result) {
             return { false, std::format("`{}` could not start: {}", base::join(check.command, " "), result.error().message) };
         }
-        if (result->exitCode != 0 || result->timedOut) {
-            return { false, describe_command_failure(check.command, result->timedOut, result->exitCode,
-                                                      timeoutSeconds, result->output, result->error) };
+        if (!result->status.success() || result->timed_out) {
+            return { false, describe_command_failure(check.command, result->timed_out, toolrun::exit_code(result->status),
+                                                      timeoutSeconds, result->out, result->err) };
         }
     }
     return { true, "" };
@@ -221,20 +220,21 @@ CheckOutcome run_checks(const std::vector<Check>& checks, const std::string& cwd
 
 base::Result<void> copy_tree(const std::string& source, const std::string& destination,
                              const std::function<bool(std::string_view name)>& skip) {
-    if (auto created = fs::create_directories(destination); !created) return std::unexpected { created.error() };
-    for (const auto& child : fs::list_directory(source)) {
+    std::error_code ignored;
+    if (std::error_code failed; !std::filesystem::create_directories(destination, failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", destination, failed.message()));
+    for (const auto& child : base::children(source)) {
         // `list_directory` already returns full, joined paths (never join them onto `source`
         // again -- repository convention).
         const std::string normalized { base::normalize_path(child) };
         const std::string_view name { base::file_name(normalized) };
         if (skip && skip(name)) continue;
         const std::string destChild { base::join_path(destination, std::string { name }) };
-        if (fs::is_directory(child)) {
+        if (std::filesystem::is_directory(child, ignored)) {
             if (auto copied = copy_tree(child, destChild, skip); !copied) return copied;
-        } else if (fs::is_regular_file(child)) {
-            auto content = fs::read_file(child);
-            if (!content) return std::unexpected { content.error() };
-            if (auto written = fs::write_file(destChild, *content); !written) return std::unexpected { written.error() };
+        } else if (std::filesystem::is_regular_file(child, ignored)) {
+            auto content = os::fs::read(child);
+            if (!content) return base::fail("read-file", content.error());
+            if (auto written = os::fs::write(destChild, *content); !written) return base::fail("write-file", written.error());
         }
     }
     return {};

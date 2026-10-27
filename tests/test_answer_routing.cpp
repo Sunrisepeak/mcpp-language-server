@@ -7,10 +7,6 @@ import nlohmann.json;
 import mcppls.testing;
 import mcppls.base.path;
 import mcppls.base.uri;
-import mcppls.platform.dirs;
-import mcppls.platform.fs;
-import mcppls.platform.env;
-import mcppls.platform.toolrun;
 import mcppls.engine;
 import mcppls.engine.payload;
 import mcppls.normalize.plan;
@@ -20,11 +16,18 @@ import mcppls.spec.database;
 import mcppls.toolchain.probe;
 import mcppls.orchestrator.client;
 import mcppls.orchestrator.workspace;
+import mcpplibs.os;
+import mcppls.toolrun;
+
+namespace toolrun = mcppls::toolrun;
+
+namespace base = mcppls::base;
+
+namespace os = mcpplibs::os;
 
 using Json = nlohmann::json;
 namespace o = mcppls::orchestrator;
 namespace e = mcppls::engine;
-namespace fs = mcppls::platform::fs;
 using namespace std::chrono_literals;
 
 namespace {
@@ -116,10 +119,11 @@ public:
 };
 
 std::string canonical_root() {
-    const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+    std::error_code ignored;
+    const std::string root { mcppls::base::join_path(base::spelled(os::dirs::temp()),
                                                      std::format("mcppls-answer-routing-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-    (void)fs::create_directories(root);
-    return fs::canonical_path(root);
+    (void)std::filesystem::create_directories(root, ignored);
+    return base::canonical_path(root);
 }
 
 // A list the engine marks incomplete: the client asks again as the person types, so 0.0.14's own reuse of a complete
@@ -170,6 +174,7 @@ struct Fixture {
 
     // The project: a.cpp and b.cpp, b.cpp compiled with `extra` too.
     void load_model(const std::vector<std::string>& extra = {}, bool engineInterface = false, std::string target = {}, int generation = 1) {
+        std::error_code ignored;
         auto model = std::make_shared<mcppls::project::ProjectModel>();
         model->root = root;
         model->source = mcppls::project::SourceKind::build_database;
@@ -207,8 +212,8 @@ struct Fixture {
             unit.workDirectory = root;
             unit.role = mcppls::spec::Role::module_interface;
             unit.arguments = { "clang++", "-std=c++23", "-c", unit.source };
-            (void)fs::create_directories(mcppls::base::parent_path(unit.source));
-            (void)fs::write_file(unit.source, "export module mcpp;\nexport void cxxflag();\n");
+            (void)std::filesystem::create_directories(mcppls::base::parent_path(unit.source), ignored);
+            (void)os::fs::write(unit.source, "export module mcpp;\nexport void cxxflag();\n");
             engineSet.units.push_back(std::move(unit));
             model->database.sets.push_back(std::move(engineSet));
         }
@@ -224,7 +229,7 @@ struct Fixture {
     std::string uri(std::string_view name) const { return mcppls::base::path_to_uri(mcppls::base::join_path(root, name)); }
 
     void open(std::string_view name, std::string_view text) {
-        (void)fs::write_file(mcppls::base::join_path(root, name), text);
+        (void)os::fs::write(mcppls::base::join_path(root, name), text);
         versions[std::string { name }] = 1;
         workspace->did_open(Json { { "textDocument", { { "uri", uri(name) }, { "languageId", "cpp" }, { "version", 1 }, { "text", std::string { text } } } } });
     }
@@ -286,31 +291,32 @@ constexpr std::string_view A { "#include <x>\nvoid f() {\n    doc.size();\n    s
 } // namespace
 
 int main() {
+    std::error_code ignored;
     using namespace mcppls::testing;
 
-    const auto arguments = mcppls::platform::env::arguments();
+    const auto arguments = os::env::arguments();
     if (arguments.size() == 1) {
         // The workspaces keep their answers under the cache: isolated, so a user's cache is never touched.
-        const std::string cache { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+        const std::string cache { mcppls::base::join_path(base::spelled(os::dirs::temp()),
                                                           std::format("mcppls-answer-tests-cache-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-        auto environment = mcppls::platform::env::variables();
+        auto environment = os::env::variables();
         std::erase_if(environment, [](const std::string& entry) { return entry.starts_with("MCPPLS_CACHE_DIR="); });
         environment.push_back("MCPPLS_CACHE_DIR=" + cache);
-        mcppls::platform::toolrun::Request request;
+        mcppls::toolrun::Request request;
         request.program = arguments.front();
         request.arguments = { "--isolated-answer-tests" };
         request.purpose = "answer-routing-test";
         request.bounds.hard = 120s;
         request.environment = std::move(environment);
-        const auto result = mcppls::platform::toolrun::run(request);
-        fs::remove_all(cache);
+        const auto result = mcppls::toolrun::run(request);
+        std::filesystem::remove_all(cache, ignored);
         if (!result) {
             std::println(std::cerr, "{}", result.error().message);
             return 1;
         }
-        std::print("{}", result->output);
-        std::print(std::cerr, "{}", result->error);
-        return result->timedOut ? 1 : result->exitCode;
+        std::print("{}", result->out);
+        std::print(std::cerr, "{}", result->err);
+        return result->timed_out ? 1 : toolrun::exit_code(result->status);
     }
     "watched source acknowledgement covers successful run-start inputs, not failures or later disk edits"_test = [] {
         for (const int scenario : { 0, 1, 2, 3, 4, 5 }) {
@@ -323,8 +329,8 @@ int main() {
             const std::string initial { scenario == 5 ? "#define SELECT(x) x\nimport SELECT(active);\nint value() { return 0; }\n"
                 : scenario >= 3 ? "#if 1\nimport active;\n#endif\nint value() { return 0; }\n"
                                 : "import active;\nint value() { return 0; }\n" };
-            expect(fs::write_file(path, initial).has_value());
-            expect(fs::write_file(mcppls::base::join_path(f.root, "b.cpp"), "export module active;\n").has_value());
+            expect(os::fs::write(path, initial).has_value());
+            expect(os::fs::write(mcppls::base::join_path(f.root, "b.cpp"), "export module active;\n").has_value());
             const auto loaded = [&](int generation, bool success) {
                 auto model = std::make_shared<mcppls::project::ProjectModel>();
                 model->root = f.root;
@@ -358,7 +364,7 @@ int main() {
                 f.tick(1600ms);
                 expect(fatal(f.workspace->report()["state"] == "loading"));
                 loaded(2, true); // SELECT(active) really imports active; this answer is valid.
-                expect(fs::write_file(path, "#define SELECT(x) x\nimport SELECT(other);\nint value() { return 0; }\n").has_value());
+                expect(os::fs::write(path, "#define SELECT(x) x\nimport SELECT(other);\nint value() { return 0; }\n").has_value());
                 watched();
                 f.tick(1600ms);
                 expect(f.workspace->report()["state"] == "loading")
@@ -374,28 +380,28 @@ int main() {
                     expect(fatal(f.workspace->report()["state"] == "loading"));
                     loaded(2, true);
                 }
-                expect(fs::write_file(path, "#if 0\nimport active;\n#endif\nint value() { return 0; }\n").has_value());
+                expect(os::fs::write(path, "#if 0\nimport active;\n#endif\nint value() { return 0; }\n").has_value());
                 watched();
                 f.tick(1600ms);
                 expect(f.workspace->report()["state"] == "loading")
                     << "disabling the import changes effective dependencies even though lexical names still match the old model; baseline=" << (scenario == 4);
                 continue;
             }
-            expect(fs::write_file(path, source("hidden.alpha", 1)).has_value());
+            expect(os::fs::write(path, source("hidden.alpha", 1)).has_value());
             watched();
-            const auto beforeRun = fs::stamp(path);
+            const auto beforeRun = base::file_stamp(path);
             f.tick(1600ms); // The existing producer debounce, not a status hold.
             expect(fatal(f.workspace->report()["state"] == "loading"));
             if (!failed) {
                 // A checkout changes disk after the run began, before its watch reaches us.
-                expect(fs::write_file(path, source("hidden.beta", 2)).has_value());
+                expect(os::fs::write(path, source("hidden.beta", 2)).has_value());
                 if (restored) {
-                    expect(fs::write_file(path, source("hidden.alpha", 1)).has_value());
-                    expect(fatal(fs::stamp(path) != beforeRun)) << "the A -> B -> A control changed the original file stamp";
+                    expect(os::fs::write(path, source("hidden.alpha", 1)).has_value());
+                    expect(fatal(base::file_stamp(path) != beforeRun)) << "the A -> B -> A control changed the original file stamp";
                 }
             }
             loaded(2, !failed);
-            expect(fs::write_file(path, source(failed || restored ? "hidden.alpha" : "hidden.beta", 3)).has_value());
+            expect(os::fs::write(path, source(failed || restored ? "hidden.alpha" : "hidden.beta", 3)).has_value());
             watched();
             f.tick(1600ms);
             expect(f.workspace->report()["state"] == "loading")
@@ -403,7 +409,7 @@ int main() {
                            : restored ? "a changed stamp cannot acknowledge A -> B -> A while the producer ran"
                                       : "a run cannot acknowledge the later disk structure it did not start with");
             loaded(3, true);
-            expect(fs::write_file(path, source(failed || restored ? "hidden.alpha" : "hidden.beta", 4)).has_value());
+            expect(os::fs::write(path, source(failed || restored ? "hidden.alpha" : "hidden.beta", 4)).has_value());
             watched();
             f.tick(1600ms);
             expect(f.workspace->report()["state"] != "loading") << "a valid unchanged answer acknowledges the run-start structure";
@@ -547,7 +553,7 @@ int main() {
             Fixture f;
             f.load_model({}, true);
             const std::string path { mcppls::base::join_path(f.root, "a.cpp") };
-            if (mode != 3) expect(fs::write_file(path, "void f(){ cxxflag(); }\n").has_value());
+            if (mode != 3) expect(os::fs::write(path, "void f(){ cxxflag(); }\n").has_value());
             f.held->renameResult = rename_edit(f.uri("a.cpp"));
             const Json id = f.ask("textDocument/rename", "a.cpp", 0, 13);
             if (mode == 3) {
@@ -558,7 +564,7 @@ int main() {
                 continue;
             }
             if (stage == 1) expect(f.answer(id, definition_location(f.uri("a.cpp"))));
-            if (mode == 1) expect(fs::write_file(path, "void f(){ cxxflag(); } // disk changed\n").has_value());
+            if (mode == 1) expect(os::fs::write(path, "void f(){ cxxflag(); } // disk changed\n").has_value());
             if (mode == 2) f.open("a.cpp", "void f(){ cxxflag(); }\n");
             expect(f.answer(id, definition_location(f.uri("a.cpp"))));
             if (mode == 0 && stage == 0) expect(f.answer(id, definition_location(f.uri("a.cpp"))));
@@ -977,7 +983,7 @@ int main() {
         Fixture f;
         f.open("a.cpp", "void f() {\n    doc.dump();\n}\n");   // `dump` at 1:8
         const std::string header { mcppls::base::join_path(f.root, "json.hpp") };
-        (void)fs::write_file(header, "struct json { void dump(); };\n");
+        (void)os::fs::write(header, "struct json { void dump(); };\n");
         const Json hover = f.ask("textDocument/hover", "a.cpp", 1, 9);
         expect(f.answer(hover, Json { { "contents", Json { { "kind", "markdown" }, { "value", "void dump()" } } } }));
         const Json definition = f.ask("textDocument/definition", "a.cpp", 1, 9);
@@ -996,7 +1002,7 @@ int main() {
         expect((*jumped)["result"][0]["range"]["start"]["character"] == 19);
         // The header moved its declaration: found again in its text.
         std::this_thread::sleep_for(20ms);
-        (void)fs::write_file(header, "// moved\nstruct json {\n    void dump();\n};\n");
+        (void)os::fs::write(header, "// moved\nstruct json {\n    void dump();\n};\n");
         const Json moved = f.ask("textDocument/definition", "a.cpp", 1, 10);
         f.tick(500ms);
         const auto found = f.sink.response(moved);

@@ -20,12 +20,12 @@ main = "src/main.cpp"
 clion = {}
 
 [dependencies]
-mcppls-os = { path = "../../modules/os" }
+os.workspace                   = true
 openkal-llvm-runtime.workspace = true
 openkal-musl.workspace         = true
 cmdline.workspace              = true
 mcppls-base                    = { path = "../../modules/base" }
-mcppls-platform                = { path = "../../modules/platform" }
+mcppls-toolrun                 = { path = "../../modules/toolrun" }
 mcppls-pack                    = { path = "../../modules/pack" }
 
 [dependencies.nlohmann]

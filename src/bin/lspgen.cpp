@@ -7,9 +7,9 @@ import nlohmann.json;
 import mcpplibs.cmdline;
 import mcppls.base.version;
 import mcppls.base.path;
-import mcppls.platform.fs;
+import mcpplibs.os;
 
-namespace fs = mcppls::platform::fs;
+namespace os = mcpplibs::os;
 using Json = nlohmann::json;
 
 namespace {
@@ -100,9 +100,9 @@ std::string method_constant(std::string_view name) {
 }
 
 int generate(const std::string& metaModelPath, const std::string& outDirectory) {
-    auto text = fs::read_file(metaModelPath);
+    auto text = os::fs::read(metaModelPath);
     if (!text) {
-        std::println(std::cerr, "lspgen: {}", text.error().message);
+        std::println(std::cerr, "lspgen: {}", text.error().message());
         return 1;
     }
     Json model = Json::parse(*text, nullptr, false);
@@ -202,8 +202,8 @@ int generate(const std::string& metaModelPath, const std::string& outDirectory) 
     for (const auto& [file, content] : { std::pair { std::string { "protocol.cppm" }, &interface },
                                          std::pair { std::string { "protocol.cpp" }, &implementation } }) {
         const std::string path { mcppls::base::join_path(outDirectory, file) };
-        if (auto written = fs::write_file_atomic(path, *content); !written) {
-            std::println(std::cerr, "lspgen: {}", written.error().message);
+        if (auto written = os::fs::write_atomic(path, *content); !written) {
+            std::println(std::cerr, "lspgen: {}", written.error().message());
             return 1;
         }
         std::println("lspgen: wrote {}", path);

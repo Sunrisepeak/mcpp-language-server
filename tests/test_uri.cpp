@@ -1,8 +1,10 @@
 import std;
 import mcppls.testing;
-import mcppls.os;
 import mcppls.base.path;
 import mcppls.base.uri;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 using namespace mcppls::base;
 
@@ -29,7 +31,7 @@ int main() {
     };
 
     "native style follows the target"_test = [] {
-        if (mcppls::os::family() == mcppls::os::Family::windows) {
+        if (os::host() == os::platform::windows) {
             expect(native_path_style() == PathStyle::windows);
         } else {
             expect(native_path_style() == PathStyle::posix);

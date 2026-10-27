@@ -52,7 +52,7 @@ base::Result<std::vector<std::string>> extract(std::string_view archivePath, std
 
 // One item to write into a new archive: a real file or directory on disk, and the path it lands at
 // under the archive's single top-level directory (`rootName`). A directory is added recursively,
-// depth-first in the sorted order `mcppls.platform.fs::list_directory` already gives, keeping the
+// depth-first in the sorted order `base::children` already gives, keeping the
 // tree beneath it and each file's executable bit -- this is `xlings_artifacts.py`'s
 // `write_archive`/`tarfile.add(..., recursive=True)`, the writing half of what used to need
 // `tarfile`.

@@ -1,7 +1,8 @@
 module mcppls.base.path;
 
 import std;
-import mcppls.os;
+import mcpplibs.os;
+import mcppls.base.error;
 import mcppls.base.text;
 
 namespace mcppls::base {
@@ -126,6 +127,91 @@ bool is_within(std::string_view path, std::string_view directory, bool caseInsen
     if (!same_path(path.substr(0, directory.size()), directory, caseInsensitive)) return false;
     if (path.size() == directory.size()) return true;
     return directory.ends_with('/') || path[directory.size()] == '/';
+}
+
+// ---- asking the file system, in this spelling ----------------------------------------------------
+
+std::string spelled(const std::filesystem::path& path) { return normalize_path(mcpplibs::os::fs::generic_utf8(path)); }
+
+std::vector<std::string> children(std::string_view directory) {
+    std::vector<std::string> result;
+    std::error_code error;
+    for (std::filesystem::directory_iterator it { std::filesystem::path { directory }, error }, end; !error && it != end; it.increment(error)) {
+        result.push_back(join_path(directory, mcpplibs::os::fs::generic_utf8(it->path().filename())));
+    }
+    std::ranges::sort(result);
+    return result;
+}
+
+std::vector<std::string> files_under(std::string_view root, std::span<const std::string_view> extensions,
+                                     std::span<const std::string_view> skipDirectories) {
+    std::vector<std::string> result;
+    std::vector<std::string> pending { normalize_path(root) };
+    while (!pending.empty()) {
+        std::string directory { std::move(pending.back()) };
+        pending.pop_back();
+        std::error_code error;
+        for (std::filesystem::directory_iterator it { std::filesystem::path { directory }, error }, end; !error && it != end; it.increment(error)) {
+            const std::string name { mcpplibs::os::fs::generic_utf8(it->path().filename()) };
+            const std::string full { join_path(directory, name) };
+            std::error_code statusError;
+            if (it->is_directory(statusError)) {
+                if (name.starts_with('.')) continue;
+                if (std::ranges::any_of(skipDirectories, [&](std::string_view skip) { return name == skip; })) continue;
+                if (it->is_symlink(statusError)) continue;
+                pending.push_back(full);
+            } else if (it->is_regular_file(statusError)) {
+                const std::string_view suffix { extension(name) };
+                if (extensions.empty() || std::ranges::any_of(extensions, [&](std::string_view wanted) { return iequals_ascii(wanted, suffix); })) {
+                    result.push_back(full);
+                }
+            }
+        }
+    }
+    std::ranges::sort(result);
+    return result;
+}
+
+std::string current_directory() {
+    std::error_code error;
+    const auto path = std::filesystem::current_path(error);
+    return error ? std::string {} : spelled(path);
+}
+
+std::string canonical_path(std::string_view path) {
+    if (path.empty()) return {};
+    return spelled(mcpplibs::os::fs::canonical(std::filesystem::path { path }));
+}
+
+Result<void> make_executable(std::span<const std::string> paths) {
+    for (const auto& path : paths) {
+        auto marked = mcpplibs::os::fs::set_executable(std::filesystem::path { path }, true);
+        if (!marked && marked.error().code != mcpplibs::os::errc::not_supported)
+            return fail("chmod", std::format("cannot make {} executable: {}", path, marked.error().message()));
+    }
+    return {};
+}
+
+std::optional<mcpplibs::os::fs::stamp> file_stamp(std::string_view path) {
+    auto stamp = mcpplibs::os::fs::stamp_of(std::filesystem::path { path });
+    if (!stamp) return std::nullopt;
+    return *stamp;
+}
+
+std::int64_t file_time_now() {
+    // The file clock's own reading of now: a file just written carries it. The system clock is not that reading:
+    // Linux stamps a file from a coarse clock that lags it by up to a tick, so a file written right after
+    // `system_clock::now()` can carry an earlier time, and a sweep bounded by it would take that file. One scratch
+    // name in the temporary directory, reused.
+    static const std::filesystem::path scratch { [] {
+        auto temporary = mcpplibs::os::dirs::temp();
+        std::error_code ignored;
+        std::filesystem::create_directories(temporary, ignored);
+        return temporary / ".mcppls-clock";
+    }() };
+    (void)mcpplibs::os::fs::write(scratch, "now");
+    const auto stamp = mcpplibs::os::fs::stamp_of(scratch);
+    return stamp ? static_cast<std::int64_t>(stamp->modified_ns) : std::int64_t { 0 };
 }
 
 } // namespace mcppls::base

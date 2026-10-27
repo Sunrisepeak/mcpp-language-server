@@ -881,7 +881,7 @@
       "test": "tests/test_env.cpp: the login shell's values win, but the session's own do not travel"
     },
     {
-      "script": "modules/platform/src/toolrun.cpp",
+      "script": "modules/toolrun/src/toolrun.cpp",
       "contains": "the user's session environment, and nothing added to it"
     }
   ],
@@ -1956,8 +1956,8 @@
       "test": "tests/test_net.cpp: a loopback connection carries bytes both ways and ends when one side is done"
     },
     {
-      "script": "modules/platform/src/net.cpp",
-      "contains": "osnet::loopback_listener::listen(0)"
+      "script": "src/ai/mcp/daemon.cpp",
+      "contains": "os::net::loopback_listener::listen(0)"
     }
   ],
   "S5-6.1-2": [
@@ -1995,7 +1995,7 @@
   ],
   "S2-6-5": [
     {
-      "script": "modules/platform/src/toolrun.cpp",
+      "script": "modules/toolrun/src/toolrun.cpp",
       "contains": "No credential of"
     }
   ],
@@ -2004,13 +2004,13 @@
       "test": "tests/test_env.cpp: an environment is read between the markers, and nothing else is"
     },
     {
-      "script": "modules/platform/src/toolenv.cppm",
+      "script": "modules/toolrun/src/toolenv.cppm",
       "contains": "resolves it itself, once, in the background, and starts build tools in the result"
     }
   ],
   "S2-6-7": [
     {
-      "script": "modules/platform/src/toolenv.cppm",
+      "script": "modules/toolrun/src/toolenv.cppm",
       "contains": "is settled by running it offline"
     }
   ],

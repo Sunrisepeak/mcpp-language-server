@@ -1,14 +1,15 @@
-module mcppls.platform.toolenv;
+module mcppls.toolenv;
 
 import std;
 import nlohmann.json;
-import mcppls.os;
+import mcpplibs.os;
 import mcppls.base.log;
 import mcppls.base.text;
-import mcppls.platform.env;
-import mcppls.platform.process;
 
-namespace mcppls::platform::toolenv {
+namespace mcppls::toolenv {
+
+namespace env = mcpplibs::os::env;
+namespace process = mcpplibs::os::process;
 
 namespace {
 
@@ -92,31 +93,32 @@ Environment resolve_from_login_shell(const std::vector<std::string>& self, const
     environment.push_back("VSCODE_RESOLVING_ENVIRONMENT=1");
     environment.push_back("MCPPLS_RESOLVING_ENVIRONMENT=1");
 
-    SpawnOptions options {
-        .program = shell,
-        .arguments = { "-l", "-i", "-c", std::format("{} print-environment {}", command_line, marker) },
-        .environment = environment,
-    };
+    process::spawn_options options;
+    options.program = shell;
+    options.args = { "-l", "-i", "-c", std::format("{} print-environment {}", command_line, marker) };
+    options.bound_lifetime = true;
+    options.clear_env = true;
+    options.env = env::assignments(environment);
     // A shell configuration that waits for input, or for the network, must not keep the server
     // from starting a build tool: ten seconds, then this process's own environment.
-    auto result = run(std::move(options), RunBounds { .hard = std::chrono::seconds { 10 },
-                                                      .drain = std::chrono::milliseconds { 500 },
-                                                      .outputLimit = 4 * 1024 * 1024,
-                                                      .errorLimit = 256 * 1024 });
+    auto result = process::run(std::move(options), process::bounds { .hard = std::chrono::seconds { 10 },
+                                                                      .drain = std::chrono::milliseconds { 500 },
+                                                                      .out_limit = 4 * 1024 * 1024,
+                                                                      .err_limit = 256 * 1024 });
     const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started);
     if (!result) {
-        auto answer = editor_environment(std::format("the login shell {} could not be started: {}", shell, result.error().message));
+        auto answer = editor_environment(std::format("the login shell {} could not be started: {}", shell, result.error().message()));
         answer.duration = duration;
         return answer;
     }
-    if (result->timedOut) {
+    if (result->timed_out) {
         auto answer = editor_environment(std::format("the login shell {} did not finish within 10 s", shell));
         answer.duration = duration;
         return answer;
     }
-    auto parsed = parse_marked(result->output, marker);
+    auto parsed = parse_marked(result->out, marker);
     if (!parsed) {
-        auto answer = editor_environment(std::format("the login shell {} did not report an environment (exit {})", shell, result->exitCode));
+        auto answer = editor_environment(std::format("the login shell {} did not report an environment (exit {})", shell, result->status.code));
         answer.duration = duration;
         return answer;
     }
@@ -143,7 +145,7 @@ void resolve_now() {
     Environment environment;
     if (mode == Mode::editor) {
         environment = editor_environment("mcppls.toolEnvironment is editor");
-    } else if (os::family() == os::Family::windows) {
+    } else if (mcpplibs::os::host() == mcpplibs::os::platform::windows) {
         // A graphical program on Windows takes its environment from the registry, which is what a
         // terminal takes too. There is no login shell to ask.
         environment = editor_environment("this process's environment (Windows)");
@@ -251,7 +253,7 @@ std::vector<std::string> merge(const std::vector<std::string>& base, const std::
         for (std::size_t index { 0 }; index < merged.size(); ++index) {
             const auto [existing, unused] = split_variable(merged[index]);
             (void) unused;
-            const bool same { os::case_insensitive_paths()
+            const bool same { mcpplibs::os::conventions().case_insensitive_names
                                   ? base::iequals_ascii(existing, name)
                                   : existing == name };
             if (same) return index;
@@ -291,4 +293,4 @@ std::optional<std::vector<std::string>> parse_marked(std::string_view text, std:
     return variables;
 }
 
-} // namespace mcppls::platform::toolenv
+} // namespace mcppls::toolenv

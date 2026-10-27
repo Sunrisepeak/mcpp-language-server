@@ -6,9 +6,9 @@ import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.sha256;
 import mcppls.base.version;
-import mcppls.platform.fs;
-import mcppls.platform.process;
+import mcpplibs.os;
 
+namespace os = mcpplibs::os;
 namespace mcppls::orchestrator {
 
 using Json = nlohmann::json;
@@ -52,8 +52,29 @@ struct Lease {
 // on Windows, where before it could never say anything.
 bool owner_gone(const Lease& lease) { return lease_owner_gone(lease.pid, lease.started); }
 
+// X-6 (plan 2026-10-03): who a process is -- its identifier, and `ok:<started_ns>`, the start mcpplibs.os reports on every
+// system, which is stable for one incarnation and different for the next owner of the identifier. A lease that names both
+// is taken over only when both say "the same live process"; an older server wrote `started` in another scheme, which
+// cannot be compared with this one, and such a lease is judged by liveness alone.
+constexpr std::string_view IDENTITY_SCHEME { "ok:" };
+
+struct Identity {
+    std::int64_t pid { 0 };
+    std::string started;
+};
+
+std::optional<Identity> identity_of(const os::process::program& who) {
+    if (who.id == 0 || who.started_ns == 0) return std::nullopt;
+    return Identity { static_cast<std::int64_t>(who.id), std::format("{}{}", IDENTITY_SCHEME, who.started_ns) };
+}
+
+std::optional<Identity> self_identity() {
+    const auto self = os::process::self();
+    return self ? identity_of(*self) : std::nullopt;
+}
+
 std::optional<Lease> read_lease(std::string_view workspaceDirectory) {
-    auto text = platform::fs::read_file(lease_path(workspaceDirectory));
+    auto text = os::fs::read(lease_path(workspaceDirectory));
     if (!text) return std::nullopt;
     const Json document = Json::parse(*text, nullptr, false);
     if (document.is_discarded() || !document.is_object()) return std::nullopt;
@@ -63,11 +84,11 @@ std::optional<Lease> read_lease(std::string_view workspaceDirectory) {
 
 void write_lease(std::string_view workspaceDirectory, std::string_view token, std::chrono::system_clock::time_point now) {
     Json document { { "token", std::string { token } }, { "heartbeat", milliseconds(now) }, { "version", std::string { base::VERSION } } };
-    if (const auto self = platform::process_self()) {
+    if (const auto self = self_identity()) {
         document["pid"] = self->pid;
         document["started"] = self->started;
     }
-    (void)platform::fs::write_file_atomic(lease_path(workspaceDirectory), document.dump());
+    (void)os::fs::write_atomic(lease_path(workspaceDirectory), document.dump());
 }
 
 void write_instance(bool shared, std::string_view workspaceDirectory, std::string_view directory, std::string_view token,
@@ -77,36 +98,38 @@ void write_instance(bool shared, std::string_view workspaceDirectory, std::strin
                     { "root", std::string { root } },
                     { "at", milliseconds(now) },
                     { "shared", shared } };
-    if (const auto self = platform::process_self()) {
+    if (const auto self = self_identity()) {
         document["pid"] = self->pid;
         document["started"] = self->started;
     }
-    (void)platform::fs::write_file_atomic(instance_path(shared, workspaceDirectory, directory), document.dump());
+    (void)os::fs::write_atomic(instance_path(shared, workspaceDirectory, directory), document.dump());
 }
 
 } // namespace
 
 bool lease_owner_gone(std::int64_t pid, std::string_view started) {
     if (pid <= 0 || started.empty()) return false;
-    const auto owner = platform::process_identity(pid);
+    const auto described = os::process::describe(static_cast<std::uint64_t>(pid));
+    // No such process: a definite "gone". Anything else unreadable (another user's process on Windows) leaves the
+    // heartbeat to decide, exactly as before X-6.
+    if (!described) return described.error().code == os::errc::not_found;
+    if (described->ended) return true;
+    const auto owner = identity_of(described->who);
     // A lease an older server wrote names its start in another scheme, which says nothing about
     // this one's: such a lease is judged by liveness alone, so an upgrade never takes a live
     // server's workspace over.
-    if (owner && platform::same_identity_scheme(owner->started, started)) return owner->started != started;
-    // Who it is cannot be read; whether it is ANY process still can. Only a definite "no such
-    // process" is a gone owner -- anything else (another user's process on Windows, a ps(1) that
-    // hiccuped) leaves the heartbeat to decide, exactly as before X-6.
-    const auto alive = platform::process_alive(pid);
-    return alive.has_value() && !*alive;
+    if (owner && owner->started.starts_with(IDENTITY_SCHEME) == started.starts_with(IDENTITY_SCHEME)) return owner->started != started;
+    return false;
 }
 
 WorkspaceLease WorkspaceLease::acquire(std::string_view workspaceDirectory, std::chrono::system_clock::time_point now,
                                        std::string_view root) {
+    std::error_code ignored;
     WorkspaceLease lease;
     lease.workspaceDirectory_ = std::string { workspaceDirectory };
     lease.root_ = std::string { root };
     lease.token_ = new_token();
-    (void)platform::fs::create_directories(workspaceDirectory);
+    (void)std::filesystem::create_directories(workspaceDirectory, ignored);
     const auto current = read_lease(workspaceDirectory);
     // C-5: a server that crashed left its lease fresh for up to LEASE_EXPIRY, and the editor restarts a crashed server at
     // once -- so the restarted one took itself for a second instance and started cold in a private directory (66 s
@@ -124,7 +147,7 @@ WorkspaceLease WorkspaceLease::acquire(std::string_view workspaceDirectory, std:
     }
     if (lease.shared_) {
         lease.directory_ = base::join_path(workspaceDirectory, base::join_path("instances", lease.token_));
-        (void)platform::fs::create_directories(lease.directory_);
+        (void)std::filesystem::create_directories(lease.directory_, ignored);
         base::log::info("another instance serves {}; this one uses {}", workspaceDirectory, lease.directory_);
     } else {
         lease.directory_ = std::string { workspaceDirectory };
@@ -142,16 +165,17 @@ void WorkspaceLease::renew(std::chrono::system_clock::time_point now) {
 }
 
 void WorkspaceLease::release() {
+    std::error_code ignored;
     if (released_) return;
     released_ = true;
     if (shared_) {
-        platform::fs::remove_all(directory_);
+        std::filesystem::remove_all(directory_, ignored);
         return;
     }
     // Only a lease that is still this instance's own is removed, and the self-description with it.
     if (const auto current = read_lease(workspaceDirectory_); current && current->token == token_) {
-        platform::fs::remove_all(lease_path(workspaceDirectory_));
-        (void)platform::fs::remove(instance_path(shared_, workspaceDirectory_, directory_));
+        std::filesystem::remove_all(lease_path(workspaceDirectory_), ignored);
+        (void)[&] { std::error_code failed; std::filesystem::remove(instance_path(shared_, workspaceDirectory_, directory_), failed); return !failed; }();
     }
 }
 

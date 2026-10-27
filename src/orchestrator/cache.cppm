@@ -17,8 +17,6 @@ import nlohmann.json;
 import mcppls.base.path;
 import mcppls.engine.clangd.bmi;
 import mcppls.orchestrator.instance;
-import mcppls.platform.fs;
-
 export namespace mcppls::orchestrator::cache {
 
 using Json = nlohmann::json;
@@ -93,6 +91,14 @@ std::string modules_root(std::string_view context);
 // The bytes of a tree, as the report counts them (a `--dry-run` needs the same number a removal
 // would free).
 std::uint64_t tree_bytes(std::string_view path);
+
+// What removing a whole tree did: the bytes it freed and the entries it had to leave. A tree the
+// cache no longer needs may partly survive an overcrowded Windows scan; the count is the report.
+struct Removal {
+    std::uint64_t bytes { 0 };
+    std::size_t failed { 0 };
+};
+Removal remove_tree(std::string_view path);
 
 // ---- C-8: the budget ----------------------------------------------------------------
 //

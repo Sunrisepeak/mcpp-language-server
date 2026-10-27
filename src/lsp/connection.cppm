@@ -6,8 +6,8 @@ export module mcppls.lsp.connection;
 
 import std;
 import nlohmann.json;
+import mcpplibs.os;
 import mcppls.base.error;
-import mcppls.platform.process;
 import mcppls.lsp.jsonrpc;
 
 export namespace mcppls::lsp {
@@ -21,7 +21,7 @@ public:
     using ErrorLineHandler = std::function<void(std::string_view line)>;
 
 private:
-    platform::Process process_;
+    mcpplibs::os::process::process process_;
     std::jthread reader_;
     std::jthread errorReader_;
     // Plan 2026-09-30 §13: what is sent waits here, not on the caller. A peer that reads slowly -- clangd on a busy
@@ -44,7 +44,9 @@ public:
 public:
     // Handlers run on the connection's own threads. `onClosed` runs once, after
     // the peer's output ended.
-    static base::Result<std::unique_ptr<Connection>> start(platform::SpawnOptions options, MessageHandler onMessage,
+    // The peer's input and output are pipes; its error output is read line by line for `onErrorLine`, or
+    // goes to this program's error output without one.
+    static base::Result<std::unique_ptr<Connection>> start(mcpplibs::os::process::spawn_options options, MessageHandler onMessage,
                                                            ClosedHandler onClosed, ErrorLineHandler onErrorLine = {},
                                                            Framing framing = Framing::content_length);
     // Queues an owned snapshot; the writer encodes it and writes it in order. Success means
@@ -54,8 +56,11 @@ public:
     void stop(std::chrono::milliseconds grace);
     bool closed() const { return closed_.load(); }
     std::optional<int> exit_code();
-    // The peer's OS process id, where the platform can say (platform::Process::native_pid).
-    std::optional<std::int64_t> native_pid() const { return process_.native_pid(); }
+    // The peer's process identifier (mcpplibs.os `process::id`), while it is started.
+    std::optional<std::int64_t> native_pid() const {
+        if (!process_.valid() || process_.id() == 0) return std::nullopt;
+        return static_cast<std::int64_t>(process_.id());
+    }
 };
 
 } // namespace mcppls::lsp

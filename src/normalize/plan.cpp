@@ -2,13 +2,11 @@ module mcppls.normalize.plan;
 
 import std;
 import nlohmann.json;
-import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.base.version;
-import mcppls.platform.fs;
 import mcppls.spec.database;
 import mcppls.spec.kit;
 import mcppls.spec.metadata;
@@ -19,6 +17,9 @@ import mcppls.project.boundary;
 import mcppls.normalize.gnu;
 import mcppls.normalize.msvc;
 import mcppls.normalize.semantic;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::normalize {
 
@@ -406,7 +407,7 @@ EnginePlan plan_engine(const PlanInput& input) {
             }
 
             const bool importable { spec::is_importable(candidate.role) };
-            const auto syntax { mcppls::os::family() == mcppls::os::Family::windows ? project::CommandSyntax::windows
+            const auto syntax { os::host() == os::platform::windows ? project::CommandSyntax::windows
                                                                                   : project::CommandSyntax::posix };
             // S1 section 9 rule 1: options, when the producer stated them, decide the unit's semantics; they
             // are written in the toolchain's dialect and take the translation a build's arguments take.
@@ -871,8 +872,9 @@ nlohmann::json to_compile_commands(const EnginePlan& plan, bool moduleHints) {
 }
 
 base::Result<void> write_engine_database(std::string_view directory, const EnginePlan& plan) {
-    if (auto created = platform::fs::create_directories(directory); !created) return created;
-    return platform::fs::write_file_atomic(base::join_path(directory, "compile_commands.json"), to_compile_commands(plan).dump(1));
+    if (std::error_code failed; !std::filesystem::create_directories(directory, failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", directory, failed.message()));
+    if (auto written = os::fs::write_atomic(base::join_path(directory, "compile_commands.json"), to_compile_commands(plan).dump(1)); !written) return base::fail("write-file", written.error());
+    return {};
 }
 
 } // namespace mcppls::normalize

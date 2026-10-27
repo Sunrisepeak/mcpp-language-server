@@ -43,10 +43,11 @@ editor / coding agent / CI
 ```
 
 - **Layers depend strictly downward**, and the repository is an mcpp workspace split by what each
-  part links: `modules/base` (text, paths, errors) → `modules/platform` (the only place openkal is
-  imported) → the server in `src/`. `modules/pack` (downloads, archives, payload assembly) is linked
-  by `tools/devtools` only, so the server carries no TLS or archive code. `modules/os/{linux,macos,
-  windows}` differ in six constants and nothing else. `mcppls-devtools check layers` enforces this.
+  part links: `modules/base` (text, paths, errors, mcppls's directories and payload names) →
+  `modules/toolrun` (how a project's programs are run) → the server in `src/`. The operating system
+  is mcpplibs.os's, called directly; openkal is imported from nowhere. `modules/pack` (downloads,
+  archives, payload assembly) is linked by `tools/devtools` only, so the server carries no TLS or
+  archive code. `mcppls-devtools check layers` enforces this.
 - **Engine abstraction.** Every semantic answer comes from an engine that declares its capabilities;
   the orchestrator routes and merges. The mcppls engine (in process) answers module-level requests
   — module-name navigation, `import` completion, the module graph, unresolved / ambiguous /

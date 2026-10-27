@@ -3,22 +3,25 @@ import nlohmann.json;
 import mcppls.testing;
 import mcppls.base.path;
 import mcppls.base.uri;
-import mcppls.platform.fs;
-import mcppls.platform.dirs;
 import mcppls.server.session;
+import mcpplibs.os;
+
+namespace base = mcppls::base;
+
+namespace os = mcpplibs::os;
 
 using Json = nlohmann::json;
-namespace fs = mcppls::platform::fs;
 namespace b = mcppls::base;
 
 int main() {
+    std::error_code ignored;
     using namespace mcppls::testing;
-    const std::string root { b::join_path(mcppls::platform::dirs::temp_directory(),
+    const std::string root { b::join_path(base::spelled(os::dirs::temp()),
         std::format("mcppls-test-session-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
     const std::string directory { b::join_path(root, "src/greet") };
     const std::string source { b::join_path(directory, "greet.cppm") };
-    (void)fs::create_directories(directory);
-    (void)fs::write_file(source, "export module hello.greet;\n");
+    (void)std::filesystem::create_directories(directory, ignored);
+    (void)os::fs::write(source, "export module hello.greet;\n");
     auto folders = [](const std::string& path) {
         return Json::array({ Json { { "uri", b::path_to_uri(path) }, { "name", b::file_name(path) } } });
     };
@@ -56,6 +59,6 @@ int main() {
         expect(chosen[1].uri == params["workspaceFolders"][2]["uri"].get<std::string>());
     };
 
-    fs::remove_all(root);
+    std::filesystem::remove_all(root, ignored);
     return report();
 }

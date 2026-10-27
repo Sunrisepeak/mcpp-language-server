@@ -6,18 +6,16 @@ import mcpplibs.cmdline;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.platform.process;
-import mcppls.platform.toolrun;
 import mcppls.devtools.common;
 import mcppls.devtools.bench.tasks;
+import mcpplibs.os;
+import mcppls.toolrun;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::devtools::bench {
 namespace {
-
-namespace fs = mcppls::platform::fs;
-namespace toolrun = mcppls::platform::toolrun;
+namespace toolrun = mcppls::toolrun;
 namespace cmdline = mcpplibs::cmdline;
 
 constexpr std::array<std::string_view, 2> VALID_AGENTS { "claude-code", "copilot-cli" };
@@ -63,7 +61,7 @@ std::vector<std::string> claude_code_command(const Task& task, const std::string
         server["args"] = std::vector<std::string> { "mcp" };
         nlohmann::json contents = nlohmann::json::object();
         contents["mcpServers"]["mcppls"] = std::move(server);
-        (void) fs::write_file(config, contents.dump(2));
+        (void) os::fs::write(config, contents.dump(2));
         cmd.push_back("--bare");
         cmd.push_back("--mcp-config");
         cmd.push_back(config);
@@ -81,6 +79,7 @@ std::vector<std::string> claude_code_command(const Task& task, const std::string
 }
 
 std::vector<std::string> copilot_cli_command(const Task& task, const std::string& projectCopy, const std::string& arm) {
+    std::error_code ignored;
     if (arm == "mcppls-mcp") {
         const std::string config { base::join_path(base::parent_path(projectCopy), "mcp-config.json") };
         nlohmann::json server = nlohmann::json::object();
@@ -90,7 +89,7 @@ std::vector<std::string> copilot_cli_command(const Task& task, const std::string
         server["tools"] = std::vector<std::string> { "*" };
         nlohmann::json contents = nlohmann::json::object();
         contents["mcpServers"]["mcppls"] = std::move(server);
-        (void) fs::write_file(config, contents.dump(2));
+        (void) os::fs::write(config, contents.dump(2));
         return { "copilot", "-p", task.prompt, "--allow-all-tools", "--additional-mcp-config", "@" + config };
     }
     if (arm == "grep") {
@@ -102,8 +101,8 @@ std::vector<std::string> copilot_cli_command(const Task& task, const std::string
         nlohmann::json contents = nlohmann::json::object();
         contents["lspServers"][name] = copilot_server_entry(command, args);
         const std::string githubDir { base::join_path(projectCopy, ".github") };
-        (void) fs::create_directories(githubDir);
-        (void) fs::write_file(base::join_path(githubDir, "lsp.json"), contents.dump(2));
+        (void)std::filesystem::create_directories(githubDir, ignored);
+        (void) os::fs::write(base::join_path(githubDir, "lsp.json"), contents.dump(2));
     } else {
         throw std::invalid_argument { std::format("unsupported arm for copilot-cli: {}", arm) };
     }
@@ -148,9 +147,10 @@ std::vector<std::string> agent_run_changed_outside_scope(
 
 RunRecord run_one_agent_task(const std::string& agent, const std::string& arm, const Task& task,
                              int repeatIndex, int timeoutSeconds, const std::string& scratchRoot) {
+    std::error_code ignored;
     const std::string root { repository_root() };
     const std::string runDir { base::join_path(scratchRoot, std::format("{}-run-{}", task.id, repeatIndex)) };
-    fs::remove_all(runDir);
+    std::filesystem::remove_all(runDir, ignored);
     const std::string projectCopy { base::join_path(runDir, "project") };
     RunRecord record { .task = task.id, .shape = task.shape, .agent = agent, .arm = arm, .repeat = repeatIndex };
     if (auto copied = copy_project(task.projectDir, projectCopy); !copied) {
@@ -175,16 +175,16 @@ RunRecord run_one_agent_task(const std::string& agent, const std::string& arm, c
         .workDirectory = projectCopy,
         .purpose = "bench",
         .network = toolrun::Network::allowed,
-        .bounds = mcppls::platform::RunBounds { .hard = std::chrono::seconds { timeoutSeconds } },
+        .bounds = mcpplibs::os::process::bounds { .hard = std::chrono::seconds { timeoutSeconds } },
     });
     record.wallTimeSeconds = std::chrono::duration<double> { std::chrono::steady_clock::now() - started }.count();
 
     std::string stdoutText, stderrText;
     if (result) {
-        record.agentExitCode = result->timedOut ? std::optional<int> {} : std::optional<int> { result->exitCode };
-        stdoutText = result->output;
-        stderrText = result->error;
-        if (result->timedOut) stderrText += std::format("\n[agent timed out after {}s]", timeoutSeconds);
+        record.agentExitCode = result->timed_out ? std::optional<int> {} : std::optional<int> { toolrun::exit_code(result->status) };
+        stdoutText = result->out;
+        stderrText = result->err;
+        if (result->timed_out) stderrText += std::format("\n[agent timed out after {}s]", timeoutSeconds);
     } else {
         stderrText = result.error().message;
     }
@@ -221,6 +221,7 @@ RunRecord run_one_agent_task(const std::string& agent, const std::string& arm, c
 }
 
 int command_run(const cmdline::ParsedArgs& arguments) {
+    std::error_code ignored;
     if (!arguments.is_flag_set(SAFETY_FLAG)) {
         std::println(std::cerr,
             "error: refusing to run -- pass --{} to confirm you understand\n"
@@ -260,14 +261,14 @@ int command_run(const cmdline::ParsedArgs& arguments) {
     }
 
     const std::string agentBinaryName { agent == "claude-code" ? "claude" : "copilot" };
-    if (!mcppls::platform::env::find_executable(agentBinaryName)) {
+    if (!toolrun::find_program(agentBinaryName)) {
         std::println(std::cerr, "error: `{}` is not on PATH", agentBinaryName);
         return 2;
     }
 
     const std::string scratchRoot { base::join_path(root, "target/bench-run") };
-    fs::remove_all(scratchRoot);
-    (void) fs::create_directories(scratchRoot);
+    std::filesystem::remove_all(scratchRoot, ignored);
+    (void)std::filesystem::create_directories(scratchRoot, ignored);
 
     std::vector<RunRecord> runs;
     for (const auto& task : *tasks) {
@@ -278,7 +279,7 @@ int command_run(const cmdline::ParsedArgs& arguments) {
             runs.push_back(std::move(record));
         }
     }
-    fs::remove_all(scratchRoot);
+    std::filesystem::remove_all(scratchRoot, ignored);
 
     const std::size_t successes { static_cast<std::size_t>(std::ranges::count_if(runs, &RunRecord::success)) };
     nlohmann::ordered_json out;
@@ -317,7 +318,7 @@ int command_run(const cmdline::ParsedArgs& arguments) {
         entry["agent_stderr_tail"] = r.agentStderrTail;
         out["runs"].push_back(std::move(entry));
     }
-    (void) fs::write_file(*outOpt, out.dump(2));
+    (void) os::fs::write(*outOpt, out.dump(2));
     std::println("wrote {}: {}/{} runs succeeded", *outOpt, successes, runs.size());
     return 0;
 }

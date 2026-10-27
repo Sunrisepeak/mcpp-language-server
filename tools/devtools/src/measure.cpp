@@ -6,14 +6,13 @@ import nlohmann.json;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.fs;
 import mcppls.devtools.common;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::devtools::measure {
 namespace {
-
-namespace fs = mcppls::platform::fs;
-
 constexpr std::array<std::string_view, 3> FIELDS { "ready", "first-diagnostics", "first-navigation" };
 
 double median_of(std::vector<double> values) {
@@ -34,25 +33,26 @@ using Runs = std::vector<std::pair<std::string, std::vector<nlohmann::json>>>;
 // Insertion order matters: the table's rows are cold, then warm, in that order, and a kind
 // with no files is skipped rather than printed empty -- the same as Python's dict iteration.
 base::Result<Runs> load_runs(const std::string& directory) {
-    if (!fs::is_directory(directory)) {
+    std::error_code ignored;
+    if (!std::filesystem::is_directory(directory, ignored)) {
         return base::fail("measure-dir", std::format("{} is not a directory", directory));
     }
     Runs runs { { "cold", {} }, { "warm", {} } };
 
-    // `list_directory` already returns each entry joined onto `directory` (mcppls.platform.fs's
+    // `base::children` already returns each entry joined onto `directory` (its
     // documented shape), so `path` IS the entry -- joining it onto `directory` again would look
     // for a nested path that does not exist and silently skip every file.
-    for (const auto& path : fs::list_directory(directory)) {
+    for (const auto& path : base::children(directory)) {
         if (base::extension(path) != ".json") continue;
-        if (!fs::is_regular_file(path)) continue;
+        if (!std::filesystem::is_regular_file(path, ignored)) continue;
         const std::string_view name { base::file_name(path) };
         const std::string_view stem { name.substr(0, name.size() - std::string_view { ".json" }.size()) };
         const std::string_view kind { kind_of(stem) };
         auto found = std::ranges::find_if(runs, [&](const auto& entry) { return entry.first == kind; });
         if (found == runs.end()) continue;
 
-        auto text = fs::read_file(path);
-        if (!text) return std::unexpected { text.error() };
+        auto text = os::fs::read(path);
+        if (!text) return base::fail("read-file", text.error());
         try {
             found->second.push_back(nlohmann::json::parse(*text));
         } catch (const std::exception& error) {
@@ -149,9 +149,10 @@ void numbers_of(const nlohmann::json& value, const std::string& path, std::map<s
 }
 
 void measure_files(const std::string& directory, std::vector<std::string>& into) {
-    for (const auto& path : fs::list_directory(directory)) {
-        if (fs::is_directory(path)) measure_files(path, into);
-        else if (base::extension(path) == ".json" && fs::is_regular_file(path)) into.push_back(path);
+    std::error_code ignored;
+    for (const auto& path : base::children(directory)) {
+        if (std::filesystem::is_directory(path, ignored)) measure_files(path, into);
+        else if (base::extension(path) == ".json" && std::filesystem::is_regular_file(path, ignored)) into.push_back(path);
     }
 }
 
@@ -169,13 +170,14 @@ using Samples = std::map<std::pair<std::string, std::string>, std::vector<double
 
 // Every number of every check's `measure` in the --measure files under `directory`, at any depth.
 base::Result<Samples> collect(const std::string& directory) {
-    if (!fs::is_directory(directory)) return base::fail("measure-dir", std::format("{} is not a directory", directory));
+    std::error_code ignored;
+    if (!std::filesystem::is_directory(directory, ignored)) return base::fail("measure-dir", std::format("{} is not a directory", directory));
     std::vector<std::string> files;
     measure_files(directory, files);
     Samples values;
     for (const auto& path : files) {
-        auto text = fs::read_file(path);
-        if (!text) return std::unexpected { text.error() };
+        auto text = os::fs::read(path);
+        if (!text) return base::fail("read-file", text.error());
         nlohmann::json run;
         try {
             run = nlohmann::json::parse(*text);

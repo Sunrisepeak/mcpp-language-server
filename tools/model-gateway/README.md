@@ -109,7 +109,7 @@ error paths need a provider that misbehaves on command, which no real one
 offers to do). `tests/test_gateway.cpp` holds both halves:
 
 - **A mock provider**: an OpenAI-compatible `POST /v1/chat/completions` on
-  `127.0.0.1`, port chosen by the system (`mcppls.platform.net`). The reply is
+  `127.0.0.1`, port chosen by the system (mcpplibs.os `net`). The reply is
   chosen by the last user message: `plain`, `json-ok`, `json-bad`, `http-500`,
   `slow` (answers after 4 s, for the cancel check).
 - **The gateway under test is the test binary itself**, started again with

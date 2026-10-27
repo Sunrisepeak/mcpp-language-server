@@ -1,6 +1,5 @@
 // Document store, module index and routing, without processes.
 import std;
-import mcppls.os;
 import nlohmann.json;
 import mcppls.testing;
 import mcppls.base.error;
@@ -9,9 +8,6 @@ import mcppls.base.path;
 import mcppls.base.sha256;
 import mcppls.base.text;
 import mcppls.base.uri;
-import mcppls.platform.fs;
-import mcppls.platform.dirs;
-import mcppls.platform.toolrun;
 import mcppls.project.detect;
 import mcppls.project.model;
 import mcppls.engine.clangd.bmi;
@@ -32,6 +28,12 @@ import mcppls.orchestrator.journal;
 import mcppls.orchestrator.routing;
 import mcppls.orchestrator.tokens;
 import mcppls.orchestrator.workspace;
+import mcpplibs.os;
+import mcppls.toolrun;
+
+namespace base = mcppls::base;
+
+namespace os = mcpplibs::os;
 
 using Json = nlohmann::json;
 using mcppls::base::Position;
@@ -235,7 +237,7 @@ public:
         path_ = mcppls::base::join_path(config.databaseDirectory, "compile_commands.json");
         {
             const std::lock_guard lock { reads_->mutex };
-            reads_->starts.push_back(mcppls::platform::fs::read_file(path_).value_or(std::string {}));
+            reads_->starts.push_back(os::fs::read(path_).value_or(std::string {}));
         }
         return BuildingProcess::start(config, std::move(message), std::move(closed), std::move(log));
     }
@@ -245,7 +247,7 @@ public:
             reads_->stopping = true;
             reads_->changed.notify_all();
             reads_->changed.wait_for(lock, std::chrono::seconds { 3 }, [&] { return reads_->released; });
-            reads_->retiring = mcppls::platform::fs::read_file(path_).value_or(std::string {});
+            reads_->retiring = os::fs::read(path_).value_or(std::string {});
         }
         BuildingProcess::stop(grace);
     }
@@ -343,6 +345,7 @@ idx::ModuleIndex fixture_index() {
 } // namespace
 
 int main() {
+    std::error_code ignored;
     using namespace mcppls::testing;
 
     "incremental changes use UTF-16 positions"_test = [] {
@@ -683,7 +686,7 @@ int main() {
 
     // C-4 (plan 2026-09-30): clangd 23.1's module locks, and the line it logs while it waits for one.
     "clangd's module locks are found, read and cleared"_test = [] {
-        namespace fs = mcppls::platform::fs;
+        std::error_code ignored;
         const auto wait = cld::parse_module_lock_wait(
             "I[03:41:10.391] Still waiting for module lock /c/cdb/.cache/clangd/modules/.locks/9081AFCD4C6A1B5C.lock after 20s");
         expect(fatal(wait.has_value()));
@@ -691,32 +694,33 @@ int main() {
         expect(cld::parse_module_lock_wait(R"(I[03:41:10] Still waiting for module lock D:\m\.locks\A.lock)") == std::optional<std::string> { R"(D:\m\.locks\A.lock)" });
         expect(!cld::parse_module_lock_wait("I[04:34:47.305] Built module std to /cache/std.pcm").has_value());
 
-        const std::string database { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+        const std::string database { mcppls::base::join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-test-locks-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
         const std::string locks { cld::module_lock_directory(database) };
-        (void)fs::create_directories(locks);
+        (void)std::filesystem::create_directories(locks, ignored);
         const std::string lock { mcppls::base::join_path(locks, "9081AFCD4C6A1B5C.lock") };
-        (void)fs::write_file(lock + "-f00d", "runnerhost 4242\n");
-        (void)fs::write_file(lock, "");
+        (void)os::fs::write(lock + "-f00d", "runnerhost 4242\n");
+        (void)os::fs::write(lock, "");
         expect(cld::module_lock_owner(lock) == std::optional<std::int64_t> { 4242 });
         expect(!cld::module_lock_owner(mcppls::base::join_path(locks, "nothing.lock")).has_value());
         expect(cld::clear_module_locks(database) == 2u);
-        expect(fs::list_directory(locks).empty());
+        expect(base::children(locks).empty());
         expect(cld::clear_module_locks(database) == 0u) << "nothing left, and a missing directory is not an error";
-        fs::remove_all(database);
+        std::filesystem::remove_all(database, ignored);
     };
 
     // C-2 (plan 2026-09-30): each unit's BMI directories beyond its two newest are what old commands left behind.
     "the BMIs of commands a unit no longer has are found, the newest kept"_test = [] {
-        namespace fs = mcppls::platform::fs;
+        std::error_code ignored;
         using mcppls::base::join_path;
-        const std::string database { join_path(mcppls::platform::dirs::temp_directory(),
+        const std::string database { join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-test-builds-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
         const std::string modules { join_path(database, ".cache/clangd/modules") };
         const auto build = [&](std::string_view unit, std::string_view command) {
+            std::error_code ignored;
             const std::string directory { join_path(modules, std::format("{}/{}", unit, command)) };
-            (void)fs::create_directories(directory);
-            (void)fs::write_file(join_path(directory, "m.pcm"), "bmi");
+            (void)std::filesystem::create_directories(directory, ignored);
+            (void)os::fs::write(join_path(directory, "m.pcm"), "bmi");
             std::this_thread::sleep_for(std::chrono::milliseconds { 15 });   // written one after another
             return directory;
         };
@@ -726,12 +730,12 @@ int main() {
         build("std.cppm-AA", "0004");
         build("greet.cppm-BB", "0001");
         build("greet.cppm-BB", "0002");
-        (void)fs::create_directories(join_path(modules, ".locks/x.lock"));
+        (void)std::filesystem::create_directories(join_path(modules, ".locks/x.lock"), ignored);
         auto stale = cld::stale_module_builds(database, 2);
         std::ranges::sort(stale);
         expect(stale == std::vector<std::string> { oldest, older }) << "only std's two oldest; greet has two, .locks is no unit";
         expect(cld::stale_module_builds(join_path(database, "missing"), 2).empty());
-        fs::remove_all(database);
+        std::filesystem::remove_all(database, ignored);
     };
 
     "a module clangd cannot find is told apart from one that does not compile"_test = [] {
@@ -1030,7 +1034,7 @@ int main() {
     "on macOS background indexing yields to cold module work unless the user chooses its priority"_test = [] {
         cld::ProcessConfig config;
         const std::string defaultPriority { "--background-index-priority=background" };
-        const bool macos { mcppls::os::family() == mcppls::os::Family::macos };
+        const bool macos { os::host() == os::platform::macos };
         expect(std::ranges::count(cld::clangd_arguments(config), defaultPriority) == (macos ? 1 : 0));
         for (const auto& choice : std::vector<std::vector<std::string>> {
                  { "--background-index-priority=normal" }, { "-background-index-priority=low" },
@@ -1174,30 +1178,30 @@ int main() {
     };
 
     "incidents are named by their time and kind, and only the newest stay (fix plan F17.2, F17.7)"_test = [] {
+        std::error_code ignored;
         namespace incidents = mcppls::orchestrator::incidents;
-        namespace fs = mcppls::platform::fs;
         using namespace std::chrono_literals;
         const auto at = std::chrono::sys_days { std::chrono::year { 2026 } / 9 / 26 } + 7h + 19min + 46s + 638ms;
         const std::string name { incidents::directory_name("engine crash/x", at) };
         expect(name == "20260926T071946.638Z-engine-crash-x") << name;
         expect(incidents::time_of(name) == std::optional<std::chrono::system_clock::time_point> { std::chrono::floor<std::chrono::seconds>(at) });
         expect(!incidents::time_of("notes").has_value() && !incidents::time_of("20261399T071946.638Z-x").has_value());
-        const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+        const std::string root { mcppls::base::join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-test-incidents-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
         const std::string directory { mcppls::base::join_path(root, "incidents") };
-        for (int i { 0 }; i < 25; ++i) (void)fs::create_directories(mcppls::base::join_path(directory, incidents::directory_name("spin", at + std::chrono::minutes { i })));
-        (void)fs::create_directories(mcppls::base::join_path(directory, "not-an-incident"));
+        for (int i { 0 }; i < 25; ++i) (void)std::filesystem::create_directories(mcppls::base::join_path(directory, incidents::directory_name("spin", at + std::chrono::minutes { i })), ignored);
+        (void)std::filesystem::create_directories(mcppls::base::join_path(directory, "not-an-incident"), ignored);
         incidents::prune(directory, at + 30min);
-        expect(fs::list_directory(directory).size() == incidents::KEEP + 1) << "the newest twenty, and what is not an incident";
+        expect(base::children(directory).size() == incidents::KEEP + 1) << "the newest twenty, and what is not an incident";
         incidents::prune(directory, at + 24h * 7 + 10min);
-        expect(fs::list_directory(directory).size() == 1u + 14u) << "none older than a week";
+        expect(base::children(directory).size() == 1u + 14u) << "none older than a week";
         auto written = incidents::write(root, "file-set-aside", Json { { "kind", "file-set-aside" } },
                                         { mcppls::engine::IncidentFile { "clangd.log", "E[1] x\n" }, mcppls::engine::IncidentFile { "../escape.txt", "no" } }, std::nullopt);
         expect(fatal(written.has_value()));
-        const auto incident = Json::parse(fs::read_file(mcppls::base::join_path(*written, "incident.json")).value_or("{}"));
-        expect(incident["attached"] == Json::array({ "clangd.log", "escape.txt" }) && fs::exists(mcppls::base::join_path(*written, "clangd.log")));
-        expect(!fs::exists(mcppls::base::join_path(root, "escape.txt"))) << "a file never lands outside its incident";
-        fs::remove_all(root);
+        const auto incident = Json::parse(os::fs::read(mcppls::base::join_path(*written, "incident.json")).value_or("{}"));
+        expect(incident["attached"] == Json::array({ "clangd.log", "escape.txt" }) && std::filesystem::exists(mcppls::base::join_path(*written, "clangd.log"), ignored));
+        expect(!std::filesystem::exists(mcppls::base::join_path(root, "escape.txt"), ignored)) << "a file never lands outside its incident";
+        std::filesystem::remove_all(root, ignored);
     };
 
     "merging"_test = [] {
@@ -1302,6 +1306,7 @@ int main() {
     };
 
     "a request is answered by its limit whatever holds clangd up"_test = [] {
+        std::error_code ignored;
         using namespace std::chrono_literals;
         const auto now = eng::Clock::now();
         expect(cld::wait_limit("textDocument/hover", 60s, now) == now + cld::INTERACTIVE_LIMIT) << "a person's request: the interactive limit";
@@ -1311,12 +1316,11 @@ int main() {
         // real-project plan RP1.1: a clangd that never finishes its handshake leaves the request
         // waiting in the engine's own queue; at its limit it is answered unavailable, so the next
         // engine answers it, rather than never.
-        namespace fs = mcppls::platform::fs;
-        const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+        const std::string root { mcppls::base::join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-test-limit-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-        (void)fs::create_directories(root);
+        (void)std::filesystem::create_directories(root, ignored);
         const std::string executable { mcppls::base::join_path(root, "clangd") };
-        (void)fs::write_file(executable, "pretend-clangd");
+        (void)os::fs::write(executable, "pretend-clangd");
         cld::Options options;
         options.executable = executable;
         options.version = "23.1.0";
@@ -1341,7 +1345,7 @@ int main() {
         expect(answer->kind == eng::Answer::Kind::unavailable) << "unavailable: the next engine answers it";
         expect(std::ranges::find(host.events, std::string { "request-timeout" }) != host.events.end());
         engine->shut_down();
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "a file whose build runs far past its own history while the editor waits is spinning"_test = [] {
@@ -1454,15 +1458,15 @@ int main() {
     };
 
     "completed BMIs keep a finite preparation active without inventing completed prime nodes (#59 U15)"_test = [] {
-        namespace fs = mcppls::platform::fs;
+        std::error_code ignored;
         using namespace std::chrono_literals;
-        const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+        const std::string root { mcppls::base::join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-test-preparation-builds-{}", eng::Clock::now().time_since_epoch().count())) };
-        (void)fs::create_directories(root);
+        (void)std::filesystem::create_directories(root, ignored);
         const std::string executable { mcppls::base::join_path(root, "clangd") };
         const std::string source { mcppls::base::join_path(root, "std.cppm") };
-        (void)fs::write_file(executable, "pretend-clangd");
-        (void)fs::write_file(source, "export module std;\n");
+        (void)os::fs::write(executable, "pretend-clangd");
+        (void)os::fs::write(source, "export module std;\n");
         auto shared = std::make_shared<BuildingProcess::Shared>();
         shared->holdPrimes = true;
         cld::Options options;
@@ -1528,18 +1532,19 @@ int main() {
         engine->handle_event(Json { { "kind", "module-built" }, { "generation", generation - 1 }, { "module", "std" } });
         expect(stalled()) << "a result from an old engine cannot confirm current progress";
         engine->shut_down();
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "implementation units are built for clangd's index, relevant ones first, again when they change on disk (N-7)"_test = [] {
-        namespace fs = mcppls::platform::fs;
+        std::error_code ignored;
         using mcppls::base::join_path;
-        const std::string root { join_path(mcppls::platform::dirs::temp_directory(),
+        const std::string root { join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-test-implementations-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
         auto write = [&](std::string_view relative, std::string_view text) {
+            std::error_code ignored;
             const std::string path { join_path(root, relative) };
-            (void)fs::create_directories(mcppls::base::parent_path(path));
-            (void)fs::write_file(path, text);
+            (void)std::filesystem::create_directories(mcppls::base::parent_path(path), ignored);
+            (void)os::fs::write(path, text);
             return path;
         };
         const std::string executable { write("clangd", "pretend-clangd") };
@@ -1600,7 +1605,7 @@ int main() {
         // math.cpp changes on disk while nothing has it open: built again.
         const std::size_t before { static_cast<std::size_t>(std::ranges::count(opened, math)) };
         std::this_thread::sleep_for(std::chrono::milliseconds { 20 });
-        (void)fs::write_file(math, "module hello.greet;\nint hello::add(int a, int b) { return b + a; }\n");
+        (void)os::fs::write(math, "module hello.greet;\nint hello::add(int a, int b) { return b + a; }\n");
         engine->notify(Json { { "jsonrpc", "2.0" }, { "method", "workspace/didChangeWatchedFiles" },
                               { "params", Json { { "changes", Json::array({ Json { { "uri", mcppls::base::path_to_uri(math) }, { "type", 2 } } }) } } } });
         host.pump(*engine);
@@ -1610,7 +1615,7 @@ int main() {
         // R-5: typing pauses it; what changed meanwhile is built once they stop.
         engine->document(eng::DocumentEvent { eng::DocumentChange::changed, eng::DocumentView { mcppls::base::path_to_uri(main), main, "cpp", 2, text + "\n" } });
         std::this_thread::sleep_for(std::chrono::milliseconds { 20 });
-        (void)fs::write_file(math, "module hello.greet;\nint hello::add(int a, int b) { return a + b; }\n");
+        (void)os::fs::write(math, "module hello.greet;\nint hello::add(int a, int b) { return a + b; }\n");
         engine->notify(Json { { "jsonrpc", "2.0" }, { "method", "workspace/didChangeWatchedFiles" },
                               { "params", Json { { "changes", Json::array({ Json { { "uri", mcppls::base::path_to_uri(math) }, { "type", 2 } } }) } } } });
         host.pump(*engine);
@@ -1642,7 +1647,7 @@ int main() {
         const int generation { engine->report()["generation"].get<int>() };
         const auto builtBefore = engine->report()["implementationIndex"]["built"].get<std::size_t>();
         const auto openedBefore = std::ranges::count(BuildingProcess::files(*shared, "textDocument/didOpen"), other);
-        (void)fs::write_file(other, "module other;\nint other_value() { return 123; }\n");
+        (void)os::fs::write(other, "module other;\nint other_value() { return 123; }\n");
         engine->apply(&plan);
         host.pump(*engine);
         expect(engine->report()["implementationIndex"]["sweepComplete"] == false);
@@ -1664,17 +1669,17 @@ int main() {
             << "the changed unit was actually built again by the scheduled sweep";
         expect(engine->report()["generation"] == generation) << "the unchanged plan needs no engine restart";
         engine->shut_down();
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "the files of the last session are opened ahead of the editor, which adopts them (0.0.14 G1)"_test = [] {
-        namespace fs = mcppls::platform::fs;
+        std::error_code ignored;
         using mcppls::base::join_path;
-        const std::string root { join_path(mcppls::platform::dirs::temp_directory(),
+        const std::string root { join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-test-warm-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-        (void)fs::create_directories(join_path(root, "src"));
+        (void)std::filesystem::create_directories(join_path(root, "src"), ignored);
         const std::string executable { join_path(root, "clangd") };
-        (void)fs::write_file(executable, "pretend-clangd");
+        (void)os::fs::write(executable, "pretend-clangd");
         // A project with modules: one without would have clangd restarted without their support first (WA-CLANGD-009).
         const std::string mainText { "import hello.greet;\nint main() { return hello::add(1, 2); }\n" };
         const std::string otherText { "int other() { return 1; }\n" };
@@ -1683,10 +1688,10 @@ int main() {
         const std::string other { join_path(root, "src/other.cpp") };
         const std::string slow { join_path(root, "src/slow.cpp") };
         const std::string interface { join_path(root, "src/greet.cppm") };
-        (void)fs::write_file(main, mainText);
-        (void)fs::write_file(other, otherText);
-        (void)fs::write_file(slow, slowText);
-        (void)fs::write_file(interface, "export module hello.greet;\nexport namespace hello { int add(int a, int b); }\n");
+        (void)os::fs::write(main, mainText);
+        (void)os::fs::write(other, otherText);
+        (void)os::fs::write(slow, slowText);
+        (void)os::fs::write(interface, "export module hello.greet;\nexport namespace hello { int add(int a, int b); }\n");
 
         auto shared = std::make_shared<BuildingProcess::Shared>();
         shared->diagnose = true;   // what is handed to the editor is a real list, rewritten as any other
@@ -1760,21 +1765,21 @@ int main() {
         const Json& built { host.diagnostics[slowView.uri] };
         expect(built.is_array() && built.size() == 1u && built[0].is_object()) << "clangd's list reaches the editor: " << built.dump();
         engine->shut_down();
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "what clangd could not find under the provisional model is not carried into the build tool's plan"_test = [] {
-        namespace fs = mcppls::platform::fs;
+        std::error_code ignored;
         using mcppls::base::join_path;
-        const std::string root { join_path(mcppls::platform::dirs::temp_directory(),
+        const std::string root { join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-test-provisional-verdicts-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-        (void)fs::create_directories(join_path(root, "src"));
+        (void)std::filesystem::create_directories(join_path(root, "src"), ignored);
         const std::string executable { join_path(root, "clangd") };
-        (void)fs::write_file(executable, "pretend-clangd");
+        (void)os::fs::write(executable, "pretend-clangd");
         const std::string main { join_path(root, "src/main.cpp") };
         const std::string json { join_path(root, "src/json.cppm") };
-        (void)fs::write_file(main, "import app.json;\nint main() {}\n");
-        (void)fs::write_file(json, "export module app.json;\n");
+        (void)os::fs::write(main, "import app.json;\nint main() {}\n");
+        (void)os::fs::write(json, "export module app.json;\n");
         auto shared = std::make_shared<BuildingProcess::Shared>();
         cld::Options options;
         options.executable = executable;
@@ -1813,11 +1818,11 @@ int main() {
         host.pump(*engine);
         expect(!unresolved_in("inferred")) << "dropped once the build tool's model replaced the provisional one";
         engine->shut_down();
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "an untrusted mcpp root adopts scanned sources without target reloads or tool runs"_test = [] {
-        namespace fs = mcppls::platform::fs;
+        std::error_code ignored;
         using mcppls::base::join_path;
         using namespace std::chrono_literals;
         class Sink : public orch::ClientSink {
@@ -1825,13 +1830,13 @@ int main() {
             void send(const Json&) override {}
         };
         for (const std::string selector : { "auto", "i686-windows-msvc" }) {
-            const std::string scratch { join_path(mcppls::platform::dirs::temp_directory(),
+            const std::string scratch { join_path(base::spelled(os::dirs::temp()),
                 std::format("mcppls-test-untrusted-target-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-            (void)fs::create_directories(join_path(scratch, "src"));
-            const std::string root { fs::canonical_path(scratch) };
-            (void)fs::write_file(join_path(root, "mcpp.toml"), "[package]\nname = \"untrusted-target\"\n");
-            (void)fs::write_file(join_path(root, "src/main.cpp"), "int main() {}\n");
-            (void)fs::write_file(join_path(root, "compile_commands.json"), "invalid producer data that an untrusted root must not read");
+            (void)std::filesystem::create_directories(join_path(scratch, "src"), ignored);
+            const std::string root { base::canonical_path(scratch) };
+            (void)os::fs::write(join_path(root, "mcpp.toml"), "[package]\nname = \"untrusted-target\"\n");
+            (void)os::fs::write(join_path(root, "src/main.cpp"), "int main() {}\n");
+            (void)os::fs::write(join_path(root, "compile_commands.json"), "invalid producer data that an untrusted root must not read");
             orch::SessionOptions options;
             options.trusted = false;
             options.mcppTarget = selector;
@@ -1839,7 +1844,7 @@ int main() {
             options.engine = "none";
             auto events = std::make_shared<orch::EventChannel>();
             Sink sink;
-            const auto previousRuns = mcppls::platform::toolrun::recent(mcppls::platform::toolrun::KEPT);
+            const auto previousRuns = mcppls::toolrun::recent(mcppls::toolrun::KEPT);
             const auto previousId = previousRuns.empty() ? 0 : previousRuns.back().id;
             auto workspace = std::make_unique<orch::Workspace>(root, std::string { mcppls::base::file_name(root) }, options,
                 eng::PayloadPaths {}, false, false, join_path(root, "must-not-run-compiler"), events, sink);
@@ -1880,27 +1885,27 @@ int main() {
                 expect(model["producer"] == "" && model["producerRun"].is_null());
                 expect(std::ranges::any_of(model["issues"], [](const Json& issue) { return issue.value("code", std::string {}) == "untrusted-workspace"; }));
             }
-            const auto afterRuns = mcppls::platform::toolrun::recent(mcppls::platform::toolrun::KEPT);
+            const auto afterRuns = mcppls::toolrun::recent(mcppls::toolrun::KEPT);
             expect(std::ranges::none_of(afterRuns, [&](const auto& run) { return run.id > previousId; }))
                 << "no producer or compiler runs while adopting an untrusted model";
             workspace->shut_down();
             const std::string cache { workspace->cache_directory() };
             workspace.reset();
-            fs::remove_all(cache);
-            fs::remove_all(root);
+            std::filesystem::remove_all(cache, ignored);
+            std::filesystem::remove_all(root, ignored);
         }
     };
 
     "incremental database publication follows creation of its generated inputs"_test = [] {
-        namespace fs = mcppls::platform::fs;
+        std::error_code ignored;
         using mcppls::base::join_path;
-        const std::string root { join_path(mcppls::platform::dirs::temp_directory(),
+        const std::string root { join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-test-generated-publication-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-        (void)fs::create_directories(root);
+        (void)std::filesystem::create_directories(root, ignored);
         const std::string executable { join_path(root, "clangd") };
-        (void)fs::write_file(executable, "pretend-clangd");
+        (void)os::fs::write(executable, "pretend-clangd");
         const std::string source { join_path(root, "module.cppm") };
-        (void)fs::write_file(source, "export module hello;\n");
+        (void)os::fs::write(source, "export module hello;\n");
         class PublicationHost : public RecordingHost {
         public:
             using RecordingHost::RecordingHost;
@@ -1911,9 +1916,9 @@ int main() {
                 RecordingHost::record_event(kind, std::move(detail));
                 if (kind != "engine-database" || expectedFiles.empty()) return;
                 const auto path = mcppls::base::join_path(cache_directory(), "contexts/default/cdb/compile_commands.json");
-                const auto database = Json::parse(mcppls::platform::fs::read_file(path).value_or("null"), nullptr, false);
+                const auto database = Json::parse(os::fs::read(path).value_or("null"), nullptr, false);
                 for (const auto& file : expectedFiles) {
-                    auto content = mcppls::platform::fs::read_file(file);
+                    auto content = os::fs::read(file);
                     contentsAtPublication.push_back(content ? std::optional<std::string> { *content } : std::nullopt);
                     referencedAtPublication.push_back(database.is_array() && std::ranges::any_of(database, [&](const auto& entry) {
                         return entry.is_object() && entry.value("file", std::string {}) == file;
@@ -1954,23 +1959,23 @@ int main() {
         { const std::lock_guard lock { shared->mutex };
           expect(std::ranges::count_if(shared->sent, [](const Json& message) { return message.value("method", std::string {}) == "initialize"; }) == 1); }
         engine->shut_down();
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "restarting after a single failed publication restores the whole plan"_test = [] {
-        namespace fs = mcppls::platform::fs;
+        std::error_code ignored;
         using mcppls::base::join_path;
         using namespace std::chrono_literals;
         for (const bool incremental : { false, true }) {
-            const std::string root { join_path(mcppls::platform::dirs::temp_directory(),
+            const std::string root { join_path(base::spelled(os::dirs::temp()),
                 std::format("mcppls-test-cdb-retry-metadata-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-            (void)fs::create_directories(root);
+            (void)std::filesystem::create_directories(root, ignored);
             const std::string executable { join_path(root, "clangd") };
             const std::string source { join_path(root, "module.cppm") };
             const std::string implementation { join_path(root, "implementation.cpp") };
-            (void)fs::write_file(executable, "pretend-clangd");
-            (void)fs::write_file(source, "export module hello;\n");
-            (void)fs::write_file(implementation, "module hello;\nint value() { return 1; }\n");
+            (void)os::fs::write(executable, "pretend-clangd");
+            (void)os::fs::write(source, "export module hello;\n");
+            (void)os::fs::write(implementation, "module hello;\nint value() { return 1; }\n");
             auto shared = std::make_shared<BuildingProcess::Shared>();
             cld::Options options;
             options.executable = executable;
@@ -1991,14 +1996,14 @@ int main() {
             }
             plan.entries.push_back(mcppls::normalize::EngineEntry { root, implementation, { "clang++", "-c", implementation }, "", "hello", {}, {} });
             const std::string database { join_path(host.cache_directory(), "contexts/default/cdb/compile_commands.json") };
-            fs::remove_all(database);
-            (void)fs::create_directories(database);
-            (void)fs::write_file(join_path(database, "blocker"), "preserve this directory\n");
+            std::filesystem::remove_all(database, ignored);
+            (void)std::filesystem::create_directories(database, ignored);
+            (void)os::fs::write(join_path(database, "blocker"), "preserve this directory\n");
             engine->apply(&plan); // exactly one failed application, with no later apply to repair its metadata
             expect(std::ranges::any_of(engine->status().issues, [](const auto& issue) { return issue.code == "engine-database-write-failed"; }));
             expect(engine->status().accepting == incremental) << "a first failed plan cannot accept traffic; an existing plan remains available";
             expect(std::ranges::count(host.events, std::string { "engine-database" }) == (incremental ? 1 : 0));
-            fs::remove_all(database);
+            std::filesystem::remove_all(database, ignored);
             expect(engine->restart_on_request());
             const auto until = std::chrono::steady_clock::now() + 2s;
             while (std::chrono::steady_clock::now() < until) {
@@ -2009,28 +2014,28 @@ int main() {
             }
             expect(engine->status().accepting) << "the recovered first plan completed planApplied as well as writing the CDB";
             expect(std::ranges::none_of(engine->status().issues, [](const auto& issue) { return issue.code == "engine-database-write-failed"; }));
-            expect(fs::read_file(database).value_or(std::string {}).contains("implementation.cpp"));
+            expect(os::fs::read(database).value_or(std::string {}).contains("implementation.cpp"));
             expect(engine->report()["implementationIndex"]["built"] == 1) << "module-unit metadata was recovered, so its implementation is actually indexed";
             expect(std::ranges::count(BuildingProcess::files(*shared, "textDocument/didOpen"), implementation) == 1);
             expect(std::ranges::count(host.events, std::string { "engine-database" }) == (incremental ? 2 : 1));
             { const std::lock_guard lock { shared->mutex };
               expect(std::ranges::count_if(shared->sent, [](const Json& message) { return message.value("method", std::string {}) == "initialize"; }) == 2); }
             engine->shut_down();
-            fs::remove_all(root);
+            std::filesystem::remove_all(root, ignored);
         }
     };
 
     "a failed first database remains retryable and later plans replace it"_test = [] {
-        namespace fs = mcppls::platform::fs;
+        std::error_code ignored;
         using mcppls::base::join_path;
         using namespace std::chrono_literals;
-        const std::string root { join_path(mcppls::platform::dirs::temp_directory(),
+        const std::string root { join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-test-first-cdb-write-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-        (void)fs::create_directories(root);
+        (void)std::filesystem::create_directories(root, ignored);
         const std::string executable { join_path(root, "clangd") };
-        (void)fs::write_file(executable, "pretend-clangd");
+        (void)os::fs::write(executable, "pretend-clangd");
         const std::string source { join_path(root, "module.cppm") };
-        (void)fs::write_file(source, "export module hello;\n");
+        (void)os::fs::write(source, "export module hello;\n");
         auto shared = std::make_shared<BuildingProcess::Shared>();
         cld::Options options;
         options.executable = executable;
@@ -2042,8 +2047,8 @@ int main() {
         engine->start(host);
         host.pump(*engine);
         const std::string database { join_path(host.cache_directory(), "contexts/default/cdb/compile_commands.json") };
-        (void)fs::create_directories(database);
-        (void)fs::write_file(join_path(database, "blocker"), "preserve this directory\n");
+        (void)std::filesystem::create_directories(database, ignored);
+        (void)os::fs::write(join_path(database, "blocker"), "preserve this directory\n");
         mcppls::normalize::EnginePlan first;
         first.entries.push_back(mcppls::normalize::EngineEntry { root, source, { "clang++", "-DFIRST", "-c", source }, "hello", "hello", {}, {} });
         engine->apply(&first);
@@ -2053,34 +2058,34 @@ int main() {
         latest.entries.front().arguments[1] = "-DLATEST";
         engine->apply(&latest);
         expect(std::ranges::count(host.events, std::string { "engine-database" }) == 0);
-        fs::remove_all(database);
+        std::filesystem::remove_all(database, ignored);
         expect(engine->restart_on_request());
         const auto until = std::chrono::steady_clock::now() + 2s;
         while (std::chrono::steady_clock::now() < until) {
             host.pump(*engine);
-            if (fs::read_file(database).has_value() && engine->status().accepting) break;
+            if (os::fs::read(database).has_value() && engine->status().accepting) break;
             std::this_thread::sleep_for(5ms);
         }
-        expect(fs::read_file(database).value_or(std::string {}).contains("-DLATEST"));
-        expect(!fs::read_file(database).value_or(std::string {}).contains("-DFIRST"));
+        expect(os::fs::read(database).value_or(std::string {}).contains("-DLATEST"));
+        expect(!os::fs::read(database).value_or(std::string {}).contains("-DFIRST"));
         expect(std::ranges::count(host.events, std::string { "engine-database" }) == 1);
         expect(std::ranges::none_of(engine->status().issues, [](const auto& issue) { return issue.code == "engine-database-write-failed"; }));
         engine->shut_down();
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "a retiring process keeps its database and its successor sees only the latest plan"_test = [] {
-        namespace fs = mcppls::platform::fs;
+        std::error_code ignored;
         using mcppls::base::join_path;
         using namespace std::chrono_literals;
         for (const bool failWrite : { false, true }) {
-            const std::string root { join_path(mcppls::platform::dirs::temp_directory(),
+            const std::string root { join_path(base::spelled(os::dirs::temp()),
                 std::format("mcppls-test-cdb-retirement-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-            (void)fs::create_directories(root);
+            (void)std::filesystem::create_directories(root, ignored);
             const std::string executable { join_path(root, "clangd") };
-            (void)fs::write_file(executable, "pretend-clangd");
+            (void)os::fs::write(executable, "pretend-clangd");
             const std::string source { join_path(root, "module.cppm") };
-            (void)fs::write_file(source, "export module hello;\n");
+            (void)os::fs::write(source, "export module hello;\n");
             auto shared = std::make_shared<BuildingProcess::Shared>();
             auto reads = std::make_shared<DatabaseReadingProcess::Reads>();
             cld::Options options;
@@ -2107,7 +2112,7 @@ int main() {
             incremental.entries.push_back(mcppls::normalize::EngineEntry { root, added, { "clang++", "-c", added }, "", "", {}, {} });
             engine->apply(&incremental);
             host.pump(*engine);
-            const auto before = fs::read_file(database).value_or(std::string {});
+            const auto before = os::fs::read(database).value_or(std::string {});
             expect(before.contains("added.cpp")) << "an ordinary additive update is still published immediately";
             { const std::lock_guard lock { reads->mutex }; expect(reads->starts.size() == 1u); }
             const auto middle = plan("MIDDLE");
@@ -2118,12 +2123,12 @@ int main() {
             }
             const auto latest = plan("LATEST");
             engine->apply(&latest);
-            expect(fs::read_file(database).value_or(std::string {}) == before) << "the old process still reads its original configuration";
+            expect(os::fs::read(database).value_or(std::string {}) == before) << "the old process still reads its original configuration";
             const auto publishedBefore = std::ranges::count(host.events, std::string { "engine-database" });
             if (failWrite) {
-                fs::remove_all(database);
-                (void)fs::create_directories(database);
-                (void)fs::write_file(join_path(database, "blocker"), "preserve this directory\n"); // an atomic replacement cannot remove a nonempty directory
+                std::filesystem::remove_all(database, ignored);
+                (void)std::filesystem::create_directories(database, ignored);
+                (void)os::fs::write(join_path(database, "blocker"), "preserve this directory\n"); // an atomic replacement cannot remove a nonempty directory
             }
             {
                 const std::lock_guard lock { reads->mutex };
@@ -2154,32 +2159,32 @@ int main() {
             if (failWrite) {
                 const auto status = engine->status();
                 expect(std::ranges::any_of(status.issues, [](const auto& issue) { return issue.code == "engine-database-write-failed"; }));
-                fs::remove_all(database);
+                std::filesystem::remove_all(database, ignored);
                 expect(engine->restart_on_request());
                 host.pump(*engine);
                 const auto recovered = engine->status();
                 expect(std::ranges::none_of(recovered.issues, [](const auto& issue) { return issue.code == "engine-database-write-failed"; }));
                 { const std::lock_guard lock { reads->mutex }; expect(reads->starts.size() == 2u); }
-                expect(fs::read_file(database).value_or(std::string {}).contains("-DLATEST"));
+                expect(os::fs::read(database).value_or(std::string {}).contains("-DLATEST"));
             }
             engine->shut_down();
-            fs::remove_all(root);
+            std::filesystem::remove_all(root, ignored);
         }
     };
 
     "a restart the plan asks for waits while the person types, and not past its limit (R-8)"_test = [] {
-        namespace fs = mcppls::platform::fs;
+        std::error_code ignored;
         using mcppls::base::join_path;
         using namespace std::chrono_literals;
-        const std::string root { join_path(mcppls::platform::dirs::temp_directory(),
+        const std::string root { join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-test-quiet-restart-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-        (void)fs::create_directories(join_path(root, "src"));
+        (void)std::filesystem::create_directories(join_path(root, "src"), ignored);
         const std::string executable { join_path(root, "clangd") };
-        (void)fs::write_file(executable, "pretend-clangd");
+        (void)os::fs::write(executable, "pretend-clangd");
         const std::string main { join_path(root, "src/main.cpp") };
         const std::string interface { join_path(root, "src/greet.cppm") };
-        (void)fs::write_file(main, "import hello.greet;\nint main() {}\n");
-        (void)fs::write_file(interface, "export module hello.greet;\n");
+        (void)os::fs::write(main, "import hello.greet;\nint main() {}\n");
+        (void)os::fs::write(interface, "export module hello.greet;\n");
         auto shared = std::make_shared<BuildingProcess::Shared>();
         cld::Options options;
         options.executable = executable;
@@ -2225,10 +2230,11 @@ int main() {
         }
         expect(starts() == 2) << "restarted once typing paused";
         engine->shut_down();
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "a clangd that answers nothing and uses no CPU is stuck, and a busy one is not"_test = [] {
+        std::error_code ignored;
         using namespace std::chrono_literals;
         const auto t0 = cld::GuardClock::now();
         cld::StuckWatch watch { 5s };
@@ -2252,15 +2258,14 @@ int main() {
         // The engine: a request clangd holds on to, with its CPU flat, gets it restarted; with its CPU
         // climbing, it is left to finish; with no CPU reading (Windows), nothing is decided and the
         // event loop is not woken again and again for it.
-        namespace fs = mcppls::platform::fs;
         enum class Cpu { flat, climbing, unreadable };
         for (const Cpu cpu : { Cpu::flat, Cpu::climbing, Cpu::unreadable }) {
             const bool stuck { cpu == Cpu::flat };
-            const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+            const std::string root { mcppls::base::join_path(base::spelled(os::dirs::temp()),
                 std::format("mcppls-test-stuck-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-            (void)fs::create_directories(root);
+            (void)std::filesystem::create_directories(root, ignored);
             const std::string executable { mcppls::base::join_path(root, "clangd") };
-            (void)fs::write_file(executable, "pretend-clangd");
+            (void)os::fs::write(executable, "pretend-clangd");
             auto shared = std::make_shared<UnansweringProcess::Shared>();
             const auto began = eng::Clock::now();
             shared->cpu = [cpu, began]() -> std::optional<double> {
@@ -2309,7 +2314,7 @@ int main() {
                 expect(!answer.has_value()) << "its request is still within its own timeout";
             }
             engine->shut_down();
-            fs::remove_all(root);
+            std::filesystem::remove_all(root, ignored);
         }
     };
 
@@ -2328,14 +2333,14 @@ int main() {
     // 0.0.3 plan B1: a clangd that dies before its handshake left the server's initialize unanswered
     // for good -- an editor stuck starting, with no features and no reason given.
     "a clangd that cannot run on this machine settles at once and is not restarted"_test = [] {
+        std::error_code ignored;
         using namespace std::chrono_literals;
-        namespace fs = mcppls::platform::fs;
         for (const bool exitFirst : { false, true }) {
-            const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+            const std::string root { mcppls::base::join_path(base::spelled(os::dirs::temp()),
                 std::format("mcppls-test-incompatible-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-            (void)fs::create_directories(root);
+            (void)std::filesystem::create_directories(root, ignored);
             const std::string executable { mcppls::base::join_path(root, "clangd") };
-            (void)fs::write_file(executable, "pretend-clangd");
+            (void)os::fs::write(executable, "pretend-clangd");
             auto shared = std::make_shared<DyingProcess::Shared>();
             shared->line = "clangd: /lib/aarch64-linux-gnu/libstdc++.so.6: version `GLIBCXX_3.4.30' not found (required by clangd)";
             shared->exitFirst = exitFirst;
@@ -2364,18 +2369,18 @@ int main() {
             }
             expect(shared->starts == 1) << "started " << shared->starts << " times";
             engine->shut_down();
-            fs::remove_all(root);
+            std::filesystem::remove_all(root, ignored);
         }
     };
 
     "a clangd that exits before its handshake twice still lets the server initialize"_test = [] {
+        std::error_code ignored;
         using namespace std::chrono_literals;
-        namespace fs = mcppls::platform::fs;
-        const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+        const std::string root { mcppls::base::join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-test-early-exit-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-        (void)fs::create_directories(root);
+        (void)std::filesystem::create_directories(root, ignored);
         const std::string executable { mcppls::base::join_path(root, "clangd") };
-        (void)fs::write_file(executable, "pretend-clangd");
+        (void)os::fs::write(executable, "pretend-clangd");
         auto shared = std::make_shared<DyingProcess::Shared>();   // no loader message: a crash, not an incompatibility
         cld::Options options;
         options.executable = executable;
@@ -2398,7 +2403,7 @@ int main() {
         expect(std::ranges::any_of(status.issues, [](const auto& issue) { return issue.code == "engine-crashed"; }));
         expect(!status.failed) << "two exits: still restarting";
         engine->shut_down();
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "a module the engine has already built completes without a unit"_test = [] {
@@ -2556,17 +2561,17 @@ int main() {
     };
 
     "payload integrity checks size and sha256, and caches the hash"_test = [] {
+        std::error_code ignored;
         // usable plan W9.4.
-        namespace fs = mcppls::platform::fs;
-        const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+        const std::string root { mcppls::base::join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-test-payload-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-        (void)fs::create_directories(root);
+        (void)std::filesystem::create_directories(root, ignored);
         const std::string clangdPath { mcppls::base::join_path(root, "clangd") };
         const std::string kitJsonPath { mcppls::base::join_path(root, "kit.json") };
         const std::string content { "pretend-clangd-bytes" };
         const std::string kitContent { "{\"name\":\"k\"}" };
-        (void)fs::write_file(clangdPath, content);
-        (void)fs::write_file(kitJsonPath, kitContent);
+        (void)os::fs::write(clangdPath, content);
+        (void)os::fs::write(kitJsonPath, kitContent);
         const std::string cacheFile { mcppls::base::join_path(root, "cache.json") };
 
         eng::PayloadPaths payload;
@@ -2575,7 +2580,7 @@ int main() {
         payload.files.emplace("kit.json", eng::PayloadFileIntegrity { kitContent.size(), mcppls::base::sha256_hex(kitContent) });
 
         expect(eng::verify_payload_integrity(payload, cacheFile).empty()) << "both files match their manifest entry";
-        expect(fs::is_regular_file(cacheFile)) << "a hash was computed and cached";
+        expect(std::filesystem::is_regular_file(cacheFile, ignored)) << "a hash was computed and cached";
 
         // A no-op payload.files: nothing to check, regardless of what is on disk.
         eng::PayloadPaths empty;
@@ -2613,18 +2618,18 @@ int main() {
         // cached hash for an unmodified file (same stamp) changes the verdict, proving the second
         // call reused it instead of re-hashing the untouched file.
         expect(eng::verify_payload_integrity(payload, cacheFile).empty());
-        auto tampered = fs::read_file(cacheFile);
+        auto tampered = os::fs::read(cacheFile);
         expect(fatal(tampered.has_value()));
         Json cacheJson = Json::parse(*tampered);
         cacheJson[clangdPath]["sha256"] = std::string(64, 'f');
-        (void)fs::write_file(cacheFile, cacheJson.dump());
+        (void)os::fs::write(cacheFile, cacheJson.dump());
         {
             const auto issues = eng::verify_payload_integrity(payload, cacheFile);
             expect(fatal(issues.size() == 1u)) << "the tampered cache entry was trusted, not recomputed";
             expect(issues.front().path == "clangd");
         }
 
-        fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "engine request keys round-trip and tell roots and engines apart"_test = [] {

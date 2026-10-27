@@ -12,16 +12,16 @@ import mcppls.base.version;
 import mcppls.bundle.writer;
 import mcppls.engine.clangd.process;
 import mcppls.orchestrator.cache;
-import mcppls.os;
-import mcppls.platform.dirs;
-import mcppls.platform.fs;
+import mcpplibs.os;
+import mcppls.base.home;
+import mcppls.base.payload;
 
+namespace os = mcpplibs::os;
 namespace mcppls::cli {
 
 namespace {
 
 namespace cmdline = mcpplibs::cmdline;
-namespace fs = mcppls::platform::fs;
 namespace cache = mcppls::orchestrator::cache;
 using Json = nlohmann::json;
 
@@ -56,13 +56,14 @@ std::optional<std::chrono::seconds> parse_duration(std::string_view text) {
 }
 
 int clean(const std::string& workspaces, const std::string& wanted) {
+    std::error_code ignored;
     std::size_t removed { 0 };
     std::uint64_t freed { 0 };
-    for (const auto& entry : fs::list_directory(workspaces)) {
+    for (const auto& entry : base::children(workspaces)) {
         const std::string name { base::file_name(entry) };
         if (wanted != "all" && !name.starts_with(wanted)) continue;
         const std::uint64_t bytes { cache::tree_bytes(entry) };
-        fs::remove_all(entry);
+        std::filesystem::remove_all(entry, ignored);
         std::println("  removed {} ({:.1f} MB)", name, megabytes(bytes));
         ++removed;
         freed += bytes;
@@ -86,15 +87,16 @@ struct PruneOptions {
 };
 
 int prune(const std::string& workspaces, const PruneOptions& options, cache::Budget budget) {
+    std::error_code ignored;
     const auto now { std::chrono::system_clock::now() };
     const std::int64_t bound { options.olderThan > std::chrono::seconds { 0 }
-                                   ? fs::modified_now() - std::chrono::duration_cast<std::chrono::nanoseconds>(options.olderThan).count()
-                                   : fs::modified_now() };
+                                   ? base::file_time_now() - std::chrono::duration_cast<std::chrono::nanoseconds>(options.olderThan).count()
+                                   : base::file_time_now() };
     const std::chrono::seconds grace { options.olderThan > std::chrono::seconds { 0 } ? options.olderThan : DEFAULT_GRACE };
     std::uint64_t freed { 0 };
     std::size_t instances { 0 }, failed { 0 }, skipped { 0 };
-    for (const auto& workspace : fs::list_directory(workspaces)) {
-        if (!fs::is_directory(workspace)) continue;
+    for (const auto& workspace : base::children(workspaces)) {
+        if (!std::filesystem::is_directory(workspace, ignored)) continue;
         if (cache::workspace_open(workspace, now)) {
             std::println("  {} is in use by a running instance; left as it is", base::file_name(workspace));
             ++skipped;
@@ -112,7 +114,7 @@ int prune(const std::string& workspaces, const PruneOptions& options, cache::Bud
                         freed += cache::tree_bytes(build);
                         continue;
                     }
-                    const fs::Removal removed { fs::tree_remove(build) };
+                    const cache::Removal removed { cache::remove_tree(build) };
                     freed += removed.bytes;
                     failed += removed.failed;
                 }
@@ -143,12 +145,13 @@ int prune(const std::string& workspaces, const PruneOptions& options, cache::Bud
 // C-10: the classified report -- what is published, what is a copy, what an instance keeps, what
 // the trash holds -- straight from `orchestrator::cache::report`, the numbers the server shows too.
 int report(const std::string& workspaces, bool instancesOnly, bool listModules, bool json) {
+    std::error_code ignored;
     const auto now { std::chrono::system_clock::now() };
     const cache::Budget budget;
     if (json) {
         Json out = Json::array();
-        for (const auto& entry : fs::list_directory(workspaces)) {
-            if (!fs::is_directory(entry)) continue;
+        for (const auto& entry : base::children(workspaces)) {
+            if (!std::filesystem::is_directory(entry, ignored)) continue;
             const Json numbers = cache::report(entry, budget, now, {});
             Json one { { "workspace", std::string { base::file_name(entry) } },
                        { "directory", entry },
@@ -164,7 +167,7 @@ int report(const std::string& workspaces, bool instancesOnly, bool listModules, 
             out.push_back(std::move(one));
         }
         std::println("{}", Json { { "root", workspaces },
-                                  { "logDirectory", base::join_path(platform::dirs::cache_directory(), "logs") },
+                                  { "logDirectory", base::join_path(base::cache_directory(), "logs") },
                                   { "bundlesDirectory", bundle::default_directory() },
                                   { "workspaces", std::move(out) } }.dump(2));
         return 0;
@@ -178,8 +181,8 @@ int report(const std::string& workspaces, bool instancesOnly, bool listModules, 
         Json detail;
     };
     std::vector<Row> rows;
-    for (const auto& entry : fs::list_directory(workspaces)) {
-        if (!fs::is_directory(entry)) continue;
+    for (const auto& entry : base::children(workspaces)) {
+        if (!std::filesystem::is_directory(entry, ignored)) continue;
         const Json numbers = cache::report(entry, budget, now, {});
         rows.push_back({ std::string { base::file_name(entry) },
                          numbers.value("modules", std::size_t { 0 }),
@@ -225,10 +228,10 @@ int report(const std::string& workspaces, bool instancesOnly, bool listModules, 
 // editor and no server, so those facts render as "(unknown)" and the prompt says to look.
 Json prompt_facts() {
     return Json { { "version", std::string { base::VERSION } },
-                  { "os", std::string { mcppls::os::family_name() } },
-                  { "arch", std::string_view { mcppls::os::arch_name() } },
-                  { "cacheRoot", platform::dirs::cache_directory() },
-                  { "logDirectory", base::join_path(platform::dirs::cache_directory(), "logs") },
+                  { "os", std::string { os::name(os::host()) } },
+                  { "arch", std::string_view { base::payload_arch() } },
+                  { "cacheRoot", base::cache_directory() },
+                  { "logDirectory", base::join_path(base::cache_directory(), "logs") },
                   { "bundlesDirectory", bundle::default_directory() } };
 }
 
@@ -260,14 +263,15 @@ cmdline::App cache_command(bool& handled, int& status) {
     (void)command.option("modules").help("List the largest cached modules of each workspace");
     (void)command.option("format").takes_value().help("text (default) | json");
     (void)command.action([&handled, &status](const cmdline::ParsedArgs& args) {
+        std::error_code ignored;
         handled = true;
-        const std::string workspaces { base::join_path(platform::dirs::cache_directory(), "workspaces") };
+        const std::string workspaces { base::join_path(base::cache_directory(), "workspaces") };
         const bool json { args.value("format").value_or("text") == "json" };
         if (const auto kind = args.value("prompt"); kind && !kind->empty()) {
             status = prompt(*kind);
             return;
         }
-        if (!fs::is_directory(workspaces)) {
+        if (!std::filesystem::is_directory(workspaces, ignored)) {
             if (json) std::println("{}", Json { { "root", workspaces }, { "workspaces", Json::array() } }.dump(2));
             else std::println("mcppls cache: no workspace cache at {}", workspaces);
             status = 0;

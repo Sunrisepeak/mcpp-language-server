@@ -2,7 +2,6 @@ module mcppls.engine.clangd;
 
 import std;
 import nlohmann.json;
-import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.log;
 import mcppls.base.path;
@@ -10,11 +9,6 @@ import mcppls.base.sha256;
 import mcppls.base.text;
 import mcppls.base.uri;
 import mcppls.base.version;
-import mcppls.platform.dirs;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.platform.process;
-import mcppls.platform.sandbox;
 import mcppls.lsp.jsonrpc;
 import mcppls.lsp.protocol;
 import mcppls.project.scan;
@@ -26,6 +20,11 @@ import mcppls.engine.clangd.primer;
 import mcppls.engine.clangd.process;
 import mcppls.engine.clangd.workarounds;
 import mcppls.engine.native.index;
+import mcpplibs.os;
+import mcppls.toolrun;
+import mcppls.base.home;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::engine::clangd {
 
@@ -53,16 +52,17 @@ bool fixed_by_verified_features(std::string_view id, std::span<const std::string
 // with its markers. A header there -- a toolchain's (<windows.h> of llvm-mingw), a library's -- is checked by its
 // version's markers rather than one by one (mcppls-clangd --managed-input-root). Only the stores that exist.
 std::vector<std::string> managed_package_stores() {
-    const std::string home { platform::dirs::home_directory() };
+    std::error_code ignored;
+    const std::string home { base::home_directory() };
     const auto under = [&](std::string_view variable, std::string_view fallback, std::string_view store) {
-        const auto set = platform::env::get(variable);
+        const auto set = os::env::get(variable);
         const std::string base { set && !set->empty() ? *set : base::join_path(home, fallback) };
         return base::join_path(base, store);
     };
     std::vector<std::string> stores;
     for (auto store : { under("MCPP_HOME", ".mcpp", "registry/data/xpkgs"), under("XLINGS_HOME", ".xlings", "data/xpkgs") }) {
         if (home.empty() && !base::is_absolute_path(store)) continue;
-        if (platform::fs::is_directory(store) && std::ranges::find(stores, store) == stores.end()) stores.push_back(std::move(store));
+        if (std::filesystem::is_directory(store, ignored) && std::ranges::find(stores, store) == stores.end()) stores.push_back(std::move(store));
     }
     return stores;
 }
@@ -124,10 +124,11 @@ namespace {
 
 // The bytes of the files under `path`, recursively; 0 for a path that is not there.
 std::uint64_t directory_bytes(std::string_view path) {
+    std::error_code ignored;
     std::uint64_t total { 0 };
-    for (const auto& entry : platform::fs::list_directory(path)) {
-        if (platform::fs::is_directory(entry)) total += directory_bytes(entry);
-        else if (const auto stamp = platform::fs::stamp(entry)) total += stamp->size;
+    for (const auto& entry : base::children(path)) {
+        if (std::filesystem::is_directory(entry, ignored)) total += directory_bytes(entry);
+        else if (const auto stamp = base::file_stamp(entry)) total += stamp->size;
     }
     return total;
 }
@@ -174,7 +175,7 @@ private:
     struct UnresolvedModule {
         std::string reason;
         std::string provider;                          // the plan's unit for the module; empty when it had none
-        std::optional<platform::fs::FileStamp> stamp;  // of that unit
+        std::optional<os::fs::stamp> stamp;  // of that unit
         std::string command;                           // its engine command
         std::string modelOrigin;                       // the plan's model when clangd reported it ("inferred": provisional)
     };
@@ -195,7 +196,7 @@ private:
         std::string modelOrigin;                       // the plan's model when clangd reported it ("inferred": provisional)
         // The unit's own source and every module source it imports, transitively, as they were when
         // it failed: a fix in any of them -- not only in the failed unit itself -- is a reason to try again.
-        std::map<std::string, std::optional<platform::fs::FileStamp>, std::less<>> inputs;
+        std::map<std::string, std::optional<os::fs::stamp>, std::less<>> inputs;
     };
     std::map<std::string, DoomRoot, std::less<>> doomRoots_;    // modules clangd reported it could not compile
     std::set<std::string, std::less<>> doomedModules_;          // roots and everything that imports them, transitively
@@ -234,7 +235,7 @@ private:
     // with; one of another command (issue #30, a profile switch) or of an older source is not "built".
     struct BuiltModule {
         std::string command;
-        std::optional<platform::fs::FileStamp> stamp;
+        std::optional<os::fs::stamp> stamp;
     };
     std::map<std::string, BuiltModule, std::less<>> builtModules_;
     bool builtModulesLoaded_ { false };
@@ -341,7 +342,7 @@ private:
     ScanFailures scanFailures_;
     // P-1 (plan 0.0.8): every unit clangd could not scan for a header or its command -- the project's or the
     // environment's reason, not a half-typed file -- in this clangd's lifetime: path key -> (reason, its stamp then).
-    std::map<std::string, std::pair<std::string, std::optional<platform::fs::FileStamp>>, std::less<>> unscannableUnits_;
+    std::map<std::string, std::pair<std::string, std::optional<os::fs::stamp>>, std::less<>> unscannableUnits_;
     // Fix plan F17: clangd's latest log lines (in memory only), what clangd said about each file lately,
     // the last plan's differences, and when an incident of each kind was last written.
     std::shared_ptr<LogRing> logRing_ { std::make_shared<LogRing>(4000, 4 * 1024 * 1024) };
@@ -532,7 +533,7 @@ private:
     Clock::time_point warmGiveUpAt_ {};
     std::map<std::string, BackgroundUnit, std::less<>> background_;           // path key
     std::set<std::string, std::less<>> closedBackground_;                     // path keys whose closing diagnostics are still to come
-    std::map<std::string, std::optional<platform::fs::FileStamp>, std::less<>> backgroundRefused_;   // units that did not build in time, as they were
+    std::map<std::string, std::optional<os::fs::stamp>, std::less<>> backgroundRefused_;   // units that did not build in time, as they were
     // Plan 2026-09-27 N-7 (WA-CLANGD-008). clangd's background index compiles a module unit without building the modules
     // it imports, so a definition in an implementation unit is indexed apart from its declaration, or not at all, until
     // the unit has been open. Implementation units are therefore opened here, a few at a time, built through clangd's
@@ -545,7 +546,7 @@ private:
     };
     std::deque<ImplementationUnit> implementationQueue_;
     std::set<std::string, std::less<>> implementationQueued_;                                        // path keys
-    std::map<std::string, std::optional<platform::fs::FileStamp>, std::less<>> implementationBuilt_;   // path key -> the file as it was built
+    std::map<std::string, std::optional<os::fs::stamp>, std::less<>> implementationBuilt_;   // path key -> the file as it was built
     std::map<std::string, std::string, std::less<>> implementationUnreadable_;                        // path key -> why it did not build (N-3)
     bool implementationSeedOpen_ { true };        // the open documents' relevant units are still to be queued
     bool backgroundIndexActive_ { false };
@@ -735,6 +736,7 @@ public:
     }
 
     void start(Host& host) override {
+        std::error_code ignored;
         host_ = &host;
         sink_ = host.event_sink(ENGINE_ID);
         const std::string& cache { host.cache_directory() };
@@ -742,16 +744,16 @@ public:
         primeDirectory_ = base::join_path(cache, "contexts/default/prime");
         moduleHintDirectory_ = base::join_path(cache, "contexts/default/module-hints");   // never created
         stubDirectory_ = base::join_path(cache, "contexts/default/stubs");
-        (void)platform::fs::create_directories(databaseDirectory_);
+        (void)std::filesystem::create_directories(databaseDirectory_, ignored);
         // WA-CLANGD-009: the last session's verdict, so a project without modules starts clangd without the flag and
         // its first plan does not restart clangd. A cache without one starts with it, as every version before did.
         if (traits_.scansModulesOnEveryRequest) {
-            const auto verdict = platform::fs::read_file(modules_verdict_path_());
+            const auto verdict = os::fs::read(modules_verdict_path_());
             modulesSupport_ = !(verdict && base::trim(*verdict) == "off");
             if (verdict) modulesVerdict_ = std::string { base::trim(*verdict) };
         }
         // clangd starts without a database; the first plan is written before any document reaches it.
-        platform::fs::remove_all(base::join_path(databaseDirectory_, "compile_commands.json"));
+        std::filesystem::remove_all(base::join_path(databaseDirectory_, "compile_commands.json"), ignored);
         log::info("clangd {} at {}", options_.version.empty() ? "?" : options_.version, options_.executable.empty() ? "(none)" : options_.executable);
         // import-hang plan §9: which of clangd's known defects this server works around for this version.
         if (!options_.executable.empty()) {
@@ -1420,7 +1422,7 @@ public:
             // version after version while its status says "parsing main file" throughout; each build is timed on its own.
             // clangd names the file as the system spells it: D:\src\... on Windows, where documents are D:/src/...
             std::string file { event.value("file", std::string {}) };
-            if (mcppls::os::family() == mcppls::os::Family::windows) std::ranges::replace(file, '\\', '/');
+            if (os::host() == os::platform::windows) std::ranges::replace(file, '\\', '/');
             const std::string key { base::path_key(file) };
             for (const auto& document : host_->documents()) {
                 if (!document.path.empty() && base::path_key(document.path) == key) {
@@ -1435,6 +1437,7 @@ public:
     // lock written on another host), since the cache belongs to this instance: the lock is removed, and clangd's
     // next attempt takes it.
     void handle_module_lock_wait_(const std::string& path) {
+        std::error_code ignored;
         // Only a lock of clangd's module cache (".../modules/.locks/<hash>.lock"), however the path is spelled.
         if (path.empty() || !path.ends_with(".lock") || base::file_name(base::parent_path(path)) != ".locks") return;
         const auto owner = module_lock_owner(path);
@@ -1442,9 +1445,9 @@ public:
         if (owner && mine && *owner == *mine) return;
         const std::string name { base::file_name(path) };
         std::size_t removed { 0 };
-        for (const auto& entry : platform::fs::list_directory(base::parent_path(path))) {
+        for (const auto& entry : base::children(base::parent_path(path))) {
             if (!base::file_name(entry).starts_with(name)) continue;
-            platform::fs::remove_all(entry);
+            std::filesystem::remove_all(entry, ignored);
             ++removed;
         }
         if (removed == 0) return;
@@ -1479,7 +1482,7 @@ public:
         if (!driver && !notFound && !neverTyped) return;
         // clangd names the unit as its command line did, with backslashes and `..` on Windows (GalTranslPP:
         // `D:\a\...\Updater\..\3rdParty\3rdModule\boost.ixx`); the plan's units are normalized.
-        unscannableUnits_[base::path_key(base::normalize_path(file))] = { reason, platform::fs::stamp(file) };
+        unscannableUnits_[base::path_key(base::normalize_path(file))] = { reason, base::file_stamp(file) };
         if (!scanFailures_.firstReason.empty()) return;
         scanFailures_.firstFile = file;
         scanFailures_.firstReason = reason;
@@ -1660,7 +1663,7 @@ public:
             // Nor is a file whose text on disk would stall clangd (fix plan F16): it waits for the disk, or the database.
             if (const auto aside = aside_.find(key); aside != aside_.end() && aside->second.onDisk) {
                 if (const auto hazard = diskHazards_.find(key); hazard != diskHazards_.end()) {
-                    const auto disk = platform::fs::read_file(hazard->second.path);
+                    const auto disk = os::fs::read(hazard->second.path);
                     if (!disk || disk_hazard_(*disk, now, key)) {
                         quarantine_.put(key, now);
                         continue;
@@ -1792,9 +1795,9 @@ private:
         // their generated inputs first; retirement paths reach this helper only once reaped.
         write_prime_sources_(plan);
         if (database != writtenDatabase_) {
-            if (auto written = platform::fs::write_file_atomic(base::join_path(databaseDirectory_, "compile_commands.json"), database); !written) {
-                log::error("cannot write the engine database ({}): {}", host_->root_directory(), written.error().message);
-                add_issue_(Issue { "engine-database-write-failed", "the engine database could not be written; check the cache permissions and available space, then restart clangd: " + written.error().message, "mcppls.restartClangd", "environment" });
+            if (auto written = os::fs::write_atomic(base::join_path(databaseDirectory_, "compile_commands.json"), database); !written) {
+                log::error("cannot write the engine database ({}): {}", host_->root_directory(), written.error().message());
+                add_issue_(Issue { "engine-database-write-failed", "the engine database could not be written; check the cache permissions and available space, then restart clangd: " + written.error().message(), "mcppls.restartClangd", "environment" });
                 host_->status_changed();
                 return false;
             }
@@ -1811,6 +1814,7 @@ private:
     }
 
     void start_process_() {
+        std::error_code ignored;
         handshakeDone_ = false;
         accepting_ = false;
         if (pendingDatabasePlan_) {
@@ -1849,7 +1853,7 @@ private:
             host_->status_changed();
             return;
         }
-        if (options_.executable.empty() || !platform::fs::is_regular_file(options_.executable)) {
+        if (options_.executable.empty() || !std::filesystem::is_regular_file(options_.executable, ignored)) {
             unavailable_ = true;
             add_issue_(Issue { "engine-missing", "clangd was not found; only module-level features are available", "mcppls.showLogs", "environment" });
             flush_deferred_without_engine_();
@@ -1871,7 +1875,7 @@ private:
         // was interrupted and never removed them -- the 97% of a cache that grew to 64 GiB. The
         // premise is the lock clearing's own (no clangd uses this tree now), and the bound makes the
         // background sweep safe even against this very start: only what was written before now.
-        generationStartedAt_ = platform::fs::modified_now();
+        generationStartedAt_ = base::file_time_now();
         host_->cache_sweep_due(generationStartedAt_);
         const int generation { ++generation_ };
         ProcessConfig config;
@@ -1883,19 +1887,19 @@ private:
         workers_ = engine_workers(std::thread::hardware_concurrency(), total_memory_bytes(), options_.workers);
         config.workers = workers_;
         config.fallbackStyle = format_fallback_style(options_.formatFallbackStyle, options_.mcppFormatStyle,
-            platform::fs::is_regular_file(base::join_path(host_->root_directory(), "mcpp.toml")));
+            std::filesystem::is_regular_file(base::join_path(host_->root_directory(), "mcpp.toml"), ignored));
         // Under PRoot every process is traced call by call, so mcppls-clangd's supervised compiler worker, a
         // process per module, costs many times an in-process build; there it compiles in clangd, as upstream
         // does. Only a verified maintained engine has the option (an external clangd would refuse to start).
-        config.inProcessModuleBuilds = !options_.verifiedFeatures.empty() && !platform::sandbox().empty();
+        config.inProcessModuleBuilds = !options_.verifiedFeatures.empty() && !toolrun::sandbox().empty();
         // Its owned module cache bounds isolated workers, which it has on Linux only; elsewhere a bound fails every build.
-        if (!options_.verifiedFeatures.empty() && mcppls::os::family() == mcppls::os::Family::linux) config.ownedCachePayloadMiB = options_.ownedCachePayloadMiB;
+        if (!options_.verifiedFeatures.empty() && os::host() == os::platform::linux) config.ownedCachePayloadMiB = options_.ownedCachePayloadMiB;
         if (base::to_lower_ascii(options_.formatFallbackStyle) == "mcpp" && !options_.mcppFormatStyle)
             add_issue_(Issue { "format-style-unavailable", "the selected engine does not declare the mcpp formatting style", "mcppls.showLogs", "environment" });
         config.modulesSupport = modulesSupport_;   // WA-CLANGD-009
         // 0.0.14 Windows plan. A2: lists complete in one answer; C1: preambles in memory where that is the cheaper store.
         if (options_.completionResultLimit > 0) config.resultLimit = options_.completionResultLimit;
-        config.preambleStorage = preamble_storage(options_.preambleStorage, mcppls::os::family() == mcppls::os::Family::windows, total_memory_bytes());
+        config.preambleStorage = preamble_storage(options_.preambleStorage, os::host() == os::platform::windows, total_memory_bytes());
         // By the features the verified engine declares (an external clangd is given none of these).
         const auto declares = [&](std::string_view feature) { return std::ranges::find(options_.verifiedFeatures, feature) != options_.verifiedFeatures.end(); };
         if (declares("managed-input-roots")) config.managedInputRoots = managed_package_stores();
@@ -1907,7 +1911,7 @@ private:
         if (declares("interactive-actions")) config.interactiveActions = INTERACTIVE_ACTIONS;
         config.extraArguments = options_.extraArguments;
         // Extra engine arguments for troubleshooting, e.g. MCPPLS_ENGINE_ARGUMENTS="-j=8 --background-index-priority=background".
-        if (auto extra = platform::env::get("MCPPLS_ENGINE_ARGUMENTS")) {
+        if (auto extra = os::env::get("MCPPLS_ENGINE_ARGUMENTS")) {
             for (auto word : base::split(*extra, ' ')) {
                 if (!base::trim(word).empty()) config.extraArguments.emplace_back(base::trim(word));
             }
@@ -2452,7 +2456,7 @@ private:
             if (provider == moduleSources_.end() || generated_path_(provider->second) || document->path.empty()) continue;
             if (!bufferImports) bufferImports = project::required_names(project::scan_source(document->text));
             if (!diskImports) {
-                const auto disk = platform::fs::read_file(document->path);
+                const auto disk = os::fs::read(document->path);
                 diskImports = disk ? project::required_names(project::scan_source(*disk)) : std::vector<std::string> {};
             }
             if (std::ranges::find(*bufferImports, *name) == bufferImports->end() || std::ranges::find(*diskImports, *name) != diskImports->end()) continue;
@@ -2572,17 +2576,19 @@ private:
         spinSampleAt_ = now + SPIN_SAMPLE;
         const auto pid = process_ ? process_->pid() : std::nullopt;
         if (!pid) return;
-        const auto threads = platform::thread_cpu(*pid);
+        const auto threads = mcpplibs::os::process::threads(static_cast<std::uint64_t>(*pid));
         std::map<std::int64_t, WorkerThread> next;
         for (const auto& thread : threads) {
             std::string file { worker_file(thread.name) };
             if (file.empty()) continue;
-            WorkerThread worker { thread.seconds, std::nullopt, std::move(file) };
-            if (const auto was = workerThreads_.find(thread.id); was != workerThreads_.end() && lastSpinSample_) {
+            const double seconds { static_cast<double>(thread.cpu_ns) / 1e9 };
+            WorkerThread worker { seconds, std::nullopt, std::move(file) };
+            const auto id = static_cast<std::int64_t>(thread.id);
+            if (const auto was = workerThreads_.find(id); was != workerThreads_.end() && lastSpinSample_) {
                 const double interval { std::chrono::duration<double>(now - *lastSpinSample_).count() };
-                if (interval > 0 && (thread.seconds - was->second.seconds) / interval >= 0.8) worker.hotSince = was->second.hotSince.value_or(*lastSpinSample_);
+                if (interval > 0 && (seconds - was->second.seconds) / interval >= 0.8) worker.hotSince = was->second.hotSince.value_or(*lastSpinSample_);
             }
-            next.emplace(thread.id, std::move(worker));
+            next.emplace(id, std::move(worker));
         }
         workerThreads_ = std::move(next);
         lastSpinSample_ = now;
@@ -2898,7 +2904,7 @@ private:
     // K-3 (plan 0.0.8): which clangd crashed, exactly -- the sha256 of the executable, read once, on the first crash.
     std::string executable_sha256_() const {
         if (executableDigest_ && executableDigest_->first == options_.executable) return executableDigest_->second;
-        const auto content = platform::fs::read_file(options_.executable);
+        const auto content = os::fs::read(options_.executable);
         executableDigest_ = std::pair { options_.executable, content ? base::sha256_hex(*content) : std::string {} };
         return executableDigest_->second;
     }
@@ -2915,7 +2921,7 @@ private:
         const bool known { context != crashContexts_.end() && !context->second.file.empty() };
         std::set<std::string> suspects;
         if (known) {
-            std::string path { platform::fs::canonical_path(context->second.file) };
+            std::string path { base::canonical_path(context->second.file) };
             if (path.empty()) path = context->second.file;
             for (const auto& document : host_->documents()) {
                 if (!document.path.empty() && base::same_path(document.path, path)) path = document.path;
@@ -3092,7 +3098,7 @@ private:
                     root.provider = provider->second;
                     root.command = moduleCommands_.contains(parsed.module) ? moduleCommands_.find(parsed.module)->second : std::string {};
                 }
-                for (const auto& source : closure_sources_(parsed.module)) root.inputs.emplace(source, platform::fs::stamp(source));
+                for (const auto& source : closure_sources_(parsed.module)) root.inputs.emplace(source, base::file_stamp(source));
                 doomRoots_.emplace(parsed.module, std::move(root));
                 recompute_doom_();
             }
@@ -3113,7 +3119,7 @@ private:
         // A stand-in is not the module's provider (fix plan F13): forget_changed_unresolved_ looks past it too.
         if (const auto provider = moduleSources_.find(parsed.module); provider != moduleSources_.end() && !generated_path_(provider->second)) {
             unresolved.provider = provider->second;
-            unresolved.stamp = platform::fs::stamp(provider->second);
+            unresolved.stamp = base::file_stamp(provider->second);
             unresolved.command = moduleCommands_.contains(parsed.module) ? moduleCommands_.find(parsed.module)->second : std::string {};
         }
         const bool unitPlanned { !unresolved.provider.empty() };
@@ -3129,7 +3135,7 @@ private:
                 if (module == "std" || module == "std.compat" || unresolvedModules_.contains(module) || generated_path_(source)) continue;
                 const auto unscannable = unscannableUnits_.find(base::path_key(base::normalize_path(source)));
                 if (unscannable == unscannableUnits_.end()) continue;
-                const auto stamp = platform::fs::stamp(source);
+                const auto stamp = base::file_stamp(source);
                 if (stamp != unscannable->second.second) continue;
                 const auto command = moduleCommands_.find(module);
                 unresolvedModules_.emplace(module, UnresolvedModule { std::format("clangd could not scan its unit: {}", unscannable->second.first), source, stamp,
@@ -3157,14 +3163,14 @@ private:
             const bool standIn { provider != moduleSources_.end() && generated_path_(provider->second) };
             const std::string current { provider == moduleSources_.end() || standIn ? std::string {} : provider->second };
             const auto command = moduleCommands_.find(it->first);
-            bool changed { !base::same_path(current, it->second.provider) || (!current.empty() && platform::fs::stamp(current) != it->second.stamp)
+            bool changed { !base::same_path(current, it->second.provider) || (!current.empty() && base::file_stamp(current) != it->second.stamp)
                            || (!current.empty() && (command == moduleCommands_.end() ? std::string {} : command->second) != it->second.command) };
             // R-6 (plan 2026-09-30): a module WITH a unit that clangd could not find (its scan failed: a header the
             // command cannot reach) gets a stand-in, which takes the unit's place in the database. That is this
             // server's own doing, not the unit changing: taken for a change, the module was tried again at once, the
             // unit came back, clangd failed the same way, and each round moved a provider and restarted clangd --
             // every 11-13 s on GalTranslPP. While the stand-in is there, only the unit's own file changing counts.
-            if (standIn && !it->second.provider.empty()) changed = platform::fs::stamp(it->second.provider) != it->second.stamp;
+            if (standIn && !it->second.provider.empty()) changed = base::file_stamp(it->second.provider) != it->second.stamp;
             if (changed) {
                 log::info("trying module {} again ({})", it->first, host_->root_directory());
                 host_->record_event("module-retry", Json { { "module", it->first } });
@@ -3245,7 +3251,7 @@ private:
             const auto sources = closure_sources_(it->first);
             const bool inputChanged { sources.size() != it->second.inputs.size()
                                       || std::ranges::any_of(sources, [&](const std::string& source) { return !it->second.inputs.contains(source); })
-                                      || std::ranges::any_of(it->second.inputs, [](const auto& input) { return platform::fs::stamp(input.first) != input.second; }) };
+                                      || std::ranges::any_of(it->second.inputs, [](const auto& input) { return base::file_stamp(input.first) != input.second; }) };
             const bool changed { !base::same_path(current, it->second.provider) || inputChanged
                                  || (!current.empty() && (command == moduleCommands_.end() ? std::string {} : command->second) != it->second.command) };
             if (changed) {
@@ -3635,7 +3641,11 @@ private:
             for (const auto& document : host_->documents()) {
                 if (document.path.empty() || base::path_key(document.path) != key) continue;
                 file["version"] = document.version;
-                file["excerpts"] = text_differences_(document.text, platform::fs::read_file(document.path));
+                file["excerpts"] = text_differences_(document.text, [&]() -> base::Result<std::string> {
+                    auto disk = os::fs::read(document.path);
+                    if (!disk) return base::fail("read-file", disk.error());
+                    return std::move(*disk);
+                }());
                 if (const auto timeline = statusTimeline_.find(document.uri); timeline != statusTimeline_.end()) {
                     Json states = Json::array();
                     for (const auto& [at, state] : timeline->second) states.push_back(Json { { "at", at }, { "state", state } });
@@ -3713,7 +3723,7 @@ private:
         if (path.empty() || !project::is_cxx_source_name(path) || (!traits_.hangsOnTrailingDotModuleName && !traits_.hangsOnImportersUnresolvedImports)) return false;
         const std::string key { base::path_key(path) };
         const auto now = Clock::now();
-        const auto text = platform::fs::read_file(path);
+        const auto text = os::fs::read(path);
         const auto hazard = text ? disk_hazard_(*text, now, key) : std::nullopt;
         if (!hazard) {
             unresolvedOnDiskSince_.erase(key);
@@ -3771,7 +3781,7 @@ private:
         std::vector<std::pair<std::string, std::string>> files;
         for (const auto& [key, hazard] : diskHazards_) files.emplace_back(key, hazard.path);
         for (const auto& [key, path] : files) {
-            const auto text = platform::fs::read_file(path);
+            const auto text = os::fs::read(path);
             if (!text) continue;   // not readable now: what was on disk is what clangd would read
             const auto hazard = disk_hazard_(*text, now, key);
             const auto since = unresolvedOnDiskSince_.find(key);
@@ -4101,21 +4111,23 @@ private:
     // MODULE_BUILDS_KEPT) are moved aside while no clangd uses the cache -- a rename, so its start waits for nothing --
     // and removed on a thread of their own, with what earlier sessions left there.
     void prune_module_builds_() {
+        std::error_code ignored;
         const std::string trash { base::join_path(base::parent_path(databaseDirectory_), "trash") };
         const std::string batch { base::join_path(trash, std::format("{}", std::chrono::system_clock::now().time_since_epoch().count())) };
         std::size_t moved { 0 };
         for (const auto& build : stale_module_builds(databaseDirectory_, MODULE_BUILDS_KEPT)) {
-            if (moved == 0) (void)platform::fs::create_directories(batch);
+            if (moved == 0) (void)std::filesystem::create_directories(batch, ignored);
             const std::string unit { base::file_name(base::parent_path(build)) };
-            if (platform::fs::rename(build, base::join_path(batch, std::format("{}-{}-{}", moved, unit, base::file_name(build))))) ++moved;
+            if ([&] { std::error_code failed; std::filesystem::rename(build, base::join_path(batch, std::format("{}-{}-{}", moved, unit, base::file_name(build))), failed); return !failed; }()) ++moved;
         }
-        const auto leftovers = platform::fs::list_directory(trash);
+        const auto leftovers = base::children(trash);
         if (leftovers.empty()) return;
         std::thread { [leftovers, root = host_->root_directory()] {
+            std::error_code ignored;
             std::uint64_t freed { 0 };
             for (const auto& directory : leftovers) {
                 freed += directory_bytes(directory);
-                platform::fs::remove_all(directory);
+                std::filesystem::remove_all(directory, ignored);
             }
             if (freed > 0) log::info("freed {:.1f} MB of BMIs built for commands no unit has any more ({})", static_cast<double>(freed) / 1e6, root);
         } }.detach();
@@ -4197,6 +4209,7 @@ private:
     // C-7: when the live generation started, the interactive sweep's bound (nothing mapped may go).
     std::int64_t generation_started_at() const override { return generationStartedAt_; }
     std::uint64_t clear_cache_on_request() override {
+        std::error_code ignored;
         // Stopped first: nothing may be using the files that go. What clangd owed is answered by the other engines.
         settle_exit_();
         auto old = std::move(pending_);
@@ -4222,8 +4235,8 @@ private:
         host_->forget_engine_diagnostics(ENGINE_ID);
         const std::string context { base::parent_path(databaseDirectory_) };
         const std::uint64_t freed { directory_bytes(context) };
-        platform::fs::remove_all(context);
-        (void)platform::fs::create_directories(databaseDirectory_);
+        std::filesystem::remove_all(context, ignored);
+        (void)std::filesystem::create_directories(databaseDirectory_, ignored);
         // What was written there, and what was concluded from what clangd did with it, starts over too.
         pendingDatabasePlan_.reset();
         writtenDatabase_.clear();
@@ -4305,7 +4318,7 @@ private:
         for (const auto& document : host_->documents()) {
             if (!document.path.empty() && base::same_path(document.path, path)) return std::string { document.text };
         }
-        auto read = platform::fs::read_file(path);
+        auto read = os::fs::read(path);
         if (!read) return std::nullopt;
         return std::move(*read);
     }
@@ -4584,7 +4597,7 @@ private:
     bool open_in_background_(const std::string& path, std::string_view module, Clock::time_point now, bool priming = false) {
         const std::string key { base::path_key(path) };
         if (const auto refused = backgroundRefused_.find(key); refused != backgroundRefused_.end()) {
-            if (platform::fs::stamp(path) == refused->second) return false;
+            if (base::file_stamp(path) == refused->second) return false;
             backgroundRefused_.erase(refused);   // it changed: it may build now
         }
         if (excluded_.contains(key) || quarantine_.contains(key) || !writtenArguments_.contains(key)) return false;
@@ -4600,7 +4613,7 @@ private:
             if (oldest == background_.end()) return false;
             close_background_(std::string { oldest->first });
         }
-        auto text = platform::fs::read_file(path);
+        auto text = os::fs::read(path);
         if (!text) return false;
         const std::string uri { base::path_to_uri(path) };
         // WA-CLANGD-001: a file saved mid-edit can hold the text clangd spins on. Nobody reads positions in a
@@ -4643,7 +4656,7 @@ private:
         if (!priming_implementations_()) return false;
         const std::string key { base::path_key(path) };
         if (implementationQueued_.contains(key) || !writtenArguments_.contains(key)) return false;
-        if (const auto built = implementationBuilt_.find(key); built != implementationBuilt_.end() && built->second == platform::fs::stamp(path)) return false;
+        if (const auto built = implementationBuilt_.find(key); built != implementationBuilt_.end() && built->second == base::file_stamp(path)) return false;
         // The editor has it open: clangd builds it anyway.
         if (editor_uri_of_(key)) return false;
         implementationQueued_.insert(key);
@@ -4757,7 +4770,7 @@ private:
     // A unit opened for the index was built: clangd's index has its definitions now (WA-CLANGD-008's premise), and
     // one that did not compile says why (N-3).
     void implementation_built_(const std::string& key, const BackgroundUnit& unit, const Json& diagnostics) {
-        implementationBuilt_[key] = platform::fs::stamp(unit.path);
+        implementationBuilt_[key] = base::file_stamp(unit.path);
         std::string reason;
         for (const auto& diagnostic : diagnostics) {
             if (diagnostic.value("severity", 0) != 1) continue;
@@ -4868,7 +4881,7 @@ private:
                 log::warning("{} did not build in clangd in {} minutes; it is not opened without the editor again until it changes ({}); clangd was {}",
                              unit.path, BACKGROUND_BUILD_LIMIT.count(), host_->root_directory(), unit.state.empty() ? std::string { "in an unknown state" } : unit.state);
                 host_->record_event("background-unit-stuck", Json { { "file", unit.path }, { "clangdState", unit.state } });
-                backgroundRefused_[key] = platform::fs::stamp(unit.path);
+                backgroundRefused_[key] = base::file_stamp(unit.path);
                 closing.push_back(key);
                 // Plan 2026-09-30 §13 (GalTranslPP, 4 cores): a unit that builds for longer than the limit while clangd is
                 // preparing modules, answering and finishing other units is slow, not stuck; restarting for it every two
@@ -4894,11 +4907,12 @@ private:
     // ---- parallel module preparation ------------------------------------------------------
 
     void write_prime_sources_(const normalize::EnginePlan& plan) {
-        if (!plan.primeSources.empty()) (void)platform::fs::create_directories(primeDirectory_);
-        if (!plan.stubSources.empty()) (void)platform::fs::create_directories(stubDirectory_);
+        std::error_code ignored;
+        if (!plan.primeSources.empty()) (void)std::filesystem::create_directories(primeDirectory_, ignored);
+        if (!plan.stubSources.empty()) (void)std::filesystem::create_directories(stubDirectory_, ignored);
         for (const auto& sources : { &plan.primeSources, &plan.stubSources }) {
             for (const auto& [file, content] : *sources) {
-                if (platform::fs::read_file(file).value_or("") != content) (void)platform::fs::write_file(file, content);
+                if (os::fs::read(file).value_or("") != content) (void)os::fs::write(file, content);
             }
         }
     }
@@ -4955,13 +4969,13 @@ private:
     // it (<database>/.cache/clangd/modules/<source file name>-<hash>/<command hash>/<module>.pcm).
     std::map<std::string, std::vector<std::string>, std::less<>> cached_bmis_() const {
         std::map<std::string, std::vector<std::string>, std::less<>> bmis;
-        for (const auto& sourceDirectory : platform::fs::list_directory(base::join_path(databaseDirectory_, ".cache/clangd/modules"))) {
+        for (const auto& sourceDirectory : base::children(base::join_path(databaseDirectory_, ".cache/clangd/modules"))) {
             const std::string_view name { base::file_name(sourceDirectory) };
             const std::size_t dash { name.rfind('-') };
             if (dash == std::string_view::npos || dash == 0) continue;
             auto& files = bmis[std::string { name.substr(0, dash) }];
-            for (const auto& commandDirectory : platform::fs::list_directory(sourceDirectory)) {
-                for (auto& file : platform::fs::list_directory(commandDirectory)) {
+            for (const auto& commandDirectory : base::children(sourceDirectory)) {
+                for (auto& file : base::children(commandDirectory)) {
                     if (file.ends_with(".pcm")) files.push_back(std::move(file));
                 }
             }
@@ -4974,7 +4988,7 @@ private:
     std::set<std::string, std::less<>> owned_bmi_sources_() const {
         std::set<std::string, std::less<>> sources;
         const std::string owned { base::join_path(databaseDirectory_, ".cache/clangd/modules/.owned-payload-v1") };
-        for (const auto& generation : platform::fs::list_directory(owned)) {
+        for (const auto& generation : base::children(owned)) {
             if (!base::file_name(generation).starts_with("generation-")) continue;
             std::ifstream in { base::join_path(generation, "payload.pcm"), std::ios::binary };
             std::string head(1 << 16, '\0');
@@ -5001,7 +5015,7 @@ private:
             const auto command = moduleCommands_.find(name);
             const auto providing = moduleSources_.find(name);
             if (record == builtModules_.end() || command == moduleCommands_.end() || providing == moduleSources_.end()) return false;
-            if (record->second.command != command->second || record->second.stamp != platform::fs::stamp(providing->second)) return false;
+            if (record->second.command != command->second || record->second.stamp != base::file_stamp(providing->second)) return false;
             if (const auto requires_ = moduleRequires_.find(name); requires_ != moduleRequires_.end()) {
                 for (const auto& required : requires_->second) {
                     if (!current(required)) return false;
@@ -5029,8 +5043,8 @@ private:
     void remember_modules_verdict_(bool usesModules) {
         const std::string_view verdict { usesModules ? "on" : "off" };
         if (verdict == modulesVerdict_) return;
-        if (auto written = platform::fs::write_file_atomic(modules_verdict_path_(), verdict); !written) {
-            log::warning("cannot keep whether {} uses modules: {}", host_->root_directory(), written.error().message);
+        if (auto written = os::fs::write_atomic(modules_verdict_path_(), verdict); !written) {
+            log::warning("cannot keep whether {} uses modules: {}", host_->root_directory(), written.error().message());
             return;
         }
         modulesVerdict_ = verdict;
@@ -5039,7 +5053,7 @@ private:
     void load_built_modules_() {
         if (builtModulesLoaded_) return;
         builtModulesLoaded_ = true;
-        const auto text = platform::fs::read_file(built_modules_path_());
+        const auto text = os::fs::read(built_modules_path_());
         if (!text) return;
         const Json document = Json::parse(*text, nullptr, false);
         if (document.is_discarded() || document.value("version", 0) != 1 || !document.contains("modules") || !document["modules"].is_object()) return;
@@ -5049,7 +5063,7 @@ private:
             if (!entry.is_object()) continue;
             BuiltModule built { entry.value("command", std::string {}), std::nullopt };
             if (entry.contains("size") && entry.contains("modified")) {
-                built.stamp = platform::fs::FileStamp { entry.value("size", std::uint64_t { 0 }), entry.value("modified", std::int64_t { 0 }) };
+                built.stamp = os::fs::stamp { entry.value("size", std::uint64_t { 0 }), static_cast<std::uint64_t>(entry.value("modified", std::int64_t { 0 })) };
             }
             builtModules_.emplace(name, std::move(built));
         }
@@ -5068,7 +5082,7 @@ private:
             const auto command = moduleCommands_.find(name);
             const auto source = moduleSources_.find(name);
             if (command == moduleCommands_.end() || source == moduleSources_.end()) continue;
-            builtModules_[name] = BuiltModule { command->second, platform::fs::stamp(source->second) };
+            builtModules_[name] = BuiltModule { command->second, base::file_stamp(source->second) };
             if (const auto requires_ = moduleRequires_.find(name); requires_ != moduleRequires_.end()) {
                 for (const auto& required : requires_->second) pending.push_back(required);
             }
@@ -5078,11 +5092,11 @@ private:
             Json entry { { "command", built.command } };
             if (built.stamp) {
                 entry["size"] = built.stamp->size;
-                entry["modified"] = built.stamp->modified;
+                entry["modified"] = static_cast<std::int64_t>(built.stamp->modified_ns);
             }
             modules[name] = std::move(entry);
         }
-        (void)platform::fs::write_file_atomic(built_modules_path_(), Json { { "version", 1 }, { "modules", std::move(modules) } }.dump());
+        (void)os::fs::write_atomic(built_modules_path_(), Json { { "version", 1 }, { "modules", std::move(modules) } }.dump());
     }
 
     // Whether the files a person is waiting for are waiting on preparation itself. Throttling

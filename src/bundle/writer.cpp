@@ -2,20 +2,20 @@ module mcppls.bundle.writer;
 
 import std;
 import nlohmann.json;
-import mcppls.os;
 import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.sha256;
 import mcppls.base.text;
 import mcppls.base.version;
-import mcppls.platform.dirs;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.platform.process;
-import mcppls.platform.toolrun;
 import mcppls.bundle.identity;
 import mcppls.bundle.redact;
 import mcppls.bundle.zip;
+import mcpplibs.os;
+import mcppls.base.home;
+import mcppls.base.payload;
+import mcppls.toolrun;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::bundle {
 
@@ -70,7 +70,7 @@ std::string head_and_tail(std::string content, std::size_t cap, bool& truncated)
 }
 
 std::optional<std::string> read_text(std::string_view path) {
-    auto content = platform::fs::read_file(path);
+    auto content = os::fs::read(path);
     if (!content) return std::nullopt;
     return std::move(*content);
 }
@@ -78,18 +78,18 @@ std::optional<std::string> read_text(std::string_view path) {
 // A system's own answer about itself (a version, a code page), bounded and in this process's own
 // environment: never the login shell, never the network.
 std::optional<std::string> system_answer(std::string_view program, std::vector<std::string> arguments) {
-    const auto executable = platform::env::find_executable(program);
+    const auto executable = toolrun::find_program(program);
     if (!executable) return std::nullopt;
-    auto result = platform::toolrun::run(platform::toolrun::Request {
+    auto result = mcppls::toolrun::run(mcppls::toolrun::Request {
         .program = *executable,
         .arguments = std::move(arguments),
-        .workDirectory = platform::dirs::temp_directory(),
+        .workDirectory = base::spelled(os::dirs::temp()),
         .purpose = "bundle",
-        .bounds = platform::RunBounds { .hard = std::chrono::seconds { 5 } },
-        .environment = platform::env::variables(),
+        .bounds = mcpplibs::os::process::bounds { .hard = std::chrono::seconds { 5 } },
+        .environment = os::env::variables(),
     });
-    if (!result || result->exitCode != 0 || result->timedOut) return std::nullopt;
-    return std::move(result->output);
+    if (!result || !result->status.success() || result->timed_out) return std::nullopt;
+    return std::move(result->out);
 }
 
 // "Key:\tvalue" lines, the way sw_vers answers.
@@ -112,15 +112,15 @@ std::string unquoted(std::string_view value) {
 }
 
 Json operating_system() {
-    Json os { { "platform", std::string { mcppls::os::platform() } }, { "family", std::string { mcppls::os::family_name() } } };
-    if (mcppls::os::family() == mcppls::os::Family::linux) {
+    Json os { { "platform", std::string { base::payload_platform() } }, { "family", std::string { os::name(os::host()) } } };
+    if (os::host() == os::platform::linux) {
         if (auto release = read_text("/proc/sys/kernel/osrelease")) os["kernel"] = std::string { base::trim(*release) };
         if (auto release = read_text("/etc/os-release")) {
             for (const auto line : base::split_lines(*release)) {
                 if (line.starts_with("PRETTY_NAME=")) os["distribution"] = unquoted(line.substr(12));
             }
         }
-    } else if (mcppls::os::family() == mcppls::os::Family::macos) {
+    } else if (os::host() == os::platform::macos) {
         if (auto versions = system_answer("sw_vers", {})) {
             os["name"] = field(*versions, "ProductName");
             os["version"] = field(*versions, "ProductVersion");
@@ -133,7 +133,7 @@ Json operating_system() {
 }
 
 Json memory() {
-    if (mcppls::os::family() == mcppls::os::Family::linux) {
+    if (os::host() == os::platform::linux) {
         if (auto info = read_text("/proc/meminfo")) {
             for (const auto line : base::split_lines(*info)) {
                 if (!line.starts_with("MemTotal:")) continue;
@@ -143,7 +143,7 @@ Json memory() {
                 return Json { { "totalBytes", kib * 1024 } };
             }
         }
-    } else if (mcppls::os::family() == mcppls::os::Family::macos) {
+    } else if (os::host() == os::platform::macos) {
         if (auto bytes = system_answer("sysctl", { "-n", "hw.memsize" })) {
             std::uint64_t total { 0 };
             const auto digits = base::trim(*bytes);
@@ -157,9 +157,9 @@ Json memory() {
 Json locale() {
     Json locale = Json::object();
     for (const std::string_view name : { "LANG", "LC_ALL", "LC_CTYPE" }) {
-        if (auto value = platform::env::get(name)) locale[std::string { name }] = *value;
+        if (auto value = os::env::get(name)) locale[std::string { name }] = *value;
     }
-    if (mcppls::os::family() == mcppls::os::Family::windows) {
+    if (os::host() == os::platform::windows) {
         // The ANSI code page is what a narrow string from the system is in (issue #23 had a GBK machine).
         if (auto answer = system_answer("reg", { "query", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage", "/v", "ACP" })) {
             for (const auto line : base::split_lines(*answer)) {
@@ -187,7 +187,7 @@ bool whitelisted_variable(std::string_view name) {
 
 Json environment_variables() {
     Json variables = Json::object();
-    for (const auto& entry : platform::env::variables()) {
+    for (const auto& entry : os::env::variables()) {
         const std::size_t equals { entry.find('=', 1) };
         if (equals == std::string::npos) continue;
         const std::string name { entry.substr(0, equals) };
@@ -220,7 +220,7 @@ Json environment(const BundleInput& input) {
         }
     }
     Json probes = nullptr;
-    if (auto text = read_text(base::join_path(platform::dirs::cache_directory(), "toolchains/probe.json")); text && text->size() <= PROBES_CAP) {
+    if (auto text = read_text(base::join_path(base::cache_directory(), "toolchains/probe.json")); text && text->size() <= PROBES_CAP) {
         probes = Json::parse(*text, nullptr, false);
         if (probes.is_discarded()) probes = nullptr;
     }
@@ -264,7 +264,7 @@ std::optional<std::chrono::sys_seconds> session_start(std::string_view name) {
 // up to LOG_SESSIONS_MAX in all, each with its rotations, newest first.
 std::vector<std::string> recent_logs(std::string_view directory, std::string_view currentLog) {
     std::map<std::string, std::vector<std::string>, std::greater<>> sessions;   // "server-<time>-<tag>" -> its files
-    for (auto& path : platform::fs::list_directory(directory)) {
+    for (auto& path : base::children(directory)) {
         const std::string_view name { base::file_name(path) };
         const std::size_t extension { name.find(".log") };
         if (!name.starts_with("server-") || extension == std::string_view::npos) continue;
@@ -317,12 +317,13 @@ std::vector<std::string> root_paths(const Json& report) {
 }
 
 void add_incidents(std::vector<Candidate>& candidates, std::size_t rootIndex, std::string_view cache, const BundleOptions& options) {
+    std::error_code ignored;
     const std::string directory { base::join_path(cache, "incidents") };
-    if (!platform::fs::is_directory(directory)) return;
-    auto incidents = platform::fs::list_directory(directory);
+    if (!std::filesystem::is_directory(directory, ignored)) return;
+    auto incidents = base::children(directory);
     std::ranges::sort(incidents, std::greater<> {});   // names start with their UTC time: newest first
     for (const auto& incident : incidents) {
-        const std::vector<std::string> files { platform::fs::is_directory(incident) ? platform::fs::list_files(incident, {}, {})
+        const std::vector<std::string> files { std::filesystem::is_directory(incident, ignored) ? base::files_under(incident, {}, {})
                                                                                     : std::vector<std::string> { incident } };
         for (const auto& file : files) {
             auto content = read_text(file);
@@ -384,8 +385,9 @@ void add_engine(std::vector<Candidate>& candidates, std::size_t rootIndex, std::
 }
 
 void add_dumps(std::vector<Candidate>& candidates, std::string_view directory, std::string_view prefix) {
-    if (!platform::fs::is_directory(directory)) return;
-    for (const auto& file : platform::fs::list_files(directory, std::array<std::string_view, 1> { ".dmp" }, {})) {
+    std::error_code ignored;
+    if (!std::filesystem::is_directory(directory, ignored)) return;
+    for (const auto& file : base::files_under(directory, std::array<std::string_view, 1> { ".dmp" }, {})) {
         auto content = read_text(file);
         if (!content) continue;
         candidates.push_back(Candidate { std::format("dumps/{}/{}", prefix, base::file_name(file)), std::move(*content), Kind::dump, false, false,
@@ -398,13 +400,14 @@ std::string default_output() {
 }
 
 void keep_newest_bundles(std::string_view directory) {
+    std::error_code ignored;
     std::vector<std::string> bundles;
-    for (auto& path : platform::fs::list_directory(directory)) {
+    for (auto& path : base::children(directory)) {
         const std::string_view name { base::file_name(path) };
         if (name.starts_with("mcppls-bundle-") && name.ends_with(".zip")) bundles.push_back(std::move(path));
     }
     std::ranges::sort(bundles, std::greater<> {});
-    for (std::size_t i { BUNDLES_KEPT }; i < bundles.size(); ++i) platform::fs::remove_all(bundles[i]);
+    for (std::size_t i { BUNDLES_KEPT }; i < bundles.size(); ++i) std::filesystem::remove_all(bundles[i], ignored);
 }
 
 std::string_view kind_name(Kind kind) {
@@ -424,7 +427,7 @@ std::string_view kind_name(Kind kind) {
 
 // Outside the anonymous namespace: the interface exports it (paths.bundlesDirectory, S3 5.7).
 std::string default_directory() {
-    return base::join_path(platform::dirs::cache_directory(), "bundles");
+    return base::join_path(base::cache_directory(), "bundles");
 }
 
 Json redact_report(const Json& report) {
@@ -433,6 +436,7 @@ Json redact_report(const Json& report) {
 }
 
 std::expected<BundleResult, BundleFailure> write_bundle(const BundleInput& input, const BundleOptions& options) {
+    std::error_code ignored;
     const auto started = std::chrono::steady_clock::now();
     std::vector<Candidate> candidates;
     candidates.push_back(Candidate { "report.json", dump(input.report), Kind::report });
@@ -449,7 +453,7 @@ std::expected<BundleResult, BundleFailure> write_bundle(const BundleInput& input
         candidate.content = head_and_tail(input.clientLog, CLIENT_LOG_CAP, candidate.truncated);
         candidates.push_back(std::move(candidate));
     }
-    const std::string logDirectory { base::join_path(platform::dirs::cache_directory(), "logs") };
+    const std::string logDirectory { base::join_path(base::cache_directory(), "logs") };
     const std::string currentLog { input.report.contains("server") && input.report["server"].is_object()
                                        ? input.report["server"].value("logFile", std::string {}) : std::string {} };
     for (const auto& file : recent_logs(logDirectory, currentLog)) {
@@ -459,7 +463,7 @@ std::expected<BundleResult, BundleFailure> write_bundle(const BundleInput& input
         candidate.content = head_and_tail(std::move(*content), LOG_FILE_CAP, candidate.truncated);
         candidates.push_back(std::move(candidate));
     }
-    if (options.includeDumps) add_dumps(candidates, base::join_path(platform::dirs::cache_directory(), "dumps"), "server");
+    if (options.includeDumps) add_dumps(candidates, base::join_path(base::cache_directory(), "dumps"), "server");
 
     // One redactor for the whole bundle, so an original has one placeholder in every file.
     std::optional<Redactor> redactor;
@@ -514,7 +518,7 @@ std::expected<BundleResult, BundleFailure> write_bundle(const BundleInput& input
     Json manifest {
         { "format", FORMAT_VERSION },
         { "generatedAt", utc_now("{:%FT%TZ}") },
-        { "generator", Json { { "name", "mcppls" }, { "version", std::string { base::VERSION } }, { "platform", std::string { mcppls::os::platform() } } } },
+        { "generator", Json { { "name", "mcppls" }, { "version", std::string { base::VERSION } }, { "platform", std::string { base::payload_platform() } } } },
         { "options", Json { { "redacted", options.redact }, { "hideProjectPaths", options.hideProjectPaths }, { "sourceExcerpts", options.sourceExcerpts },
                              { "includeDumps", options.includeDumps }, { "sizeCapBytes", options.sizeCap } } },
         { "redaction", options.redact ? Json { { "rules", result.redactions }, { "residueCheck", "passed" } }
@@ -526,9 +530,9 @@ std::expected<BundleResult, BundleFailure> write_bundle(const BundleInput& input
     const std::string archive { zip_archive(entries, std::chrono::system_clock::now()) };
     const bool defaultPlace { options.output.empty() };
     result.path = defaultPlace ? default_output() : base::normalize_path(options.output);
-    (void)platform::fs::create_directories(base::parent_path(result.path));
-    if (auto written = platform::fs::write_file_atomic(result.path, archive); !written) {
-        return std::unexpected { BundleFailure { std::format("the diagnostic bundle could not be written to {}: {}", result.path, written.error().message) } };
+    (void)std::filesystem::create_directories(base::parent_path(result.path), ignored);
+    if (auto written = os::fs::write_atomic(result.path, archive); !written) {
+        return std::unexpected { BundleFailure { std::format("the diagnostic bundle could not be written to {}: {}", result.path, written.error().message()) } };
     }
     if (defaultPlace) keep_newest_bundles(base::parent_path(result.path));
     result.bytes = archive.size();

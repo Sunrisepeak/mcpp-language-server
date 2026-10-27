@@ -8,10 +8,10 @@ module mcppls.pack.archive;
 import std;
 import mcppls.base.error;
 import mcppls.base.path;
-import mcppls.platform.fs;
+import mcpplibs.os;
 
+namespace os = mcpplibs::os;
 namespace mcppls::pack::archive {
-namespace fs = mcppls::platform::fs;
 namespace {
 
 constexpr std::size_t READ_BLOCK { 1u << 20 };
@@ -150,8 +150,8 @@ std::string_view strip_prefix(std::string_view path, std::string_view root) {
 }
 
 base::Result<void> write_entry(::archive* reader, const std::string& destination) {
-    if (auto made = fs::create_directories(base::parent_path(destination)); !made) {
-        return std::unexpected { made.error() };
+    if (std::error_code failed; !std::filesystem::create_directories(base::parent_path(destination), failed) && failed) {
+        return base::fail("create-directory", std::format("cannot create {}: {}", base::parent_path(destination), failed.message()));
     }
     std::ofstream out { destination, std::ios::binary };
     if (!out) return base::fail("archive-write", std::format("cannot write {}", destination));
@@ -288,8 +288,8 @@ base::Result<std::vector<std::string>> extract(std::string_view archivePath, std
             if (!writtenSet.contains(target)) continue;   // outside the selection, or not yet written
             const std::string from { base::join_path(outDir, target) };
             const std::string to { base::join_path(outDir, linkPath) };
-            if (auto made = fs::create_directories(base::parent_path(to)); !made) {
-                return std::unexpected { made.error() };
+            if (std::error_code failed; !std::filesystem::create_directories(base::parent_path(to), failed) && failed) {
+                return base::fail("create-directory", std::format("cannot create {}: {}", base::parent_path(to), failed.message()));
             }
             std::error_code failed;
             std::filesystem::copy_file(from, to, std::filesystem::copy_options::overwrite_existing, failed);
@@ -306,7 +306,7 @@ base::Result<std::vector<std::string>> extract(std::string_view archivePath, std
         }
     }
 
-    if (auto marked = fs::make_executable(executables); !marked) {
+    if (auto marked = base::make_executable(executables); !marked) {
         return std::unexpected { marked.error() };
     }
     return written;
@@ -319,7 +319,7 @@ namespace {
 // it in memory.
 base::Result<void> write_file_entry(::archive* out, const std::string& diskPath, const std::string& archiveName,
                                     bool executable) {
-    const auto stamp = fs::stamp(diskPath);
+    const auto stamp = base::file_stamp(diskPath);
     if (!stamp) return base::fail("archive-write", std::format("cannot stat {}", diskPath));
     std::ifstream in { diskPath, std::ios::binary };
     if (!in) return base::fail("archive-write", std::format("cannot read {}", diskPath));
@@ -369,21 +369,22 @@ base::Result<void> write_directory_entry(::archive* out, const std::string& arch
     return {};
 }
 
-// Depth-first over `mcppls.platform.fs::list_directory`'s already-sorted children, so the archive
+// Depth-first over `base::children`'s already-sorted children, so the archive
 // this writes is deterministic without a second sort here.
 base::Result<void> add_recursive(::archive* out, const std::string& diskPath, const std::string& archiveName) {
-    if (fs::is_directory(diskPath)) {
+    std::error_code ignored;
+    if (std::filesystem::is_directory(diskPath, ignored)) {
         if (auto wrote = write_directory_entry(out, archiveName); !wrote) return wrote;
         // `list_directory` already returns each child joined onto `diskPath`; the archive name
         // below it takes only the child's own file name, not that disk path.
-        for (const auto& child : fs::list_directory(diskPath)) {
+        for (const auto& child : base::children(diskPath)) {
             if (auto added = add_recursive(out, child, archiveName + "/" + std::string { base::file_name(child) }); !added) {
                 return added;
             }
         }
         return {};
     }
-    if (fs::is_regular_file(diskPath)) {
+    if (std::filesystem::is_regular_file(diskPath, ignored)) {
         const auto mode = std::filesystem::status(diskPath).permissions();
         const bool executable { (mode & std::filesystem::perms::owner_exec) != std::filesystem::perms::none };
         return write_file_entry(out, diskPath, archiveName, executable);

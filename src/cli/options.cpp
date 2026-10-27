@@ -5,8 +5,6 @@ import mcpplibs.cmdline;
 import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.config.settings;
-import mcppls.platform.env;
-import mcppls.platform.fs;
 import mcppls.engine;
 import mcppls.engine.payload;
 import mcppls.engine.native;
@@ -15,6 +13,10 @@ import mcppls.engine.clangd;
 import mcppls.orchestrator.cache;
 import mcppls.orchestrator.workspace;
 import mcppls.ai.model.source;
+import mcpplibs.os;
+import mcppls.toolrun;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::cli {
 
@@ -110,12 +112,12 @@ orchestrator::SessionOptions session_options(const cmdline::ParsedArgs& args) {
     options.completionProvenance = settings.string_value("completion.provenance");
     // This very program, for the reviews an editor asks for: as the system names it (an ok image's
     // loader and image included), else as the process was started, else found on PATH.
-    options.serverCommand = platform::env::self_command();
+    options.serverCommand = os::env::self_command();
     if (options.serverCommand.empty()) {
-        if (const auto arguments = platform::env::arguments(); !arguments.empty()) {
+        if (const auto arguments = os::env::arguments(); !arguments.empty()) {
             const std::string started { arguments.front() };
             const bool hasDirectory { started.find('/') != std::string::npos || started.find('\\') != std::string::npos };
-            if (auto found = hasDirectory ? std::optional<std::string> { absolute(started) } : platform::env::find_executable(started))
+            if (auto found = hasDirectory ? std::optional<std::string> { absolute(started) } : toolrun::find_program(started))
                 options.serverCommand = { *found };
         }
     }
@@ -130,7 +132,7 @@ void apply_log_level(const cmdline::ParsedArgs& args) {
 
 std::string absolute(std::string_view path) {
     if (path.empty() || base::is_absolute_path(path)) return base::normalize_path(path);
-    return base::join_path(platform::fs::current_directory(), path);
+    return base::join_path(base::current_directory(), path);
 }
 
 std::optional<ai::model::ModelSettings> model_settings(const cmdline::ParsedArgs& args, std::string_view sourceOption) {

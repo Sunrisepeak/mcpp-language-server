@@ -3,11 +3,11 @@
 export module mcppls.base.glob;
 
 import std;
-import mcppls.os;
+import mcpplibs.os;
 
 export namespace mcppls::base {
 
 // Whether `path` matches `pattern`; both are '/'-separated and compared segment by segment.
-bool glob_match(std::string_view pattern, std::string_view path, bool caseInsensitive = mcppls::os::case_insensitive_paths());
+bool glob_match(std::string_view pattern, std::string_view path, bool caseInsensitive = mcpplibs::os::conventions().case_insensitive_names);
 
 } // namespace mcppls::base

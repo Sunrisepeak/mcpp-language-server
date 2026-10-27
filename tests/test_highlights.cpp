@@ -7,9 +7,9 @@ import mcppls.base.text;
 import mcppls.orchestrator.tokens;
 import mcppls.orchestrator.highlights;
 import mcppls.base.path;
-import mcppls.platform.dirs;
-import mcppls.platform.fs;
+import mcpplibs.os;
 
+namespace os = mcpplibs::os;
 using Json = nlohmann::json;
 using mcppls::orchestrator::tokens::Token;
 namespace highlights = mcppls::orchestrator::highlights;
@@ -165,21 +165,21 @@ int main() {
     };
 
     "the disk keeps the newest files within its count and size"_test = [] {
-        namespace fs = mcppls::platform::fs;
-        const std::string directory { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+        std::error_code ignored;
+        const std::string directory { mcppls::base::join_path(base::spelled(os::dirs::temp()),
                                                               std::format("mcppls-test-tokens-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-        expect(fatal(fs::create_directories(directory).has_value()));
+        expect(fatal([&] { std::error_code failed; std::filesystem::create_directories(directory, failed); return !failed; }()));
         for (int i { 0 }; i < 5; ++i) {
-            expect(fs::write_file(mcppls::base::join_path(directory, std::format("{}.tokens", i)), std::string(100, 'x')).has_value());
+            expect(os::fs::write(mcppls::base::join_path(directory, std::format("{}.tokens", i)), std::string(100, 'x')).has_value());
             std::this_thread::sleep_for(std::chrono::milliseconds { 20 });
         }
-        expect(fs::write_file(mcppls::base::join_path(directory, "other.txt"), "kept").has_value());
+        expect(os::fs::write(mcppls::base::join_path(directory, "other.txt"), "kept").has_value());
         expect(highlights::prune_cache(directory, 3, 1 << 20) == 200u);
-        expect(!fs::exists(mcppls::base::join_path(directory, "0.tokens")) && !fs::exists(mcppls::base::join_path(directory, "1.tokens")));
-        expect(fs::exists(mcppls::base::join_path(directory, "4.tokens")) && fs::exists(mcppls::base::join_path(directory, "other.txt")));
+        expect(!std::filesystem::exists(mcppls::base::join_path(directory, "0.tokens"), ignored) && !std::filesystem::exists(mcppls::base::join_path(directory, "1.tokens"), ignored));
+        expect(std::filesystem::exists(mcppls::base::join_path(directory, "4.tokens"), ignored) && std::filesystem::exists(mcppls::base::join_path(directory, "other.txt"), ignored));
         expect(highlights::prune_cache(directory, 10, 150) == 200u) << "beyond the bytes, the oldest go too";
-        expect(fs::exists(mcppls::base::join_path(directory, "4.tokens")));
-        fs::remove_all(directory);
+        expect(std::filesystem::exists(mcppls::base::join_path(directory, "4.tokens"), ignored));
+        std::filesystem::remove_all(directory, ignored);
     };
 
     "the file of a document is named by its path, the same every time"_test = [] {

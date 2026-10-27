@@ -4,16 +4,16 @@ import std;
 import nlohmann.json;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.platform.process;
-import mcppls.platform.toolrun;
 import mcppls.spec.query;
 import mcppls.project.detect;
 import mcppls.project.model;
 import mcppls.orchestrator.kernel;
 import mcppls.orchestrator.workspace;
 import mcppls.ai.query.view;
+import mcpplibs.os;
+import mcppls.toolrun;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::ai::verify {
 
@@ -29,24 +29,25 @@ bool skipped(std::string_view name) { return std::ranges::find(SKIPPED, name) !=
 
 // Makes `to` hold what `from` holds, writing only what differs, so each toolchain's build stays incremental.
 void sync_tree(const std::string& from, const std::string& to) {
-    (void)platform::fs::create_directories(to);
+    std::error_code ignored;
+    (void)std::filesystem::create_directories(to, ignored);
     std::set<std::string> present;
-    for (const auto& entry : platform::fs::list_directory(from)) {
+    for (const auto& entry : base::children(from)) {
         const std::string name { base::file_name(entry) };
         if (skipped(name)) continue;
         present.insert(name);
         const std::string target { base::join_path(to, name) };
-        if (platform::fs::is_directory(entry)) {
+        if (std::filesystem::is_directory(entry, ignored)) {
             sync_tree(entry, target);
             continue;
         }
-        auto content = platform::fs::read_file(entry);
+        auto content = os::fs::read(entry);
         if (!content) continue;
-        if (platform::fs::read_file(target).value_or(std::string {}) != *content || !platform::fs::exists(target)) (void)platform::fs::write_file(target, *content);
+        if (os::fs::read(target).value_or(std::string {}) != *content || !std::filesystem::exists(target, ignored)) (void)os::fs::write(target, *content);
     }
-    for (const auto& entry : platform::fs::list_directory(to)) {
+    for (const auto& entry : base::children(to)) {
         const std::string name { base::file_name(entry) };
-        if (!skipped(name) && !present.contains(name)) platform::fs::remove_all(entry);
+        if (!skipped(name) && !present.contains(name)) std::filesystem::remove_all(entry, ignored);
     }
 }
 
@@ -148,7 +149,7 @@ query::Outcome<ToolchainComparison> compare_toolchains(query::View& view, std::s
         return std::unexpected { query::Failure { "unavailable", "cross-toolchain verification builds mcpp projects, and this workspace is not one", nullptr } };
     }
     std::string mcpp { workspace.mcpp_executable() };
-    if (mcpp.empty()) mcpp = platform::env::find_executable("mcpp").value_or("");
+    if (mcpp.empty()) mcpp = toolrun::find_program("mcpp").value_or("");
     if (mcpp.empty()) return std::unexpected { query::Failure { "unavailable", "mcpp is not on PATH", nullptr } };
 
     ToolchainComparison comparison;
@@ -157,26 +158,21 @@ query::Outcome<ToolchainComparison> compare_toolchains(query::View& view, std::s
         build.toolchain = toolchain;
         const std::string copy { base::join_path(workspace.cache_directory(), base::join_path("toolchains", sanitized(toolchain))) };
         sync_tree(view.root(), copy);
-        platform::SpawnOptions spawn;
-        spawn.program = mcpp;
-        spawn.arguments = { "build", "--toolchain", toolchain };
-        spawn.workDirectory = copy;
         const auto remaining = std::max(std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now()), std::chrono::milliseconds { 1000 });
         const auto started = Clock::now();
-        auto result = platform::toolrun::run({
-            .program = spawn.program,
-            .arguments = spawn.arguments,
-            .workDirectory = spawn.workDirectory,
+        auto result = mcppls::toolrun::run({
+            .program = mcpp,
+            .arguments = { "build", "--toolchain", toolchain },
+            .workDirectory = copy,
             .purpose = "review-build",
-            .bounds = platform::RunBounds { .hard = remaining },
-            .environment = spawn.environment,
+            .bounds = mcpplibs::os::process::bounds { .hard = remaining },
         });
         build.seconds = std::chrono::duration<double>(Clock::now() - started).count();
-        if (result && !result->timedOut) {
+        if (result && !result->timed_out) {
             build.ran = true;
-            build.exitCode = result->exitCode;
-            build.built = result->exitCode == 0;
-            const std::string output { result->output + "\n" + result->error };
+            build.exitCode = toolrun::exit_code(result->status);
+            build.built = result->status.success();
+            const std::string output { result->out + "\n" + result->err };
             build.diagnostics = parse_compiler_output(output, copy, view.root(), [&](std::string_view path) { return view.text_of(path); });
             if (!build.built && std::ranges::none_of(build.diagnostics, [](const CompilerDiagnostic& d) { return d.severity == "error"; })) {
                 build.output = output.size() > 2000 ? output.substr(output.size() - 2000) : output;

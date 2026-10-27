@@ -2,21 +2,21 @@ module mcppls.engine.payload;
 
 import std;
 import nlohmann.json;
-import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.engineidentity;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.base.version;
-import mcppls.platform.fs;
 import mcppls.toolchain.discover;
-import mcppls.platform.env;
-import mcppls.platform.dirs;
-import mcppls.platform.process;
-import mcppls.platform.toolrun;
 import mcppls.base.sha256;
 import mcppls.spec.kit;
 import mcppls.engine.clangd.process;
+import mcpplibs.os;
+import mcppls.base.home;
+import mcppls.base.payload;
+import mcppls.toolrun;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::engine {
 
@@ -24,7 +24,7 @@ namespace {
 
 std::string absolute(std::string_view path) {
     if (path.empty() || base::is_absolute_path(path)) return base::normalize_path(path);
-    return base::join_path(platform::fs::current_directory(), path);
+    return base::join_path(base::current_directory(), path);
 }
 
 } // namespace
@@ -33,34 +33,36 @@ namespace {
 
 // The payload this executable sits in: <payload>/bin/mcppls next to <payload>/payload.json.
 std::string enclosing_payload() {
-    const auto arguments = platform::env::arguments();
+    std::error_code ignored;
+    const auto arguments = os::env::arguments();
     if (arguments.empty()) return {};
     std::string self { arguments.front() };
     if (!base::is_absolute_path(self)) {
         if (self.find('/') == std::string::npos && self.find('\\') == std::string::npos) {
-            self = platform::env::find_executable(self).value_or("");
+            self = toolrun::find_program(self).value_or("");
         } else {
-            self = base::join_path(platform::fs::current_directory(), self);
+            self = base::join_path(base::current_directory(), self);
         }
     }
     if (self.empty()) return {};
     const std::string candidate { base::parent_path(base::parent_path(base::normalize_path(self))) };
-    return platform::fs::is_regular_file(base::join_path(candidate, "payload.json")) ? candidate : std::string {};
+    return std::filesystem::is_regular_file(base::join_path(candidate, "payload.json"), ignored) ? candidate : std::string {};
 }
 
 // A kit installed by xlings: <store>/xim-x-mcppls-kit/<version>[/<archive root>]/kit.json. With a
 // wanted version only that version is taken (S4-4-5: the kit's libc++ is the engine's version);
 // without one, the newest.
 std::string installed_kit(std::string_view wantedVersion) {
-    const std::string home { platform::dirs::home_directory() };
+    std::error_code ignored;
+    const std::string home { base::home_directory() };
     for (std::string_view store : { ".xlings/data/xpkgs", ".mcpp/registry/data/xpkgs" }) {
-        auto versions = platform::fs::list_directory(base::join_path(home, base::join_path(store, "xim-x-mcppls-kit")));
+        auto versions = base::children(base::join_path(home, base::join_path(store, "xim-x-mcppls-kit")));
         std::ranges::sort(versions, std::greater<> {});
         for (const auto& version : versions) {
             if (!wantedVersion.empty() && base::file_name(version) != wantedVersion) continue;
-            if (platform::fs::is_regular_file(base::join_path(version, "kit.json"))) return version;
-            for (const auto& child : platform::fs::list_directory(version)) {
-                if (platform::fs::is_regular_file(base::join_path(child, "kit.json"))) return child;
+            if (std::filesystem::is_regular_file(base::join_path(version, "kit.json"), ignored)) return version;
+            for (const auto& child : base::children(version)) {
+                if (std::filesystem::is_regular_file(base::join_path(child, "kit.json"), ignored)) return child;
             }
         }
     }
@@ -75,9 +77,10 @@ std::string kit_version(std::string_view kitRoot) {
 } // namespace
 
 PayloadPaths resolve_payload(const PayloadRequest& requested) {
+    std::error_code ignored;
     PayloadPaths paths;
-    paths.platform = std::string { mcppls::os::platform() };
-    const std::string suffix { mcppls::os::executable_suffix() };
+    paths.platform = std::string { base::payload_platform() };
+    const std::string suffix { os::conventions().exe_suffix };
     PayloadRequest request { requested };
     if (request.payloadDirectory.empty()) request.payloadDirectory = enclosing_payload();
     std::string payloadKit;
@@ -85,7 +88,7 @@ PayloadPaths resolve_payload(const PayloadRequest& requested) {
     if (!request.payloadDirectory.empty()) {
         paths.directory = absolute(request.payloadDirectory);
         const std::string manifest { base::join_path(paths.directory, "payload.json") };
-        if (auto text = platform::fs::read_file(manifest)) {
+        if (auto text = os::fs::read(manifest)) {
             nlohmann::json document = nlohmann::json::parse(*text, nullptr, false);
             if (!document.is_discarded() && document.is_object()) {
                 // Payload version 3 names each engine's executable, version and kit; versions 1 and 2 the clangd and kit parts.
@@ -112,7 +115,7 @@ PayloadPaths resolve_payload(const PayloadRequest& requested) {
                 paths.platform = document.value("platform", paths.platform);
                 // Payload version 4 (mcppls.pack.payload's IDENTIFIED_PAYLOAD_VERSION) binds the engine's identity.
                 if (document.value("payload-version", 0) == 4) {
-                    if (paths.platform != os::platform()) paths.identityProblem = "engine payload platform does not match this host";
+                    if (paths.platform != base::payload_platform()) paths.identityProblem = "engine payload platform does not match this host";
                     auto decoded = base::decode_engine_identity(clangd == nullptr ? nlohmann::json {} : clangd->value("identity", nlohmann::json {}));
                     if (!decoded) paths.identityProblem = decoded.error().message;
                     else paths.engineIdentity = std::move(*decoded);
@@ -135,7 +138,7 @@ PayloadPaths resolve_payload(const PayloadRequest& requested) {
         // carries none leaves clangd to PATH below (a declared but missing clangd stays missing).
         if (!clangdDeclared) {
             const std::string conventional { base::join_path(paths.directory, "clangd/bin/clangd" + suffix) };
-            if (platform::fs::is_regular_file(conventional)) paths.clangd = conventional;
+            if (std::filesystem::is_regular_file(conventional, ignored)) paths.clangd = conventional;
         }
         if (payloadKit.empty()) payloadKit = base::join_path(paths.directory, "kit");
     }
@@ -152,14 +155,14 @@ PayloadPaths resolve_payload(const PayloadRequest& requested) {
         paths.identityProblem.clear();
     }
     if (paths.clangd.empty()) {
-        if (auto found = platform::env::find_executable("clangd")) paths.clangd = *found;
+        if (auto found = toolrun::find_program("clangd")) paths.clangd = *found;
     }
-    if (paths.clangdVersion.empty() && !paths.clangd.empty() && platform::fs::is_regular_file(paths.clangd)) {
-        if (auto result = platform::toolrun::run({ .program = paths.clangd, .arguments = { "--version" },
+    if (paths.clangdVersion.empty() && !paths.clangd.empty() && std::filesystem::is_regular_file(paths.clangd, ignored)) {
+        if (auto result = mcppls::toolrun::run({ .program = paths.clangd, .arguments = { "--version" },
                                                    .purpose = "engine-version",
-                                                   .bounds = platform::RunBounds { .hard = std::chrono::seconds { 20 } } });
-            result && !result->timedOut) {
-            paths.clangdVersion = engine::clangd::parse_clangd_version(result->output + result->error);
+                                                   .bounds = mcpplibs::os::process::bounds { .hard = std::chrono::seconds { 20 } } });
+            result && !result->timed_out) {
+            paths.clangdVersion = engine::clangd::parse_clangd_version(result->out + result->err);
         }
     }
 
@@ -168,10 +171,10 @@ PayloadPaths resolve_payload(const PayloadRequest& requested) {
     const std::string wanted { request.engine == "none" || paths.clangdVersion.empty() ? std::string {} : std::string { base::llvm_base_version(paths.clangdVersion) } };
     if (!request.kit.empty()) {
         const std::string kit { absolute(request.kit) };
-        if (platform::fs::is_regular_file(base::join_path(kit, "kit.json"))) paths.kit = kit;
+        if (std::filesystem::is_regular_file(base::join_path(kit, "kit.json"), ignored)) paths.kit = kit;
     } else {
         std::string mismatch;
-        if (!payloadKit.empty() && platform::fs::is_regular_file(base::join_path(payloadKit, "kit.json"))) {
+        if (!payloadKit.empty() && std::filesystem::is_regular_file(base::join_path(payloadKit, "kit.json"), ignored)) {
             const std::string version { kit_version(payloadKit) };
             if (wanted.empty() || version == wanted) {
                 paths.kit = payloadKit;
@@ -189,23 +192,24 @@ PayloadPaths resolve_payload(const PayloadRequest& requested) {
 }
 
 std::string macos_sdk_path() {
-    if (mcppls::os::family() != mcppls::os::Family::macos) {
+    std::error_code ignored;
+    if (os::host() != os::platform::macos) {
         return {};
     } else {
-        if (auto sdkroot = platform::env::get("SDKROOT"); sdkroot && platform::fs::is_directory(*sdkroot)) return base::normalize_path(*sdkroot);
+        if (auto sdkroot = os::env::get("SDKROOT"); sdkroot && std::filesystem::is_directory(*sdkroot, ignored)) return base::normalize_path(*sdkroot);
         // xcrun is a shim: without developer tools it opens the installation dialog, and this is asked every 30 s.
-        if (toolchain::macos_developer_tools_present() && platform::fs::is_regular_file("/usr/bin/xcrun")) {
-            if (auto result = platform::toolrun::run({ .program = "/usr/bin/xcrun", .arguments = { "--show-sdk-path" },
+        if (toolchain::macos_developer_tools_present() && std::filesystem::is_regular_file("/usr/bin/xcrun", ignored)) {
+            if (auto result = mcppls::toolrun::run({ .program = "/usr/bin/xcrun", .arguments = { "--show-sdk-path" },
                                                        .purpose = "sdk",
-                                                       .bounds = platform::RunBounds { .hard = std::chrono::seconds { 20 } } });
-                result && result->exitCode == 0) {
-                const std::string path { base::trim(result->output) };
-                if (platform::fs::is_directory(path)) return path;
+                                                       .bounds = mcpplibs::os::process::bounds { .hard = std::chrono::seconds { 20 } } });
+                result && result->status.success()) {
+                const std::string path { base::trim(result->out) };
+                if (std::filesystem::is_directory(path, ignored)) return path;
             }
         }
         for (std::string_view candidate : { "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
                                             "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk" }) {
-            if (platform::fs::is_directory(candidate)) return std::string { candidate };
+            if (std::filesystem::is_directory(candidate, ignored)) return std::string { candidate };
         }
         return {};
     }
@@ -234,7 +238,7 @@ struct IntegrityCacheEntry {
 
 std::map<std::string, IntegrityCacheEntry> read_integrity_cache(std::string_view cacheFile) {
     std::map<std::string, IntegrityCacheEntry> cache;
-    auto text = platform::fs::read_file(cacheFile);
+    auto text = os::fs::read(cacheFile);
     if (!text) return cache;
     nlohmann::json document = nlohmann::json::parse(*text, nullptr, false);
     if (document.is_discarded() || !document.is_object()) return cache;
@@ -252,7 +256,7 @@ void write_integrity_cache(std::string_view cacheFile, const std::map<std::strin
     for (const auto& [path, entry] : cache) {
         document[path] = nlohmann::json { { "size", entry.size }, { "modified", entry.modified }, { "sha256", entry.sha256 } };
     }
-    (void)platform::fs::write_file_atomic(cacheFile, document.dump());
+    (void)os::fs::write_atomic(cacheFile, document.dump());
 }
 
 } // namespace
@@ -265,7 +269,7 @@ std::vector<PayloadIntegrityIssue> verify_payload_integrity(const PayloadPaths& 
     bool cacheChanged { false };
     for (const auto& [relative, expected] : payload.files) {
         const std::string path { base::join_path(payload.directory, relative) };
-        const auto stamp = platform::fs::stamp(path);
+        const auto stamp = base::file_stamp(path);
         if (!stamp) {
             issues.push_back(PayloadIntegrityIssue { relative, "is missing" });
             continue;
@@ -276,7 +280,7 @@ std::vector<PayloadIntegrityIssue> verify_payload_integrity(const PayloadPaths& 
         }
         std::string actual;
         if (const auto cached = cache.find(path);
-            cached != cache.end() && cached->second.size == stamp->size && cached->second.modified == stamp->modified) {
+            cached != cache.end() && cached->second.size == stamp->size && cached->second.modified == static_cast<std::int64_t>(stamp->modified_ns)) {
             actual = cached->second.sha256;
         } else {
             auto computed = file_sha256(path);
@@ -285,7 +289,7 @@ std::vector<PayloadIntegrityIssue> verify_payload_integrity(const PayloadPaths& 
                 continue;
             }
             actual = *computed;
-            cache[path] = IntegrityCacheEntry { stamp->size, stamp->modified, actual };
+            cache[path] = IntegrityCacheEntry { stamp->size, static_cast<std::int64_t>(stamp->modified_ns), actual };
             cacheChanged = true;
         }
         if (actual != expected.sha256) {

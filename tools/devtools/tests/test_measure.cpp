@@ -2,21 +2,22 @@
 import std;
 import mcppls.testing;
 import mcppls.base.path;
-import mcppls.platform.fs;
-import mcppls.platform.dirs;
 import mcppls.devtools.measure;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace measure = mcppls::devtools::measure;
-namespace fs = mcppls::platform::fs;
 namespace base = mcppls::base;
 
 namespace {
 
 std::string scratch(std::string_view name) {
+    std::error_code ignored;
     const std::string directory { base::join_path(
-        mcppls::platform::dirs::temp_directory(),
+        base::spelled(os::dirs::temp()),
         std::format("mcppls-test-measure-{}-{}", name, std::chrono::steady_clock::now().time_since_epoch().count())) };
-    (void) fs::create_directories(directory);
+    (void)std::filesystem::create_directories(directory, ignored);
     return directory;
 }
 
@@ -28,16 +29,17 @@ int main() {
     "the scenarios' numbers are gathered over every run, at any depth, for budgets (U-*)"_test = [&] {
         const std::string directory { scratch("budgets") };
         const auto write_run = [&](std::string_view sub, double p95, double share) {
+            std::error_code ignored;
             const std::string folder { base::join_path(directory, sub) };
-            (void) fs::create_directories(folder);
+            (void)std::filesystem::create_directories(folder, ignored);
             const std::string run { std::format(R"({{"fixture":"ux","checks":[{{"id":"U6","kind":"typing","ok":true,)"
                                                 R"("measure":{{"completion":{{"p95":{},"n":10}},"engineShare":{},"statesSeen":[],"file":"x"}}}},)"
                                                 R"({{"id":"S1","kind":"status","ok":true}}]}})", p95, share) };
-            (void) fs::write_file(base::join_path(folder, "ux-edits.json"), run);
+            (void) os::fs::write(base::join_path(folder, "ux-edits.json"), run);
         };
         write_run("round-1", 0.4, 0.8);
         write_run("round-2", 0.6, 0.9);
-        (void) fs::write_file(base::join_path(directory, "notes.json"), R"({"not":"a measure file"})");
+        (void) os::fs::write(base::join_path(directory, "notes.json"), R"({"not":"a measure file"})");
         auto text = measure::budgets(directory);
         expect(fatal(text.has_value()));
         expect(text->contains("| U6 | completion.p95 | 2 |")) << *text;
@@ -54,7 +56,7 @@ int main() {
             const std::string run { std::format(R"({{"fixture":"ux","checks":[)"
                                                 R"({{"id":"U5","measure":{{"completion":{{"max":{},"n":10}},"serverTimeouts":{}}}}},)"
                                                 R"({{"id":"U13","measure":{{"rssGrowth":{},"seconds":600}}}}]}})", max, timeouts, growth) };
-            (void) fs::write_file(base::join_path(directory, std::format("ux-edits-{}.json", index)), run);
+            (void) os::fs::write(base::join_path(directory, std::format("ux-edits-{}.json", index)), run);
         };
         for (int i { 0 }; i != 4; ++i) {
             write_run(candidate, i, 0.80 + 0.01 * i, 0.30 + 0.01 * i, 0);
@@ -86,14 +88,14 @@ int main() {
 
     "cold and warm rows show the median with every value, and summed failures"_test = [&] {
         const std::string directory { scratch("rows") };
-        (void) fs::write_file(base::join_path(directory, "cold-1.json"),
+        (void) os::fs::write(base::join_path(directory, "cold-1.json"),
                               R"({"ready": 1.0, "first-diagnostics": 2.0, "first-navigation": 3.0, "failures": 0})");
-        (void) fs::write_file(base::join_path(directory, "cold-2.json"),
+        (void) os::fs::write(base::join_path(directory, "cold-2.json"),
                               R"({"ready": 3.0, "first-diagnostics": 4.0, "first-navigation": 5.0, "failures": 1})");
-        (void) fs::write_file(base::join_path(directory, "warm-1.json"),
+        (void) os::fs::write(base::join_path(directory, "warm-1.json"),
                               R"({"ready": 0.5, "first-diagnostics": 0.6, "first-navigation": 0.7, "failures": 0})");
         // not cold-*.json / warm-*.json: ignored, the same as timing_summary.py's `kind in runs` guard.
-        (void) fs::write_file(base::join_path(directory, "notes.json"), R"({"ready": 99})");
+        (void) os::fs::write(base::join_path(directory, "notes.json"), R"({"ready": 99})");
 
         auto text = measure::summarize(directory);
         expect(text.has_value());
@@ -107,7 +109,7 @@ int main() {
 
     "a missing field in every run of a kind renders n/a for that column"_test = [&] {
         const std::string directory { scratch("na") };
-        (void) fs::write_file(base::join_path(directory, "cold-1.json"), R"({"ready": 1.0})");
+        (void) os::fs::write(base::join_path(directory, "cold-1.json"), R"({"ready": 1.0})");
         auto text = measure::summarize(directory);
         expect(text.has_value());
         if (!text) return;
@@ -122,10 +124,10 @@ int main() {
 
     "budgets: the median first navigation against each ceiling, and failures always count"_test = [&] {
         const std::string directory { scratch("budget") };
-        (void) fs::write_file(base::join_path(directory, "cold-1.json"), R"({"first-navigation": 4.0, "failures": 0})");
-        (void) fs::write_file(base::join_path(directory, "cold-2.json"), R"({"first-navigation": 9.0, "failures": 0})");
-        (void) fs::write_file(base::join_path(directory, "cold-3.json"), R"({"first-navigation": 5.0, "failures": 0})");
-        (void) fs::write_file(base::join_path(directory, "warm-1.json"), R"({"first-navigation": 1.0, "failures": 2})");
+        (void) os::fs::write(base::join_path(directory, "cold-1.json"), R"({"first-navigation": 4.0, "failures": 0})");
+        (void) os::fs::write(base::join_path(directory, "cold-2.json"), R"({"first-navigation": 9.0, "failures": 0})");
+        (void) os::fs::write(base::join_path(directory, "cold-3.json"), R"({"first-navigation": 5.0, "failures": 0})");
+        (void) os::fs::write(base::join_path(directory, "warm-1.json"), R"({"first-navigation": 1.0, "failures": 2})");
 
         auto within = measure::check_budgets(directory, 6.0, std::nullopt);   // median 5.0
         expect(within.has_value() && within->size() == 1);                   // only warm's failures
@@ -138,7 +140,7 @@ int main() {
 
     "a budget for a kind nothing measured is a breach"_test = [&] {
         const std::string directory { scratch("budget-empty") };
-        (void) fs::write_file(base::join_path(directory, "cold-1.json"), R"({"first-navigation": 1.0})");
+        (void) os::fs::write(base::join_path(directory, "cold-1.json"), R"({"first-navigation": 1.0})");
         auto breaches = measure::check_budgets(directory, 10.0, 10.0);
         expect(breaches.has_value() && breaches->size() == 1);
         std::filesystem::remove_all(directory);

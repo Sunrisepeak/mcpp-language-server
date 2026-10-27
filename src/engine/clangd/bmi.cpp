@@ -2,8 +2,6 @@ module mcppls.engine.clangd.bmi;
 
 import std;
 import mcppls.base.path;
-import mcppls.platform.fs;
-
 namespace mcppls::engine::clangd {
 
 namespace {
@@ -40,13 +38,14 @@ std::string module_of_bmi(std::string_view fileName) {
 }
 
 bool is_versioned_copy(std::string_view fileName, std::string_view directory) {
+    std::error_code ignored;
     std::string_view name { fileName };
     if (name.ends_with(".pcm")) name.remove_suffix(4);
     const std::string module { module_of_bmi(fileName) };
     if (module == name) return false;   // no stamp: a name, not a copy
     // The stamp alone is shape, not proof; the canonical BMI beside it is -- the file the stamp was
     // taken FROM, so the lookup asks for the module's own name, never for the stamped file itself.
-    return platform::fs::exists(base::join_path(directory, std::format("{}.pcm", module)));
+    return std::filesystem::exists(base::join_path(directory, std::format("{}.pcm", module)), ignored);
 }
 
 } // namespace mcppls::engine::clangd

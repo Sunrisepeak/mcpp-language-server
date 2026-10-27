@@ -2,9 +2,12 @@
 import std;
 import mcppls.testing;
 import mcppls.base.path;
-import mcppls.platform.fs;
-import mcppls.platform.dirs;
 import mcppls.toolchain.visualstudio;
+import mcpplibs.os;
+
+namespace base = mcppls::base;
+
+namespace os = mcpplibs::os;
 
 using namespace mcppls;
 namespace vs = mcppls::toolchain::visualstudio;
@@ -12,15 +15,17 @@ namespace vs = mcppls::toolchain::visualstudio;
 namespace {
 
 std::string scratch(std::string_view name) {
-    const std::string root { base::join_path(platform::dirs::temp_directory(),
+    std::error_code ignored;
+    const std::string root { base::join_path(base::spelled(os::dirs::temp()),
         std::format("mcppls-test-vs-{}-{}", name, std::chrono::steady_clock::now().time_since_epoch().count())) };
-    (void)platform::fs::create_directories(root);
+    (void)std::filesystem::create_directories(root, ignored);
     return root;
 }
 
 void touch(const std::string& path) {
-    (void)platform::fs::create_directories(base::parent_path(path));
-    (void)platform::fs::write_file(path, "");
+    std::error_code ignored;
+    (void)std::filesystem::create_directories(base::parent_path(path), ignored);
+    (void)os::fs::write(path, "");
 }
 
 // <vs>/VC/Tools/MSVC/<version>/include, with modules/std.ixx when asked.
@@ -64,6 +69,7 @@ int main() {
     };
 
     "the newest toolset with the std module wins"_test = [] {
+        std::error_code ignored;
         const std::string root { scratch("toolsets") };
         (void)toolset(root, "14.29.30133", false);
         const std::string modern { toolset(root, "14.44.35207", true) };
@@ -74,19 +80,21 @@ int main() {
         expect(installation->hasStdModules);
         expect(base::same_path(installation->toolsDirectory, modern));
         expect(base::same_path(installation->vsRoot, root));
-        platform::fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "only a complete SDK counts"_test = [] {
+        std::error_code ignored;
         const std::string root { scratch("sdk") };
         sdk(root, "10.0.22621.0", true);
         sdk(root, "10.0.26100.0", false);   // headers without import libraries
         const auto version = vs::newest_sdk_version(root);
         expect(version == std::optional<std::string> { "10.0.22621.0" }) << version.value_or("none");
-        platform::fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "discovery prefers what the environment declares"_test = [] {
+        std::error_code ignored;
         const std::string root { scratch("discover") };
         const std::string vsRoot { base::join_path(root, "VS/2022/Enterprise") };
         const std::string older { toolset(vsRoot, "14.43.1", true) };
@@ -139,7 +147,7 @@ int main() {
         inputs.recordedDriver.clear();
         inputs.run = [](std::span<const std::string>) -> std::optional<std::string> { return "[]"; };
         expect(!vs::discover(inputs).has_value());
-        platform::fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     return report();

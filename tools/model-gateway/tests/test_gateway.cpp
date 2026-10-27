@@ -17,13 +17,9 @@ import mcpplibs.tinyhttps;
 import mcppls.testing;
 import mcppls.model.gateway;
 import mcppls.base.path;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.platform.net;
-import mcppls.platform.process;
+import mcpplibs.os;
 
-namespace net = mcppls::platform::net;
-namespace platform = mcppls::platform;
+namespace os = mcpplibs::os;
 using Json = nlohmann::json;
 
 namespace {
@@ -53,7 +49,7 @@ std::string http_response(int status, const Json& body) {
 }
 
 // Reads one request: the head, then as many body bytes as Content-Length says.
-std::optional<std::pair<std::string, std::string>> read_request(net::Connection& connection) {
+std::optional<std::pair<std::string, std::string>> read_request(os::ipc::connection& connection) {
     std::string buffer;
     std::size_t headEnd { std::string::npos };
     while ((headEnd = buffer.find("\r\n\r\n")) == std::string::npos) {
@@ -77,7 +73,7 @@ std::optional<std::pair<std::string, std::string>> read_request(net::Connection&
     return std::pair { head, body };
 }
 
-void serve(net::Connection connection) {
+void serve(os::ipc::connection connection) {
     auto request = read_request(connection);
     if (!request) return;
     const auto& [head, raw] = *request;
@@ -125,9 +121,9 @@ void serve(net::Connection connection) {
 class MockProvider {
 public:
     static std::optional<MockProvider> start() {
-        auto listener = net::Listener::listen_local();
+        auto listener = os::net::loopback_listener::listen(0);
         if (!listener) {
-            std::println(std::cerr, "mock provider: cannot listen: {}", listener.error().message);
+            std::println(std::cerr, "mock provider: cannot listen: {}", listener.error().message());
             return std::nullopt;
         }
         return MockProvider { std::move(*listener) };
@@ -138,15 +134,15 @@ public:
     ~MockProvider() {
         if (!listener_) return;
         stopping_->store(true);
-        (void)net::Connection::connect_local(port_);
+        (void)os::net::connect_loopback(static_cast<std::uint16_t>(port_));
         if (acceptor_.joinable()) acceptor_.join();
         listener_->close();
     }
     int port() const { return port_; }
 
 private:
-    explicit MockProvider(net::Listener listener)
-        : listener_ { std::make_unique<net::Listener>(std::move(listener)) }, port_ { listener_->port() } {
+    explicit MockProvider(os::net::loopback_listener listener)
+        : listener_ { std::make_unique<os::net::loopback_listener>(std::move(listener)) }, port_ { listener_->port() } {
         acceptor_ = std::thread { [listener = listener_.get(), stopping = stopping_.get()] {
             while (true) {
                 auto connection = listener->accept();
@@ -156,7 +152,7 @@ private:
             }
         } };
     }
-    std::unique_ptr<net::Listener> listener_;
+    std::unique_ptr<os::net::loopback_listener> listener_;
     std::unique_ptr<std::atomic<bool>> stopping_ { std::make_unique<std::atomic<bool>>(false) };
     int port_ { 0 };
     std::thread acceptor_;
@@ -167,7 +163,7 @@ private:
 class Gateway {
 public:
     static std::optional<Gateway> start(const std::vector<std::string>& arguments) {
-        const auto self = platform::env::arguments();
+        const auto self = os::env::arguments();
         std::vector<std::string> all { "--as-gateway" };
         all.insert(all.end(), arguments.begin(), arguments.end());
         // The gateway's diagnostics go to this test's standard error, where a failure is read.
@@ -175,11 +171,14 @@ public:
         // above musl does not recognize as absolute and would prefix with the current directory.
         std::string program { mcppls::base::normalize_path(self.front()) };
         if (!mcppls::base::is_absolute_path(program)) {
-            program = mcppls::base::join_path(mcppls::platform::fs::current_directory(), program);
+            program = mcppls::base::join_path(mcppls::base::current_directory(), program);
         }
-        auto process = platform::Process::spawn({ .program = program, .arguments = all });
+        // Input and output are pipes; the error output is this test's.
+        auto process = os::process::process::spawn({ .program = program, .args = all, .in = os::process::stdio::pipe,
+                                                     .out = os::process::stdio::pipe, .err = os::process::stdio::inherit,
+                                                     .bound_lifetime = true });
         if (!process) {
-            std::println(std::cerr, "gateway: cannot start: {}", process.error().message);
+            std::println(std::cerr, "gateway: cannot start: {}", process.error().message());
             return std::nullopt;
         }
         return Gateway { std::move(*process) };
@@ -222,17 +221,17 @@ public:
 
     int close() {
         process_.close_input();
-        auto code = process_.wait_for(std::chrono::seconds { 5 });
-        if (!code || !*code) {
+        auto status = process_.wait_for(std::chrono::seconds { 5 });
+        if (!status || !*status) {
             process_.kill();
             return -1;
         }
-        return **code;
+        return (*status)->by_environment ? -1 : (*status)->code;
     }
 
 private:
-    explicit Gateway(platform::Process process) : process_ { std::move(process) } {}
-    platform::Process process_;
+    explicit Gateway(os::process::process process) : process_ { std::move(process) } {}
+    os::process::process process_;
     std::string buffer_;
     int nextId_ { 1 };
 };

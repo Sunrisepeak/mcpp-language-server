@@ -13,12 +13,11 @@ license     = "Apache-2.0"
 kind = "lib"
 
 [dependencies]
-mcppls-os = { path = "../os" }
 os.workspace = true
 openkal-llvm-runtime.workspace = true
 tinyhttps.workspace = true
 mcppls-base = { path = "../base" }
-mcppls-platform = { path = "../platform" }
+mcppls-toolrun = { path = "../toolrun" }
 
 [dependencies.nlohmann]
 json.workspace = true

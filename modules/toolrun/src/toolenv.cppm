@@ -10,11 +10,11 @@
 // one terminal window, proxy variables among them; nothing an editor runs can reach those. So the
 // network behaviour of a build tool is settled by running it offline (design 4.4), not by hoping
 // the environment matches the terminal's.
-export module mcppls.platform.toolenv;
+export module mcppls.toolenv;
 
 import std;
 
-export namespace mcppls::platform::toolenv {
+export namespace mcppls::toolenv {
 
 enum class Mode {
     automatic,   // POSIX: the login shell. Windows: this process's environment (the registry already agrees).
@@ -25,7 +25,7 @@ std::optional<Mode> parse_mode(std::string_view name);
 std::string_view mode_name(Mode mode);
 
 struct Environment {
-    std::vector<std::string> variables;      // "NAME=value", ready for SpawnOptions::environment
+    std::vector<std::string> variables;      // "NAME=value", as mcpplibs.os `env::variables` gives them
     std::string source { "editor" };         // "login-shell" | "editor"
     std::string reason;                      // why the login shell was not used, when it was not
     std::vector<std::string> differing;      // names only: a value may be a credential
@@ -57,4 +57,4 @@ std::vector<std::string> merge(const std::vector<std::string>& base, const std::
 // Exposed for tests: the JSON object between two marker lines, or nullopt.
 std::optional<std::vector<std::string>> parse_marked(std::string_view text, std::string_view marker);
 
-} // namespace mcppls::platform::toolenv
+} // namespace mcppls::toolenv

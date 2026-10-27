@@ -5,10 +5,10 @@ import nlohmann.json;
 import mcppls.base.error;
 import mcppls.base.text;
 import mcppls.pack.fetch;
-import mcppls.platform.fs;
+import mcpplibs.os;
 
+namespace os = mcpplibs::os;
 namespace mcppls::pack::lock {
-namespace fs = mcppls::platform::fs;
 namespace {
 
 std::string joined_names(const std::map<std::string, fetch::Entry>& entries) {
@@ -26,8 +26,8 @@ std::string joined_names(const std::map<std::string, Platform>& platforms) {
 } // namespace
 
 base::Result<Lock> load(std::string_view path) {
-    auto text = fs::read_file(path);
-    if (!text) return std::unexpected { text.error() };
+    auto text = os::fs::read(path);
+    if (!text) return base::fail("read-file", text.error());
 
     nlohmann::json document;
     try {

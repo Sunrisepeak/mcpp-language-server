@@ -4,8 +4,10 @@ import std;
 import nlohmann.json;
 import mcppls.base.error;
 import mcppls.base.path;
-import mcppls.platform.fs;
 import mcppls.spec.metadata;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::spec {
 
@@ -342,8 +344,8 @@ OrderedJson to_json(const Database& database) {
 }
 
 base::Result<Database> load_database(std::string_view path) {
-    auto text = platform::fs::read_file(path);
-    if (!text) return std::unexpected { text.error() };
+    auto text = os::fs::read(path);
+    if (!text) return base::fail("read-file", text.error());
     Json document = Json::parse(*text, nullptr, false);
     if (document.is_discarded()) return base::fail("database-invalid", std::format("{} is not valid JSON", path));
     return from_json(document, base::parent_path(path));

@@ -59,9 +59,18 @@ and every edit sent the whole file's tokens again, 1 015 373 bytes (`tokens-larg
 
 ### The platform layer
 
-- Files, processes, the environment, directories, loopback connections and the standard streams go through
-  mcpplibs.os. The system is a value (`mcppls::os::family()`), never a preprocessor branch, so the same source
-  builds for a system and as an image.
+- **mcppls keeps no operating-system layer of its own.** Files, processes, the environment, directories, loopback
+  connections and the standard streams are mcpplibs.os's, called directly; `modules/os` and `modules/platform` are
+  removed. What was generic went into mcpplibs.os 0.2.1: the bounded run (a hard bound, a grace, a drain, output
+  limits), the threads of a program, environment entries as a started program's overrides, a bounded read, the
+  canonical name of a file. What is mcppls's own stays here, in two small members: `modules/base` (its cache
+  directory, its payload names, `file_stamp`, `make_executable`) and `modules/toolrun` (the login shell's
+  environment, offline and recorded runs, and the rule that a program is never found through a relative PATH
+  entry). The system is a value (mcpplibs.os's `host()`), never a preprocessor branch, so the same source builds
+  for a system and as an image.
+- **The server builds over a C library on openkal on every system.** On macOS and Windows the Linux, macOS and
+  Windows units of mcpplibs.os 0.2.0 included the SDK's headers and passed `path::c_str()` to Win32, which a
+  C library on openkal does not provide; 0.2.1 declares what it calls itself.
 - **Removed workarounds.** WA-PLATFORM-001 (the Darwin pipe protection): openkal-macos ignores SIGPIPE for its own
   writes. The early PRoot start by `execve` and the patched copy of openkal-linux under `vendor/`: openkal-linux
   0.18 starts programs that way from the first start under PRoot, and keeps every register PRoot rewrites. The

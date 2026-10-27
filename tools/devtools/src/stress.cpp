@@ -6,13 +6,13 @@ import mcpplibs.cmdline;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.fs;
 import mcppls.devtools.common;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::devtools::stress {
 namespace {
-
-namespace fs = mcppls::platform::fs;
 using Json = nlohmann::json;
 
 // The fixture that exercises each real, pinned project (real-project stress testing design
@@ -191,8 +191,6 @@ std::string sibling_binary(const std::string& serverPath, std::string_view name)
 
 namespace mcppls::devtools {
 namespace {
-
-namespace fs = mcppls::platform::fs;
 namespace cmdline = mcpplibs::cmdline;
 using Json = nlohmann::json;
 
@@ -202,6 +200,7 @@ std::vector<std::string> multi_values(const cmdline::ParsedArgs& args, std::stri
 }
 
 void run_matrix(const cmdline::ParsedArgs& args, bool& handled, int& status) {
+    std::error_code ignored;
     handled = true;
     std::vector<std::string> fixtures { multi_values(args, "fixture") };
     std::vector<std::string> projects { multi_values(args, "project") };
@@ -213,7 +212,7 @@ void run_matrix(const cmdline::ParsedArgs& args, bool& handled, int& status) {
         return;
     }
     const std::string payload { args.value("payload").value_or("") };
-    if (payload.empty() || !fs::is_directory(payload)) {
+    if (payload.empty() || !std::filesystem::is_directory(payload, ignored)) {
         std::println(std::cerr, "stress: --payload DIR is required (a directory from `mcpp run -p devtools -- payload`)");
         status = 2;
         return;
@@ -226,26 +225,26 @@ void run_matrix(const cmdline::ParsedArgs& args, bool& handled, int& status) {
         return;
     }
     const std::string conformance { stress::sibling_binary(*server, "mcppls-conformance") };
-    if (!fs::is_regular_file(conformance)) {
+    if (!std::filesystem::is_regular_file(conformance, ignored)) {
         std::println(std::cerr, "stress: no mcppls-conformance beside {}", *server);
         status = 1;
         return;
     }
     const std::string measureDir { args.value("measure-dir").value_or("") };
-    if (!measureDir.empty()) (void)fs::create_directories(measureDir);
+    if (!measureDir.empty()) (void)std::filesystem::create_directories(measureDir, ignored);
 
     std::vector<stress::StressRow> rows;
     bool anyFailed { false };
     for (const auto& spec : *specs) {
         const std::string fixtureDir { base::join_path(root, "conformance/fixtures/" + spec.fixture) };
-        if (!fs::is_directory(fixtureDir)) {
+        if (!std::filesystem::is_directory(fixtureDir, ignored)) {
             rows.push_back({ .fixture = spec.fixture, .client = spec.client, .ok = false,
                             .note = std::format("no fixture at {}", fixtureDir) });
             anyFailed = true;
             continue;
         }
         const std::string measureFile { measureDir.empty()
-                                       ? base::join_path(fs::current_directory(), std::format(".stress-{}-{}.json", spec.fixture, spec.client))
+                                       ? base::join_path(base::current_directory(), std::format(".stress-{}-{}.json", spec.fixture, spec.client))
                                        : base::join_path(measureDir, std::format("{}-{}.json", spec.fixture, spec.client)) };
         std::vector<std::string> arguments { "run", "--server", *server, "--payload", payload, "--fixture", fixtureDir,
                                             "--measure", measureFile, "--timeout", args.value("timeout").value_or("180") };
@@ -262,7 +261,7 @@ void run_matrix(const cmdline::ParsedArgs& args, bool& handled, int& status) {
         // another; it still writes --measure either way, so that exit code alone is not grounds
         // to throw the measurement away -- only a --measure file that truly was not written is.
         auto output = capture(conformance, arguments, root, std::chrono::minutes { 10 });
-        auto measured = fs::read_file(measureFile);
+        auto measured = os::fs::read(measureFile);
         if (!measured) {
             rows.push_back({ .fixture = spec.fixture, .client = spec.client, .ok = false,
                             .note = output ? "no --measure file was written"
@@ -279,7 +278,7 @@ void run_matrix(const cmdline::ParsedArgs& args, bool& handled, int& status) {
             if (!row->ok) anyFailed = true;
             rows.push_back(*row);
         }
-        if (measureDir.empty()) (void)fs::remove_all(measureFile);
+        if (measureDir.empty()) (void)std::filesystem::remove_all(measureFile, ignored);
     }
 
     std::println("\n{}", stress::render_table(rows));
@@ -287,13 +286,13 @@ void run_matrix(const cmdline::ParsedArgs& args, bool& handled, int& status) {
     if (!measureDir.empty()) {
         Json combined = Json::array();
         for (const auto& row : rows) combined.push_back(stress::to_json(row));
-        (void)fs::write_file(base::join_path(measureDir, "summary.json"), combined.dump(2) + "\n");
+        (void)os::fs::write(base::join_path(measureDir, "summary.json"), combined.dump(2) + "\n");
     }
 
     if (auto compareWith = args.value("compare")) {
-        auto text = fs::read_file(*compareWith);
+        auto text = os::fs::read(*compareWith);
         if (!text) {
-            std::println(std::cerr, "stress: cannot read {}: {}", *compareWith, text.error().message);
+            std::println(std::cerr, "stress: cannot read {}: {}", *compareWith, text.error().message());
             status = anyFailed ? 1 : status;
             return;
         }

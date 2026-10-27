@@ -1,14 +1,13 @@
 [package]
 name        = "mcppls-base"
 version     = "0.1.0"
-description = "mcppls foundations: errors, paths, text, globbing, sha256, URIs, logging, the product version"
+description = "mcppls foundations: errors, paths, text, globbing, sha256, URIs, logging, the product version, its directories and payload names, a channel"
 license     = "Apache-2.0"
 
 [targets.mcppls-base]
 kind = "lib"
 
 [dependencies]
-mcppls-os = { path = "../os" }
 os.workspace = true
 openkal-llvm-runtime.workspace = true
 

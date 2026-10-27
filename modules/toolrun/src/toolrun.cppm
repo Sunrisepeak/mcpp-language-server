@@ -5,14 +5,14 @@
 // of its streams ends even when something it started still holds them; an implicit run does not
 // reach the network; and what happened is written down --- command, environment source, offline
 // or not, how long, how it ended, the last of its standard error.
-export module mcppls.platform.toolrun;
+export module mcppls.toolrun;
 
 import std;
 import nlohmann.json;
 import mcppls.base.error;
-import mcppls.platform.process;
+import mcpplibs.os;
 
-export namespace mcppls::platform::toolrun {
+export namespace mcppls::toolrun {
 
 enum class Network {
     offline,   // the server started this by itself: it must not reach the network (design P3)
@@ -26,10 +26,10 @@ struct Request {
     std::string purpose;                                   // producer, protocol, toolchain, configure, git, ...
     std::string root;                                      // the workspace it belongs to, for the report
     Network network { Network::offline };
-    RunBounds bounds {};
+    mcpplibs::os::process::bounds bounds {};
     std::chrono::milliseconds soft { 0 };                  // 0: nothing is reported while it runs
     std::string input;
-    // nullopt takes the tool environment (mcppls.platform.toolenv), which is what a user's build
+    // nullopt takes the tool environment (mcppls.toolenv), which is what a user's build
     // tool should see. A caller that has its own environment gives it here.
     std::optional<std::vector<std::string>> environment;
     std::chrono::milliseconds environmentWait { 0 };       // how long to wait for the tool environment
@@ -61,7 +61,7 @@ struct Record {
 };
 
 // Runs the program. `record` receives what was written down, its id included.
-base::Result<RunResult> run(const Request& request, Record* record = nullptr);
+base::Result<mcpplibs::os::process::bounded_output> run(const Request& request, Record* record = nullptr);
 
 // The program said it reached the network. Amends the record and tells the recorder again.
 void observed_network(std::uint64_t id);
@@ -79,4 +79,21 @@ nlohmann::json to_json(const Record& record);
 // Where a record goes besides the ring above (the workspace journal).
 void set_recorder(std::function<void(const Record&)> recorder);
 
-} // namespace mcppls::platform::toolrun
+// A run's ending as one number, as reports have shown it: the status the program returned, or -1 when
+// its environment ended it (a signal, a console interrupt, the run's own bound).
+inline int exit_code(const mcpplibs::os::process::exit_status& status) { return status.by_environment ? -1 : status.code; }
+
+// The program the server would start for `name`, in this spelling: a name that says where it is
+// (mcpplibs.os `fs::names_a_place`) only when it is absolute, and a bare name only from the
+// absolute directories of `pathList` (PATH when omitted). A relative entry of PATH names a
+// different directory from each working directory -- the workspace's, for a language server -- and
+// a program found through it would be the workspace's own. On Windows a bare name is found by
+// PATHEXT's extensions (mcpplibs.os `env::find_executable`).
+std::optional<std::string> find_program(std::string_view name);
+
+// The translator this server runs under, which changes how programs are started (PRoot under termux:
+// mcpplibs.os `linux::translator`); empty when none, and in an ok image. Asked once.
+const std::string& sandbox();
+std::optional<std::string> find_program(std::string_view name, std::string_view pathList);
+
+} // namespace mcppls::toolrun

@@ -6,14 +6,13 @@ import nlohmann.json;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.fs;
 import mcppls.devtools.common;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::devtools::version {
 namespace {
-
-namespace fs = mcppls::platform::fs;
-
 // text[start,end) replaced by `replacement`, for writing a new value back into a file whose rest
 // must survive untouched -- the C++ equivalent of Python's `text[:start] + new + text[end:]`.
 std::string splice(std::string_view text, std::size_t start, std::size_t end, std::string_view replacement) {
@@ -121,13 +120,13 @@ std::optional<std::pair<std::size_t, std::size_t>> braced_int(std::string_view t
 base::Result<std::string> read_quoted_site(const std::string& path, std::string_view key,
                                             bool braced, const std::string& whatItIs,
                                             std::optional<std::string_view> next) {
-    auto text = fs::read_file(path);
-    if (!text) return std::unexpected { text.error() };
+    auto text = os::fs::read(path);
+    if (!text) return base::fail("read-file", text.error());
     const auto span = braced ? braced_quoted(*text, key) : quoted_line_field(*text, key);
     if (!span) return base::fail("version-site", std::format("{} has no {}", path, whatItIs));
     if (next) {
-        if (auto written = fs::write_file_atomic(path, splice(*text, span->first, span->second, *next)); !written) {
-            return std::unexpected { written.error() };
+        if (auto written = os::fs::write_atomic(path, splice(*text, span->first, span->second, *next)); !written) {
+            return base::fail("write-file", written.error());
         }
         return std::string { *next };
     }
@@ -167,13 +166,13 @@ base::Result<std::string> zed_manifest_version(const std::string& root, std::opt
 
 base::Result<std::string> clion_plugin_version(const std::string& root, std::optional<std::string_view> next) {
     const std::string path { clion_properties_path(root) };
-    auto text = fs::read_file(path);
-    if (!text) return std::unexpected { text.error() };
+    auto text = os::fs::read(path);
+    if (!text) return base::fail("read-file", text.error());
     const auto span = unquoted_line_field(*text, "pluginVersion");
     if (!span) return base::fail("version-site", std::format("{} has no pluginVersion", path));
     if (next) {
-        if (auto written = fs::write_file_atomic(path, splice(*text, span->first, span->second, *next)); !written) {
-            return std::unexpected { written.error() };
+        if (auto written = os::fs::write_atomic(path, splice(*text, span->first, span->second, *next)); !written) {
+            return base::fail("write-file", written.error());
         }
         return std::string { *next };
     }
@@ -190,10 +189,10 @@ base::Result<std::string> claude_marketplace_version(const std::string& root, st
 }
 
 base::Result<McppVersions> mcpp_versions(const std::string& root) {
-    auto module = fs::read_file(module_path(root));
-    if (!module) return std::unexpected { module.error() };
-    auto env = fs::read_file(versions_env_path(root));
-    if (!env) return std::unexpected { env.error() };
+    auto module = os::fs::read(module_path(root));
+    if (!module) return base::fail("read-file", module.error());
+    auto env = os::fs::read(versions_env_path(root));
+    if (!env) return base::fail("read-file", env.error());
 
     McppVersions result {};
     if (auto span = braced_quoted(*module, "MINIMUM_MCPP_VERSION")) {
@@ -206,10 +205,10 @@ base::Result<McppVersions> mcpp_versions(const std::string& root) {
 }
 
 base::Result<ClangdVersions> clangd_versions(const std::string& root) {
-    auto module = fs::read_file(module_path(root));
-    if (!module) return std::unexpected { module.error() };
-    auto lockText = fs::read_file(payload_lock_path(root));
-    if (!lockText) return std::unexpected { lockText.error() };
+    auto module = os::fs::read(module_path(root));
+    if (!module) return base::fail("read-file", module.error());
+    auto lockText = os::fs::read(payload_lock_path(root));
+    if (!lockText) return base::fail("read-file", lockText.error());
 
     ClangdVersions result {};
     if (auto span = braced_quoted(*module, "CLANGD_VERSION")) {
@@ -227,10 +226,10 @@ base::Result<ClangdVersions> clangd_versions(const std::string& root) {
 }
 
 base::Result<KitVersions> kit_versions(const std::string& root) {
-    auto module = fs::read_file(kit_module_path(root));
-    if (!module) return std::unexpected { module.error() };
-    auto writer = fs::read_file(kit_writer_path(root));
-    if (!writer) return std::unexpected { writer.error() };
+    auto module = os::fs::read(kit_module_path(root));
+    if (!module) return base::fail("read-file", module.error());
+    auto writer = os::fs::read(kit_writer_path(root));
+    if (!writer) return base::fail("read-file", writer.error());
 
     KitVersions result {};
     if (auto span = braced_int(*module, "KIT_VERSION")) {

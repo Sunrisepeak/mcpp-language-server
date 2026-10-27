@@ -39,6 +39,9 @@ std::optional<std::size_t> offset_at(std::string_view text, Position position);
 // not show it, so the scanners start after it and give it no column (fix plan F2).
 std::size_t byte_order_mark_size(std::string_view text);
 
+// The last `lines` lines of `text`, without the line breaks it ends with (a tail for a report).
+std::string last_lines(std::string_view text, std::size_t lines);
+
 bool is_identifier_start(char c);
 bool is_identifier_char(char c);
 

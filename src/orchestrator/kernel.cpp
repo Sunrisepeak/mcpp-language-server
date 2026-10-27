@@ -5,15 +5,16 @@ import nlohmann.json;
 import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.uri;
-import mcppls.platform.dirs;
-import mcppls.platform.fs;
-import mcppls.platform.toolenv;
-import mcppls.platform.toolrun;
-import mcppls.platform.task;
 import mcppls.lsp.jsonrpc;
 import mcppls.engine.payload;
 import mcppls.orchestrator.client;
 import mcppls.orchestrator.workspace;
+import mcpplibs.os;
+import mcppls.base.home;
+import mcppls.toolrun;
+import mcppls.toolenv;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::orchestrator {
 
@@ -142,15 +143,15 @@ struct Kernel::Impl {
     // user's build tools too, in the user's environment, and what they cost is written down.
     struct ToolWiring {
         explicit ToolWiring(std::shared_ptr<EventChannel> channel, const SessionOptions& session) {
-            platform::toolenv::configure(platform::toolenv::parse_mode(session.toolEnvironment).value_or(platform::toolenv::Mode::automatic),
+            mcppls::toolenv::configure(mcppls::toolenv::parse_mode(session.toolEnvironment).value_or(mcppls::toolenv::Mode::automatic),
                                          session.serverCommand);
-            platform::toolenv::begin();
-            platform::toolrun::set_recorder([channel](const platform::toolrun::Record& record) {
+            mcppls::toolenv::begin();
+            mcppls::toolrun::set_recorder([channel](const mcppls::toolrun::Record& record) {
                 if (record.root.empty()) return;
-                channel->push(Event { EventKind::tool_run, platform::toolrun::to_json(record), 0, nullptr, record.root });
+                channel->push(Event { EventKind::tool_run, mcppls::toolrun::to_json(record), 0, nullptr, record.root });
             });
         }
-        ~ToolWiring() { platform::toolrun::set_recorder({}); }
+        ~ToolWiring() { mcppls::toolrun::set_recorder({}); }
     };
     // Emplaced by start(), once `options` is filled in: a default member initializer here would
     // read an empty SessionOptions and the login shell would never be asked.
@@ -268,13 +269,13 @@ std::unique_ptr<Kernel> Kernel::start(const KernelOptions& options) {
     kernel->impl_ = std::make_unique<Impl>();
     Impl& impl = *kernel->impl_;
     impl.options = options;
-    impl.root = platform::fs::canonical_path(options.root.empty() ? platform::fs::current_directory() : options.root);
+    impl.root = base::canonical_path(options.root.empty() ? base::current_directory() : options.root);
     impl.toolWiring.emplace(impl.events, impl.options.session);
 
     const SessionOptions& session { options.session };
     engine::PayloadPaths payload { engine::resolve_payload(engine::PayloadRequest { session.payloadDirectory, session.clangd, session.kit, session.engine }) };
     bool payloadCorrupt { false };
-    const std::string integrityCache { base::join_path(platform::dirs::cache_directory(), "payload-integrity.json") };
+    const std::string integrityCache { base::join_path(base::cache_directory(), "payload-integrity.json") };
     for (const auto& problem : engine::verify_payload_integrity(payload, integrityCache)) {
         log::error("payload integrity: {} {}", problem.path, problem.reason);
         payloadCorrupt = true;
@@ -331,7 +332,7 @@ void Kernel::open(std::string_view path) {
         return;
     }
     const std::string absolute { impl.absolute(path) };
-    auto text = platform::fs::read_file(absolute);
+    auto text = os::fs::read(absolute);
     if (!text) return;
     impl.close_least_recently_used();
     impl.documents[uri] = Impl::OpenDocument { absolute, 1, *text, false, ++impl.useClock };
@@ -379,7 +380,7 @@ void Kernel::revert(std::string_view path) {
     Impl& impl = *impl_;
     const auto found = impl.documents.find(uri_of(path));
     if (found == impl.documents.end() || !found->second.overlay) return;
-    auto text = platform::fs::read_file(found->second.path);
+    auto text = os::fs::read(found->second.path);
     if (!text) {
         impl.close_document(std::string { found->first });
         return;
@@ -400,7 +401,7 @@ std::vector<std::string> Kernel::refresh() {
     Impl& impl = *impl_;
     std::vector<std::string> changed;
     for (auto& [uri, document] : impl.documents) {
-        auto text = platform::fs::read_file(document.path);
+        auto text = os::fs::read(document.path);
         if (!text) continue;   // a removed file keeps its last content until closed
         if (document.overlay) {
             // An overlay stays until its file is written with the same content (the agent saved it) or it is closed.
@@ -416,7 +417,7 @@ std::vector<std::string> Kernel::refresh() {
 
 std::optional<std::string> Kernel::text(std::string_view path) const {
     if (auto found = impl_->documents.find(uri_of(path)); found != impl_->documents.end()) return found->second.text;
-    auto text = platform::fs::read_file(impl_->absolute(path));
+    auto text = os::fs::read(impl_->absolute(path));
     if (!text) return std::nullopt;
     return std::move(*text);
 }

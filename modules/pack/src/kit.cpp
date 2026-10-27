@@ -2,22 +2,20 @@ module mcppls.pack.kit;
 
 import std;
 import nlohmann.json;
-import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.dirs;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.platform.process;
-import mcppls.platform.toolrun;
 import mcppls.pack.archive;
 import mcppls.pack.fetch;
 import mcppls.pack.targets;
+import mcpplibs.os;
+import mcppls.base.payload;
+import mcppls.toolrun;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::pack::kit {
-namespace fs = mcppls::platform::fs;
 namespace ar = mcppls::pack::archive;
 namespace fetch = mcppls::pack::fetch;
 
@@ -61,8 +59,8 @@ struct Lock {
 };
 
 base::Result<Lock> load_lock(const std::string& path) {
-    auto text = fs::read_file(path);
-    if (!text) return std::unexpected { text.error() };
+    auto text = os::fs::read(path);
+    if (!text) return base::fail("read-file", text.error());
     const nlohmann::json document = nlohmann::json::parse(*text, nullptr, false);
     if (document.is_discarded() || !document.is_object()) {
         return base::fail("kit-lock", std::format("{} is not valid JSON", path));
@@ -97,21 +95,21 @@ base::Result<Lock> load_lock(const std::string& path) {
 // ---- running cmake, ninja, dpkg -- external programs, through the tool run boundary -----------
 
 base::Result<std::string> find_tool(std::string_view envName, std::initializer_list<std::string_view> names) {
-    if (auto explicitPath = platform::env::get(envName); explicitPath && !explicitPath->empty()) return *explicitPath;
+    if (auto explicitPath = os::env::get(envName); explicitPath && !explicitPath->empty()) return *explicitPath;
     for (const auto name : names) {
-        if (auto found = platform::env::find_executable(name)) return *found;
+        if (auto found = toolrun::find_program(name)) return *found;
     }
     return base::fail("kit-tool", std::format("{} not found on PATH (or set {})", *names.begin(), envName));
 }
 
-base::Result<platform::RunResult> execute(const std::string& program, const std::vector<std::string>& arguments,
+base::Result<mcpplibs::os::process::bounded_output> execute(const std::string& program, const std::vector<std::string>& arguments,
                                           const std::string& cwd, std::chrono::milliseconds hardBound, bool announce) {
     if (announce) {
         std::vector<std::string> shown { program };
         shown.insert(shown.end(), arguments.begin(), arguments.end());
         base::log::info("{}", base::join(shown, " "));
     }
-    return platform::toolrun::run({
+    return mcppls::toolrun::run({
         .program = program,
         .arguments = arguments,
         .workDirectory = cwd,
@@ -120,8 +118,8 @@ base::Result<platform::RunResult> execute(const std::string& program, const std:
         // rather than forbidden for the same reason devtools' own step() allows it (tools/devtools/
         // src/common.cpp): this whole path exists to package things, and CMake's standalone
         // runtimes configure is free to look for a system LLVM even though it never needs to here.
-        .network = platform::toolrun::Network::allowed,
-        .bounds = platform::RunBounds { .hard = hardBound },
+        .network = mcppls::toolrun::Network::allowed,
+        .bounds = mcpplibs::os::process::bounds { .hard = hardBound },
     });
 }
 
@@ -129,10 +127,10 @@ base::Result<platform::RunResult> execute(const std::string& program, const std:
 base::Result<void> run_tool(const std::string& program, const std::vector<std::string>& arguments, const std::string& cwd) {
     auto result = execute(program, arguments, cwd, std::chrono::hours { 2 }, true);
     if (!result) return std::unexpected { result.error() };
-    if (result->exitCode != 0 || result->timedOut) {
-        const std::string tail { platform::last_lines(result->error.empty() ? result->output : result->error, 40) };
-        return base::fail("kit-run", std::format("{} exited {}{}{}", program, result->exitCode,
-                                                 result->timedOut ? " (timed out)" : "",
+    if (!result->status.success() || result->timed_out) {
+        const std::string tail { base::last_lines(result->err.empty() ? result->out : result->err, 40) };
+        return base::fail("kit-run", std::format("{} exited {}{}{}", program, toolrun::exit_code(result->status),
+                                                 result->timed_out ? " (timed out)" : "",
                                                  tail.empty() ? std::string {} : "\n" + tail));
     }
     return {};
@@ -142,10 +140,10 @@ base::Result<void> run_tool(const std::string& program, const std::vector<std::s
 base::Result<std::string> capture_tool(const std::string& program, const std::vector<std::string>& arguments, const std::string& cwd) {
     auto result = execute(program, arguments, cwd, std::chrono::minutes { 5 }, false);
     if (!result) return std::unexpected { result.error() };
-    if (result->exitCode != 0 || result->timedOut) {
-        return base::fail("kit-run", std::format("{} exited {}", program, result->exitCode));
+    if (!result->status.success() || result->timed_out) {
+        return base::fail("kit-run", std::format("{} exited {}", program, toolrun::exit_code(result->status)));
     }
-    return std::move(result->output);
+    return std::move(result->out);
 }
 
 // ---- small path and file helpers ---------------------------------------------------------------
@@ -182,7 +180,7 @@ std::string relative_between(std::string_view fromDirectory, std::string_view to
 // A copy of `source`'s contents into `destination` (created if it does not exist), the way
 // shutil.copytree(source, destination, dirs_exist_ok=True) does.
 base::Result<void> copy_tree(const std::string& source, const std::string& destination) {
-    if (auto made = fs::create_directories(destination); !made) return made;
+    if (std::error_code failed; !std::filesystem::create_directories(destination, failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", destination, failed.message()));
     std::error_code error;
     std::filesystem::copy(std::filesystem::path { source }, std::filesystem::path { destination },
                           std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing, error);
@@ -194,9 +192,10 @@ base::Result<void> copy_tree(const std::string& source, const std::string& desti
 // case, because a kit is unpacked on case-insensitive file systems (Windows, macOS) and shipped
 // inside a VSIX, which rejects such names outright.
 void drop_case_collisions(const std::string& kitDir) {
+    std::error_code ignored;
     const std::string root { base::normalize_path(kitDir) };
     std::map<std::string, std::vector<std::string>> groups;   // lowercase relative path -> relative paths
-    for (const auto& full : fs::list_files(root, {}, {})) {
+    for (const auto& full : base::files_under(root, {}, {})) {
         auto relative = base::relative_path(full, root);
         if (!relative) continue;
         groups[base::to_lower_ascii(*relative)].push_back(std::move(*relative));
@@ -212,7 +211,7 @@ void drop_case_collisions(const std::string& kitDir) {
             return std::pair { !lowerAlready(a), a } < std::pair { !lowerAlready(b), b };
         });
         for (std::size_t i { 1 }; i < names.size(); ++i) {
-            fs::remove_all(base::join_path(root, names[i]));
+            std::filesystem::remove_all(base::join_path(root, names[i]), ignored);
             dropped.push_back(names[i]);
         }
     }
@@ -226,8 +225,8 @@ void drop_case_collisions(const std::string& kitDir) {
 
 base::Result<std::vector<std::string>> check_manifest(const std::string& kitDir, const std::string& manifestRel) {
     const std::string manifestPath { base::join_path(kitDir, manifestRel) };
-    auto text = fs::read_file(manifestPath);
-    if (!text) return std::unexpected { text.error() };
+    auto text = os::fs::read(manifestPath);
+    if (!text) return base::fail("read-file", text.error());
     nlohmann::ordered_json manifest = nlohmann::ordered_json::parse(*text, nullptr, false);
     if (manifest.is_discarded() || !manifest.is_object()) {
         return base::fail("kit-manifest", std::format("{} is not valid JSON", manifestPath));
@@ -239,12 +238,13 @@ base::Result<std::vector<std::string>> check_manifest(const std::string& kitDir,
     // A path that resolves outside the kit is rewritten to the file of the same name under
     // share/libc++/v1 when one exists there; anything else is an error build_kit.py raised too.
     auto relocate = [&](const std::string& value, bool wantDirectory) -> base::Result<std::string> {
+        std::error_code ignored;
         const std::string candidate { base::join_path(manifestDir, value) };
-        const bool ok { wantDirectory ? fs::is_directory(candidate) : fs::is_regular_file(candidate) };
+        const bool ok { wantDirectory ? std::filesystem::is_directory(candidate, ignored) : std::filesystem::is_regular_file(candidate, ignored) };
         if (ok && base::is_within(candidate, kitRoot)) return value;
         std::string fallback { base::join_path(kitDir, "share/libc++/v1") };
         if (!wantDirectory) fallback = base::join_path(fallback, std::string { base::file_name(value) });
-        const bool exists { wantDirectory ? fs::is_directory(fallback) : fs::is_regular_file(fallback) };
+        const bool exists { wantDirectory ? std::filesystem::is_directory(fallback, ignored) : std::filesystem::is_regular_file(fallback, ignored) };
         if (!exists) {
             return base::fail("kit-manifest", std::format("manifest {} refers to {}, which is not in the kit", manifestRel, value));
         }
@@ -279,7 +279,7 @@ base::Result<std::vector<std::string>> check_manifest(const std::string& kitDir,
     }
 
     if (changed) {
-        if (auto written = fs::write_file(manifestPath, manifest.dump(2) + "\n"); !written) return std::unexpected { written.error() };
+        if (auto written = os::fs::write(manifestPath, manifest.dump(2) + "\n"); !written) return base::fail("write-file", written.error());
         base::log::info("rewrote paths in {} so they resolve inside the kit", manifestRel);
     }
 
@@ -297,43 +297,45 @@ base::Result<std::vector<std::string>> check_manifest(const std::string& kitDir,
 // ---- recipe: libc++ from the LLVM source release (linux-x64, darwin-arm64) ---------------------
 
 base::Result<std::pair<std::vector<std::string>, std::vector<std::string>>> sysroot_headers_from_dpkg() {
-    auto dpkg = platform::env::find_executable("dpkg");
+    std::error_code ignored;
+    auto dpkg = toolrun::find_program("dpkg");
     if (!dpkg) return base::fail("kit-dpkg", "dpkg is not available; pass --sysroot-include DIR with the C library headers");
-    auto output = capture_tool(*dpkg, { "-L", "libc6-dev", "linux-libc-dev" }, fs::current_directory());
+    auto output = capture_tool(*dpkg, { "-L", "libc6-dev", "linux-libc-dev" }, base::current_directory());
     if (!output) return std::unexpected { output.error() };
     std::vector<std::string> files;
     for (const auto line : base::split_lines(*output)) {
         const std::string path { base::trim(line) };
-        if (path.starts_with("/usr/include/") && fs::is_regular_file(path)) files.push_back(path);
+        if (path.starts_with("/usr/include/") && std::filesystem::is_regular_file(path, ignored)) files.push_back(path);
     }
     std::vector<std::string> licenses;
     for (const std::string_view candidate : { "/usr/share/doc/libc6-dev/copyright", "/usr/share/doc/linux-libc-dev/copyright" }) {
-        if (fs::is_regular_file(candidate)) licenses.emplace_back(candidate);
+        if (std::filesystem::is_regular_file(candidate, ignored)) licenses.emplace_back(candidate);
     }
     return std::pair { std::move(files), std::move(licenses) };
 }
 
 base::Result<nlohmann::ordered_json> recipe_libcxx_source(const Options& options, const Lock& lock, const KitSpec& spec,
                                                            const std::string& kitDir, const std::string& workDir) {
+    std::error_code ignored;
     const std::string& target { spec.target };
     const std::string version { lock.libcxxVersion };
 
     // The two host guards build_kit.py raised SystemExit for: the TARGET platform is data (it
     // comes from --platform, same as every other host), but building it needs facts about the
-    // HOST this is running on, which is where mcppls.os's compile-time constant belongs.
+    // HOST this is running on, which is where mcpplibs.os's compile-time `host()` belongs.
     const auto parsed = targets::parse(options.platform);
     if (!parsed) return base::fail("kit-platform", std::format("{} is not an <os>-<arch> platform name", options.platform));
-    if (parsed->os == targets::Os::darwin && mcppls::os::family() != mcppls::os::Family::macos) {
+    if (parsed->os == targets::Os::darwin && os::host() != os::platform::macos) {
         return base::fail("kit-host", std::format("{} configures libc++ for Apple platforms and needs a macOS host", options.platform));
     }
-    if (parsed->os == targets::Os::linux && mcppls::os::family() != mcppls::os::Family::linux) {
+    if (parsed->os == targets::Os::linux && os::host() != os::platform::linux) {
         return base::fail("kit-host", std::format("{} takes the C library headers from a Linux host", options.platform));
     }
     // dpkg lists the headers of the host's own architecture (/usr/include/<host triple>/...), so
     // without --sysroot-include a Linux kit is built on a host of the architecture it is for.
-    if (parsed->os == targets::Os::linux && options.sysrootIncludeDir.empty() && options.platform != mcppls::os::platform()) {
+    if (parsed->os == targets::Os::linux && options.sysrootIncludeDir.empty() && options.platform != base::payload_platform()) {
         return base::fail("kit-host", std::format("{} takes its C library headers from dpkg on a {} host, or from --sysroot-include; "
-                                                  "this host is {}", options.platform, options.platform, mcppls::os::platform()));
+                                                  "this host is {}", options.platform, options.platform, base::payload_platform()));
     }
 
     std::string archive { options.sourceArchive };
@@ -348,7 +350,7 @@ base::Result<nlohmann::ordered_json> recipe_libcxx_source(const Options& options
     }
 
     const std::string sourceDir { base::join_path(workDir, "llvm-project") };
-    if (!fs::is_regular_file(base::join_path(sourceDir, "runtimes/CMakeLists.txt"))) {
+    if (!std::filesystem::is_regular_file(base::join_path(sourceDir, "runtimes/CMakeLists.txt"), ignored)) {
         base::log::info("extracting {} from {}", SOURCE_SUBTREES_LABEL, base::file_name(archive));
         auto extracted = ar::extract(archive, sourceDir, testing::wants_source_subtree);
         if (!extracted) return std::unexpected { extracted.error() };
@@ -365,8 +367,8 @@ base::Result<nlohmann::ordered_json> recipe_libcxx_source(const Options& options
 
     const std::string buildDir { base::join_path(workDir, "build") };
     const std::string stageDir { base::join_path(workDir, "stage") };
-    fs::remove_all(buildDir);
-    fs::remove_all(stageDir);
+    std::filesystem::remove_all(buildDir, ignored);
+    std::filesystem::remove_all(stageDir, ignored);
 
     const testing::ConfigureInputs configureInputs {
         .platform = options.platform,
@@ -383,7 +385,7 @@ base::Result<nlohmann::ordered_json> recipe_libcxx_source(const Options& options
 
     for (const std::string_view part : { "include", "share", "lib" }) {
         const std::string from { base::join_path(stageDir, part) };
-        if (fs::is_directory(from)) {
+        if (std::filesystem::is_directory(from, ignored)) {
             if (auto copied = copy_tree(from, base::join_path(kitDir, part)); !copied) return std::unexpected { copied.error() };
         }
     }
@@ -394,7 +396,7 @@ base::Result<nlohmann::ordered_json> recipe_libcxx_source(const Options& options
     auto relative = [&](const std::string& path) { return base::relative_path(path, kitDir).value_or(path); };
 
     std::vector<std::string> manifests;
-    for (const auto& file : fs::list_files(base::join_path(kitDir, "lib"), {}, {})) {
+    for (const auto& file : base::files_under(base::join_path(kitDir, "lib"), {}, {})) {
         if (base::file_name(file) == "libc++.modules.json") manifests.push_back(file);
     }
     if (manifests.size() != 1) {
@@ -403,18 +405,19 @@ base::Result<nlohmann::ordered_json> recipe_libcxx_source(const Options& options
 
     std::vector<std::string> includeDirectories { "include/c++/v1" };
     const std::string perTarget { base::join_path(kitDir, std::format("include/{}/c++/v1", target)) };
-    if (fs::is_directory(perTarget)) {
+    if (std::filesystem::is_directory(perTarget, ignored)) {
         includeDirectories.push_back(relative(perTarget));
-    } else if (!fs::is_directory(base::join_path(kitDir, "include/c++/v1"))) {
+    } else if (!std::filesystem::is_directory(base::join_path(kitDir, "include/c++/v1"), ignored)) {
         return base::fail("kit-manifest", "the install has no include/c++/v1");
     }
     const bool haveConfigSite { std::ranges::any_of(includeDirectories, [&](const std::string& directory) {
-        return fs::is_regular_file(base::join_path(base::join_path(kitDir, directory), "__config_site"));
+        std::error_code ignored;
+        return std::filesystem::is_regular_file(base::join_path(base::join_path(kitDir, directory), "__config_site"), ignored);
     }) };
     if (!haveConfigSite) return base::fail("kit-manifest", "the install has no __config_site");
 
     const std::string licensesDir { base::join_path(kitDir, "licenses") };
-    if (auto made = fs::create_directories(licensesDir); !made) return std::unexpected { made.error() };
+    if (std::error_code failed; !std::filesystem::create_directories(licensesDir, failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", licensesDir, failed.message()));
     {
         std::error_code copyError;
         std::filesystem::copy_file(std::filesystem::path { base::join_path(sourceDir, "libcxx/LICENSE.TXT") },
@@ -441,7 +444,7 @@ base::Result<nlohmann::ordered_json> recipe_libcxx_source(const Options& options
     if (parsed->os == targets::Os::linux) {
         std::vector<std::string> extraLicenses;
         if (!options.sysrootIncludeDir.empty()) {
-            const std::string headerRoot { base::join_path(fs::current_directory(), options.sysrootIncludeDir) };
+            const std::string headerRoot { base::join_path(base::current_directory(), options.sysrootIncludeDir) };
             if (auto copied = copy_tree(headerRoot, base::join_path(kitDir, "sysroot/usr/include")); !copied) {
                 return std::unexpected { copied.error() };
             }
@@ -453,7 +456,7 @@ base::Result<nlohmann::ordered_json> recipe_libcxx_source(const Options& options
             for (const auto& path : files) {
                 const std::string relativeFromRoot { path.starts_with('/') ? path.substr(1) : path };
                 const std::string destination { base::join_path(base::join_path(kitDir, "sysroot"), relativeFromRoot) };
-                if (auto made = fs::create_directories(base::parent_path(destination)); !made) return std::unexpected { made.error() };
+                if (std::error_code failed; !std::filesystem::create_directories(base::parent_path(destination), failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", base::parent_path(destination), failed.message()));
                 std::error_code copyError;
                 std::filesystem::copy_file(std::filesystem::path { path }, std::filesystem::path { destination },
                                            std::filesystem::copy_options::overwrite_existing, copyError);
@@ -496,6 +499,7 @@ base::Result<nlohmann::ordered_json> recipe_libcxx_source(const Options& options
 
 base::Result<nlohmann::ordered_json> recipe_llvm_mingw(const Options& options, const Lock& lock, const KitSpec& spec,
                                                         const std::string& kitDir) {
+    std::error_code ignored;
     const auto entryIt = lock.entries.find(spec.source);
     if (entryIt == lock.entries.end()) return base::fail("kit-lock", std::format("unknown lock entry {}", spec.source));
     const LockEntry& entry { entryIt->second };
@@ -520,7 +524,7 @@ base::Result<nlohmann::ordered_json> recipe_llvm_mingw(const Options& options, c
     drop_case_collisions(kitDir);
 
     const std::string licensesDir { base::join_path(kitDir, "licenses") };
-    if (auto made = fs::create_directories(licensesDir); !made) return std::unexpected { made.error() };
+    if (std::error_code failed; !std::filesystem::create_directories(licensesDir, failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", licensesDir, failed.message()));
     {
         std::error_code moveError;
         std::filesystem::rename(std::filesystem::path { base::join_path(kitDir, "LICENSE.TXT") },
@@ -530,17 +534,17 @@ base::Result<nlohmann::ordered_json> recipe_llvm_mingw(const Options& options, c
     std::vector<std::string> licenses { "licenses/LLVM-LICENSE.TXT" };
 
     const std::string copyrightDir { base::join_path(kitDir, MINGW_COPYRIGHT_PREFIX) };
-    if (fs::is_directory(copyrightDir)) {
+    if (std::filesystem::is_directory(copyrightDir, ignored)) {
         const std::string mingwLicenses { base::join_path(licensesDir, "mingw-w64") };
-        if (auto made = fs::create_directories(mingwLicenses); !made) return std::unexpected { made.error() };
-        for (const auto& entryPath : fs::list_directory(copyrightDir)) {
+        if (std::error_code failed; !std::filesystem::create_directories(mingwLicenses, failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", mingwLicenses, failed.message()));
+        for (const auto& entryPath : base::children(copyrightDir)) {
             const std::string name { base::file_name(entryPath) };
             std::error_code moveError;
             std::filesystem::rename(std::filesystem::path { entryPath }, std::filesystem::path { base::join_path(mingwLicenses, name) }, moveError);
             if (moveError) return base::fail("kit-copy", std::format("cannot move {}: {}", entryPath, moveError.message()));
             licenses.push_back(std::format("licenses/mingw-w64/{}", name));
         }
-        fs::remove_all(base::join_path(kitDir, std::format("{}/share", MINGW_TRIPLE)));
+        std::filesystem::remove_all(base::join_path(kitDir, std::format("{}/share", MINGW_TRIPLE)), ignored);
     }
 
     nlohmann::ordered_json stdlib;
@@ -641,21 +645,22 @@ std::vector<std::string> install_arguments(const std::string& buildDir, std::opt
 }
 
 base::Result<void> write_kit_json(const std::string& kitDir, nlohmann::ordered_json& data) {
+    std::error_code ignored;
     for (const auto& directory : data.at("system-include-directories")) {
         const std::string value { directory.get<std::string>() };
-        if (!fs::is_directory(base::join_path(kitDir, value))) {
+        if (!std::filesystem::is_directory(base::join_path(kitDir, value), ignored)) {
             return base::fail("kit-missing", std::format("include directory {} is missing from the kit", value));
         }
     }
     if (const auto& sysroot = data.at("sysroot"); sysroot.is_string() && !sysroot.get<std::string>().empty()) {
         const std::string value { sysroot.get<std::string>() };
-        if (!fs::is_directory(base::join_path(kitDir, value))) {
+        if (!std::filesystem::is_directory(base::join_path(kitDir, value), ignored)) {
             return base::fail("kit-missing", std::format("sysroot {} is missing from the kit", value));
         }
     }
     for (const auto& license : data.at("licenses")) {
         const std::string value { license.get<std::string>() };
-        if (!fs::is_regular_file(base::join_path(kitDir, value))) {
+        if (!std::filesystem::is_regular_file(base::join_path(kitDir, value), ignored)) {
             return base::fail("kit-missing", std::format("license {} is missing from the kit", value));
         }
     }
@@ -664,12 +669,14 @@ base::Result<void> write_kit_json(const std::string& kitDir, nlohmann::ordered_j
     if (std::ranges::find(*modules, std::string { "std" }) == modules->end()) {
         return base::fail("kit-manifest", "the module manifest does not provide std");
     }
-    return fs::write_file(base::join_path(kitDir, "kit.json"), data.dump(2) + "\n");
+    if (auto written = os::fs::write(base::join_path(kitDir, "kit.json"), data.dump(2) + "\n"); !written) return base::fail("write-file", written.error());
+    return {};
 }
 
 } // namespace testing
 
 base::Result<BuiltKit> build(const Options& options) {
+    std::error_code ignored;
     if (!targets::parse(options.platform)) {
         return base::fail("kit-platform", std::format("{} is not an <os>-<arch> platform name", options.platform));
     }
@@ -682,15 +689,15 @@ base::Result<BuiltKit> build(const Options& options) {
     }
     const KitSpec& spec { specIt->second };
 
-    const std::string kitDir { base::join_path(fs::current_directory(), options.outDir) };
-    if (fs::exists(kitDir)) fs::remove_all(kitDir);
-    if (auto made = fs::create_directories(kitDir); !made) return std::unexpected { made.error() };
+    const std::string kitDir { base::join_path(base::current_directory(), options.outDir) };
+    if (std::filesystem::exists(kitDir, ignored)) std::filesystem::remove_all(kitDir, ignored);
+    if (std::error_code failed; !std::filesystem::create_directories(kitDir, failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", kitDir, failed.message()));
 
     const bool ownWorkDir { options.workDir.empty() };
     const std::string workDir { ownWorkDir
-        ? base::join_path(platform::dirs::temp_directory(), std::format("mcppls-kit-{}", std::random_device {}()))
-        : base::join_path(fs::current_directory(), options.workDir) };
-    if (auto made = fs::create_directories(workDir); !made) return std::unexpected { made.error() };
+        ? base::join_path(base::spelled(os::dirs::temp()), std::format("mcppls-kit-{}", std::random_device {}()))
+        : base::join_path(base::current_directory(), options.workDir) };
+    if (std::error_code failed; !std::filesystem::create_directories(workDir, failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", workDir, failed.message()));
 
     base::Result<nlohmann::ordered_json> data;
     if (spec.recipe == "libcxx-source") {
@@ -706,8 +713,8 @@ base::Result<BuiltKit> build(const Options& options) {
     if (!data) return std::unexpected { data.error() };
 
     std::uint64_t totalBytes { 0 }, fileCount { 0 };
-    for (const auto& file : fs::list_files(kitDir, {}, {})) {
-        if (auto stamp = fs::stamp(file)) {
+    for (const auto& file : base::files_under(kitDir, {}, {})) {
+        if (auto stamp = base::file_stamp(file)) {
             totalBytes += stamp->size;
             ++fileCount;
         }
@@ -715,7 +722,7 @@ base::Result<BuiltKit> build(const Options& options) {
     const std::string name { data->value("name", std::string {}) };
     base::log::info("{}: {} files, {:.1f} MB -> {}", name, fileCount, static_cast<double>(totalBytes) / 1e6, kitDir);
 
-    if (ownWorkDir) fs::remove_all(workDir);
+    if (ownWorkDir) std::filesystem::remove_all(workDir, ignored);
 
     return BuiltKit { .kitDir = kitDir, .name = name, .fileCount = fileCount, .totalBytes = totalBytes, .manifest = std::move(*data) };
 }

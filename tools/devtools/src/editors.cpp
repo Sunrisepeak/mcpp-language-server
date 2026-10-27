@@ -1,26 +1,23 @@
 module mcppls.devtools.editors;
 
 import std;
-import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.pack.archive;
-import mcppls.platform.dirs;
-import mcppls.platform.env;
-import mcppls.platform.fs;
+import mcpplibs.os;
+import mcppls.base.home;
 
+namespace os = mcpplibs::os;
 namespace mcppls::devtools::editors {
 namespace {
-
-namespace fs = mcppls::platform::fs;
 namespace archive = mcppls::pack::archive;
 
-bool windows() { return mcppls::os::family() == mcppls::os::Family::windows; }
-bool macos() { return mcppls::os::family() == mcppls::os::Family::macos; }
+bool windows() { return os::host() == os::platform::windows; }
+bool macos() { return os::host() == os::platform::macos; }
 
 std::optional<std::string> absolute_variable(std::string_view name) {
-    auto value = platform::env::get(name);
+    auto value = os::env::get(name);
     if (!value || value->empty() || !base::is_absolute_path(*value)) return std::nullopt;
     return base::normalize_path(*value);
 }
@@ -32,18 +29,19 @@ bool is_link(const std::string& path) {
 }
 
 void remove_entry(const std::string& path) {
+    std::error_code ignored;
     std::error_code error;
     if (is_link(path)) {
         std::filesystem::remove(std::filesystem::path { path }, error);
         return;
     }
-    fs::remove_all(path);
+    std::filesystem::remove_all(path, ignored);
 }
 
 // The `id = "..."` line of an extension.toml, which is all this needs to know whether an entry
 // under installed/ is this extension.
 std::optional<std::string> extension_id(const std::string& directory) {
-    auto text = fs::read_file(base::join_path(directory, "extension.toml"));
+    auto text = os::fs::read(base::join_path(directory, "extension.toml"));
     if (!text) return std::nullopt;
     for (const auto& line : base::split_lines(*text)) {
         const std::string_view trimmed { base::trim(line) };
@@ -60,7 +58,7 @@ std::optional<std::string> extension_id(const std::string& directory) {
 std::string jetbrains_directory() {
     if (windows()) {
         if (auto roaming = absolute_variable("APPDATA")) return base::join_path(*roaming, "JetBrains");
-        return base::join_path(platform::dirs::home_directory(), "AppData/Roaming/JetBrains");
+        return base::join_path(base::home_directory(), "AppData/Roaming/JetBrains");
     } else {
         return base::join_path(user_data_directory(), "JetBrains");
     }
@@ -88,12 +86,12 @@ std::optional<std::pair<int, int>> clion_version(std::string_view name) {
 std::string user_data_directory() {
     if (windows()) {
         if (auto local = absolute_variable("LOCALAPPDATA")) return *local;
-        return base::join_path(platform::dirs::home_directory(), "AppData/Local");
+        return base::join_path(base::home_directory(), "AppData/Local");
     } else if (macos()) {
-        return base::join_path(platform::dirs::home_directory(), "Library/Application Support");
+        return base::join_path(base::home_directory(), "Library/Application Support");
     } else {
         if (auto xdg = absolute_variable("XDG_DATA_HOME")) return *xdg;
-        return base::join_path(platform::dirs::home_directory(), ".local/share");
+        return base::join_path(base::home_directory(), ".local/share");
     }
 }
 
@@ -104,16 +102,17 @@ std::string zed_directory() {
 }
 
 base::Result<ZedInstall> install_zed(const std::string& zedDirectory, const std::string& source) {
+    std::error_code ignored;
     for (std::string_view file : { "extension.toml", "extension.wasm" }) {
-        if (!fs::is_regular_file(base::join_path(source, file))) {
+        if (!std::filesystem::is_regular_file(base::join_path(source, file), ignored)) {
             return base::fail("zed-source", std::format("{} has no {}; build the extension first", source, file));
         }
     }
     const std::string installed { base::join_path(zedDirectory, "extensions/installed") };
-    if (auto made = fs::create_directories(installed); !made) return std::unexpected { made.error() };
+    if (std::error_code failed; !std::filesystem::create_directories(installed, failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", installed, failed.message()));
     const std::string target { base::join_path(installed, ZED_EXTENSION_ID) };
 
-    if (is_link(target) || fs::exists(target)) {
+    if (is_link(target) || std::filesystem::exists(target, ignored)) {
         if (!is_link(target) && extension_id(target) != std::string { ZED_EXTENSION_ID }) {
             return base::fail("zed-occupied", std::format("{} exists and is not this extension; not touching it", target));
         }
@@ -127,35 +126,38 @@ base::Result<ZedInstall> install_zed(const std::string& zedDirectory, const std:
     // Windows grants a link only to an administrator or in developer mode. A copy of the two files
     // Zed loads is what an extension from its store looks like, so it loads the same way; it is
     // just not rebuilt in place.
-    if (auto made = fs::create_directories(target); !made) return std::unexpected { made.error() };
+    if (std::error_code failed; !std::filesystem::create_directories(target, failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", target, failed.message()));
     for (std::string_view file : { "extension.toml", "extension.wasm" }) {
-        auto content = fs::read_file(base::join_path(source, file));
-        if (!content) return std::unexpected { content.error() };
-        if (auto written = fs::write_file_atomic(base::join_path(target, file), *content); !written) {
-            return std::unexpected { written.error() };
+        auto content = os::fs::read(base::join_path(source, file));
+        if (!content) return base::fail("read-file", content.error());
+        if (auto written = os::fs::write_atomic(base::join_path(target, file), *content); !written) {
+            return base::fail("write-file", written.error());
         }
     }
     return ZedInstall::copied;
 }
 
 bool zed_installed(const std::string& zedDirectory) {
+    std::error_code ignored;
     const std::string target { base::join_path(zedDirectory, std::format("extensions/installed/{}", ZED_EXTENSION_ID)) };
-    return is_link(target) || fs::exists(target);
+    return is_link(target) || std::filesystem::exists(target, ignored);
 }
 
 bool remove_zed(const std::string& zedDirectory) {
+    std::error_code ignored;
     const bool was { zed_installed(zedDirectory) };
     remove_entry(base::join_path(zedDirectory, std::format("extensions/installed/{}", ZED_EXTENSION_ID)));
     // Zed's own uninstall removes the work directory as well; a stale one would outlive us.
-    fs::remove_all(base::join_path(zedDirectory, std::format("extensions/work/{}", ZED_EXTENSION_ID)));
+    std::filesystem::remove_all(base::join_path(zedDirectory, std::format("extensions/work/{}", ZED_EXTENSION_ID)), ignored);
     return was;
 }
 
 std::vector<std::string> clion_plugin_directories() {
+    std::error_code ignored;
     const std::string root { jetbrains_directory() };
     std::vector<std::pair<std::pair<int, int>, std::string>> found;
-    for (const auto& path : fs::list_directory(root)) {
-        if (!fs::is_directory(path)) continue;
+    for (const auto& path : base::children(root)) {
+        if (!std::filesystem::is_directory(path, ignored)) continue;
         auto version = clion_version(base::file_name(path));
         if (!version) continue;
         // Linux keeps plugins directly in the versioned data directory; macOS and Windows keep
@@ -169,6 +171,7 @@ std::vector<std::string> clion_plugin_directories() {
 }
 
 base::Result<void> install_clion(const std::string& pluginsDirectory, const std::string& archivePath) {
+    std::error_code ignored;
     auto entries = archive::list(archivePath);
     if (!entries) return std::unexpected { entries.error() };
     const std::string prefix { std::format("{}/", CLION_PLUGIN_DIRECTORY) };
@@ -179,8 +182,8 @@ base::Result<void> install_clion(const std::string& pluginsDirectory, const std:
         return base::fail("clion-archive", std::format("{} does not unpack to {}/; not a build of this plugin",
                                                        archivePath, CLION_PLUGIN_DIRECTORY));
     }
-    if (auto made = fs::create_directories(pluginsDirectory); !made) return std::unexpected { made.error() };
-    fs::remove_all(base::join_path(pluginsDirectory, CLION_PLUGIN_DIRECTORY));
+    if (std::error_code failed; !std::filesystem::create_directories(pluginsDirectory, failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", pluginsDirectory, failed.message()));
+    std::filesystem::remove_all(base::join_path(pluginsDirectory, CLION_PLUGIN_DIRECTORY), ignored);
     auto written = archive::extract(archivePath, pluginsDirectory, [](std::string_view) { return true; },
                                     archive::Options { .stripTopLevel = false });
     if (!written) return std::unexpected { written.error() };
@@ -188,12 +191,14 @@ base::Result<void> install_clion(const std::string& pluginsDirectory, const std:
 }
 
 bool clion_installed(const std::string& pluginsDirectory) {
-    return fs::is_directory(base::join_path(pluginsDirectory, CLION_PLUGIN_DIRECTORY));
+    std::error_code ignored;
+    return std::filesystem::is_directory(base::join_path(pluginsDirectory, CLION_PLUGIN_DIRECTORY), ignored);
 }
 
 bool remove_clion(const std::string& pluginsDirectory) {
+    std::error_code ignored;
     const bool was { clion_installed(pluginsDirectory) };
-    fs::remove_all(base::join_path(pluginsDirectory, CLION_PLUGIN_DIRECTORY));
+    std::filesystem::remove_all(base::join_path(pluginsDirectory, CLION_PLUGIN_DIRECTORY), ignored);
     return was;
 }
 

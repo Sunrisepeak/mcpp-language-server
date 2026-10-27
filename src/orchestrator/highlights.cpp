@@ -5,14 +5,12 @@ import nlohmann.json;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.orchestrator.tokens;
-import mcppls.platform.fs;
+import mcpplibs.os;
 
+namespace os = mcpplibs::os;
 namespace mcppls::orchestrator::highlights {
 
 namespace {
-
-namespace fs = mcppls::platform::fs;
-
 std::optional<base::Position> position_of(const Json& value) {
     if (!value.is_object()) return std::nullopt;
     const auto line = value.find("line");
@@ -225,20 +223,20 @@ std::optional<CacheFile> decode_cache(std::string_view bytes) {
 std::uint64_t prune_cache(const std::string& directory, std::size_t maxFiles, std::uint64_t maxBytes) {
     struct Entry {
         std::string path;
-        fs::FileStamp stamp;
+        os::fs::stamp stamp;
     };
     std::vector<Entry> entries;
-    for (const auto& path : fs::list_directory(directory)) {
+    for (const auto& path : base::children(directory)) {
         if (base::extension(path) != ".tokens") continue;
-        if (const auto stamp = fs::stamp(path)) entries.push_back({ path, *stamp });
+        if (const auto stamp = base::file_stamp(path)) entries.push_back({ path, *stamp });
     }
-    std::ranges::sort(entries, std::greater {}, [](const Entry& entry) { return entry.stamp.modified; });
+    std::ranges::sort(entries, std::greater {}, [](const Entry& entry) { return static_cast<std::int64_t>(entry.stamp.modified_ns); });
     std::uint64_t bytes { 0 };
     std::uint64_t freed { 0 };
     for (std::size_t i { 0 }; i < entries.size(); ++i) {
         bytes += entries[i].stamp.size;
         if (i < maxFiles && bytes <= maxBytes) continue;
-        if (fs::remove(entries[i].path)) freed += entries[i].stamp.size;
+        if ([&] { std::error_code failed; std::filesystem::remove(entries[i].path, failed); return !failed; }()) freed += entries[i].stamp.size;
     }
     return freed;
 }

@@ -4,30 +4,27 @@ import std;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.fs;
-import mcppls.platform.process;
-import mcppls.platform.toolrun;
 import mcppls.spec.discovery;
 import mcppls.project.infer;
 import mcppls.project.provider;
+import mcppls.toolrun;
+import mcpplibs.os;
 
 namespace mcppls::project {
-
-namespace fs = platform::fs;
-
 namespace {
 
 // A build directory meson has already configured: `meson-private/` is meson's own marker (the
 // directory ninja/meson tooling reads back), `compile_commands.json` is what this provider wants.
 std::optional<std::string> find_existing_build_directory(std::string_view root) {
+    std::error_code ignored;
     for (std::string_view name : { "builddir", "build" }) {
         if (const std::string directory { base::join_path(std::string { root }, name) };
-            fs::is_directory(base::join_path(directory, "meson-private")) && fs::is_regular_file(base::join_path(directory, "compile_commands.json"))) {
+            std::filesystem::is_directory(base::join_path(directory, "meson-private"), ignored) && std::filesystem::is_regular_file(base::join_path(directory, "compile_commands.json"), ignored)) {
             return directory;
         }
     }
-    for (const auto& child : fs::list_directory(root)) {
-        if (fs::is_directory(base::join_path(child, "meson-private")) && fs::is_regular_file(base::join_path(child, "compile_commands.json"))) {
+    for (const auto& child : base::children(root)) {
+        if (std::filesystem::is_directory(base::join_path(child, "meson-private"), ignored) && std::filesystem::is_regular_file(base::join_path(child, "compile_commands.json"), ignored)) {
             return child;
         }
     }
@@ -72,8 +69,9 @@ std::vector<std::string> meson_missing_subprojects(std::string_view output) {
 }
 
 std::optional<Claim> MesonProvider::detect(std::string_view root) const {
+    std::error_code ignored;
     const std::string manifest { base::join_path(std::string { root }, "meson.build") };
-    if (!fs::is_regular_file(manifest)) return std::nullopt;
+    if (!std::filesystem::is_regular_file(manifest, ignored)) return std::nullopt;
     Claim claim;
     claim.provider = "meson";
     claim.confidence = 100;
@@ -92,31 +90,32 @@ std::optional<Answer> MesonProvider::existing(const Claim& claim, const Provider
 }
 
 Answer MesonProvider::describe(const Claim& claim, const ProviderContext& context) const {
+    std::error_code ignored;
     if (!context.trusted) return Answer { .code = "untrusted-workspace", .reason = "the workspace is not trusted, so meson was not run" };
     if (!context.runBuildTool) return Answer { .code = "meson-no-database", .reason = "mcppls.buildTool is off, so meson was not run" };
     const auto meson = find_tool("meson", std::vector<std::string> {});
     if (!meson) return Answer { .code = "meson-not-found", .reason = "meson.build is there but meson is not on PATH" };
     context.producerUsed = *meson;
     const std::string privateDirectory { context.privateDirectory };
-    (void)fs::create_directories(privateDirectory);
-    const bool reconfigure { fs::is_directory(base::join_path(privateDirectory, "meson-private")) };
+    (void)std::filesystem::create_directories(privateDirectory, ignored);
+    const bool reconfigure { std::filesystem::is_directory(base::join_path(privateDirectory, "meson-private"), ignored) };
 
-    auto result = platform::toolrun::run({
+    auto result = mcppls::toolrun::run({
         .program = *meson,
         .arguments = meson_setup_arguments(privateDirectory, context.offline, reconfigure),
         .workDirectory = claim.root,
         .purpose = reconfigure ? "configure" : "configure-first",
         .root = context.rootKey,
-        .network = context.offline ? platform::toolrun::Network::offline : platform::toolrun::Network::allowed,
-        .bounds = platform::RunBounds { .hard = context.configureTimeout },
+        .network = context.offline ? mcppls::toolrun::Network::offline : mcppls::toolrun::Network::allowed,
+        .bounds = mcpplibs::os::process::bounds { .hard = context.configureTimeout },
         .soft = context.producerSoft,
         .environmentWait = context.environmentWait,
         .onSoftDeadline = context.onSlow,
     });
     if (!result) return Answer { .code = result.error().code, .reason = result.error().message };
-    if (result->timedOut) return Answer { .outcome = Outcome::timed_out, .code = "meson-configure-failed", .reason = "meson setup did not finish in time" };
-    if (result->exitCode != 0) {
-        const std::string combined { result->output + "\n" + result->error };
+    if (result->timed_out) return Answer { .outcome = Outcome::timed_out, .code = "meson-configure-failed", .reason = "meson setup did not finish in time" };
+    if (!result->status.success()) {
+        const std::string combined { result->out + "\n" + result->err };
         if (context.offline) {
             if (auto missing = meson_missing_subprojects(combined); !missing.empty() || combined.contains("nodownload")) {
                 return Answer { .outcome = Outcome::needs_download, .code = std::string { spec::NEEDS_DOWNLOAD },
@@ -130,11 +129,11 @@ Answer MesonProvider::describe(const Claim& claim, const ProviderContext& contex
             }
         }
         return Answer { .code = "meson-configure-failed",
-                        .reason = std::format("meson setup failed ({}): {}", result->exitCode,
-                                              base::trim(result->error.empty() ? result->output : result->error)) };
+                        .reason = std::format("meson setup failed ({}): {}", toolrun::exit_code(result->status),
+                                              base::trim(result->err.empty() ? result->out : result->err)) };
     }
     const std::string commands { base::join_path(privateDirectory, "compile_commands.json") };
-    if (!fs::is_regular_file(commands)) return Answer { .code = "meson-no-database", .reason = "meson did not write compile_commands.json" };
+    if (!std::filesystem::is_regular_file(commands, ignored)) return Answer { .code = "meson-no-database", .reason = "meson did not write compile_commands.json" };
     return from_result(database_from_compile_commands_file(commands, claim.root, "meson", context.scanner, context.prober));
 }
 

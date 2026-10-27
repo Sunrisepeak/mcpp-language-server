@@ -2,41 +2,43 @@
 import std;
 import nlohmann.json;
 import mcppls.testing;
-import mcppls.os;
 import mcppls.base.path;
-import mcppls.platform.dirs;
-import mcppls.platform.fs;
-import mcppls.platform.process;
 import mcppls.engine.clangd.bmi;
 import mcppls.orchestrator.cache;
 import mcppls.orchestrator.instance;
+import mcpplibs.os;
+
+namespace base = mcppls::base;
+
+namespace os = mcpplibs::os;
 
 using Json = nlohmann::json;
-namespace fs = mcppls::platform::fs;
 namespace cache = mcppls::orchestrator::cache;
 namespace bmi = mcppls::engine::clangd;
 
 namespace {
 
 std::string scratch(std::string_view name) {
-    const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+    std::error_code ignored;
+    const std::string root { mcppls::base::join_path(base::spelled(os::dirs::temp()),
         std::format("mcppls-test-{}-{}", name, std::chrono::steady_clock::now().time_since_epoch().count())) };
-    (void)fs::create_directories(root);
+    (void)std::filesystem::create_directories(root, ignored);
     return root;
 }
 
 // One module's shape as clangd leaves it: the published `<module>.pcm` beside the copies it made
 // from it, in a command directory (`<...>/modules/<unit>-<hash>/<command-hash>/`).
 std::string command_directory(const std::string& workspace, std::string_view unit) {
+    std::error_code ignored;
     const std::string directory { mcppls::base::join_path(workspace,
         mcppls::base::join_path("contexts/default/cdb/.cache/clangd/modules", std::format("{}-0123456789abcdef", unit))) };
-    (void)fs::create_directories(mcppls::base::join_path(directory, "11111111111111111111111111111111"));
+    (void)std::filesystem::create_directories(mcppls::base::join_path(directory, "11111111111111111111111111111111"), ignored);
     return mcppls::base::join_path(directory, "11111111111111111111111111111111");
 }
 
 void write_copy(const std::string& directory, std::string_view module, std::string_view serial, std::size_t bytes, bool old = true) {
     const std::string file { mcppls::base::join_path(directory, std::format("{}-{}.pcm", module, serial)) };
-    (void)fs::write_file(file, std::string(bytes, 'x'));
+    (void)os::fs::write(file, std::string(bytes, 'x'));
     // Stamps compare on the file clock; an old copy needs an old mtime, so one is written back.
     if (old) {
         const auto target { std::chrono::file_clock::now() - std::chrono::hours { 48 } };
@@ -45,19 +47,20 @@ void write_copy(const std::string& directory, std::string_view module, std::stri
 }
 
 void write_canonical(const std::string& directory, std::string_view module, std::size_t bytes) {
-    (void)fs::write_file(mcppls::base::join_path(directory, std::format("{}.pcm", module)), std::string(bytes, 'x'));
+    (void)os::fs::write(mcppls::base::join_path(directory, std::format("{}.pcm", module)), std::string(bytes, 'x'));
 }
 
 void write_instance(const std::string& directory, std::int64_t at, std::string_view token) {
-    (void)fs::create_directories(directory);
+    std::error_code ignored;
+    (void)std::filesystem::create_directories(directory, ignored);
     const Json document { { "token", std::string { token } }, { "version", "0.0.10" }, { "root", "/somewhere" },
                           { "at", at }, { "shared", true } };
-    (void)fs::write_file(mcppls::base::join_path(directory, "instance.json"), document.dump());
+    (void)os::fs::write(mcppls::base::join_path(directory, "instance.json"), document.dump());
 }
 
 std::size_t count_pcm(const std::string& directory) {
     std::size_t count { 0 };
-    for (const auto& entry : fs::list_files(directory, std::array<std::string_view, 1> { ".pcm" }, {})) {
+    for (const auto& entry : base::files_under(directory, std::array<std::string_view, 1> { ".pcm" }, {})) {
         (void)entry;
         ++count;
     }
@@ -67,9 +70,11 @@ std::size_t count_pcm(const std::string& directory) {
 } // namespace
 
 int main() {
+    std::error_code ignored;
     using namespace mcppls::testing;
 
     "a copy is a stamped name whose canonical BMI sits beside it; a module named like a stamp is not a copy"_test = [] {
+        std::error_code ignored;
         const std::string directory { scratch("bmi") };
         write_canonical(directory, "pybind11", 16);
         write_copy(directory, "pybind11", "20261002-194715-990444", 16);
@@ -85,12 +90,13 @@ int main() {
         const bool fooCopy { bmi::is_versioned_copy("foo-20260101-120000-1.pcm", directory) };
         expect(!fooCopy) << std::format("predicate={} module_of_bmi={} foo.pcm exists={} joined={}",
                                         fooCopy, bmi::module_of_bmi("foo-20260101-120000-1.pcm"),
-                                        mcppls::platform::fs::exists(mcppls::base::join_path(directory, "foo.pcm")),
+                                        std::filesystem::exists(mcppls::base::join_path(directory, "foo.pcm"), ignored),
                                         mcppls::base::join_path(directory, std::format("{}.pcm", bmi::module_of_bmi("foo-20260101-120000-1.pcm"))));
-        fs::remove_all(directory);
+        std::filesystem::remove_all(directory, ignored);
     };
 
     "a sweep takes the copies and leaves every canonical BMI, and the report says the same numbers"_test = [] {
+        std::error_code ignored;
         const std::string workspace { scratch("sweep") };
         const std::string directory { command_directory(workspace, "main") };
         write_canonical(directory, "pybind11", 1'000'000);
@@ -99,7 +105,7 @@ int main() {
         }
         expect(count_pcm(directory) == 128);
 
-        const auto before { fs::modified_now() + 1 };
+        const auto before { base::file_time_now() + 1 };
         const cache::Sweep sweep { cache::sweep_copies(mcppls::base::join_path(workspace, "contexts/default/cdb/.cache/clangd/modules"), before) };
         expect(sweep.files == 127) << "all 127 copies";
         expect(sweep.bytes > 12'000'000) << "the bytes are the copies' own";
@@ -116,36 +122,39 @@ int main() {
         expect(numbers.value("copies", Json::object()).value("files", std::size_t { 0 }) == 0);
         expect(numbers.value("canonical", Json::object()).value("files", std::size_t { 0 }) == 1);
         expect(numbers.value("canonical", Json::object()).value("bytes", std::uint64_t { 0 }) == 1'000'000);
-        fs::remove_all(workspace);
+        std::filesystem::remove_all(workspace, ignored);
     };
 
     "a sweep honours its bound: what a live generation wrote stays"_test = [] {
+        std::error_code ignored;
         const std::string workspace { scratch("bound") };
         const std::string directory { command_directory(workspace, "main") };
         write_canonical(directory, "greet", 10);
         write_copy(directory, "greet", "20261002-194715-000001", 10);
-        const auto afterTheOldCopy { fs::modified_now() };
+        const auto afterTheOldCopy { base::file_time_now() };
         // A copy written "just now" (fresh mtime): the bound stops the sweep one step before it.
         write_copy(directory, "greet", "20261002-194715-000002", 10, false);
 
         const cache::Sweep sweep { cache::sweep_copies(mcppls::base::join_path(workspace, "contexts/default/cdb/.cache/clangd/modules"), afterTheOldCopy) };
         expect(sweep.files == 1) << "one copy within the bound";
         expect(count_pcm(directory) == 2) << "the fresh copy and the canonical stay";
-        fs::remove_all(workspace);
+        std::filesystem::remove_all(workspace, ignored);
     };
 
     "a dry run counts and removes nothing"_test = [] {
+        std::error_code ignored;
         const std::string workspace { scratch("dry") };
         const std::string directory { command_directory(workspace, "main") };
         write_canonical(directory, "greet", 10);
         write_copy(directory, "greet", "20261002-194715-000001", 100);
-        const cache::Sweep sweep { cache::sweep_copies(mcppls::base::join_path(workspace, "contexts/default/cdb/.cache/clangd/modules"), fs::modified_now() + 1, true) };
+        const cache::Sweep sweep { cache::sweep_copies(mcppls::base::join_path(workspace, "contexts/default/cdb/.cache/clangd/modules"), base::file_time_now() + 1, true) };
         expect(sweep.files == 1 && sweep.bytes == 100);
         expect(count_pcm(directory) == 2);
-        fs::remove_all(workspace);
+        std::filesystem::remove_all(workspace, ignored);
     };
 
     "instance directories: a fresh heartbeat is alive, a stale one is reaped, and a leftover waits for its grace"_test = [] {
+        std::error_code ignored;
         const std::string workspace { scratch("instances") };
         const auto now { std::chrono::system_clock::now() };
         const std::int64_t nowMs { std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() };
@@ -155,43 +164,44 @@ int main() {
         write_instance(mcppls::base::join_path(instances, "aaaaaaaaaaaaaaaa"), nowMs, "aaaaaaaaaaaaaaaa");
         write_instance(mcppls::base::join_path(instances, "bbbbbbbbbbbbbbbb"), nowMs - 120'000, "bbbbbbbbbbbbbbbb");   // 2 min stale
         write_instance(mcppls::base::join_path(instances, "cccccccccccccccc"), 0, "cccccccccccccccc");
-        (void)fs::remove(mcppls::base::join_path(instances, "cccccccccccccccc/instance.json"));
+        (void)[&] { std::error_code failed; std::filesystem::remove(mcppls::base::join_path(instances, "cccccccccccccccc/instance.json"), failed); return !failed; }();
         // `cccc` says nothing (a 0.0.9 leftover); its tree is fresh, so the grace keeps it.
-        (void)fs::write_file(mcppls::base::join_path(instances, "cccccccccccccccc/model.a.json"), "{}");
+        (void)os::fs::write(mcppls::base::join_path(instances, "cccccccccccccccc/model.a.json"), "{}");
 
         const cache::Sweep sweep { cache::sweep_instances(workspace, now, grace) };
         expect(sweep.instances == 1) << sweep.instances;
-        expect(fs::is_directory(mcppls::base::join_path(instances, "aaaaaaaaaaaaaaaa"))) << "the live one stays";
-        expect(!fs::exists(mcppls::base::join_path(instances, "bbbbbbbbbbbbbbbb")));
-        expect(fs::is_directory(mcppls::base::join_path(instances, "cccccccccccccccc"))) << "fresh without a self-description: the grace holds";
+        expect(std::filesystem::is_directory(mcppls::base::join_path(instances, "aaaaaaaaaaaaaaaa"), ignored)) << "the live one stays";
+        expect(!std::filesystem::exists(mcppls::base::join_path(instances, "bbbbbbbbbbbbbbbb"), ignored));
+        expect(std::filesystem::is_directory(mcppls::base::join_path(instances, "cccccccccccccccc"), ignored)) << "fresh without a self-description: the grace holds";
 
         // The tick's cheap half: rename only, never remove -- and the SAME grace the sweep gives a
         // directory that says nothing (review 2026-10-03): a 0.0.9 guest working right now must not
         // be renamed out from under a 0.0.10 owner's tick, whatever its mtime says elsewhere.
         const std::size_t renamedFresh { cache::rename_dead_instances(workspace, std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()), "dddddddddddddddd", grace) };
         expect(renamedFresh == 0) << std::format("the fresh undescribed directory is not renamed: {}", renamedFresh);
-        expect(fs::is_directory(mcppls::base::join_path(instances, "cccccccccccccccc"))) << "still under its own name";
+        expect(std::filesystem::is_directory(mcppls::base::join_path(instances, "cccccccccccccccc"), ignored)) << "still under its own name";
 
         // A described one whose heartbeat is stale, and an undescribed one past its grace: both go.
         write_instance(mcppls::base::join_path(instances, "ffffffffffffffff"), nowMs - 120'000, "ffffffffffffffff");
         const std::string oldLeftover { mcppls::base::join_path(instances, "gggggggggggggggg") };
         const std::string oldModel { mcppls::base::join_path(oldLeftover, "model.old.json") };
-        (void)fs::create_directories(oldLeftover);
-        (void)fs::write_file(oldModel, "{}");
+        (void)std::filesystem::create_directories(oldLeftover, ignored);
+        (void)os::fs::write(oldModel, "{}");
         std::filesystem::last_write_time(oldModel, std::chrono::file_clock::now() - std::chrono::hours { 48 });
         const std::size_t renamed { cache::rename_dead_instances(workspace, std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()), "dddddddddddddddd", grace) };
         expect(renamed == 2) << std::format("the stale heartbeat and the past-grace leftover: {}", renamed);
-        expect(fs::is_directory(mcppls::base::join_path(instances, "ffffffffffffffff.trash-dddddddddddddddd")));
-        expect(fs::is_directory(oldLeftover + ".trash-dddddddddddddddd"));
+        expect(std::filesystem::is_directory(mcppls::base::join_path(instances, "ffffffffffffffff.trash-dddddddddddddddd"), ignored));
+        expect(std::filesystem::is_directory(oldLeftover + ".trash-dddddddddddddddd", ignored));
         // And a sweep removes what the tick renamed aside.
         const cache::Sweep taken { cache::sweep_instances(workspace, now, grace) };
         expect(taken.instances == 2) << "the renamed-aside directories are taken";
-        expect(fs::is_directory(mcppls::base::join_path(instances, "aaaaaaaaaaaaaaaa"))) << "the live one survived the second sweep";
-        expect(fs::is_directory(mcppls::base::join_path(instances, "cccccccccccccccc"))) << "the fresh leftover survived it too";
-        fs::remove_all(workspace);
+        expect(std::filesystem::is_directory(mcppls::base::join_path(instances, "aaaaaaaaaaaaaaaa"), ignored)) << "the live one survived the second sweep";
+        expect(std::filesystem::is_directory(mcppls::base::join_path(instances, "cccccccccccccccc"), ignored)) << "the fresh leftover survived it too";
+        std::filesystem::remove_all(workspace, ignored);
     };
 
     "a heartbeat slightly ahead of this clock is alive; one far ahead is not trusted"_test = [] {
+        std::error_code ignored;
         // A clock stepped back (NTP, waking from sleep) puts fresh heartbeats in the future: reaping
         // every live instance for that would be worse than believing them (review 2026-10-03).
         const std::string workspace { scratch("clock") };
@@ -202,27 +212,28 @@ int main() {
         write_instance(mcppls::base::join_path(instances, "farfuture"), nowMs + 7 * 24 * 3600'000, "farfuture");
         const cache::Sweep sweep { cache::sweep_instances(workspace, now, std::chrono::hours { 24 }) };
         expect(sweep.instances == 1) << "only the far-future one is judged dead";
-        expect(fs::is_directory(mcppls::base::join_path(instances, "stepedback")));
-        expect(!fs::exists(mcppls::base::join_path(instances, "farfuture")));
-        fs::remove_all(workspace);
+        expect(std::filesystem::is_directory(mcppls::base::join_path(instances, "stepedback"), ignored));
+        expect(!std::filesystem::exists(mcppls::base::join_path(instances, "farfuture"), ignored));
+        std::filesystem::remove_all(workspace, ignored);
     };
 
     "a leftover older than its grace goes, and a budget evicts copies before anything published"_test = [] {
+        std::error_code ignored;
         const std::string workspace { scratch("grace") };
         const std::string instances { mcppls::base::join_path(workspace, "instances") };
         // A leftover with nothing to say for itself, whose newest file is two days old: past the
         // 24-hour grace, so the sweep takes it.
         const std::string leftover { mcppls::base::join_path(instances, "eeeeeeeeeeeeeeee") };
-        (void)fs::create_directories(leftover);
+        (void)std::filesystem::create_directories(leftover, ignored);
         const std::string oldModel { mcppls::base::join_path(leftover, "model.old.json") };
-        (void)fs::write_file(oldModel, "{}");
+        (void)os::fs::write(oldModel, "{}");
         std::filesystem::last_write_time(oldModel, std::chrono::file_clock::now() - std::chrono::hours { 48 });
         const std::string directory { command_directory(workspace, "main") };
         write_canonical(directory, "pybind11", 2'000'000);
         write_copy(directory, "pybind11", "20261002-194715-000001", 1'000'000);
         const cache::Sweep sweep { cache::sweep_instances(workspace, std::chrono::system_clock::now(), std::chrono::hours { 24 }) };
         expect(sweep.instances == 1) << "the leftover is past its grace";
-        expect(!fs::exists(leftover));
+        expect(!std::filesystem::exists(leftover, ignored));
 
         // The budget, directly: a 1'000'000-byte limit evicts the copy, keeps the canonical.
         const Json before = cache::report(workspace, cache::Budget { 1'000'000, 1'000'000 }, std::chrono::system_clock::now(), {});
@@ -233,7 +244,7 @@ int main() {
         const cache::Sweep evicted { cache::enforce_budget(workspaces, cache::Budget { 1'000'000, 1'000'000 }, {}, std::chrono::system_clock::now()) };
         expect(evicted.files == 1) << evicted.files;
         expect(cache::tree_bytes(mcppls::base::join_path(moved, "contexts/default/cdb/.cache/clangd/modules")) >= 2'000'000) << "the canonical BMI stays";
-        fs::remove_all(workspaces);
+        std::filesystem::remove_all(workspaces, ignored);
     };
 
     "parse_bytes reads what the settings write, and level_of colours the fill"_test = [] {
@@ -260,8 +271,11 @@ int main() {
         expect(!lease_owner_gone(0, "stamp"));
         expect(!lease_owner_gone(42, ""));
         // This process, by its own identity: alive, and a different stamp means a reused pid.
-        const auto self { mcppls::platform::process_self() };
-        if (self) {
+        const auto me { mcpplibs::os::process::self() };
+        if (me) {
+            // The identity a lease records (instance.cpp): the identifier, and `ok:<started_ns>`.
+            const struct { std::int64_t pid; std::string started; } identity { static_cast<std::int64_t>(me->id), std::format("ok:{}", me->started_ns) };
+            const auto* self = &identity;
             expect(!lease_owner_gone(self->pid, self->started)) << "the process writing this lease is not gone";
             expect(lease_owner_gone(self->pid, self->started + "!")) << "the same pid with another incarnation is";
             // A lease an older server wrote (its start in another scheme: a clock-tick count, a date)

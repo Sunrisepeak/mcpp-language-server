@@ -3,12 +3,14 @@ module mcppls.project.infer;
 import std;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.fs;
 import mcppls.spec.database;
 import mcppls.toolchain.probe;
 import mcppls.project.compdb;
 import mcppls.project.scan;
 import mcppls.project.boundary;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::project {
 
@@ -33,6 +35,7 @@ public:
     explicit VcpkgPackages(std::string_view root) : rootKey_ { base::path_key(root) } {}
 
     bool contains(std::string_view file) {
+        std::error_code ignored;
         std::string directory { base::parent_path(file) };
         std::vector<std::string> walked;
         bool found { false };
@@ -42,7 +45,7 @@ public:
                 break;
             }
             walked.push_back(directory);
-            if (platform::fs::is_regular_file(base::join_path(directory, "vcpkg.json"))) {
+            if (std::filesystem::is_regular_file(base::join_path(directory, "vcpkg.json"), ignored)) {
                 found = true;
                 break;
             }
@@ -70,7 +73,7 @@ void fill_modules(spec::TranslationUnit& unit, const ScanResult& scanned) {
 
 Scanner file_scanner() {
     return [](std::string_view path) {
-        auto text = platform::fs::read_file(path);
+        auto text = os::fs::read(path);
         return text ? scan_source(*text) : ScanResult {};
     };
 }
@@ -214,6 +217,7 @@ std::string inferred_language_standard(const std::optional<toolchain::ToolchainF
 }
 
 InferredDatabase infer_database(std::string_view rootInput, const InferOptions& options, const Scanner& scanner) {
+    std::error_code ignored;
     InferredDatabase result;
     const std::string root { base::normalize_path(rootInput) };
     result.database.hasIde = true;
@@ -237,7 +241,7 @@ InferredDatabase infer_database(std::string_view rootInput, const InferOptions& 
     if (msvc) baseline = { "/std:c++latest", "/EHsc", "/permissive-", "/MD" };
     else baseline = { "-std=" + options.languageStandard };
     for (std::string_view include : { "include", "src" }) {
-        if (const std::string directory { base::join_path(root, include) }; platform::fs::is_directory(directory)) {
+        if (const std::string directory { base::join_path(root, include) }; std::filesystem::is_directory(directory, ignored)) {
             baseline.push_back((msvc ? "/I" : "-I") + directory);
         }
     }
@@ -246,7 +250,7 @@ InferredDatabase infer_database(std::string_view rootInput, const InferOptions& 
     // A nested project's own sources are not this one's (real-project plan RP3.4).
     const ProjectBoundaries boundaries { root };
     VcpkgPackages vcpkgPackages { root };
-    for (const auto& file : platform::fs::list_files(root, SOURCE_EXTENSIONS, SKIPPED_DIRECTORIES)) {
+    for (const auto& file : base::files_under(root, SOURCE_EXTENSIONS, SKIPPED_DIRECTORIES)) {
         if (boundaries.crossed(file, root) || vcpkgPackages.contains(file)) continue;
         spec::TranslationUnit unit;
         unit.source = file;

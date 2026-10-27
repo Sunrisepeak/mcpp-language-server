@@ -2,7 +2,6 @@ module mcppls.orchestrator.workspace;
 
 import std;
 import nlohmann.json;
-import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.glob;
 import mcppls.base.log;
@@ -13,14 +12,6 @@ import mcppls.base.uri;
 import mcppls.base.version;
 import mcppls.orchestrator.cache;
 import mcppls.engine.clangd.process;
-import mcppls.platform.dirs;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.platform.process;
-import mcppls.platform.system;
-import mcppls.platform.toolenv;
-import mcppls.platform.toolrun;
-import mcppls.platform.task;
 import mcppls.lsp.jsonrpc;
 import mcppls.lsp.protocol;
 import mcppls.spec.database;
@@ -53,6 +44,13 @@ import mcppls.orchestrator.instance;
 import mcppls.orchestrator.routing;
 import mcppls.orchestrator.tokens;
 import mcppls.orchestrator.highlights;
+import mcpplibs.os;
+import mcppls.base.home;
+import mcppls.base.payload;
+import mcppls.toolrun;
+import mcppls.toolenv;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::orchestrator {
 
@@ -120,7 +118,7 @@ struct WatchPatterns {
     std::mutex mutex;
     std::vector<std::string> entries;   // glob patterns relative to the root, or absolute paths
     int generation { 0 };               // advanced whenever `entries` is replaced
-    std::map<std::string, std::optional<platform::fs::FileStamp>> concreteBaseline;
+    std::map<std::string, std::optional<os::fs::stamp>> concreteBaseline;
 };
 
 // Whether `path` is one of `entries`: an absolute entry names the file, a relative one is a glob under `root`.
@@ -137,18 +135,18 @@ bool watch_covers(std::span<const std::string> entries, std::string_view root, s
     return is_build_file(base::file_name(path)) || project::is_cxx_source_name(path) || matches_watch_entries(entries, root, path);
 }
 
-std::map<std::string, platform::fs::FileStamp> watched_files_snapshot_of(std::string_view root, std::span<const std::string> entries, bool allRootFiles = false) {
-    std::map<std::string, platform::fs::FileStamp> files;
-    for (const auto& file : platform::fs::list_files(root, {}, WATCH_POLL_SKIP_DIRECTORIES)) {
+std::map<std::string, os::fs::stamp> watched_files_snapshot_of(std::string_view root, std::span<const std::string> entries, bool allRootFiles = false) {
+    std::map<std::string, os::fs::stamp> files;
+    for (const auto& file : base::files_under(root, {}, WATCH_POLL_SKIP_DIRECTORIES)) {
         if (!allRootFiles && !watch_covers(entries, root, file)) continue;
-        if (auto fileStamp = platform::fs::stamp(file)) files.emplace(file, *fileStamp);
+        if (auto fileStamp = base::file_stamp(file)) files.emplace(file, *fileStamp);
     }
     // Explicit files are watched independently of traversal exclusions, including target/ and
     // files outside the root. Globs do not cause traversal into excluded directories.
     for (const auto& entry : entries) {
         if (entry.find_first_of("*?[{") != std::string::npos) continue;
         const std::string path { base::is_absolute_path(entry) ? base::normalize_path(entry) : base::join_path(root, entry) };
-        if (auto fileStamp = platform::fs::stamp(path)) files.insert_or_assign(path, *fileStamp);
+        if (auto fileStamp = base::file_stamp(path)) files.insert_or_assign(path, *fileStamp);
     }
     return files;
 }
@@ -188,7 +186,7 @@ bool is_build_file(std::string_view name) {
     return std::ranges::find(BUILD_FILES, name) != BUILD_FILES.end() || name.ends_with(".cmake");
 }
 
-std::map<std::string, platform::fs::FileStamp> watched_files_snapshot(std::string_view root) { return watched_files_snapshot_of(root, {}); }
+std::map<std::string, os::fs::stamp> watched_files_snapshot(std::string_view root) { return watched_files_snapshot_of(root, {}); }
 
 // ---- Workspace::Impl -------------------------------------------------------------------------
 
@@ -231,21 +229,22 @@ struct Workspace::Impl final : engine::Host {
         if (!now && recentFilesWrittenAt && Clock::now() - *recentFilesWrittenAt < RECENT_FILES_WRITTEN) return;
         Json list = Json::array();
         for (const auto& path : recentFiles) list.push_back(path);
-        (void)platform::fs::write_file_atomic(base::join_path(cacheDirectory, "recent-files.json"), list.dump());
+        (void)os::fs::write_atomic(base::join_path(cacheDirectory, "recent-files.json"), list.dump());
         recentFilesChanged = false;
         recentFilesWrittenAt = Clock::now();
     }
 
     std::vector<std::string> read_recent_files() {
+        std::error_code ignored;
         std::vector<std::string> paths;
-        const auto text = platform::fs::read_file(base::join_path(cacheDirectory, "recent-files.json"));
+        const auto text = os::fs::read(base::join_path(cacheDirectory, "recent-files.json"));
         if (!text) return paths;
         const Json list = Json::parse(*text, nullptr, false);
         if (!list.is_array()) return paths;
         for (const auto& item : list) {
             if (!item.is_string() || paths.size() >= RECENT_FILES) continue;
             const std::string path { item.get<std::string>() };
-            if (base::is_within(path, root) && platform::fs::is_regular_file(path)) paths.push_back(path);
+            if (base::is_within(path, root) && std::filesystem::is_regular_file(path, ignored)) paths.push_back(path);
         }
         recentFiles.assign(paths.begin(), paths.end());
         return paths;
@@ -278,7 +277,7 @@ struct Workspace::Impl final : engine::Host {
     mutable std::unordered_map<std::string, std::string> canonicalByUri;
     index::ModuleIndex index;
     spec::MetadataReader metadataReader { spec::caching_metadata_reader() };
-    std::map<std::string, platform::fs::FileStamp> watchBaseline;
+    std::map<std::string, os::fs::stamp> watchBaseline;
     std::shared_ptr<WatchPatterns> watchPatterns { std::make_shared<WatchPatterns>() };
     bool dynamicWatch { false };             // the client registers watchers for us (else this root polls)
     int watchRegistration { 0 };             // the id suffix of the model's current watcher registration, 0 for none
@@ -326,7 +325,7 @@ struct Workspace::Impl final : engine::Host {
     std::map<std::string, std::int64_t, std::less<>> coreDiagnosticsVersions;
     // The review an editor asked for (overall design 7.7): its findings as LSP diagnostics, by client URI.
     std::map<std::string, Json, std::less<>> reviewDiagnostics;
-    std::shared_ptr<platform::Process> reviewProcess;
+    std::shared_ptr<os::process::process> reviewProcess;
 
     // robustness design O1, O3: what happened, and how requests fared, for a report of a problem.
     Journal journal;
@@ -468,7 +467,7 @@ struct Workspace::Impl final : engine::Host {
     };
     static constexpr std::chrono::seconds WORD_ANSWER_KEPT { 30 };
     std::map<std::string, WordAnswer, std::less<>> wordAnswers;   // document URI -> its last complete core answer
-    const bool wordAnswersOn { platform::env::get("MCPPLS_COMPLETION_REFILTER").value_or("") != "off" };
+    const bool wordAnswersOn { os::env::get("MCPPLS_COMPLETION_REFILTER").value_or("") != "off" };
     std::size_t completionsFromWord { 0 };
 
     // The answer layer (answer-layer design 2026-10-13): what the core engine answered, kept by what it depends on, and
@@ -517,7 +516,7 @@ struct Workspace::Impl final : engine::Host {
     // dependency graph (#if 0, for example). Remember only inputs a valid answer covered.
     std::map<std::string, std::string> producerSourcePaths;
     std::map<std::string, std::string> loadingSourceStructures;
-    std::map<std::string, platform::fs::FileStamp> loadingSourceStamps;
+    std::map<std::string, os::fs::stamp> loadingSourceStamps;
     std::map<std::string, std::string> describedSourceStructures;
     int describedSourceGeneration { -1 };
     std::string loadingSourceProducerIdentity;
@@ -672,7 +671,8 @@ struct Workspace::Impl final : engine::Host {
         : root { std::move(root_) }, key { std::move(key_) }, options { std::move(options_) }, events { std::move(events_) }, client { client_ },
           compilerOverride { std::move(compilerOverride_) }, kitEnabled { kitEnabled_ }, payload { std::move(payload_) },
           payloadCorrupt { payloadCorrupt_ } {
-        const std::string workspaceDirectory { base::join_path(platform::dirs::cache_directory(), base::join_path("workspaces", project::workspace_key(root))) };
+        std::error_code ignored;
+        const std::string workspaceDirectory { base::join_path(base::cache_directory(), base::join_path("workspaces", project::workspace_key(root))) };
         lease = WorkspaceLease::acquire(workspaceDirectory, std::chrono::system_clock::now(), root);
         workspaceDirectory_ = workspaceDirectory;
         ownToken_ = lease->token();
@@ -682,11 +682,11 @@ struct Workspace::Impl final : engine::Host {
         leaseRenewAt = Clock::now() + LEASE_RENEWAL;
         // Under its one name, like every file the engines are given (engine_uri): the prime units
         // and the database live here, and clangd answers for them under the name it was given.
-        (void)platform::fs::create_directories(cacheDirectory);
-        cacheDirectory = platform::fs::canonical_path(cacheDirectory);
+        (void)std::filesystem::create_directories(cacheDirectory, ignored);
+        cacheDirectory = base::canonical_path(cacheDirectory);
         // 0.0.14 E1: on Windows, a cache off a Dev Drive has every file clangd writes and reads there scanned by
         // Microsoft Defender as it happens. Said once, in the log and the overview; nothing is changed for the person.
-        cacheOnDevDrive = platform::system::on_dev_drive(cacheDirectory);
+        if constexpr (os::is_windows) cacheOnDevDrive = os::windows::on_dev_drive(std::filesystem::path { cacheDirectory });
         if (cacheOnDevDrive == false) {
             log::info("the cache {} is not on a Dev Drive: Microsoft Defender scans the module and preamble files clangd writes and reads "
                       "there as it does; a Dev Drive scans them asynchronously (docs/50-troubleshooting.md, \"Windows\")", cacheDirectory);
@@ -696,7 +696,7 @@ struct Workspace::Impl final : engine::Host {
                                            answer::marks_of(options.completionProvenance).value_or(answer::Marks::subtle), options.answerAgent == "authoritative" };
             if (!wordAnswersOn) settings.cache = "off";   // MCPPLS_COMPLETION_REFILTER=off: as 0.0.14 with A1 off
             answers_ = std::make_unique<answering::Layer>(
-                std::move(settings), base::join_path(workspaceDirectory_, "answers"), base::join_path(platform::dirs::cache_directory(), "answers"),
+                std::move(settings), base::join_path(workspaceDirectory_, "answers"), base::join_path(base::cache_directory(), "answers"),
                 [this](std::string_view path) -> std::optional<std::string> {
                     if (const Document* document = documents_.find_by_path(path)) return document->text;
                     return std::nullopt;
@@ -837,7 +837,7 @@ struct Workspace::Impl final : engine::Host {
     // while one pass runs, another asked-for pass is coalesced and retriggered by
     // `handle_cache_swept`, never queued behind it (review 2026-10-03: a crash-looping engine
     // starting one full pass per restart is many threads on one tree otherwise).
-    void start_cache_task_(std::string_view origin, std::int64_t before = platform::fs::modified_now(), bool reportOnly = false) {
+    void start_cache_task_(std::string_view origin, std::int64_t before = base::file_time_now(), bool reportOnly = false) {
         {
             std::lock_guard lock(cacheMutex_);
             if (sweepRunning_.load()) {
@@ -871,7 +871,7 @@ struct Workspace::Impl final : engine::Host {
                     files += one.files;
                     failed += one.failed;
                 }
-                const cache::Sweep over { cache::enforce_budget(base::join_path(platform::dirs::cache_directory(), "workspaces"), budget, ownKey, now) };
+                const cache::Sweep over { cache::enforce_budget(base::join_path(base::cache_directory(), "workspaces"), budget, ownKey, now) };
                 bytes += over.bytes;
                 files += over.files;
                 failed += over.failed;
@@ -919,8 +919,8 @@ struct Workspace::Impl final : engine::Host {
         Json facts { { "version", std::string { base::VERSION } },
                      { "root", root },
                      { "cacheRoot", workspaceDirectory_ },
-                     { "os", std::string { mcppls::os::family_name() } },
-                     { "arch", std::string_view { mcppls::os::arch_name() } },
+                     { "os", std::string { os::name(os::host()) } },
+                     { "arch", std::string_view { base::payload_arch() } },
                      { "logDirectory", base::parent_path(log::file_path()) },
                      { "bundlesDirectory", bundle::default_directory() } };
         if (clientParams.is_object()) {
@@ -967,7 +967,7 @@ struct Workspace::Impl final : engine::Host {
     // The engines are given every file under the one name the model uses for it (v1 design 14.3's
     // "one file, one name"): clangd matches an unsaved buffer to the module source it builds by name.
     std::string engine_uri(std::string_view uri) const override {
-        if (mcppls::os::family() == mcppls::os::Family::windows) {
+        if (os::host() == os::platform::windows) {
             const std::string path { path_of_uri(uri) };
             if (path.size() < 2 || path[1] != ':') return std::string { uri };
             return "file:///" + path.substr(0, 2) + base::percent_encode_path(std::string_view { path }.substr(2));
@@ -1011,7 +1011,7 @@ struct Workspace::Impl final : engine::Host {
         const std::string key_ { uri };
         if (const auto cached = canonicalByUri.find(key_); cached != canonicalByUri.end()) return cached->second;
         auto path = base::uri_to_path(uri);
-        std::string canonical { path ? platform::fs::canonical_path(*path) : std::string {} };
+        std::string canonical { path ? base::canonical_path(*path) : std::string {} };
         if (canonicalByUri.size() > 4096) canonicalByUri.clear();
         canonicalByUri.emplace(key_, canonical);
         return canonical;
@@ -1083,7 +1083,7 @@ struct Workspace::Impl final : engine::Host {
                 std::this_thread::sleep_for(std::chrono::seconds { 2 });
                 if (patterns->stopped.load()) return;
                 std::vector<std::string> entries;
-                std::map<std::string, std::optional<platform::fs::FileStamp>> concreteBaseline;
+                std::map<std::string, std::optional<os::fs::stamp>> concreteBaseline;
                 int generation { 0 };
                 {
                     const std::lock_guard lock { patterns->mutex };
@@ -1457,13 +1457,13 @@ struct Workspace::Impl final : engine::Host {
             const auto units = index.providers_for(importer, name);
             for (const auto& unit : units) {
                 if (const Document* open { documents_.find_by_path(unit.path) }) identity += std::format("{} text {}\n", unit.path, base::sha256_hex(open->text));
-                else if (const auto stamp = platform::fs::stamp(unit.path)) identity += std::format("{} {} {}\n", unit.path, stamp->size, stamp->modified);
+                else if (const auto stamp = base::file_stamp(unit.path)) identity += std::format("{} {} {}\n", unit.path, stamp->size, static_cast<std::int64_t>(stamp->modified_ns));
                 for (const auto& imported : imports_of(unit.path)) pending.emplace_back(unit.path, imported);
             }
             if (units.empty()) {
                 if (const auto* external = index.external(name)) {
-                    const auto stamp = platform::fs::stamp(external->path);
-                    identity = std::format("{} {} {}\n", external->path, stamp ? stamp->size : 0, stamp ? stamp->modified : 0);
+                    const auto stamp = base::file_stamp(external->path);
+                    identity = std::format("{} {} {}\n", external->path, stamp ? stamp->size : 0, stamp ? static_cast<std::int64_t>(stamp->modified_ns) : 0);
                 }
             }
             modules.emplace(std::move(name), std::move(identity));
@@ -1480,7 +1480,7 @@ struct Workspace::Impl final : engine::Host {
         if (!key) return;   // no plan entry yet: asked again at the next request
         kept.cacheChecked = true;
         const std::string file { base::join_path(tokens_directory(), highlights::cache_file_name(base::path_key(document.path))) };
-        const auto bytes = platform::fs::read_file(file);
+        const auto bytes = os::fs::read(file);
         const auto cached = bytes ? highlights::decode_cache(*bytes) : std::nullopt;
         if (!cached || cached->key != *key) {
             ++highlights.counters.cacheMisses;
@@ -1498,13 +1498,14 @@ struct Workspace::Impl final : engine::Host {
 
     // H2: the compiler's exact tokens of a text the disk has (opened or saved, not edited since), written once per key.
     void write_kept_tokens(const Document& document, highlights::Kept& kept) {
+        std::error_code ignored;
         const auto key = tokens_cache_key(document);
         if (!key || *key == kept.writtenKey) return;
         const std::string directory { tokens_directory() };
-        (void)platform::fs::create_directories(directory);
+        (void)std::filesystem::create_directories(directory, ignored);
         const std::string file { base::join_path(directory, highlights::cache_file_name(base::path_key(document.path))) };
-        if (auto written = platform::fs::write_file_atomic(file, highlights::encode_cache(highlights::CacheFile { *key, kept.core })); !written) {
-            log::debug("semantic tokens of {} were not kept on disk: {}", document.path, written.error().message);
+        if (auto written = os::fs::write_atomic(file, highlights::encode_cache(highlights::CacheFile { *key, kept.core })); !written) {
+            log::debug("semantic tokens of {} were not kept on disk: {}", document.path, written.error().message());
             return;
         }
         kept.writtenKey = *key;
@@ -1713,7 +1714,7 @@ struct Workspace::Impl final : engine::Host {
                                 if (path.empty()) return;
                                 std::string text;
                                 if (const Document* open = documents_.find_by_path(path)) text = open->text;
-                                else if (auto disk = platform::fs::read_file(path)) text = std::move(*disk);
+                                else if (auto disk = os::fs::read(path)) text = std::move(*disk);
                                 const base::Position start { (*range)["start"].value("line", 0), (*range)["start"].value("character", 0) };
                                 const auto offset = base::offset_at(text, start);
                                 if (!offset) return;
@@ -1827,7 +1828,7 @@ struct Workspace::Impl final : engine::Host {
     // definition and declaration owners before asking for edits, rather than treating
     // that partial edit as proof of safety. Both lookups share the original deadline.
     void preflight_rename(std::uint64_t jobId, bool declaration = false,
-                          std::optional<platform::fs::FileStamp> closedStamp = std::nullopt) {
+                          std::optional<os::fs::stamp> closedStamp = std::nullopt) {
         Job& job = jobs.at(jobId);
         const std::string uri { uri_of_params(job.params) };
         const Document* document { documents_.find(uri) };
@@ -1835,7 +1836,7 @@ struct Workspace::Impl final : engine::Host {
             fail_rename_ownership(jobId, "the symbol's document or compiler is unavailable");
             return;
         }
-        if (!declaration && document == nullptr) closedStamp = platform::fs::stamp(job.path);
+        if (!declaration && document == nullptr) closedStamp = base::file_stamp(job.path);
         if (declaration && closedStamp && document != nullptr) {
             fail_rename_ownership(jobId, "the closed document was opened while resolving the symbol");
             return;
@@ -1868,7 +1869,7 @@ struct Workspace::Impl final : engine::Host {
             }
             const Document* now = documents_.find(uri);
             const bool sameDocument { version ? now != nullptr && now->version == *version && now->text == current->second.text
-                : now == nullptr && closedStamp && platform::fs::stamp(current->second.path) == closedStamp };
+                : now == nullptr && closedStamp && base::file_stamp(current->second.path) == closedStamp };
             if (generation != modelGeneration || ownerModel != model || !sameDocument) {
                 fail_rename_ownership(jobId, "the document or project changed while resolving the symbol");
                 return;
@@ -2421,7 +2422,7 @@ struct Workspace::Impl final : engine::Host {
         const auto known = structures.find(key);
         const auto* scan = index.scan_of(path);
         if (known == structures.end() || scan == nullptr || structure_of(*scan) != known->second) return false;
-        const auto disk = platform::fs::read_file(path);
+        const auto disk = os::fs::read(path);
         if (!disk || structure_of(project::scan_source(*disk)) != known->second) return false;
         const auto required = project::required_names(*scan);
         bool represented { false };
@@ -2465,20 +2466,20 @@ struct Workspace::Impl final : engine::Host {
         std::string signature { options.mcppTarget };
         if (options.mcppTarget == "auto") {
             const auto path = base::join_path(root, "compile_commands.json");
-            signature += "\n" + platform::fs::canonical_path(path);
-            if (const auto stamp = platform::fs::stamp(path)) signature += std::format("\n{}:{}", stamp->size, stamp->modified);
+            signature += "\n" + base::canonical_path(path);
+            if (const auto stamp = base::file_stamp(path)) signature += std::format("\n{}:{}", stamp->size, static_cast<std::int64_t>(stamp->modified_ns));
             else signature += "\nabsent";
-            if (const auto identity = platform::fs::file_identity(path)) signature += std::format("\n{}:{}", identity->volume, identity->index);
+            if (const auto identity = os::fs::identity_of(path)) signature += std::format("\n{}:{}", identity->volume, identity->index);
         }
         return signature;
     }
 
     std::string producer_file_identity() const {
         if (producerPath.empty()) return {};
-        std::string identity { platform::fs::canonical_path(producerPath) };
-        if (const auto stamp = platform::fs::stamp(producerPath)) identity += std::format("\n{}:{}", stamp->size, stamp->modified);
+        std::string identity { base::canonical_path(producerPath) };
+        if (const auto stamp = base::file_stamp(producerPath)) identity += std::format("\n{}:{}", stamp->size, static_cast<std::int64_t>(stamp->modified_ns));
         else identity += "\nabsent";
-        if (const auto file = platform::fs::file_identity(producerPath)) identity += std::format("\n{}:{}", file->volume, file->index);
+        if (const auto file = os::fs::identity_of(producerPath)) identity += std::format("\n{}:{}", file->volume, file->index);
         return identity;
     }
 
@@ -2759,7 +2760,7 @@ struct Workspace::Impl final : engine::Host {
         std::vector<std::string> directories { cacheDirectory };
         if (lease && lease->shared()) directories.push_back(lease->workspace_directory());
         for (const auto& directory : directories) {
-            const auto text = platform::fs::read_file(producer_timing_path(directory));
+            const auto text = os::fs::read(producer_timing_path(directory));
             if (!text) continue;
             const Json timing = Json::parse(*text, nullptr, false);
             if (timing.is_object() && timing.value(std::string { project::to_string(kind) }, std::int64_t { 0 }) > 0) {
@@ -2771,11 +2772,11 @@ struct Workspace::Impl final : engine::Host {
 
     void write_producer_timing(project::SourceKind kind, std::int64_t milliseconds) const {
         const std::string path { producer_timing_path(cacheDirectory) };
-        const auto text = platform::fs::read_file(path);
+        const auto text = os::fs::read(path);
         Json timing = text ? Json::parse(*text, nullptr, false) : Json::object();
         if (!timing.is_object()) timing = Json::object();
         timing[std::string { project::to_string(kind) }] = milliseconds;
-        (void)platform::fs::write_file_atomic(path, timing.dump());
+        (void)os::fs::write_atomic(path, timing.dump());
     }
 
     void save_model_cache() const {
@@ -2855,7 +2856,7 @@ struct Workspace::Impl final : engine::Host {
 
     // Whether `path` holds what it held when last seen; remembers what it holds now.
     bool input_unchanged(const std::string& path) {
-        const auto text = platform::fs::read_file(path);
+        const auto text = os::fs::read(path);
         if (!text) {
             describedInputs.erase(base::path_key(path));
             return false;
@@ -2888,7 +2889,7 @@ struct Workspace::Impl final : engine::Host {
         for (const auto& file : described_files()) {
             if (overwrite) input_unchanged(file);
             else if (!describedInputs.contains(base::path_key(file))) {
-                if (const auto text = platform::fs::read_file(file)) describedInputs.emplace(base::path_key(file), base::sha256_hex(*text));
+                if (const auto text = os::fs::read(file)) describedInputs.emplace(base::path_key(file), base::sha256_hex(*text));
             }
         }
     }
@@ -2902,12 +2903,12 @@ struct Workspace::Impl final : engine::Host {
         std::size_t remaining { 32 * 1024 * 1024 };
         for (const auto& [key, path] : producerSourcePaths) {
             if (remaining == 0) break;
-            const auto before = platform::fs::stamp(path);
+            const auto before = base::file_stamp(path);
             if (!before || before->size > remaining) continue;
-            const auto text = platform::fs::read_file(path, remaining);
+            const auto text = os::fs::read(path, remaining);
             if (!text) break; // a failed bounded read may already have consumed the remaining budget
             remaining -= text->size();
-            if (platform::fs::stamp(path) == before) {
+            if (base::file_stamp(path) == before) {
                 if (auto structure = described_source_structure(*text, project::scan_source(*text, true))) {
                     loadingSourceStructures.emplace(key, std::move(*structure));
                     loadingSourceStamps.emplace(key, *before);
@@ -2929,7 +2930,7 @@ struct Workspace::Impl final : engine::Host {
             const auto path = producerSourcePaths.find(key);
             const auto stamp = loadingSourceStamps.find(key);
             if (units.contains(key) && path != producerSourcePaths.end() && stamp != loadingSourceStamps.end()
-                && platform::fs::stamp(path->second) == std::optional { stamp->second }
+                && base::file_stamp(path->second) == std::optional { stamp->second }
                 && matches_watch_entries(loaded.watch, root, path->second)) {
                 describedSourceStructures.emplace(key, structure);
             }
@@ -2942,10 +2943,11 @@ struct Workspace::Impl final : engine::Host {
     // the cache) goes with a reset too, or a state xmake no longer recovers from outlives the reset that was to clear it. Removed
     // only while no load runs in it: a reset during a load leaves it to the start of the next one.
     void remove_producer_states() {
+        std::error_code ignored;
         for (const auto* provider : project::registered_providers()) {
             const std::string directory { base::join_path(cacheDirectory, std::string { provider->id() }) };
-            if (!platform::fs::is_directory(directory)) continue;
-            platform::fs::remove_all(directory);
+            if (!std::filesystem::is_directory(directory, ignored)) continue;
+            std::filesystem::remove_all(directory, ignored);
             log::info("removed {}'s private state for {} ({})", provider->id(), root, directory);
         }
     }
@@ -3002,7 +3004,7 @@ struct Workspace::Impl final : engine::Host {
         producerSoftAt = Clock::now() + load.producerSoft + std::chrono::milliseconds { 200 };
         std::shared_ptr<const spec::Kit> kitCopy = kit ? std::make_shared<const spec::Kit>(*kit) : nullptr;
         const std::string rootCopy { root };
-        const std::string probeCachePath { base::join_path(platform::dirs::cache_directory(), "toolchains/probe.json") };
+        const std::string probeCachePath { base::join_path(base::cache_directory(), "toolchains/probe.json") };
         auto queue = events;
         const std::string rootKey { key };
         std::thread { [queue, generation, load, kitCopy, rootCopy, probeCachePath, rootKey]() mutable {
@@ -3044,8 +3046,8 @@ struct Workspace::Impl final : engine::Host {
         // or the watch to settle -- on a loaded machine 2 s missed a writer that finished 2.5 s after it started.
         const auto now { std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::file_clock::now().time_since_epoch()).count() };
         const bool written { std::ranges::any_of(candidates, [&](const std::string& path) {
-            const auto stamp { platform::fs::stamp(path) };
-            return stamp && now - stamp->modified < std::chrono::nanoseconds { 10s }.count();
+            const auto stamp { base::file_stamp(path) };
+            return stamp && now - static_cast<std::int64_t>(stamp->modified_ns) < std::chrono::nanoseconds { 10s }.count();
         }) };
         if (!written || invalidFileRetries >= 5) {
             invalidFileRetries = 0;
@@ -3316,7 +3318,7 @@ struct Workspace::Impl final : engine::Host {
                 for (const auto& entry : model->watch) {
                     if (entry.find_first_of("*?[{") != std::string::npos) continue;
                     const std::string path { base::is_absolute_path(entry) ? base::normalize_path(entry) : base::join_path(root, entry) };
-                    watchPatterns->concreteBaseline.emplace(path, platform::fs::stamp(path));
+                    watchPatterns->concreteBaseline.emplace(path, base::file_stamp(path));
                 }
                 ++watchPatterns->generation;
             }
@@ -3364,7 +3366,7 @@ struct Workspace::Impl final : engine::Host {
                 if (index.contains(path)) continue;
                 if (const Document* document = documents_.find_by_path(path)) {
                     index.update(path, document->text);
-                } else if (auto text = platform::fs::read_file(path)) {
+                } else if (auto text = os::fs::read(path)) {
                     index.update(path, *text);
                 }
             }
@@ -3399,6 +3401,7 @@ struct Workspace::Impl final : engine::Host {
     }
 
     void replan() {
+        std::error_code ignored;
         replanAt.reset();
         if (!model) return;
         ++snapshotGeneration;
@@ -3410,13 +3413,13 @@ struct Workspace::Impl final : engine::Host {
         input.macosSdk = macosSdk;
         input.scanner = [this](std::string_view path) {
             if (const auto* scan = index.scan_of(path)) return *scan;
-            auto text = platform::fs::read_file(path);
+            auto text = os::fs::read(path);
             return text ? project::scan_source(*text) : project::ScanResult {};
         };
         input.metadataReader = metadataReader;
         std::set<std::string> openSources;
         for (const auto& path : openedOutsideModel) {
-            if (platform::fs::is_regular_file(path)) openSources.insert(path);
+            if (std::filesystem::is_regular_file(path, ignored)) openSources.insert(path);
         }
         for (const Document* document : documents_.all()) {
             if (!document->path.empty() && project::is_cxx_source_name(document->path) && base::is_within(document->path, root)) openSources.insert(document->path);
@@ -3430,7 +3433,7 @@ struct Workspace::Impl final : engine::Host {
             if (edited == editedAt.end() || now - edited->second >= EDITING_WINDOW) continue;
             input.editingSources.push_back(document->path);
             // Fix plan F13: what an autosave already put on disk is what clangd builds with.
-            if (auto disk = platform::fs::read_file(document->path)) input.editingDiskImports[document->path] = project::required_names(project::scan_source(*disk));
+            if (auto disk = os::fs::read(document->path)) input.editingDiskImports[document->path] = project::required_names(project::scan_source(*disk));
             if (!lastEdit || edited->second > *lastEdit) lastEdit = edited->second;
         }
         input.modelOrigin = modelOrigin;
@@ -3755,7 +3758,7 @@ struct Workspace::Impl final : engine::Host {
     }
 
     Json about_json() const {
-        Json about { { "server", std::string { base::VERSION } }, { "platform", std::string { mcppls::os::platform() } }, { "startedAt", startedAtUtc } };
+        Json about { { "server", std::string { base::VERSION } }, { "platform", std::string { base::payload_platform() } }, { "startedAt", startedAtUtc } };
         if (const std::string extension { extension_version() }; !extension.empty()) about["extension"] = extension;
         if (const Json* info = lsp::find(clientParams, "clientInfo"); info != nullptr && info->is_object()) {
             about["editor"] = Json { { "name", info->value("name", std::string {}) }, { "version", info->value("version", std::string {}) } };
@@ -3790,7 +3793,7 @@ struct Workspace::Impl final : engine::Host {
         } else if (kit) {
             profile = Json { { "kind", "semantic-kit" }, { "stdlib", std::format("{} {}", kit->stdlibName, kit->stdlibVersion) }, { "target", kit->target } };
         } else {
-            profile = Json { { "kind", "semantic-kit" }, { "stdlib", "unknown" }, { "target", std::string { mcppls::os::platform() } } };
+            profile = Json { { "kind", "semantic-kit" }, { "stdlib", "unknown" }, { "target", std::string { base::payload_platform() } } };
         }
         return profile;
     }
@@ -4154,13 +4157,13 @@ struct Workspace::Impl final : engine::Host {
         // The last five starts of this workspace, newest last.
         const std::string path { base::join_path(cacheDirectory, "startups.json") };
         Json history = Json::array();
-        if (auto text = platform::fs::read_file(path)) {
+        if (auto text = os::fs::read(path)) {
             history = Json::parse(*text, nullptr, false);
             if (!history.is_array()) history = Json::array();
         }
         history.push_back(json);
         while (history.size() > 5) history.erase(history.begin());
-        (void)platform::fs::write_file_atomic(path, history.dump());
+        (void)os::fs::write_atomic(path, history.dump());
         healthAt = Clock::now() + HEALTH_EVERY;
     }
 
@@ -4222,7 +4225,7 @@ struct Workspace::Impl final : engine::Host {
         if (buildProgramPending.empty()) return;
         const auto now = Clock::now();
         if (const Document* document = documents_.find_by_path(buildProgramPending)) {
-            if (auto disk = platform::fs::read_file(buildProgramPending)) {
+            if (auto disk = os::fs::read(buildProgramPending)) {
                 std::string_view saved { *disk };
                 if (saved.starts_with("\xEF\xBB\xBF")) saved.remove_prefix(3);   // the editor's text has no BOM
                 if (saved != document->text) {
@@ -4362,7 +4365,7 @@ struct Workspace::Impl final : engine::Host {
             // stays at milliseconds. A live guest's own heartbeat protects it here, owner or not,
             // and a directory that says nothing at all gets the same grace the sweep gives it.
             const auto heartbeat { std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()) };
-            if (cache::rename_dead_instances(workspaceDirectory_, heartbeat, ownToken_, cache_grace()) > 0) start_cache_task_("tick", platform::fs::modified_now());
+            if (cache::rename_dead_instances(workspaceDirectory_, heartbeat, ownToken_, cache_grace()) > 0) start_cache_task_("tick", base::file_time_now());
             leaseRenewAt = now + LEASE_RENEWAL;
         }
         phase("the workspace lease and dead instances");
@@ -4502,7 +4505,7 @@ void Workspace::start(Json clientParams, bool clientSupportsStatus, bool usePoll
     impl_->startedAtUtc = std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
     impl_->startup = Impl::Startup {};
     impl_->startup.beganUtc = impl_->startedAtUtc;
-    log::info("mcppls {} ({}) root {}", base::VERSION, mcppls::os::platform(), root_);
+    log::info("mcppls {} ({}) root {}", base::VERSION, base::payload_platform(), root_);
     {
         // 0.0.13 W7: the versions in the log's first lines, so a log read alone says what ran.
         const Json about = impl_->about_json();
@@ -4641,7 +4644,7 @@ void Workspace::did_close(const Json& message, const Json& params) {
     }
     ++impl_->snapshotGeneration;
     if (!document.path.empty()) {
-        if (auto text = platform::fs::read_file(document.path)) impl_->index.update(document.path, *text);
+        if (auto text = os::fs::read(document.path)) impl_->index.update(document.path, *text);
     }
     impl_->document_event(engine::DocumentChange::closed, document, &message);
     // Diagnostics of a closed file are cleared; an engine may send its own empty set too.
@@ -4734,7 +4737,7 @@ void Workspace::handle_watched_files(const Json& changes) {
         const bool open { impl_->documents_.find_by_path(path) != nullptr };
         std::optional<std::string> diskText;
         if (type != 3) {
-            if (auto text = platform::fs::read_file(path)) diskText = std::move(*text);
+            if (auto text = os::fs::read(path)) diskText = std::move(*text);
         }
         if (!open) {
             if (type == 3) impl_->index.remove(path);
@@ -4879,25 +4882,25 @@ Json Workspace::report() const {
     }
     // The environment build tools are started in: where it came from, and the NAMES of the variables
     // that differ from this process's. Never the values --- a proxy variable can carry a credential.
-    const auto toolEnvironment = platform::toolenv::get();
+    const auto toolEnvironment = mcppls::toolenv::get();
     Json environment { { "source", toolEnvironment.source }, { "resolved", toolEnvironment.resolved },
                        { "durationMs", toolEnvironment.duration.count() }, { "differing", toolEnvironment.differing },
-                       { "mode", std::string { platform::toolenv::mode_name(platform::toolenv::mode()) } } };
+                       { "mode", std::string { mcppls::toolenv::mode_name(mcppls::toolenv::mode()) } } };
     if (!toolEnvironment.reason.empty()) environment["reason"] = toolEnvironment.reason;
     // The one run a report about a wrong or missing build description is almost always about. It is
     // looked for over everything kept, not over the twenty listed: a load that probes a dozen
     // compilers afterwards would otherwise push the producer out of sight.
     Json lastProducerRun = nullptr;
-    const auto kept = platform::toolrun::recent(platform::toolrun::KEPT);
+    const auto kept = mcppls::toolrun::recent(mcppls::toolrun::KEPT);
     for (const auto& record : kept) {
         if (!record.root.empty() && record.root != key_) continue;
-        if (record.purpose == "producer" || record.purpose.starts_with("configure")) lastProducerRun = platform::toolrun::to_json(record);
+        if (record.purpose == "producer" || record.purpose.starts_with("configure")) lastProducerRun = mcppls::toolrun::to_json(record);
     }
     if (project.is_object()) project["producerRun"] = std::move(lastProducerRun);
     Json toolRuns = Json::array();
     for (const auto& record : kept | std::views::drop(kept.size() > 20 ? kept.size() - 20 : 0)) {
         if (!record.root.empty() && record.root != key_) continue;
-        toolRuns.push_back(platform::toolrun::to_json(record));
+        toolRuns.push_back(mcppls::toolrun::to_json(record));
     }
     Json leftOut = Json::array();
     for (const auto& file : impl.plan.excludedFiles) {
@@ -4984,7 +4987,7 @@ Json Workspace::report() const {
                            { "late", Json { { "arrived", impl.lateCompletionsArrived }, { "served", impl.lateCompletionsServed } } },
                            { "fromWord", impl.completionsFromWord } };
     Json startups = Json::array();
-    if (auto text = platform::fs::read_file(base::join_path(impl.cacheDirectory, "startups.json"))) {
+    if (auto text = os::fs::read(base::join_path(impl.cacheDirectory, "startups.json"))) {
         startups = Json::parse(*text, nullptr, false);
         if (!startups.is_array()) startups = Json::array();
     }
@@ -5001,19 +5004,20 @@ Json Workspace::report() const {
 }
 
 std::uint64_t Workspace::reset_cache() {
+    std::error_code ignored;
     auto& impl = *impl_;
     std::uint64_t freed { 0 };
     for (const auto& engine : impl.engines) freed += engine->clear_cache_on_request();
-    freed += platform::fs::tree_remove(impl.tokens_directory()).bytes;
-    for (const auto& entry : platform::fs::list_directory(impl.cacheDirectory)) {
+    freed += cache::remove_tree(impl.tokens_directory()).bytes;
+    for (const auto& entry : base::children(impl.cacheDirectory)) {
         const std::string_view name { base::file_name(entry) };
         // The cached models go; the instance's own `instance.json` stays (review 2026-10-03). It is
         // not cache -- it is the heartbeat that says this directory is alive. Removing it here made
         // a guest look dead to the reapers for up to a renewal interval while it was rebuilding
         // (the old comment claimed the opposite); like `owner.lease`, it survives a reset.
         if (!name.starts_with("model.") || !name.ends_with(".json")) continue;
-        if (const auto stamp = platform::fs::stamp(entry)) freed += stamp->size;
-        platform::fs::remove_all(entry);
+        if (const auto stamp = base::file_stamp(entry)) freed += stamp->size;
+        std::filesystem::remove_all(entry, ignored);
     }
     impl.producerStatesResetPending = true;   // removed as the load below starts, or the next one if one runs (XS-4)
     log::info("the cache of {} was reset on request ({} bytes freed)", root_, freed);
@@ -5071,7 +5075,7 @@ void Workspace::handle_cache_swept(const Json& outcome) {
                                                { "failed", failed }, { "origin", outcome.value("origin", std::string {}) } });
         impl.update_status();
     }
-    if (retrigger) impl.start_cache_task_("coalesced", platform::fs::modified_now(), pendingReportOnly);
+    if (retrigger) impl.start_cache_task_("coalesced", base::file_time_now(), pendingReportOnly);
 }
 
 Json Workspace::cache_report() const {
@@ -5095,7 +5099,7 @@ Json Workspace::cache_report() const {
         }
         numbers = impl.cacheReport_;
     }
-    if (refresh) impl.start_cache_task_("report", platform::fs::modified_now(), true);
+    if (refresh) impl.start_cache_task_("report", base::file_time_now(), true);
     Json project { { "name", std::string { base::file_name(root_) } },
                    { "source", impl.model ? std::string { project::to_string(impl.model->source) } : std::string { "inferred" } } };
     if (impl.model) {
@@ -5165,7 +5169,7 @@ SweepStart Workspace::prepare_sweep(const Json& params) {
     start.staleCommands = wants("staleCommands", false);
     start.budget = wants("budget", true);
     // The safety rules of S3 5.8: nothing an engine holds, no canonical BMI, no engine stopped.
-    std::int64_t bound { platform::fs::modified_now() };
+    std::int64_t bound { base::file_time_now() };
     for (const auto& engine : impl.engines) {
         if (const std::int64_t began { engine->generation_started_at() }; began > 0) {
             start.engineLive = true;
@@ -5175,7 +5179,7 @@ SweepStart Workspace::prepare_sweep(const Json& params) {
     start.bound = bound;
     start.cacheDirectory = impl.cacheDirectory;
     start.workspaceDirectory = impl.workspaceDirectory_;
-    start.workspacesRoot = base::join_path(platform::dirs::cache_directory(), "workspaces");
+    start.workspacesRoot = base::join_path(base::cache_directory(), "workspaces");
     start.ownToken = impl.ownToken_;
     start.limits = impl.cache_budget();
     start.grace = impl.cache_grace();
@@ -5216,7 +5220,7 @@ Json run_prepared_sweep(const SweepStart& start) {
                     freed += cache::tree_bytes(build);
                     continue;
                 }
-                const platform::fs::Removal removed { platform::fs::tree_remove(build) };
+                const cache::Removal removed { cache::remove_tree(build) };
                 freed += removed.bytes;
                 failed += removed.failed;
             }
@@ -5264,33 +5268,36 @@ bool Workspace::start_review(const Json& arguments) {
         log::warning("cannot review {}: the server does not know its own executable", root_);
         return false;
     }
-    platform::SpawnOptions spawn;
+    os::process::spawn_options spawn;
     spawn.program = options.serverCommand.front();
-    spawn.arguments.assign(options.serverCommand.begin() + 1, options.serverCommand.end());
-    spawn.arguments.insert(spawn.arguments.end(), { "review", "--format", "lsp", "--root", root_ });
+    spawn.args.assign(options.serverCommand.begin() + 1, options.serverCommand.end());
+    spawn.args.insert(spawn.args.end(), { "review", "--format", "lsp", "--root", root_ });
     const Json settings = arguments.is_array() && !arguments.empty() && arguments[0].is_object() ? arguments[0] : Json::object();
-    if (auto base = lsp::string_at(settings, "base"); base && !base->empty()) spawn.arguments.insert(spawn.arguments.end(), { "--base", *base });
-    if (!options.payloadDirectory.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--payload", options.payloadDirectory });
-    if (!options.clangd.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--clangd", options.clangd });
-    if (!options.kit.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--kit", options.kit });
-    if (!options.mcpp.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--mcpp", options.mcpp });
-    if (options.mcppTarget != "auto") spawn.arguments.insert(spawn.arguments.end(), { "--mcpp-target", options.mcppTarget });
-    if (!options.database.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--database", options.database });
-    if (options.engine != "clangd") spawn.arguments.insert(spawn.arguments.end(), { "--engine", options.engine });
-    if (!options.discoverCompilers) spawn.arguments.push_back("--no-discover");
-    if (!options.trusted) spawn.arguments.push_back("--untrusted");
-    spawn.workDirectory = root_;
-    spawn.pipeInput = false;
-    spawn.pipeOutput = true;
+    if (auto base = lsp::string_at(settings, "base"); base && !base->empty()) spawn.args.insert(spawn.args.end(), { "--base", *base });
+    if (!options.payloadDirectory.empty()) spawn.args.insert(spawn.args.end(), { "--payload", options.payloadDirectory });
+    if (!options.clangd.empty()) spawn.args.insert(spawn.args.end(), { "--clangd", options.clangd });
+    if (!options.kit.empty()) spawn.args.insert(spawn.args.end(), { "--kit", options.kit });
+    if (!options.mcpp.empty()) spawn.args.insert(spawn.args.end(), { "--mcpp", options.mcpp });
+    if (options.mcppTarget != "auto") spawn.args.insert(spawn.args.end(), { "--mcpp-target", options.mcppTarget });
+    if (!options.database.empty()) spawn.args.insert(spawn.args.end(), { "--database", options.database });
+    if (options.engine != "clangd") spawn.args.insert(spawn.args.end(), { "--engine", options.engine });
+    if (!options.discoverCompilers) spawn.args.push_back("--no-discover");
+    if (!options.trusted) spawn.args.push_back("--untrusted");
+    spawn.cwd = root_;
+    // This server's input is the editor's channel: the review reads nothing.
+    spawn.in = os::process::stdio::null;
+    spawn.out = os::process::stdio::pipe;
+    spawn.err = os::process::stdio::error;
     // The review starts an engine and may start the build tool: ending it must end all of that,
     // which is what a unit of its own buys (design 4.2). shut_down() kills the unit, not one process.
-    spawn.ownUnit = true;
-    auto started = platform::Process::spawn(spawn);
+    spawn.own_unit = true;
+    spawn.bound_lifetime = true;
+    auto started = os::process::process::spawn(spawn);
     if (!started) {
-        log::warning("cannot review {}: {}", root_, started.error().message);
+        log::warning("cannot review {}: {}", root_, started.error().message());
         return false;
     }
-    impl_->reviewProcess = std::make_shared<platform::Process>(std::move(*started));
+    impl_->reviewProcess = std::make_shared<os::process::process>(std::move(*started));
     log::info("review of {} started", root_);
     // The review runs its own headless session; this one keeps serving the editor meanwhile.
     std::thread { [process = impl_->reviewProcess, events = impl_->events, rootKey = key_] {
@@ -5300,8 +5307,9 @@ bool Workspace::start_review(const Json& arguments) {
             if (!chunk || chunk->empty()) break;
             output += *chunk;
         }
-        const auto code = process->wait();
-        events->push(Event { EventKind::review_finished, Json { { "output", std::move(output) }, { "exitCode", code ? *code : -1 } }, 0, {}, rootKey, {} });
+        const auto status = process->wait();
+        const int code { status && !status->by_environment ? status->code : -1 };
+        events->push(Event { EventKind::review_finished, Json { { "output", std::move(output) }, { "exitCode", code } }, 0, {}, rootKey, {} });
     } }.detach();
     return true;
 }
@@ -5352,7 +5360,7 @@ void Workspace::handle_tool_run(const Json& record) {
     const std::string source { record.value("environment", std::string {}) };
     if (!source.empty() && source != impl_->journaledToolEnvironment) {
         impl_->journaledToolEnvironment = source;
-        const auto environment = platform::toolenv::get();
+        const auto environment = mcppls::toolenv::get();
         impl_->journal.add("tool-environment", Json { { "source", source }, { "durationMs", environment.duration.count() },
                                                       { "differing", environment.differing }, { "reason", environment.reason } });
     }

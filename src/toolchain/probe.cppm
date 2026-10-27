@@ -4,8 +4,8 @@ export module mcppls.toolchain.probe;
 
 import std;
 import nlohmann.json;
+import mcpplibs.os;
 import mcppls.base.error;
-import mcppls.platform.process;
 import mcppls.spec.database;
 
 export namespace mcppls::toolchain {
@@ -30,7 +30,7 @@ struct ToolchainFacts {
     std::vector<std::string> problems;
 };
 
-using Runner = std::function<base::Result<platform::RunResult>(std::span<const std::string> argv)>;
+using Runner = std::function<base::Result<mcpplibs::os::process::bounded_output>(std::span<const std::string> argv)>;
 
 // Runs drivers as child processes with a bound on each query.
 Runner process_runner(std::chrono::milliseconds timeout);

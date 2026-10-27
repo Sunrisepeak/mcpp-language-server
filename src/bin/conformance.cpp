@@ -10,7 +10,6 @@
 import std;
 import nlohmann.json;
 import mcpplibs.cmdline;
-import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.glob;
 import mcppls.base.path;
@@ -18,20 +17,21 @@ import mcppls.base.sha256;
 import mcppls.base.text;
 import mcppls.base.uri;
 import mcppls.base.version;
-import mcppls.platform.fs;
-import mcppls.platform.dirs;
-import mcppls.platform.env;
-import mcppls.platform.process;
-import mcppls.platform.task;
 import mcppls.lsp.jsonrpc;
 import mcppls.lsp.connection;
 import mcppls.project.scan;
 import mcppls.orchestrator.tokens;
 import mcppls.bundle.redact;
 import mcppls.bundle.zip;
+import mcpplibs.os;
+import mcppls.base.channel;
+import mcppls.base.home;
+import mcppls.toolrun;
+
+namespace os = mcpplibs::os;
+namespace toolrun = mcppls::toolrun;
 
 namespace base = mcppls::base;
-namespace fs = mcppls::platform::fs;
 namespace lsp = mcppls::lsp;
 namespace tokens = mcppls::orchestrator::tokens;
 using Json = nlohmann::json;
@@ -54,8 +54,8 @@ std::string clipped(std::string_view text, std::size_t bytes) {
 bool write_artifact(const std::string& path, const Json& value) {
     try {
         const std::string encoded { value.dump(2, ' ', false, Json::error_handler_t::replace) + "\n" };
-        if (auto written = fs::write_file(path, encoded); !written) {
-            say("conformance: cannot write {}: {}", path, written.error().message);
+        if (auto written = os::fs::write(path, encoded); !written) {
+            say("conformance: cannot write {}: {}", path, written.error().message());
             return false;
         }
         return true;
@@ -113,7 +113,7 @@ struct Options {
 };
 
 // Replaces HOME (POSIX) and USERPROFILE (Windows) in a spawn's environment, so
-// `mcppls::platform::dirs::home_directory()` -- and so producer negotiation's search of
+// `base::home_directory()` -- and so producer negotiation's search of
 // `<home>/.xlings/data/xpkgs` and `<home>/.mcpp/registry/data/xpkgs` (real-project plan RP2.1) --
 // sees only what the fixture itself put there. A no-op when `options.isolatedHome` is empty, which
 // is every fixture that predates it.
@@ -152,17 +152,18 @@ bool is_plain_like(const Options& options) {
 
 std::string absolute(std::string_view path) {
     if (path.empty() || base::is_absolute_path(path)) return base::normalize_path(path);
-    return base::join_path(fs::current_directory(), path);
+    return base::join_path(base::current_directory(), path);
 }
 
 void copy_tree(const std::string& from, const std::string& to) {
-    (void)fs::create_directories(to);
-    for (const auto& entry : fs::list_directory(from)) {
+    std::error_code ignored;
+    (void)std::filesystem::create_directories(to, ignored);
+    for (const auto& entry : base::children(from)) {
         const std::string target { base::join_path(to, base::file_name(entry)) };
-        if (fs::is_directory(entry)) {
+        if (std::filesystem::is_directory(entry, ignored)) {
             copy_tree(entry, target);
-        } else if (auto content = fs::read_file(entry)) {
-            (void)fs::write_file(target, *content);
+        } else if (auto content = os::fs::read(entry)) {
+            (void)os::fs::write(target, *content);
         }
     }
 }
@@ -184,7 +185,7 @@ struct Expansion {
 // and mutates it, then points server-arguments' own --payload at the mutated copy);
 // "{conformance}" is this program, whose `prepare` command generates what a fixture needs.
 std::string expand(std::string word, const Expansion& expansion = {}) {
-    word = base::replace_all(word, "{exe}", mcppls::os::executable_suffix());
+    word = base::replace_all(word, "{exe}", os::conventions().exe_suffix);
     word = base::replace_all(word, "{workspace}", expansion.workspace);
     word = base::replace_all(word, "{runner-dir}", expansion.runnerDirectory);
     word = base::replace_all(word, "{payload}", expansion.payload);
@@ -196,7 +197,7 @@ std::string expand(std::string word, const Expansion& expansion = {}) {
         const std::string body { word.substr(at + 5, close - at - 5) };
         const std::size_t bar { body.find('|') };
         const std::string name { body.substr(0, bar) };
-        std::string value { mcppls::platform::env::get(name).value_or("") };
+        std::string value { os::env::get(name).value_or("") };
         if (value.empty() && bar != std::string::npos) value = body.substr(bar + 1);
         word.replace(at, close - at + 1, value);
         at += value.size();
@@ -207,14 +208,14 @@ std::string expand(std::string word, const Expansion& expansion = {}) {
 // The environment a prepare step runs in: this process's, with a developer environment laid over it when given.
 std::optional<std::vector<std::string>> prepare_environment(const std::string& overlayFile) {
     if (overlayFile.empty()) return std::nullopt;
-    auto text = fs::read_file(overlayFile);
+    auto text = os::fs::read(overlayFile);
     if (!text) return std::nullopt;
-    const bool caseInsensitive { mcppls::os::family() == mcppls::os::Family::windows };
+    const bool caseInsensitive { os::host() == os::platform::windows };
     auto key = [&](std::string_view entry) {
         std::string name { entry.substr(0, entry.find('=')) };
         return caseInsensitive ? base::to_lower_ascii(name) : name;
     };
-    std::vector<std::string> environment { mcppls::platform::env::variables() };
+    std::vector<std::string> environment { os::env::variables() };
     for (auto line : base::split_lines(*text)) {
         line = base::trim(line);
         if (line.empty() || line.find('=') == std::string_view::npos || line.front() == '=') continue;
@@ -235,32 +236,36 @@ bool run_prepare(const Json& command, const std::string& workspace, bool verbose
         // Found where the step runs: a developer environment may put another version of a tool first.
         std::optional<std::string> pathList;
         if (environment) {
-            const bool caseInsensitive { mcppls::os::family() == mcppls::os::Family::windows };
+            const bool caseInsensitive { os::host() == os::platform::windows };
             for (const auto& entry : *environment) {
                 const std::string name { entry.substr(0, entry.find('=')) };
                 if (caseInsensitive ? base::to_lower_ascii(name) == "path" : name == "PATH") pathList = entry.substr(entry.find('=') + 1);
             }
         }
-        auto found = pathList ? mcppls::platform::env::find_executable(program, *pathList) : mcppls::platform::env::find_executable(program);
+        auto found = pathList ? toolrun::find_program(program, *pathList) : toolrun::find_program(program);
         if (!found) {
             say("prepare: {} is not on PATH", program);
             return false;
         }
         program = *found;
     }
-    mcppls::platform::SpawnOptions options;
+    os::process::spawn_options options;
+    options.bound_lifetime = true;
     options.program = program;
-    options.arguments.assign(argv.begin() + 1, argv.end());
-    options.workDirectory = workspace;
-    options.environment = environment;
-    auto result = mcppls::platform::run(std::move(options), std::chrono::minutes { 20 });
-    if (!result || result->exitCode != 0 || result->timedOut) {
+    options.args.assign(argv.begin() + 1, argv.end());
+    options.cwd = workspace;
+    if (environment) {
+        options.clear_env = true;
+        options.env = os::env::assignments(*environment);
+    }
+    auto result = os::process::run(std::move(options), os::process::bounds { .hard = std::chrono::minutes { 20 } });
+    if (!result || !result->status.success() || result->timed_out) {
         say("prepare failed: {} (program {})", lsp::dump(command), program);
-        if (result) say("exit code {}, timed out {}\n{}\n{}", result->exitCode, result->timedOut, result->output, result->error);
-        else say("{}", result.error().message);
+        if (result) say("exit code {}, timed out {}\n{}\n{}", toolrun::exit_code(result->status), result->timed_out, result->out, result->err);
+        else say("{}", result.error().message());
         return false;
     }
-    if (verbose) say("prepare: {}\n{}", lsp::dump(command), result->output);
+    if (verbose) say("prepare: {}\n{}", lsp::dump(command), result->out);
     return true;
 }
 
@@ -286,17 +291,18 @@ std::string missing_mcpp(const Json& requirement, const Expansion& expansion) {
     std::string program { expand(requirement.value("executable", std::string { "mcpp" }), expansion) };
     if (program.empty()) program = "mcpp";
     if (!base::is_absolute_path(program)) {
-        auto found = mcppls::platform::env::find_executable(program);
+        auto found = toolrun::find_program(program);
         if (!found) return std::format("the fixture needs mcpp {} or later, and {} is not on PATH", wanted, program);
         program = *found;
     }
-    mcppls::platform::SpawnOptions options;
+    os::process::spawn_options options;
+    options.bound_lifetime = true;
     options.program = program;
-    options.arguments = { "--version" };
-    auto result = mcppls::platform::run(std::move(options), std::chrono::seconds { 60 });
-    if (!result || result->exitCode != 0 || result->timedOut) return std::format("the fixture needs mcpp {} or later, and {} --version failed", wanted, program);
+    options.args = { "--version" };
+    auto result = os::process::run(std::move(options), os::process::bounds { .hard = std::chrono::seconds { 60 } });
+    if (!result || !result->status.success() || result->timed_out) return std::format("the fixture needs mcpp {} or later, and {} --version failed", wanted, program);
     // "mcpp 2026.10.11.1": the last word of the first line.
-    std::string_view line { result->output };
+    std::string_view line { result->out };
     line = line.substr(0, line.find_first_of("\r\n"));
     const std::string_view version { line.substr(line.find_last_of(' ') == std::string_view::npos ? 0 : line.find_last_of(' ') + 1) };
     const auto have = version_numbers(version), need = version_numbers(wanted);
@@ -326,13 +332,14 @@ std::optional<std::string> digest(const std::string& path) {
 
 // Every file under a directory with its digest, dot directories included: the server must not write any of them.
 std::map<std::string, std::string> snapshot(const std::string& root) {
+    std::error_code ignored;
     std::map<std::string, std::string> files;
     std::vector<std::string> pending { root };
     while (!pending.empty()) {
         const std::string directory { pending.back() };
         pending.pop_back();
-        for (const auto& entry : fs::list_directory(directory)) {
-            if (fs::is_directory(entry)) {
+        for (const auto& entry : base::children(directory)) {
+            if (std::filesystem::is_directory(entry, ignored)) {
                 pending.push_back(entry);
             } else if (auto relative = base::relative_path(entry, root)) {
                 if (auto content = digest(entry)) files[*relative] = std::move(*content);
@@ -365,7 +372,7 @@ std::string owned_payload_source(const std::string& path) {
 
 // "name" or "name:partition", as the unit declares it; empty when it declares no module.
 std::string declared_module(const std::string& source) {
-    const auto text = fs::read_file(source);
+    const auto text = os::fs::read(source);
     if (!text) return {};
     const auto declaration = mcppls::project::scan_source(*text).declaration;
     if (!declaration) return {};
@@ -382,6 +389,7 @@ std::string_view line_ending_of(std::string_view text) { return text.find("\r\n"
 // command; the copies it hands to readers carry a timestamp in their names and are not included.
 // mcppls-clangd's owned payloads are the module's when the unit they were built from declares it.
 std::map<std::string, std::string> module_files(const std::string& cacheDirectory, std::string_view module) {
+    std::error_code ignored;
     std::string published { module };
     std::ranges::replace(published, ':', '-');
     const std::string declared { module };
@@ -392,12 +400,12 @@ std::map<std::string, std::string> module_files(const std::string& cacheDirector
     while (!pending.empty()) {
         const std::string directory { pending.back() };
         pending.pop_back();
-        for (const auto& entry : fs::list_directory(directory)) {
-            if (fs::is_directory(entry)) {
+        for (const auto& entry : base::children(directory)) {
+            if (std::filesystem::is_directory(entry, ignored)) {
                 pending.push_back(entry);
             } else if (base::file_name(entry) == published || (owned_payload(entry) && declared_module(owned_payload_source(entry)) == declared)) {
-                const auto stamp = fs::stamp(entry);
-                files[entry] = stamp ? std::format("{}:{}", stamp->size, stamp->modified) : std::string {};
+                const auto stamp = base::file_stamp(entry);
+                files[entry] = stamp ? std::format("{}:{}", stamp->size, static_cast<std::int64_t>(stamp->modified_ns)) : std::string {};
             }
         }
     }
@@ -410,11 +418,11 @@ void print_server_log_matches(const std::string& cacheDirectory, const std::stri
     if (pattern.empty()) return;
     const std::regex wanted { pattern };
     constexpr std::size_t LIMIT { 120 };
-    auto files = fs::list_directory(base::join_path(cacheDirectory, "logs"));
+    auto files = base::children(base::join_path(cacheDirectory, "logs"));
     std::ranges::sort(files);
     std::size_t printed { 0 };
     for (const auto& file : files) {
-        const auto text = fs::read_file(file);
+        const auto text = os::fs::read(file);
         if (!text) continue;
         for (const auto line : base::split_lines(*text)) {
             if (!std::regex_search(line.begin(), line.end(), wanted)) continue;
@@ -429,13 +437,13 @@ void print_server_log_matches(const std::string& cacheDirectory, const std::stri
 void print_server_log_tail(const std::string& cacheDirectory) {
     constexpr std::size_t LINES { 200 };
     const std::string directory { base::join_path(cacheDirectory, "logs") };
-    auto files = fs::list_directory(directory);
+    auto files = base::children(directory);
     std::ranges::sort(files);   // the names carry their start time: the newest last
     // A run that reuses a cache directory finds every earlier run's log there too; the last few are this one's.
     constexpr std::size_t FILES { 3 };
     if (files.size() > FILES) files.erase(files.begin(), files.end() - static_cast<std::ptrdiff_t>(FILES));
     for (const auto& file : files) {
-        const auto text = fs::read_file(file);
+        const auto text = os::fs::read(file);
         if (!text) continue;
         const auto lines = base::split_lines(*text);
         const std::size_t from { lines.size() > LINES ? lines.size() - LINES : 0 };
@@ -447,7 +455,7 @@ void print_server_log_tail(const std::string& cacheDirectory) {
 class Client {
 private:
     std::unique_ptr<lsp::Connection> connection_;
-    std::shared_ptr<mcppls::platform::Channel<Json>> inbox_ { std::make_shared<mcppls::platform::Channel<Json>>() };
+    std::shared_ptr<mcppls::base::Channel<Json>> inbox_ { std::make_shared<mcppls::base::Channel<Json>>() };
     std::int64_t nextId_ { 1 };
     int unanswered_ { 0 }; // consecutive requests that reached their deadline
     bool verbose_ { false };
@@ -504,21 +512,23 @@ public:
     base::Result<void> start(const Options& options, const std::vector<std::string>& serverArguments, const std::string& workspace,
                              const std::string& cacheDirectory) {
         verbose_ = options.verbose;
-        mcppls::platform::SpawnOptions spawn;
+        os::process::spawn_options spawn;
+        spawn.bound_lifetime = true;
         spawn.program = options.server;
-        spawn.arguments = { "serve" };
-        if (!options.payload.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--payload", options.payload });
-        if (!options.clangd.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--clangd", options.clangd });
-        if (!options.kit.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--kit", options.kit });
-        spawn.arguments.insert(spawn.arguments.end(), serverArguments.begin(), serverArguments.end());
+        spawn.args = { "serve" };
+        if (!options.payload.empty()) spawn.args.insert(spawn.args.end(), { "--payload", options.payload });
+        if (!options.clangd.empty()) spawn.args.insert(spawn.args.end(), { "--clangd", options.clangd });
+        if (!options.kit.empty()) spawn.args.insert(spawn.args.end(), { "--kit", options.kit });
+        spawn.args.insert(spawn.args.end(), serverArguments.begin(), serverArguments.end());
         serverCommand = { spawn.program };
-        serverCommand.insert(serverCommand.end(), spawn.arguments.begin(), spawn.arguments.end());
-        spawn.workDirectory = workspace;
-        auto environment = mcppls::platform::env::variables();
+        serverCommand.insert(serverCommand.end(), spawn.args.begin(), spawn.args.end());
+        spawn.cwd = workspace;
+        auto environment = os::env::variables();
         environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory);
         apply_isolated_home(environment, options);
         apply_path_prepend(environment, options);
-        spawn.environment = std::move(environment);
+        spawn.clear_env = true;
+        spawn.env = os::env::assignments(std::move(environment));
         const bool verbose { verbose_ };
         auto inbox = inbox_;
         auto connection = lsp::Connection::start(
@@ -539,7 +549,7 @@ public:
     // scenario's timeline is made of stays.
     void reset() {
         connection_.reset();
-        inbox_ = std::make_shared<mcppls::platform::Channel<Json>>();
+        inbox_ = std::make_shared<mcppls::base::Channel<Json>>();
         unanswered_ = 0;
         diagnostics.clear();
         diagnosticsCount.clear();
@@ -775,26 +785,28 @@ public:
 class McpClient {
 private:
     std::unique_ptr<lsp::Connection> connection_;
-    std::shared_ptr<mcppls::platform::Channel<Json>> inbox_ { std::make_shared<mcppls::platform::Channel<Json>>() };
+    std::shared_ptr<mcppls::base::Channel<Json>> inbox_ { std::make_shared<mcppls::base::Channel<Json>>() };
     std::int64_t nextId_ { 1 };
 
 public:
     base::Result<void> start(const Options& options, const std::vector<std::string>& serverArguments, const std::string& workspace,
                              const std::string& cacheDirectory, bool daemon) {
-        mcppls::platform::SpawnOptions spawn;
+        os::process::spawn_options spawn;
+        spawn.bound_lifetime = true;
         spawn.program = options.server;
-        spawn.arguments = { "mcp", "--root", workspace };
-        if (daemon) spawn.arguments.push_back("--daemon");
-        if (!options.payload.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--payload", options.payload });
-        if (!options.clangd.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--clangd", options.clangd });
-        if (!options.kit.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--kit", options.kit });
-        spawn.arguments.insert(spawn.arguments.end(), serverArguments.begin(), serverArguments.end());
-        spawn.workDirectory = workspace;
-        auto environment = mcppls::platform::env::variables();
+        spawn.args = { "mcp", "--root", workspace };
+        if (daemon) spawn.args.push_back("--daemon");
+        if (!options.payload.empty()) spawn.args.insert(spawn.args.end(), { "--payload", options.payload });
+        if (!options.clangd.empty()) spawn.args.insert(spawn.args.end(), { "--clangd", options.clangd });
+        if (!options.kit.empty()) spawn.args.insert(spawn.args.end(), { "--kit", options.kit });
+        spawn.args.insert(spawn.args.end(), serverArguments.begin(), serverArguments.end());
+        spawn.cwd = workspace;
+        auto environment = os::env::variables();
         environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory);
         apply_isolated_home(environment, options);
         apply_path_prepend(environment, options);
-        spawn.environment = std::move(environment);
+        spawn.clear_env = true;
+        spawn.env = os::env::assignments(std::move(environment));
         const bool verbose { options.verbose };
         auto inbox = inbox_;
         auto connection = lsp::Connection::start(
@@ -977,7 +989,7 @@ Json position(const Json& at) { return Json { { "line", at.at(0) }, { "character
 class DirectClangd {
 private:
     std::unique_ptr<lsp::Connection> connection_;
-    std::shared_ptr<mcppls::platform::Channel<Json>> inbox_ { std::make_shared<mcppls::platform::Channel<Json>>() };
+    std::shared_ptr<mcppls::base::Channel<Json>> inbox_ { std::make_shared<mcppls::base::Channel<Json>>() };
     std::int64_t nextId_ { 1 };
     std::map<std::string, int> versions_;
 
@@ -1005,11 +1017,13 @@ public:
 
     base::Result<void> start(const std::string& program, std::vector<std::string> arguments, const std::string& directory,
                              std::vector<std::string> environment, std::chrono::seconds timeout) {
-        mcppls::platform::SpawnOptions spawn;
+        os::process::spawn_options spawn;
+        spawn.bound_lifetime = true;
         spawn.program = program;
-        spawn.arguments = std::move(arguments);
-        spawn.workDirectory = directory;
-        spawn.environment = std::move(environment);
+        spawn.args = std::move(arguments);
+        spawn.cwd = directory;
+        spawn.clear_env = true;
+        spawn.env = os::env::assignments(std::move(environment));
         auto inbox = inbox_;
         auto connection = lsp::Connection::start(std::move(spawn), [inbox](Json message) { inbox->push(std::move(message)); }, [inbox] { inbox->close(); });
         if (!connection) return std::unexpected { connection.error() };
@@ -1098,13 +1112,14 @@ public:
 // Every file under a directory, relative to it, '/'-separated: what a fixture's own glob
 // ("src/**/*.cppm") is matched against, the same way S2's own watch globs are (base::glob_match).
 std::vector<std::string> list_all_files(const std::string& root) {
+    std::error_code ignored;
     std::vector<std::string> files;
     std::vector<std::string> pending { root };
     while (!pending.empty()) {
         const std::string directory { pending.back() };
         pending.pop_back();
-        for (const auto& entry : fs::list_directory(directory)) {
-            if (fs::is_directory(entry)) pending.push_back(entry);
+        for (const auto& entry : base::children(directory)) {
+            if (std::filesystem::is_directory(entry, ignored)) pending.push_back(entry);
             else if (auto relative = base::relative_path(entry, root)) files.push_back(*relative);
         }
     }
@@ -1196,7 +1211,7 @@ public:
     static constexpr long TICKS_PER_SECOND { 100 };
 
     static std::optional<std::int64_t> parent_of(std::int64_t pid) {
-        auto stat = fs::read_file(std::format("/proc/{}/stat", pid));
+        auto stat = os::fs::read(std::format("/proc/{}/stat", pid));
         if (!stat) return std::nullopt;
         const auto close = stat->rfind(')');
         if (close == std::string::npos || close + 2 >= stat->size()) return std::nullopt;
@@ -1208,7 +1223,7 @@ public:
     }
 
     static std::optional<long> cpu_ticks_of(std::int64_t pid) {
-        auto stat = fs::read_file(std::format("/proc/{}/stat", pid));
+        auto stat = os::fs::read(std::format("/proc/{}/stat", pid));
         if (!stat) return std::nullopt;
         const auto close = stat->rfind(')');
         if (close == std::string::npos || close + 2 >= stat->size()) return std::nullopt;
@@ -1224,7 +1239,7 @@ public:
     }
 
     static std::optional<double> rss_kb_of(std::int64_t pid) {
-        auto status = fs::read_file(std::format("/proc/{}/status", pid));
+        auto status = os::fs::read(std::format("/proc/{}/status", pid));
         if (!status) return std::nullopt;
         for (auto line : base::split_lines(*status)) {
             if (!line.starts_with("VmRSS:")) continue;
@@ -1240,7 +1255,7 @@ public:
     // building a ppid map, then closing over it: the same approach stress.sh took with `ps`.
     static std::vector<std::int64_t> tree_pids(std::int64_t root) {
         std::map<std::int64_t, std::int64_t> parent;
-        for (const auto& entry : fs::list_directory("/proc")) {
+        for (const auto& entry : base::children("/proc")) {
             const std::string name { base::file_name(entry) };
             if (name.empty() || !std::ranges::all_of(name, [](char c) { return c >= '0' && c <= '9'; })) continue;
             std::int64_t pid { 0 };
@@ -1263,14 +1278,14 @@ public:
 
     // The kernel's short name of a process (`clangd` for the payload's clangd), for finding it under the server.
     static std::string comm_of(std::int64_t pid) {
-        auto comm = fs::read_file(std::format("/proc/{}/comm", pid));
+        auto comm = os::fs::read(std::format("/proc/{}/comm", pid));
         if (!comm) return {};
         return std::string { base::trim(*comm) };
     }
 
     // VmHWM, the process's own high-water mark of resident memory: a peak that falls between two samples is not lost.
     static std::optional<double> hwm_kb_of(std::int64_t pid) {
-        auto status = fs::read_file(std::format("/proc/{}/status", pid));
+        auto status = os::fs::read(std::format("/proc/{}/status", pid));
         if (!status) return std::nullopt;
         for (auto line : base::split_lines(*status)) {
             if (!line.starts_with("VmHWM:")) continue;
@@ -1310,11 +1325,12 @@ public:
     // No-op wherever the pid or /proc are not available: `finish()` then reports null, as design 1
     // asks for anything a platform cannot measure.
     explicit ProcessSampler(std::optional<std::int64_t> rootPid) {
-        if (mcppls::os::family() != mcppls::os::Family::linux) {
+        std::error_code ignored;
+        if (os::host() != os::platform::linux) {
             (void)rootPid;
             return;
         } else {
-            if (!rootPid || !fs::is_directory("/proc")) return;
+            if (!rootPid || !std::filesystem::is_directory("/proc", ignored)) return;
             active_ = true;
             const std::int64_t root { *rootPid };
             sample_once(root);
@@ -1348,7 +1364,7 @@ public:
 
 // The first field of /proc/loadavg, recorded beside every measurement: a run on a loaded machine explains itself.
 Json load_average() {
-    auto text = fs::read_file("/proc/loadavg");
+    auto text = os::fs::read("/proc/loadavg");
     if (!text) return nullptr;
     std::istringstream stream { *text };
     double load { 0 };
@@ -1392,6 +1408,7 @@ std::string state_or_none(const Json& status) { return status.is_object() ? stat
 // Every module file clangd published under a cache directory, path -> size and modification time. clangd keeps a copy for
 // its readers with a timestamp in its name (`mcpp.log-20260930-010313-591880.pcm`): not a build, so not listed.
 std::map<std::string, std::string> all_module_files(const std::string& cacheDirectory) {
+    std::error_code ignored;
     static const std::regex COPY { R"(-\d{8}-\d{6}-\d+\.pcm$)" };
     std::map<std::string, std::string> files;
     if (cacheDirectory.empty()) return files;
@@ -1399,15 +1416,15 @@ std::map<std::string, std::string> all_module_files(const std::string& cacheDire
     while (!pending.empty()) {
         const std::string directory { pending.back() };
         pending.pop_back();
-        for (const auto& entry : fs::list_directory(directory)) {
-            if (fs::is_directory(entry)) {
+        for (const auto& entry : base::children(directory)) {
+            if (std::filesystem::is_directory(entry, ignored)) {
                 pending.push_back(entry);
                 continue;
             }
             const std::string name { base::file_name(entry) };
             if (!name.ends_with(".pcm") || !entry.contains("/modules/") || std::regex_search(name, COPY)) continue;
-            const auto stamp = fs::stamp(entry);
-            files[entry] = stamp ? std::format("{}:{}", stamp->size, stamp->modified) : std::string {};
+            const auto stamp = base::file_stamp(entry);
+            files[entry] = stamp ? std::format("{}:{}", stamp->size, static_cast<std::int64_t>(stamp->modified_ns)) : std::string {};
         }
     }
     return files;
@@ -1516,7 +1533,7 @@ public:
     void poll() {
         if (directory_.empty()) return;
         std::lock_guard polling { pollMutex_ };
-        for (const auto& path : fs::list_directory(directory_)) {
+        for (const auto& path : base::children(directory_)) {
             const std::string name { base::file_name(path) };
             if (!name.starts_with("server-") || !name.ends_with(".log") || before_.contains(path)) continue;
             std::error_code failed;
@@ -1596,23 +1613,25 @@ public:
 
 // SIGKILL where the platform names processes by number. False elsewhere: a fault the platform cannot cause is skipped, not passed.
 bool kill_process(std::int64_t pid) {
-    if (mcppls::os::family() == mcppls::os::Family::windows) {
+    if (os::host() == os::platform::windows) {
         (void)pid;
         return false;
     } else {
-        mcppls::platform::SpawnOptions spawn;
+        os::process::spawn_options spawn;
+        spawn.bound_lifetime = true;
         spawn.program = "/bin/sh";
-        spawn.arguments = { "-c", std::format("kill -KILL {}", pid) };
-        auto result = mcppls::platform::run(std::move(spawn), std::chrono::seconds { 10 });
-        return result && result->exitCode == 0;
+        spawn.args = { "-c", std::format("kill -KILL {}", pid) };
+        auto result = os::process::run(std::move(spawn), os::process::bounds { .hard = std::chrono::seconds { 10 } });
+        return result && result->status.success();
     }
 }
 
-bool process_alive(std::int64_t pid) { return fs::exists(std::format("/proc/{}", pid)); }
+bool process_alive(std::int64_t pid) {
+    std::error_code ignored; return std::filesystem::exists(std::format("/proc/{}", pid), ignored); }
 
 std::string host_name() {
-    if (auto text = fs::read_file("/proc/sys/kernel/hostname")) return std::string { base::trim(*text) };
-    return mcppls::platform::env::get("HOSTNAME").value_or("localhost");
+    if (auto text = os::fs::read("/proc/sys/kernel/hostname")) return std::string { base::trim(*text) };
+    return os::env::get("HOSTNAME").value_or("localhost");
 }
 
 // 0.0.7 plan 6.4 (scenario tests): the clangd under the server, sampled from /proc every half second for the whole run.
@@ -1656,8 +1675,9 @@ private:
 
 public:
     explicit ClangdWatcher(std::function<std::int64_t()> serverPid) : serverPid_ { std::move(serverPid) } {
-        if (mcppls::os::family() == mcppls::os::Family::linux) {
-            if (!fs::is_directory("/proc")) return;
+        std::error_code ignored;
+        if (os::host() == os::platform::linux) {
+            if (!std::filesystem::is_directory("/proc", ignored)) return;
             active_ = true;
             thread_ = std::jthread { [this](std::stop_token token) {
                 while (!token.stop_requested()) {
@@ -1795,7 +1815,7 @@ public:
 
     std::string text_of(std::string_view relative) {
         if (auto it = open_.find(std::string { relative }); it != open_.end()) return it->second.first;
-        return fs::read_file(base::join_path(workspace_, relative)).value_or("");
+        return os::fs::read(base::join_path(workspace_, relative)).value_or("");
     }
 
     void open(std::string_view relative, std::optional<std::string> text = {}) {
@@ -1988,11 +2008,11 @@ public:
     // next stage, and a fixture's own sources must be the ones it was prepared with.
     void remember_original(const std::string& absolutePath) {
         if (restoreOnFinish_.contains(absolutePath)) return;
-        restoreOnFinish_[absolutePath] = fs::read_file(absolutePath).value_or("");
+        restoreOnFinish_[absolutePath] = os::fs::read(absolutePath).value_or("");
     }
 
     void restore_files() {
-        for (const auto& [path, content] : restoreOnFinish_) (void)fs::write_file(path, content);
+        for (const auto& [path, content] : restoreOnFinish_) (void)os::fs::write(path, content);
         restoreOnFinish_.clear();
         for (const auto& path : createdOnFinish_) {
             std::error_code ignored;
@@ -2529,7 +2549,7 @@ public:
 
     // The clangd of the run: --clangd, else the payload's.
     std::string clangd_program() const {
-        return !options_.clangd.empty() ? options_.clangd : base::join_path(options_.payload, "clangd/bin/clangd") + std::string { mcppls::os::executable_suffix() };
+        return !options_.clangd.empty() ? options_.clangd : base::join_path(options_.payload, "clangd/bin/clangd") + std::string { os::conventions().exe_suffix };
     }
 
     // A check's "retired-by": the capability that retires the workaround whose defect the check watches, for an engine
@@ -2538,7 +2558,7 @@ public:
     std::optional<std::string> retired_canary(const Json& check) const {
         const std::string feature { check.value("retired-by", std::string {}) };
         if (feature.empty() || !options_.clangd.empty() || options_.payload.empty()) return std::nullopt;
-        const auto text = fs::read_file(base::join_path(options_.payload, "payload.json"));
+        const auto text = os::fs::read(base::join_path(options_.payload, "payload.json"));
         if (!text) return std::nullopt;
         const Json manifest = Json::parse(*text, nullptr, false);
         if (manifest.is_discarded() || manifest.value("payload-version", 0) < 4) return std::nullopt;
@@ -2577,7 +2597,7 @@ public:
     }
 
     std::vector<std::string> direct_environment() const {
-        auto environment = mcppls::platform::env::variables();
+        auto environment = os::env::variables();
         apply_isolated_home(environment, options_);
         return environment;
     }
@@ -2631,7 +2651,8 @@ public:
     //     "min-ratio".
     // A canary holds while the defect its workaround exists for is there; `says` is what a failure means, as in clangd-check.
     std::pair<bool, std::string> run_clangd_lsp(const Json& check, const std::string& file) {
-        if (!fs::is_regular_file(clangd_program())) return { false, "no clangd: pass --clangd or --payload" };
+        std::error_code ignored;
+        if (!std::filesystem::is_regular_file(clangd_program(), ignored)) return { false, "no clangd: pass --clangd or --payload" };
         const std::string says { check.value("says", std::string {}) };
         const std::string action { check.value("action", std::string {}) };
         const auto failed = [&](const std::string& detail) {
@@ -2685,7 +2706,8 @@ public:
     // the server over the same. Budget: "ratio" and "slack-ms": the server's p95 is at most ratio x clangd's p95 + slack;
     // "engineShare" is the share of the server's answers that clangd gave, since an answer without it is fast and no use.
     std::pair<bool, std::string> run_completion_baseline(const Json& check, const std::string& file) {
-        if (!fs::is_regular_file(clangd_program())) return { false, "no clangd: pass --clangd or --payload" };
+        std::error_code ignored;
+        if (!std::filesystem::is_regular_file(clangd_program(), ignored)) return { false, "no clangd: pass --clangd or --payload" };
         const int rounds { check.value("rounds", 40) };
         const std::chrono::seconds startWithin { check.value("start-within", 240) };
         open(file);
@@ -2895,7 +2917,7 @@ public:
         };
         const auto save = [&] {
             savedText = join_lines(lines);
-            (void)fs::write_file_atomic(absolutePath, savedText);
+            (void)os::fs::write_atomic(absolutePath, savedText);
             client_.notify("textDocument/didSave", Json { { "textDocument", Json { { "uri", documentUri } } } });
             client_.notify("workspace/didChangeWatchedFiles", Json { { "changes", Json::array({ Json { { "uri", documentUri }, { "type", 2 } } }) } });
         };
@@ -3333,8 +3355,8 @@ public:
         const std::string absoluteInterface { base::join_path(workspace_, interfaceFile) };
         const std::string marker { check.value("marker", std::string {}) };
         const std::string inserted { check.value("insert", std::string {}) };
-        auto original = fs::read_file(absoluteInterface);
-        if (!original) return { false, std::format("{}: {}", interfaceFile, original.error().message) };
+        auto original = os::fs::read(absoluteInterface);
+        if (!original) return { false, std::format("{}: {}", interfaceFile, original.error().message()) };
         const std::size_t at { original->find(marker) };
         if (marker.empty() || at == std::string::npos) return { false, std::format("{} has no '{}'", interfaceFile, marker) };
         const std::string edited { original->substr(0, at + marker.size()) + inserted + original->substr(at + marker.size()) };
@@ -3366,7 +3388,7 @@ public:
         const std::chrono::seconds waitFor { check.value("wait-seconds", 120) };
 
         // The person saves the interface: on disk, in the buffer, and told to the server both ways.
-        (void)fs::write_file_atomic(absoluteInterface, edited);
+        (void)os::fs::write_atomic(absoluteInterface, edited);
         change(interfaceFile, edited);
         const auto saved { Clock::now() };
         client_.notify("textDocument/didSave", Json { { "textDocument", Json { { "uri", uri(interfaceFile) } } } });
@@ -3418,7 +3440,7 @@ public:
         const Json after = root_report();
 
         // Put the interface back: the next stage starts from the prepared workspace, and what returns is one more change.
-        (void)fs::write_file_atomic(absoluteInterface, *original);
+        (void)os::fs::write_atomic(absoluteInterface, *original);
         change(interfaceFile, *original);
         client_.notify("textDocument/didSave", Json { { "textDocument", Json { { "uri", uri(interfaceFile) } } } });
         client_.notify("workspace/didChangeWatchedFiles", Json { { "changes", Json::array({ Json { { "uri", uri(interfaceFile) }, { "type", 2 } } }) } });
@@ -3473,6 +3495,7 @@ public:
     // another host's, is waited for (up to 260 s a generation, 0.0.6). The module's published files are removed so that it has
     // to be built and its lock is taken.
     std::optional<Injected> inject_lock(const std::string& module, const std::string& variant, std::string& why) {
+        std::error_code ignored;
         const auto published = module_files(cacheDirectory_, module);
         if (published.empty()) {
             why = std::format("no module file of {} in the cache to build again", module);
@@ -3493,10 +3516,10 @@ public:
             if (dash == std::string::npos) continue;
             const std::string hash { name.substr(dash + 1) };
             const std::string locks { base::join_path(base::parent_path(directory), ".locks") };
-            (void)fs::create_directories(locks);
+            (void)std::filesystem::create_directories(locks, ignored);
             const std::string owner { base::join_path(locks, hash + ".lock-deadbeef") };
             const std::string link { base::join_path(locks, hash + ".lock") };
-            if (!fs::write_file(owner, host + " " + pid)) continue;
+            if (!os::fs::write(owner, host + " " + pid)) continue;
             std::error_code ignored;
             std::filesystem::remove(link, ignored);
             std::filesystem::create_symlink(owner, link, ignored);
@@ -3707,16 +3730,17 @@ public:
     // server the way an editor's file watcher would; the first leg measures how fast the project is described again, the
     // second (back at the commit the probe is valid at) how fast it is usable.
     std::pair<bool, std::string> run_git_checkout(const Json& check, const Json& recoverProbe) {
-        auto git = mcppls::platform::env::find_executable("git");
+        auto git = toolrun::find_program("git");
         if (!git) return { false, "git is not on PATH" };
         const auto run_git = [&](std::vector<std::string> arguments) -> std::optional<std::string> {
-            mcppls::platform::SpawnOptions spawn;
+            os::process::spawn_options spawn;
+            spawn.bound_lifetime = true;
             spawn.program = *git;
-            spawn.arguments = std::move(arguments);
-            spawn.workDirectory = workspace_;
-            auto result = mcppls::platform::run(std::move(spawn), std::chrono::minutes { 5 });
-            if (!result || result->exitCode != 0) return std::nullopt;
-            return result->output;
+            spawn.args = std::move(arguments);
+            spawn.cwd = workspace_;
+            auto result = os::process::run(std::move(spawn), os::process::bounds { .hard = std::chrono::minutes { 5 } });
+            if (!result || !result->status.success()) return std::nullopt;
+            return result->out;
         };
         const auto head = run_git({ "rev-parse", "HEAD" });
         if (!head) return { false, "the workspace is not a git repository" };
@@ -3748,7 +3772,7 @@ public:
             const std::size_t samplesBefore { client_.statusSamples.size() };
             if (!run_git({ "checkout", "-q", target })) return { false, std::format("git checkout {} failed", target) };
             for (auto& [path, buffer] : open_) {
-                if (auto fresh = fs::read_file(base::join_path(workspace_, path)); fresh && *fresh != buffer.first) change(path, *fresh);
+                if (auto fresh = os::fs::read(base::join_path(workspace_, path)); fresh && *fresh != buffer.first) change(path, *fresh);
             }
             if (!reported.empty()) client_.notify("workspace/didChangeWatchedFiles", Json { { "changes", reported } });
             // Described again: the status left `ready` for `loading` and came out of it.
@@ -4105,7 +4129,7 @@ public:
 
     // What an editor's file watcher does for a change on disk; with nothing registered (--no-dynamic-watch) the server's own polling has to notice.
     void report_file_change(const std::string& path, int type) {
-        const std::string canonical { fs::canonical_path(path) };
+        const std::string canonical { base::canonical_path(path) };
         if (client_.watches(path, type) || (!canonical.empty() && client_.watches(canonical, type))) {
             client_.notify("workspace/didChangeWatchedFiles", Json { { "changes", Json::array({ Json { { "uri", base::path_to_uri(path) }, { "type", type } } }) } });
         }
@@ -4133,6 +4157,7 @@ public:
     std::set<std::string> createdOnFinish_;   // files a graph-edit added, removed when the run ends
 
     std::pair<bool, std::string> run_graph_edit(const Json& check) {
+        std::error_code ignored;
         const std::string action { check.value("action", std::string {}) };
         const std::string file { check.value("file", std::string {}) };
         const std::string path { base::join_path(workspace_, file) };
@@ -4148,15 +4173,15 @@ public:
         if (action == "add" || action == "remove") {
             const bool adding { action == "add" };
             if (adding) {
-                (void)fs::create_directories(base::parent_path(path));
-                const bool existed { fs::exists(path) };
+                (void)std::filesystem::create_directories(base::parent_path(path), ignored);
+                const bool existed { std::filesystem::exists(path, ignored) };
                 if (!existed) createdOnFinish_.insert(path);
                 else remember_original(path);
                 const std::string content { check.value("content", std::format("export module {};\nimport std;\nexport int ux_value() {{ return 1; }}\n", module)) };
-                if (auto written = fs::write_file(path, content); !written) return { false, written.error().message };
+                if (auto written = os::fs::write(path, content); !written) return { false, written.error().message() };
                 report_file_change(path, existed ? 2 : 1);
             } else {
-                if (!fs::exists(path)) return { false, std::format("{} does not exist", file) };
+                if (!std::filesystem::exists(path, ignored)) return { false, std::format("{} does not exist", file) };
                 std::error_code ignored;
                 std::filesystem::remove(path, ignored);
                 createdOnFinish_.erase(path);
@@ -4183,7 +4208,7 @@ public:
             const Json replace = check.value("replace", Json::object());
             const std::string from { replace.value("from", std::string {}) };
             remember_original(path);
-            auto original = fs::read_file(path);
+            auto original = os::fs::read(path);
             if (!original || from.empty() || !original->contains(from)) return { false, std::format("{} has no '{}'", file, from) };
             const std::string changed { base::replace_all(*original, from, replace.value("with", std::string {})) };
             const std::chrono::seconds drainBound { check.value("background-work-seconds", 900) };
@@ -4193,7 +4218,7 @@ public:
                 std::move(summary), "background work did not finish within its bound");
             std::size_t samplesBefore { client_.statusSamples.size() };
             auto t0 { Clock::now() };
-            (void)fs::write_file(path, changed);
+            (void)os::fs::write(path, changed);
             report_file_change(path, 2);
             const auto changeSeconds { replanned_since(t0, samplesBefore, waitFor) };
             // A momentary ready status does not finish the new configuration's preparation.
@@ -4210,7 +4235,7 @@ public:
             tailer_.poll();
             const long loggedBefore { tailer_.count("Built module") };
             t0 = Clock::now();
-            (void)fs::write_file(path, *original);
+            (void)os::fs::write(path, *original);
             report_file_change(path, 2);
             const auto revertSeconds { replanned_since(t0, samplesBefore, waitFor) };
             const auto restored = drain_background(drainBound);
@@ -4259,6 +4284,7 @@ public:
     }
 
     std::pair<bool, std::string> run_(const Json& check) {
+        std::error_code ignored;
         const std::string kind { check.value("kind", std::string {}) };
         if (auto retired = retired_canary(check)) return { true, *retired };
         const std::string file { check.value("file", std::string { "src/main.cpp" }) };
@@ -4279,18 +4305,18 @@ public:
             if (directory.empty()) return { false, "the workspace cache directory is unavailable" };
             client_.stop();
             const std::string path { base::join_path(directory, "model.mcpp.json") };
-            const auto text = fs::read_file(path);
-            if (!text) return { false, text.error().message };
+            const auto text = os::fs::read(path);
+            if (!text) return { false, text.error().message() };
             Json cached = Json::parse(*text, nullptr, false);
             if (!cached.is_object() || !cached.contains("model") || !cached["model"].is_object()) return { false, "the persisted mcpp model is unavailable" };
             const std::string requested { check.value("requested-target", std::string {}) };
             cached["model"]["targetSelection"] = Json { { "mode", "auto" }, { "requestedTarget", requested },
                 { "source", "compile-commands" }, { "reason", "injected cache target mismatch" },
                 { "evidencePath", base::join_path(workspace_, "compile_commands.json") } };
-            if (auto written = fs::write_file(path, lsp::dump(cached)); !written) return { false, written.error().message };
+            if (auto written = os::fs::write(path, lsp::dump(cached)); !written) return { false, written.error().message() };
             if (const auto content = check.find("cdb-content"); content != check.end() && content->is_string()) {
                 const auto commands = base::replace_all(content->get<std::string>(), "{workspace}", workspace_);
-                if (auto written = fs::write_file(base::join_path(workspace_, "compile_commands.json"), commands); !written) return { false, written.error().message };
+                if (auto written = os::fs::write(base::join_path(workspace_, "compile_commands.json"), commands); !written) return { false, written.error().message() };
             }
             return { true, "cached requested target rewritten while its effective profile is retained" };
         }
@@ -4359,8 +4385,9 @@ public:
                     // K-7 (plan 2026-09-30): the issue names the diagnostic bundle written for it, and the file is there.
                     const bool wantedBundle { check.value("issue-bundle", false) };
                     matched = matched && std::ranges::any_of(snapshot.value("issues", Json::array()), [&](const Json& issue) {
+                        std::error_code ignored;
                         if (issue.value("code", std::string {}) != issueCode->get<std::string>()) return false;
-                        if (wantedBundle && (!issue.contains("bundle") || !fs::is_regular_file(issue.value("bundle", std::string {})))) return false;
+                        if (wantedBundle && (!issue.contains("bundle") || !std::filesystem::is_regular_file(issue.value("bundle", std::string {}), ignored))) return false;
                         if (wantedAskOnline && issue.value("askOnline", false) != *wantedAskOnline) return false;
                         if (!wantedMessage.empty() && !issue.value("message", std::string {}).contains(wantedMessage)) return false;
                         if (!wantedCategory.empty() && issue.value("category", std::string {}) != wantedCategory) return false;
@@ -4473,58 +4500,61 @@ public:
             if (argv.empty()) return { false, "a run check names its \"command\"" };
             std::string program { argv.front() };
             if (!base::is_absolute_path(program)) {
-                const auto found = mcppls::platform::env::find_executable(program);
+                const auto found = toolrun::find_program(program);
                 if (!found) return { false, std::format("{} is not on PATH", program) };
                 program = *found;
             }
-            mcppls::platform::SpawnOptions spawn;
+            os::process::spawn_options spawn;
+            spawn.bound_lifetime = true;
             spawn.program = program;
-            spawn.arguments.assign(argv.begin() + 1, argv.end());
-            spawn.workDirectory = workspace_;
+            spawn.args.assign(argv.begin() + 1, argv.end());
+            spawn.cwd = workspace_;
             const auto bound = std::chrono::seconds { check.value("timeout", static_cast<int>(timeout_.count())) };
-            auto running = std::async(std::launch::async, [spawn, bound]() mutable { return mcppls::platform::run(std::move(spawn), bound); });
+            auto running = std::async(std::launch::async, [spawn, bound]() mutable { return os::process::run(std::move(spawn), os::process::bounds { .hard = bound }); });
             while (running.wait_for(std::chrono::milliseconds { 200 }) != std::future_status::ready) client_.drain(std::chrono::milliseconds { 0 });
             auto result = running.get();
-            if (!result) return { false, result.error().message };
-            if (result->timedOut) return { false, std::format("{} did not finish in time", base::join(argv, " ")) };
+            if (!result) return { false, result.error().message() };
+            if (result->timed_out) return { false, std::format("{} did not finish in time", base::join(argv, " ")) };
             const int wantedExit { check.value("exit", 0) };
-            if (result->exitCode != wantedExit) {
+            if (toolrun::exit_code(result->status) != wantedExit) {
                 // What it said went wrong: its error lines, colours taken out, or else the end of what it printed.
-                const std::string printed { std::regex_replace(result->output + "\n" + result->error, std::regex { "\x1b\\[[0-9;]*m" }, "") };
+                const std::string printed { std::regex_replace(result->out + "\n" + result->err, std::regex { "\x1b\\[[0-9;]*m" }, "") };
                 std::vector<std::string> errors;
                 for (const auto line : base::split_lines(printed)) {
                     if (line.contains("error") && errors.size() < 4) errors.emplace_back(base::trim(line));
                 }
-                return { false, std::format("{} exited {} instead of {}: {}", base::join(argv, " "), result->exitCode, wantedExit,
+                return { false, std::format("{} exited {} instead of {}: {}", base::join(argv, " "), toolrun::exit_code(result->status), wantedExit,
                                             errors.empty() ? printed.substr(printed.size() - std::min<std::size_t>(printed.size(), 600)) : base::join(errors, " | ")) };
             }
-            return { true, std::format("{} exited {}", base::join(argv, " "), result->exitCode) };
+            return { true, std::format("{} exited {}", base::join(argv, " "), toolrun::exit_code(result->status)) };
         }
         if (kind == "cli") {
             // S5 7: a command of the query entries, run to completion in the workspace; its standard output is
             // one JSON document meeting the expectations, and it exits with "exit" (0 unless given).
-            mcppls::platform::SpawnOptions spawn;
+            os::process::spawn_options spawn;
+            spawn.bound_lifetime = true;
             spawn.program = options_.server;
-            for (const auto& argument : check.value("args", Json::array())) spawn.arguments.push_back(argument.get<std::string>());
-            if (!options_.payload.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--payload", options_.payload });
-            if (!options_.clangd.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--clangd", options_.clangd });
-            if (!options_.kit.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--kit", options_.kit });
-            spawn.arguments.insert(spawn.arguments.end(), serverArguments_.begin(), serverArguments_.end());
-            spawn.workDirectory = workspace_;
-            auto environment = mcppls::platform::env::variables();
+            for (const auto& argument : check.value("args", Json::array())) spawn.args.push_back(argument.get<std::string>());
+            if (!options_.payload.empty()) spawn.args.insert(spawn.args.end(), { "--payload", options_.payload });
+            if (!options_.clangd.empty()) spawn.args.insert(spawn.args.end(), { "--clangd", options_.clangd });
+            if (!options_.kit.empty()) spawn.args.insert(spawn.args.end(), { "--kit", options_.kit });
+            spawn.args.insert(spawn.args.end(), serverArguments_.begin(), serverArguments_.end());
+            spawn.cwd = workspace_;
+            auto environment = os::env::variables();
             environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory_);
             apply_isolated_home(environment, options_);
             apply_path_prepend(environment, options_);
-            spawn.environment = std::move(environment);
-            auto running = std::async(std::launch::async, [spawn, timeout = timeout_]() mutable { return mcppls::platform::run(std::move(spawn), timeout); });
+            spawn.clear_env = true;
+            spawn.env = os::env::assignments(std::move(environment));
+            auto running = std::async(std::launch::async, [spawn, timeout = timeout_]() mutable { return os::process::run(std::move(spawn), os::process::bounds { .hard = timeout }); });
             while (running.wait_for(std::chrono::milliseconds { 200 }) != std::future_status::ready) client_.drain(std::chrono::milliseconds { 0 });
             auto result = running.get();
-            if (!result) return { false, result.error().message };
-            if (result->timedOut) return { false, "the command did not finish in time" };
+            if (!result) return { false, result.error().message() };
+            if (result->timed_out) return { false, "the command did not finish in time" };
             const int wantedExit { check.value("exit", 0) };
-            if (result->exitCode != wantedExit) return { false, std::format("exit {} instead of {}: {}", result->exitCode, wantedExit, clipped(result->output + result->error, 300)) };
-            const Json value = Json::parse(result->output, nullptr, false);
-            if (value.is_discarded()) return { false, "the output is not JSON: " + clipped(result->output, 200) };
+            if (toolrun::exit_code(result->status) != wantedExit) return { false, std::format("exit {} instead of {}: {}", toolrun::exit_code(result->status), wantedExit, clipped(result->out + result->err, 300)) };
+            const Json value = Json::parse(result->out, nullptr, false);
+            if (value.is_discarded()) return { false, "the output is not JSON: " + clipped(result->out, 200) };
             auto [held, detail] = expectations_hold(value, check.value("expect", Json::array()));
             return { held, held ? clipped(lsp::dump(value), 160) : detail };
         }
@@ -4553,7 +4583,7 @@ public:
                 for (const auto& each : lines) (text += each) += line_ending_of(current);
                 change(file, text);
                 if (save) {
-                    (void)fs::write_file_atomic(base::join_path(workspace_, file), text);
+                    (void)os::fs::write_atomic(base::join_path(workspace_, file), text);
                     client_.notify("textDocument/didSave", Json { { "textDocument", Json { { "uri", uri(file) } } } });
                     client_.notify("workspace/didChangeWatchedFiles", Json { { "changes", Json::array({ Json { { "uri", uri(file) }, { "type", 2 } } }) } });
                 }
@@ -4583,28 +4613,29 @@ public:
             // --check on `file`; `expect` is "hangs" (it has not finished after `seconds`, default 10) or "finishes". A canary
             // expects the defect its workaround exists for; once an update of clangd fixes it, the check fails with `says`.
             const std::string clangd { clangd_program() };
-            if (!fs::is_regular_file(clangd)) return { false, "no clangd: pass --clangd or --payload" };
-            mcppls::platform::SpawnOptions spawn;
+            if (!std::filesystem::is_regular_file(clangd, ignored)) return { false, "no clangd: pass --clangd or --payload" };
+            os::process::spawn_options spawn;
+            spawn.bound_lifetime = true;
             spawn.program = clangd;
-            spawn.arguments = { std::format("--check={}", base::join_path(workspace_, file)), "--check-tidy-time=0" };
-            spawn.workDirectory = workspace_;
+            spawn.args = { std::format("--check={}", base::join_path(workspace_, file)), "--check-tidy-time=0" };
+            spawn.cwd = workspace_;
             const std::chrono::seconds limit { check.value("seconds", 10) };
-            auto running = std::async(std::launch::async, [spawn, limit]() mutable { return mcppls::platform::run(std::move(spawn), limit); });
+            auto running = std::async(std::launch::async, [spawn, limit]() mutable { return os::process::run(std::move(spawn), os::process::bounds { .hard = limit }); });
             while (running.wait_for(std::chrono::milliseconds { 200 }) != std::future_status::ready) client_.drain(std::chrono::milliseconds { 0 });
             auto result = running.get();
-            if (!result) return { false, result.error().message };
+            if (!result) return { false, result.error().message() };
             // The defect shows as a hang on Linux and macOS, and as a crash on Windows (0x80000003): either is clangd not
             // finishing. A normal exit, with or without errors, is --check's 0 to 3.
-            const bool crashed { !result->timedOut && (result->exitCode < 0 || result->exitCode > 125) };
-            const bool hung { result->timedOut || crashed };
+            const bool crashed { !result->timed_out && (toolrun::exit_code(result->status) < 0 || toolrun::exit_code(result->status) > 125) };
+            const bool hung { result->timed_out || crashed };
             const std::string expected { check.value("expect", std::string { "hangs" }) };
             const std::string says { check.value("says", std::string {}) };
             if (expected == "hangs" && !hung) {
                 return { false, std::format("{} (clangd exited {} in under {} s: {})", says.empty() ? std::string { "clangd finished; the defect is gone" } : says,
-                                            result->exitCode, limit.count(), clipped(result->output + result->error, 200)) };
+                                            toolrun::exit_code(result->status), limit.count(), clipped(result->out + result->err, 200)) };
             }
             if (expected == "finishes" && hung) return { false, std::format("clangd did not finish {} in {} s", file, limit.count()) };
-            if (crashed) return { true, std::format("clangd crashed on {} (exit {}), as expected", file, result->exitCode) };
+            if (crashed) return { true, std::format("clangd crashed on {} (exit {}), as expected", file, toolrun::exit_code(result->status)) };
             return { true, hung ? std::format("clangd has not finished {} after {} s, as expected", file, limit.count()) : "clangd finished" };
         }
         if (kind == "responds") {
@@ -4731,15 +4762,15 @@ public:
             do {
                 std::string newest;
                 std::int64_t newestTime { -1 };
-                for (const auto& candidate : fs::list_files(cacheDirectory_, std::array<std::string_view, 1> { ".json" }, {})) {
+                for (const auto& candidate : base::files_under(cacheDirectory_, std::array<std::string_view, 1> { ".json" }, {})) {
                     if (base::file_name(candidate) != "compile_commands.json" || !candidate.contains("/contexts/default/cdb/")) continue;
-                    if (const auto stamp = fs::stamp(candidate); stamp && stamp->modified > newestTime) {
+                    if (const auto stamp = base::file_stamp(candidate); stamp && static_cast<std::int64_t>(stamp->modified_ns) > newestTime) {
                         newest = candidate;
-                        newestTime = stamp->modified;
+                        newestTime = static_cast<std::int64_t>(stamp->modified_ns);
                     }
                 }
                 if (!newest.empty()) {
-                    const auto text = fs::read_file(newest);
+                    const auto text = os::fs::read(newest);
                     const Json database = text ? Json::parse(*text, nullptr, false) : Json();
                     detail = std::format("no command for {} in {}", file, newest);
                     for (const auto& entry : database.is_array() ? database : Json::array()) {
@@ -4762,21 +4793,22 @@ public:
             // that a model which followed shows it. The server is told of both writes, as an editor's watcher would.
             const std::string path { base::join_path(workspace_, file) };
             remember_original(path);
-            auto current = fs::read_file(path);
-            if (!current) return { false, std::format("{}: {}", file, current.error().message) };
+            auto current = os::fs::read(path);
+            if (!current) return { false, std::format("{}: {}", file, current.error().message()) };
             std::string complete { *current };
             if (const auto replace = check.find("replace"); replace != check.end() && replace->is_object()) {
                 const std::string from { replace->value("from", std::string {}) };
                 if (from.empty() || !complete.contains(from)) return { false, std::format("{} has no '{}'", file, from) };
                 complete = base::replace_all(complete, from, replace->value("with", std::string {}));
             }
-            const std::string canonical { fs::canonical_path(path) };
+            const std::string canonical { base::canonical_path(path) };
             const auto write = [&](const std::string& content) -> base::Result<void> {
-                auto written = fs::write_file(path, content);
-                if (written && (client_.watches(path, 2) || client_.watches(canonical, 2))) {
+                auto written = os::fs::write(path, content);
+                if (!written) return base::fail("write-file", written.error());
+                if (client_.watches(path, 2) || client_.watches(canonical, 2)) {
                     client_.notify("workspace/didChangeWatchedFiles", Json { { "changes", Json::array({ Json { { "uri", base::path_to_uri(path) }, { "type", 2 } } }) } });
                 }
-                return written;
+                return {};
             };
             const auto cut = static_cast<std::size_t>(static_cast<double>(complete.size()) * check.value("cut", 0.5));
             if (auto written = write(complete.substr(0, cut)); !written) return { false, written.error().message };
@@ -4791,7 +4823,7 @@ public:
         }
         if (kind == "producer-call-log") {
             if (const int observe = check.value("settle", 0); observe > 0) client_.pump_for(std::chrono::seconds { observe });
-            const auto text = fs::read_file(base::join_path(workspace_, file));
+            const auto text = os::fs::read(base::join_path(workspace_, file));
             if (!text) return { false, "the producer call log is unavailable" };
             Json calls = Json::array();
             for (const auto line : base::split_lines(*text)) {
@@ -4846,8 +4878,8 @@ public:
             // `content-from` names a workspace file to copy instead, for content too long to spell out.
             std::string content { check.value("content", std::format("export module {};\n", check.value("module", std::string { "probe" }))) };
             if (const std::string from { check.value("content-from", std::string {}) }; !from.empty()) {
-                auto copied = fs::read_file(base::join_path(workspace_, from));
-                if (!copied) return { false, std::format("{}: {}", from, copied.error().message) };
+                auto copied = os::fs::read(base::join_path(workspace_, from));
+                if (!copied) return { false, std::format("{}: {}", from, copied.error().message()) };
                 content = std::move(*copied);
             }
             const std::string path { base::join_path(workspace_, file) };
@@ -4860,14 +4892,14 @@ public:
                 restoreOnFinish_.erase(kept);
             } else if (const auto replace = check.find("replace"); replace != check.end() && replace->is_object()) {
                 remember_original(path);
-                auto current = fs::read_file(path);
-                if (!current) return { false, std::format("{}: {}", file, current.error().message) };
+                auto current = os::fs::read(path);
+                if (!current) return { false, std::format("{}: {}", file, current.error().message()) };
                 const std::string from { replace->value("from", std::string {}) };
                 if (from.empty() || !current->contains(from)) return { false, std::format("{} has no '{}'", file, from) };
                 content = base::replace_all(*current, from, replace->value("with", std::string {}));
             }
             content = base::replace_all(content, "{workspace}", workspace_);
-            (void)fs::create_directories(base::parent_path(path));
+            (void)std::filesystem::create_directories(base::parent_path(path), ignored);
             // With "folder", the reload must be that root's own (usable plan W9.1): a change routed
             // to another root would reload that one instead.
             const std::string folderUri { check.contains("folder") ? uri(check.value("folder", std::string {})) : std::string {} };
@@ -4875,13 +4907,13 @@ public:
                 return folderUri.empty() ? client_.statusHistory : client_.statusHistoryByRoot[folderUri];
             };
             const std::size_t seen { history().size() };
-            const bool existed { fs::exists(path) };
-            const auto written = fs::write_file(path, content);
-            if (!written) return { false, written.error().message };
+            const bool existed { std::filesystem::exists(path, ignored) };
+            const auto written = os::fs::write(path, content);
+            if (!written) return { false, written.error().message() };
             // An editor reports the write to the watchers the server registered; with nothing
             // registered (--no-dynamic-watch) the server's own polling has to notice it.
             const int type { existed ? 2 : 1 };
-            const std::string canonical { fs::canonical_path(path) };
+            const std::string canonical { base::canonical_path(path) };
             // "notify": true is an editor's own watcher of build files (the VS Code client's), which reports the write whether or not
             // the server registered anything: an inferred model, kept while a build tool cannot answer, registers nothing.
             if (check.value("notify", false) || client_.watches(path, type) || client_.watches(canonical, type)) {
@@ -5198,11 +5230,11 @@ public:
             // issue #23 fix plan F18: `mcppls.exportBundle` writes a zip within its size cap whose manifest is its contents,
             // digest for digest, and in which no file -- nor the report cxxModules/report answers -- names the home directory
             // the server runs with or the user it runs as (S3-5.5-3). The client's log it is sent carries the home too.
-            const std::string home { base::normalize_path(options_.isolatedHome.empty() ? mcppls::platform::dirs::home_directory() : options_.isolatedHome) };
+            const std::string home { base::normalize_path(options_.isolatedHome.empty() ? base::home_directory() : options_.isolatedHome) };
             std::vector<std::string> forbidden { home };
             forbidden.push_back(base::replace_all(home, "/", "\\"));
             for (const std::string_view name : { "USER", "USERNAME", "LOGNAME" }) {
-                const auto user = mcppls::platform::env::get(name);
+                const auto user = os::env::get(name);
                 if (!user || !mcppls::bundle::distinctive_name(*user)) continue;
                 forbidden.push_back(*user);
                 // Its 8.3 form (RUNNER~1 for runneradmin), which a Windows temporary directory is spelled with.
@@ -5222,24 +5254,26 @@ public:
             if (check.value("via", std::string { "command" }) == "cli") {
                 // `mcppls report --bundle`, the way CI and a person without an editor export one.
                 path = base::join_path(cacheDirectory_, std::format("{}.zip", check.value("id", std::string { "bundle" })));
-                mcppls::platform::SpawnOptions spawn;
+                os::process::spawn_options spawn;
+                spawn.bound_lifetime = true;
                 spawn.program = options_.server;
-                spawn.arguments = { "report", "--root", workspace_, "--settle", "30", "--bundle", path };
-                for (const auto& argument : check.value("args", Json::array())) spawn.arguments.push_back(argument.get<std::string>());
-                if (!options_.payload.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--payload", options_.payload });
-                if (!options_.clangd.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--clangd", options_.clangd });
-                if (!options_.kit.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--kit", options_.kit });
-                spawn.arguments.insert(spawn.arguments.end(), serverArguments_.begin(), serverArguments_.end());
-                spawn.workDirectory = workspace_;
-                auto environment = mcppls::platform::env::variables();
+                spawn.args = { "report", "--root", workspace_, "--settle", "30", "--bundle", path };
+                for (const auto& argument : check.value("args", Json::array())) spawn.args.push_back(argument.get<std::string>());
+                if (!options_.payload.empty()) spawn.args.insert(spawn.args.end(), { "--payload", options_.payload });
+                if (!options_.clangd.empty()) spawn.args.insert(spawn.args.end(), { "--clangd", options_.clangd });
+                if (!options_.kit.empty()) spawn.args.insert(spawn.args.end(), { "--kit", options_.kit });
+                spawn.args.insert(spawn.args.end(), serverArguments_.begin(), serverArguments_.end());
+                spawn.cwd = workspace_;
+                auto environment = os::env::variables();
                 environment.push_back("MCPPLS_CACHE_DIR=" + cacheDirectory_);
                 apply_isolated_home(environment, options_);
-                spawn.environment = std::move(environment);
-                auto running = std::async(std::launch::async, [spawn, timeout = timeout_]() mutable { return mcppls::platform::run(std::move(spawn), timeout); });
+                spawn.clear_env = true;
+                spawn.env = os::env::assignments(std::move(environment));
+                auto running = std::async(std::launch::async, [spawn, timeout = timeout_]() mutable { return os::process::run(std::move(spawn), os::process::bounds { .hard = timeout }); });
                 while (running.wait_for(std::chrono::milliseconds { 200 }) != std::future_status::ready) client_.drain(std::chrono::milliseconds { 0 });
                 auto result = running.get();
-                if (!result) return { false, result.error().message };
-                if (result->timedOut || result->exitCode != 0) return { false, std::format("mcppls report --bundle: exit {}: {}", result->exitCode, clipped(result->output + result->error, 300)) };
+                if (!result) return { false, result.error().message() };
+                if (result->timed_out || !result->status.success()) return { false, std::format("mcppls report --bundle: exit {}: {}", toolrun::exit_code(result->status), clipped(result->out + result->err, 300)) };
             } else {
                 Json arguments = check.value("arguments", Json::object());
                 arguments["client"] = Json { { "name", "mcppls-conformance" }, { "log", std::format("started in {}\nworkspace {}\n", home, workspace_) } };
@@ -5248,12 +5282,12 @@ public:
                 if (!answer || !answer->is_object() || !answer->contains("path")) return { false, "mcppls.exportBundle: no answer, or an error" };
                 path = answer->value("path", std::string {});
             }
-            auto archive = fs::read_file(path);
+            auto archive = os::fs::read(path);
             if (archive && !options_.keepBundles.empty()) {
-                (void)fs::create_directories(options_.keepBundles);
-                (void)fs::write_file(base::join_path(options_.keepBundles, std::format("{}-{}.zip", base::file_name(options_.fixture), check.value("id", std::string { "bundle" }))), *archive);
+                (void)std::filesystem::create_directories(options_.keepBundles, ignored);
+                (void)os::fs::write(base::join_path(options_.keepBundles, std::format("{}-{}.zip", base::file_name(options_.fixture), check.value("id", std::string { "bundle" }))), *archive);
             }
-            fs::remove_all(path);
+            std::filesystem::remove_all(path, ignored);
             if (!archive) return { false, std::format("no bundle at {}", path) };
             if (archive->size() > 25 * 1024 * 1024) return { false, std::format("the bundle is {} bytes, over its 25 MB cap", archive->size()) };
             auto files = mcppls::bundle::read_archive(*archive);
@@ -5475,8 +5509,9 @@ public:
 };
 
 int run(Options options) {
+    std::error_code ignored;
     const std::string scenarioPath { base::join_path(options.fixture, "scenario.json") };
-    auto scenarioText = fs::read_file(scenarioPath);
+    auto scenarioText = os::fs::read(scenarioPath);
     if (!scenarioText) {
         say("conformance: {} not found", scenarioPath);
         return 2;
@@ -5500,27 +5535,27 @@ int run(Options options) {
     }
     const bool reused { !options.workspaceDirectory.empty() };
     const std::string scratch { reused ? options.workspaceDirectory
-                                       : base::join_path(mcppls::platform::dirs::temp_directory(),
+                                       : base::join_path(base::spelled(os::dirs::temp()),
                                              std::format("mcppls-conformance-{}-{}", name, Clock::now().time_since_epoch().count())) };
     const std::string workspace { base::join_path(scratch, name) };
     // A reused workspace is prepared once; the marker sits beside it, outside what the server sees.
     const std::string preparedMarker { base::join_path(scratch, name + ".prepared") };
-    const bool alreadyPrepared { reused && fs::exists(preparedMarker) };
+    const bool alreadyPrepared { reused && std::filesystem::exists(preparedMarker, ignored) };
     if (!alreadyPrepared) {
-        fs::remove_all(workspace);
+        std::filesystem::remove_all(workspace, ignored);
         copy_tree(options.fixture, workspace);
-        fs::remove_all(base::join_path(workspace, "scenario.json"));
+        std::filesystem::remove_all(base::join_path(workspace, "scenario.json"), ignored);
     }
     say("fixture {} in {}{}", name, workspace, alreadyPrepared ? " (prepared before)" : "");
 
-    const std::string self { absolute(mcppls::platform::env::arguments().front()) };
+    const std::string self { absolute(os::env::arguments().front()) };
     // real-project plan RP2.1: an isolated HOME so producer negotiation
     // (`mcppls::project::other_mcpp_executables`) sees only candidates this fixture put there,
     // never a real mcpp or xlings install on the host or CI runner running the fixture.
     std::string isolatedHome;
     if (scenario.value("isolate-home", false)) {
         isolatedHome = base::join_path(workspace, ".home");
-        (void)fs::create_directories(isolatedHome);
+        (void)std::filesystem::create_directories(isolatedHome, ignored);
         options.isolatedHome = isolatedHome;
     }
     Expansion expansion { workspace, base::parent_path(self), options.payload, self, isolatedHome };
@@ -5543,8 +5578,8 @@ int run(Options options) {
         for (const auto& command : scenario.value("prepare", Json::array())) {
             if (!run_prepare(command, workspace, options.verbose, expansion, prepareEnvironment)) return 1;
         }
-        for (const auto& removed : scenario.value("remove", Json::array())) fs::remove_all(base::join_path(workspace, removed.get<std::string>()));
-        if (reused) (void)fs::write_file(preparedMarker, "");
+        for (const auto& removed : scenario.value("remove", Json::array())) std::filesystem::remove_all(base::join_path(workspace, removed.get<std::string>()), ignored);
+        if (reused) (void)os::fs::write(preparedMarker, "");
     }
 
     std::vector<std::string> serverArguments;
@@ -5564,7 +5599,7 @@ int run(Options options) {
     if (std::ranges::any_of(scenario.value("checks", Json::array()), [](const Json& check) { return check.value("kind", std::string {}) == "bmi-reuse"; })) {
         pcmBefore = all_module_files(cacheDirectory);
     }
-    for (const auto& file : fs::list_directory(base::join_path(cacheDirectory, "logs"))) logsBefore.insert(file);
+    for (const auto& file : base::children(base::join_path(cacheDirectory, "logs"))) logsBefore.insert(file);
     if (auto started = client.start(options, serverArguments, workspace, cacheDirectory); !started) {
         say("conformance: cannot start the server: {}", started.error().message);
         return 2;
@@ -5682,8 +5717,8 @@ int run(Options options) {
         // `only-on`: the operating systems a check holds on ("linux", "macos", "windows"); a defect that shows
         // differently elsewhere (a crash instead of a spin) is checked by its own entry there.
         if (const auto onlyOn = check.find("only-on"); onlyOn != check.end() && onlyOn->is_array()) {
-            const std::string_view here { mcppls::os::family() == mcppls::os::Family::windows ? "windows"
-                                          : mcppls::os::family() == mcppls::os::Family::macos ? "macos" : "linux" };
+            const std::string_view here { os::host() == os::platform::windows ? "windows"
+                                          : os::host() == os::platform::macos ? "macos" : "linux" };
             if (std::ranges::none_of(*onlyOn, [&](const Json& os) { return os.is_string() && os.get<std::string>() == here; })) {
                 say("SKIP {} {} (only on {})", id, check.value("kind", std::string {}), lsp::dump(*onlyOn));
                 continue;
@@ -5790,7 +5825,7 @@ int run(Options options) {
         summary["checks"] = measured;
         if (!write_artifact(options.measureFile, summary)) ++failures;
     }
-    if (!options.keep && !reused) fs::remove_all(scratch);
+    if (!options.keep && !reused) std::filesystem::remove_all(scratch, ignored);
     return failures == 0 ? 0 : 1;
 }
 
@@ -5802,13 +5837,13 @@ int run(Options options) {
 
 // A path as a tool on this host spells it: Windows compilers and their databases take backslashes.
 std::string native(std::string path) {
-    if (mcppls::os::family() == mcppls::os::Family::windows) std::ranges::replace(path, '/', '\\');
+    if (os::host() == os::platform::windows) std::ranges::replace(path, '/', '\\');
     return path;
 }
 
 std::optional<std::string> on_path(const std::string& program) {
     if (base::is_absolute_path(program)) return program;
-    return mcppls::platform::env::find_executable(program);
+    return toolrun::find_program(program);
 }
 
 // usable plan W9.2: a workspace carrying its own S1 database with two sets that compile
@@ -5816,7 +5851,7 @@ std::optional<std::string> on_path(const std::string& program) {
 // would have written. The compiler is real (scenario.json passes {env:CONFORMANCE_CLANGXX|clang++}),
 // so the server's toolchain probing at load time resolves it rather than guessing from a fake path.
 int prepare_s1_two_sets(const std::string& compiler) {
-    const std::string root { fs::current_directory() };
+    const std::string root { base::current_directory() };
     auto clangxx = on_path(compiler.empty() ? std::string { "clang++" } : compiler);
     if (!clangxx) {
         say("s1-two-sets: {} is not on PATH", compiler);
@@ -5854,8 +5889,8 @@ int prepare_s1_two_sets(const std::string& compiler) {
         } },
         { "sets", Json::array({ set_for(1), set_for(2) }) },
     };
-    if (auto written = fs::write_file(base::join_path(root, "build_database.json"), database.dump(2)); !written) {
-        say("s1-two-sets: {}", written.error().message);
+    if (auto written = os::fs::write(base::join_path(root, "build_database.json"), database.dump(2)); !written) {
+        say("s1-two-sets: {}", written.error().message());
         return 1;
     }
     return 0;
@@ -5866,11 +5901,12 @@ int prepare_s1_two_sets(const std::string& compiler) {
 // so the check is proven even against a payload assembled before W9.4. Linux only (the fixture list
 // says so): the executable is `clangd/bin/clangd`.
 int prepare_payload_corrupt(const std::string& source) {
-    if (source.empty() || !fs::is_directory(source)) {
+    std::error_code ignored;
+    if (source.empty() || !std::filesystem::is_directory(source, ignored)) {
         say("payload-corrupt: pass the runner's --payload directory (the {{payload}} placeholder)");
         return 1;
     }
-    const std::string target { base::join_path(fs::current_directory(), "payload-copy") };
+    const std::string target { base::join_path(base::current_directory(), "payload-copy") };
     std::error_code failed;
     std::filesystem::remove_all(target, failed);
     std::filesystem::copy(source, target, std::filesystem::copy_options::recursive, failed);
@@ -5886,12 +5922,12 @@ int prepare_payload_corrupt(const std::string& source) {
         if ((entry.status().permissions() & std::filesystem::perms::owner_exec) == std::filesystem::perms::none) continue;
         executables.push_back(base::join_path(target, std::filesystem::relative(entry.path(), source).generic_string()));
     }
-    if (auto marked = fs::make_executable(executables); !marked) {
+    if (auto marked = base::make_executable(executables); !marked) {
         say("payload-corrupt: {}", marked.error().message);
         return 1;
     }
     const std::string manifestPath { base::join_path(target, "payload.json") };
-    auto text = fs::read_file(manifestPath);
+    auto text = os::fs::read(manifestPath);
     Json manifest = text ? Json::parse(*text, nullptr, false) : Json {};
     if (!manifest.is_object()) {
         say("payload-corrupt: {} is not a JSON object", manifestPath);
@@ -5901,23 +5937,23 @@ int prepare_payload_corrupt(const std::string& source) {
     const std::string clangd { base::join_path(target, "clangd/bin/clangd") };
     for (const auto& [relative, path] : { std::pair { std::string { "clangd/bin/clangd" }, clangd },
                                           std::pair { std::string { "kit/kit.json" }, base::join_path(target, "kit/kit.json") } }) {
-        if (manifest["files"].contains(relative) || !fs::is_regular_file(path)) continue;
-        auto content = fs::read_file(path);
+        if (manifest["files"].contains(relative) || !std::filesystem::is_regular_file(path, ignored)) continue;
+        auto content = os::fs::read(path);
         if (!content) continue;
         manifest["files"][relative] = { { "size", content->size() }, { "sha256", base::sha256_hex(*content) } };
     }
-    if (auto written = fs::write_file(manifestPath, manifest.dump(2)); !written) {
-        say("payload-corrupt: {}", written.error().message);
+    if (auto written = os::fs::write(manifestPath, manifest.dump(2)); !written) {
+        say("payload-corrupt: {}", written.error().message());
         return 1;
     }
     // Corrupt it now, after the manifest above was computed from the still-intact file.
-    auto intact = fs::read_file(clangd);
+    auto intact = os::fs::read(clangd);
     if (!intact) {
         say("payload-corrupt: {} has no clangd/bin/clangd", source);
         return 1;
     }
-    if (auto written = fs::write_file(clangd, std::string_view { *intact }.substr(0, std::min<std::size_t>(1024, intact->size()))); !written) {
-        say("payload-corrupt: {}", written.error().message);
+    if (auto written = os::fs::write(clangd, std::string_view { *intact }.substr(0, std::min<std::size_t>(1024, intact->size()))); !written) {
+        say("payload-corrupt: {}", written.error().message());
         return 1;
     }
     return 0;
@@ -5929,16 +5965,17 @@ int prepare_payload_corrupt(const std::string& source) {
 // (usable plan E7); and `clang++` for the MSVC ABI. Windows only, inside a developer environment
 // (VCToolsInstallDir).
 int prepare_compdb_msvc_std(bool clangCl) {
-    const std::string root { fs::current_directory() };
+    std::error_code ignored;
+    const std::string root { base::current_directory() };
     const std::string build { base::join_path(root, "build") };
-    (void)fs::create_directories(build);
-    const auto tools = mcppls::platform::env::get("VCToolsInstallDir");
+    (void)std::filesystem::create_directories(build, ignored);
+    const auto tools = os::env::get("VCToolsInstallDir");
     if (!tools) {
         say("prepare: VCToolsInstallDir is not set; run inside a developer environment (--msvc-env)");
         return 1;
     }
     const std::string stdIxx { base::join_path(*tools, "modules/std.ixx") };
-    auto driver = mcppls::platform::env::find_executable(clangCl ? "clang-cl" : "clang++");
+    auto driver = toolrun::find_program(clangCl ? "clang-cl" : "clang++");
     if (!driver) {
         say("prepare: {} is not on PATH", clangCl ? "clang-cl" : "clang++");
         return 1;
@@ -5975,20 +6012,21 @@ int prepare_compdb_msvc_std(bool clangCl) {
     Json database = Json::array();
     for (const auto& [source, argv] : steps) {
         say("+ {}", base::join(argv, " "));
-        mcppls::platform::SpawnOptions options;
+        os::process::spawn_options options;
+        options.bound_lifetime = true;
         options.program = argv.front();
-        options.arguments.assign(argv.begin() + 1, argv.end());
-        options.workDirectory = root;
-        auto result = mcppls::platform::run(std::move(options), std::chrono::minutes { 10 });
-        if (!result || result->exitCode != 0 || result->timedOut) {
-            if (result) say("{}\n{}", result->output, result->error);
+        options.args.assign(argv.begin() + 1, argv.end());
+        options.cwd = root;
+        auto result = os::process::run(std::move(options), os::process::bounds { .hard = std::chrono::minutes { 10 } });
+        if (!result || !result->status.success() || result->timed_out) {
+            if (result) say("{}\n{}", result->out, result->err);
             say("prepare: the step above failed");
             return 1;
         }
         if (!source.empty()) database.push_back({ { "directory", native(root) }, { "file", source }, { "arguments", argv } });
     }
-    if (auto written = fs::write_file(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
-        say("prepare: {}", written.error().message);
+    if (auto written = os::fs::write(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
+        say("prepare: {}", written.error().message());
         return 1;
     }
     return 0;
@@ -6000,7 +6038,7 @@ int prepare_compdb_msvc_std(bool clangCl) {
 // the server's L2 fallback (mcpp advertises no mcpp.build-database, `build --configure-only` fails
 // too, the project's own compile_commands.json is what is left) has something real to read.
 int prepare_generated_module_compdb(const std::string& compiler) {
-    const std::string root { fs::current_directory() };
+    const std::string root { base::current_directory() };
     auto clangxx = on_path(compiler.empty() ? std::string { "clang++" } : compiler);
     if (!clangxx) {
         say("generated-module-old-mcpp: {} is not on PATH", compiler);
@@ -6013,8 +6051,8 @@ int prepare_generated_module_compdb(const std::string& compiler) {
         database.push_back(Json { { "directory", native(root) }, { "file", source },
                                   { "arguments", Json::array({ *clangxx, "-std=c++23", "-c", source, "-o", source + ".o" }) } });
     }
-    if (auto written = fs::write_file(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
-        say("generated-module-old-mcpp: {}", written.error().message);
+    if (auto written = os::fs::write(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
+        say("generated-module-old-mcpp: {}", written.error().message());
         return 1;
     }
     return 0;
@@ -6028,7 +6066,7 @@ int prepare_generated_module_compdb(const std::string& compiler) {
 // makes the driver the one of the LLVM Windows installer, with no configuration file: an LLVM that
 // carries one choosing lld (as mcpp's does) would not plan the link that fails.
 int prepare_compdb_lto_msvc(const std::string& compiler) {
-    const std::string root { fs::current_directory() };
+    const std::string root { base::current_directory() };
     auto clangxx = on_path(compiler.empty() ? std::string { "clang++" } : compiler);
     if (!clangxx) {
         say("compdb-lto-msvc: {} is not on PATH", compiler);
@@ -6041,8 +6079,8 @@ int prepare_compdb_lto_msvc(const std::string& compiler) {
                                   { "arguments", Json::array({ *clangxx, "--no-default-config", "--target=x86_64-pc-windows-msvc", "-std=c++23",
                                                                "-flto", "-O2", "-c", source, "-o", source + ".obj" }) } });
     }
-    if (auto written = fs::write_file(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
-        say("compdb-lto-msvc: {}", written.error().message);
+    if (auto written = os::fs::write(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
+        say("compdb-lto-msvc: {}", written.error().message());
         return 1;
     }
     return 0;
@@ -6052,7 +6090,7 @@ int prepare_compdb_lto_msvc(const std::string& compiler) {
 // command #23's LTO one was: clangd's module scan fails on every unit, and the status says the command was rejected,
 // with the driver's own words, instead of leaving the user to find "Scanning modules dependencies ... failed" in a log.
 int prepare_compdb_rejected_command(const std::string& compiler) {
-    const std::string root { fs::current_directory() };
+    const std::string root { base::current_directory() };
     auto clangxx = on_path(compiler.empty() ? std::string { "clang++" } : compiler);
     if (!clangxx) {
         say("compdb-rejected-command: {} is not on PATH", compiler);
@@ -6064,8 +6102,8 @@ int prepare_compdb_rejected_command(const std::string& compiler) {
         database.push_back(Json { { "directory", native(root) }, { "file", source },
                                   { "arguments", Json::array({ *clangxx, "-std=c++99999", "-c", source, "-o", source + ".o" }) } });
     }
-    if (auto written = fs::write_file(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
-        say("compdb-rejected-command: {}", written.error().message);
+    if (auto written = os::fs::write(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
+        say("compdb-rejected-command: {}", written.error().message());
         return 1;
     }
     return 0;
@@ -6075,7 +6113,7 @@ int prepare_compdb_rejected_command(const std::string& compiler) {
 // that a check can tell which database the engine's commands came from: the user's stale file (xmake-late-config: the user ran
 // `xmake project` once, before the project had a standard) or the file a tool is about to rewrite (compdb-midwrite).
 int prepare_marked_compdb(std::string_view fixture, const std::string& compiler, const std::string& marker, const std::string& standard) {
-    const std::string root { fs::current_directory() };
+    const std::string root { base::current_directory() };
     auto driver = on_path(compiler);
     if (!driver) {
         say("{}: {} is not on PATH", fixture, compiler);
@@ -6083,14 +6121,14 @@ int prepare_marked_compdb(std::string_view fixture, const std::string& compiler,
     }
     Json database = Json::array();
     static constexpr std::array<std::string_view, 2> EXTENSIONS { ".cpp", ".cppm" };
-    for (const auto& source : fs::list_files(base::join_path(root, "src"), EXTENSIONS, {})) {
+    for (const auto& source : base::files_under(base::join_path(root, "src"), EXTENSIONS, {})) {
         Json arguments = Json::array({ *driver });
         if (!standard.empty()) arguments.push_back(standard);
         for (const auto& argument : { marker, std::string { "-c" }, native(source), std::string { "-o" }, native(source) + ".o" }) arguments.push_back(argument);
         database.push_back(Json { { "directory", native(root) }, { "file", native(source) }, { "arguments", std::move(arguments) } });
     }
-    if (auto written = fs::write_file(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
-        say("{}: {}", fixture, written.error().message);
+    if (auto written = os::fs::write(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
+        say("{}: {}", fixture, written.error().message());
         return 1;
     }
     return 0;
@@ -6099,7 +6137,7 @@ int prepare_marked_compdb(std::string_view fixture, const std::string& compiler,
 // C++26 alignment (fix plan 2026-09-26 §9): a compile_commands.json whose units name two standards -- a module and an
 // importer of std at C++23, an application at C++26 importing both. One std BMI cannot serve both standards.
 int prepare_compdb_mixed_standards(const std::string& compiler) {
-    const std::string root { fs::current_directory() };
+    const std::string root { base::current_directory() };
     auto clangxx = on_path(compiler.empty() ? std::string { "clang++" } : compiler);
     if (!clangxx) {
         say("compdb-mixed-standards: {} is not on PATH", compiler);
@@ -6112,8 +6150,8 @@ int prepare_compdb_mixed_standards(const std::string& compiler) {
         database.push_back(Json { { "directory", native(root) }, { "file", source },
                                   { "arguments", Json::array({ *clangxx, "-stdlib=libc++", standard, "-c", source, "-o", source + ".o" }) } });
     }
-    if (auto written = fs::write_file(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
-        say("compdb-mixed-standards: {}", written.error().message);
+    if (auto written = os::fs::write(base::join_path(root, "compile_commands.json"), database.dump(2)); !written) {
+        say("compdb-mixed-standards: {}", written.error().message());
         return 1;
     }
     return 0;
@@ -6130,34 +6168,35 @@ int prepare_compdb_mixed_standards(const std::string& compiler) {
 // with the compiler this prepare step resolves itself: prepare steps run in the real environment,
 // never the isolated one the server sees, so a path baked in now still exists once the server asks.
 int prepare_producer_candidate(const std::string& home) {
-    if (home.empty() || !fs::is_directory(home)) {
+    std::error_code ignored;
+    if (home.empty() || !std::filesystem::is_directory(home, ignored)) {
         say("producer-candidate: pass the fixture's isolated home (the {{home}} placeholder needs \"isolate-home\": true)");
         return 1;
     }
-    const std::string root { fs::current_directory() };
+    const std::string root { base::current_directory() };
     // As {env:CONFORMANCE_CLANGXX|clang++} expands in a scenario: an empty variable is an unset one
     // (CI sets it to "" where the runner's own clang++ is meant).
-    const auto configured = mcppls::platform::env::get("CONFORMANCE_CLANGXX");
+    const auto configured = os::env::get("CONFORMANCE_CLANGXX");
     auto clangxx = on_path(configured && !configured->empty() ? *configured : std::string { "clang++" });
     if (!clangxx) {
         say("producer-candidate: clang++ is not on PATH");
         return 1;
     }
-    const std::string self { absolute(mcppls::platform::env::arguments().front()) };
-    const std::string mock { base::join_path(base::parent_path(self), "mcppls-mock-mcpp") + std::string { mcppls::os::executable_suffix() } };
-    auto mockContent = fs::read_file(mock);
+    const std::string self { absolute(os::env::arguments().front()) };
+    const std::string mock { base::join_path(base::parent_path(self), "mcppls-mock-mcpp") + std::string { os::conventions().exe_suffix } };
+    auto mockContent = os::fs::read(mock);
     if (!mockContent) {
         say("producer-candidate: {} is not built (needs mcppls-mock-mcpp beside mcppls-conformance)", mock);
         return 1;
     }
     const std::string binaryDirectory { base::join_path(home, ".xlings/data/xpkgs/xim-x-mcpp/9999.0.0/bin") };
-    (void)fs::create_directories(binaryDirectory);
-    const std::string binaryPath { base::join_path(binaryDirectory, "mcpp") + std::string { mcppls::os::executable_suffix() } };
-    if (auto written = fs::write_file(binaryPath, *mockContent); !written) {
-        say("producer-candidate: {}", written.error().message);
+    (void)std::filesystem::create_directories(binaryDirectory, ignored);
+    const std::string binaryPath { base::join_path(binaryDirectory, "mcpp") + std::string { os::conventions().exe_suffix } };
+    if (auto written = os::fs::write(binaryPath, *mockContent); !written) {
+        say("producer-candidate: {}", written.error().message());
         return 1;
     }
-    if (auto marked = fs::make_executable(std::vector<std::string> { binaryPath }); !marked) {
+    if (auto marked = base::make_executable(std::vector<std::string> { binaryPath }); !marked) {
         say("producer-candidate: {}", marked.error().message);
         return 1;
     }
@@ -6191,8 +6230,8 @@ int prepare_producer_candidate(const std::string& home) {
         }) },
     };
     const Json config { { "database", database }, { "watch", Json::array({ "mcpp.toml", "src/**/*.cppm", "src/**/*.cpp" }) } };
-    if (auto written = fs::write_file(base::join_path(binaryDirectory, "mcpp-mock.json"), config.dump(2)); !written) {
-        say("producer-candidate: {}", written.error().message);
+    if (auto written = os::fs::write(base::join_path(binaryDirectory, "mcpp-mock.json"), config.dump(2)); !written) {
+        say("producer-candidate: {}", written.error().message());
         return 1;
     }
     return 0;
@@ -6208,6 +6247,7 @@ int prepare_producer_candidate(const std::string& home) {
 // answered by mcppls's own engine at once, and nothing restarts clangd or keeps priming a module
 // already known to be doomed.
 int prepare_failure_at_base(const std::string& argument) {
+    std::error_code ignored;
     int count { 100 };
     if (!argument.empty()) {
         try {
@@ -6217,9 +6257,9 @@ int prepare_failure_at_base(const std::string& argument) {
             return 1;
         }
     }
-    const std::string root { fs::current_directory() };
-    (void)fs::create_directories(base::join_path(root, "src/gen"));
-    (void)fs::create_directories(base::join_path(root, "src/healthy"));
+    const std::string root { base::current_directory() };
+    (void)std::filesystem::create_directories(base::join_path(root, "src/gen"), ignored);
+    (void)std::filesystem::create_directories(base::join_path(root, "src/healthy"), ignored);
     for (int i { 0 }; i < count; ++i) {
         const std::string body { i == 0
             ? std::format("// The base of a {}-module import chain (real-project plan RP1.1): fails to compile,\n"
@@ -6229,8 +6269,8 @@ int prepare_failure_at_base(const std::string& argument) {
                           "export int chain0() {{ return undeclared_base_symbol; }}\n", count)
             : std::format("export module gen.chain{0};\nimport gen.chain{1};\n\nexport int chain{0}() {{ return chain{1}() + 1; }}\n",
                           i, i - 1) };
-        if (auto written = fs::write_file(base::join_path(root, std::format("src/gen/chain{}.cppm", i)), body); !written) {
-            say("failure-at-base: {}", written.error().message);
+        if (auto written = os::fs::write(base::join_path(root, std::format("src/gen/chain{}.cppm", i)), body); !written) {
+            say("failure-at-base: {}", written.error().message());
             return 1;
         }
     }
@@ -6240,8 +6280,8 @@ int prepare_failure_at_base(const std::string& argument) {
         "// plan RP1.1).\n"
         "import gen.chain{0};\n\n"
         "int use_chain() {{ return chain{0}(); }}\n", count - 1) };
-    if (auto written = fs::write_file(base::join_path(root, "src/gen-importer.cpp"), importer); !written) {
-        say("failure-at-base: {}", written.error().message);
+    if (auto written = os::fs::write(base::join_path(root, "src/gen-importer.cpp"), importer); !written) {
+        say("failure-at-base: {}", written.error().message());
         return 1;
     }
     static constexpr std::string_view HEALTHY_A {
@@ -6251,12 +6291,12 @@ int prepare_failure_at_base(const std::string& argument) {
     static constexpr std::string_view HEALTHY_B {
         "import healthy.a;\n\n"
         "int healthyUser() { return healthyValue() * 2; }\n" };
-    if (auto written = fs::write_file(base::join_path(root, "src/healthy/a.cppm"), std::string { HEALTHY_A }); !written) {
-        say("failure-at-base: {}", written.error().message);
+    if (auto written = os::fs::write(base::join_path(root, "src/healthy/a.cppm"), std::string { HEALTHY_A }); !written) {
+        say("failure-at-base: {}", written.error().message());
         return 1;
     }
-    if (auto written = fs::write_file(base::join_path(root, "src/healthy/b.cpp"), std::string { HEALTHY_B }); !written) {
-        say("failure-at-base: {}", written.error().message);
+    if (auto written = os::fs::write(base::join_path(root, "src/healthy/b.cpp"), std::string { HEALTHY_B }); !written) {
+        say("failure-at-base: {}", written.error().message());
         return 1;
     }
     return 0;
@@ -6267,28 +6307,29 @@ int prepare_failure_at_base(const std::string& argument) {
 // beside it saying `unavailable`, writes that text to its standard error and exits 1 however it is
 // started: the loader's message and exit, on every host.
 int prepare_clangd_cannot_load() {
-    const std::string self { absolute(mcppls::platform::env::arguments().front()) };
-    const std::string mock { base::join_path(base::parent_path(self), "mcppls-mock-mcpp") + std::string { mcppls::os::executable_suffix() } };
-    auto mockContent = fs::read_file(mock);
+    std::error_code ignored;
+    const std::string self { absolute(os::env::arguments().front()) };
+    const std::string mock { base::join_path(base::parent_path(self), "mcppls-mock-mcpp") + std::string { os::conventions().exe_suffix } };
+    auto mockContent = os::fs::read(mock);
     if (!mockContent) {
         say("clangd-cannot-load: {} is not built (needs mcppls-mock-mcpp beside mcppls-conformance)", mock);
         return 1;
     }
-    const std::string directory { base::join_path(fs::current_directory(), "stand-in") };
-    (void)fs::create_directories(directory);
-    const std::string clangd { base::join_path(directory, "clangd") + std::string { mcppls::os::executable_suffix() } };
-    if (auto written = fs::write_file(clangd, *mockContent); !written) {
-        say("clangd-cannot-load: {}", written.error().message);
+    const std::string directory { base::join_path(base::current_directory(), "stand-in") };
+    (void)std::filesystem::create_directories(directory, ignored);
+    const std::string clangd { base::join_path(directory, "clangd") + std::string { os::conventions().exe_suffix } };
+    if (auto written = os::fs::write(clangd, *mockContent); !written) {
+        say("clangd-cannot-load: {}", written.error().message());
         return 1;
     }
-    if (auto marked = fs::make_executable(std::vector<std::string> { clangd }); !marked) {
+    if (auto marked = base::make_executable(std::vector<std::string> { clangd }); !marked) {
         say("clangd-cannot-load: {}", marked.error().message);
         return 1;
     }
     const Json config { { "unavailable",
         "clangd: /lib/aarch64-linux-gnu/libstdc++.so.6: version `GLIBCXX_3.4.30' not found (required by clangd)\n" } };
-    if (auto written = fs::write_file(base::join_path(directory, "mcpp-mock.json"), config.dump(2) + "\n"); !written) {
-        say("clangd-cannot-load: {}", written.error().message);
+    if (auto written = os::fs::write(base::join_path(directory, "mcpp-mock.json"), config.dump(2) + "\n"); !written) {
+        say("clangd-cannot-load: {}", written.error().message());
         return 1;
     }
     return 0;
@@ -6300,18 +6341,19 @@ int prepare_clangd_cannot_load() {
 // `crashFile` (relative to the workspace) is the file the context names; empty, the stand-in prints no context and is
 // gone the way a clangd killed from outside is (0.0.17 W5: clangd-exit-strike).
 int prepare_crashing_clangd(std::string_view kind, const std::string& payload, std::string_view crashFile) {
-    if (mcppls::os::family() == mcppls::os::Family::windows) {
+    std::error_code ignored;
+    if (os::host() == os::platform::windows) {
         say("{}: POSIX only", kind);
         return 2;
     }
-    const std::string workspace { fs::current_directory() };
+    const std::string workspace { base::current_directory() };
     const std::string real { base::join_path(payload, "clangd/bin/clangd") };
-    if (!fs::exists(real)) {
+    if (!std::filesystem::exists(real, ignored)) {
         say("{}: no clangd at {}", kind, real);
         return 1;
     }
     const std::string directory { base::join_path(workspace, "stand-in") };
-    (void)fs::create_directories(directory);
+    (void)std::filesystem::create_directories(directory, ignored);
     const std::string crashed { base::join_path(directory, "crashed-once") };
     const std::string crasher { crashFile.empty() ? std::string {} : base::join_path(workspace, crashFile) };
     const std::string context { crasher.empty() ? std::string {} : std::format(
@@ -6342,11 +6384,11 @@ int prepare_crashing_clangd(std::string_view kind, const std::string& payload, s
         "exit {}\n",
         real, crashed, crashed, context, crasher.empty() ? 137 : 139) };
     const std::string clangd { base::join_path(directory, "clangd") };
-    if (auto written = fs::write_file(clangd, script); !written) {
-        say("{}: {}", kind, written.error().message);
+    if (auto written = os::fs::write(clangd, script); !written) {
+        say("{}: {}", kind, written.error().message());
         return 1;
     }
-    if (auto marked = fs::make_executable(std::vector<std::string> { clangd }); !marked) {
+    if (auto marked = base::make_executable(std::vector<std::string> { clangd }); !marked) {
         say("{}: {}", kind, marked.error().message);
         return 1;
     }
@@ -6357,29 +6399,30 @@ int prepare_crashing_clangd(std::string_view kind, const std::string& payload, s
 // `emit build-database` and lets every other command through at once, so the server plans with what it scanned itself
 // meanwhile and then receives the build tool's model. POSIX only.
 int prepare_delayed_producer(const std::string& seconds) {
-    if (mcppls::os::family() == mcppls::os::Family::windows) {
+    std::error_code ignored;
+    if (os::host() == os::platform::windows) {
         say("delayed-producer: POSIX only");
         return 2;
     }
-    const std::string self { absolute(mcppls::platform::env::arguments().front()) };
-    const std::string mock { base::join_path(base::parent_path(self), "mcppls-mock-mcpp") + std::string { mcppls::os::executable_suffix() } };
-    if (!fs::exists(mock)) {
+    const std::string self { absolute(os::env::arguments().front()) };
+    const std::string mock { base::join_path(base::parent_path(self), "mcppls-mock-mcpp") + std::string { os::conventions().exe_suffix } };
+    if (!std::filesystem::exists(mock, ignored)) {
         say("delayed-producer: {} is not built (needs mcppls-mock-mcpp beside mcppls-conformance)", mock);
         return 1;
     }
-    const std::string directory { base::join_path(fs::current_directory(), "stand-in") };
-    (void)fs::create_directories(directory);
+    const std::string directory { base::join_path(base::current_directory(), "stand-in") };
+    (void)std::filesystem::create_directories(directory, ignored);
     const std::string script { std::format(
         "#!/bin/sh\n"
         "[ \"$1\" = emit ] && sleep {}\n"
         "exec '{}' \"$@\"\n",
         seconds.empty() ? std::string { "10" } : seconds, mock) };
     const std::string path { base::join_path(directory, "mcpp") };
-    if (auto written = fs::write_file(path, script); !written) {
-        say("delayed-producer: {}", written.error().message);
+    if (auto written = os::fs::write(path, script); !written) {
+        say("delayed-producer: {}", written.error().message());
         return 1;
     }
-    if (auto marked = fs::make_executable(std::vector<std::string> { path }); !marked) {
+    if (auto marked = base::make_executable(std::vector<std::string> { path }); !marked) {
         say("delayed-producer: {}", marked.error().message);
         return 1;
     }
@@ -6391,9 +6434,10 @@ int prepare_delayed_producer(const std::string& seconds) {
 // each, which all.hpp includes after some of the standard library's own. Nothing in them needs a network or a licence, and a
 // file that includes them is parsed, and its modules scanned (WA-CLANGD-009), as the file of a project that uses such a library.
 int prepare_heavy_headers(const std::string& argument) {
+    std::error_code ignored;
     const int count { argument.empty() ? 150 : std::max(1, std::atoi(argument.c_str())) };
-    const std::string directory { base::join_path(fs::current_directory(), "src/heavy") };
-    (void)fs::create_directories(directory);
+    const std::string directory { base::join_path(base::current_directory(), "src/heavy") };
+    (void)std::filesystem::create_directories(directory, ignored);
     std::string all { "#pragma once\n#include <algorithm>\n#include <map>\n#include <ranges>\n#include <regex>\n#include <string>\n#include <vector>\n" };
     for (int unit { 0 }; unit < count; ++unit) {
         const std::string name { std::format("h{:03}", unit) };
@@ -6405,14 +6449,14 @@ int prepare_heavy_headers(const std::string& argument) {
             text += std::format("#define HEAVY_{1:03}_{0}(a, b) ((a) + (b) * {0})\n", member, unit);
         }
         text += "}\n";
-        if (auto written = fs::write_file(base::join_path(directory, name + ".hpp"), text); !written) {
-            say("prepare: {}", written.error().message);
+        if (auto written = os::fs::write(base::join_path(directory, name + ".hpp"), text); !written) {
+            say("prepare: {}", written.error().message());
             return 1;
         }
         all += std::format("#include \"heavy/{}.hpp\"\n", name);
     }
-    if (auto written = fs::write_file(base::join_path(directory, "all.hpp"), all); !written) {
-        say("prepare: {}", written.error().message);
+    if (auto written = os::fs::write(base::join_path(directory, "all.hpp"), all); !written) {
+        say("prepare: {}", written.error().message());
         return 1;
     }
     return 0;
@@ -6423,8 +6467,9 @@ int prepare_heavy_headers(const std::string& argument) {
 // the modules, so the compiler's semantic tokens of the file are many and each line has some. The first function's fourth
 // line is `    acc.add(...)` (line 10), where the tokens-latency fixture asks for a completion after `acc.`.
 int prepare_large_module_file(const std::string& argument) {
+    std::error_code ignored;
     const int lines { argument.empty() ? 10000 : std::max(100, std::atoi(argument.c_str())) };
-    const std::string root { fs::current_directory() };
+    const std::string root { base::current_directory() };
     const std::vector<std::pair<std::string, std::string>> modules {
         { "src/bench/geometry.cppm",
           "export module bench.geometry;\nimport std;\n\nexport namespace bench::geometry {\n"
@@ -6455,9 +6500,9 @@ int prepare_large_module_file(const std::string& argument) {
     };
     for (const auto& [relative, text] : modules) {
         const std::string path { base::join_path(root, relative) };
-        (void)fs::create_directories(base::parent_path(path));
-        if (auto written = fs::write_file(path, text); !written) {
-            say("prepare: {}", written.error().message);
+        (void)std::filesystem::create_directories(base::parent_path(path), ignored);
+        if (auto written = os::fs::write(path, text); !written) {
+            say("prepare: {}", written.error().message());
             return 1;
         }
     }
@@ -6478,8 +6523,8 @@ int prepare_large_module_file(const std::string& argument) {
     text += "} // namespace large\n\nint main() {\n    int sum { 0 };\n";
     text += std::format("    for (int i {{ 0 }}; i < {}; ++i) sum += large::compute_0(i);\n", functions);
     text += "    std::println(\"{}\", sum);\n}\n";
-    if (auto written = fs::write_file(base::join_path(root, "src/large.cpp"), text); !written) {
-        say("prepare: {}", written.error().message);
+    if (auto written = os::fs::write(base::join_path(root, "src/large.cpp"), text); !written) {
+        say("prepare: {}", written.error().message());
         return 1;
     }
     return 0;

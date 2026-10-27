@@ -1,10 +1,10 @@
 // Message passing between threads: a closable blocking queue. The server's
 // main loop owns all session state and receives everything through one of these.
-export module mcppls.platform.task;
+export module mcppls.base.channel;
 
 import std;
 
-export namespace mcppls::platform {
+export namespace mcppls::base {
 
 template <class T>
 class Channel {
@@ -74,4 +74,4 @@ private:
     }
 };
 
-} // namespace mcppls::platform
+} // namespace mcppls::base

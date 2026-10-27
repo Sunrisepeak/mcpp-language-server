@@ -2,9 +2,9 @@ module mcppls.engine.clangd.guard;
 
 import std;
 import mcppls.base.text;
-import mcppls.platform.fs;
-import mcppls.platform.system;
+import mcpplibs.os;
 
+namespace os = mcpplibs::os;
 namespace mcppls::engine::clangd {
 
 std::string_view to_string(RestartCause cause) {
@@ -336,7 +336,7 @@ std::size_t preparation_limit(std::size_t workers, bool waitingOnPreparation) {
     return waitingOnPreparation ? background : std::max<std::size_t>(1, background / 2);
 }
 
-std::optional<std::uint64_t> total_memory_bytes() { return platform::system::physical_memory_bytes(); }
+std::optional<std::uint64_t> total_memory_bytes() { return os::machine::memory(); }
 
 std::string preamble_storage(std::string_view setting, bool windows, std::optional<std::uint64_t> memoryBytes) {
     if (setting == "memory" || setting == "disk") return std::string { setting };

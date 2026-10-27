@@ -1,19 +1,20 @@
 module mcppls.project.provider;
 
 import std;
-import mcppls.os;
 import mcppls.base.error;
 import mcppls.spec.discovery;
-import mcppls.platform.env;
-import mcppls.platform.fs;
+import mcpplibs.os;
+import mcppls.toolrun;
 
+namespace os = mcpplibs::os;
 namespace mcppls::project {
 
 std::optional<std::string> find_tool(std::string_view name, std::span<const std::string> fallbacks) {
-    if (auto found = platform::env::find_executable(name)) return found;
+    std::error_code ignored;
+    if (auto found = toolrun::find_program(name)) return found;
     for (const auto& fallback : fallbacks) {
-        const std::string candidate { fallback + std::string { mcppls::os::executable_suffix() } };
-        if (platform::fs::is_regular_file(candidate)) return candidate;
+        const std::string candidate { fallback + std::string { os::conventions().exe_suffix } };
+        if (std::filesystem::is_regular_file(candidate, ignored)) return candidate;
     }
     return std::nullopt;
 }

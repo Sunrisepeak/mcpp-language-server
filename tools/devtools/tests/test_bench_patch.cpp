@@ -3,11 +3,12 @@
 import std;
 import mcppls.testing;
 import mcppls.base.path;
-import mcppls.platform.fs;
 import mcppls.devtools.bench.patch;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace bench = mcppls::devtools::bench;
-namespace fs = mcppls::platform::fs;
 namespace base = mcppls::base;
 
 namespace {
@@ -26,7 +27,7 @@ int main() {
 
     "a one-line change applies, a/a b/b prefixes stripped by -p2"_test = [&] {
         const std::string dir { temp_dir("rename") };
-        (void) fs::write_file(base::join_path(dir, "greet.txt"), "hello\nworld\n");
+        (void) os::fs::write(base::join_path(dir, "greet.txt"), "hello\nworld\n");
         const std::string patch {
             "diff --git a/a/greet.txt b/b/greet.txt\n"
             "index 0000000..1111111 100644\n"
@@ -39,7 +40,7 @@ int main() {
         };
         auto applied = bench::apply_unified_diff(patch, dir);
         expect(applied.has_value()) << (applied ? "" : applied.error().message);
-        auto content = fs::read_file(base::join_path(dir, "greet.txt"));
+        auto content = os::fs::read(base::join_path(dir, "greet.txt"));
         expect(content.has_value());
         expect(content.has_value() && *content == "salute\nworld\n");
         std::filesystem::remove_all(dir);
@@ -59,14 +60,15 @@ int main() {
         };
         auto applied = bench::apply_unified_diff(patch, dir);
         expect(applied.has_value()) << (applied ? "" : applied.error().message);
-        auto content = fs::read_file(base::join_path(dir, "new.txt"));
+        auto content = os::fs::read(base::join_path(dir, "new.txt"));
         expect(content.has_value() && *content == "line one\nline two\n");
         std::filesystem::remove_all(dir);
     };
 
     "a hunk that deletes a file (new side /dev/null) removes it"_test = [&] {
+        std::error_code ignored;
         const std::string dir { temp_dir("delfile") };
-        (void) fs::write_file(base::join_path(dir, "gone.txt"), "bye\n");
+        (void) os::fs::write(base::join_path(dir, "gone.txt"), "bye\n");
         const std::string patch {
             "diff --git a/a/gone.txt b/b/gone.txt\n"
             "deleted file mode 100644\n"
@@ -78,13 +80,13 @@ int main() {
         };
         auto applied = bench::apply_unified_diff(patch, dir);
         expect(applied.has_value()) << (applied ? "" : applied.error().message);
-        expect(!fs::exists(base::join_path(dir, "gone.txt")));
+        expect(!std::filesystem::exists(base::join_path(dir, "gone.txt"), ignored));
         std::filesystem::remove_all(dir);
     };
 
     "context that does not match the file on disk is a hard failure"_test = [&] {
         const std::string dir { temp_dir("mismatch") };
-        (void) fs::write_file(base::join_path(dir, "f.txt"), "totally different\n");
+        (void) os::fs::write(base::join_path(dir, "f.txt"), "totally different\n");
         const std::string patch {
             "diff --git a/a/f.txt b/b/f.txt\n"
             "--- a/a/f.txt\n"
@@ -100,9 +102,9 @@ int main() {
 
     "apply_patch (the full pipeline) applies the same fallback when the diff has no /dev/null lines"_test = [&] {
         const std::string dir { temp_dir("pipeline") };
-        (void) fs::write_file(base::join_path(dir, "src.txt"), "alpha\nbeta\n");
+        (void) os::fs::write(base::join_path(dir, "src.txt"), "alpha\nbeta\n");
         const std::string patchPath { base::join_path(dir, "the.patch") };
-        (void) fs::write_file(patchPath,
+        (void) os::fs::write(patchPath,
             "diff --git a/a/src.txt b/b/src.txt\n"
             "--- a/a/src.txt\n"
             "+++ b/b/src.txt\n"
@@ -112,7 +114,7 @@ int main() {
             " beta\n");
         auto applied = bench::apply_patch(patchPath, dir);
         expect(applied.has_value()) << (applied ? "" : applied.error().message);
-        auto content = fs::read_file(base::join_path(dir, "src.txt"));
+        auto content = os::fs::read(base::join_path(dir, "src.txt"));
         expect(content.has_value() && *content == "ALPHA\nbeta\n");
         std::filesystem::remove_all(dir);
     };

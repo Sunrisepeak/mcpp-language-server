@@ -5,31 +5,33 @@
 import std;
 import mcppls.testing;
 import mcppls.base.path;
-import mcppls.platform.fs;
-import mcppls.platform.dirs;
 import mcppls.devtools.check;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace check = mcppls::devtools::check;
-namespace fs = mcppls::platform::fs;
 namespace base = mcppls::base;
 
 namespace {
 
 std::string repository_root() {
-    std::string directory { fs::current_directory() };
+    std::error_code ignored;
+    std::string directory { base::current_directory() };
     while (true) {
-        if (fs::is_regular_file(base::join_path(directory, "tools/devtools/scripts.allow"))) return directory;
+        if (std::filesystem::is_regular_file(base::join_path(directory, "tools/devtools/scripts.allow"), ignored)) return directory;
         const std::string parent { base::parent_path(directory) };
-        if (parent == directory) return fs::current_directory();
+        if (parent == directory) return base::current_directory();
         directory = parent;
     }
 }
 
 std::string scratch(std::string_view name) {
+    std::error_code ignored;
     const std::string directory { base::join_path(
-        mcppls::platform::dirs::temp_directory(),
+        base::spelled(os::dirs::temp()),
         std::format("mcppls-test-check-{}-{}", name, std::chrono::steady_clock::now().time_since_epoch().count())) };
-    (void) fs::create_directories(directory);
+    (void)std::filesystem::create_directories(directory, ignored);
     return directory;
 }
 
@@ -88,9 +90,10 @@ int main() {
     "platforms: a job missing a platform and a job naming an unknown one both fail"_test = [&] {
         const std::string synthetic { scratch("platforms") };
         auto put = [&](std::string_view relative, std::string_view text) {
+            std::error_code ignored;
             const std::string path { base::join_path(synthetic, relative) };
-            (void) fs::create_directories(base::parent_path(path));
-            (void) fs::write_file(path, text);
+            (void)std::filesystem::create_directories(base::parent_path(path), ignored);
+            (void) os::fs::write(path, text);
         };
         put("packaging/payload.lock.json", R"({"entries": {"clangd-linux": {}, "clangd-arm": {}},
             "platforms": {"linux-x64": {"clangd": "clangd-linux", "server-target": "x86_64-linux-gnu"},
@@ -132,7 +135,7 @@ int main() {
 
     "binary: a file with neither forbidden symbol passes"_test = [&] {
         const std::string path { base::join_path(scratch("clean"), "server") };
-        (void) fs::write_file(path, "just some bytes, nothing archive- or mbedtls-shaped here");
+        (void) os::fs::write(path, "just some bytes, nothing archive- or mbedtls-shaped here");
         auto report = check::binary(path);
         expect(report.has_value());
         if (report) expect(report->ok);
@@ -140,7 +143,7 @@ int main() {
 
     "binary: a file carrying archive_read_ or mbedtls_ fails, naming which"_test = [&] {
         const std::string path { base::join_path(scratch("dirty"), "server") };
-        (void) fs::write_file(path, std::string { "prefix" } + '\0' + "archive_read_open_filename" + '\0' + "mbedtls_ssl_init");
+        (void) os::fs::write(path, std::string { "prefix" } + '\0' + "archive_read_open_filename" + '\0' + "mbedtls_ssl_init");
         auto report = check::binary(path);
         expect(report.has_value());
         if (!report) return;
@@ -162,8 +165,8 @@ int main() {
 
     "docs: a command missing from the document and one the program lacks both fail"_test = [&] {
         const std::string root { scratch("docs") };
-        expect(fs::create_directories(base::join_path(root, "docs")).has_value());
-        expect(fs::write_file(base::join_path(root, "docs/93-devtools.md"),
+        expect([&] { std::error_code failed; std::filesystem::create_directories(base::join_path(root, "docs"), failed); return !failed; }());
+        expect(os::fs::write(base::join_path(root, "docs/93-devtools.md"),
                               "Run `mcpp run -p devtools -- payload`, then `mcppls-devtools gone`.\n").has_value());
         auto report = check::docs(root, { "payload", "kit" });
         expect(fatal(report.has_value()));

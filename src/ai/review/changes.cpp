@@ -4,7 +4,6 @@ import std;
 import nlohmann.json;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.fs;
 import mcppls.project.git;
 import mcppls.project.scan;
 import mcppls.orchestrator.kernel;
@@ -140,6 +139,7 @@ bool FileChange::changed_head_line(int line) const {
 }
 
 query::Outcome<ChangeSet> collect_changes(query::View& view, const ChangeRequest& request) {
+    std::error_code ignored;
     auto& workspace = view.kernel().workspace();
     if (!workspace.trusted()) return std::unexpected { query::Failure { "untrusted", "the workspace is not trusted, so git is not run", nullptr } };
     auto root = project::git::repository_root(view.root());
@@ -152,7 +152,7 @@ query::Outcome<ChangeSet> collect_changes(query::View& view, const ChangeRequest
     if (!request.files.empty()) {
         for (const auto& file : request.files) {
             const std::string path { view.path_of(file) };
-            found.push_back(project::git::Change { platform::fs::exists(path) ? project::git::ChangeKind::modified : project::git::ChangeKind::removed, path, {} });
+            found.push_back(project::git::Change { std::filesystem::exists(path, ignored) ? project::git::ChangeKind::modified : project::git::ChangeKind::removed, path, {} });
         }
     } else {
         auto listed = project::git::changes_since(view.root(), changes.base);
@@ -162,7 +162,7 @@ query::Outcome<ChangeSet> collect_changes(query::View& view, const ChangeRequest
     for (auto& change : found) {
         FileChange file;
         file.kind = change.kind;
-        file.path = platform::fs::exists(change.path) ? platform::fs::canonical_path(change.path) : change.path;
+        file.path = std::filesystem::exists(change.path, ignored) ? base::canonical_path(change.path) : change.path;
         file.oldPath = change.oldPath;
         const std::string basePath { change.oldPath.empty() ? change.path : change.oldPath };
         if (change.kind != project::git::ChangeKind::added && change.kind != project::git::ChangeKind::untracked) {
