@@ -28,12 +28,14 @@ runs:
       run: |
         irm https://d2learn.org/xlings-install.ps1.txt | iex
         "$env:USERPROFILE\.xlings\subos\current\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+    # By system and architecture: the store holds programs (clang++, ld.lld), and an arm64 Linux runner that
+    # restored an x86_64 one could not execute its clang++ (server M3 on linux-arm64, run 40552282222).
     - name: Cache the mcpp package store
       uses: actions/cache@v6
       with:
         path: ~/.mcpp/registry/data/xpkgs
-        key: mcpp-xpkgs-${{ runner.os }}-${{ env.MCPP_VERSION }}-${{ hashFiles('**/mcpp.toml') }}
-        restore-keys: mcpp-xpkgs-${{ runner.os }}-${{ env.MCPP_VERSION }}-
+        key: mcpp-xpkgs-${{ runner.os }}-${{ runner.arch }}-${{ env.MCPP_VERSION }}-${{ hashFiles('**/mcpp.toml') }}
+        restore-keys: mcpp-xpkgs-${{ runner.os }}-${{ runner.arch }}-${{ env.MCPP_VERSION }}-
     - name: Install mcpp and LLVM
       shell: bash
       run: bash .github/scripts/install-mcpp.sh
