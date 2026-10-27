@@ -97,6 +97,7 @@ platforms`).
 |---|---|
 | A payload for this host | `mcpp run -p devtools -- payload` |
 | A payload for another platform | `mcpp run -p devtools -- payload --platform win32-x64 --server PATH` |
+| A payload whose server is an image (`bin/mcppls.okb`, started by the platform's `bin/okrun`) | `mcpp run -p devtools -- payload --platform win32-x64 --server-image mcppls.okb --server-runner okrun.exe` |
 | Check a payload | `mcpp run -p devtools -- payload --verify DIR` |
 | The semantic kit alone | `mcpp run -p devtools -- kit --platform linux-x64 --out DIR` |
 | Editor extensions | `mcpp run -p devtools -- extension [--editor vscode\|zed\|clion\|all] [--install [--link]]` |

@@ -206,6 +206,40 @@ int main(int argc, char* argv[]) {
         expect(problems.empty());
     };
 
+    // mcpp design 2026-10-28 part 2 §15: the server as one image for every system of its architecture, started by
+    // the platform's okrun. The assembly does not read the image; a file stands for it.
+    "an image server is carried with the platform's okrun, and payload.json names both"_test = [&] {
+        std::error_code ignored;
+        const std::string clangdDir { make_clangd_directory(work, "win32-x64") };
+        const std::string kitDir { make_kit_directory(work) };
+        const std::string image { base::join_path(work, "mcppls.okb") };
+        const std::string runner { base::join_path(work, "okrun.exe") };
+        put(image, "PK\x03\x04 an okb");
+        put(runner, "MZ okrun");
+        const std::string out { base::join_path(work, "payload-image") };
+        auto options = options_for(work, "win32-x64", "", clangdDir, kitDir, out, repoRoot);
+        options.serverImage = image;
+        options.serverRunner = runner;
+        auto assembled = payload::assemble(options, lockData);
+        expect(fatal(assembled.has_value())) << (assembled ? std::string {} : assembled.error().message);
+        if (!assembled) return;
+        expect(std::filesystem::is_regular_file(base::join_path(*assembled, "bin/mcppls.okb"), ignored));
+        expect(std::filesystem::is_regular_file(base::join_path(*assembled, "bin/okrun.exe"), ignored));
+        expect(!std::filesystem::exists(base::join_path(*assembled, "bin/mcppls.exe"), ignored)) << "no program of the platform beside the image";
+        const auto manifest = nlohmann::json::parse(os::fs::read(base::join_path(*assembled, "payload.json")).value_or("{}"));
+        expect(manifest["server"].value("path", std::string {}) == "bin/mcppls.okb") << manifest["server"].dump();
+        expect(manifest["server"].value("runner", std::string {}) == "bin/okrun.exe") << manifest["server"].dump();
+        auto problems = payload::verify(*assembled);
+        for (const auto& problem : problems) std::println(std::cerr, "  verify problem: {}", problem);
+        expect(problems.empty());
+
+        // An image without its loader is refused before anything is written.
+        options.serverRunner = base::join_path(work, "no-okrun.exe");
+        options.outDirectory = base::join_path(work, "payload-image-no-runner");
+        expect(!payload::assemble(options, lockData));
+        expect(!std::filesystem::exists(options.outDirectory, ignored));
+    };
+
     "a win32-x64 assemble uses the .exe paths throughout"_test = [&] {
         std::error_code ignored;
         const std::string clangdDir { make_clangd_directory(work, "win32-x64") };

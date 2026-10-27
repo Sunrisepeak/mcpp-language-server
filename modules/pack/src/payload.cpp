@@ -219,7 +219,16 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
     std::error_code ignored;
     if (!known_platform(options.platform)) return base::fail("payload-platform", std::format("unknown platform {}", options.platform));
     if (auto listed = lock::platform(lockData, options.platform); !listed) return std::unexpected { listed.error() };
-    if (!std::filesystem::is_regular_file(options.serverPath, ignored)) {
+    const bool image { !options.serverImage.empty() };
+    if (image) {
+        if (!std::filesystem::is_regular_file(options.serverImage, ignored)) {
+            return base::fail("payload-missing", std::format("--server-image {} does not exist", options.serverImage));
+        }
+        if (!std::filesystem::is_regular_file(options.serverRunner, ignored)) {
+            return base::fail("payload-missing", std::format("--server-runner {} does not exist: an image needs the loader of {}",
+                                                              options.serverRunner, options.platform));
+        }
+    } else if (!std::filesystem::is_regular_file(options.serverPath, ignored)) {
         return base::fail("payload-missing", std::format("--server {} does not exist", options.serverPath));
     }
     if (!std::filesystem::is_directory(options.clangdDirectory, ignored)) {
@@ -274,9 +283,18 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
     if (std::filesystem::exists(out, ignored)) std::filesystem::remove_all(out, ignored);
     if (std::error_code failed; !std::filesystem::create_directories(base::join_path(out, "bin"), failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", base::join_path(out, "bin"), failed.message()));
 
-    const std::string serverTarget { base::join_path(out, "bin/mcppls" + exe) };
-    if (auto copied = copy_one(options.serverPath, serverTarget); !copied) return std::unexpected { copied.error() };
-    if (auto marked = base::make_executable(std::vector<std::string> { serverTarget }); !marked) return std::unexpected { marked.error() };
+    const std::string serverRelative { image ? std::string { "bin/mcppls.okb" } : "bin/mcppls" + exe };
+    const std::string runnerRelative { "bin/okrun" + exe };
+    if (image) {
+        if (auto copied = copy_one(options.serverImage, base::join_path(out, serverRelative)); !copied) return std::unexpected { copied.error() };
+        const std::string runnerTarget { base::join_path(out, runnerRelative) };
+        if (auto copied = copy_one(options.serverRunner, runnerTarget); !copied) return std::unexpected { copied.error() };
+        if (auto marked = base::make_executable(std::vector<std::string> { runnerTarget }); !marked) return std::unexpected { marked.error() };
+    } else {
+        const std::string serverTarget { base::join_path(out, serverRelative) };
+        if (auto copied = copy_one(options.serverPath, serverTarget); !copied) return std::unexpected { copied.error() };
+        if (auto marked = base::make_executable(std::vector<std::string> { serverTarget }); !marked) return std::unexpected { marked.error() };
+    }
 
     if (auto copied = copy_tree(options.clangdDirectory, base::join_path(out, "clangd"), "LICENSE.TXT"); !copied) return std::unexpected { copied.error() };
     if (auto marked = base::make_executable(std::vector<std::string> { base::join_path(out, "clangd/bin/clangd" + exe) }); !marked) {
@@ -313,7 +331,8 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
     nlohmann::json manifest;
     manifest["payload-version"] = identity.is_object() ? IDENTIFIED_PAYLOAD_VERSION : PAYLOAD_VERSION;
     manifest["platform"] = options.platform;
-    manifest["server"] = { { "version", serverVersion }, { "path", "bin/mcppls" + exe } };
+    manifest["server"] = { { "version", serverVersion }, { "path", serverRelative } };
+    if (image) manifest["server"]["runner"] = runnerRelative;
     manifest["clangd"] = { { "version", engineVersion }, { "path", "clangd/bin/clangd" + exe } };
     manifest["kit"] = kitEntry;
     manifest["engines"] = { { "clangd", { { "version", engineVersion }, { "path", "clangd/bin/clangd" + exe }, { "kit", kitEntry } } } };
@@ -378,12 +397,30 @@ std::vector<std::string> verify(std::string_view payloadDirectory) {
     }
     const std::string exe { suffix(platform) };
 
-    for (const auto& [part, expected] : std::vector<std::pair<std::string, std::string>> {
-             { "server", "bin/mcppls" + exe }, { "clangd", "clangd/bin/clangd" + exe } }) {
-        const auto entry = manifest.value(part, nlohmann::json::object());
-        const std::string path { entry.value("path", std::string {}) };
-        if (path != expected) problems.push_back(std::format("{}.path is {}, expected {}", part, path, expected));
-        if (entry.value("version", std::string {}).empty()) problems.push_back(std::format("{}.version is empty", part));
+    // The server is a program of the platform, or an image with the platform's loader beside it.
+    const bool image { manifest.value("server", nlohmann::json::object()).contains("runner") };
+    std::vector<std::pair<std::string, std::string>> programs { { "clangd", "clangd/bin/clangd" + exe } };
+    if (image) {
+        const auto server = manifest.value("server", nlohmann::json::object());
+        if (server.value("path", std::string {}) != "bin/mcppls.okb") {
+            problems.push_back(std::format("server.path is {}, expected bin/mcppls.okb beside a runner", server.value("path", std::string {})));
+        }
+        if (server.value("version", std::string {}).empty()) problems.emplace_back("server.version is empty");
+        needFile("bin/mcppls.okb", "server image");
+        if (server.value("runner", std::string {}) != "bin/okrun" + exe) {
+            problems.push_back(std::format("server.runner is {}, expected bin/okrun{}", server.value("runner", std::string {}), exe));
+        }
+    } else {
+        programs.insert(programs.begin(), { "server", "bin/mcppls" + exe });
+    }
+    if (image) programs.emplace_back("runner", "bin/okrun" + exe);
+    for (const auto& [part, expected] : programs) {
+        const auto entry = part == "runner" ? nlohmann::json::object() : manifest.value(part, nlohmann::json::object());
+        if (part != "runner") {
+            const std::string path { entry.value("path", std::string {}) };
+            if (path != expected) problems.push_back(std::format("{}.path is {}, expected {}", part, path, expected));
+            if (entry.value("version", std::string {}).empty()) problems.push_back(std::format("{}.version is empty", part));
+        }
         auto found = needFile(expected, part);
         if (found && suffix(platform).empty()) {
             if (os::host() != os::platform::windows) {

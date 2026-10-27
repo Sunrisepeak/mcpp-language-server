@@ -84,6 +84,11 @@ and every edit sent the whole file's tokens again, 1 015 373 bytes (`tokens-larg
 
 ### Building mcppls
 
+- **A payload can carry the server as an image.** `mcppls-devtools payload --server-image mcppls.okb
+  --server-runner <okrun>` puts `bin/mcppls.okb` and the platform's `bin/okrun` in the payload in place of
+  `bin/mcppls`, and `payload.json`'s `server` names both (`path`, `runner`); `payload --verify` checks that form. It is
+  the layout the okb distribution of mcpp design 2026-10-28 part 2 §15 uses once openkal-image reads okb.
+
 - The toolchain is `llvm@23.1.3`, the LLVM mcpp pins for the ok-image rows: its packages carry an arm64 Linux
   `clang++` and a Windows `ld.lld`, which the server M3 programs of those systems need.
 - The CLion tests open an mcpp project as it is after `mcpp build` and check that CLion's Compilation Database does

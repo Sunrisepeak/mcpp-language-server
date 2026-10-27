@@ -101,7 +101,8 @@ struct Payload {
 Payload assemble_payload(const std::string& root, std::string_view platformName, const std::string& outDirectory,
                          const std::string& clangdDirectory, const std::string& kitDirectory,
                          const std::string& serverPath, const std::string& cacheDirectory,
-                         std::optional<std::string> serverVersion, bool strip, bool candidateEngine) {
+                         std::optional<std::string> serverVersion, bool strip, bool candidateEngine,
+                         const std::string& serverImage = {}, const std::string& serverRunner = {}) {
     std::error_code ignored;
     const std::string work { base::join_path(root, "target/pack") };
     (void)std::filesystem::create_directories(work, ignored);
@@ -152,6 +153,8 @@ Payload assemble_payload(const std::string& root, std::string_view platformName,
     auto assembled = pack::payload::assemble(pack::payload::AssembleOptions {
         .platform = std::string { platformName },
         .serverPath = serverPath,
+        .serverImage = serverImage,
+        .serverRunner = serverRunner,
         .clangdDirectory = clangd,
         .kitDirectory = kit,
         .outDirectory = outDirectory,
@@ -174,7 +177,9 @@ void print_verify_result(std::string_view directory, const std::vector<std::stri
         body["problems"] = problems;
         // A digest of the server binary, for a caller (CI, replacing its own inline hashlib check)
         // that wants to compare it against a cross-built one without reading the file itself.
-        if (auto digest = pack::fetch::digest_of(base::join_path(directory, "bin/mcppls")); digest) {
+        if (auto image = pack::fetch::digest_of(base::join_path(directory, "bin/mcppls.okb")); image) {
+            body["server"] = { { "path", "bin/mcppls.okb" }, { "sha256", *image } };
+        } else if (auto digest = pack::fetch::digest_of(base::join_path(directory, "bin/mcppls")); digest) {
             body["server"] = { { "path", "bin/mcppls" }, { "sha256", *digest } };
         } else if (auto digestExe = pack::fetch::digest_of(base::join_path(directory, "bin/mcppls.exe")); digestExe) {
             body["server"] = { { "path", "bin/mcppls.exe" }, { "sha256", *digestExe } };
@@ -335,14 +340,26 @@ int command_payload(const cmdline::ParsedArgs& arguments) {
         return 0;
     }
 
-    auto server = server_for(root, arguments, *platformName);
-    if (!server) return 2;
-    std::println("mcppls-devtools: payload for {} from {}", *platformName, *server);
+    // The server as an image (an okb and the loader of --platform), or a program built for --platform.
+    const std::string serverImage { arguments.value("server-image").value_or("") };
+    const std::string serverRunner { arguments.value("server-runner").value_or("") };
+    if (serverImage.empty() != serverRunner.empty()) {
+        std::println(std::cerr, "mcppls-devtools: --server-image and --server-runner go together: the image, and the okrun of {} that starts it",
+                     *platformName);
+        return 2;
+    }
+    std::optional<std::string> server;
+    if (serverImage.empty()) {
+        server = server_for(root, arguments, *platformName);
+        if (!server) return 2;
+    }
+    std::println("mcppls-devtools: payload for {} from {}", *platformName, serverImage.empty() ? *server : serverImage);
     const std::string cache { arguments.value("cache").value_or(base::join_path(root, ".payload-cache")) };
     const bool strip { !arguments.is_flag_set("no-strip") };
     const auto payload = assemble_payload(root, *platformName, out, arguments.value("clangd").value_or(""),
-                                          arguments.value("kit").value_or(""), *server, cache,
-                                          arguments.value("server-version"), strip, arguments.is_flag_set("candidate"));
+                                          arguments.value("kit").value_or(""), server.value_or(""), cache,
+                                          arguments.value("server-version"), strip, arguments.is_flag_set("candidate"),
+                                          serverImage, serverRunner);
     if (!payload.built) return 1;
 
     auto problems = pack::payload::verify(payload.directory);
@@ -641,6 +658,8 @@ cmdline::App payload_command(bool& handled, int& status) {
     (void) command.option("out").takes_value().help("Where to put it (default target/pack/payload)");
     (void) command.option("server").takes_value().help("The server to package (default: `mcpp build --profile release` for --platform)");
     (void) command.option("server-version").takes_value().help("Defaults to this build's own version");
+    (void) command.option("server-image").takes_value().help("The server as an image (mcppls.okb), started by --server-runner instead of a program of --platform");
+    (void) command.option("server-runner").takes_value().help("With --server-image: the okrun of --platform");
     (void) command.option("dev").help("Package a dev-profile server rather than a release one");
     (void) command.option("clangd").takes_value().help("Use this already-trimmed clangd directory");
     (void) command.option("kit").takes_value().help("Use this already-built semantic kit directory");

@@ -80,6 +80,7 @@ mcpp run -p devtools -- extension --editor vscode --install  # payload、VS Code
 |---|---|
 | 本机对应的 payload | `mcpp run -p devtools -- payload` |
 | 另一个平台的 payload | `mcpp run -p devtools -- payload --platform win32-x64 --server PATH` |
+| 服务端为映像的 payload（`bin/mcppls.okb`，由该平台的 `bin/okrun` 启动） | `mcpp run -p devtools -- payload --platform win32-x64 --server-image mcppls.okb --server-runner okrun.exe` |
 | 检查一个 payload | `mcpp run -p devtools -- payload --verify DIR` |
 | 单独构建语义工具包 | `mcpp run -p devtools -- kit --platform linux-x64 --out DIR` |
 | 编辑器扩展 | `mcpp run -p devtools -- extension [--editor vscode\|zed\|clion\|all] [--install [--link]]` |
