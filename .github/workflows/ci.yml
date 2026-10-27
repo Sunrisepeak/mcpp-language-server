@@ -1614,10 +1614,16 @@ jobs:
   # (and a declarative content check) against each task's baseline project copy,
   # expected to fail at least one check, and its reference-patched copy,
   # expected to pass every check.
+  #
+  # And the semantic-token timing of a large file (mcpp design 2026-10-28 §11.1): the release payload's server on
+  # tokens-large-file, cold and warm on one cache. Its budgets are the design's criteria -- on a warm open the
+  # compiler's tokens come no later than the first completion, an edit's answer is a delta under 5% of the file's,
+  # and updates come by refresh -- and `bench tokens` exits 1 when one is over.
   bench-validate:
     name: bench-validate
+    needs: payload
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
@@ -1625,6 +1631,20 @@ jobs:
         run: mcpp toolchain install gcc 16.1.0
       - name: Validate every task's baseline/reference pair
         run: mcpp run -p devtools -- bench tasks validate
+      - uses: actions/download-artifact@v8
+        with:
+          name: payload-linux-x64
+      - name: Semantic tokens of a large file
+        run: |
+          set -euo pipefail
+          tar -xzf payload-linux-x64.tar.gz
+          stage/mcppls-devtools bench tokens --server payload/bin/mcppls --payload payload --rounds 2 --out "$RUNNER_TEMP/tokens.json"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: bench-tokens
+          path: ${{ runner.temp }}/tokens.json
+          if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
   # A pull request that changes release packaging is checked the way a release is: after every job

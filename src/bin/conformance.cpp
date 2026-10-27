@@ -2331,15 +2331,27 @@ public:
     // only the compiler gives. Measures the seconds from didOpen to the first completion that is right (`expect`, a label
     // prefix) and to the first tokens that are the compiler's, the bytes of the full answer and of the first answer after
     // the edit, and the seconds after the edit until any answer and until the updated one; `refreshes` and `polls` count
-    // how the updates were asked for. Budget: `firstTokens`, `tokensAfterCompletion` (first tokens minus first completion,
-    // in seconds: 0 says not after), `editUpdated`, `editShare` (the edit's answer over the full answer, in bytes),
-    // `polls`.
+    // how the updates were asked for, and `missedRefreshes` the polls whose answer had changed -- what the server knew and
+    // did not say. Budget: `firstTokens`, `tokensAfterCompletion` (first tokens minus first completion, in seconds: 0 says
+    // not after), `editUpdated`, `editShare` (the edit's answer over the full answer, in bytes), `missedRefreshes`.
     std::pair<bool, std::string> run_tokens_latency(const Json& check, const std::string& file) {
         const std::chrono::milliseconds interval { check.value("interval-ms", 200) };
         const std::chrono::milliseconds poll { check.value("poll-ms", 2000) };
         const std::string expect { check.value("expect", std::string {}) };
         const std::size_t refreshesBefore { client_.tokensRefreshes.size() };
         int polls { 0 };
+        // A poll whose answer is not the one before it: the server had something new and asked for no refresh. Judged
+        // half a second later, so a refresh already on its way (the server coalesces them) is not counted.
+        int missedRefreshes { 0 };
+        std::optional<std::pair<Clock::time_point, std::size_t>> suspect;   // when, and the refreshes seen then
+        const auto judge_suspect = [&](bool final) {
+            if (!suspect) return;
+            if (client_.tokensRefreshes.size() > suspect->second) suspect.reset();
+            else if (final || Clock::now() >= suspect->first + std::chrono::milliseconds { 500 }) {
+                ++missedRefreshes;
+                suspect.reset();
+            }
+        };
         const std::string original { text_of(file) };
         const auto opened = Clock::now();
         open(file, original);
@@ -2348,6 +2360,7 @@ public:
             std::optional<std::int64_t> id;
             Clock::time_point next {};
             std::size_t refreshesSeen { 0 };
+            bool polled { false };   // asked because `poll-ms` passed without a refresh
         };
         const auto tokens_params = [&](const std::string& previous) {
             Json params { { "textDocument", Json { { "uri", uri(file) } } } };
@@ -2356,15 +2369,18 @@ public:
         };
         Json lastData = Json::array();
         std::string lastResultId;
-        // An answer to full or full/delta made whole: the data it stands for, and its resultId.
-        const auto take_tokens = [&](const Json& result) {
+        // An answer to full or full/delta made whole: the data it stands for, and its resultId. A polled answer that
+        // differs from the last is a refresh the server did not ask for.
+        const auto take_tokens = [&](const Json& result, bool polled) {
             if (!result.is_object()) return;
+            const Json before { lastData };
             if (const auto edits = result.find("edits"); edits != result.end()) {
                 if (!apply_token_edits(lastData, *edits)) lastData = Json::array();
             } else {
                 lastData = result.value("data", Json::array());
             }
             lastResultId = result.value("resultId", std::string {});
+            if (polled && lastData != before) suspect = std::pair { Clock::now(), client_.tokensRefreshes.size() };
         };
         const auto ask_tokens = [&](Asking& asking) {
             const bool delta { !lastResultId.empty() };
@@ -2372,11 +2388,14 @@ public:
                                            tokens_params(delta ? lastResultId : std::string {}));
             asking.refreshesSeen = client_.tokensRefreshes.size();
         };
+        bool lastAskPolled { false };
         // Whether the server asked for a refresh since this question was asked; else whether a poll is due.
         const auto ask_again_due = [&](Asking& asking, Clock::time_point answered) {
+            lastAskPolled = false;
             if (client_.tokensRefreshes.size() > asking.refreshesSeen) return true;
             if (Clock::now() >= answered + poll) {
                 ++polls;
+                lastAskPolled = true;
                 return true;
             }
             return false;
@@ -2395,6 +2414,7 @@ public:
         const auto deadline = opened + timeout_;
         while ((!firstCompletion || !firstTokens) && Clock::now() < deadline && client_.unusable().empty()) {
             client_.pump_until(Clock::now() + std::chrono::milliseconds { 10 });
+            judge_suspect(false);
             if (!firstCompletion) {
                 if (completionAsk.id) {
                     const auto& asked = client_.asyncRequests[*completionAsk.id];
@@ -2414,7 +2434,7 @@ public:
                         tokensAsk.id.reset();
                         tokensAnsweredAt = *asked.answered;
                         if (!asked.isError) {
-                            take_tokens(asked.result);
+                            take_tokens(asked.result, lastAskPolled);
                             if (!firstAnyTokens) firstAnyTokens = seconds_between(opened, *asked.answered);
                             const auto decoded = decode_semantic_tokens(Json { { "data", lastData } }, original);
                             if (std::ranges::any_of(decoded, compiler_token)) {
@@ -2455,6 +2475,7 @@ public:
             const auto editDeadline = changedAt + timeout_;
             while (!editUpdated && Clock::now() < editDeadline && client_.unusable().empty()) {
                 client_.pump_until(Clock::now() + std::chrono::milliseconds { 10 });
+                judge_suspect(false);
                 if (tokensAsk.id) {
                     const auto& asked = client_.asyncRequests[*tokensAsk.id];
                     if (!asked.answered) continue;
@@ -2465,7 +2486,7 @@ public:
                         editFirstAnswer = seconds_between(changedAt, *asked.answered);
                         editBytes = lsp::dump(asked.result).size();
                     }
-                    take_tokens(asked.result);
+                    take_tokens(asked.result, lastAskPolled);
                     const auto decoded = decode_semantic_tokens(Json { { "data", lastData } }, edited);
                     if (std::ranges::any_of(decoded, [&](const DecodedToken& token) { return token.line == static_cast<int>(at) && compiler_token(token); })) {
                         editUpdated = seconds_between(changedAt, *asked.answered);
@@ -2478,6 +2499,8 @@ public:
             if (!editUpdated) failures.push_back("the inserted line never had the compiler's tokens");
         }
 
+        if (suspect) client_.pump_until(suspect->first + std::chrono::milliseconds { 500 });
+        judge_suspect(true);
         const auto refreshes = client_.tokensRefreshes.size() - refreshesBefore;
         const std::optional<double> afterCompletion { firstTokens && firstCompletion ? std::optional<double> { *firstTokens - *firstCompletion } : std::nullopt };
         const std::optional<double> editShare { editBytes > 0 && fullBytes > 0 ? std::optional<double> { static_cast<double>(editBytes) / static_cast<double>(fullBytes) }
@@ -2486,20 +2509,20 @@ public:
         enforce_max(check, "tokensAfterCompletion", afterCompletion, "first compiler tokens after the first completion", "s", failures);
         enforce_max(check, "editUpdated", editUpdated, "tokens of the inserted line", "s", failures);
         enforce_max(check, "editShare", editShare, "the edit's answer over the full answer", "", failures);
-        enforce_max(check, "polls", static_cast<double>(polls), "tokens asked again without a refresh", "", failures);
+        enforce_max(check, "missedRefreshes", static_cast<double>(missedRefreshes), "answers that changed without a refresh", "", failures);
         const auto optional_json = [](const std::optional<double>& value) { return value ? Json(*value) : Json(nullptr); };
         const Json report = root_report();
         Json summary { { "firstCompletion", optional_json(firstCompletion) }, { "firstAnyTokens", optional_json(firstAnyTokens) },
                        { "firstTokens", optional_json(firstTokens) }, { "tokensAfterCompletion", optional_json(afterCompletion) },
                        { "tokens", tokenCount }, { "fullBytes", fullBytes }, { "editFirstAnswer", optional_json(editFirstAnswer) },
                        { "editUpdated", optional_json(editUpdated) }, { "editBytes", editBytes }, { "editShare", optional_json(editShare) },
-                       { "refreshes", refreshes }, { "polls", polls },
+                       { "refreshes", refreshes }, { "polls", polls }, { "missedRefreshes", missedRefreshes },
                        { "server", report.is_object() ? report.value("semanticTokens", Json(nullptr)) : Json(nullptr) } };
         const auto shown = [](const std::optional<double>& value) { return value ? std::format("{:.2f}s", *value) : std::string { "never" }; };
         return finish_measure(std::move(failures), std::move(summary),
-                              std::format("completion {}, tokens {} (any {}), {} tokens in {} bytes; edit: answered {}, updated {}, {} bytes; {} refresh(es), {} poll(s)",
+                              std::format("completion {}, tokens {} (any {}), {} tokens in {} bytes; edit: answered {}, updated {}, {} bytes; {} refresh(es), {} poll(s), {} missed",
                                           shown(firstCompletion), shown(firstTokens), shown(firstAnyTokens), tokenCount, fullBytes,
-                                          shown(editFirstAnswer), shown(editUpdated), editBytes, refreshes, polls));
+                                          shown(editFirstAnswer), shown(editUpdated), editBytes, refreshes, polls, missedRefreshes));
     }
 
     // ---- clangd on its own (M-3, M-2 of plan 0.0.9) ----

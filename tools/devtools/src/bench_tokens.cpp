@@ -27,12 +27,13 @@ std::string shown(const Json& value, std::string_view metric) {
     if (!value.is_number()) return "-";
     const double number { value.get<double>() };
     if (metric.ends_with("Bytes")) return std::format("{:.0f}", number);
-    if (metric == "refreshes" || metric == "polls") return std::format("{:.0f}", number);
+    if (metric == "refreshes" || metric == "polls" || metric == "missedRefreshes") return std::format("{:.0f}", number);
     return std::format("{:.2f} s", number);
 }
 
 // The tokens-latency check's measure in a conformance --measure file, or null.
 Json tokens_measure(const Json& measured) {
+    if (!measured.is_object()) return nullptr;
     for (const auto& check : measured.value("checks", Json::array())) {
         if (check.is_object() && check.contains("measure") && check["measure"].is_object() && check["measure"].contains("firstTokens")) return check["measure"];
     }
@@ -109,6 +110,7 @@ int command_tokens(const mcpplibs::cmdline::ParsedArgs& args) {
     const std::string scratch { base::join_path(mcppls::platform::dirs::temp_directory(),
                                                 std::format("mcppls-bench-tokens-{}", std::chrono::system_clock::now().time_since_epoch().count())) };
     Json measured = Json::array();
+    std::vector<std::string> failed;
     for (int round { 0 }; round < rounds; ++round) {
         const std::string work { base::join_path(scratch, std::format("round-{}", round)) };
         (void)fs::create_directories(work);
@@ -124,7 +126,14 @@ int command_tokens(const mcpplibs::cmdline::ParsedArgs& args) {
             // The runner exits 1 when a budget is over; the measure is written either way.
             (void)capture(conformance, arguments, root, std::chrono::minutes { 15 });
             auto text = fs::read_file(measureFile);
-            one[std::string { stage }] = text ? tokens_measure(Json::parse(*text, nullptr, false)) : Json(nullptr);
+            const Json parsed = text ? Json::parse(*text, nullptr, false) : Json(nullptr);
+            one[std::string { stage }] = tokens_measure(parsed);
+            if (!parsed.is_object()) failed.push_back(std::format("round {} {}: no measure was written", round + 1, stage));
+            for (const auto& check : parsed.is_object() ? parsed.value("checks", Json::array()) : Json::array()) {
+                if (!check.value("ok", false)) {
+                    failed.push_back(std::format("round {} {}: {} {}", round + 1, stage, check.value("id", std::string {}), check.value("detail", std::string {})));
+                }
+            }
         }
         measured.push_back(std::move(one));
     }
@@ -139,7 +148,8 @@ int command_tokens(const mcpplibs::cmdline::ParsedArgs& args) {
         (void)fs::write_file(*out, Json { { "server", server }, { "rounds", measured }, { "medians", medians } }.dump(2) + "\n");
     }
     if (!args.is_flag_set("keep")) (void)fs::remove_all(scratch);
-    return 0;
+    for (const auto& failure : failed) std::println(std::cerr, "bench tokens: {}", failure);
+    return failed.empty() ? 0 : 1;
 }
 
 } // namespace mcppls::devtools::bench
