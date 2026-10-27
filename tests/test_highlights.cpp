@@ -6,6 +6,9 @@ import mcppls.testing;
 import mcppls.base.text;
 import mcppls.orchestrator.tokens;
 import mcppls.orchestrator.highlights;
+import mcppls.base.path;
+import mcppls.platform.dirs;
+import mcppls.platform.fs;
 
 using Json = nlohmann::json;
 using mcppls::orchestrator::tokens::Token;
@@ -110,6 +113,52 @@ int main() {
         expect(store.find("file:///a.cpp")->exact && !store.find("file:///b.cpp")->exact);
         store.unsettle_all();
         expect(!store.find("file:///a.cpp")->exact && store.find("file:///a.cpp")->known);
+    };
+
+    "kept tokens round-trip through the disk's form, and only under their key"_test = [] {
+        const highlights::CacheFile file { "key-1", { { 0, 0, 6, 15, 0 }, { 0, 7, 3, 27, 1 }, { 900, 4, 128, 12, 0x30000 } } };
+        const std::string bytes { highlights::encode_cache(file) };
+        const auto back = highlights::decode_cache(bytes);
+        expect(fatal(back.has_value()));
+        expect(back->key == "key-1");
+        expect(fatal(back->tokens.size() == 3u));
+        expect(back->tokens[2].line == 900 && back->tokens[2].length == 128 && back->tokens[2].modifiers == 0x30000u);
+        // Relative LEB128 integers: well under the twenty bytes per token the integers take as JSON text.
+        expect(bytes.size() < 40u);
+    };
+
+    "a damaged or foreign file is no tokens at all"_test = [] {
+        const std::string bytes { highlights::encode_cache(highlights::CacheFile { "k", { { 1, 2, 3, 4, 5 } } }) };
+        expect(!highlights::decode_cache(bytes.substr(0, bytes.size() - 1)).has_value()) << "truncated";
+        expect(!highlights::decode_cache(bytes + "x").has_value()) << "trailing bytes";
+        expect(!highlights::decode_cache("not a tokens file").has_value());
+        std::string otherFormat { bytes };
+        otherFormat[8] = 9;
+        expect(!highlights::decode_cache(otherFormat).has_value()) << "another format version";
+    };
+
+    "the disk keeps the newest files within its count and size"_test = [] {
+        namespace fs = mcppls::platform::fs;
+        const std::string directory { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+                                                              std::format("mcppls-test-tokens-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+        expect(fatal(fs::create_directories(directory).has_value()));
+        for (int i { 0 }; i < 5; ++i) {
+            expect(fs::write_file(mcppls::base::join_path(directory, std::format("{}.tokens", i)), std::string(100, 'x')).has_value());
+            std::this_thread::sleep_for(std::chrono::milliseconds { 20 });
+        }
+        expect(fs::write_file(mcppls::base::join_path(directory, "other.txt"), "kept").has_value());
+        expect(highlights::prune_cache(directory, 3, 1 << 20) == 200u);
+        expect(!fs::exists(mcppls::base::join_path(directory, "0.tokens")) && !fs::exists(mcppls::base::join_path(directory, "1.tokens")));
+        expect(fs::exists(mcppls::base::join_path(directory, "4.tokens")) && fs::exists(mcppls::base::join_path(directory, "other.txt")));
+        expect(highlights::prune_cache(directory, 10, 150) == 200u) << "beyond the bytes, the oldest go too";
+        expect(fs::exists(mcppls::base::join_path(directory, "4.tokens")));
+        fs::remove_all(directory);
+    };
+
+    "the file of a document is named by its path, the same every time"_test = [] {
+        expect(highlights::cache_file_name("/a/b.cpp") == highlights::cache_file_name("/a/b.cpp"));
+        expect(highlights::cache_file_name("/a/b.cpp") != highlights::cache_file_name("/a/c.cpp"));
+        expect(highlights::cache_file_name("/a/b.cpp").ends_with(".tokens"));
     };
 
     return report();

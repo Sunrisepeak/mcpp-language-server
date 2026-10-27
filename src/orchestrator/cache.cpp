@@ -403,6 +403,8 @@ Json report(std::string_view workspaceDirectory, const Budget& budget, std::chro
                   { "canonical", Json { { "files", canonicalFiles }, { "bytes", canonicalBytes } } },
                   { "copies", Json { { "files", copiesFiles }, { "bytes", copiesBytes }, { "oldestSeconds", oldestAgeSeconds } } },
                   { "trash", Json { { "bytes", trashBytes } } },
+                  // The compiler's semantic tokens of saved texts (mcpp design 2026-10-28 §11.1, H2), bounded on their own.
+                  { "tokens", Json { { "bytes", tree_bytes(base::join_path(workspace, "tokens")) } } },
                   { "instances", Json { { "count", instanceCount }, { "bytes", instanceBytes }, { "list", std::move(instanceList) } } },
                   { "largest", std::move(largest) },
                   { "limits", Json { { "perWorkspace", budget.perWorkspace }, { "total", budget.total },

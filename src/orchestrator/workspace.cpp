@@ -314,6 +314,7 @@ struct Workspace::Impl final : engine::Host {
     // since; a request is answered from it at once and refreshed when the compiler has caught up (H1).
     highlights::Store highlights;
     std::uint64_t tokensAsked { 0 };                    // for the ids of the requests the server asks of its own
+    std::size_t tokensWritten { 0 };                    // H2: files written since the directory was last pruned
     // Diagnostics published by engines other than mcppls's own, per engine and client URI.
     std::map<std::string, std::map<std::string, Json, std::less<>>, std::less<>> engineDiagnostics;
     std::map<std::string, std::string, std::less<>> publishedDiagnostics;
@@ -1272,9 +1273,12 @@ struct Workspace::Impl final : engine::Host {
         const Document* document { uri.empty() ? nullptr : documents_.find(uri) };
         highlights::Kept* kept { document != nullptr && !job.path.empty() ? &highlights.at(uri) : nullptr };
         const bool coreCan { coreEngine != nullptr && !core_waits_for_producer() && coreEngine->claims(job.view) };
+        if (kept != nullptr && !kept->known && !kept->cacheChecked) read_kept_tokens(*document, *kept);
         if (kept != nullptr && kept->known && kept->exact && kept->version == document->version) {
             request.fromKept = true;
             ++highlights.counters.exact;
+            // H2: what the disk held is confirmed by the compiler once, in the background.
+            if (kept->fromCache && coreCan && clientSupportsTokensRefresh) ask_core_tokens(uri);
         } else if (kept != nullptr && coreCan && clientSupportsTokensRefresh) {
             request.fromKept = true;
             ++highlights.counters.standIn;
@@ -1401,7 +1405,88 @@ struct Workspace::Impl final : engine::Host {
             ++highlights.counters.refreshes;
             request_tokens_refresh(TOKENS_REFRESH_SOON);
         }
+        if (kept->exact && !kept->edited) write_kept_tokens(*document, *kept);
         if (!kept->exact && answered != document->version && clientSupportsTokensRefresh) ask_core_tokens(uri);
+    }
+
+    // H2: where a document's tokens are kept on disk, and the key they are kept under -- a digest of everything the
+    // compiler's answer depends on: this server and the compiler, the semantic profile, the plan's command for the file,
+    // the module interface units it reads (transitively; an open one by its text, the rest by size and time), and the text.
+    // Without a plan entry for the file there is no command to name, so no key yet.
+    std::string tokens_directory() const { return base::join_path(workspaceDirectory_, "tokens"); }
+
+    std::optional<std::string> tokens_cache_key(const Document& document) const {
+        const auto command = planCommands_.find(base::path_key(document.path));
+        if (command == planCommands_.end()) return std::nullopt;
+        base::Sha256 hash;
+        hash.update(std::format("mcppls-tokens 1\n{}\n{}\n{}\n", base::VERSION, payload.clangdVersion, profile_json().dump()));
+        hash.update(command->second);
+        hash.update("\n");
+        // The module interface units the file reads, and theirs: each by name and identity, in name order.
+        std::map<std::string, std::string, std::less<>> modules;
+        std::vector<std::pair<std::string, std::string>> pending;   // (importer, module)
+        for (const auto& name : imports_of(document.path)) pending.emplace_back(document.path, name);
+        while (!pending.empty() && modules.size() < 1024) {
+            auto [importer, name] = std::move(pending.back());
+            pending.pop_back();
+            if (modules.contains(name)) continue;
+            std::string identity;
+            const auto units = index.providers_for(importer, name);
+            for (const auto& unit : units) {
+                if (const Document* open { documents_.find_by_path(unit.path) }) identity += std::format("{} text {}\n", unit.path, base::sha256_hex(open->text));
+                else if (const auto stamp = platform::fs::stamp(unit.path)) identity += std::format("{} {} {}\n", unit.path, stamp->size, stamp->modified);
+                for (const auto& imported : imports_of(unit.path)) pending.emplace_back(unit.path, imported);
+            }
+            if (units.empty()) {
+                if (const auto* external = index.external(name)) {
+                    const auto stamp = platform::fs::stamp(external->path);
+                    identity = std::format("{} {} {}\n", external->path, stamp ? stamp->size : 0, stamp ? stamp->modified : 0);
+                }
+            }
+            modules.emplace(std::move(name), std::move(identity));
+        }
+        for (const auto& [name, identity] : modules) hash.update(std::format("module {}\n{}", name, identity));
+        hash.update(base::sha256_hex(document.text));
+        return hash.finish();
+    }
+
+    // H2: the tokens the disk keeps for this document's text, read once per open. A hit is exact: the key says the
+    // compiler would answer the same; it is asked once all the same, to confirm.
+    void read_kept_tokens(const Document& document, highlights::Kept& kept) {
+        const auto key = tokens_cache_key(document);
+        if (!key) return;   // no plan entry yet: asked again at the next request
+        kept.cacheChecked = true;
+        const std::string file { base::join_path(tokens_directory(), highlights::cache_file_name(base::path_key(document.path))) };
+        const auto bytes = platform::fs::read_file(file);
+        const auto cached = bytes ? highlights::decode_cache(*bytes) : std::nullopt;
+        if (!cached || cached->key != *key) {
+            ++highlights.counters.cacheMisses;
+            return;
+        }
+        ++highlights.counters.cacheHits;
+        kept.core = std::move(cached->tokens);
+        kept.known = true;
+        kept.exact = true;
+        kept.fromCache = true;
+        kept.version = document.version;
+        kept.writtenKey = *key;
+        log::debug("semantic tokens of {}: {} tokens kept for this text were read", document.path, kept.core.size());
+    }
+
+    // H2: the compiler's exact tokens of a text the disk has (opened or saved, not edited since), written once per key.
+    void write_kept_tokens(const Document& document, highlights::Kept& kept) {
+        const auto key = tokens_cache_key(document);
+        if (!key || *key == kept.writtenKey) return;
+        const std::string directory { tokens_directory() };
+        (void)platform::fs::create_directories(directory);
+        const std::string file { base::join_path(directory, highlights::cache_file_name(base::path_key(document.path))) };
+        if (auto written = platform::fs::write_file_atomic(file, highlights::encode_cache(highlights::CacheFile { *key, kept.core })); !written) {
+            log::debug("semantic tokens of {} were not kept on disk: {}", document.path, written.error().message);
+            return;
+        }
+        kept.writtenKey = *key;
+        ++highlights.counters.cacheWrites;
+        if (++tokensWritten % 32 == 1) (void)highlights::prune_cache(directory, highlights::CACHE_FILES, highlights::CACHE_BYTES);
     }
 
     // The core engine asked for `uri`'s tokens on the server's own behalf (H1): one request at a time per document.
@@ -1420,10 +1505,14 @@ struct Workspace::Impl final : engine::Host {
         coreEngine->request(view, message, [this, uri, version](engine::Answer answer) {
             if (answer.kind == engine::Answer::Kind::result) {
                 record_core_tokens(uri, answer.version.value_or(version), tokens::remap(answer.value, tokensLegend));
-            } else if (highlights::Kept* asked = highlights.find(uri)) {
-                // No answer (set aside, restarted, not accepting yet): the engine's next change refreshes, and asks again.
-                asked->asking.reset();
+                return;
             }
+            highlights::Kept* asked { highlights.find(uri) };
+            if (asked == nullptr) return;
+            asked->asking.reset();
+            // The text changed while it was asked (clangd answers such a request "content modified"): asked again for the
+            // text now. Otherwise (set aside, restarted, not accepting yet) the engine's next change refreshes and asks again.
+            if (const Document* now { documents_.find(uri) }; now != nullptr && now->version != version) ask_core_tokens(uri);
         });
     }
 
@@ -4541,6 +4630,11 @@ void Workspace::did_save(const Json& message, const Json& params) {
         saved.path = path;
     }
     if (!saved.path.empty() && impl_->answers_) impl_->answers_->changed(saved.path);
+    // H2: the saved text is the disk's; the compiler's exact tokens of it are worth keeping for the next open.
+    if (highlights::Kept* kept { impl_->highlights.find(uri) }; kept != nullptr && !saved.path.empty()) {
+        kept->edited = false;
+        if (kept->known && kept->exact && kept->version == saved.version) impl_->write_kept_tokens(saved, *kept);
+    }
     impl_->document_event(engine::DocumentChange::saved, saved, &message);
     // Fix plan F13: an import of a file being edited that the save just put on disk gets its stand-in now, not once the
     // file is quiet (clangd builds with what is on disk).
@@ -4870,6 +4964,7 @@ std::uint64_t Workspace::reset_cache() {
     auto& impl = *impl_;
     std::uint64_t freed { 0 };
     for (const auto& engine : impl.engines) freed += engine->clear_cache_on_request();
+    freed += platform::fs::tree_remove(impl.tokens_directory()).bytes;
     for (const auto& entry : platform::fs::list_directory(impl.cacheDirectory)) {
         const std::string_view name { base::file_name(entry) };
         // The cached models go; the instance's own `instance.json` stays (review 2026-10-03). It is

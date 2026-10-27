@@ -2,12 +2,16 @@ module mcppls.orchestrator.highlights;
 
 import std;
 import nlohmann.json;
+import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.orchestrator.tokens;
+import mcppls.platform.fs;
 
 namespace mcppls::orchestrator::highlights {
 
 namespace {
+
+namespace fs = mcppls::platform::fs;
 
 std::optional<base::Position> position_of(const Json& value) {
     if (!value.is_object()) return std::nullopt;
@@ -31,6 +35,29 @@ void apply_range(std::string& text, base::Position start, base::Position end, st
     std::size_t to { offset(end) };
     if (to < from) std::swap(from, to);
     text.replace(from, to - from, inserted);
+}
+
+constexpr std::string_view CACHE_MAGIC { "MCPPLSTK" };
+constexpr unsigned char CACHE_FORMAT { 1 };
+
+void put_number(std::string& out, std::uint64_t value) {
+    do {
+        unsigned char byte { static_cast<unsigned char>(value & 0x7Fu) };
+        value >>= 7;
+        if (value != 0) byte |= 0x80u;
+        out.push_back(static_cast<char>(byte));
+    } while (value != 0);
+}
+
+std::optional<std::uint64_t> take_number(std::string_view bytes, std::size_t& at) {
+    std::uint64_t value { 0 };
+    for (int shift { 0 }; shift < 64; shift += 7) {
+        if (at >= bytes.size()) return std::nullopt;
+        const auto byte { static_cast<unsigned char>(bytes[at++]) };
+        value |= static_cast<std::uint64_t>(byte & 0x7Fu) << shift;
+        if ((byte & 0x80u) == 0) return value;
+    }
+    return std::nullopt;
 }
 
 bool continuation_byte(char c) { return (static_cast<unsigned char>(c) & 0xC0u) == 0x80u; }
@@ -138,6 +165,70 @@ std::uint64_t digest(std::span<const Token> tokens) {
     return value;
 }
 
+std::string cache_file_name(std::string_view pathKey) {
+    std::uint64_t value { 1469598103934665603ULL };
+    for (const char c : pathKey) {
+        value ^= static_cast<unsigned char>(c);
+        value *= 1099511628211ULL;
+    }
+    return std::format("{:016x}.tokens", value);
+}
+
+std::string encode_cache(const CacheFile& file) {
+    std::string out { CACHE_MAGIC };
+    out.push_back(static_cast<char>(CACHE_FORMAT));
+    put_number(out, file.key.size());
+    out += file.key;
+    put_number(out, file.tokens.size());
+    const auto data = tokens::encode_data(file.tokens);
+    for (const auto value : data) put_number(out, value);
+    return out;
+}
+
+std::optional<CacheFile> decode_cache(std::string_view bytes) {
+    if (!bytes.starts_with(CACHE_MAGIC) || bytes.size() <= CACHE_MAGIC.size()) return std::nullopt;
+    std::size_t at { CACHE_MAGIC.size() };
+    if (static_cast<unsigned char>(bytes[at++]) != CACHE_FORMAT) return std::nullopt;
+    const auto keyLength = take_number(bytes, at);
+    if (!keyLength || *keyLength > bytes.size() - at) return std::nullopt;
+    CacheFile file;
+    file.key = std::string { bytes.substr(at, static_cast<std::size_t>(*keyLength)) };
+    at += static_cast<std::size_t>(*keyLength);
+    const auto count = take_number(bytes, at);
+    if (!count || *count > bytes.size()) return std::nullopt;   // at least one byte per number
+    std::vector<std::uint32_t> data;
+    data.reserve(static_cast<std::size_t>(*count) * 5);
+    for (std::uint64_t i { 0 }; i < *count * 5; ++i) {
+        const auto value = take_number(bytes, at);
+        if (!value || *value > std::numeric_limits<std::uint32_t>::max()) return std::nullopt;
+        data.push_back(static_cast<std::uint32_t>(*value));
+    }
+    if (at != bytes.size()) return std::nullopt;
+    file.tokens = tokens::decode_data(data);
+    return file;
+}
+
+std::uint64_t prune_cache(const std::string& directory, std::size_t maxFiles, std::uint64_t maxBytes) {
+    struct Entry {
+        std::string path;
+        fs::FileStamp stamp;
+    };
+    std::vector<Entry> entries;
+    for (const auto& path : fs::list_directory(directory)) {
+        if (base::extension(path) != ".tokens") continue;
+        if (const auto stamp = fs::stamp(path)) entries.push_back({ path, *stamp });
+    }
+    std::ranges::sort(entries, std::greater {}, [](const Entry& entry) { return entry.stamp.modified; });
+    std::uint64_t bytes { 0 };
+    std::uint64_t freed { 0 };
+    for (std::size_t i { 0 }; i < entries.size(); ++i) {
+        bytes += entries[i].stamp.size;
+        if (i < maxFiles && bytes <= maxBytes) continue;
+        if (fs::remove(entries[i].path)) freed += entries[i].stamp.size;
+    }
+    return freed;
+}
+
 Kept* Store::find(std::string_view uri) {
     const auto it = kept_.find(uri);
     return it == kept_.end() ? nullptr : &it->second;
@@ -159,6 +250,7 @@ void Store::edited(std::string_view uri, std::int64_t before, std::int64_t versi
     for (const auto& edit : edits) shift(kept->core, edit);
     kept->version = version;
     kept->exact = false;
+    kept->edited = true;
     auto& log = log_[std::string { uri }];
     log.push_back(Change { before, version, { edits.begin(), edits.end() } });
     while (log.size() > LOG_LIMIT) log.pop_front();
@@ -186,6 +278,7 @@ bool Store::engine_answered(std::string_view uri, std::int64_t answered, std::in
     kept.known = true;
     kept.version = current;
     kept.exact = answered == current && settled;
+    kept.fromCache = false;
     return true;
 }
 
@@ -209,6 +302,7 @@ Json Store::report() const {
     std::ranges::sort(sorted);
     const auto at = [&](double share) { return sorted.empty() ? 0.0 : sorted[std::min(sorted.size() - 1, static_cast<std::size_t>(share * static_cast<double>(sorted.size())))]; };
     return Json { { "answers", Json { { "exact", counters.exact }, { "standIn", counters.standIn }, { "waited", counters.waited } } },
+                  { "cache", Json { { "hits", counters.cacheHits }, { "misses", counters.cacheMisses }, { "writes", counters.cacheWrites } } },
                   { "refreshes", counters.refreshes },
                   { "dropped", counters.dropped },
                   { "documents", kept_.size() },
