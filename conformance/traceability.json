@@ -1957,7 +1957,7 @@
     },
     {
       "script": "modules/platform/src/net.cpp",
-      "contains": "endpoint.addr[0] = 127;"
+      "contains": "osnet::loopback_listener::listen(0)"
     }
   ],
   "S5-6.1-2": [
