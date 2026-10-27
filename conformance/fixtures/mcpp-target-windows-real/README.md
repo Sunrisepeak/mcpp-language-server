@@ -1,7 +1,7 @@
 # Real Windows target following
 
 This fixture requires Windows, Visual Studio C++ tools and Windows SDK, real mcpp,
-and `llvm@22.1.8`. Supply the MSVC environment captured by the Windows conformance job:
+and `llvm@23.1.3`. Supply the MSVC environment captured by the Windows conformance job:
 
 ```bash
 stage/mcppls-conformance.exe run --server payload/bin/mcppls.exe --payload payload \

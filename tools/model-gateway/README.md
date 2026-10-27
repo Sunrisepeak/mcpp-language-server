@@ -20,7 +20,7 @@ PROTOCOL.md for the full method list, error codes and configuration.
 
 ## Build form
 
-On openkal, like every other program in this repository: LLVM 22.1.8 with
+On openkal, like every other program in this repository: LLVM 23.1.3 with
 `openkal-llvm-runtime` (openkal beneath musl, libc++ above it), one source for
 every target, cross-built from Linux (`.agents/docs/design.md` §2.2).
 
