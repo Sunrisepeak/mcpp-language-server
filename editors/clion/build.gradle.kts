@@ -72,6 +72,8 @@ tasks.test {
     environment("HOME", layout.buildDirectory.dir("home").get().asFile.also { it.mkdirs() }.absolutePath)
     environment("SHELL", "/bin/sh")
     systemProperty("mcppls.fixtures", layout.projectDirectory.dir("src/test/fixtures").asFile.absolutePath)
+    // MCPPLS_FIXTURES_BUILT=1: the `mcpp-built` fixture was built by mcpp before the suite (CI does it).
+    systemProperty("mcppls.fixturesBuilt", (providers.environmentVariable("MCPPLS_FIXTURES_BUILT").orNull == "1").toString())
     // CLion rejects its backend freeze watchdog in unit tests.
     // Server startup and shutdown deadlines remain independently bounded.
     systemProperty("patch.engine.backend.freeze.timeout", "0")

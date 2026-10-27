@@ -1589,10 +1589,15 @@ jobs:
         with:
           path: ~/.gradle/caches/modules-2
           key: gradle-clion-${{ hashFiles('editors/clion/gradle.properties', 'editors/clion/build.gradle.kts') }}
+      # Issue #71: the project a person has after `mcpp build`, which CLion's Compilation Database must not take.
+      - name: Build the mcpp-built fixture with mcpp
+        working-directory: editors/clion/src/test/fixtures/mcpp-built
+        run: mcpp build
       - name: Tests in CLion
         working-directory: editors/clion
         env:
           MCPPLS_PAYLOAD_BIN: ${{ github.workspace }}/payload/bin
+          MCPPLS_FIXTURES_BUILT: '1'
         run: |
           set -euo pipefail
           "$MCPPLS_PAYLOAD_BIN/mcppls" version

@@ -183,6 +183,24 @@ class McpplsClionTest : UsefulTestCase() {
         assertFalse("the mcpp project is not CLion's", ClionModel.models(project))
     }
 
+    // Issue #71, third item: an mcpp project as a person has it after `mcpp build` (CI builds the fixture with the mcpp
+    // it tests against, before the suite) is not taken over by CLion's Compilation Database. mcpp keeps the database
+    // under target/<triple>/<fingerprint>/ and writes none at the root since 2026.10.26.2, so CLion has nothing to load
+    // and mcppls serves the project.
+    fun testBuiltMcppProjectIsNotTakenOverByCompilationDatabase() {
+        open("mcpp-built")
+        val root = projectDir.toFile()
+        if (System.getProperty("mcppls.fixturesBuilt") == "true") {
+            assertTrue("the fixture was built by mcpp before the suite", File(root, "target").isDirectory)
+        } else {
+            println("mcpp-built was not built by mcpp here (MCPPLS_FIXTURES_BUILT unset): only the unbuilt project is checked")
+        }
+        assertFalse("no root compile_commands.json after mcpp build", File(root, "compile_commands.json").exists())
+        fixture.openFileInEditor(file("src/main.cpp"))
+        waitFor("a running mcppls", 60) { running() }
+        assertFalse("CLion's Compilation Database did not take the mcpp project", ClionModel.models(project))
+    }
+
     fun testCMakeProjectIsClionsByDefault() {
         open("cmake")
         fixture.openFileInEditor(file("src/main.cpp"))
