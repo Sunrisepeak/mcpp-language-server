@@ -84,6 +84,9 @@ struct Answer {
     enum class Kind { result, unavailable, error, cancelled };
     Kind kind { Kind::unavailable };
     Json value;   // the result, or the error object
+    // The version of the request's document the engine had when it was asked, when it keeps track: an answer that
+    // depends on the whole text (semantic tokens) is for that version, which may be older than the document now.
+    std::optional<std::int64_t> version {};
 };
 
 using Reply = std::function<void(Answer)>;

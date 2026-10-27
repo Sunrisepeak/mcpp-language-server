@@ -52,6 +52,7 @@ import mcppls.orchestrator.documents;
 import mcppls.orchestrator.instance;
 import mcppls.orchestrator.routing;
 import mcppls.orchestrator.tokens;
+import mcppls.orchestrator.highlights;
 
 namespace mcppls::orchestrator {
 
@@ -309,6 +310,10 @@ struct Workspace::Impl final : engine::Host {
     bool clientSupportsTokensRefresh { false };
     std::optional<Clock::time_point> tokensRefreshAt;   // coalesced: at most one refresh per ~500ms
     std::uint64_t tokensRefreshes { 0 };                // for the refresh requests' ids
+    // mcpp design 2026-10-28 §11.1: what the compiler last answered for each open document, moved with the edits
+    // since; a request is answered from it at once and refreshed when the compiler has caught up (H1).
+    highlights::Store highlights;
+    std::uint64_t tokensAsked { 0 };                    // for the ids of the requests the server asks of its own
     // Diagnostics published by engines other than mcppls's own, per engine and client URI.
     std::map<std::string, std::map<std::string, Json, std::less<>>, std::less<>> engineDiagnostics;
     std::map<std::string, std::string, std::less<>> publishedDiagnostics;
@@ -367,6 +372,18 @@ struct Workspace::Impl final : engine::Host {
     bool vscodeLike { false };                 // the client runs VS Code's commands (completion::vscode_like)
 
     // Requests in flight across engines.
+    // A semantic-tokens request (mcpp design 2026-10-28 §11.1): what the client asked for, and what the engines gave.
+    // Every engine is asked for the whole file; a range is cut from the answer here.
+    struct TokensRequest {
+        enum class Kind { full, delta, range };
+        Kind kind { Kind::full };
+        std::string uri;
+        std::optional<base::Range> range;
+        bool fromKept { false };                          // answered from what is kept: the core engine was not asked for it
+        bool answered { false };                          // an engine gave a result
+        std::vector<tokens::Token> native;                // mcppls's own module-syntax tokens (and any other merging engine's)
+        std::optional<std::vector<tokens::Token>> core;   // the core engine's, when it was asked and answered
+    };
     struct Job {
         Clock::time_point started {};
         std::string answeredBy;   // the engine whose answer went out; "merged" when several were
@@ -403,6 +420,7 @@ struct Workspace::Impl final : engine::Host {
         // The difference is the engine's share of the request's time; the rest is mcppls's own.
         std::optional<Clock::time_point> engineSentAt;
         std::optional<Clock::time_point> engineRepliedAt;
+        std::optional<TokensRequest> tokens;
     };
     std::map<std::uint64_t, Job> jobs;
     std::uint64_t nextJob { 1 };
@@ -747,6 +765,7 @@ struct Workspace::Impl final : engine::Host {
         // for the first root), so a request's core-engine tokens are always remapped by the same
         // legend the client was told about.
         tokensLegend = tokens::build_legend(coreCapabilities);
+        highlights.unsettle_all();   // a core engine that (re)started has answered nothing yet
         if (settledReported || !onEngineSettled) return;
         settledReported = true;
         auto callback = std::move(onEngineSettled);
@@ -917,9 +936,18 @@ struct Workspace::Impl final : engine::Host {
     // workspace/semanticTokens/refresh every ~500ms, and never before this root's own initialize
     // was answered (the same gate update_status uses).
     void semantic_tokens_changed() override {
+        // The compiler may answer differently for every file now: what is kept stands in until it has answered again.
+        highlights.unsettle_all();
+        request_tokens_refresh(std::chrono::milliseconds { 500 });
+    }
+
+    // A refresh within `within`, or sooner when one is due sooner already. A compiler answer the client does not have
+    // asks for one within TOKENS_REFRESH_SOON: the person is looking at a stand-in.
+    static constexpr std::chrono::milliseconds TOKENS_REFRESH_SOON { 20 };
+    void request_tokens_refresh(std::chrono::milliseconds within) {
         if (!clientSupportsTokensRefresh || !initializeAnswered) return;
-        if (tokensRefreshAt) return;
-        tokensRefreshAt = Clock::now() + std::chrono::milliseconds { 500 };
+        const auto at = Clock::now() + within;
+        if (!tokensRefreshAt || at < *tokensRefreshAt) tokensRefreshAt = at;
     }
 
     std::vector<engine::DocumentView> documents() const override {
@@ -1096,14 +1124,6 @@ struct Workspace::Impl final : engine::Host {
         job.clientId = message["id"];
         job.method = message.value("method", std::string {});
         job.message = message;
-        // Semantic tokens (design doc 2026-09-25 K/§7): this server advertises `full` with no
-        // `delta` (contract T0), so it never hands out a resultId a delta request could build on.
-        // A client that sends one anyway is answered like `full`, which LSP allows.
-        if (job.method == "textDocument/semanticTokens/full/delta") {
-            job.method = "textDocument/semanticTokens/full";
-            job.message["method"] = job.method;
-            if (job.message.contains("params") && job.message["params"].is_object()) job.message["params"].erase("previousResultId");
-        }
         job.params = job.message.contains("params") ? job.message["params"] : Json::object();
         const std::string uri { uri_of_params(job.params) };
         job.path = uri.empty() ? std::string {} : path_of_uri(uri);
@@ -1116,6 +1136,10 @@ struct Workspace::Impl final : engine::Host {
             job.agent = id.starts_with("k:") || id.starts_with("ka:");
         }
         if (!job.path.empty() && readOnlySources.contains(base::path_key(job.path)) && refuse_edit(jobId)) return;
+        if (is_tokens_method(job.method)) {
+            route_tokens_request(jobId, uri);
+            return;
+        }
         if (job.method == lsp::method::TEXT_DOCUMENT_COMPLETION) {
             if (completion::is_space_trigger(job.params)) {
                 route_space_triggered(jobId);
@@ -1158,22 +1182,9 @@ struct Workspace::Impl final : engine::Host {
             job.merging = true;
             job.awaiting = selection.mergers.size();
             job.engineSentAt = Clock::now();
-            // Semantic tokens: the core engine's own answer arrives in its own legend's indices;
-            // remapped into this server's legend right here, once, so routing::merge_results (and
-            // everything downstream) only ever sees the server's own index space (routing itself
-            // stays a pure function of what several engines already answered).
-            const bool remapCoreTokens { coreEngine != nullptr
-                                        && (job.method == "textDocument/semanticTokens/full" || job.method == "textDocument/semanticTokens/range") };
             for (engine::Engine* merger : selection.mergers) {
                 const std::string engineId { merger->id() };
-                engine::Reply reply { [this, jobId, engineId](engine::Answer answer) { merge_answer(jobId, engineId, std::move(answer)); } };
-                if (remapCoreTokens && engineId == coreEngine->id()) {
-                    reply = [this, jobId, engineId](engine::Answer answer) {
-                        if (answer.kind == engine::Answer::Kind::result) answer.value = tokens::remap_core_tokens(answer.value, tokensLegend);
-                        merge_answer(jobId, engineId, std::move(answer));
-                    };
-                }
-                merger->request(job.view, job.message, std::move(reply));
+                merger->request(job.view, job.message, [this, jobId, engineId](engine::Answer answer) { merge_answer(jobId, engineId, std::move(answer)); });
                 if (!jobs.contains(jobId)) return;
             }
             return;
@@ -1208,6 +1219,212 @@ struct Workspace::Impl final : engine::Host {
             return;
         }
         ask_next(jobId);
+    }
+
+    // ---- semantic tokens (mcpp design 2026-10-28 §11.1) -------------------------------------------------------------
+
+    static bool is_tokens_method(std::string_view method) {
+        return method == lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL || method == lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL_DELTA
+               || method == lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_RANGE;
+    }
+
+    static std::optional<base::Range> range_of(const Json& params) {
+        const Json* range { lsp::find(params, "range") };
+        if (range == nullptr || !range->is_object()) return std::nullopt;
+        const Json* start { lsp::find(*range, "start") };
+        const Json* end { lsp::find(*range, "end") };
+        if (start == nullptr || end == nullptr) return std::nullopt;
+        const auto read = [](const Json& position) -> std::optional<base::Position> {
+            const auto line = lsp::int_at(position, "line");
+            const auto character = lsp::int_at(position, "character");
+            if (!line || !character) return std::nullopt;
+            return base::Position { static_cast<int>(*line), static_cast<int>(*character) };
+        };
+        const auto from = read(*start);
+        const auto to = read(*end);
+        if (!from || !to) return std::nullopt;
+        return base::Range { *from, *to };
+    }
+
+    // H1. A request for an open document's tokens is answered at once from what the compiler last gave for it when that
+    // is exact (its very text, nothing it reads changed since), or -- for a client that can be refreshed -- from what was
+    // kept, moved with the edits since (or from mcppls's own module-syntax tokens alone, before the compiler gave any):
+    // the compiler is asked meanwhile, and the client is told to ask again when its answer differs. A client that cannot
+    // be refreshed waits for the compiler, as before.
+    void route_tokens_request(std::uint64_t jobId, const std::string& uri) {
+        Job& job = jobs.at(jobId);
+        TokensRequest request;
+        request.uri = uri;
+        if (job.method == lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL_DELTA) request.kind = TokensRequest::Kind::delta;
+        if (job.method == lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_RANGE) {
+            request.kind = TokensRequest::Kind::range;
+            request.range = range_of(job.params);
+        }
+        // Every engine is asked for the whole file: a range is cut from it, and a delta made of it, here.
+        job.method = std::string { lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL };
+        job.message["method"] = job.method;
+        if (job.message.contains("params") && job.message["params"].is_object()) {
+            job.message["params"].erase("previousResultId");
+            job.message["params"].erase("range");
+        }
+        job.params = job.message.contains("params") ? job.message["params"] : Json::object();
+        job.view = engine::RequestView { job.method, &job.params, job.path, job.text };
+        const Document* document { uri.empty() ? nullptr : documents_.find(uri) };
+        highlights::Kept* kept { document != nullptr && !job.path.empty() ? &highlights.at(uri) : nullptr };
+        const bool coreCan { coreEngine != nullptr && !core_waits_for_producer() && coreEngine->claims(job.view) };
+        if (kept != nullptr && kept->known && kept->exact && kept->version == document->version) {
+            request.fromKept = true;
+            ++highlights.counters.exact;
+        } else if (kept != nullptr && coreCan && clientSupportsTokensRefresh) {
+            request.fromKept = true;
+            ++highlights.counters.standIn;
+            ask_core_tokens(uri);
+        } else if (coreCan) {
+            ++highlights.counters.waited;
+        }
+        job.tokens = std::move(request);
+        std::vector<engine::Engine*> candidates;
+        for (const auto& engine : engines) {
+            if (engine.get() == coreEngine && (job.tokens->fromKept || !coreCan)) continue;
+            candidates.push_back(engine.get());
+        }
+        Selection selection { select_engines(candidates, job.view) };
+        if (selection.mergers.empty()) {
+            finish_tokens_job(jobId);
+            return;
+        }
+        job.merging = true;
+        job.awaiting = selection.mergers.size();
+        job.engineSentAt = Clock::now();
+        const std::int64_t version { document != nullptr ? document->version : 0 };
+        for (engine::Engine* merger : selection.mergers) {
+            const std::string engineId { merger->id() };
+            engine::Reply reply { [this, jobId, engineId](engine::Answer answer) { tokens_answer(jobId, engineId, std::move(answer)); } };
+            if (merger == coreEngine) {
+                if (kept != nullptr) kept->asking = version;
+                reply = [this, jobId, engineId, uri, version](engine::Answer answer) {
+                    if (answer.kind == engine::Answer::Kind::result) {
+                        auto core = tokens::remap(answer.value, tokensLegend);
+                        record_core_tokens(uri, answer.version.value_or(version), core);
+                        if (const auto it = jobs.find(jobId); it != jobs.end() && it->second.tokens) it->second.tokens->core = std::move(core);
+                        answer.value = nullptr;
+                    } else if (highlights::Kept* asked = highlights.find(uri)) {
+                        asked->asking.reset();
+                    }
+                    tokens_answer(jobId, engineId, std::move(answer));
+                };
+            }
+            merger->request(job.view, job.message, std::move(reply));
+            if (!jobs.contains(jobId)) return;
+        }
+    }
+
+    void tokens_answer(std::uint64_t jobId, const std::string& engineId, engine::Answer answer) {
+        auto it = jobs.find(jobId);
+        if (it == jobs.end()) return;
+        Job& job = it->second;
+        TokensRequest& request { *job.tokens };
+        switch (answer.kind) {
+        case engine::Answer::Kind::result:
+            if (!answer.value.is_null()) request.answered = true;
+            if (coreEngine == nullptr || engineId != coreEngine->id()) {
+                auto native = tokens::decode(answer.value);
+                tokens::ensure_sorted(native);
+                if (request.native.empty()) request.native = std::move(native);
+                else request.native = tokens::merge_tokens(request.native, native);
+            }
+            break;
+        case engine::Answer::Kind::unavailable: break;
+        case engine::Answer::Kind::error:
+            if (!job.error) job.error = std::move(answer.value);
+            break;
+        case engine::Answer::Kind::cancelled: job.cancelled = true; break;
+        }
+        if (--job.awaiting > 0) return;
+        job.engineRepliedAt = Clock::now();
+        if (job.cancelled) {
+            finish_job_cancelled(jobId);
+        } else if (job.error && !request.fromKept && !request.core) {
+            finish_job_with_error(jobId, std::move(*job.error));
+        } else {
+            finish_tokens_job(jobId);
+        }
+    }
+
+    // The answer: the compiler's tokens (what is kept, moved to the document's current version, which is what the client
+    // shows; else this request's own answer) with mcppls's own in the gaps, cut to the range asked for.
+    void finish_tokens_job(std::uint64_t jobId) {
+        auto it = jobs.find(jobId);
+        if (it == jobs.end()) return;
+        Job& job = it->second;
+        TokensRequest& request { *job.tokens };
+        const auto began = Clock::now();
+        highlights::Kept* kept { highlights.find(request.uri) };
+        const bool fromKept { kept != nullptr && kept->known };
+        if (!fromKept && !request.core && !request.answered) {
+            job.answeredBy = "merged";
+            finish_job(jobId, Json(nullptr));
+            return;
+        }
+        const std::vector<tokens::Token>& core { fromKept ? kept->core : request.core ? *request.core : request.native };
+        std::vector<tokens::Token> merged { &core == &request.native ? request.native : tokens::merge_tokens(core, request.native) };
+        if (request.kind == TokensRequest::Kind::range && request.range) merged = highlights::within(merged, *request.range);
+        Json result = tokens::result_of(tokens::encode_data(merged));
+        if (const Document* document { documents_.find(request.uri) }; kept != nullptr && document != nullptr && request.kind != TokensRequest::Kind::range) {
+            kept->givenVersion = document->version;
+            kept->givenDigest = highlights::digest(fromKept && kept->version == document->version ? kept->core : std::span<const tokens::Token> {});
+            kept->givenExact = fromKept && kept->exact;
+        }
+        highlights.composed(std::chrono::duration<double, std::milli>(Clock::now() - began).count());
+        job.answeredBy = request.fromKept ? "kept" : "merged";
+        finish_job(jobId, std::move(result));
+    }
+
+    // The core engine's tokens for `uri`, answered for `answered` (the version it had): kept, moved to the document's
+    // version now. A client given something else for that version is told to ask again; one that holds a stand-in for
+    // a newer text has the compiler asked again, so what it is shown converges on the compiler's once typing pauses.
+    void record_core_tokens(const std::string& uri, std::int64_t answered, std::vector<tokens::Token> core) {
+        const Document* document { documents_.find(uri) };
+        highlights::Kept* kept { highlights.find(uri) };
+        if (document == nullptr || kept == nullptr) return;
+        kept->asking.reset();
+        const bool settled { coreEngine == nullptr || !coreEngine->busy_with(document->path) };
+        const std::size_t count { core.size() };
+        if (!highlights.engine_answered(uri, answered, document->version, std::move(core), settled)) {
+            log::debug("semantic tokens of {}: the core engine's answer for version {} is dropped (now {}, its edits are no longer known)",
+                       document->path, answered, document->version);
+            return;
+        }
+        log::debug("semantic tokens of {}: the core engine answered {} tokens for version {} (now {}; {})", document->path, count, answered,
+                   document->version, kept->exact ? "exact" : settled ? "moved" : "still preparing");
+        if (kept->givenVersion && *kept->givenVersion == kept->version && kept->givenDigest != highlights::digest(kept->core)) {
+            ++highlights.counters.refreshes;
+            request_tokens_refresh(TOKENS_REFRESH_SOON);
+        }
+        if (!kept->exact && answered != document->version && clientSupportsTokensRefresh) ask_core_tokens(uri);
+    }
+
+    // The core engine asked for `uri`'s tokens on the server's own behalf (H1): one request at a time per document.
+    void ask_core_tokens(const std::string& uri) {
+        const Document* document { documents_.find(uri) };
+        highlights::Kept* kept { highlights.find(uri) };
+        if (coreEngine == nullptr || document == nullptr || kept == nullptr || kept->asking || core_waits_for_producer()) return;
+        const std::string path { path_of_uri(uri) };
+        Json message = lsp::make_request(std::format("t:{}", ++tokensAsked), lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
+                                         Json { { "textDocument", Json { { "uri", uri } } } });
+        const engine::RequestView view { lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL, &message["params"], path, document->text };
+        if (!coreEngine->claims(view)) return;
+        const std::int64_t version { document->version };
+        kept->asking = version;
+        log::debug("semantic tokens of {}: the core engine is asked at version {}", path, version);
+        coreEngine->request(view, message, [this, uri, version](engine::Answer answer) {
+            if (answer.kind == engine::Answer::Kind::result) {
+                record_core_tokens(uri, answer.version.value_or(version), tokens::remap(answer.value, tokensLegend));
+            } else if (highlights::Kept* asked = highlights.find(uri)) {
+                // No answer (set aside, restarted, not accepting yet): the engine's next change refreshes, and asks again.
+                asked->asking.reset();
+            }
+        });
     }
 
     // ---- the answer layer -----------------------------------------------------------------------------------------
@@ -3135,6 +3352,7 @@ struct Workspace::Impl final : engine::Host {
             commands[base::path_key(entry.file)] = std::move(command);
         }
         if (answers_ && !planCommands_.empty() && commands != planCommands_) answers_->everything_changed();
+        if (commands != planCommands_) highlights.unsettle_all();
         planCommands_ = std::move(commands);
         for (const auto& file : plan.excludedFiles) plannedFiles.insert(base::path_key(file));
         structures.clear();
@@ -4252,7 +4470,17 @@ void Workspace::did_change(const Json& message, const Json& params) {
     const std::string uri { uri_of_params(params) };
     const std::int64_t version { lsp::find_path(params, { "textDocument", "version" }) != nullptr
                                      ? params["textDocument"].value("version", std::int64_t { 0 }) : 0 };
+    // mcpp design 2026-10-28 §11.1: what is kept of the document's tokens moves with the edits (read from the text
+    // they apply to); every other document's tokens are no longer known to be exact -- it may import this one.
+    std::vector<highlights::Edit> edits;
+    std::int64_t before { 0 };
+    if (const Document* previous { impl_->documents_.find(uri) }; previous != nullptr) {
+        before = previous->version;
+        if (impl_->highlights.find(uri) != nullptr) edits = highlights::edits_of(previous->text, params.value("contentChanges", Json::array()));
+    }
     if (!impl_->documents_.change(uri, version, params.value("contentChanges", Json::array()))) return;
+    impl_->highlights.edited(uri, before, version, edits);
+    impl_->highlights.unsettle_except(uri);
     ++impl_->snapshotGeneration;
     ++impl_->documentChanges;
     impl_->lastDocumentChangeAt = std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now()));
@@ -4275,6 +4503,7 @@ void Workspace::did_close(const Json& message, const Json& params) {
     if (found == nullptr) return;
     const Document document { *found };
     impl_->documents_.close(uri);
+    impl_->highlights.forget(uri);
     if (!document.path.empty()) {
         if (impl_->answers_) impl_->answers_->changed(document.path);   // what it has is the disk's again
         impl_->forget_recent_file(document.path);
@@ -4630,6 +4859,7 @@ Json Workspace::report() const {
                   { "toolEnvironment", std::move(environment) }, { "toolRuns", std::move(toolRuns) },
                   { "plan", std::move(plan) }, { "engines", std::move(engines) }, { "requests", std::move(requests) },
                   { "answers", impl.answers_ ? impl.answers_->report() : Json() },
+                  { "semanticTokens", impl.highlights.report() },
                   { "slowestFiles", std::move(slowestFiles) },
                   { "completion", std::move(completionCosts) },
                   { "documents", Json { { "changes", impl.documentChanges }, { "lastChangeAt", impl.lastDocumentChangeAt } } },

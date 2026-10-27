@@ -285,6 +285,7 @@ private:
     };
     std::map<std::string, Typing> typing_;   // client URI -> its pause pending
     std::map<std::string, std::size_t> sentHashes_;   // client URI -> the hash of the text clangd was last given
+    std::map<std::string, std::int64_t> sentVersions_;   // client URI -> the version of the text clangd was last given (Answer::version)
     std::set<std::string> diagnosed_;                // client URIs clangd published diagnostics for
     std::set<std::string> awaitingDiagnostics_;      // client URIs
     std::size_t workers_ { 2 };   // clangd's -j for the running process (R-2)
@@ -1114,6 +1115,7 @@ public:
             spin_.forget(document.uri);
             forget_typing_(document.uri);
             sentHashes_.erase(document.uri);
+            sentVersions_.erase(document.uri);
             if (accepting_ && !wasExcluded && event.message != nullptr) (void)send_(*event.message);
             break;
         }
@@ -2228,6 +2230,9 @@ private:
         const auto now = Clock::now();
         pending_[engineId] = PendingRequest { Purpose::client, id, method, uri != nullptr && uri->is_string() ? uri->get<std::string>() : std::string {},
                                               std::min(now + own_timeout_(method), limit), generation_, limit, std::move(reply), now };
+        if (uri != nullptr && uri->is_string()) {
+            if (const auto sent = sentVersions_.find(uri->get<std::string>()); sent != sentVersions_.end()) pending_[engineId].version = sent->second;
+        }
         if (uri != nullptr && uri->is_string()) spin_.asked(uri->get<std::string>(), now);
         Json forwarded = message;
         forwarded["id"] = engineId;
@@ -2324,6 +2329,7 @@ private:
         const auto previous = sentHashes_.find(document.uri);
         const bool sameText { previous != sentHashes_.end() && previous->second == hash };
         sentHashes_[document.uri] = hash;
+        sentVersions_[document.uri] = document.version;
         const bool quiet { waits_for_pause_(document) && !sameText };
         if (quiet) {
             Typing& typing { typing_[document.uri] };
@@ -2485,6 +2491,7 @@ private:
     void open_in_engine_(const DocumentView& document) {
         spin_.sent(document.uri, text_hash_(document.text), Clock::now());
         sentHashes_[document.uri] = text_hash_(document.text);
+        sentVersions_[document.uri] = document.version;
         Json params { { "textDocument", Json { { "uri", document.uri }, { "languageId", document.languageId },
                                                { "version", document.version }, { "text", engine_text_(document.uri, document.text) } } } };
         if (send_(lsp::make_notification("textDocument/didOpen", std::move(params)))) {
@@ -2696,7 +2703,7 @@ private:
             Json result = message.value("result", Json {});
             drop_generated_locations_(result);
             host_->client_view(result);
-            request.reply(Answer { Answer::Kind::result, std::move(result) });
+            request.reply(Answer { Answer::Kind::result, std::move(result), request.version });
             break;
         }
         }
