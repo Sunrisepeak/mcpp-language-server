@@ -21,8 +21,6 @@ clion = {}
 
 [dependencies]
 os.workspace                   = true
-openkal-llvm-runtime.workspace = true
-openkal-musl.workspace         = true
 cmdline.workspace              = true
 mcppls-base                    = { path = "../../modules/base" }
 mcppls-toolrun                 = { path = "../../modules/toolrun" }

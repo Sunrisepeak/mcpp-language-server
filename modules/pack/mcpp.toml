@@ -14,7 +14,6 @@ kind = "lib"
 
 [dependencies]
 os.workspace = true
-openkal-llvm-runtime.workspace = true
 tinyhttps.workspace = true
 mcppls-base = { path = "../base" }
 mcppls-toolrun = { path = "../toolrun" }

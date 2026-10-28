@@ -9,7 +9,6 @@ kind = "lib"
 
 [dependencies]
 os.workspace = true
-openkal-llvm-runtime.workspace = true
 
 [dev-dependencies]
 mcppls-testing = { path = "../testing" }
