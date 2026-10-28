@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { resolveLaunch, SUPPORTED_PLATFORMS } from '../../src/payload';
+import { currentPlatform, resolveLaunch, SUPPORTED_PLATFORMS } from '../../src/payload';
 
 suite('distribution scope', () => {
     test('every platform of the payload lock is bundled', () => {
@@ -22,11 +22,53 @@ suite('distribution scope', () => {
             assert.strictEqual(external.ok, true);
             if (external.ok) {
                 assert.strictEqual(external.launch.executable, server);
+                assert.deepStrictEqual(external.launch.leading, []);
                 assert.strictEqual(external.launch.source, 'environment');
             }
         } finally {
             Object.defineProperty(process, 'platform', platform);
             fs.rmSync(directory, { recursive: true, force: true });
+        }
+    });
+
+    // The payload's server is one okb of every architecture; the runner of this platform starts it.
+    test('an image server starts through the runner payload.json names', () => {
+        const payload = fs.mkdtempSync(path.join(os.tmpdir(), 'mcppls-payload-image-'));
+        const write = (relative: string, text: string) => {
+            fs.mkdirSync(path.dirname(path.join(payload, relative)), { recursive: true });
+            fs.writeFileSync(path.join(payload, relative), text, { mode: 0o755 });
+        };
+        const manifest = (server: object) => write('payload.json', JSON.stringify({
+            'payload-version': 4, platform: currentPlatform(), server,
+            clangd: { version: '23', path: 'clangd/bin/clangd' }, kit: { name: 'kit', path: 'kit' },
+        }));
+        try {
+            write('bin/mcppls.okb', 'okb');
+            write('bin/okrun', 'runner');
+            manifest({ version: '0.0.18', path: 'bin/mcppls.okb', runner: 'bin/okrun' });
+            const image = resolveLaunch(payload, { MCPPLS_PAYLOAD: payload });
+            assert.strictEqual(image.ok, true);
+            if (image.ok) {
+                assert.strictEqual(image.launch.executable, path.join(payload, 'bin', 'okrun'));
+                assert.deepStrictEqual(image.launch.leading, [path.join(payload, 'bin', 'mcppls.okb')]);
+                assert.strictEqual(image.launch.payloadDir, payload);
+            }
+            fs.rmSync(path.join(payload, 'bin', 'okrun'));
+            const noRunner = resolveLaunch(payload, { MCPPLS_PAYLOAD: payload });
+            assert.strictEqual(noRunner.ok, false);
+            manifest({ version: '0.0.18', path: 'bin/mcppls.okb', runner: '../okrun' });
+            const outside = resolveLaunch(payload, { MCPPLS_PAYLOAD: payload });
+            assert.strictEqual(outside.ok, false, 'a runner outside the payload is not started');
+            write('bin/mcppls', 'program');
+            manifest({ version: '0.0.18', path: 'bin/mcppls' });
+            const program = resolveLaunch(payload, { MCPPLS_PAYLOAD: payload });
+            assert.strictEqual(program.ok, true);
+            if (program.ok) {
+                assert.strictEqual(program.launch.executable, path.join(payload, 'bin', 'mcppls'));
+                assert.deepStrictEqual(program.launch.leading, []);
+            }
+        } finally {
+            fs.rmSync(payload, { recursive: true, force: true });
         }
     });
 });

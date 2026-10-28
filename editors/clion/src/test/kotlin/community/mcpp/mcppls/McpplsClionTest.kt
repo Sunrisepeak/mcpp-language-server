@@ -34,8 +34,9 @@ import org.eclipse.lsp4j.Position
 import org.eclipse.lsp4j.jsonrpc.messages.Either
 
 // mcppls inside a running CLion (plugin/CL-3 in the 0.0.8 part 2 plan): the platform's own test
-// framework opens a real directory project in a headless CLion and the plugin starts the `mcppls`
-// found first on the PATH, which CI sets to the payload it built.
+// framework opens a real directory project in a headless CLion and the plugin starts the server of the
+// payload installed in the test's user data directory, which CI sets to the payload it built: its image,
+// through the platform's runner, as its payload.json says.
 //
 // Four things are asserted of an mcpp project: the server is Running within a minute of opening a
 // module, a wrong import gets mcppls's diagnostic, `import ` completes a module name from mcppls, and
@@ -93,9 +94,13 @@ class McpplsClionTest : UsefulTestCase() {
 
     private fun running() = servers().any { it.state == LspServerState.Running }
 
-    // The pid of the mcppls this JVM started, from the process table: the plugin gives no handle.
+    // The pid of the mcppls this JVM started, from the process table: the plugin gives no handle. The
+    // payload's server is its image, which the platform's runner runs (`okrun mcppls.okb serve`).
     private fun serverProcess(): ProcessHandle? = ProcessHandle.current().descendants()
-        .filter { it.info().command().orElse("").endsWith("mcppls") && it.info().arguments().orElse(emptyArray()).contains("serve") }
+        .filter { process ->
+            val arguments = process.info().arguments().orElse(emptyArray())
+            "serve" in arguments && (process.info().command().orElse("").endsWith("mcppls") || arguments.any { it.endsWith("mcppls.okb") })
+        }
         .findFirst().orElse(null)
 
     private fun highlights(): List<HighlightInfo> = fixture.doHighlighting()
@@ -130,6 +135,26 @@ class McpplsClionTest : UsefulTestCase() {
             "none within the test framework's limit (${e.message})"
         }
         println("CLION-ENGINE-EVIDENCE [$what] completions: $completions")
+    }
+
+    // payload.json's `server` is what starts: the image through the runner it names, or a program.
+    fun testTheInstalledPayloadStartsWhatItsManifestNames() {
+        val payload = Files.createTempDirectory("mcppls-payload").toFile()
+        try {
+            val bin = payload.resolve("bin").also { it.mkdirs() }
+            val runner = bin.resolve("okrun").also { it.writeText("runner"); it.setExecutable(true) }
+            val image = bin.resolve("mcppls.okb").also { it.writeText("okb") }
+            payload.resolve("payload.json").writeText("""{"server": {"path": "bin/mcppls.okb", "runner": "bin/okrun"}}""")
+            assertEquals(listOf(runner.path, image.path), installedServer(payload))
+            image.delete()
+            assertNull("an image that is not there is not started", installedServer(payload))
+            val program = bin.resolve("mcppls").also { it.writeText("program"); it.setExecutable(true) }
+            payload.resolve("payload.json").writeText("""{"server": {"path": "bin/mcppls"}}""")
+            assertEquals(listOf(program.path), installedServer(payload))
+            assertNull("no payload, nothing", installedServer(payload.resolve("missing")))
+        } finally {
+            payload.deleteRecursively()
+        }
     }
 
     fun testMcppProjectIsMcpplss() {

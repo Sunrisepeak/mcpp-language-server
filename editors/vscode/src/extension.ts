@@ -309,7 +309,7 @@ class ServerHost implements vscode.Disposable {
         const launch = resolution.launch;
         const configuration = vscode.workspace.getConfiguration('mcppls');
 
-        const args = ['serve'];
+        const args = [...launch.leading, 'serve'];
         if (launch.payloadDir) {
             args.push('--payload', launch.payloadDir);
         }

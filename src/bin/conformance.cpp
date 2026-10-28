@@ -67,6 +67,8 @@ bool write_artifact(const std::string& path, const Json& value) {
 
 struct Options {
     std::string server;
+    // How the server starts: the program, or an image's runner and the image (toolrun::server_command).
+    std::vector<std::string> serverCommand;
     std::string fixture;
     std::string payload;
     std::string clangd;
@@ -514,8 +516,9 @@ public:
         verbose_ = options.verbose;
         os::process::spawn_options spawn;
         spawn.bound_lifetime = true;
-        spawn.program = options.server;
-        spawn.args = { "serve" };
+        spawn.program = options.serverCommand.front();
+        spawn.args = { options.serverCommand.begin() + 1, options.serverCommand.end() };
+        spawn.args.push_back("serve");
         if (!options.payload.empty()) spawn.args.insert(spawn.args.end(), { "--payload", options.payload });
         if (!options.clangd.empty()) spawn.args.insert(spawn.args.end(), { "--clangd", options.clangd });
         if (!options.kit.empty()) spawn.args.insert(spawn.args.end(), { "--kit", options.kit });
@@ -793,8 +796,9 @@ public:
                              const std::string& cacheDirectory, bool daemon) {
         os::process::spawn_options spawn;
         spawn.bound_lifetime = true;
-        spawn.program = options.server;
-        spawn.args = { "mcp", "--root", workspace };
+        spawn.program = options.serverCommand.front();
+        spawn.args = { options.serverCommand.begin() + 1, options.serverCommand.end() };
+        spawn.args.insert(spawn.args.end(), { "mcp", "--root", workspace });
         if (daemon) spawn.args.push_back("--daemon");
         if (!options.payload.empty()) spawn.args.insert(spawn.args.end(), { "--payload", options.payload });
         if (!options.clangd.empty()) spawn.args.insert(spawn.args.end(), { "--clangd", options.clangd });
@@ -4533,7 +4537,8 @@ public:
             // one JSON document meeting the expectations, and it exits with "exit" (0 unless given).
             os::process::spawn_options spawn;
             spawn.bound_lifetime = true;
-            spawn.program = options_.server;
+            spawn.program = options_.serverCommand.front();
+            spawn.args = { options_.serverCommand.begin() + 1, options_.serverCommand.end() };
             for (const auto& argument : check.value("args", Json::array())) spawn.args.push_back(argument.get<std::string>());
             if (!options_.payload.empty()) spawn.args.insert(spawn.args.end(), { "--payload", options_.payload });
             if (!options_.clangd.empty()) spawn.args.insert(spawn.args.end(), { "--clangd", options_.clangd });
@@ -5256,8 +5261,9 @@ public:
                 path = base::join_path(cacheDirectory_, std::format("{}.zip", check.value("id", std::string { "bundle" })));
                 os::process::spawn_options spawn;
                 spawn.bound_lifetime = true;
-                spawn.program = options_.server;
-                spawn.args = { "report", "--root", workspace_, "--settle", "30", "--bundle", path };
+                spawn.program = options_.serverCommand.front();
+                spawn.args = { options_.serverCommand.begin() + 1, options_.serverCommand.end() };
+                spawn.args.insert(spawn.args.end(), { "report", "--root", workspace_, "--settle", "30", "--bundle", path });
                 for (const auto& argument : check.value("args", Json::array())) spawn.args.push_back(argument.get<std::string>());
                 if (!options_.payload.empty()) spawn.args.insert(spawn.args.end(), { "--payload", options_.payload });
                 if (!options_.clangd.empty()) spawn.args.insert(spawn.args.end(), { "--clangd", options_.clangd });
@@ -6640,6 +6646,13 @@ int main(int argc, char* argv[]) {
             status = 2;
             return;
         }
+        auto command = toolrun::server_command(options.server);
+        if (!command) {
+            say("run: {}", command.error().message);
+            status = 2;
+            return;
+        }
+        options.serverCommand = std::move(*command);
         status = run(options);
     });
     (void)app.subcommand(std::move(runCommand));

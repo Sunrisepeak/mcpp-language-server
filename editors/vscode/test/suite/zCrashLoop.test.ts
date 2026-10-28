@@ -10,6 +10,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { TestApi } from '../../src/extension';
+import { resolveLaunch } from '../../src/payload';
 
 const EXTENSION_ID = 'sunrisepeak.mcpp-language-server';
 const READY_TIMEOUT_MS = 300_000;
@@ -59,15 +60,18 @@ suite('server crash loop', function () {
     // The server answers initialize in milliseconds, too soon to be caught reliably between its spawn
     // and the client's start by polling the process table (a slow host, PRoot, lost that race).
     // MCPPLS_SERVER, read at every start, names a stand-in that waits before it becomes the real
-    // server: the process exists with initialize unanswered for as long as the test needs.
+    // server -- the command the extension would start, the payload's runner and image included: the
+    // process exists with initialize unanswered for as long as the test needs.
     function delayedServer(): () => void {
         const extensionPath = vscode.extensions.getExtension(EXTENSION_ID)!.extensionPath;
-        const payload = process.env.MCPPLS_PAYLOAD ? path.resolve(process.env.MCPPLS_PAYLOAD) : path.join(extensionPath, 'payload');
         const saved = process.env.MCPPLS_SERVER;
-        const real = saved && saved.length > 0 ? saved : path.join(payload, 'bin', 'mcppls');
+        const resolution = resolveLaunch(extensionPath, process.env);
+        assert.ok(resolution.ok, resolution.ok ? '' : resolution.reason);
+        const real = resolution.ok ? [resolution.launch.executable, ...resolution.launch.leading] : [];
         const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mcppls-delayed-server-'));
         const standIn = path.join(directory, 'mcppls');
-        fs.writeFileSync(standIn, `#!/bin/sh\nsleep 3\nexec '${real.replace(/'/g, `'\\''`)}' "$@"\n`, { mode: 0o755 });
+        const quoted = real.map((word) => `'${word.replace(/'/g, `'\\''`)}'`).join(' ');
+        fs.writeFileSync(standIn, `#!/bin/sh\nsleep 3\nexec ${quoted} "$@"\n`, { mode: 0o755 });
         process.env.MCPPLS_SERVER = standIn;
         return () => {
             if (saved === undefined) delete process.env.MCPPLS_SERVER;

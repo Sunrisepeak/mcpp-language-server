@@ -29,9 +29,11 @@ local function executable(path)
   return path ~= nil and path ~= '' and vim.fn.executable(path) == 1
 end
 
--- <user data>/mcppls/payload/bin/mcppls, where `mcpp run -p devtools -- extension --install` puts the
--- server, with the same user data directory as the Zed extension and the installer.
-local function installed_server()
+local sep = is_windows and '\\' or '/'
+
+-- <user data>/mcppls/payload, where `mcpp run -p devtools -- extension --install` puts the payload,
+-- with the same user data directory as the Zed extension and the installer.
+local function installed_payload()
   local data
   if is_windows then
     data = os.getenv('LOCALAPPDATA')
@@ -45,25 +47,63 @@ local function installed_server()
       data = home and (home .. '/.local/share')
     end
   end
-  if not data then
-    return nil
-  end
-  local sep = is_windows and '\\' or '/'
-  return table.concat({ data, 'mcppls', 'payload', 'bin', is_windows and 'mcppls.exe' or 'mcppls' }, sep)
+  return data and table.concat({ data, 'mcppls', 'payload' }, sep)
 end
 
---- The mcppls executable: `server` from setup(), then PATH, then the installed payload.
---- @return string|nil
-function M.server_path()
-  if executable(options.server) then
-    return vim.fn.exepath(options.server)
+-- The `server` of the payload at `payload`, as its payload.json says: `path`, and `runner` when the
+-- server is an image the runner starts. Nil when the payload or its manifest is not there.
+local function payload_server(payload)
+  local file = io.open(payload .. sep .. 'payload.json', 'r')
+  if not file then
+    return nil
+  end
+  local ok, manifest = pcall(vim.json.decode, file:read('*a'))
+  file:close()
+  if not ok or type(manifest) ~= 'table' or type(manifest.server) ~= 'table' or type(manifest.server.path) ~= 'string' then
+    return nil
+  end
+  return manifest.server
+end
+
+-- An image (`.okb`, `.oke`) starts through a runner: the one its payload's payload.json names when the
+-- image is that payload's server, else `okrun` beside it. A program starts as itself.
+local function command_for(server)
+  if not (server:match('%.okb$') or server:match('%.oke$')) then
+    return executable(server) and { vim.fn.exepath(server) } or nil
+  end
+  if not uv.fs_stat(server) then
+    return nil
+  end
+  local bin = vim.fs.dirname(server)
+  local payload = vim.fs.dirname(bin)
+  local manifest = payload_server(payload)
+  local runner = bin .. sep .. (is_windows and 'okrun.exe' or 'okrun')
+  if manifest and manifest.runner and vim.fs.normalize(payload .. '/' .. manifest.path) == vim.fs.normalize(server) then
+    runner = payload .. sep .. manifest.runner
+  end
+  return executable(runner) and { runner, server } or nil
+end
+
+--- The command that starts the server, before its own arguments: `server` from setup() (a program, or
+--- the image of a payload, `<payload>/bin/mcppls.okb`), then `mcppls` on PATH, then the server of the
+--- payload MCPPLS_PAYLOAD names, else of the installed payload, as its payload.json says (the
+--- platform's runner and the image).
+--- @return string[]|nil
+function M.server_command()
+  if options.server and options.server ~= '' then
+    local given = command_for(options.server)
+    if given then
+      return given
+    end
   end
   if executable('mcppls') then
-    return vim.fn.exepath('mcppls')
+    return { vim.fn.exepath('mcppls') }
   end
-  local installed = installed_server()
-  if executable(installed) then
-    return installed
+  local named = os.getenv('MCPPLS_PAYLOAD')
+  local payload = (named and named ~= '') and named or installed_payload()
+  local manifest = payload and payload_server(payload)
+  if manifest then
+    return command_for(payload .. sep .. manifest.path)
   end
   return nil
 end
@@ -104,7 +144,7 @@ function M.config()
   local defaults = { semanticTokens = { modules = modules, moduleType = true } }
   return {
     name = 'mcppls',
-    cmd = { M.server_path() or 'mcppls', 'serve' },
+    cmd = vim.list_extend(M.server_command() or { 'mcppls' }, { 'serve' }),
     filetypes = M.filetypes,
     -- A function rather than root_markers, so a project with no marker still gets a root (the
     -- current directory), as it does through setup().
@@ -124,7 +164,7 @@ local function start(bufnr)
   if not vim.api.nvim_buf_is_valid(bufnr) or vim.bo[bufnr].buftype ~= '' then
     return
   end
-  if not M.server_path() then
+  if not M.server_command() then
     if not M._warned then
       M._warned = true
       vim.notify('mcppls is not on PATH; see editors/nvim/README.md', vim.log.levels.WARN)

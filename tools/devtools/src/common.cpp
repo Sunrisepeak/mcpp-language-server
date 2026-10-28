@@ -113,51 +113,44 @@ std::optional<std::string> tool(std::string_view name, std::string_view whatItIs
     return std::nullopt;
 }
 
-base::Result<std::string> locate_server(const std::string& root, const ServerBuild& build) {
+namespace {
+
+// The first artifact `mcpp pack --message-format json` reports.
+base::Result<std::string> packed_artifact(const std::string& mcpp, const std::string& root, std::vector<std::string> arguments) {
+    arguments.insert(arguments.end(), { "--message-format", "json" });
+    std::println("  mcpp {}", base::join(arguments, " "));
+    auto output = capture(mcpp, arguments, root, std::chrono::hours { 1 });
+    if (!output) return std::unexpected { output.error() };
+    const auto envelope = nlohmann::json::parse(*output, nullptr, false);
+    const auto artifacts = envelope.is_object() ? envelope.value("data", nlohmann::json::object()).value("artifacts", nlohmann::json::array())
+                                                : nlohmann::json::array();
+    if (artifacts.empty() || !artifacts.front().is_object() || !artifacts.front().contains("path")) {
+        return base::fail("devtools-mcpp", std::format("mcpp {} reported no artifact", base::join(arguments, " ")));
+    }
+    return artifacts.front()["path"].get<std::string>();
+}
+
+} // namespace
+
+base::Result<ImageServer> locate_image_server(const std::string& root, std::string_view profile, std::string_view system,
+                                              std::string_view arch) {
     std::error_code ignored;
     auto mcpp = toolrun::find_program("mcpp");
-    if (!mcpp) return base::fail("devtools-mcpp", "mcpp is not on PATH, so the server cannot be built; pass --server");
-    // THIS SYSTEM'S SERVER IS THE PROGRAM CARRYING THE OK IMAGE (M3), as CI's payloads ship it: the
-    // image of this architecture (`<arch>-openkal`) as a section of a program of this system, which
-    // libokrun runs. Another platform's is that platform's native build: an M3 is packed on the
-    // system it runs on, because its runner borrows that system's C and C++ run-time.
-    if (build.target.empty()) {
-        const std::string image { std::format("{}-openkal", os::name(os::ARCH)) };
-        const std::vector<std::string> arguments { "pack", "--profile", build.profile, "--target", image,
-                                                   "--mode", "self-contained", "--format", "dir", "-o", "devtools-server" };
-        std::println("  building the server: mcpp {}", base::join(arguments, " "));
-        auto packed = capture(*mcpp, arguments, root, std::chrono::hours { 1 });
-        if (!packed) return std::unexpected { packed.error() };
-        const std::string server { base::join_path(root, std::format("target/dist/devtools-server/bin/mcppls{}", os::conventions().exe_suffix)) };
-        if (!std::filesystem::is_regular_file(server, ignored)) return base::fail("devtools-mcpp", std::format("mcpp pack wrote no {}", server));
-        return server;
+    if (!mcpp) return base::fail("devtools-mcpp", "mcpp is not on PATH, so the server cannot be built; pass --server-image and --server-runner");
+    const std::string target { std::format("{}-openkal", arch) };
+    std::println("  building the server: one okb of every architecture, and the runner of {}-{}", system, arch);
+    auto image = packed_artifact(*mcpp, root, { "pack", "--profile", std::string { profile }, "--target", target, "--pkg-format", "okb" });
+    if (!image) return std::unexpected { image.error() };
+    auto package = packed_artifact(*mcpp, root, { "pack", "--profile", std::string { profile }, "--target", target, "--mode", "self-contained",
+                                                  "--systems", std::string { system }, "--pkg-format", "dir", "-o", "devtools-server" });
+    if (!package) return std::unexpected { package.error() };
+    const std::string runner { base::join_path(*package, std::format("libexec/okrun/{}-{}/okrun{}", system, arch, system == "windows" ? ".exe" : "")) };
+    if (!std::filesystem::is_regular_file(*image, ignored)) return base::fail("devtools-mcpp", std::format("mcpp pack wrote no {}", *image));
+    if (!std::filesystem::is_regular_file(runner, ignored)) {
+        return base::fail("devtools-mcpp", std::format("the package carries no runner for {}-{} ({}): this mcpp builds no program for that system and architecture",
+                                                       system, arch, runner));
     }
-    std::vector<std::string> arguments { "build", "--profile", build.profile, "--print-fingerprint" };
-    if (!build.target.empty()) {
-        arguments.push_back("--target");
-        arguments.push_back(build.target);
-    }
-    std::println("  building the server: mcpp {}", base::join(arguments, " "));
-    auto output = capture(*mcpp, arguments, root, std::chrono::hours { 1 });
-    if (!output) return std::unexpected { output.error() };
-
-    // `Fingerprint: <hex>` names the directory the build wrote, target/<triple>/<fingerprint>/.
-    // Asking for it is what makes this exact: the newest mcppls under target/ is whichever
-    // profile or target was built last, which is not necessarily the one asked for here.
-    std::string fingerprint;
-    for (const auto line : base::split_lines(*output)) {
-        const std::string_view trimmed { base::trim(line) };
-        if (trimmed.starts_with("Fingerprint:")) fingerprint = std::string { base::trim(trimmed.substr(12)) };
-    }
-    if (fingerprint.empty()) return base::fail("devtools-mcpp", "mcpp build --print-fingerprint printed no fingerprint");
-    const std::string targets { base::join_path(root, "target") };
-    for (const auto& triple : base::children(targets)) {
-        for (const std::string_view suffix : { "", ".exe" }) {
-            const std::string server { base::join_path(triple, std::format("{}/bin/mcppls{}", fingerprint, suffix)) };
-            if (std::filesystem::is_regular_file(server, ignored)) return server;
-        }
-    }
-    return base::fail("devtools-mcpp", std::format("no mcppls under {}/*/{}/bin", targets, fingerprint));
+    return ImageServer { *image, runner };
 }
 
 void print_json(const nlohmann::json& value) { std::println("{}", value.dump(2)); }

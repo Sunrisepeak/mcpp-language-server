@@ -116,6 +116,37 @@ int main() {
         expect(arguments.front().find("test_env") != std::string::npos) << arguments.front();
     };
 
+    "an image server starts through the runner its payload names"_test = [] {
+        std::error_code ignored;
+        const std::string payload { base::join_path(base::spelled(os::dirs::temp()),
+            std::format("mcppls-server-command-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
+        std::filesystem::remove_all(payload, ignored);
+        std::filesystem::create_directories(base::join_path(payload, "bin"), ignored);
+        const std::string exe { os::conventions().exe_suffix };
+        const auto touch = [](const std::string& path, std::string_view text) { expect(fatal(os::fs::write(path, text).has_value())) << path; };
+        const std::string image { base::join_path(payload, "bin/mcppls.okb") };
+        touch(image, "okb");
+        // Nothing to start it with: refused, naming the runner looked for.
+        const auto alone = toolrun::server_command(image);
+        expect(!alone.has_value());
+        // The runner beside it.
+        touch(base::join_path(payload, "bin/okrun" + exe), "runner");
+        const auto beside = toolrun::server_command(image);
+        expect(fatal(beside.has_value()));
+        expect(*beside == std::vector<std::string> { base::join_path(payload, "bin/okrun" + exe), image });
+        // The one payload.json names wins.
+        touch(base::join_path(payload, "bin/other-runner"), "runner");
+        touch(base::join_path(payload, "payload.json"), R"({"server": {"path": "bin/mcppls.okb", "runner": "bin/other-runner"}})");
+        const auto named = toolrun::server_command(image);
+        expect(fatal(named.has_value()));
+        expect(named->front() == base::join_path(payload, "bin/other-runner")) << named->front();
+        // A program is started as itself.
+        const auto program = toolrun::server_command(base::join_path(payload, "bin/mcppls" + exe));
+        expect(fatal(program.has_value()));
+        expect(program->size() == 1u);
+        std::filesystem::remove_all(payload, ignored);
+    };
+
     "well-known directories are absolute"_test = [] {
         expect(base::is_absolute_path(base::home_directory())) << base::home_directory();
         expect(base::is_absolute_path(base::spelled(os::dirs::temp()))) << base::spelled(os::dirs::temp());

@@ -59,17 +59,29 @@ intellijPlatform {
     }
 }
 
-// The tests start the server the way CLion does, from the PATH it sees. CI puts the payload it built
-// first (MCPPLS_PAYLOAD_BIN); a developer points it at any payload's bin directory. `mcpp` is left off
-// the PATH on purpose: the test's project is an mcpp package, and with no mcpp to ask the server reads
-// its sources, which is what a test of the plugin needs and what finishes in seconds.
+// The tests start the server the way CLion does with nothing on the PATH: the payload installed at
+// <user data>/mcppls/payload, as its payload.json's `server` says. CI names the payload it built
+// (MCPPLS_PAYLOAD, a directory), which is linked there in the tests' own home; a developer names any
+// payload. `mcpp` is left off the PATH on purpose: the test's project is an mcpp package, and with no
+// mcpp to ask the server reads its sources, which is what a test of the plugin needs and what finishes
+// in seconds.
 tasks.test {
-    val bin = providers.environmentVariable("MCPPLS_PAYLOAD_BIN").orNull
-    if (bin != null) environment("PATH", "$bin:/usr/bin:/bin")
+    val home = layout.buildDirectory.dir("home").get().asFile.also { it.mkdirs() }
+    val installed = home.resolve(".local/share/mcppls/payload")
+    val payload = providers.environmentVariable("MCPPLS_PAYLOAD").orNull?.let { File(it).absoluteFile }
+    doFirst {
+        java.nio.file.Files.deleteIfExists(installed.toPath())
+        if (payload != null) {
+            installed.parentFile.mkdirs()
+            java.nio.file.Files.createSymbolicLink(installed.toPath(), payload.toPath())
+        }
+    }
+    environment("PATH", "/usr/bin:/bin")
+    environment("XDG_DATA_HOME", home.resolve(".local/share").absolutePath)
     environment("MCPPLS_CACHE_DIR", layout.buildDirectory.dir("mcppls-cache").get().asFile.absolutePath)
     // The server reads the login shell's environment to find build tools; an empty home and a plain
     // `sh` keep whatever the machine's profile adds (an installed mcpp, say) out of the test.
-    environment("HOME", layout.buildDirectory.dir("home").get().asFile.also { it.mkdirs() }.absolutePath)
+    environment("HOME", home.absolutePath)
     environment("SHELL", "/bin/sh")
     systemProperty("mcppls.fixtures", layout.projectDirectory.dir("src/test/fixtures").asFile.absolutePath)
     // MCPPLS_FIXTURES_BUILT=1: the `mcpp-built` fixture was built by mcpp before the suite (CI does it).

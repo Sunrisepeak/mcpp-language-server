@@ -67,11 +67,16 @@ std::string make_payload_tarball(const std::string& directory, std::string_view 
 // make_xlings_artifacts processes every platform the lock has, so a test that wants it to succeed
 // has to provide one tarball per platform -- a partial payloads directory is exactly the "missing
 // tarball" test below.
+// A release's directory: the payload tarballs (the kit comes from these) and the server's single
+// file of each system and architecture (the server comes from these).
 void make_every_payload_tarball(const std::string& directory) {
     make_payload_tarball(directory, "linux-x64", "mcppls");
     make_payload_tarball(directory, "linux-arm64", "mcppls");
     make_payload_tarball(directory, "darwin-arm64", "mcppls");
     make_payload_tarball(directory, "win32-x64", "mcppls.exe");
+    for (const std::string_view file : { "linux-x86_64", "linux-aarch64", "macos-aarch64", "windows-x86_64.exe" }) {
+        write(base::join_path(directory, std::format("mcppls-2026.9.16.1-{}", file)), "single file\n");
+    }
 }
 
 std::string make_root() {
@@ -128,12 +133,13 @@ int main() {
         expect(std::filesystem::is_regular_file(serverArchive, ignored));
         expect(std::filesystem::is_regular_file(kitArchive, ignored));
 
-        // The server archive carries bin/mcppls and LICENSE, nothing from kit/.
+        // The server archive carries the single file as bin/mcppls, and LICENSE, nothing from kit/.
         auto serverEntries = ar::extract(serverArchive, base::join_path(out, "server-check"), [](std::string_view) { return true; });
         expect(serverEntries.has_value());
         if (serverEntries) {
             expect(std::ranges::find(*serverEntries, "bin/mcppls") != serverEntries->end());
             expect(std::ranges::find(*serverEntries, "LICENSE") != serverEntries->end());
+            expect(os::fs::read(base::join_path(out, "server-check/bin/mcppls")).value_or("") == "single file\n");
         }
         auto kitEntries = ar::extract(kitArchive, base::join_path(out, "kit-check"), [](std::string_view) { return true; });
         expect(kitEntries.has_value());

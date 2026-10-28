@@ -233,14 +233,19 @@ FixtureOutcome run_review_fixture(const std::string& fixtureDir, const std::stri
     }
 
     auto variables = environment_with({ { "MCPPLS_CACHE_DIR", base::join_path(scratch, "cache") } });
-    std::vector<std::string> command { options.server, "review", "--format", "json", "--root", workspace,
-                                       "--timeout", std::to_string(options.timeoutSeconds) };
-    if (!options.payload.empty()) { command.push_back("--payload"); command.push_back(options.payload); }
+    auto command = toolrun::server_command(options.server);
+    if (!command) {
+        outcome.ok = false;
+        outcome.problems.push_back(command.error().message);
+        return outcome;
+    }
+    command->insert(command->end(), { "review", "--format", "json", "--root", workspace, "--timeout", std::to_string(options.timeoutSeconds) });
+    if (!options.payload.empty()) { command->push_back("--payload"); command->push_back(options.payload); }
     if (meta.contains("toolchains")) {
         std::vector<std::string> chains;
         for (const auto& t : meta.at("toolchains")) chains.push_back(t.get<std::string>());
-        command.push_back("--toolchains");
-        command.push_back(base::join(chains, ","));
+        command->push_back("--toolchains");
+        command->push_back(base::join(chains, ","));
     }
     std::string modelScriptPath;
     if (!model.is_null()) {
@@ -248,17 +253,17 @@ FixtureOutcome run_review_fixture(const std::string& fixtureDir, const std::stri
         (void) os::fs::write(modelScriptPath, model.value("script", nlohmann::json::object()).dump());
         variables = environment_with({ { "MCPPLS_CACHE_DIR", base::join_path(scratch, "cache") },
                                        { "MCPPLS_MOCK_MODEL_SCRIPT", modelScriptPath } });
-        command.push_back("--model"); command.push_back("gateway");
-        command.push_back("--model-gateway"); command.push_back(options.mockModel);
-        command.push_back("--model-name");
-        command.push_back(model.value("script", nlohmann::json::object()).value("model", std::string { "mock-model" }));
+        command->push_back("--model"); command->push_back("gateway");
+        command->push_back("--model-gateway"); command->push_back(options.mockModel);
+        command->push_back("--model-name");
+        command->push_back(model.value("script", nlohmann::json::object()).value("model", std::string { "mock-model" }));
     }
 
     const auto before = review_snapshot(workspace);
     const auto started = std::chrono::steady_clock::now();
     auto run = toolrun::run({
-        .program = command.front(),
-        .arguments = { command.begin() + 1, command.end() },
+        .program = command->front(),
+        .arguments = { command->begin() + 1, command->end() },
         .workDirectory = workspace,
         .purpose = "bench",
         .network = toolrun::Network::allowed,

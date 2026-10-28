@@ -179,14 +179,6 @@ std::string render_comparison(const std::vector<StressRow>& baseline, const std:
     return out;
 }
 
-namespace {
-
-std::string sibling_binary(const std::string& serverPath, std::string_view name) {
-    return base::join_path(base::parent_path(serverPath), std::format("{}{}", name, base::extension(serverPath) == ".exe" ? ".exe" : ""));
-}
-
-} // namespace
-
 } // namespace mcppls::devtools::stress
 
 namespace mcppls::devtools {
@@ -218,15 +210,26 @@ void run_matrix(const cmdline::ParsedArgs& args, bool& handled, int& status) {
         return;
     }
     const std::string root { repository_root() };
-    auto server = locate_server(root, { .profile = args.value("profile").value_or("release") });
-    if (!server) {
-        std::println(std::cerr, "stress: {}", server.error().message);
+    // The payload's own server (payload.json's `server`), which is what an editor starts.
+    std::string server;
+    if (auto text = os::fs::read(base::join_path(payload, "payload.json"))) {
+        const auto manifest = Json::parse(*text, nullptr, false);
+        if (manifest.is_object() && manifest.contains("server") && manifest["server"].is_object()) {
+            server = base::join_path(payload, manifest["server"].value("path", std::string {}));
+        }
+    }
+    if (server.empty() || !std::filesystem::is_regular_file(server, ignored)) {
+        std::println(std::cerr, "stress: {} names no server (payload.json's server.path)", payload);
         status = 1;
         return;
     }
-    const std::string conformance { stress::sibling_binary(*server, "mcppls-conformance") };
+    std::string conformance { args.value("conformance").value_or("") };
+    if (conformance.empty()) {
+        const auto self = os::env::self_command();
+        if (!self.empty()) conformance = base::join_path(base::parent_path(self.back()), std::format("mcppls-conformance{}", os::conventions().exe_suffix));
+    }
     if (!std::filesystem::is_regular_file(conformance, ignored)) {
-        std::println(std::cerr, "stress: no mcppls-conformance beside {}", *server);
+        std::println(std::cerr, "stress: no mcppls-conformance beside this program (say --conformance PATH)");
         status = 1;
         return;
     }
@@ -246,7 +249,7 @@ void run_matrix(const cmdline::ParsedArgs& args, bool& handled, int& status) {
         const std::string measureFile { measureDir.empty()
                                        ? base::join_path(base::current_directory(), std::format(".stress-{}-{}.json", spec.fixture, spec.client))
                                        : base::join_path(measureDir, std::format("{}-{}.json", spec.fixture, spec.client)) };
-        std::vector<std::string> arguments { "run", "--server", *server, "--payload", payload, "--fixture", fixtureDir,
+        std::vector<std::string> arguments { "run", "--server", server, "--payload", payload, "--fixture", fixtureDir,
                                             "--measure", measureFile, "--timeout", args.value("timeout").value_or("180") };
         if (spec.client != "none") {
             arguments.push_back("--client");
@@ -318,7 +321,7 @@ cmdline::App stress_command(bool& handled, int& status) {
     (void)command.option("client").takes_value().multiple().help("vscode, neovim, zed or plain; repeatable. Omitted: this runner's own default profile");
     (void)command.option("seed").takes_value().help("Overrides every stressed fixture's own stress-check seed, for a reproducible matrix run");
     (void)command.option("payload").takes_value().help("A payload directory (mcpp run -p devtools -- payload)");
-    (void)command.option("profile").takes_value().help("The server build profile to stress (default: release)");
+    (void)command.option("conformance").takes_value().help("mcppls-conformance (default: beside this program)");
     (void)command.option("timeout").takes_value().help("Seconds each fixture's checks may take (default: 180)");
     (void)command.option("measure-dir").takes_value().help("Directory to write each run's --measure JSON and a combined summary.json into");
     (void)command.option("compare").takes_value().help("A summary.json from an earlier run: prints deltas against it");

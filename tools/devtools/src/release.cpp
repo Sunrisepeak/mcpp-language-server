@@ -127,10 +127,18 @@ base::Result<XlingsResult> make_xlings_artifacts(const std::string& root, const 
 
         const std::string exe { platform.windows ? ".exe" : "" };
 
+        // The server is the release's single file of this system and architecture (`mcpp pack
+        // --pkg-format single-file`): a program of the system that carries the image, so the package
+        // registers `bin/mcppls` as it did when the server was a program of its own.
+        const std::string singleFile { base::join_path(payloadsDir, std::format("mcppls-{}-{}-{}{}", productVersion,
+            platform.osName == "macosx" ? std::string_view { "macos" } : platform.osName, platform.arch, exe)) };
+        if (!std::filesystem::is_regular_file(singleFile, ignored)) {
+            return base::fail("xlings-artifacts", std::format("missing {}, the single file of {}", singleFile, platform.vscodeTarget));
+        }
         const std::string serverName { std::format("mcpp-language-server-{}-{}-{}", productVersion, platform.osName, platform.arch) };
         const std::string serverArchive { base::join_path(outDir, serverName + ".tar.gz") };
         const std::vector<pack::archive::WriteEntry> serverEntries {
-            { base::join_path(scratch, "bin/mcppls" + exe), "bin/mcppls" + exe },
+            { singleFile, "bin/mcppls" + exe },
             { base::join_path(root, "LICENSE"), "LICENSE" },
         };
         if (auto wrote = pack::archive::write(serverArchive, serverName, serverEntries); !wrote) {
@@ -257,7 +265,7 @@ cmdline::App release_command(bool& handled, int& status) {
         .help("Also write MANIFEST.md into the directory");
     (void) command.subcommand("xlings")
         .description("Split CI's payload tarballs into xlings-res archives and render the .lua descriptors")
-        .option("payloads").takes_value().value_name("DIR").help("Directory of payload-<platform>.tar.gz").option("out")
+        .option("payloads").takes_value().value_name("DIR").help("A release's directory: payload-<platform>.tar.gz and the single files mcppls-<version>-<system>-<arch>").option("out")
         .takes_value().value_name("DIR").help("Where to write the archives and rendered descriptors").option("version")
         .takes_value().value_name("VERSION").help("Default: mcpp.toml").option("kit-version")
         .takes_value().value_name("VERSION").help("Default: packaging/payload.lock.json's libcxx-version").option("clangd-version")

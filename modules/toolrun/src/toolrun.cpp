@@ -235,4 +235,25 @@ std::optional<std::string> find_program(std::string_view name, std::string_view 
     return base::spelled(*found);
 }
 
+base::Result<std::vector<std::string>> server_command(std::string_view server) {
+    const std::string_view extension { base::extension(server) };
+    if (extension != ".okb" && extension != ".oke") return std::vector<std::string> { std::string { server } };
+    std::error_code ignored;
+    const std::string directory { base::parent_path(server) };
+    std::string runner;
+    const std::string payload { base::parent_path(directory) };
+    if (auto text = mcpplibs::os::fs::read(base::join_path(payload, "payload.json"))) {
+        const auto manifest = nlohmann::json::parse(*text, nullptr, false);
+        if (manifest.is_object() && manifest.contains("server") && manifest["server"].is_object()
+            && base::normalize_path(base::join_path(payload, manifest["server"].value("path", std::string {}))) == base::normalize_path(server)) {
+            if (const auto named = manifest["server"].value("runner", std::string {}); !named.empty()) runner = base::join_path(payload, named);
+        }
+    }
+    if (runner.empty()) runner = base::join_path(directory, std::format("okrun{}", mcpplibs::os::conventions().exe_suffix));
+    if (!std::filesystem::is_regular_file(runner, ignored)) {
+        return base::fail("server-runner", std::format("the image {} has no runner: {} is not there", server, runner));
+    }
+    return std::vector<std::string> { runner, std::string { server } };
+}
+
 } // namespace mcppls::toolrun

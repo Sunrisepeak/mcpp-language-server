@@ -40,7 +40,9 @@ mcpp run -p devtools -- uninstall --editor clion
 
 ## Use
 
-The plugin starts `mcppls` from the PATH the IDE sees, or else the one `--install` put in place.
+The plugin starts `mcppls` from the PATH the IDE sees, or else the server of the payload
+`--install` put in place, as its `payload.json` says: the platform's runner `bin/okrun` starting the
+server's image `bin/mcppls.okb`.
 
 CLion 2025.2 and later are supported (`sinceBuild` 252). The plugin is built against CLion 2026.2.3
 and tested inside it; the Plugin Verifier checks it against 2025.2 as well.
@@ -89,7 +91,7 @@ The logs are kept; the next start prepares the modules again from a clean state.
 
 ```bash
 cd editors/clion
-MCPPLS_PAYLOAD_BIN=/path/to/payload/bin gradle verifyPlugin test
+MCPPLS_PAYLOAD=/path/to/payload gradle verifyPlugin test
 ```
 
 `verifyPlugin` runs the Plugin Verifier against CLion 2025.2 and 2026.2.3. `test` starts a headless
@@ -98,8 +100,9 @@ CLion 2026.2.3 with the IntelliJ Platform test framework and opens the projects 
 that the wrong import gets mcppls's diagnostic, that `import hel` completes `hello.greet`, and that
 closing the project ends the process; and a CMake project, which gets no server by default and gets
 one, with one notice, when the setting is on. What CLion's own engine answers for the same files is
-printed to the log. `MCPPLS_PAYLOAD_BIN` is put first on the PATH the tests see, the way the plugin
-finds `mcppls`; `mcpp` is deliberately not on it. CI runs `verifyPlugin` on every pull request and
+printed to the log. `MCPPLS_PAYLOAD` is linked where the plugin looks for an installed payload, in
+the tests' own home, and the plugin starts its server as its `payload.json` says (the runner and the
+okb); the PATH the tests see has neither `mcppls` nor `mcpp`. CI runs `verifyPlugin` on every pull request and
 the tests when the change reaches the plugin, the protocol or the server, and on release branches,
 nightly and releases (`.github/workflows/ci.yml`, `clion-verify` and `clion-e2e`). The CLion
 downloads are about 1.9 GB each and are cached by version.

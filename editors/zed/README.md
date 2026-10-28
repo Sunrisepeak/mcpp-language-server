@@ -3,9 +3,11 @@
 C++20 named modules in [Zed](https://zed.dev): navigation, completion and diagnostics that survive
 a change of compiler, from mcpp-language-server.
 
-The extension is deliberately small — it finds `mcppls` and starts it: the worktree's PATH first,
-then the server `--install` puts at `<user data>/mcppls/payload` (`~/.local/share` on Linux,
-`~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows). All the work is in the
+The extension is deliberately small — it finds `mcppls` and starts it: the worktree's PATH first
+(the release's `mcppls-<version>-openkal.zip` or single file puts one there), then the server of
+the payload `--install` puts at `<user data>/mcppls/payload` (`~/.local/share` on Linux,
+`~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows): the platform's runner
+`bin/okrun` starting the server's image `bin/mcppls.okb`. All the work is in the
 server, which drives its own pinned clangd with the module database it built.
 
 ## Install

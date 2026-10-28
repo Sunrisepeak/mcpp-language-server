@@ -15,7 +15,8 @@
 #
 # Zed's extension API cannot pass arguments, and mcppls reads its log level from `--log-level`
 # only, so the server is started through a `mcppls` script first on PATH (which is the extension's
-# first choice anyway). The script runs the real server with `--log-level debug` and keeps a copy
+# first choice anyway). The script runs the installed payload's server -- its runner starting its
+# okb -- with `--log-level debug` and keeps a copy
 # of the LSP conversation in both directions, which is what is asserted: it is exactly what Zed
 # sent and exactly what Zed received.
 #
@@ -69,7 +70,10 @@ zed_data="$data/zed"
 # that Zed says "zed is already running" and exits.
 if [ "${#zed_data}" -gt 80 ]; then echo "$root is too deep: Zed's socket path would not fit; use a shorter ZED_SMOKE_DIR" >&2; exit 2; fi
 workspace="$root/workspace"
-server="$root/server/bin/mcppls"
+# The installed payload's server: the platform's runner starting the okb (payload.json's `server`).
+# The process is the runner's; the image runs inside it.
+server="$root/server/bin/okrun"
+image="$root/server/bin/mcppls.okb"
 cp -r "$repo/conformance/fixtures/inferred" "$workspace"
 
 zed_pid=''
@@ -176,13 +180,13 @@ has_mcppls_engine() {
 # payload put where the extension looks for it.
 "$devtools" extension --editor zed --install --link --plugin "$extension" --payload "$payload" \
     --server-dir "$root/server" --zed-dir "$zed_data"
-test -x "$server" || fail "$server was not installed"
+test -x "$server" && test -f "$image" || fail "$server and $image were not installed"
 test -e "$zed_data/extensions/installed/mcppls/extension.toml" || fail "the extension is not linked into Zed"
 
 {
   echo '#!/usr/bin/env bash'
   printf 'echo "$$ $*" >> %q\n' "$root/wrapper.log"
-  printf 'tee -a %q | %q "$@" --log-level debug | tee -a %q\n' "$root/lsp-in.log" "$server" "$root/lsp-out.log"
+  printf 'tee -a %q | %q %q "$@" --log-level debug | tee -a %q\n' "$root/lsp-in.log" "$server" "$image" "$root/lsp-out.log"
 } > "$root/bin/mcppls"
 chmod +x "$root/bin/mcppls"
 

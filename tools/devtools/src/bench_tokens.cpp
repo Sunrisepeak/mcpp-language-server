@@ -92,7 +92,7 @@ int command_tokens(const mcpplibs::cmdline::ParsedArgs& args) {
         return 2;
     }
     const std::string root { repository_root() };
-    const std::string suffix { base::extension(server) == ".exe" ? ".exe" : "" };
+    const std::string suffix { os::conventions().exe_suffix };
     std::string conformance { args.value("conformance").value_or("") };
     if (conformance.empty()) {
         // Beside this program first (the build that has the runner), then beside the server.

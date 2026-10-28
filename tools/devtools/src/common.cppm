@@ -31,18 +31,20 @@ base::Result<std::string> capture(const std::string& program, std::vector<std::s
 // it before this process starts). Nothing is installed from here.
 std::optional<std::string> tool(std::string_view name, std::string_view whatItIsFor);
 
-// How a server build is asked for: a profile and, optionally, a target triple.
-struct ServerBuild {
-    std::string profile { "release" };   // what a payload ships
-    std::string target;                  // empty: this system's program carrying the image (M3)
+// The server as a payload carries it (mcpp design 2026-10-28 part 2 §15): one okb holding the image
+// of every architecture (`mcpp pack --pkg-format okb`), and the platform's runner of one system and
+// architecture, which starts it -- the runner a self-contained universal package carries
+// (`libexec/okrun/<system>-<arch>/`, mcpp SPEC-014 §4.4), a program of that system that needs
+// nothing installed beside it.
+struct ImageServer {
+    std::string image;
+    std::string runner;
 };
 
-// The server `mcpp build` produced for `build`: built if it was not, and found by the fingerprint
-// the build itself prints rather than by guessing among the directories under target/ (tooling
-// architecture §5.5). Not `mcpp pack --format dir`, which the design proposed: its default mode
-// walks the dependency closure by executing the program under LD_TRACE_LOADED_OBJECTS, and an
-// openkal executable is static and simply runs, so the pack fails (measured, mcpp 2026.9.21.3).
-base::Result<std::string> locate_server(const std::string& root, const ServerBuild& build);
+// Packs both, in `profile`, for `system` (linux, macos or windows) and `arch` (x86_64 or aarch64).
+// Found through the packs' own report (`--message-format json`), not by guessing under target/.
+base::Result<ImageServer> locate_image_server(const std::string& root, std::string_view profile, std::string_view system,
+                                              std::string_view arch);
 
 // Writes `value` as the command's machine-readable answer.
 void print_json(const nlohmann::json& value);
