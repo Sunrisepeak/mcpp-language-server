@@ -60,10 +60,10 @@ int serve() {
     std::optional<Json> lateCompletion;
     int reports { 0 }, changes { 0 }, completions { 0 };
     // --tokens-poll: a server whose tokens change twice, as clangd's do on a cold open, and that asks for a refresh each
-    // time, as it should. The first change is found by the client's poll -- the server's compile ends just as it asks,
-    // and its refresh is written with the answer -- so the poll is the last question before the edit; the second is the
-    // edit's, answered at once from the old tokens moved, and refreshed when the new version is compiled, longer after
-    // than the half second within which the client judges a polled answer that changed.
+    // time, as it should. The client's first poll finds nothing new; its second finds the first change -- the server's
+    // compile ends just as it asks, and its refresh is written with the answer -- so a poll is the last question before
+    // the edit. The second change is the edit's, answered at once from the old tokens moved, and refreshed when the new
+    // version is compiled, longer after than the half second within which the client judges a polled answer that changed.
     const bool tokensPoll { std::ranges::find(arguments, "--tokens-poll") != arguments.end() };
     int tokensAsked { 0 };
     bool tokensEdited { false };
@@ -142,17 +142,17 @@ int serve() {
                 const Json moved = Json::array({ 1, 0, 3, 0, 0, 0, 4, 4, 1, 0 });
                 const Json recompiled = Json::array({ 0, 0, 3, 0, 0, 0, 4, 5, 1, 0, 1, 0, 3, 0, 0, 0, 4, 4, 1, 0 });
                 const bool refreshLater { tokensEdited && tokensAsked > 0 && !laterRefresh.joinable() };
-                const Json data = !tokensEdited ? (tokensAsked == 1 ? alone : compiled) : refreshLater ? moved : recompiled;
+                const Json data = !tokensEdited ? (tokensAsked <= 2 ? alone : compiled) : refreshLater ? moved : recompiled;
                 std::string frames { lsp::encode_frame(lsp::make_result(request["id"], Json { { "resultId", std::format("r{}", tokensAsked) }, { "data", data } })) };
                 // The refresh of the first change follows the poll's answer in the same write, so the client reads both at once.
-                if (!tokensEdited && tokensAsked == 2) frames += lsp::encode_frame(lsp::make_request("tokens-refresh-1", "workspace/semanticTokens/refresh", nullptr));
+                if (!tokensEdited && tokensAsked == 3) frames += lsp::encode_frame(lsp::make_request("tokens-refresh-1", "workspace/semanticTokens/refresh", nullptr));
                 {
                     const std::scoped_lock lock { writing };
                     if (!os::stdio::write_output(frames)) return 2;
                 }
                 if (refreshLater) {
                     laterRefresh = std::jthread { [send] {
-                        std::this_thread::sleep_for(std::chrono::milliseconds { 900 });
+                        std::this_thread::sleep_for(std::chrono::milliseconds { 600 });
                         (void)send(lsp::make_request("tokens-refresh-2", "workspace/semanticTokens/refresh", nullptr));
                     } };
                 }
@@ -613,13 +613,14 @@ int main() {
             if (document) expect(Json::parse(*document)["checks"][0]["measure"]["beforeChangeDrain"]["ready"] == false);
         }
     };
-    // A tokens-latency check whose last question before the edit was a poll: the edit's first answer changed because the
-    // text did, and is not a poll's -- the server refreshing a second later is not a refresh it failed to ask for.
-    "an answer is a poll's only when its own question was a poll"_test = [&] {
+    // A tokens-latency check against a server that refreshes whenever its tokens change: a poll that finds nothing new is
+    // no missed refresh; neither is the one that finds the change its refresh crossed, nor the edit's first answer, which
+    // changed because the text did and is not a poll's although the question before it was.
+    "a poll is judged by its own answer, and the refreshes since it was asked"_test = [&] {
         const Json sample { { "name", "timing" }, { "server-arguments", Json::array({ "--tokens-poll" }) },
             { "client-capabilities", Json { { "workspace", Json { { "semanticTokens", Json { { "refreshSupport", true } } } } } } },
             { "checks", Json::array({ Json { { "id", "T1" }, { "kind", "tokens-latency" }, { "file", "main.cpp" }, { "at", Json::array({ 0, 4 }) },
-                { "expect", "private-completion" }, { "poll-ms", 1500 }, { "edit", Json { { "line", 0 }, { "text", "int added() { return 0; }" } } },
+                { "expect", "private-completion" }, { "poll-ms", 800 }, { "edit", Json { { "line", 0 }, { "text", "int added() { return 0; }" } } },
                 { "budget", Json { { "missedRefreshes", 0 } } } } }) } };
         expect(os::fs::write(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());
         expect(os::fs::write(base::join_path(fixture, "main.cpp"), "int main() {}\n").has_value());
@@ -630,10 +631,10 @@ int main() {
         expect(fatal(document.has_value()));
         const Json summary = Json::parse(*document);
         const Json& measured = summary["checks"][0]["measure"];
-        expect(measured.value("polls", -1) == 1) << measured.dump();
+        expect(measured.value("polls", -1) == 2) << measured.dump();
         expect(measured.value("missedRefreshes", -1) == 0) << measured.dump();
         expect(measured.value("refreshes", -1) == 2) << measured.dump();
-        expect(measured.value("editUpdated", 0.0) >= 0.9) << measured.dump();
+        expect(measured.value("editUpdated", 0.0) >= 0.6) << measured.dump();
     };
     std::filesystem::remove_all(root, ignored);
     return report();

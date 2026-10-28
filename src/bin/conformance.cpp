@@ -2398,7 +2398,9 @@ public:
         // differs from the last is a refresh the server did not ask for, unless one came after the poll was asked.
         const auto take_tokens = [&](const Json& result, const Asking& asked) {
             if (!result.is_object()) return;
-            const Json before { lastData };
+            // A copy, not `Json before { lastData }`: that is an array holding the data, unequal to it every time, which
+            // made every poll's answer one that "changed".
+            const Json before = lastData;
             if (const auto edits = result.find("edits"); edits != result.end()) {
                 if (!apply_token_edits(lastData, *edits)) lastData = Json::array();
             } else {
