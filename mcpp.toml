@@ -39,8 +39,9 @@ mcpp = ">=2026.10.27.1"
 # The operating-system layer: mcpplibs.os over openkal (mcpp design 2026-10-26 part 2). The
 # openkal implementation of each system is os's dependency, named by it; no program here names it.
 # 0.2.1 carries what mcppls's own modules/os and modules/platform did (bounded runs, threads,
-# environment entries, a bounded read, canonical names); by its branch until it is in the index.
-os                   = { git = "https://github.com/mcpplibs/os.git", branch = "os-0.2.1" }
+# environment entries, a bounded read, canonical names); by its release tag until it is in the index
+# (the os-0.2.1 branch it was taken from before is merged and gone).
+os                   = { git = "https://github.com/mcpplibs/os.git", tag = "0.2.1" }
 cmdline              = "0.0.2"
 tinyhttps            = "0.3.1"
 
