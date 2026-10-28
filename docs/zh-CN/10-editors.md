@@ -10,7 +10,7 @@ mcpp run -p devtools -- extension --editor vscode|zed|clion --install   # 并安
 mcpp run -p devtools -- uninstall --editor vscode|zed|clion|all   # 卸载
 ```
 
-打包需要什么——Node 和 Rust——都写在 `mcpp.toml` 的 `[xlings.workspace]` 里，工具启动前 `mcpp run` 会先准备好。Gradle 和它要用的 JDK 放在 `clion` feature 后面，只有构建那个插件的人才需要下载它们：`mcpp run --features clion -p devtools -- extension --editor clion`。Zed 和 CLion 都没有装插件的命令行，所以 `--install` 在磁盘上留下的东西和它们自己的 UI 装出来的完全一样：对 Zed，它停在最后一步之前，告诉你在命令面板里执行哪个操作（推荐这样装，加 `--link` 则由它自己完成）；对 CLion，它按 *Install Plugin from Disk* 的方式解包插件。两者都会先从 PATH 启动 `mcppls`，找不到就用 `--install` 放在 `<user data>/mcppls/payload` 的那个服务端。
+打包需要什么——Node 和 Rust——都写在 `mcpp.toml` 的 `[xlings.workspace]` 里，工具启动前 `mcpp run` 会先准备好。Gradle 和它要用的 JDK 放在 `clion` feature 后面，只有构建那个插件的人才需要下载它们：`mcpp run --features clion -p devtools -- extension --editor clion`。Zed 和 CLion 都没有装插件的命令行，所以 `--install` 在磁盘上留下的东西和它们自己的 UI 装出来的完全一样：对 Zed，它停在最后一步之前，告诉你在命令面板里执行哪个操作（推荐这样装，加 `--link` 则由它自己完成）；对 CLion，它按 *Install Plugin from Disk* 的方式解包插件。两者都会先从 PATH 启动 `mcppls`，找不到就按 `payload.json` 的说明，启动 `--install` 放在 `<user data>/mcppls/payload` 的那个 payload 的服务端：它的运行器 `bin/okrun` 启动 okb `bin/mcppls.okb`。
 
 ## VS Code
 
@@ -75,7 +75,7 @@ Zed 自带 C/C++ 的 clangd，不做第 2 步它会和 mcppls 同时跑在同一
 
 ## 其他 LSP 客户端
 
-`mcppls serve` 通过 stdio 提供 LSP。服务端需要能找到一个 payload——参见 [00-install.md](00-install.md)。
+`mcppls serve` 通过 stdio 提供 LSP：release 里的 `mcppls-<version>-openkal.zip` 或单文件提供 `mcppls`，payload 的服务端则是 `<payload>/bin/okrun <payload>/bin/mcppls.okb serve`。服务端需要找到一个 payload 才能用上锁定版本的 clangd 和工具包——参见 [00-install.md](00-install.md)。
 
 ## 其他 MCP 客户端
 

@@ -78,16 +78,17 @@ mcpp run -p devtools -- extension --editor vscode --install  # payload、VS Code
 
 | 任务 | 命令 |
 |---|---|
-| 本机对应的 payload | `mcpp run -p devtools -- payload` |
-| 另一个平台的 payload | `mcpp run -p devtools -- payload --platform win32-x64 --server PATH` |
-| 服务端为映像的 payload（`bin/mcppls.okb`，由该平台的 `bin/okrun` 启动） | `mcpp run -p devtools -- payload --platform win32-x64 --server-image mcppls.okb --server-runner okrun.exe` |
+| 本机对应的 payload：服务端是 okb（`bin/mcppls.okb`）和本机的运行器（`bin/okrun`），由工具打包 | `mcpp run -p devtools -- payload` |
+| 另一个平台的 payload，由 okb 和该平台的运行器（通用包的 `libexec/okrun/<system>-<arch>/`）组成 | `mcpp run -p devtools -- payload --platform win32-x64 --server-image mcppls.okb --server-runner okrun.exe` |
+| 服务端改为该平台程序的 payload | `mcpp run -p devtools -- payload --platform win32-x64 --server PATH` |
+| 对一个 payload 的服务端运行测试（`--server` 取 okb；运行器是 `payload.json` 指定的那个） | `mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture …` |
 | 检查一个 payload | `mcpp run -p devtools -- payload --verify DIR` |
 | 单独构建语义工具包 | `mcpp run -p devtools -- kit --platform linux-x64 --out DIR` |
 | 编辑器扩展 | `mcpp run -p devtools -- extension [--editor vscode\|zed\|clion\|all] [--install [--link]]` |
 | 安装一个已有的插件（来自某次 release） | `... -- extension --editor zed\|clion --install --plugin PATH --payload DIR` |
 | 移除已安装的扩展 | `mcpp run -p devtools -- uninstall --editor vscode\|zed\|clion\|all` |
 | 检查暂存好的 release | `mcppls-devtools release check --version V --dir release [--render]` |
-| 一次 release 的 xlings 产物 | `mcppls-devtools release xlings --payloads DIR --out DIR` |
+| 一次 release 的 xlings 产物（取自它的 payload 和单文件） | `mcppls-devtools release xlings --payloads DIR --out DIR` |
 
 ## 环境
 

@@ -20,9 +20,11 @@ PROTOCOL.md for the full method list, error codes and configuration.
 
 ## Build form
 
-On openkal, like every other program in this repository: LLVM 23.1.3 with
-`openkal-llvm-runtime` (openkal beneath musl, libc++ above it), one source for
-every target, cross-built from Linux (`.agents/docs/design.md` §2.2).
+On openkal, like every other program in this repository: the workspace's
+platform, openkal-platform 0.17.2, states LLVM 23.1.3, openkal-musl and
+openkal-llvm-runtime (openkal beneath musl, libc++ above it) for every target, so
+one source builds every target, cross-built from Linux (`.agents/docs/design.md`
+§2.2), and this member declares none of them.
 
 The package is a workspace member, so its third-party versions come from the
 root `mcpp.toml`'s `[workspace.dependencies]` and cannot drift from the

@@ -11,7 +11,8 @@ product version unchanged.
 
 The bundled engine is unchanged ([mcppls-clangd 0.0.17](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.17),
 `23.1.0-mcppls.5`). This release moves the server onto [mcpplibs.os](https://github.com/mcpplibs/os), ships it as
-one ok image per architecture, and follows the build record mcpp 2026.10.26.2 writes.
+one okb of both architectures that every system's runner starts, builds over openkal-platform (mcpp 2026.10.27.1),
+and follows the build record mcpp writes.
 
 ### Colours of large files
 
@@ -38,15 +39,24 @@ and every edit sent the whole file's tokens again, 1 015 373 bytes (`tokens-larg
   bench-validate job holds the criteria: on a warm open the colours come no later than the first completion, an edit's
   answer is under 5% of the file's, and every change reaches the editor by refresh.
 
-### One server per architecture
+### One server for every system
 
-- **The server in every payload is the program of its system that carries the ok image of its architecture (M3).**
-  The image (`x86_64-openkal`, `aarch64-openkal`) is built once, and the Linux, macOS and Windows programs of an
-  architecture carry the same bytes, which CI checks against the image it built; libokrun runs it. Nothing changes
-  for an editor: `bin/mcppls` is where it was. The images themselves are release assets
-  (`mcppls-<version>-x86_64.oke`, `-aarch64.oke`), which `okrun` runs on any of the three systems (M2).
+- **Every payload and VSIX carries the same server: one okb** (`bin/mcppls.okb`, openkal's universal image package,
+  the image of x86_64 and of aarch64), **started by the platform's runner beside it** (`bin/okrun`), as
+  `payload.json`'s `server` says (`path`, `runner`). The images are built once, and CI checks that every okb shipped is
+  that one, byte for byte, and that each VSIX's runner starts it on its own system ("one okb, every runner", on Linux
+  x64 and arm64, macOS arm64 and Windows x64). VS Code, Zed, CLion and Neovim start the runner with the okb before the
+  server's own arguments; the test harnesses (`mcppls-conformance run --server`, `bench`, `stress`) take the okb and
+  start it the same way.
+- **The server for the command line is one package**, `mcppls-<version>-openkal.zip`: both images, the launchers
+  `bin/mcppls` and `bin/mcppls.cmd`, and the runner of Linux x86_64 and aarch64, macOS arm64 and Windows x86_64, so it
+  needs nothing installed. CI packs it on each of the three systems and joins them with `mcpp pack --merge`.
+- **Or one file**: `mcppls-<version>-<system>-<arch>` (`linux-x86_64`, `linux-aarch64`, `macos-aarch64`,
+  `windows-x86_64.exe`), the platform's carrier with the image inside, which runs it from memory.
+- These replace the per-architecture `.oke` assets and the program of each system carrying its image (M3). The
+  xlings server archive of each platform is that platform's single file.
 - The server names what starts it again (`review`, the workspace daemon, the login shell's environment report) as
-  the system does, an image's loader included.
+  the system does, an image's loader included, and finds its payload around its image.
 
 ### mcpp projects
 
@@ -84,13 +94,19 @@ and every edit sent the whole file's tokens again, 1 015 373 bytes (`tokens-larg
 
 ### Building mcppls
 
-- **A payload can carry the server as an image.** `mcppls-devtools payload --server-image mcppls.okb
-  --server-runner <okrun>` puts `bin/mcppls.okb` and the platform's `bin/okrun` in the payload in place of
-  `bin/mcppls`, and `payload.json`'s `server` names both (`path`, `runner`); `payload --verify` checks that form. It is
-  the layout the okb distribution of mcpp design 2026-10-28 part 2 §15 uses once openkal-image reads okb.
-
-- The toolchain is `llvm@23.1.3`, the LLVM mcpp pins for the ok-image rows: its packages carry an arm64 Linux
-  `clang++` and a Windows `ld.lld`, which the server M3 programs of those systems need.
+- **One platform for every target** (mcpp SPEC-013): the workspace selects openkal-platform 0.17.2 for Linux, macOS
+  and Windows, whose hosted arrangement is openkal-musl and openkal-llvm-runtime over the system's openkal, and mcpp
+  selects it for the ok images (`<arch>-openkal`). No member declares a C library, a C++ run-time, okld, okrun or a
+  link any more; `[workspace.package] mcpp = ">=2026.10.27.1"` makes an older mcpp refuse instead of building
+  without them. CI also builds every build program of the graph as an ok image
+  (`--host-platform openkal-platform@0.17.2`) on the three systems.
+- **A payload's server is the image form by default.** `mcppls-devtools payload` packs the okb
+  (`mcpp pack --pkg-format okb`) and a self-contained universal package of this system, and carries the okb and
+  this system's runner; `--server-image` and `--server-runner` name them for another platform, and `--server` still
+  carries a program. `payload --verify` checks both forms.
+- CI finds the platform's tools as mcpp names them (`mcpp toolchain install --target`, `mcpp self env --target
+  … --format json`), and spells the container `--pkg-format`.
+- The toolchain is `llvm@23.1.3`, the LLVM of openkal-platform's version group.
 - The CLion tests open an mcpp project as it is after `mcpp build` and check that CLion's Compilation Database does
   not take it (#71).
 

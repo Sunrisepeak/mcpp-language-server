@@ -29,9 +29,20 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 | `payload-<platform>.tar.gz` | 是 | 是 |
 | `mcppls-zed-<version>.tar.gz` | 否 | 是 |
 | `mcppls-clion-<version>.zip` | 否 | 是 |
+| `mcppls-<version>-openkal.zip` | 否——一个包服务所有系统和架构 | 是 |
+| `mcppls-<version>.okb` | 否——两种架构的映像 | 是 |
+| `mcppls-<version>-<system>-<arch>`（`linux-x86_64`、`linux-aarch64`、`macos-aarch64`、`windows-x86_64.exe`） | 每个系统与架构一个 | 是 |
 | `SHA256SUMS`、`MANIFEST.md` | 否 | 是 |
 
 增减 release 文件只需修改这份发布清单，workflow 不用改。
+
+**服务端只有一份字节。** 它按架构构建为 ok 映像（mcpp 的 `<arch>-openkal`，平台为 openkal-platform），上表中凡是带服务端的文件，带的都是这些映像：okb 带两份；每个 payload 和 VSIX 都把这个 okb 作为 `bin/mcppls.okb`，旁边是本平台的运行器 `bin/okrun`；通用包在 `lib/<arch>/` 下带两份，并带它服务的每个系统的运行器；单文件是一个系统的运行器，里面装着一份映像。CI 把每一个都与最先构建的映像（`server-image`）比对：通用包在 Linux、macOS、Windows 上的各行、okb、每个 payload 的 okb、每个 VSIX 的 okb（`distribution`，“一个 okb，每个运行器都能启动它”），并在各自的系统上运行它分发的每个运行器。按平台不同的只有 clangd 和工具包，所以 payload 和 VSIX 仍然按平台各一份。
+
+| 任务（`ci.yml`） | 产出 | 运行于 |
+|---|---|---|
+| `server-universal` | 每个系统的 self-contained 通用包（`mcpp pack --target x86_64-openkal --mode self-contained --pkg-format zip`）；在 Linux 上还有 okb（`--pkg-format okb`，用 `okld bundle check` 检查）和单文件（`--pkg-format single-file --systems linux,macos,windows`，两种架构） | Linux、macOS、Windows |
+| `server-openkal` | `mcppls-<version>-openkal.zip`：用 `mcpp pack --merge` 合并三者，带 linux-x86_64、linux-aarch64、macos-aarch64 与 windows-x86_64 的运行器 | Linux |
+| `distribution` | 不产出文件：每个 VSIX 只带一个 okb，就是那一个 okb，它的运行器能启动它；通用包和单文件能启动服务端 | 每个平台 |
 
 ## 发起一次发布
 

@@ -95,16 +95,17 @@ platforms`).
 
 | Task | Command |
 |---|---|
-| A payload for this host | `mcpp run -p devtools -- payload` |
-| A payload for another platform | `mcpp run -p devtools -- payload --platform win32-x64 --server PATH` |
-| A payload whose server is an image (`bin/mcppls.okb`, started by the platform's `bin/okrun`) | `mcpp run -p devtools -- payload --platform win32-x64 --server-image mcppls.okb --server-runner okrun.exe` |
+| A payload for this host: the server is the okb (`bin/mcppls.okb`) and this host's runner (`bin/okrun`), packed for you | `mcpp run -p devtools -- payload` |
+| A payload for another platform, from an okb and that platform's runner (a universal package's `libexec/okrun/<system>-<arch>/`) | `mcpp run -p devtools -- payload --platform win32-x64 --server-image mcppls.okb --server-runner okrun.exe` |
+| A payload whose server is a program of the platform instead | `mcpp run -p devtools -- payload --platform win32-x64 --server PATH` |
+| A test harness against a payload's server (`--server` takes the okb; its runner is the one `payload.json` names) | `mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture …` |
 | Check a payload | `mcpp run -p devtools -- payload --verify DIR` |
 | The semantic kit alone | `mcpp run -p devtools -- kit --platform linux-x64 --out DIR` |
 | Editor extensions | `mcpp run -p devtools -- extension [--editor vscode\|zed\|clion\|all] [--install [--link]]` |
 | Install a plugin you already have (a release's) | `... -- extension --editor zed\|clion --install --plugin PATH --payload DIR` |
 | Remove an installed extension | `mcpp run -p devtools -- uninstall --editor vscode\|zed\|clion\|all` |
 | Check a staged release | `mcppls-devtools release check --version V --dir release [--render]` |
-| The xlings artifacts of a release | `mcppls-devtools release xlings --payloads DIR --out DIR` |
+| The xlings artifacts of a release (its payloads and single files) | `mcppls-devtools release xlings --payloads DIR --out DIR` |
 
 ## Environment
 

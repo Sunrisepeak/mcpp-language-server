@@ -38,7 +38,9 @@ its manifest.
                                     identity), platform, the version and relative
                                     path of each part, and `engines`: per engine its
                                     executable, version, matching kit and identity
-  bin/mcppls[.exe]
+  bin/mcppls.okb                     the server: its image for x86_64 and for aarch64, one okb
+                                     (`mcpp pack --pkg-format okb`), the same bytes in every payload
+  bin/okrun[.exe]                    this platform's runner, which starts it (`server.runner`)
   clangd/bin/clangd[.exe]
   clangd/lib/clang/<major>/include/  clang's builtin headers, found beside clangd
   clangd/engine.json                 the maintained engine's source and binary identity
@@ -46,8 +48,10 @@ its manifest.
   licenses/                          mcppls and LLVM license texts
 ```
 
-The server takes the payload named by `--payload`, or else the payload that
-contains its own executable. `--clangd` and `--kit` replace one part of it. A
+A payload may carry a program of its platform as the server instead
+(`bin/mcppls[.exe]`, `payload --server`); `payload.json`'s `server` says which,
+and every editor starts what it says. The server takes the payload named by
+`--payload`, or else the payload that contains its own image or executable. `--clangd` and `--kit` replace one part of it. A
 part that is still missing is looked for outside a payload: clangd on `PATH`,
 and the kit installed by xlings.
 
@@ -61,8 +65,9 @@ and the kit installed by xlings.
 
 `platforms` is the one table of platforms. Each row, named `<os>-<arch>` as VS
 Code names extension targets, gives the clangd entry, the kit recipe, source and
-target triple, and `server-target`, the mcpp `--target` the payload's server is
-built for. The VS Code extension, `release.manifest.json` and CI's per-platform
+target triple, and `server-target`, the mcpp `--target` the platform's programs
+are built for (CI's cross-build job makes the test tools for it; the payload's
+server is the okb and the platform's runner). The VS Code extension, `release.manifest.json` and CI's per-platform
 jobs list the same platforms, and `mcppls-devtools check platforms` fails when one
 of them does not. Versions change here and nowhere else. Each sha256 was
 checked against two independent downloads and against the digest GitHub records
@@ -72,13 +77,19 @@ for the release asset. The server's version is read from `mcpp.toml`.
 
 One command fetches, trims clangd, builds the kit, assembles and verifies; the
 downloads are cached in `.payload-cache`. CI runs the same command
-(`.github/workflows/ci.yml`, job `payload`), naming the server it cross-built:
+(`.github/workflows/ci.yml`, job `payload`), naming the okb CI packed once and
+the platform's runner from the universal package CI merged:
 
 ```bash
-mcpp run -p devtools -- payload                                   # this host, release server built for you
-mcpp run -p devtools -- payload --platform win32-x64 --server target/x86_64-windows-gnu/<fingerprint>/bin/mcppls.exe
+mcpp run -p devtools -- payload                                   # this host: the okb and this host's runner packed for you
+mcpp run -p devtools -- payload --platform win32-x64 --server-image mcppls-<version>.okb \
+    --server-runner <universal package>/libexec/okrun/windows-x86_64/okrun.exe
 mcpp run -p devtools -- payload --verify target/pack/payload
 ```
+
+With nothing named, the tool packs both: `mcpp pack --pkg-format okb` and a
+self-contained universal package of this system (`--systems <system>`), whose
+`libexec/okrun/<system>-<arch>/` holds the runner.
 
 | Platform | Host | Tools |
 |---|---|---|
@@ -100,8 +111,9 @@ user's machine:
 
 - `payload.json` has the expected version, platform and part paths, and every
   part has a version.
-- The server and clangd exist and are executable, and clang's builtin headers
-  are present for the clangd major version.
+- The server -- the okb and the runner `payload.json` names, or a program -- and
+  clangd exist, the programs are executable, and clang's builtin headers are
+  present for the clangd major version.
 - `kit.json` names the same kit as the manifest, uses kit-version 1, and every
   include directory, sysroot and license it lists exists.
 - The kit's module manifest provides `std`, and every module source and module
@@ -129,12 +141,13 @@ plugins installed, performance and stability) and publishes the candidate it
 checked, with `MANIFEST.md` and `SHA256SUMS`; [docs/92-release.md](../docs/92-release.md)
 has the process.
 
-`mcppls-devtools release xlings` splits each payload into the two archives the xlings
-ecosystem installs, named by the xlings-res convention, and renders
-`xlings/*.lua.in` with their hashes:
+`mcppls-devtools release xlings` makes, from a release's directory, the two archives
+of each platform the xlings ecosystem installs, named by the xlings-res
+convention, and renders `xlings/*.lua.in` with their hashes. The server is the
+release's single file of that system and architecture, the kit the payload's:
 
 ```
-mcpp-language-server-<version>-<os>-<arch>.tar.gz   the server (mcppls) and its license
+mcpp-language-server-<version>-<os>-<arch>.tar.gz   the server (bin/mcppls, the single file) and its license
 mcppls-kit-<kit version>-<os>-<arch>.tar.gz          the semantic kit
 ```
 
