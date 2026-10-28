@@ -6,3 +6,8 @@ license     = "Apache-2.0"
 
 [toolchain]
 default = "gcc@16.1.0"
+
+# The compile database this fixture is about, at the root: since mcpp 2026.10.26.1 a build publishes
+# one there only when this names it (target/<triple>/<fingerprint>/ holds the build's own).
+[build]
+compile_commands = "compile_commands.json"

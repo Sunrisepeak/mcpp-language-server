@@ -9,6 +9,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # The distribution's prefix is named: a CMake installed elsewhere (xlings') does not search it on its own.
 list(APPEND CMAKE_PREFIX_PATH /usr /usr/lib/${CMAKE_SYSTEM_PROCESSOR}-linux-gnu/cmake)
 find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets)
+# Qt's headers include the distribution's own (<GL/gl.h>, libgl-dev): its include directory, searched after the
+# compiler's. A toolchain with a C library of its own (xlings' LLVM, as CI installs it) does not search /usr/include.
+add_compile_options("SHELL:-idirafter /usr/include")
 
 add_library(views)
 target_sources(views PUBLIC FILE_SET CXX_MODULES FILES src/model.cppm src/view.cppm)
