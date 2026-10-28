@@ -78,7 +78,7 @@ mcpp run -p devtools -- extension --install       # payload、扩展，装进 VS
 | 其他平台的服务端 | `mcpp build --target aarch64-macos` / `--target x86_64-windows-gnu` / `--target aarch64-linux-musl` |
 | 服务端的 ok 映像，每种架构一份 | `mcpp build --release --target x86_64-openkal`（或 `aarch64-openkal`）；`mcpp run --release --target x86_64-openkal mcppls -- serve` 经平台的运行器在 Linux、macOS 与 Windows 上运行它 |
 | 每个 payload 携带的 okb：两种架构的映像在一个文件里 | `mcpp pack --release --target x86_64-openkal --pkg-format okb` |
-| 一个包服务所有系统和架构 | `mcpp pack --release --target x86_64-openkal --mode self-contained --pkg-format zip`（本系统能构建的运行器；CI 在每个系统上各打一份，再用 `mcpp pack --merge` 合并） |
+| 一个包服务所有系统和架构 | `mcpp pack --release --target x86_64-openkal --mode self-contained --pkg-format zip`（`--systems` 所列系统的运行器，在本机以平台的托管安排构建；CI 在 Linux 上打 Linux 与 Windows 的、在 macOS 上打 macOS 的，再用 `mcpp pack --merge` 合并两者） |
 | 本系统的单文件 | `mcpp pack --release --target x86_64-openkal --pkg-format single-file` |
 | 构建程序作为 ok 映像运行 | `mcpp build --host-platform openkal-platform@0.17.3` |
 

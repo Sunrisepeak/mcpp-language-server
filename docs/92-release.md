@@ -64,7 +64,7 @@ clangd and the kit differ per platform, which is why the payloads and the VSIX f
 | Job (`ci.yml`) | Makes | On |
 |---|---|---|
 | `server-universal` | each system's self-contained universal package (`mcpp pack --target x86_64-openkal --mode self-contained --pkg-format zip`); on Linux also the okb (`--pkg-format okb`, checked with `okld bundle check`) and the single files (`--pkg-format single-file --systems linux,macos,windows`, both architectures) | Linux, macOS, Windows |
-| `server-openkal` | `mcppls-<version>-openkal.zip`: the three joined with `mcpp pack --merge`, runners for linux-x86_64, linux-aarch64, macos-aarch64 and windows-x86_64 | Linux |
+| `server-openkal` | `mcppls-<version>-openkal.zip`: Linux's package (its runners and Windows') and macOS's joined with `mcpp pack --merge`, runners for linux-x86_64, linux-aarch64, macos-aarch64 and windows-x86_64 | Linux |
 | `distribution` | nothing: each VSIX carries one okb, the one okb, and its runner starts it; the universal package and the single file start the server | every platform |
 
 ## Making one

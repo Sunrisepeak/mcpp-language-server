@@ -275,10 +275,14 @@ jobs:
   # 2026-10-28 part 2 §15). openkal-platform is universal, so `mcpp pack --target x86_64-openkal` packs
   # both architectures' images (`lib/<arch>/mcppls.oke`) and the launchers `bin/mcppls` and
   # `bin/mcppls.cmd`; `--mode self-contained` adds the platform's runner of each system and architecture
-  # (`libexec/okrun/<system>-<arch>/`). Each system packs its own runners and server-openkal merges the
-  # three. Every row checks that the images it built are the Linux ones byte for byte -- one image per
-  # architecture, whatever system builds it -- and that its launcher starts the server with nothing
-  # installed. The Linux row also writes the okb the payloads carry and the command line's single files.
+  # (`libexec/okrun/<system>-<arch>/`), built over the platform's hosted arrangement on whichever machine
+  # packs. Linux packs its own runners and Windows'; macOS packs its own, and server-openkal merges the
+  # two packages. Every row checks that the images it built are the Linux ones byte for byte -- one image
+  # per architecture, whatever system builds it -- and that its launcher starts the server with nothing
+  # installed. Windows is not a packing row: clang on a Windows host joins an included file's path with
+  # `\`, which `-ffile-reproducible` keeps for a POSIX target, so `__FILE__` in libc++abi's demangler
+  # differs and the merge would rightly refuse its images; the distribution job runs the merged package
+  # there. The Linux row also writes the okb the payloads carry and the command line's single files.
   server-universal:
     name: server universal package (${{ matrix.system }})
     needs: server-image
@@ -288,12 +292,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # A row packs the runners this mcpp builds for its system: both architectures on Linux
-          # (static); arm64 on macOS (x86_64-macos is a planned row of mcpp's target table); x86_64 on
-          # Windows (the table has no aarch64-windows-gnu). The others are said and left out.
-          - { system: linux,   os: ubuntu-24.04, runners: 'linux-aarch64 linux-x86_64' }
-          - { system: macos,   os: macos-14,     runners: 'macos-aarch64' }
-          - { system: windows, os: windows-2022, runners: 'windows-x86_64' }
+          # A row packs the runners this mcpp builds for its systems: both architectures of Linux
+          # (static) and x86_64 Windows (the table has no aarch64-windows-gnu) on Linux; arm64 on macOS
+          # (x86_64-macos is a planned row of mcpp's target table). The others are said and left out.
+          - { system: linux, os: ubuntu-24.04, systems: 'linux,windows', runners: 'linux-aarch64 linux-x86_64 windows-x86_64' }
+          - { system: macos, os: macos-14,     systems: 'macos',         runners: 'macos-aarch64' }
     defaults:
       run:
         shell: bash
@@ -311,8 +314,8 @@ jobs:
           # macOS has shasum, not sha256sum; both print "<digest>  <file>".
           sha256() { if command -v sha256sum > /dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
           version=$(sed -n 's/^version *= *"\(.*\)"$/\1/p' mcpp.toml | head -1)
-          mcpp pack --profile release --target x86_64-openkal --mode self-contained --pkg-format zip \
-              -o "mcppls-$version-openkal-${{ matrix.system }}.zip" --message-format json > pack.json
+          mcpp pack --profile release --target x86_64-openkal --mode self-contained --systems '${{ matrix.systems }}' \
+              --pkg-format zip -o "mcppls-$version-openkal-${{ matrix.system }}.zip" --message-format json > pack.json
           jq '.data | {pkgFormat, mode, legs, systems, artifacts}' pack.json
           stage=$(jq -r '.data.stage.dir' pack.json)
           [ "$RUNNER_OS" = Windows ] && stage=$(cygpath -u "$stage")
@@ -406,9 +409,9 @@ jobs:
           path: single
           retention-days: 7
 
-  # The three systems' packages as one: `mcpp pack --merge` unites their runners (every file both carry
-  # is the same bytes, which is what the merge requires), so one zip starts the server on Linux, macOS and
-  # Windows of both architectures it has a runner for.
+  # The two packages as one: `mcpp pack --merge` unites their runners (every file both carry is the same
+  # bytes, which is what the merge requires), so one zip starts the server on Linux, macOS and Windows of
+  # both architectures it has a runner for.
   server-openkal:
     name: server universal package (merged)
     needs: server-universal

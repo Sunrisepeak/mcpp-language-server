@@ -127,7 +127,7 @@ step and how long it took. If something it needs is missing it says which and ho
 | Another platform's server | `mcpp build --target aarch64-macos` / `--target x86_64-windows-gnu` / `--target aarch64-linux-musl` |
 | The server as an ok image, one per architecture | `mcpp build --release --target x86_64-openkal` (or `aarch64-openkal`); `mcpp run --release --target x86_64-openkal mcppls -- serve` runs it through the platform's runner, on Linux, macOS and Windows |
 | The okb every payload carries: both images in one file | `mcpp pack --release --target x86_64-openkal --pkg-format okb` |
-| One package for every system and architecture | `mcpp pack --release --target x86_64-openkal --mode self-contained --pkg-format zip` (the runners this system builds; CI packs each system's and joins them with `mcpp pack --merge`) |
+| One package for every system and architecture | `mcpp pack --release --target x86_64-openkal --mode self-contained --pkg-format zip` (the runners of the systems `--systems` names, built over the platform's hosted arrangement on this machine; CI packs Linux's and Windows' on Linux and macOS's on macOS, and joins the two with `mcpp pack --merge`) |
 | One file for this system | `mcpp pack --release --target x86_64-openkal --pkg-format single-file` |
 | Build programs as ok images | `mcpp build --host-platform openkal-platform@0.17.3` |
 

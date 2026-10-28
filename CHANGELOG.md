@@ -50,7 +50,7 @@ and every edit sent the whole file's tokens again, 1 015 373 bytes (`tokens-larg
   start it the same way.
 - **The server for the command line is one package**, `mcppls-<version>-openkal.zip`: both images, the launchers
   `bin/mcppls` and `bin/mcppls.cmd`, and the runner of Linux x86_64 and aarch64, macOS arm64 and Windows x86_64, so it
-  needs nothing installed. CI packs it on each of the three systems and joins them with `mcpp pack --merge`.
+  needs nothing installed. CI packs Linux's and Windows' runners on Linux and macOS's on macOS, and joins the two with `mcpp pack --merge`.
 - **Or one file**: `mcppls-<version>-<system>-<arch>` (`linux-x86_64`, `linux-aarch64`, `macos-aarch64`,
   `windows-x86_64.exe`), the platform's carrier with the image inside, which runs it from memory.
 - These replace the per-architecture `.oke` assets and the program of each system carrying its image (M3). The

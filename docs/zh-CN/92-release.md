@@ -41,7 +41,7 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 | 任务（`ci.yml`） | 产出 | 运行于 |
 |---|---|---|
 | `server-universal` | 每个系统的 self-contained 通用包（`mcpp pack --target x86_64-openkal --mode self-contained --pkg-format zip`）；在 Linux 上还有 okb（`--pkg-format okb`，用 `okld bundle check` 检查）和单文件（`--pkg-format single-file --systems linux,macos,windows`，两种架构） | Linux、macOS、Windows |
-| `server-openkal` | `mcppls-<version>-openkal.zip`：用 `mcpp pack --merge` 合并三者，带 linux-x86_64、linux-aarch64、macos-aarch64 与 windows-x86_64 的运行器 | Linux |
+| `server-openkal` | `mcppls-<version>-openkal.zip`：用 `mcpp pack --merge` 合并 Linux 的包（其运行器与 Windows 的）和 macOS 的包，带 linux-x86_64、linux-aarch64、macos-aarch64 与 windows-x86_64 的运行器 | Linux |
 | `distribution` | 不产出文件：每个 VSIX 只带一个 okb，就是那一个 okb，它的运行器能启动它；通用包和单文件能启动服务端 | 每个平台 |
 
 ## 发起一次发布
