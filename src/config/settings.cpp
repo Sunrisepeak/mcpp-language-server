@@ -4,8 +4,9 @@ import std;
 import nlohmann.json;
 import mcpplibs.cmdline;
 import mcppls.base.text;
-import mcppls.platform.env;
+import mcpplibs.os;
 
+namespace os = mcpplibs::os;
 namespace mcppls::config::settings {
 
 using Json = nlohmann::json;
@@ -682,7 +683,7 @@ const Setting* find(std::span<const Setting> rows, std::string_view key) {
 Settings::Settings(std::span<const Setting> rows) : rows_(rows) {
     for (const auto& row : rows_) {
         if (row.surface == Surface::environment) {
-            if (auto value = platform::env::get(row.key)) {
+            if (auto value = os::env::get(row.key)) {
                 values_[row.key] = { *value, Origin::environment };
                 continue;
             }

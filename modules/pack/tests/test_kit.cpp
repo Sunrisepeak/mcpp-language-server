@@ -8,13 +8,13 @@ import std;
 import mcppls.testing;
 import mcppls.base.path;
 import mcppls.pack.kit;
-import mcppls.platform.fs;
 import nlohmann.json;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace kit = mcppls::pack::kit;
 namespace base = mcppls::base;
-namespace fs = mcppls::platform::fs;
-
 namespace {
 
 // Beside the build, not the system temp -- the same reason test_archive.cpp gives for it.
@@ -27,7 +27,7 @@ std::string temp_dir(std::string_view name) {
 
 void write(const std::string& path, std::string_view content) {
     std::filesystem::create_directories(std::filesystem::path { path }.parent_path());
-    auto written = fs::write_file(path, content);
+    auto written = os::fs::write(path, content);
     (void) written;
 }
 
@@ -154,14 +154,14 @@ int main() {
         auto written = kit::testing::write_kit_json(kitDir, data);
         expect(written.has_value()) << (written ? std::string {} : written.error().message);
 
-        auto kitJson = fs::read_file(base::join_path(kitDir, "kit.json"));
+        auto kitJson = os::fs::read(base::join_path(kitDir, "kit.json"));
         expect(kitJson.has_value());
         // write_kit_json's own output must be exactly data.dump(2) + "\n" -- the parity check
         // (tooling architecture M2) depends on this being the whole story, byte for byte.
         expect(*kitJson == data.dump(2) + "\n");
 
         // The manifest already resolved, so it must be untouched -- no relocation, no rewrite.
-        auto manifestOnDisk = fs::read_file(base::join_path(kitDir, manifestRel));
+        auto manifestOnDisk = os::fs::read(base::join_path(kitDir, manifestRel));
         expect(manifestOnDisk.has_value());
         expect(*manifestOnDisk == manifestText);
 
@@ -188,7 +188,7 @@ int main() {
         auto written = kit::testing::write_kit_json(kitDir, data);
         expect(written.has_value()) << (written ? std::string {} : written.error().message);
 
-        auto manifestOnDisk = fs::read_file(base::join_path(kitDir, manifestRel));
+        auto manifestOnDisk = os::fs::read(base::join_path(kitDir, manifestRel));
         expect(manifestOnDisk.has_value());
         if (manifestOnDisk) {
             const nlohmann::json rewritten = nlohmann::json::parse(*manifestOnDisk, nullptr, false);

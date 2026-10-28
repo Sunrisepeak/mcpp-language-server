@@ -10,10 +10,12 @@ to expect next. Background: [`.agents/docs/design.md`](../../.agents/docs/design
 Every integration below starts the server as `mcppls serve` (LSP over stdio) — the
 `mcppls` binary must resolve on `PATH` wherever the agent runs.
 
-- **From a release**: download `payload-<platform>.tar.gz` (`linux-x64`, `darwin-arm64`,
-  `win32-x64`) from the [release page](https://github.com/Sunrisepeak/mcpp-language-server/releases),
-  unpack it, and put its `payload/bin/` on `PATH`. It carries the server, its pinned clangd and the
-  semantic kit.
+- **From a release**: download `mcppls-<version>-openkal.zip` from the
+  [release page](https://github.com/Sunrisepeak/mcpp-language-server/releases) -- one package for
+  Linux, macOS and Windows on x86_64 and arm64 -- unpack it and put its `bin/` on `PATH`; or put the
+  single file of your system, `mcppls-<version>-<system>-<arch>`, on `PATH` as `mcppls`. For the
+  pinned clangd and semantic kit, unpack `payload-<platform>.tar.gz` too and pass its directory as
+  `--payload`.
 - **Once published to the xlings index**: `xlings install mcpp-language-server -y -g` (xlings
   package `mcpp-language-server`, program `mcppls`). Not published there yet.
 - **Or build it locally**: `mcpp build` from a clone of this repository, binary at
@@ -21,7 +23,8 @@ Every integration below starts the server as `mcppls serve` (LSP over stdio) —
   `target/x86_64-linux-gnu/<fingerprint>/bin/mcppls` on Linux); put that `bin/` directory
   on `PATH`.
 - **Or assemble a runnable payload** (server + clangd + a semantic kit) as described in
-  `../../packaging/README.md`, and put its `bin/` on `PATH`.
+  `../../packaging/README.md`; its server is `bin/okrun bin/mcppls.okb`, which an integration that
+  takes a command and arguments can start directly.
 
 ## Claude Code
 

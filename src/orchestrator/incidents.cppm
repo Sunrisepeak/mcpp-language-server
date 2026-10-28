@@ -22,7 +22,7 @@ std::string directory_name(std::string_view kind, std::chrono::system_clock::tim
 std::optional<std::chrono::system_clock::time_point> time_of(std::string_view name);
 
 // Writes one incident under `<cacheDirectory>/incidents/`, then prunes. With `pid`, the incident also says
-// what each thread of that process used of the CPU over one second (Linux; platform::thread_cpu), sampled
+// what each thread of that process used of the CPU over one second (Linux; mcpplibs.os `process::threads`), sampled
 // here, so this runs off the event loop. Returns the incident's directory.
 base::Result<std::string> write(std::string_view cacheDirectory, std::string_view kind, nlohmann::json incident,
                                 std::vector<engine::IncidentFile> files, std::optional<std::int64_t> pid);

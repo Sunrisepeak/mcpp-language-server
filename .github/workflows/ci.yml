@@ -21,6 +21,14 @@ env:
   # so a bump lands in one file instead of three. A job may still set one to override it.
   XLINGS_NON_INTERACTIVE: '1'
   PAYLOAD_CACHE: ${{ github.workspace }}/.payload-cache
+  # The tools mcpp.toml's [xlings.workspace] declares for packaging (`when = "dev"`: Node for the VS Code
+  # extension, Rust for Zed) are the runner's in this workflow (mcpp's `MCPP_XLINGS_OVERRIDE_<NS>_<NAME>`):
+  # no job here packages through `mcpp run -p devtools -- extension` -- the ones that run npm set Node up
+  # -- yet every `mcpp build` and `mcpp pack` at the root provisioned both, and the download of Node
+  # stalled past xlings' deadline on job after job (2026-10-28). release-checks' plugins job, a workflow
+  # of its own, still provisions them: that is what it shows.
+  MCPP_XLINGS_OVERRIDE_XIM_NODE: path:node
+  MCPP_XLINGS_OVERRIDE_XIM_RUST: path:cargo
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -42,7 +50,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Unit tests on each host, and every executable starts. `--workspace` reaches every member:
-  # modules/base, platform and pack, tools/devtools, and tools/model-gateway, whose tests run the
+  # modules/base, toolrun and pack, tools/devtools, and tools/model-gateway, whose tests run the
   # gateway against a mock provider (tools/model-gateway/README.md "Tests") -- so the gateway is
   # built and tested on each host's openkal target here, with no job of its own.
   build-test:
@@ -173,25 +181,291 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
+  # THE HOST GRAPH ON THE PLATFORM (mcpp SPEC-013 §6): with `--host-platform openkal-platform@0.17.3`
+  # every build program of the graph -- openkal-platform's and openkal-musl's build.mcpp -- compiles as
+  # an ok image of this machine's architecture, with one toolchain on each system, and runs through the
+  # platform's runner. The server and the tools built over them are the same programs, and start.
+  host-platform:
+    name: build programs as images (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: '' }
+          - { os: macos-14,     target: '--target aarch64-macos' }
+          - { os: windows-2022, target: '--target x86_64-windows-gnu' }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - name: Build with the host graph's platform
+        run: |
+          set -euo pipefail
+          mcpp build --host-platform openkal-platform@0.17.3 ${{ matrix.target }} 2>&1 | tee build.log
+          grep -q 'Host platform openkal-platform 0.17.3 (--host-platform): build programs are [a-z0-9_]*-openkal images run by okrun' build.log
+          mcpp build -p devtools --host-platform openkal-platform@0.17.3 ${{ matrix.target }}
+          for exe in mcppls mcppls-devtools; do
+            path=$(find target -type f \( -name "$exe" -o -name "$exe.exe" \) -path '*/bin/*' -newer mcpp.toml | head -1)
+            echo "$exe -> $path"
+            if [ "$exe" = mcppls-devtools ]; then "$path" --help > /dev/null; else "$path" version; fi
+          done
+
+  # ---------------------------------------------------------------------------
+  # The server as an ok image (M2): one per architecture, built once on Linux, which okrun runs on
+  # every system of that architecture (mcpp design 2026-10-26 part 2, §8.5). These are the bytes
+  # every package of the server carries: the universal package's rows, the okb and so every payload
+  # are checked against them.
+  server-image:
+    name: server image (${{ matrix.arch }}-openkal)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - name: Build the image
+        run: |
+          set -euo pipefail
+          mcpp build --profile release --target ${{ matrix.arch }}-openkal
+          image=$(find target/${{ matrix.arch }}-openkal -type f -name mcppls.oke -path '*/bin/*' | head -1)
+          [ -n "$image" ] || { echo "::error::no mcppls.oke was published"; exit 1; }
+          mkdir -p image && cp "$image" image/mcppls-${{ matrix.arch }}.oke
+          (cd image && sha256sum * | tee SHA256SUMS-${{ matrix.arch }})
+      - name: The image carries no archive or TLS code
+        run: |
+          set -euo pipefail
+          mcpp build -p devtools
+          devtools=$(find target -type f -name mcppls-devtools -path '*/bin/*' | head -1)
+          "$devtools" check binary --server image/mcppls-${{ matrix.arch }}.oke
+      - name: The image runs through okrun here
+        if: matrix.arch == 'x86_64'
+        run: |
+          set -euo pipefail
+          # The platform's runner for this machine, as mcpp's configuration of the target names it.
+          mcpp toolchain install --target x86_64-openkal
+          okrun=$(mcpp self env --target x86_64-openkal --format json | jq -r '.data.tools.okrun')
+          "$okrun" image/mcppls-x86_64.oke version
+      - uses: actions/upload-artifact@v7
+        with:
+          name: server-image-${{ matrix.arch }}
+          path: image
+          retention-days: 7
+
+  # THE SERVER OF EVERY SYSTEM AND ARCHITECTURE AS ONE PACKAGE (mcpp SPEC-014 §4.2; mcpp design
+  # 2026-10-28 part 2 §15). openkal-platform is universal, so `mcpp pack --target x86_64-openkal` packs
+  # both architectures' images (`lib/<arch>/mcppls.oke`) and the launchers `bin/mcppls` and
+  # `bin/mcppls.cmd`; `--mode self-contained` adds the platform's runner of each system and architecture
+  # (`libexec/okrun/<system>-<arch>/`), built over the platform's hosted arrangement on whichever machine
+  # packs. Linux packs its own runners and Windows'; macOS packs its own, and server-openkal merges the
+  # two packages. Every row checks that the images it built are the Linux ones byte for byte -- one image
+  # per architecture, whatever system builds it -- and that its launcher starts the server with nothing
+  # installed. Windows is not a packing row: clang on a Windows host joins an included file's path with
+  # `\`, which `-ffile-reproducible` keeps for a POSIX target, so `__FILE__` in libc++abi's demangler
+  # differs and the merge would rightly refuse its images; the distribution job runs the merged package
+  # there. The Linux row also writes the okb the payloads carry and the command line's single files.
+  server-universal:
+    name: server universal package (${{ matrix.system }})
+    needs: server-image
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # A row packs the runners this mcpp builds for its systems: both architectures of Linux
+          # (static) and x86_64 Windows (the table has no aarch64-windows-gnu) on Linux; arm64 on macOS
+          # (x86_64-macos is a planned row of mcpp's target table). The others are said and left out.
+          - { system: linux, os: ubuntu-24.04, systems: 'linux,windows', runners: 'linux-aarch64 linux-x86_64 windows-x86_64' }
+          - { system: macos, os: macos-14,     systems: 'macos',         runners: 'macos-aarch64' }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: server-image-*
+          merge-multiple: true
+          path: image
+      - name: Pack
+        run: |
+          set -euo pipefail
+          # macOS has shasum, not sha256sum; both print "<digest>  <file>".
+          sha256() { if command -v sha256sum > /dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
+          version=$(sed -n 's/^version *= *"\(.*\)"$/\1/p' mcpp.toml | head -1)
+          mcpp pack --profile release --target x86_64-openkal --mode self-contained --systems '${{ matrix.systems }}' \
+              --pkg-format zip -o "mcppls-$version-openkal.zip" --message-format json > pack.json
+          jq '.data | {pkgFormat, mode, legs, systems, artifacts}' pack.json
+          stage=$(jq -r '.data.stage.dir' pack.json)
+          [ "$RUNNER_OS" = Windows ] && stage=$(cygpath -u "$stage")
+          for arch in x86_64 aarch64; do
+            want=$(cut -d' ' -f1 "image/SHA256SUMS-$arch")
+            got=$(sha256 "$stage/lib/$arch/mcppls.oke" | cut -d' ' -f1)
+            echo "$arch image built on Linux $want, here $got"
+            [ "$want" = "$got" ] || { echo "::error::the $arch image packed here is not the one built on Linux"; exit 1; }
+          done
+          systems=$(jq -r '.systems | join(" ")' "$stage/mcpp-package.json")
+          echo "runners: $systems"
+          [ "$systems" = '${{ matrix.runners }}' ] || { echo "::error::the package carries runners for '$systems', not '${{ matrix.runners }}'"; exit 1; }
+          artifact=$(jq -r '.data.artifacts[0].path' pack.json)
+          [ "$RUNNER_OS" = Windows ] && artifact=$(cygpath -u "$artifact")
+          mkdir -p universal && cp "$artifact" universal/
+          echo "STAGE=$stage" >> "$GITHUB_ENV"
+          ls -l universal
+      - name: The launcher starts the server with nothing installed
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = Windows ]; then
+            system32="$(cygpath -u "$SYSTEMROOT")/System32"
+            PATH="$system32" "$system32/cmd.exe" //d //c "$(cygpath -w "$STAGE/bin/mcppls.cmd")" version | tee version.txt
+          else
+            env -i HOME="$HOME" PATH=/usr/bin:/bin "$STAGE/bin/mcppls" version | tee version.txt
+          fi
+          grep -q '^mcppls ' version.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: server-universal-${{ matrix.system }}
+          path: universal
+          retention-days: 7
+      # One okb of both architectures (openkal-platform's `okb` format; okb v1 is openkal-image's): what
+      # every payload, and so every editor's extension, carries as its server.
+      - name: The okb
+        if: matrix.system == 'linux'
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version *= *"\(.*\)"$/\1/p' mcpp.toml | head -1)
+          mcpp pack --profile release --target x86_64-openkal --pkg-format okb --message-format json > okb.json
+          mkdir -p okb && cp "$(jq -r '.data.artifacts[0].path' okb.json)" "okb/mcppls-$version.okb"
+          # The platform's tools for this machine, as mcpp's configuration of the target names them.
+          mcpp toolchain install --target x86_64-openkal
+          tools=$(mcpp self env --target x86_64-openkal --format json | jq -c '.data.tools')
+          okld=$(jq -r .okld <<< "$tools"); okrun=$(jq -r .okrun <<< "$tools")
+          "$okld" bundle check "okb/mcppls-$version.okb"
+          # Its images are the ones built on Linux, stored as they are.
+          python3 - "okb/mcppls-$version.okb" <<'PY'
+          import hashlib, sys, zipfile
+          okb = zipfile.ZipFile(sys.argv[1])
+          for arch in ("x86_64", "aarch64"):
+              want = open(f"image/SHA256SUMS-{arch}").read().split()[0]
+              got = hashlib.sha256(okb.read(f"{arch}/mcppls.oke")).hexdigest()
+              assert want == got, (arch, want, got)
+              assert okb.getinfo(f"{arch}/mcppls.oke").compress_type == zipfile.ZIP_STORED, arch
+          print("okb images:", [i.filename for i in okb.infolist()])
+          PY
+          "$okrun" "okb/mcppls-$version.okb" version
+          (cd okb && sha256sum * | tee SHA256SUMS)
+      - uses: actions/upload-artifact@v7
+        if: matrix.system == 'linux'
+        with:
+          name: server-okb
+          path: okb
+          retention-days: 7
+      # The command line's server as one file per system and architecture: the platform's carrier with
+      # the image inside, which loads it from memory (SPEC-014 §5.2). Written here for every system this
+      # mcpp builds a carrier for -- not x86_64-macos (a planned row) nor aarch64 Windows (no row), which
+      # mcpp refuses -- and the distribution job runs each on its own system.
+      - name: Single files
+        if: matrix.system == 'linux'
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version *= *"\(.*\)"$/\1/p' mcpp.toml | head -1)
+          mkdir -p single
+          for leg in x86_64:linux,windows aarch64:linux,macos; do
+            arch=${leg%%:*}
+            mcpp pack --profile release --target "$arch-openkal" --pkg-format single-file --systems "${leg#*:}" \
+                --message-format json > "single-$arch.json"
+            for file in $(jq -r '.data.artifacts[].path' "single-$arch.json"); do
+              name=$(basename "$file")
+              cp "$file" "single/mcppls-$version-${name#mcpp-language-server-$version-}"
+            done
+          done
+          "single/mcppls-$version-linux-x86_64" version
+          (cd single && sha256sum * | tee SHA256SUMS)
+      - uses: actions/upload-artifact@v7
+        if: matrix.system == 'linux'
+        with:
+          name: server-single-files
+          path: single
+          retention-days: 7
+
+  # The two packages as one: `mcpp pack --merge` unites their runners (every file both carry is the same
+  # bytes, which is what the merge requires), so one zip starts the server on Linux, macOS and Windows of
+  # both architectures it has a runner for.
+  server-openkal:
+    name: server universal package (merged)
+    needs: server-universal
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      # Each system's package is the same tree, mcppls-<version>-openkal, in an artifact of its own: the merged
+      # package takes its name from the trees it joins.
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: server-universal-*
+          path: parts
+      - name: Merge
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version *= *"\(.*\)"$/\1/p' mcpp.toml | head -1)
+          inputs=()
+          for part in parts/*/*.zip; do inputs+=(--merge "$part"); done
+          mkdir -p openkal
+          mcpp pack "${inputs[@]}" -o "$PWD/openkal/mcppls-$version-openkal.zip"
+          python3 - "openkal/mcppls-$version-openkal.zip" <<'PY'
+          import hashlib, json, sys, zipfile
+          z = zipfile.ZipFile(sys.argv[1])
+          top = z.namelist()[0].split("/")[0]
+          assert top == sys.argv[1].split("/")[-1].removesuffix(".zip"), top
+          d = json.loads(z.read(f"{top}/mcpp-package.json"))
+          assert d["systems"] == ["linux-aarch64", "linux-x86_64", "macos-aarch64", "windows-x86_64"], d["systems"]
+          assert sorted(d["legs"]) == ["aarch64-openkal", "x86_64-openkal"], d["legs"]
+          for f in d["files"]:
+              assert hashlib.sha256(z.read(f"{top}/{f['path']}")).hexdigest() == f["sha256"], f["path"]
+          for system in d["systems"]:
+              runner = f"{top}/libexec/okrun/{system}/okrun" + (".exe" if system.startswith("windows") else "")
+              assert runner in z.namelist(), runner
+          print(top, d["systems"], len(d["files"]), "files")
+          PY
+          (cd openkal && sha256sum * | tee SHA256SUMS)
+          ls -lR parts openkal
+      - uses: actions/upload-artifact@v7
+        with:
+          name: server-openkal
+          path: openkal
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
   # Payloads: the server, trimmed clangd 23.1 and the mcppls-kit (design 15.2).
   # linux-x64 and win32-x64 are assembled on Linux; darwin-arm64 needs a macOS host
   # for lipo and the libc++ configure; linux-arm64 an arm64 Linux host, whose dpkg has
-  # the aarch64 C headers the kit carries. The Windows, macOS and Linux arm64
-  # executables come from the cross-build job, unchanged (W11). `cross-tools` marks a
-  # runner with no mcpp, where the cross-built devtools does the packaging.
+  # the aarch64 C headers the kit carries. The server is the one okb of every architecture
+  # (server-okb) and the platform's runner from the universal package (server-openkal), both
+  # carried byte for byte, so every payload's server is the same bytes; the test tools come
+  # from the cross-build job, unchanged (W11). `cross-tools` marks a runner with no mcpp,
+  # where the cross-built devtools does the packaging.
   payload:
     name: payload (${{ matrix.platform }})
-    needs: cross-build
+    needs: [cross-build, server-universal, server-openkal]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { platform: linux-x64,    os: ubuntu-24.04,     cross: '',                   exe: '' }
-          - { platform: linux-arm64,  os: ubuntu-24.04-arm, cross: aarch64-linux-musl,   exe: '', cross-tools: true }
-          - { platform: win32-x64,    os: ubuntu-24.04,     cross: x86_64-windows-gnu,   exe: '.exe' }
-          - { platform: darwin-arm64, os: macos-14,         cross: aarch64-macos,        exe: '' }
+          - { platform: linux-x64,    system: linux-x86_64,   os: ubuntu-24.04,     cross: '',                   exe: '' }
+          - { platform: linux-arm64,  system: linux-aarch64,  os: ubuntu-24.04-arm, cross: aarch64-linux-musl,   exe: '', cross-tools: true }
+          - { platform: win32-x64,    system: windows-x86_64, os: ubuntu-24.04,     cross: x86_64-windows-gnu,   exe: '.exe' }
+          - { platform: darwin-arm64, system: macos-aarch64,  os: macos-14,         cross: aarch64-macos,        exe: '' }
     defaults:
       run:
         shell: bash
@@ -230,6 +504,16 @@ jobs:
         with:
           name: cross-${{ matrix.cross }}
           path: cross
+      - name: The server's okb
+        uses: actions/download-artifact@v8
+        with:
+          name: server-okb
+          path: server
+      - name: The universal package, whose runner of this platform the payload carries
+        uses: actions/download-artifact@v8
+        with:
+          name: server-openkal
+          path: openkal
       # The packaging tool has to run on THIS host. On macOS and arm64 Linux that is the
       # cross-built one; a Linux runner assembling the Windows payload builds its own (the
       # cross-built one is a .exe).
@@ -285,21 +569,29 @@ jobs:
             jq '{version: .["engine-version"], fork: .["fork-commit"], sha256, features}' "$part/engine.json"
             engine=(--clangd "$part" --candidate)
           fi
-          server="cross/mcppls${{ matrix.exe }}"
+          # The server: the okb, and the runner of this platform taken from the universal package.
+          image=$(ls server/*.okb)
+          python3 - openkal/*.zip '${{ matrix.system }}' '${{ matrix.exe }}' <<'PY'
+          import sys, zipfile
+          z = zipfile.ZipFile(sys.argv[1])
+          top = z.namelist()[0].split("/")[0]
+          open("okrun" + sys.argv[3], "wb").write(z.read(f"{top}/libexec/okrun/{sys.argv[2]}/okrun{sys.argv[3]}"))
+          PY
+          chmod +x "okrun${{ matrix.exe }}"
           runner="cross/mcppls-conformance${{ matrix.exe }}"
           mock="cross/mcppls-mock-mcpp${{ matrix.exe }}"
           mockModel="cross/mcppls-mock-model${{ matrix.exe }}"
           packer="cross/mcppls-devtools${{ matrix.exe }}"
-          ./host-devtools payload --platform ${{ matrix.platform }} --server "$server" ${engine[@]+"${engine[@]}"} --out payload --cache "$PAYLOAD_CACHE"
+          ./host-devtools payload --platform ${{ matrix.platform }} --server-image "$image" --server-runner "okrun${{ matrix.exe }}" \
+              ${engine[@]+"${engine[@]}"} --out payload --cache "$PAYLOAD_CACHE"
           ./host-devtools payload --verify payload --json > "$RUNNER_TEMP/verify.json"
           cat "$RUNNER_TEMP/verify.json"
-          if [ -f cross/SHA256SUMS ]; then
-            # The payload carries the cross-built executable byte for byte.
-            want=$(grep " mcppls${{ matrix.exe }}\$" cross/SHA256SUMS | cut -d' ' -f1)
-            got=$(grep -o '"sha256": *"[0-9a-f]*"' "$RUNNER_TEMP/verify.json" | head -1 | grep -o '[0-9a-f]\{64\}')
-            echo "cross-built $want, payload $got"
-            [ "$want" = "$got" ]
-          fi
+          # Every payload carries the one okb byte for byte.
+          want=$(cut -d' ' -f1 server/SHA256SUMS)
+          got=$(jq -r '.server.sha256' "$RUNNER_TEMP/verify.json")
+          echo "okb $want, payload $got"
+          [ "$want" = "$got" ]
+          [ "$(jq -r '.server.path' "$RUNNER_TEMP/verify.json")" = bin/mcppls.okb ]
           mkdir -p stage && cp "$runner" "$mock" "$mockModel" "$packer" stage/
           # A tarball keeps executable bits and links, which an artifact zip does not.
           tar -czf payload-${{ matrix.platform }}.tar.gz payload stage
@@ -519,9 +811,12 @@ jobs:
           "stage/mcppls-mock-mcpp$exe" --protocol-version
       - name: Run the fixtures
         env:
-          CONFORMANCE_CLANGXX: ${{ runner.os == 'Linux' && !matrix.cross-tools && '~/.mcpp/registry/data/xpkgs/xim-x-llvm/22.1.8/bin/clang++' || '' }}
+          # LLVM_VERSION (.github/versions.env) is put in below: one pin for the toolchain and this path.
+          CONFORMANCE_CLANGXX: ${{ runner.os == 'Linux' && !matrix.cross-tools && '~/.mcpp/registry/data/xpkgs/xim-x-llvm/LLVM_VERSION/bin/clang++' || '' }}
         run: |
           set -euo pipefail
+          # A cross-tools row has no setup-mcpp, so no versions.env, and no path to fill in.
+          CONFORMANCE_CLANGXX="${CONFORMANCE_CLANGXX/LLVM_VERSION/${LLVM_VERSION:-}}"
           export CONFORMANCE_CLANGXX="${CONFORMANCE_CLANGXX/#\~/$HOME}"
           if [ "${{ matrix.cross-tools }}" = true ]; then
             # S1 toolchain drivers are absolute paths; this host has distribution clang,
@@ -567,7 +862,7 @@ jobs:
               *@zed) fixture_extra+=(--client zed) ;;
             esac
             # Issue #23 fix plan F18: the diagnostic bundles the bundle checks exported, kept for the artifact below.
-            PATH="$path_prefix$PATH" "stage/mcppls-conformance$exe" run --server "payload/bin/mcppls$exe" --payload payload \
+            PATH="$path_prefix$PATH" "stage/mcppls-conformance$exe" run --server "payload/bin/mcppls.okb" --payload payload \
                 --keep-bundles "$RUNNER_TEMP/bundles" \
                 ${fixture_extra[@]+"${fixture_extra[@]}"} --fixture "conformance/fixtures/${fixture%@*}" "$@"
           }
@@ -646,7 +941,7 @@ jobs:
         run: |
           set -euo pipefail
           exe=''; [ "$RUNNER_OS" = Windows ] && exe='.exe'
-          "stage/mcppls-devtools$exe" bench review --server "payload/bin/mcppls$exe" --payload payload --mock-model "stage/mcppls-mock-model$exe" \
+          "stage/mcppls-devtools$exe" bench review --server "payload/bin/mcppls.okb" --payload payload --mock-model "stage/mcppls-mock-model$exe" \
               --report "$RUNNER_TEMP/review-${{ matrix.platform }}.json"
 
       # Startup timing (usable plan W7): the timing fixture cold, then warm with the same
@@ -664,7 +959,7 @@ jobs:
           cached="$RUNNER_TEMP/cached"
           rm -rf "$cached"
           start() {
-            stage/mcppls-conformance run --server payload/bin/mcppls --payload payload \
+            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload \
                 --fixture conformance/fixtures/mcpp-emit --workspace-dir "$cached/workspace" \
                 --cache-dir "$cached/cache" --timeout 180 "$@"
           }
@@ -679,7 +974,7 @@ jobs:
           timing="$RUNNER_TEMP/timing"
           rm -rf "$timing"
           start() {
-            "stage/mcppls-conformance$exe" run --server "payload/bin/mcppls$exe" --payload payload --fixture conformance/fixtures/timing \
+            "stage/mcppls-conformance$exe" run --server "payload/bin/mcppls.okb" --payload payload --fixture conformance/fixtures/timing \
                 --workspace-dir "$timing/workspace" --cache-dir "$timing/cache" --timeout 120 "$@"
           }
           start --measure "$timing/cold.json" --navigation-budget 15
@@ -704,7 +999,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/real"
           ln -sfn "$RUNNER_TEMP/real" "$RUNNER_TEMP/link"
           for fixture in mcpp-llvm reset-cache; do
-            TMPDIR="$RUNNER_TEMP/link" stage/mcppls-conformance run --server payload/bin/mcppls --payload payload \
+            TMPDIR="$RUNNER_TEMP/link" stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload \
                 --fixture "conformance/fixtures/$fixture" --timeout 180
           done
 
@@ -717,8 +1012,9 @@ jobs:
   # directory" on every start; vendor/README.md has both. A regression of either fails the fixtures
   # below, which is what this job is for.
   #
-  # The server under test is payload/bin/mcppls itself, wrapped: a wrapper script generated here
-  # runs it under proot, which is how the conformance runner (--server) and the VS Code extension
+  # The server under test is the payload's own -- its runner starting its okb (`payload/bin/okrun
+  # payload/bin/mcppls.okb`) -- wrapped: a wrapper script generated here runs it under proot, which
+  # is how the conformance runner (--server) and the VS Code extension
   # (MCPPLS_SERVER) are pointed at it. The payload's clangd, the kit and the fixtures' own
   # processes are started BY the server, so they run under proot too. The runner and the editor
   # stay outside.
@@ -795,7 +1091,7 @@ jobs:
               # A line per start, so a step can say the server it ran against really ran under proot.
               echo "echo started >> $RUNNER_TEMP/proot/started-$mode"
               if [ "$mode" = noseccomp ]; then echo 'export PROOT_NO_SECCOMP=1'; fi
-              echo "exec $HOME/proot-bin/proot -r / $PWD/payload/bin/mcppls \"\$@\""
+              echo "exec $HOME/proot-bin/proot -r / $PWD/payload/bin/okrun $PWD/payload/bin/mcppls.okb \"\$@\""
             } > "$wrapper"
             chmod +x "$wrapper"
             cat "$wrapper"
@@ -931,7 +1227,7 @@ jobs:
           run_stage() {
             local name="$1" cache="$2"; shift 2
             echo "::group::${{ matrix.fixture }} $name"
-            if ! stage/mcppls-conformance run --server payload/bin/mcppls --payload payload \
+            if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload \
                 --fixture conformance/fixtures/${{ matrix.fixture }} --workspace-dir "$work/workspace" --cache-dir "$work/$cache" \
                 --stage "$name" --timeout 900 --measure "$results/${{ matrix.fixture }}-$name.json" "$@"; then
               failed="$failed $name"
@@ -1022,7 +1318,7 @@ jobs:
             for tool in c++ g++ gcc cc clang++ clang; do
               if command -v "$tool"; then echo "::error::$tool is on PATH"; exit 1; fi
             done
-            stage/mcppls-conformance run --server payload/bin/mcppls --payload payload \
+            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload \
                 --fixture conformance/fixtures/inferred-discover --timeout 180'
       - name: The extension in the same kind of container
         if: runner.os == 'Linux'
@@ -1062,7 +1358,7 @@ jobs:
           for tool in vswhere cl clang-cl clang++ g++ c++ gcc; do
             if command -v "$tool"; then echo "::error::$tool is still visible"; exit 1; fi
           done
-          stage/mcppls-conformance.exe run --server payload/bin/mcppls.exe --payload payload \
+          stage/mcppls-conformance.exe run --server payload/bin/mcppls.okb --payload payload \
               --fixture conformance/fixtures/inferred-discover --timeout 180
           # The packaged extension with the same machine view; node stays reachable for the test runner.
           # Git's /usr/bin goes first: npm starts through `env bash`, and System32's bash.exe is WSL's.
@@ -1082,7 +1378,7 @@ jobs:
           if [ -e /Library/Developer/CommandLineTools ] || compgen -G "/Applications/Xcode*.app" > /dev/null; then
             echo "::error::developer tools are still visible"; exit 1
           fi
-          stage/mcppls-conformance run --server payload/bin/mcppls --payload payload \
+          stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload \
               --fixture conformance/fixtures/inferred-no-sdk --timeout 120
           cd editors/vscode
           MCPPLS_E2E_VSIX="$RUNNER_TEMP/mcpp-language-server.vsix" MCPPLS_E2E_ONLY=sdk-missing.test.js MCPPLS_E2E_EXPECT_SDK_MISSING=1 npm test
@@ -1183,6 +1479,90 @@ jobs:
           name: vsix-${{ matrix.platform }}
           path: editors/vscode/mcppls-${{ matrix.platform }}.vsix
           retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # ONE OKB, AND EACH BUNDLED RUNNER STARTS IT (mcpp design 2026-10-28 part 2 §15), on every system:
+  # the VSIX of the platform carries exactly one okb, the bytes server-universal wrote, and the
+  # platform's runner, which starts it here; the merged universal package starts the server here
+  # through its launcher with nothing installed; and the single file of this system and architecture
+  # runs here.
+  distribution:
+    name: one okb, every runner (${{ matrix.platform }})
+    needs: [server-universal, server-openkal, vscode-e2e]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x64,    system: linux-x86_64,   os: ubuntu-24.04,     exe: '' }
+          - { platform: linux-arm64,  system: linux-aarch64,  os: ubuntu-24.04-arm, exe: '' }
+          - { platform: darwin-arm64, system: macos-aarch64,  os: macos-14,         exe: '' }
+          - { platform: win32-x64,    system: windows-x86_64, os: windows-2022,     exe: '.exe' }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: server-okb
+          path: okb
+      - uses: actions/download-artifact@v8
+        with:
+          name: server-openkal
+          path: openkal
+      - uses: actions/download-artifact@v8
+        with:
+          name: server-single-files
+          path: single
+      - uses: actions/download-artifact@v8
+        with:
+          name: vsix-${{ matrix.platform }}
+          path: vsix
+      - name: The VSIX carries the one okb, and its runner starts it
+        run: |
+          set -euo pipefail
+          python=python3; temp="$RUNNER_TEMP"
+          if [ "$RUNNER_OS" = Windows ]; then python=python; temp=$(cygpath -u "$RUNNER_TEMP"); fi
+          "$python" -c "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" \
+              "vsix/mcppls-${{ matrix.platform }}.vsix" "$temp/vsix"
+          payload="$temp/vsix/extension/payload"
+          jq -c .server "$payload/payload.json"
+          [ "$(jq -r .server.path "$payload/payload.json")" = bin/mcppls.okb ]
+          [ "$(jq -r .server.runner "$payload/payload.json")" = 'bin/okrun${{ matrix.exe }}' ]
+          okbs=$(find "$temp/vsix" -name '*.okb' | wc -l | tr -d ' ')
+          [ "$okbs" = 1 ] || { echo "::error::the VSIX carries $okbs okbs"; exit 1; }
+          want=$(cut -d' ' -f1 okb/SHA256SUMS)
+          got=$("$python" -c "import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], 'rb').read()).hexdigest())" "$payload/bin/mcppls.okb")
+          echo "okb $want, VSIX $got"
+          [ "$want" = "$got" ] || { echo "::error::the VSIX's okb is not the one okb"; exit 1; }
+          chmod +x "$payload/bin/okrun${{ matrix.exe }}"
+          "$payload/bin/okrun${{ matrix.exe }}" "$payload/bin/mcppls.okb" version | tee version.txt
+          grep -q '^mcppls ' version.txt
+          ls -l "$payload/bin"
+      - name: The universal package starts the server here, with nothing installed
+        run: |
+          set -euo pipefail
+          python=python3; temp="$RUNNER_TEMP"
+          if [ "$RUNNER_OS" = Windows ]; then python=python; temp=$(cygpath -u "$RUNNER_TEMP"); fi
+          "$python" -c "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" openkal/*.zip "$temp/openkal"
+          top=$(ls -d "$temp"/openkal/*/)
+          if [ "$RUNNER_OS" = Windows ]; then
+            system32="$(cygpath -u "$SYSTEMROOT")/System32"
+            PATH="$system32" "$system32/cmd.exe" //d //c "$(cygpath -w "$top/bin/mcppls.cmd")" version | tee version.txt
+          else
+            chmod +x "$top/bin/mcppls" "$top"/libexec/okrun/*/okrun
+            env -i HOME="$HOME" PATH=/usr/bin:/bin "$top/bin/mcppls" version | tee version.txt
+          fi
+          grep -q '^mcppls ' version.txt
+      - name: The single file of this system runs here
+        run: |
+          set -euo pipefail
+          file=$(ls single/mcppls-*-${{ matrix.system }}${{ matrix.exe }})
+          chmod +x "$file"
+          "$file" version | tee version.txt
+          grep -q '^mcppls ' version.txt
+          ls -l "$file"
 
   # ---------------------------------------------------------------------------
   # The same extension, the same three suites, in a Code-OSS build (0.0.7 plan §7, O-2): VSCodium, at the
@@ -1318,7 +1698,8 @@ jobs:
       - name: The plugin on each Neovim
         run: |
           set -euo pipefail
-          server="$PWD/payload/bin/mcppls"; [ "$RUNNER_OS" = Windows ] && server="$(cygpath -w "$PWD/payload/bin/mcppls.exe")"
+          # The payload's server: its okb, which the plugin starts through the runner the payload names.
+          server="$PWD/payload/bin/mcppls.okb"; [ "$RUNNER_OS" = Windows ] && server="$(cygpath -w "$server")"
           failed=''
           for version in ${{ matrix.versions }}; do
             xlings use nvim "$version"
@@ -1484,13 +1865,18 @@ jobs:
         with:
           path: ~/.gradle/caches/modules-2
           key: gradle-clion-${{ hashFiles('editors/clion/gradle.properties', 'editors/clion/build.gradle.kts') }}
+      # Issue #71: the project a person has after `mcpp build`, which CLion's Compilation Database must not take.
+      - name: Build the mcpp-built fixture with mcpp
+        working-directory: editors/clion/src/test/fixtures/mcpp-built
+        run: mcpp build
       - name: Tests in CLion
         working-directory: editors/clion
         env:
-          MCPPLS_PAYLOAD_BIN: ${{ github.workspace }}/payload/bin
+          MCPPLS_PAYLOAD: ${{ github.workspace }}/payload
+          MCPPLS_FIXTURES_BUILT: '1'
         run: |
           set -euo pipefail
-          "$MCPPLS_PAYLOAD_BIN/mcppls" version
+          "$MCPPLS_PAYLOAD/bin/okrun" "$MCPPLS_PAYLOAD/bin/mcppls.okb" version
           gradle --no-daemon test
       - uses: actions/upload-artifact@v7
         if: always()
@@ -1509,10 +1895,16 @@ jobs:
   # (and a declarative content check) against each task's baseline project copy,
   # expected to fail at least one check, and its reference-patched copy,
   # expected to pass every check.
+  #
+  # And the semantic-token timing of a large file (mcpp design 2026-10-28 §11.1): the release payload's server on
+  # tokens-large-file, cold and warm on one cache. Its budgets are the design's criteria -- on a warm open the
+  # compiler's tokens come no later than the first completion, an edit's answer is a delta under 5% of the file's,
+  # and updates come by refresh -- and `bench tokens` exits 1 when one is over.
   bench-validate:
     name: bench-validate
+    needs: payload
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
@@ -1520,6 +1912,20 @@ jobs:
         run: mcpp toolchain install gcc 16.1.0
       - name: Validate every task's baseline/reference pair
         run: mcpp run -p devtools -- bench tasks validate
+      - uses: actions/download-artifact@v8
+        with:
+          name: payload-linux-x64
+      - name: Semantic tokens of a large file
+        run: |
+          set -euo pipefail
+          tar -xzf payload-linux-x64.tar.gz
+          stage/mcppls-devtools bench tokens --server payload/bin/mcppls.okb --payload payload --rounds 2 --out "$RUNNER_TEMP/tokens.json"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: bench-tokens
+          path: ${{ runner.temp }}/tokens.json
+          if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
   # A pull request that changes release packaging is checked the way a release is: after every job
@@ -1555,6 +1961,6 @@ jobs:
 
   release-checks:
     name: release checks
-    needs: [packaging-changes, specifications, build-test, cross-build, payload, conformance, clean-machine, vscode-e2e, neovim, bench-validate]
+    needs: [packaging-changes, specifications, build-test, cross-build, server-image, server-universal, server-openkal, payload, conformance, clean-machine, vscode-e2e, distribution, neovim, bench-validate]
     if: needs.packaging-changes.outputs.changed == 'true'
     uses: ./.github/workflows/release-checks.yml

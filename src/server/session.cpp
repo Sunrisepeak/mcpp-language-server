@@ -2,20 +2,12 @@ module mcppls.server.session;
 
 import std;
 import nlohmann.json;
-import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.base.uri;
 import mcppls.base.version;
-import mcppls.platform.dirs;
-import mcppls.platform.toolenv;
-import mcppls.platform.toolrun;
-import mcppls.platform.fs;
-import mcppls.platform.process;
-import mcppls.platform.stdio;
-import mcppls.platform.task;
 import mcppls.config.settings;
 import mcppls.lsp.jsonrpc;
 import mcppls.lsp.protocol;
@@ -26,13 +18,21 @@ import mcppls.orchestrator.completion;
 import mcppls.orchestrator.routing;
 import mcppls.orchestrator.workspace;
 import mcppls.bundle.writer;
+import mcpplibs.os;
+import mcppls.base.home;
+import mcppls.toolrun;
+import mcppls.toolenv;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::server {
 
 std::vector<WorkspaceFolder> workspace_folders(const nlohmann::json& params, std::string_view fallbackDirectory) {
+    std::error_code ignored;
     auto folder = [](const std::string& uri) -> std::optional<WorkspaceFolder> {
+        std::error_code ignored;
         auto path = base::uri_to_path(uri);
-        if (!path || platform::fs::is_regular_file(*path)) return std::nullopt;
+        if (!path || std::filesystem::is_regular_file(*path, ignored)) return std::nullopt;
         return WorkspaceFolder { *path, uri };
     };
     std::vector<WorkspaceFolder> found;
@@ -47,7 +47,7 @@ std::vector<WorkspaceFolder> workspace_folders(const nlohmann::json& params, std
     if (auto uri = lsp::string_at(params, "rootUri")) {
         if (auto named = folder(*uri)) return { std::move(*named) };
     }
-    if (auto path = lsp::string_at(params, "rootPath"); path && !path->empty() && !platform::fs::is_regular_file(*path)) {
+    if (auto path = lsp::string_at(params, "rootPath"); path && !path->empty() && !std::filesystem::is_regular_file(*path, ignored)) {
         const std::string normalized { base::normalize_path(*path) };
         return { WorkspaceFolder { normalized, base::path_to_uri(normalized) } };
     }
@@ -127,7 +127,7 @@ private:
         std::thread { [events = events_] {
             lsp::FrameReader reader;
             while (true) {
-                auto chunk = platform::stdio::read_input();
+                auto chunk = os::stdio::read_input();
                 if (!chunk || chunk->empty()) break;
                 reader.feed(*chunk);
                 while (auto message = reader.next()) {
@@ -151,11 +151,18 @@ private:
         static constexpr std::chrono::seconds CLIENT_WATCH { 5 };
         if (!processId.is_number_integer()) return;
         const std::int64_t pid { processId.get<std::int64_t>() };
-        if (platform::process_alive(pid) != std::optional<bool> { true }) return;
-        std::thread { [events = events_, pid] {
+        // Whether the client runs (mcpplibs.os `process::describe`): nothing when it cannot be told, which is not "gone".
+        const auto alive = [](std::int64_t id) -> std::optional<bool> {
+            if (id <= 0) return std::nullopt;
+            const auto described = os::process::describe(static_cast<std::uint64_t>(id));
+            if (!described) return described.error().code == os::errc::not_found ? std::optional<bool> { false } : std::nullopt;
+            return !described->ended;
+        };
+        if (alive(pid) != std::optional<bool> { true }) return;
+        std::thread { [events = events_, pid, alive] {
             while (true) {
                 std::this_thread::sleep_for(CLIENT_WATCH);
-                if (platform::process_alive(pid) == std::optional<bool> { false }) break;
+                if (alive(pid) == std::optional<bool> { false }) break;
             }
             log::info("the client's process {} is gone", pid);
             events->push(Event { EventKind::client_closed });
@@ -175,7 +182,7 @@ private:
     // per incoming client message, to decide which root that message belongs to).
     static std::string canonical_path_of_uri_(std::string_view uri) {
         auto path = base::uri_to_path(uri);
-        return path ? platform::fs::canonical_path(*path) : std::string {};
+        return path ? base::canonical_path(*path) : std::string {};
     }
 
     Workspace* root_by_key_(const std::string& key) const {
@@ -330,8 +337,8 @@ private:
             // Under the name the root was created with (canonical_path: /var is /private/var on macOS).
             std::optional<std::string> wantedPath;
             if (!wanted.empty()) {
-                if (auto path = base::uri_to_path(wanted)) wantedPath = platform::fs::canonical_path(*path);
-                else wantedPath = platform::fs::canonical_path(wanted);
+                if (auto path = base::uri_to_path(wanted)) wantedPath = base::canonical_path(*path);
+                else wantedPath = base::canonical_path(wanted);
             }
             std::uint64_t freed { 0 };
             std::size_t reset { 0 };
@@ -359,8 +366,8 @@ private:
             if (arguments.is_array() && !arguments.empty() && arguments[0].is_object()) options = arguments[0];
             std::optional<std::string> wantedPath;
             if (const std::string wanted { options.value("root", std::string {}) }; !wanted.empty()) {
-                if (auto path = base::uri_to_path(wanted)) wantedPath = platform::fs::canonical_path(*path);
-                else wantedPath = platform::fs::canonical_path(wanted);
+                if (auto path = base::uri_to_path(wanted)) wantedPath = base::canonical_path(*path);
+                else wantedPath = base::canonical_path(wanted);
             }
             struct Target {
                 std::string key;
@@ -445,21 +452,21 @@ private:
         // The environment the user's build tools run in is resolved once, in the background, before
         // anything needs it (design 4.3): an editor started from a desktop entry has none of the
         // user's shell configuration, and a build tool found through the wrong PATH is another build.
-        platform::toolenv::configure(platform::toolenv::parse_mode(options_.toolEnvironment).value_or(platform::toolenv::Mode::automatic),
-                                     options_.serverExecutable);
-        platform::toolenv::begin();
+        mcppls::toolenv::configure(mcppls::toolenv::parse_mode(options_.toolEnvironment).value_or(mcppls::toolenv::Mode::automatic),
+                                     options_.serverCommand);
+        mcppls::toolenv::begin();
         // Every external run reaches the journal of the workspace it belongs to (design 4.6). The
         // runner records from whatever thread ran the program; the event loop is the only place
         // that touches a workspace, so it travels as an event like everything else does.
-        platform::toolrun::set_recorder([events = events_](const platform::toolrun::Record& record) {
+        mcppls::toolrun::set_recorder([events = events_](const mcppls::toolrun::Record& record) {
             if (record.root.empty()) return;
-            events->push(Event { EventKind::tool_run, platform::toolrun::to_json(record), 0, nullptr, record.root });
+            events->push(Event { EventKind::tool_run, mcppls::toolrun::to_json(record), 0, nullptr, record.root });
         });
 
         // usable plan W9.4: resolved and checked once, before any root trusts either with anything.
         payload_ = engine::resolve_payload(engine::PayloadRequest { options_.payloadDirectory, options_.clangd, options_.kit, options_.engine });
         {
-            const std::string integrityCache { base::join_path(platform::dirs::cache_directory(), "payload-integrity.json") };
+            const std::string integrityCache { base::join_path(base::cache_directory(), "payload-integrity.json") };
             for (const auto& problem : engine::verify_payload_integrity(payload_, integrityCache)) {
                 log::error("payload integrity: {} {}", problem.path, problem.reason);
                 payloadCorrupt_ = true;
@@ -546,21 +553,22 @@ private:
     using Folder = WorkspaceFolder;
 
     static std::optional<Folder> folder_of_uri_(const std::string& uri) {
+        std::error_code ignored;
         auto path = base::uri_to_path(uri);
-        if (!path || platform::fs::is_regular_file(*path)) return std::nullopt;
+        if (!path || std::filesystem::is_regular_file(*path, ignored)) return std::nullopt;
         return Folder { *path, uri };
     }
 
     // Every folder `initialize` names, or the single root a pre-3.6 client implies (design 13.1
     // predates multi-root; usable plan W9.1 is additive over it).
     std::vector<Folder> workspace_roots_(const Json& params) const {
-        return workspace_folders(params, platform::fs::current_directory());
+        return workspace_folders(params, base::current_directory());
     }
 
     // `isFirst` wires the session's own `initialize` response to this root's engine settling
     // (design 13.1's timing, kept for the first root when there are several).
     void create_root_(const Folder& folder, bool isFirst) {
-        const std::string root { platform::fs::canonical_path(folder.path) };
+        const std::string root { base::canonical_path(folder.path) };
         if (std::ranges::any_of(roots_, [&](const auto& existing) { return existing->root() == root; })) return;
         auto created = std::make_unique<Workspace>(root, root /* key: a root's own path is already unique */, options_, payload_,
                                                    payloadCorrupt_, kitEnabled_, compilerOverride_, events_, client_);
@@ -728,23 +736,24 @@ private:
         input.client = Json::object();
         if (const Json* initialization = lsp::find(clientParams_, "initializationOptions")) input.initializationOptions = *initialization;
         bundle::BundleOptions options;
-        const std::string directory { base::join_path(platform::dirs::cache_directory(), "bundles") };
+        const std::string directory { base::join_path(base::cache_directory(), "bundles") };
         options.output = base::join_path(directory, std::format("auto-{}-{:%Y%m%dT%H%M%SZ}.zip", code,
                                                                std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now())));
         log::info("{}: writing a diagnostic bundle for {}", rootKey, code);
         std::thread { [events = events_, input = std::move(input), options, rootKey, code = std::move(code), directory] {
+            std::error_code ignored;
             auto written = bundle::write_bundle(input, options);
             std::vector<std::string> automatic;
-            for (auto& entry : platform::fs::list_directory(directory)) {
+            for (auto& entry : base::children(directory)) {
                 if (base::file_name(entry).starts_with("auto-")) automatic.push_back(std::move(entry));
             }
             // Newest first, by when each was written (a FileStamp orders by size first).
             const auto written_at = [](const std::string& file) {
-                const auto stamp = platform::fs::stamp(file);
-                return stamp ? stamp->modified : std::numeric_limits<std::int64_t>::min();
+                const auto stamp = base::file_stamp(file);
+                return stamp ? static_cast<std::int64_t>(stamp->modified_ns) : std::numeric_limits<std::int64_t>::min();
             };
             std::ranges::sort(automatic, std::greater {}, written_at);
-            for (std::size_t i { 5 }; i < automatic.size(); ++i) platform::fs::remove_all(automatic[i]);
+            for (std::size_t i { 5 }; i < automatic.size(); ++i) std::filesystem::remove_all(automatic[i], ignored);
             Json outcome = written ? Json { { "auto", true }, { "code", code }, { "path", written->path } }
                                    : Json { { "auto", true }, { "code", code }, { "error", written.error().message } };
             events->push(Event { EventKind::bundle_written, std::move(outcome), 0, nullptr, rootKey });
@@ -914,7 +923,7 @@ private:
             if (!uri) continue;
             auto path = base::uri_to_path(*uri);
             if (!path) continue;
-            const std::string root { platform::fs::canonical_path(*path) };
+            const std::string root { base::canonical_path(*path) };
             auto it = std::ranges::find_if(roots_, [&](const auto& existing) { return existing->root() == root; });
             if (it == roots_.end()) continue;
             (*it)->shut_down();

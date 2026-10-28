@@ -115,6 +115,49 @@ suite('module-syntax highlighting: server semantic tokens (design §7 layer 2)',
         assert.ok(line.some((token) => token.type === 'module'), `no "module" token on line 1: ${JSON.stringify(line)}`);
     });
 
+    // mcpp design 2026-10-28 §11.1 (H1): after an edit, the tokens are answered at once from what the compiler last gave,
+    // moved with the edit, instead of after the pause in typing and the rebuild; the server's report counts the answer.
+    // main.cpp is not a module unit, so the compiler is held to the pause (300 ms at least) before it builds it again.
+    test('an edit is answered at once with the compiler\'s tokens moved, not after the rebuild', async function () {
+        if (!legend) {
+            this.skip();
+            return;
+        }
+        const extension = vscode.extensions.getExtension<TestApi>(EXTENSION_ID)!;
+        const api = await extension.activate();
+        const folder = vscode.workspace.workspaceFolders![0];
+        const uri = vscode.Uri.joinPath(folder.uri, 'src', 'main.cpp');
+        const document = await vscode.workspace.openTextDocument(uri);
+        const editor = await vscode.window.showTextDocument(document);
+        const compilerToken = (token: DecodedToken) => !['keyword', 'module', 'namespace'].includes(token.type);
+        // The compiler's own tokens first: the line `std::println(... hello::greet(...))` has a function.
+        const printLine = document.getText().split('\n').findIndex((line) => line.includes('greet('));
+        assert.ok(printLine > 0, 'main.cpp calls greet');
+        const deadline = Date.now() + 60_000;
+        for (;;) {
+            const raw = await vscode.commands.executeCommand<vscode.SemanticTokens>('vscode.provideDocumentSemanticTokens', uri);
+            if (raw && tokensOnLine(decode(raw.data, legend), printLine).some(compilerToken)) break;
+            assert.ok(Date.now() < deadline, `the compiler never coloured line ${printLine} of main.cpp`);
+            await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+        const before = (await api.serverReport()) as { roots?: { semanticTokens?: { answers?: { standIn?: number } } }[] } | undefined;
+        const standInBefore = before?.roots?.[0]?.semanticTokens?.answers?.standIn ?? 0;
+        try {
+            assert.ok(await editor.edit((builder) => builder.insert(new vscode.Position(printLine, 0), '    int added = 0;\n')));
+            const started = Date.now();
+            const raw = await vscode.commands.executeCommand<vscode.SemanticTokens>('vscode.provideDocumentSemanticTokens', uri);
+            const took = Date.now() - started;
+            const moved = raw ? tokensOnLine(decode(raw.data, legend), printLine + 1) : [];
+            assert.ok(moved.some(compilerToken), `no compiler token moved to line ${printLine + 1}: ${JSON.stringify(moved)}`);
+            const after = (await api.serverReport()) as typeof before;
+            const standInAfter = after?.roots?.[0]?.semanticTokens?.answers?.standIn ?? 0;
+            assert.ok(standInAfter > standInBefore, `the server did not answer from what it kept (standIn ${standInBefore} -> ${standInAfter}, ${took} ms)`);
+        } finally {
+            await vscode.commands.executeCommand('undo');
+            if (document.isDirty) await document.save();
+        }
+    });
+
     test('no two tokens overlap', function () {
         if (!legend) {
             this.skip();

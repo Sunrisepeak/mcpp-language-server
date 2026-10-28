@@ -2,11 +2,11 @@ module mcppls.project.compdb;
 
 import std;
 import nlohmann.json;
-import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.path;
-import mcppls.platform.fs;
+import mcpplibs.os;
 
+namespace os = mcpplibs::os;
 namespace mcppls::project {
 
 namespace {
@@ -108,7 +108,7 @@ void expand_into(std::vector<std::string>& out, std::span<const std::string> arg
     for (const auto& argument : arguments) {
         if (argument.size() > 1 && argument.front() == '@' && depth < 8) {
             const std::string path { base::join_path(directory, std::string_view { argument }.substr(1)) };
-            if (auto content = platform::fs::read_file(path)) {
+            if (auto content = os::fs::read(path)) {
                 const auto words = split_command(*content, syntax);
                 expand_into(out, words, directory, syntax, depth + 1);
                 continue;
@@ -156,11 +156,11 @@ base::Result<std::vector<CompileCommand>> parse_compile_commands(const nlohmann:
 }
 
 base::Result<std::vector<CompileCommand>> read_compile_commands(std::string_view path) {
-    auto text = platform::fs::read_file(path);
-    if (!text) return std::unexpected { text.error() };
+    auto text = os::fs::read(path);
+    if (!text) return base::fail("read-file", text.error());
     nlohmann::json document = nlohmann::json::parse(*text, nullptr, false);
     if (document.is_discarded()) return base::fail("compdb-invalid", std::format("{} is not valid JSON", path));
-    const CommandSyntax syntax { mcppls::os::FAMILY == mcppls::os::Family::windows ? CommandSyntax::windows : CommandSyntax::posix };
+    const CommandSyntax syntax { os::host() == os::platform::windows ? CommandSyntax::windows : CommandSyntax::posix };
     return parse_compile_commands(document, syntax);
 }
 

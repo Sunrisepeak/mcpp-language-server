@@ -5,25 +5,23 @@ import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.base.log;
-import mcppls.platform.fs;
-import mcppls.platform.process;
-import mcppls.platform.toolrun;
-import mcppls.platform.toolenv;
 import mcppls.spec.discovery;
 import mcppls.project.infer;
 import mcppls.project.provider;
+import mcpplibs.os;
+import mcppls.toolrun;
+import mcppls.toolenv;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::project {
-
-namespace fs = platform::fs;
-
 namespace {
 
 // Adds (or replaces) `extra` on top of the tool environment (design 4.2, 4.3): a build tool the
 // server starts by itself sees what the user's own build would, plus what this provider needs
 // xmake to see, never a wholesale replacement of it.
 std::vector<std::string> environment_with(const std::vector<std::pair<std::string, std::string>>& extra, std::chrono::milliseconds wait) {
-    auto environment = platform::toolenv::get(wait).variables;
+    auto environment = mcppls::toolenv::get(wait).variables;
     for (const auto& [name, value] : extra) {
         std::erase_if(environment, [&](const std::string& entry) { return entry.starts_with(name + "="); });
         environment.push_back(std::format("{}={}", name, value));
@@ -77,7 +75,7 @@ std::vector<std::string> xmake_manifests(const Claim& claim) {
     std::vector<std::string> manifests { claim.manifest };
     static constexpr std::array<std::string_view, 7> SKIP { "build", "node_modules", "target", "third_party", "vendor", "out", "bin" };
     static constexpr std::array<std::string_view, 1> EXTENSIONS { ".lua" };
-    for (const auto& file : fs::list_files(claim.root, EXTENSIONS, SKIP)) {
+    for (const auto& file : base::files_under(claim.root, EXTENSIONS, SKIP)) {
         if (manifests.size() >= 200) break;
         if (base::file_name(file) == "xmake.lua" && !base::same_path(file, claim.manifest)) manifests.push_back(file);
     }
@@ -91,14 +89,14 @@ Answer read_project_database(const Claim& claim, const ProviderContext& context)
     if (!answer.database) return answer;
     // Only here is the file watched: while xmake runs, the file is not a source and its changes mean nothing.
     answer.database->watch.push_back(claim.compileCommands);
-    const auto commands { fs::stamp(claim.compileCommands) };
+    const auto commands { base::file_stamp(claim.compileCommands) };
     if (!commands) return answer;
     std::vector<std::int64_t> inputs;
     for (const auto& manifest : xmake_manifests(claim)) {
-        if (const auto stamp = fs::stamp(manifest)) inputs.push_back(stamp->modified);
+        if (const auto stamp = base::file_stamp(manifest)) inputs.push_back(static_cast<std::int64_t>(stamp->modified_ns));
     }
     if (const auto user = read_xmake_user_config(claim.root)) inputs.push_back(user->modified);
-    if (xmake_commands_out_of_date(commands->modified, inputs)) {
+    if (xmake_commands_out_of_date(static_cast<std::int64_t>(commands->modified_ns), inputs)) {
         answer.database->notices.emplace_back("xmake-commands-stale",
             std::format("{} is older than xmake.lua, so changes to it are not reflected; run `xmake project -k compile_commands` to update it, {}",
                         base::file_name(claim.compileCommands),
@@ -112,17 +110,17 @@ Answer read_project_database(const Claim& claim, const ProviderContext& context)
 // it is asked once and again only when either changes. Empty when xmake gave no usable help: the caller keeps the reduced retry.
 std::vector<std::string> accepted_options(const Claim& claim, const ProviderContext& context, const std::string& xmake,
                                           const std::vector<std::string>& environment) {
-    const auto toolStamp { fs::stamp(xmake) };
+    const auto toolStamp { base::file_stamp(xmake) };
     // An option() may be declared in any xmake.lua the root includes: the newest of them, and how many there are, is in the key.
     std::int64_t manifestsModified { 0 };
     const auto manifests { xmake_manifests(claim) };
     for (const auto& manifest : manifests) {
-        if (const auto stamp = fs::stamp(manifest)) manifestsModified = std::max(manifestsModified, stamp->modified);
+        if (const auto stamp = base::file_stamp(manifest)) manifestsModified = std::max(manifestsModified, static_cast<std::int64_t>(stamp->modified_ns));
     }
-    const std::string key { std::format("{} {} {} {} {}", xmake, toolStamp ? toolStamp->modified : 0, toolStamp ? toolStamp->size : 0,
+    const std::string key { std::format("{} {} {} {} {}", xmake, toolStamp ? static_cast<std::int64_t>(toolStamp->modified_ns) : 0, toolStamp ? toolStamp->size : 0,
                                         manifestsModified, manifests.size()) };
     const std::string cachePath { base::join_path(context.privateDirectory, "xmake-help") };
-    if (const auto cached = fs::read_file(cachePath)) {
+    if (const auto cached = os::fs::read(cachePath)) {
         const auto lines { base::split_lines(*cached) };
         if (!lines.empty() && lines.front() == key) {
             std::vector<std::string> names;
@@ -132,22 +130,22 @@ std::vector<std::string> accepted_options(const Claim& claim, const ProviderCont
             return names;
         }
     }
-    const auto help = platform::toolrun::run({
+    const auto help = mcppls::toolrun::run({
         .program = xmake,
         .arguments = { "f", "--help" },
         .workDirectory = claim.root,
         .purpose = "xmake-help",
         .root = context.rootKey,
-        .network = platform::toolrun::Network::offline,
-        .bounds = platform::RunBounds { .hard = std::chrono::seconds { 15 } },
+        .network = mcppls::toolrun::Network::offline,
+        .bounds = mcpplibs::os::process::bounds { .hard = std::chrono::seconds { 15 } },
         .environment = environment,
         .environmentWait = context.environmentWait,
     });
-    if (!help || help->timedOut) return {};
-    const auto names { xmake_help_options(help->output + "\n" + help->error) };
+    if (!help || help->timed_out) return {};
+    const auto names { xmake_help_options(help->out + "\n" + help->err) };
     // A help text with no `--plat` is not xmake's help of `f`: nothing is learned from it, and nothing is kept.
     if (!std::ranges::contains(names, std::string { "plat" })) return {};
-    (void)fs::write_file(cachePath, key + "\n" + base::join(names, "\n"));
+    (void)os::fs::write(cachePath, key + "\n" + base::join(names, "\n"));
     return names;
 }
 
@@ -178,6 +176,7 @@ struct Attempt {
 // Runs xmake privately in `state`: two commands, in a directory of ours, never the project's (see the comment in the body).
 Attempt run_in_state(const Claim& claim, const ProviderContext& context, const std::string& xmake, const std::string& state,
                      const std::string& key, const std::optional<XmakeUserConfig>& user) {
+    std::error_code ignored;
     // Isolation (plan §3.5): `xmake project -k compile_commands` alone still writes `build/` into
     // the project (its implicit configuration and module dependency scan, both measured side
     // effects of that command) unless it is given a private `--builddir` -- which only `xmake f`
@@ -188,17 +187,17 @@ Attempt run_in_state(const Claim& claim, const ProviderContext& context, const s
     const std::string buildDirectory { base::join_path(state, "build") };
     const std::string outDirectory { base::join_path(state, "out") };
     const std::string tmpDirectory { base::join_path(state, "tmp") };
-    (void)fs::create_directories(configDirectory);
-    (void)fs::create_directories(outDirectory);
-    (void)fs::create_directories(tmpDirectory);
+    (void)std::filesystem::create_directories(configDirectory, ignored);
+    (void)std::filesystem::create_directories(outDirectory, ignored);
+    (void)std::filesystem::create_directories(tmpDirectory, ignored);
     const auto environment { environment_with(xmake_environment(configDirectory, tmpDirectory), context.environmentWait) };
 
     // A state is configured once, from nothing: the caller removes it when what it was made from changed (XS-2).
     const std::string configuredMarker { base::join_path(state, "configured") };
     const std::string leftOutMarker { base::join_path(state, "left-out") };
-    const auto recorded { fs::read_file(configuredMarker) };
+    const auto recorded { os::fs::read(configuredMarker) };
     if (!recorded || *recorded != key) {
-        fs::remove_all(leftOutMarker);
+        std::filesystem::remove_all(leftOutMarker, ignored);
         // D-1: asked only when xmake.conf holds something that is neither internal nor standard; the answer is kept.
         std::vector<std::string> accepted;
         if (user && !xmake_left_out(user->options).empty()) {
@@ -208,14 +207,14 @@ Attempt run_in_state(const Claim& claim, const ProviderContext& context, const s
             }
         }
         const auto configure = [&](bool reduced) {
-            return platform::toolrun::run({
+            return mcppls::toolrun::run({
                 .program = xmake,
                 .arguments = xmake_configure_arguments(buildDirectory, context.offline, user ? std::span<const XmakeOption> { user->options } : std::span<const XmakeOption> {}, reduced, accepted),
                 .workDirectory = claim.root,
                 .purpose = "configure",
                 .root = context.rootKey,
-                .network = context.offline ? platform::toolrun::Network::offline : platform::toolrun::Network::allowed,
-                .bounds = platform::RunBounds { .hard = context.configureTimeout },
+                .network = context.offline ? mcppls::toolrun::Network::offline : mcppls::toolrun::Network::allowed,
+                .bounds = mcpplibs::os::process::bounds { .hard = context.configureTimeout },
                 .soft = context.producerSoft,
                 .environment = environment,
                 .environmentWait = context.environmentWait,
@@ -226,59 +225,59 @@ Attempt run_in_state(const Claim& claim, const ProviderContext& context, const s
         // X-2: an option the user's xmake.conf still holds, that xmake.lua no longer declares, is refused (exit 255 with v3.1.1).
         // One retry with the standard options only; what was left out is said in a notice. D-1: with the list `xmake f --help`
         // gave there is nothing left to refuse, so this is the fallback for when that list could not be had.
-        if (configured && !configured->timedOut && configured->exitCode != 0 && user && !xmake_left_out(user->options).empty()
-            && xmake_unknown_option(configured->output + "\n" + configured->error)) {
+        if (configured && !configured->timed_out && !configured->status.success() && user && !xmake_left_out(user->options).empty()
+            && xmake_unknown_option(configured->out + "\n" + configured->err)) {
             const auto leftOut { xmake_left_out(user->options) };
             base::log::info("xmake did not accept the options of {} ({}); configuring again with the standard ones only", user->path, base::join(leftOut, ", "));
             configured = configure(true);
-            if (configured && configured->exitCode == 0 && !configured->timedOut) (void)fs::write_file(leftOutMarker, base::join(leftOut, ", "));
+            if (configured && configured->status.success() && !configured->timed_out) (void)os::fs::write(leftOutMarker, base::join(leftOut, ", "));
         }
         if (!configured) return { Answer { .code = configured.error().code, .reason = configured.error().message } };
-        if (configured->timedOut) {
+        if (configured->timed_out) {
             return { Answer { .outcome = Outcome::timed_out, .code = "xmake-configure-failed", .reason = "xmake f did not finish in time" } };
         }
-        if (configured->exitCode != 0) {
-            const std::string combined { configured->output + "\n" + configured->error };
+        if (!configured->status.success()) {
+            const std::string combined { configured->out + "\n" + configured->err };
             if (auto packages = missing_packages_answer(combined, context.offline)) return { std::move(*packages) };
             return { Answer { .code = "xmake-configure-failed",
-                              .reason = std::format("xmake f failed ({}): {}", configured->exitCode,
-                                                    base::trim(configured->error.empty() ? configured->output : configured->error)) } };
+                              .reason = std::format("xmake f failed ({}): {}", toolrun::exit_code(configured->status),
+                                                    base::trim(configured->err.empty() ? configured->out : configured->err)) } };
         }
-        (void)fs::write_file(configuredMarker, key);
+        (void)os::fs::write(configuredMarker, key);
     }
 
-    auto described = platform::toolrun::run({
+    auto described = mcppls::toolrun::run({
         .program = xmake,
         .arguments = xmake_compile_commands_arguments(outDirectory),
         .workDirectory = claim.root,
         .purpose = "producer",
         .root = context.rootKey,
-        .network = platform::toolrun::Network::offline,
-        .bounds = platform::RunBounds { .hard = context.producerHard },
+        .network = mcppls::toolrun::Network::offline,
+        .bounds = mcpplibs::os::process::bounds { .hard = context.producerHard },
         .soft = context.producerSoft,
         .environment = environment,
         .environmentWait = context.environmentWait,
         .onSoftDeadline = context.onSlow,
     });
     if (!described) return { Answer { .code = described.error().code, .reason = described.error().message } };
-    if (described->timedOut) {
+    if (described->timed_out) {
         return { Answer { .outcome = Outcome::timed_out, .code = "xmake-configure-failed",
                           .reason = "xmake project -k compile_commands did not finish in time" } };
     }
-    if (described->exitCode != 0) {
+    if (!described->status.success()) {
         // D-6: the project stage reads the packages too; they can be missing here when `xmake f` did not need them.
-        const std::string combined { described->output + "\n" + described->error };
+        const std::string combined { described->out + "\n" + described->err };
         if (auto packages = missing_packages_answer(combined, context.offline)) return { std::move(*packages) };
         return { Answer { .code = "xmake-configure-failed",
-                          .reason = std::format("xmake project -k compile_commands failed ({}): {}", described->exitCode,
-                                                base::trim(described->error.empty() ? described->output : described->error)) },
+                          .reason = std::format("xmake project -k compile_commands failed ({}): {}", toolrun::exit_code(described->status),
+                                                base::trim(described->err.empty() ? described->out : described->err)) },
                  xmake_state_stale(combined) };
     }
     const std::string commands { base::join_path(outDirectory, "compile_commands.json") };
-    if (!fs::is_regular_file(commands)) return { Answer { .code = "xmake-no-database", .reason = "xmake did not write compile_commands.json" } };
+    if (!std::filesystem::is_regular_file(commands, ignored)) return { Answer { .code = "xmake-no-database", .reason = "xmake did not write compile_commands.json" } };
     Answer answer { from_result(database_from_compile_commands_file(commands, claim.root, "xmake", context.scanner, context.prober)) };
     if (answer.database) {
-        if (const auto leftOut = fs::read_file(leftOutMarker); leftOut && !leftOut->empty()) {
+        if (const auto leftOut = os::fs::read(leftOutMarker); leftOut && !leftOut->empty()) {
             answer.database->notices.emplace_back("xmake-options-left-out",
                 std::format("xmake refused one of the options in your .xmake xmake.conf, so mcppls configured without {} (platform, mode and toolchain are kept) and "
                             "the commands may differ from your build's; run `xmake f -c` in the project to renew its configuration", *leftOut));
@@ -290,32 +289,33 @@ Attempt run_in_state(const Claim& claim, const ProviderContext& context, const s
 // XS-2, XS-3 (#68): the private state is a cache of this provider's, never a fact. It is kept while what it was made from is the
 // same, and otherwise removed and made again from nothing; once more, from nothing, when xmake says it is out of date.
 Answer run_private(const Claim& claim, const ProviderContext& context, const std::string& xmake) {
+    std::error_code ignored;
     context.producerUsed = xmake;
     // 0.0.16 and earlier kept the state in the private directory itself, configured again in place: removed, made again in `state`.
     for (const std::string_view legacy : { "config", "build", "out", "configured", "left-out" }) {
-        fs::remove_all(base::join_path(context.privateDirectory, legacy));
+        std::filesystem::remove_all(base::join_path(context.privateDirectory, legacy), ignored);
     }
     const std::string state { base::join_path(context.privateDirectory, "state") };
-    const auto manifestStamp { fs::stamp(claim.manifest) };
+    const auto manifestStamp { base::file_stamp(claim.manifest) };
     // X-2: the user's own `xmake f` is read, never run or written; `xmake f` resets every option it is not given (E5).
     const auto user { read_xmake_user_config(claim.root) };
     std::int64_t manifestsModified { 0 };
     const auto manifests { xmake_manifests(claim) };
     for (const auto& manifest : manifests) {
-        if (const auto stamp = fs::stamp(manifest)) manifestsModified = std::max(manifestsModified, stamp->modified);
+        if (const auto stamp = base::file_stamp(manifest)) manifestsModified = std::max(manifestsModified, static_cast<std::int64_t>(stamp->modified_ns));
     }
-    const auto toolStamp { fs::stamp(xmake) };
+    const auto toolStamp { base::file_stamp(xmake) };
     const std::string key { xmake_state_key(
-        xmake_configuration_key(context.offline, manifestStamp ? std::optional { std::pair { manifestStamp->size, manifestStamp->modified } } : std::nullopt,
+        xmake_configuration_key(context.offline, manifestStamp ? std::optional { std::pair { manifestStamp->size, static_cast<std::int64_t>(manifestStamp->modified_ns) } } : std::nullopt,
                                 user ? std::optional { std::pair { user->size, user->modified } } : std::nullopt),
-        xmake, toolStamp ? std::optional { std::pair { toolStamp->size, toolStamp->modified } } : std::nullopt, manifestsModified, manifests.size()) };
-    const auto recorded { fs::read_file(base::join_path(state, "configured")) };
+        xmake, toolStamp ? std::optional { std::pair { toolStamp->size, static_cast<std::int64_t>(toolStamp->modified_ns) } } : std::nullopt, manifestsModified, manifests.size()) };
+    const auto recorded { os::fs::read(base::join_path(state, "configured")) };
     const bool kept { recorded && *recorded == key };
-    if (!kept) fs::remove_all(state);
+    if (!kept) std::filesystem::remove_all(state, ignored);
     auto attempt { run_in_state(claim, context, xmake, state, key, user) };
     if (attempt.stale && kept) {
         base::log::info("xmake's private state for {} is out of date ({}); making it again from nothing", claim.root, attempt.answer.reason);
-        fs::remove_all(state);
+        std::filesystem::remove_all(state, ignored);
         attempt = run_in_state(claim, context, xmake, state, key, user);
     }
     return std::move(attempt.answer);
@@ -372,20 +372,21 @@ std::vector<XmakeOption> parse_xmake_conf(std::string_view text) {
 }
 
 std::optional<XmakeUserConfig> read_xmake_user_config(std::string_view root) {
+    std::error_code ignored;
     const std::string dot { base::join_path(std::string { root }, ".xmake") };
     std::optional<XmakeUserConfig> best;
-    for (const auto& platform : fs::list_directory(dot)) {
-        if (!fs::is_directory(platform)) continue;
-        for (const auto& architecture : fs::list_directory(platform)) {
+    for (const auto& platform : base::children(dot)) {
+        if (!std::filesystem::is_directory(platform, ignored)) continue;
+        for (const auto& architecture : base::children(platform)) {
             const std::string path { base::join_path(architecture, "xmake.conf") };
-            const auto stamp { fs::stamp(path) };
-            if (!stamp || !fs::is_regular_file(path)) continue;
-            if (best && best->modified >= stamp->modified) continue;   // the newest is the user's last `xmake f`
-            best = XmakeUserConfig { path, stamp->size, stamp->modified, {} };
+            const auto stamp { base::file_stamp(path) };
+            if (!stamp || !std::filesystem::is_regular_file(path, ignored)) continue;
+            if (best && best->modified >= static_cast<std::int64_t>(stamp->modified_ns)) continue;   // the newest is the user's last `xmake f`
+            best = XmakeUserConfig { path, stamp->size, static_cast<std::int64_t>(stamp->modified_ns), {} };
         }
     }
     if (!best) return std::nullopt;
-    if (const auto text = fs::read_file(best->path)) best->options = parse_xmake_conf(*text);
+    if (const auto text = os::fs::read(best->path)) best->options = parse_xmake_conf(*text);
     return best;
 }
 
@@ -593,8 +594,9 @@ std::vector<std::string> xmake_missing_packages(std::string_view output) {
 }
 
 std::optional<Claim> XmakeProvider::detect(std::string_view root) const {
+    std::error_code ignored;
     const std::string manifest { base::join_path(std::string { root }, "xmake.lua") };
-    if (!fs::is_regular_file(manifest)) return std::nullopt;
+    if (!std::filesystem::is_regular_file(manifest, ignored)) return std::nullopt;
     Claim claim;
     claim.provider = "xmake";
     claim.confidence = 100;
@@ -603,7 +605,7 @@ std::optional<Claim> XmakeProvider::detect(std::string_view root) const {
     // xmake's own VS Code plugin writes its compile_commands.json into .vscode/ rather than the
     // root; either is read as-is when xmake cannot be run (X-1).
     for (std::string_view candidate : { "compile_commands.json", ".vscode/compile_commands.json" }) {
-        if (const std::string commands { base::join_path(std::string { root }, candidate) }; fs::is_regular_file(commands)) {
+        if (const std::string commands { base::join_path(std::string { root }, candidate) }; std::filesystem::is_regular_file(commands, ignored)) {
             claim.compileCommands = commands;
             break;
         }
@@ -621,6 +623,7 @@ std::optional<Answer> XmakeProvider::existing(const Claim& claim, const Provider
 }
 
 Answer XmakeProvider::describe(const Claim& claim, const ProviderContext& context) const {
+    std::error_code ignored;
     if (!context.trusted) return Answer { .code = "untrusted-workspace", .reason = "the workspace is not trusted, so xmake was not run" };
     if (!context.runBuildTool) return Answer { .code = "xmake-no-database", .reason = "mcppls.buildTool is off, so xmake was not run" };
     const auto xmake = find_tool("xmake", std::vector<std::string> {});
@@ -628,7 +631,7 @@ Answer XmakeProvider::describe(const Claim& claim, const ProviderContext& contex
 
     // A private run that succeeded once has produced a model from xmake; a later failure (a half-typed xmake.lua) leaves that
     // model in place rather than replacing it with an older file's.
-    const bool ranBefore { fs::is_regular_file(base::join_path(base::join_path(context.privateDirectory, "out"), "compile_commands.json")) };
+    const bool ranBefore { std::filesystem::is_regular_file(base::join_path(base::join_path(context.privateDirectory, "out"), "compile_commands.json"), ignored) };
     Answer answer { run_private(claim, context, *xmake) };
     if (answer.database || claim.compileCommands.empty() || ranBefore) return answer;
 

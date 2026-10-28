@@ -13,8 +13,6 @@
 export module mcppls.engine.clangd.bmi;
 
 import std;
-import mcppls.platform.fs;
-
 export namespace mcppls::engine::clangd {
 
 // The module a BMI file belongs to: `xlings.core.utf8-20260917-014433-869144.pcm` and

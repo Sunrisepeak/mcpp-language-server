@@ -15,7 +15,9 @@ so `mcpp run` provisions it before the tool starts. Gradle and the JDK it runs o
 command line for installing a plugin, so `--install` leaves on disk exactly what their own UI would:
 for Zed it stops one step short and names the palette action, the recommended route (`--link`
 takes that step too); for CLion it unpacks the plugin as *Install Plugin from Disk* does. Both
-start `mcppls` from PATH, or else the server `--install` puts at `<user data>/mcppls/payload`.
+start `mcppls` from PATH, or else the server of the payload `--install` puts at
+`<user data>/mcppls/payload`: its runner `bin/okrun` starting the okb `bin/mcppls.okb`, as its
+`payload.json` says.
 
 ## VS Code
 
@@ -56,7 +58,9 @@ it under `"[cpp]"` and `"[c]"` keeps yours (the log says so, once).
 grammar the extension adds (at once, as you type), and by the server's semantic tokens (module
 names as the token type `module`, which themes color as a namespace unless you give it a color of
 its own in `editor.semanticTokenColorCustomizations`). VS Code's own C++ grammar leaves `import`
-uncolored.
+uncolored. The rest of a file's colours are clangd's: they appear at once from what clangd last gave
+and are corrected as soon as clangd has rebuilt the file, so a large file keeps its colours while you
+type and is coloured at once when it is opened again unchanged.
 
 **Turning it off for one workspace.** `mcppls.enable` (default `true`, per workspace) keeps mcppls
 off; **C++ Modules: Turn Off in This Workspace** and **Turn On in This Workspace** set it, and the
@@ -153,8 +157,9 @@ Settings | Plugins
 
 ## Any other LSP client
 
-`mcppls serve` speaks LSP over stdio. The server needs to find a payload — see
-[00-install.md](00-install.md).
+`mcppls serve` speaks LSP over stdio: the release's `mcppls-<version>-openkal.zip` or single file
+gives you an `mcppls`, and a payload's server is `<payload>/bin/okrun <payload>/bin/mcppls.okb serve`.
+The server needs to find a payload for its pinned clangd and kit — see [00-install.md](00-install.md).
 
 ## Any other MCP client
 

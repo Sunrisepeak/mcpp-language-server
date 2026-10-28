@@ -11,15 +11,13 @@ import mcppls.base.path;
 import mcppls.pack.lock;
 import mcppls.pack.fetch;
 import mcppls.pack.payload;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.os;
+import mcpplibs.os;
+import mcppls.base.payload;
 
+namespace os = mcpplibs::os;
 namespace payload = mcppls::pack::payload;
 namespace lock = mcppls::pack::lock;
 namespace base = mcppls::base;
-namespace fs = mcppls::platform::fs;
-
 namespace {
 
 std::string scratch_dir() {
@@ -43,10 +41,10 @@ std::string suffix_for(std::string_view platform) { return platform == "win32-x6
 // and it runs on Linux and macOS but not on Windows, where every fixture that matched the host
 // failed to start (openkal error 14). The same bytes serve all three hosts.
 std::string runnable_clangd() {
-    const auto self = mcppls::platform::env::arguments();
+    const auto self = os::env::arguments();
     std::string path { base::normalize_path(self.empty() ? std::string {} : self.front()) };
-    if (!base::is_absolute_path(path)) path = base::join_path(fs::current_directory(), path);
-    return fs::read_file(path).value_or(std::string {});
+    if (!base::is_absolute_path(path)) path = base::join_path(base::current_directory(), path);
+    return os::fs::read(path).value_or(std::string {});
 }
 
 // A clangd directory shaped like mcppls.pack.clangd::trim's output: the executable, the license,
@@ -113,6 +111,7 @@ payload::AssembleOptions options_for(const std::string& work, std::string_view p
 } // namespace
 
 int main(int argc, char* argv[]) {
+    std::error_code ignored;
     // Started as the fixture's clangd (runnable_clangd): answer the one question asked of it.
     if (argc > 1 && std::string_view { argv[1] } == "--version") {
         std::println("clangd version 23.1.0 (fixture)");
@@ -128,7 +127,8 @@ int main(int argc, char* argv[]) {
     const auto lockData = lock_with_clangd_version();
 
     "maintained engine assembly requires matching immutable identity before replacing output"_test = [&] {
-        const std::string platform { mcppls::os::PLATFORM == "win32-x64" ? "linux-x64" : "win32-x64" };
+        std::error_code ignored;
+        const std::string platform { base::payload_platform() == "win32-x64" ? "linux-x64" : "win32-x64" };
         const std::string clangdDir { make_clangd_directory(work, platform) };
         const std::string kitDir { make_kit_directory(work) };
         const std::string out { base::join_path(work, "payload-identified") };
@@ -136,7 +136,7 @@ int main(int argc, char* argv[]) {
         const auto forkLock = lock_with_clangd_version("23.1.0-mcppls.1");
         const auto options = options_for(work, platform, server, clangdDir, kitDir, out, repoRoot);
         expect(!payload::assemble(options, forkLock));
-        expect(fs::is_regular_file(base::join_path(out, "sentinel")));
+        expect(std::filesystem::is_regular_file(base::join_path(out, "sentinel"), ignored));
         const auto digest = mcppls::pack::fetch::digest_of(base::join_path(clangdDir, "bin/clangd" + suffix_for(platform)));
         expect(fatal(digest.has_value()));
         if (!digest) return;
@@ -146,14 +146,14 @@ int main(int argc, char* argv[]) {
                                  { "sha256", std::string(64, 'd') }, { "features", nlohmann::json::array() } };
         put(base::join_path(clangdDir, "engine.json"), identity.dump());
         expect(!payload::assemble(options, forkLock)) << "forged binary SHA is rejected";
-        expect(fs::is_regular_file(base::join_path(out, "sentinel")));
+        expect(std::filesystem::is_regular_file(base::join_path(out, "sentinel"), ignored));
         identity["sha256"] = *digest;
         put(base::join_path(clangdDir, "engine.json"), identity.dump());
         expect(!payload::assemble(options, lock_with_clangd_version("24.1.0"))) << "an override cannot silently change the locked LLVM base";
         auto assembled = payload::assemble(options, lockData);
         expect(fatal(assembled.has_value())) << (assembled ? std::string {} : assembled.error().message);
         if (!assembled) return;
-        auto manifest = nlohmann::json::parse(*fs::read_file(base::join_path(out, "payload.json")));
+        auto manifest = nlohmann::json::parse(*os::fs::read(base::join_path(out, "payload.json")));
         expect(manifest["payload-version"] == 4);
         expect(manifest["clangd"]["version"] == "23.1.0-mcppls.1");
         expect(manifest["engines"]["clangd"]["identity"] == identity);
@@ -170,7 +170,7 @@ int main(int argc, char* argv[]) {
         auto assembled = payload::assemble(options_for(work, "linux-x64", server, clangdDir, kitDir, out, repoRoot), lockData);
         expect(fatal(assembled.has_value()));
         if (!assembled) return;
-        auto manifest = nlohmann::json::parse(*fs::read_file(base::join_path(out, "payload.json")));
+        auto manifest = nlohmann::json::parse(*os::fs::read(base::join_path(out, "payload.json")));
         manifest["clangd"]["version"] = "23.1.0-mcppls.1";
         manifest["engines"]["clangd"]["version"] = "23.1.0-mcppls.1";
         put(base::join_path(out, "payload.json"), manifest.dump());
@@ -178,6 +178,7 @@ int main(int argc, char* argv[]) {
     };
 
     "a well-formed assemble produces a payload that verifies clean"_test = [&] {
+        std::error_code ignored;
         const std::string clangdDir { make_clangd_directory(work, "linux-x64") };
         const std::string kitDir { make_kit_directory(work) };
         const std::string out { base::join_path(work, "payload-ok") };
@@ -186,14 +187,14 @@ int main(int argc, char* argv[]) {
         expect(fatal(assembled.has_value())) << (assembled ? std::string {} : assembled.error().message);
         if (!assembled) return;
 
-        expect(fs::is_regular_file(base::join_path(*assembled, "bin/mcppls")));
-        expect(fs::is_regular_file(base::join_path(*assembled, "clangd/bin/clangd")));
-        expect(fs::is_regular_file(base::join_path(*assembled, "kit/kit.json")));
-        expect(fs::is_regular_file(base::join_path(*assembled, "licenses/mcppls-LICENSE.txt")));
-        expect(fs::is_regular_file(base::join_path(*assembled, "licenses/LLVM-LICENSE.TXT")));
-        expect(fs::is_regular_file(base::join_path(*assembled, "payload.json")));
+        expect(std::filesystem::is_regular_file(base::join_path(*assembled, "bin/mcppls"), ignored));
+        expect(std::filesystem::is_regular_file(base::join_path(*assembled, "clangd/bin/clangd"), ignored));
+        expect(std::filesystem::is_regular_file(base::join_path(*assembled, "kit/kit.json"), ignored));
+        expect(std::filesystem::is_regular_file(base::join_path(*assembled, "licenses/mcppls-LICENSE.txt"), ignored));
+        expect(std::filesystem::is_regular_file(base::join_path(*assembled, "licenses/LLVM-LICENSE.TXT"), ignored));
+        expect(std::filesystem::is_regular_file(base::join_path(*assembled, "payload.json"), ignored));
 
-        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::windows) {
+        if (os::host() != os::platform::windows) {
             const auto serverMode = std::filesystem::status(base::join_path(*assembled, "bin/mcppls")).permissions();
             expect((serverMode & std::filesystem::perms::owner_exec) != std::filesystem::perms::none);
             const auto clangdMode = std::filesystem::status(base::join_path(*assembled, "clangd/bin/clangd")).permissions();
@@ -205,15 +206,50 @@ int main(int argc, char* argv[]) {
         expect(problems.empty());
     };
 
+    // mcpp design 2026-10-28 part 2 §15: the server as one image for every system of its architecture, started by
+    // the platform's okrun. The assembly does not read the image; a file stands for it.
+    "an image server is carried with the platform's okrun, and payload.json names both"_test = [&] {
+        std::error_code ignored;
+        const std::string clangdDir { make_clangd_directory(work, "win32-x64") };
+        const std::string kitDir { make_kit_directory(work) };
+        const std::string image { base::join_path(work, "mcppls.okb") };
+        const std::string runner { base::join_path(work, "okrun.exe") };
+        put(image, "PK\x03\x04 an okb");
+        put(runner, "MZ okrun");
+        const std::string out { base::join_path(work, "payload-image") };
+        auto options = options_for(work, "win32-x64", "", clangdDir, kitDir, out, repoRoot);
+        options.serverImage = image;
+        options.serverRunner = runner;
+        auto assembled = payload::assemble(options, lockData);
+        expect(fatal(assembled.has_value())) << (assembled ? std::string {} : assembled.error().message);
+        if (!assembled) return;
+        expect(std::filesystem::is_regular_file(base::join_path(*assembled, "bin/mcppls.okb"), ignored));
+        expect(std::filesystem::is_regular_file(base::join_path(*assembled, "bin/okrun.exe"), ignored));
+        expect(!std::filesystem::exists(base::join_path(*assembled, "bin/mcppls.exe"), ignored)) << "no program of the platform beside the image";
+        const auto manifest = nlohmann::json::parse(os::fs::read(base::join_path(*assembled, "payload.json")).value_or("{}"));
+        expect(manifest["server"].value("path", std::string {}) == "bin/mcppls.okb") << manifest["server"].dump();
+        expect(manifest["server"].value("runner", std::string {}) == "bin/okrun.exe") << manifest["server"].dump();
+        auto problems = payload::verify(*assembled);
+        for (const auto& problem : problems) std::println(std::cerr, "  verify problem: {}", problem);
+        expect(problems.empty());
+
+        // An image without its loader is refused before anything is written.
+        options.serverRunner = base::join_path(work, "no-okrun.exe");
+        options.outDirectory = base::join_path(work, "payload-image-no-runner");
+        expect(!payload::assemble(options, lockData));
+        expect(!std::filesystem::exists(options.outDirectory, ignored));
+    };
+
     "a win32-x64 assemble uses the .exe paths throughout"_test = [&] {
+        std::error_code ignored;
         const std::string clangdDir { make_clangd_directory(work, "win32-x64") };
         const std::string kitDir { make_kit_directory(work, "mcppls-kit-libcxx-23.1.0-x86_64-w64-mingw32") };
         const std::string out { base::join_path(work, "payload-win32") };
         auto assembled = payload::assemble(options_for(work, "win32-x64", server, clangdDir, kitDir, out, repoRoot), lockData);
         expect(fatal(assembled.has_value())) << (assembled ? std::string {} : assembled.error().message);
         if (!assembled) return;
-        expect(fs::is_regular_file(base::join_path(*assembled, "bin/mcppls.exe")));
-        expect(fs::is_regular_file(base::join_path(*assembled, "clangd/bin/clangd.exe")));
+        expect(std::filesystem::is_regular_file(base::join_path(*assembled, "bin/mcppls.exe"), ignored));
+        expect(std::filesystem::is_regular_file(base::join_path(*assembled, "clangd/bin/clangd.exe"), ignored));
         auto problems = payload::verify(*assembled);
         for (const auto& problem : problems) std::println(std::cerr, "  verify problem: {}", problem);
         expect(problems.empty());
@@ -225,7 +261,7 @@ int main(int argc, char* argv[]) {
         const std::string out { base::join_path(work, "payload-bad-platform") };
         auto assembled = payload::assemble(options_for(work, "sparc-solaris", server, clangdDir, kitDir, out, repoRoot), lockData);
         expect(!assembled.has_value());
-        expect(!fs::exists(out));
+        expect(!std::filesystem::exists(out, ignored));
     };
 
     "assembling with a missing clangd binary fails"_test = [&] {
@@ -316,6 +352,7 @@ int main(int argc, char* argv[]) {
     };
 
     "copy_from copies a payload to a new directory, keeps exec bits, and verifies it"_test = [&] {
+        std::error_code ignored;
         const std::string clangdDir { make_clangd_directory(work, "linux-x64") };
         const std::string kitDir { make_kit_directory(work) };
         const std::string source { base::join_path(work, "payload-source") };
@@ -327,8 +364,8 @@ int main(int argc, char* argv[]) {
         auto copied = payload::copy_from(*assembled, out);
         expect(fatal(copied.has_value())) << (copied ? std::string {} : copied.error().message);
         if (!copied) return;
-        expect(fs::is_regular_file(base::join_path(*copied, "bin/mcppls")));
-        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::windows) {
+        expect(std::filesystem::is_regular_file(base::join_path(*copied, "bin/mcppls"), ignored));
+        if (os::host() != os::platform::windows) {
             const auto mode = std::filesystem::status(base::join_path(*copied, "bin/mcppls")).permissions();
             expect((mode & std::filesystem::perms::owner_exec) != std::filesystem::perms::none);
         }

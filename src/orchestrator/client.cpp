@@ -3,8 +3,10 @@ module mcppls.orchestrator.client;
 import std;
 import nlohmann.json;
 import mcppls.base.log;
-import mcppls.platform.stdio;
 import mcppls.lsp.jsonrpc;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::orchestrator {
 
@@ -22,7 +24,7 @@ WriteStats gWriteStats;
 void StdioSink::send(const Json& message) {
     const std::string frame { lsp::encode_frame(message) };
     const auto started = std::chrono::steady_clock::now();
-    const auto written = platform::stdio::write_output(frame);
+    const auto written = os::stdio::write_output(frame);
     const auto ms = static_cast<std::int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count());
     {
         const std::lock_guard lock { gWriteStatsMutex };
@@ -32,7 +34,7 @@ void StdioSink::send(const Json& message) {
         gWriteStats.maxMs = std::max(gWriteStats.maxMs, ms);
         if (ms >= 100) ++gWriteStats.slowWrites;
     }
-    if (!written) base::log::error("cannot write to the client: {}", written.error().message);
+    if (!written) base::log::error("cannot write to the client: {}", written.error().message());
 }
 
 WriteStats stdio_write_stats() {

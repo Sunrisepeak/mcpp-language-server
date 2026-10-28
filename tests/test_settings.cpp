@@ -8,10 +8,10 @@ import nlohmann.json;
 import mcpplibs.cmdline;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.fs;
 import mcppls.config.settings;
+import mcpplibs.os;
 
-namespace fs = mcppls::platform::fs;
+namespace os = mcpplibs::os;
 namespace base = mcppls::base;
 namespace cmdline = mcpplibs::cmdline;
 namespace settings = mcppls::config::settings;
@@ -20,11 +20,12 @@ using Json = nlohmann::json;
 namespace {
 
 std::string repository_root() {
-    std::string directory { fs::current_directory() };
+    std::error_code ignored;
+    std::string directory { base::current_directory() };
     while (true) {
-        if (fs::is_regular_file(base::join_path(directory, "docs/specs/README.md"))) return directory;
+        if (std::filesystem::is_regular_file(base::join_path(directory, "docs/specs/README.md"), ignored)) return directory;
         const std::string parent { base::parent_path(directory) };
-        if (parent == directory) return fs::current_directory();
+        if (parent == directory) return base::current_directory();
         directory = parent;
     }
 }
@@ -191,7 +192,7 @@ int main() {
         const std::string root { repository_root() };
         for (const auto& [path, lang] : { std::pair { std::string { "docs/30-settings.md" }, std::string_view { "en" } },
                                           std::pair { std::string { "docs/zh-CN/30-settings.md" }, std::string_view { "zh-CN" } } }) {
-            const auto text = fs::read_file(base::join_path(root, path));
+            const auto text = os::fs::read(base::join_path(root, path));
             expect(fatal(text.has_value())) << path;
             // A Windows checkout may turn the file's line endings into CRLF; the renderer writes LF.
             std::string lf { *text };
@@ -204,7 +205,7 @@ int main() {
 
     "every mcppls.* property of editors/vscode/package.json is a registry row, in step with it"_test = [] {
         const std::string root { repository_root() };
-        const auto text = fs::read_file(base::join_path(root, "editors/vscode/package.json"));
+        const auto text = os::fs::read(base::join_path(root, "editors/vscode/package.json"));
         expect(fatal(text.has_value()));
         const Json manifest = Json::parse(*text);
         const Json& properties = manifest.at("contributes").at("configuration").at("properties");
@@ -254,7 +255,7 @@ int main() {
     // S-4 (plan 0.0.9): what made `mcppls.engine.workers` show `undefined` in VS Code's settings UI
     // cannot come back unnoticed.
     "package.json: no setting is the parent of another unless it is an object, and a pattern is satisfied by its own default"_test = [] {
-        const auto text = fs::read_file(base::join_path(repository_root(), "editors/vscode/package.json"));
+        const auto text = os::fs::read(base::join_path(repository_root(), "editors/vscode/package.json"));
         expect(fatal(text.has_value()));
         const Json manifest = Json::parse(*text);
         const Json& properties = manifest.at("contributes").at("configuration").at("properties");

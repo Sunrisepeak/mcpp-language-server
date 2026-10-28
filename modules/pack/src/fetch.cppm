@@ -4,7 +4,7 @@
 // packaging: the payload's inputs (a clangd build, the libc++ sources) are downloaded here rather
 // than by a Python script that every developer and every CI runner had to have an interpreter for.
 //
-// `mcppls.platform.net` is the deliberate opposite — loopback only, because the server must not
+// mcpplibs.os `net` is the deliberate opposite — loopback only, because the server must not
 // reach the network. That is enforced by the package boundary, not by this comment: this lives in
 // mcppls-pack, which only mcppls-devtools depends on, and `devtools check binary` fails if the
 // server's symbol table ever carries a TLS or archive symbol.

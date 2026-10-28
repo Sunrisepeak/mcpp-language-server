@@ -97,6 +97,7 @@ struct PendingRequest {
     Reply reply;
     Clock::time_point sent {};        // when it was sent to clangd
     bool detached { false };          // C-2 (plan 0.0.8 part 2): answered elsewhere; nobody waits for it (Engine::detach)
+    std::optional<std::int64_t> version {};   // the version of the document clangd had when it was asked (Answer::version)
 };
 
 // usable plan W7: a request whose deadline passed while the modules its file imports are still

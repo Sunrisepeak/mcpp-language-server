@@ -5,22 +5,20 @@
 import std;
 import nlohmann.json;
 import mcppls.testing;
-import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.path;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.platform.dirs;
 import mcppls.spec.query;
 import mcppls.ai.model.source;
 import mcppls.ai.model.schema;
 import mcppls.ai.model.prompt;
 import mcppls.ai.model.gateway;
 import mcppls.ai.model.review;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 using Json = nlohmann::json;
 namespace base = mcppls::base;
-namespace platform = mcppls::platform;
 namespace spec = mcppls::spec;
 namespace model = mcppls::ai::model;
 
@@ -82,13 +80,13 @@ public:
 };
 
 std::string temp_dir(std::string_view label) {
-    return base::join_path(platform::dirs::temp_directory(),
+    return base::join_path(base::spelled(os::dirs::temp()),
         std::format("mcppls-test-model-{}-{}", label, std::chrono::steady_clock::now().time_since_epoch().count()));
 }
 
 std::string write_temp_json(std::string_view label, const Json& content) {
     const std::string path { temp_dir(label) + ".json" };
-    (void)platform::fs::write_file(path, content.dump());
+    (void)os::fs::write(path, content.dump());
     return path;
 }
 
@@ -97,20 +95,21 @@ std::string write_temp_json(std::string_view label, const Json& content) {
 // a dev-dependency, which gives it a different fingerprint from a plain `mcpp build`, so the tool is
 // never a sibling of this test's own executable. Walk up to target/<triple>/ and check every bucket.
 std::string self_path() {
-    const auto arguments = platform::env::arguments();
+    const auto arguments = os::env::arguments();
     std::string path { arguments.empty() ? std::string {} : arguments.front() };
-    if (!base::is_absolute_path(path)) path = base::join_path(platform::fs::current_directory(), path);
+    if (!base::is_absolute_path(path)) path = base::join_path(base::current_directory(), path);
     return base::normalize_path(path);
 }
 
 std::optional<std::string> find_tool(std::string_view name) {
-    const std::string exe { std::string { name } + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
+    std::error_code ignored;
+    const std::string exe { std::string { name } + std::string { os::conventions().exe_suffix } };
     const std::string binDir { base::parent_path(self_path()) };
     const std::string bucketDir { base::parent_path(binDir) };
     const std::string tripleDir { base::parent_path(bucketDir) };
-    for (const auto& bucket : platform::fs::list_directory(tripleDir)) {
+    for (const auto& bucket : base::children(tripleDir)) {
         const std::string candidate { base::join_path(base::join_path(bucket, "bin"), exe) };
-        if (platform::fs::is_regular_file(candidate)) return candidate;
+        if (std::filesystem::is_regular_file(candidate, ignored)) return candidate;
     }
     return std::nullopt;
 }
@@ -447,6 +446,11 @@ int main() {
 
     // ---- mcppls.ai.model.gateway: against the built mcppls-mock-model --------------------------
 
+    // How long the mock may take to answer initialize: these tests are about the requests, not the start. The first
+    // start of a program just built is the slow one -- on windows-2022 the dev build's mock missed ten seconds there,
+    // while every later start in the same run answered at once (runs 40685857568 and 40706226894).
+    constexpr std::chrono::seconds GATEWAY_START { 60 };
+
     "gateway: initialize and a scripted complete succeed, usage accumulates across calls"_test = [&] {
         if (!mockModel) return;
         const std::string script { write_temp_json("basic", Json::parse(R"({
@@ -456,6 +460,7 @@ int main() {
         model::GatewayOptions options;
         options.executable = *mockModel;
         options.requestTimeout = std::chrono::seconds { 10 };
+        options.initializeTimeout = GATEWAY_START;
         options.arguments = { "--script", script };
         model::GatewayClient client { options };
         auto started = client.start();
@@ -486,6 +491,7 @@ int main() {
         model::GatewayOptions options;
         options.executable = *mockModel;
         options.requestTimeout = std::chrono::seconds { 10 };
+        options.initializeTimeout = GATEWAY_START;
         options.arguments = { "--script", script };
         model::GatewayClient client { options };
         expect(fatal(client.start().has_value()));
@@ -526,7 +532,7 @@ int main() {
         model::GatewayOptions options;
         options.executable = *mockModel;
         options.requestTimeout = std::chrono::milliseconds { 300 };
-        options.initializeTimeout = std::chrono::seconds { 10 };
+        options.initializeTimeout = GATEWAY_START;
         options.arguments = { "--script", script, "--trace", trace };
         model::GatewayClient client { options };
         expect(fatal(client.start().has_value()));
@@ -544,7 +550,11 @@ int main() {
         // the `cancel` that follows; poll its content (not just its existence) for that second entry.
         base::Result<std::string> text;
         for (int i { 0 }; i < 30; ++i) {
-            text = platform::fs::read_file(trace);
+            text = [&]() -> base::Result<std::string> {
+                auto read = os::fs::read(trace);
+                if (!read) return base::fail("read-file", read.error());
+                return std::move(*read);
+            }();
             if (text && text->contains("\"cancel\"")) break;
             std::this_thread::sleep_for(std::chrono::milliseconds { 100 });
         }
@@ -559,6 +569,7 @@ int main() {
         model::GatewayOptions options;
         options.executable = *mockModel;
         options.requestTimeout = std::chrono::seconds { 10 };
+        options.initializeTimeout = GATEWAY_START;
         options.arguments = { "--script", script };
         model::GatewayClient client { options };
         expect(fatal(client.start().has_value()));
@@ -574,7 +585,7 @@ int main() {
 
     "gateway: an executable that does not exist fails start() instead of the process silently vanishing"_test = [] {
         model::GatewayOptions options;
-        options.executable = base::join_path(platform::dirs::temp_directory(), "mcppls-no-such-gateway-binary");
+        options.executable = base::join_path(base::spelled(os::dirs::temp()), "mcppls-no-such-gateway-binary");
         options.requestTimeout = std::chrono::seconds { 2 };
         model::GatewayClient client { options };
         auto started = client.start();

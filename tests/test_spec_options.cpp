@@ -2,22 +2,20 @@
 import std;
 import mcppls.testing;
 import mcppls.base.path;
-import mcppls.platform.fs;
 import mcppls.spec.database;
 import mcppls.spec.options;
-
-namespace fs = mcppls::platform::fs;
 namespace base = mcppls::base;
 namespace s = mcppls::spec;
 
 namespace {
 
 std::string repository_root() {
-    std::string directory { fs::current_directory() };
+    std::error_code ignored;
+    std::string directory { base::current_directory() };
     while (true) {
-        if (fs::is_regular_file(base::join_path(directory, "docs/specs/README.md"))) return directory;
+        if (std::filesystem::is_regular_file(base::join_path(directory, "docs/specs/README.md"), ignored)) return directory;
         const std::string parent { base::parent_path(directory) };
-        if (parent == directory) return fs::current_directory();
+        if (parent == directory) return base::current_directory();
         directory = parent;
     }
 }

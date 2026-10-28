@@ -2,12 +2,7 @@ module mcppls.project.detect;
 
 import std;
 import mcppls.base.path;
-import mcppls.platform.fs;
-
 namespace mcppls::project {
-
-namespace fs = platform::fs;
-
 std::string_view to_string(SourceKind kind) {
     switch (kind) {
     case SourceKind::build_database: return "build-database";

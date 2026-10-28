@@ -7,18 +7,15 @@ import mcppls.base.engineidentity;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.base.version;
-import mcppls.os;
 import mcppls.pack.fetch;
 import mcppls.pack.lock;
 import mcppls.pack.targets;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.platform.process;
+import mcpplibs.os;
+import mcppls.base.payload;
+import mcppls.toolrun;
 
+namespace os = mcpplibs::os;
 namespace mcppls::pack::payload {
-namespace fs = mcppls::platform::fs;
-namespace env = mcppls::platform::env;
-namespace platform = mcppls::platform;
 namespace {
 
 // An assembled payload is checked without the lock (`payload --verify` runs on a copy anywhere), so
@@ -33,7 +30,7 @@ std::string suffix(std::string_view platform) {
 
 std::string absolute_of(std::string_view path) {
     if (base::is_absolute_path(path)) return base::normalize_path(path);
-    return base::join_path(fs::current_directory(), path);
+    return base::join_path(base::current_directory(), path);
 }
 
 // shutil.copy2 (what assemble_payload.py's shutil.copytree uses for the clangd and kit trees)
@@ -66,11 +63,11 @@ base::Result<void> copy_tree(const std::string& src, const std::string& dst, std
         const std::string relative { std::filesystem::relative(entryPath, src).generic_string() };
         const std::string destination { base::join_path(dst, relative) };
         if (it->is_directory(failed)) {
-            if (auto made = fs::create_directories(destination); !made) return std::unexpected { made.error() };
+            if (std::error_code failed; !std::filesystem::create_directories(destination, failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", destination, failed.message()));
             continue;
         }
         if (!excludeName.empty() && entryPath.filename().string() == excludeName) continue;
-        if (auto made = fs::create_directories(base::parent_path(destination)); !made) return std::unexpected { made.error() };
+        if (std::error_code failed; !std::filesystem::create_directories(base::parent_path(destination), failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", base::parent_path(destination), failed.message()));
         if (auto copied = copy_one(entryPath.string(), destination); !copied) return copied;
     }
     return {};
@@ -79,7 +76,7 @@ base::Result<void> copy_tree(const std::string& src, const std::string& dst, std
 // The --from copy: assemble_payload.py's shutil.copytree(source, out, symlinks=True), which keeps
 // a symlink as a symlink and preserves every file's mode (shutil.copy2 -> copystat -> chmod). A
 // symlink is recreated with the same target rather than followed; a regular file's executable
-// bits are reapplied explicitly afterward, because mcppls.platform.fs::make_executable is the only
+// bits are reapplied explicitly afterward, because base::make_executable is the only
 // thing here that is allowed to promise a mode landed (openkal-musl's all-or-nothing report).
 base::Result<void> copy_tree_preserving_modes(const std::string& src, const std::string& dst) {
     std::error_code failed;
@@ -94,17 +91,17 @@ base::Result<void> copy_tree_preserving_modes(const std::string& src, const std:
         if (it->is_symlink(failed)) {
             const auto target = std::filesystem::read_symlink(entryPath, failed);
             if (failed) return base::fail("payload-copy", std::format("cannot read link {}: {}", entryPath.string(), failed.message()));
-            if (auto made = fs::create_directories(base::parent_path(destination)); !made) return std::unexpected { made.error() };
+            if (std::error_code failed; !std::filesystem::create_directories(base::parent_path(destination), failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", base::parent_path(destination), failed.message()));
             std::filesystem::remove(destination, failed);
             std::filesystem::create_symlink(target, destination, failed);
             if (failed) return base::fail("payload-copy", std::format("cannot link {}: {}", destination, failed.message()));
             continue;
         }
         if (it->is_directory(failed)) {
-            if (auto made = fs::create_directories(destination); !made) return std::unexpected { made.error() };
+            if (std::error_code failed; !std::filesystem::create_directories(destination, failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", destination, failed.message()));
             continue;
         }
-        if (auto made = fs::create_directories(base::parent_path(destination)); !made) return std::unexpected { made.error() };
+        if (std::error_code failed; !std::filesystem::create_directories(base::parent_path(destination), failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", base::parent_path(destination), failed.message()));
         if (auto copied = copy_one(entryPath.string(), destination); !copied) return copied;
         const auto permissions = std::filesystem::status(entryPath, failed).permissions();
         if (!failed && (permissions & (std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec |
@@ -113,18 +110,18 @@ base::Result<void> copy_tree_preserving_modes(const std::string& src, const std:
         }
     }
     if (!executables.empty()) {
-        if (auto marked = fs::make_executable(executables); !marked) return std::unexpected { marked.error() };
+        if (auto marked = base::make_executable(executables); !marked) return std::unexpected { marked.error() };
     }
     return {};
 }
 
 std::string git_output(const std::string& root, std::vector<std::string> arguments) {
-    auto git = env::find_executable("git");
+    auto git = toolrun::find_program("git");
     if (!git) return {};
-    auto result = platform::run(platform::SpawnOptions { .program = *git, .arguments = std::move(arguments), .workDirectory = root },
-                                platform::RunBounds { .hard = std::chrono::seconds { 10 } });
-    if (!result || result->exitCode != 0) return {};
-    std::string text { result->output };
+    auto result = os::process::run(os::process::spawn_options { .program = *git, .args = std::move(arguments), .cwd = root, .bound_lifetime = true },
+                                mcpplibs::os::process::bounds { .hard = std::chrono::seconds { 10 } });
+    if (!result || !result->status.success()) return {};
+    std::string text { result->out };
     while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.pop_back();
     return text;
 }
@@ -134,7 +131,7 @@ std::string git_output(const std::string& root, std::vector<std::string> argumen
 // release build from a from-source one, which a version string alone cannot do between releases).
 nlohmann::json provenance(const std::string& root) {
     nlohmann::json record;
-    record["source"] = env::get("MCPPLS_BUILD_SOURCE").value_or(std::string { "from-source" });
+    record["source"] = os::env::get("MCPPLS_BUILD_SOURCE").value_or(std::string { "from-source" });
     const auto now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
     record["builtAt"] = std::format("{:%FT%TZ}", now);
     if (const std::string commit { git_output(root, { "rev-parse", "HEAD" }) }; !commit.empty()) {
@@ -148,14 +145,14 @@ nlohmann::json provenance(const std::string& root) {
 }
 
 base::Result<std::string> run_capture(const std::string& program, std::vector<std::string> arguments) {
-    auto result = platform::run(platform::SpawnOptions { .program = program, .arguments = std::move(arguments) },
-                                platform::RunBounds {});
-    if (!result) return std::unexpected { result.error() };
-    if (result->exitCode != 0) {
-        return base::fail("payload-tool", std::format("{} exited {}\n{}", program, result->exitCode,
-                                                       platform::last_lines(result->error, 20)));
+    auto result = os::process::run(os::process::spawn_options { .program = program, .args = std::move(arguments), .bound_lifetime = true },
+                                mcpplibs::os::process::bounds {});
+    if (!result) return base::fail("spawn-failed", result.error());
+    if (!result->status.success()) {
+        return base::fail("payload-tool", std::format("{} exited {}\n{}", program, toolrun::exit_code(result->status),
+                                                       base::last_lines(result->err, 20)));
     }
-    return std::move(result->output);
+    return std::move(result->out);
 }
 
 constexpr std::array<std::string_view, 8> EXECUTABLE_MAGIC {
@@ -219,25 +216,35 @@ std::vector<std::string> kit_problems(const std::string& kitDir, const nlohmann:
 } // namespace
 
 base::Result<std::string> assemble(const AssembleOptions& options, const lock::Lock& lockData) {
+    std::error_code ignored;
     if (!known_platform(options.platform)) return base::fail("payload-platform", std::format("unknown platform {}", options.platform));
     if (auto listed = lock::platform(lockData, options.platform); !listed) return std::unexpected { listed.error() };
-    if (!fs::is_regular_file(options.serverPath)) {
+    const bool image { !options.serverImage.empty() };
+    if (image) {
+        if (!std::filesystem::is_regular_file(options.serverImage, ignored)) {
+            return base::fail("payload-missing", std::format("--server-image {} does not exist", options.serverImage));
+        }
+        if (!std::filesystem::is_regular_file(options.serverRunner, ignored)) {
+            return base::fail("payload-missing", std::format("--server-runner {} does not exist: an image needs the loader of {}",
+                                                              options.serverRunner, options.platform));
+        }
+    } else if (!std::filesystem::is_regular_file(options.serverPath, ignored)) {
         return base::fail("payload-missing", std::format("--server {} does not exist", options.serverPath));
     }
-    if (!fs::is_directory(options.clangdDirectory)) {
+    if (!std::filesystem::is_directory(options.clangdDirectory, ignored)) {
         return base::fail("payload-missing", std::format("--clangd {} does not exist", options.clangdDirectory));
     }
-    if (!fs::is_directory(options.kitDirectory)) {
+    if (!std::filesystem::is_directory(options.kitDirectory, ignored)) {
         return base::fail("payload-missing", std::format("--kit {} does not exist", options.kitDirectory));
     }
     const std::string kitJsonPath { base::join_path(options.kitDirectory, "kit.json") };
-    if (!fs::is_regular_file(kitJsonPath)) {
+    if (!std::filesystem::is_regular_file(kitJsonPath, ignored)) {
         return base::fail("payload-missing", std::format("{} has no kit.json", options.kitDirectory));
     }
     nlohmann::json kit;
     {
-        auto text = fs::read_file(kitJsonPath);
-        if (!text) return std::unexpected { text.error() };
+        auto text = os::fs::read(kitJsonPath);
+        if (!text) return base::fail("read-file", text.error());
         try {
             kit = nlohmann::json::parse(*text);
         } catch (const std::exception& error) {
@@ -246,7 +253,7 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
     }
     const std::string exe { suffix(options.platform) };
     const std::string clangdBinary { base::join_path(options.clangdDirectory, "bin/clangd" + exe) };
-    if (!fs::is_regular_file(clangdBinary)) {
+    if (!std::filesystem::is_regular_file(clangdBinary, ignored)) {
         return base::fail("payload-missing", std::format("{} has no bin/clangd{}; is it trimmed for {}?",
                                                           options.clangdDirectory, exe, options.platform));
     }
@@ -255,7 +262,7 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
     nlohmann::json identity;
     const std::string identityPath { base::join_path(options.clangdDirectory, "engine.json") };
     const bool maintained { base::llvm_base_version(lockData.clangdVersion) != lockData.clangdVersion };
-    if (auto identityText = fs::read_file(identityPath)) {
+    if (auto identityText = os::fs::read(identityPath)) {
         identity = nlohmann::json::parse(*identityText, nullptr, false);
         auto decoded = base::decode_engine_identity(identity);
         auto digest = fetch::digest_of(clangdBinary);
@@ -273,25 +280,34 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
     }
 
     const std::string out { absolute_of(options.outDirectory) };
-    if (fs::exists(out)) fs::remove_all(out);
-    if (auto made = fs::create_directories(base::join_path(out, "bin")); !made) return std::unexpected { made.error() };
+    if (std::filesystem::exists(out, ignored)) std::filesystem::remove_all(out, ignored);
+    if (std::error_code failed; !std::filesystem::create_directories(base::join_path(out, "bin"), failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", base::join_path(out, "bin"), failed.message()));
 
-    const std::string serverTarget { base::join_path(out, "bin/mcppls" + exe) };
-    if (auto copied = copy_one(options.serverPath, serverTarget); !copied) return std::unexpected { copied.error() };
-    if (auto marked = fs::make_executable(std::vector<std::string> { serverTarget }); !marked) return std::unexpected { marked.error() };
+    const std::string serverRelative { image ? std::string { "bin/mcppls.okb" } : "bin/mcppls" + exe };
+    const std::string runnerRelative { "bin/okrun" + exe };
+    if (image) {
+        if (auto copied = copy_one(options.serverImage, base::join_path(out, serverRelative)); !copied) return std::unexpected { copied.error() };
+        const std::string runnerTarget { base::join_path(out, runnerRelative) };
+        if (auto copied = copy_one(options.serverRunner, runnerTarget); !copied) return std::unexpected { copied.error() };
+        if (auto marked = base::make_executable(std::vector<std::string> { runnerTarget }); !marked) return std::unexpected { marked.error() };
+    } else {
+        const std::string serverTarget { base::join_path(out, serverRelative) };
+        if (auto copied = copy_one(options.serverPath, serverTarget); !copied) return std::unexpected { copied.error() };
+        if (auto marked = base::make_executable(std::vector<std::string> { serverTarget }); !marked) return std::unexpected { marked.error() };
+    }
 
     if (auto copied = copy_tree(options.clangdDirectory, base::join_path(out, "clangd"), "LICENSE.TXT"); !copied) return std::unexpected { copied.error() };
-    if (auto marked = fs::make_executable(std::vector<std::string> { base::join_path(out, "clangd/bin/clangd" + exe) }); !marked) {
+    if (auto marked = base::make_executable(std::vector<std::string> { base::join_path(out, "clangd/bin/clangd" + exe) }); !marked) {
         return std::unexpected { marked.error() };
     }
     if (auto copied = copy_tree(options.kitDirectory, base::join_path(out, "kit"), ""); !copied) return std::unexpected { copied.error() };
 
-    if (auto made = fs::create_directories(base::join_path(out, "licenses")); !made) return std::unexpected { made.error() };
+    if (std::error_code failed; !std::filesystem::create_directories(base::join_path(out, "licenses"), failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", base::join_path(out, "licenses"), failed.message()));
     if (auto copied = copy_one(base::join_path(options.repositoryRoot, "LICENSE"), base::join_path(out, "licenses/mcppls-LICENSE.txt")); !copied) {
         return std::unexpected { copied.error() };
     }
     const std::string clangdLicense { base::join_path(options.clangdDirectory, "LICENSE.TXT") };
-    if (!fs::is_regular_file(clangdLicense)) {
+    if (!std::filesystem::is_regular_file(clangdLicense, ignored)) {
         return base::fail("payload-missing", std::format("{} has no LICENSE.TXT", options.clangdDirectory));
     }
     if (auto copied = copy_one(clangdLicense, base::join_path(out, "licenses/LLVM-LICENSE.TXT")); !copied) return std::unexpected { copied.error() };
@@ -315,7 +331,8 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
     nlohmann::json manifest;
     manifest["payload-version"] = identity.is_object() ? IDENTIFIED_PAYLOAD_VERSION : PAYLOAD_VERSION;
     manifest["platform"] = options.platform;
-    manifest["server"] = { { "version", serverVersion }, { "path", "bin/mcppls" + exe } };
+    manifest["server"] = { { "version", serverVersion }, { "path", serverRelative } };
+    if (image) manifest["server"]["runner"] = runnerRelative;
     manifest["clangd"] = { { "version", engineVersion }, { "path", "clangd/bin/clangd" + exe } };
     manifest["kit"] = kitEntry;
     manifest["engines"] = { { "clangd", { { "version", engineVersion }, { "path", "clangd/bin/clangd" + exe }, { "kit", kitEntry } } } };
@@ -323,13 +340,13 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
     manifest["files"] = files;
     manifest["build"] = provenance(options.repositoryRoot);
 
-    if (auto written = fs::write_file(base::join_path(out, "payload.json"), manifest.dump(2) + "\n"); !written) {
-        return std::unexpected { written.error() };
+    if (auto written = os::fs::write(base::join_path(out, "payload.json"), manifest.dump(2) + "\n"); !written) {
+        return base::fail("write-file", written.error());
     }
 
     // Only when this host can actually run what it just assembled: a cross-assembled payload's
     // clangd cannot be started here to ask it, and asking would be the wrong question anyway.
-    if (options.platform == mcppls::os::PLATFORM) {
+    if (options.platform == base::payload_platform()) {
         auto reported = run_capture(base::join_path(out, "clangd/bin/clangd" + exe), { "--version" });
         if (!reported) return std::unexpected { reported.error() };
         const std::string_view report { *reported };
@@ -344,12 +361,14 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
 }
 
 std::vector<std::string> verify(std::string_view payloadDirectory) {
+    std::error_code ignored;
     std::vector<std::string> problems;
     const std::string dir { payloadDirectory };
 
     auto needFile = [&](std::string_view relative, std::string_view what) -> std::optional<std::string> {
+        std::error_code ignored;
         const std::string path { base::join_path(dir, relative) };
-        if (!fs::is_regular_file(path)) {
+        if (!std::filesystem::is_regular_file(path, ignored)) {
             problems.push_back(std::format("{} is missing: {}", what, relative));
             return std::nullopt;
         }
@@ -357,9 +376,9 @@ std::vector<std::string> verify(std::string_view payloadDirectory) {
     };
 
     const std::string manifestPath { base::join_path(dir, "payload.json") };
-    if (!fs::is_regular_file(manifestPath)) return { std::format("payload.json is missing in {}", dir) };
-    auto text = fs::read_file(manifestPath);
-    if (!text) return { std::format("cannot read {}: {}", manifestPath, text.error().message) };
+    if (!std::filesystem::is_regular_file(manifestPath, ignored)) return { std::format("payload.json is missing in {}", dir) };
+    auto text = os::fs::read(manifestPath);
+    if (!text) return { std::format("cannot read {}: {}", manifestPath, text.error().message()) };
     nlohmann::json manifest;
     try {
         manifest = nlohmann::json::parse(*text);
@@ -378,15 +397,33 @@ std::vector<std::string> verify(std::string_view payloadDirectory) {
     }
     const std::string exe { suffix(platform) };
 
-    for (const auto& [part, expected] : std::vector<std::pair<std::string, std::string>> {
-             { "server", "bin/mcppls" + exe }, { "clangd", "clangd/bin/clangd" + exe } }) {
-        const auto entry = manifest.value(part, nlohmann::json::object());
-        const std::string path { entry.value("path", std::string {}) };
-        if (path != expected) problems.push_back(std::format("{}.path is {}, expected {}", part, path, expected));
-        if (entry.value("version", std::string {}).empty()) problems.push_back(std::format("{}.version is empty", part));
+    // The server is a program of the platform, or an image with the platform's loader beside it.
+    const bool image { manifest.value("server", nlohmann::json::object()).contains("runner") };
+    std::vector<std::pair<std::string, std::string>> programs { { "clangd", "clangd/bin/clangd" + exe } };
+    if (image) {
+        const auto server = manifest.value("server", nlohmann::json::object());
+        if (server.value("path", std::string {}) != "bin/mcppls.okb") {
+            problems.push_back(std::format("server.path is {}, expected bin/mcppls.okb beside a runner", server.value("path", std::string {})));
+        }
+        if (server.value("version", std::string {}).empty()) problems.emplace_back("server.version is empty");
+        needFile("bin/mcppls.okb", "server image");
+        if (server.value("runner", std::string {}) != "bin/okrun" + exe) {
+            problems.push_back(std::format("server.runner is {}, expected bin/okrun{}", server.value("runner", std::string {}), exe));
+        }
+    } else {
+        programs.insert(programs.begin(), { "server", "bin/mcppls" + exe });
+    }
+    if (image) programs.emplace_back("runner", "bin/okrun" + exe);
+    for (const auto& [part, expected] : programs) {
+        const auto entry = part == "runner" ? nlohmann::json::object() : manifest.value(part, nlohmann::json::object());
+        if (part != "runner") {
+            const std::string path { entry.value("path", std::string {}) };
+            if (path != expected) problems.push_back(std::format("{}.path is {}, expected {}", part, path, expected));
+            if (entry.value("version", std::string {}).empty()) problems.push_back(std::format("{}.version is empty", part));
+        }
         auto found = needFile(expected, part);
         if (found && suffix(platform).empty()) {
-            if constexpr (mcppls::os::FAMILY != mcppls::os::Family::windows) {
+            if (os::host() != os::platform::windows) {
                 const auto permissions = std::filesystem::status(*found).permissions();
                 const auto anyExec = std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec;
                 if ((permissions & anyExec) == std::filesystem::perms::none) problems.push_back(std::format("{} is not executable", expected));
@@ -421,7 +458,7 @@ std::vector<std::string> verify(std::string_view payloadDirectory) {
     }
     auto kitJsonPath = needFile("kit/kit.json", "kit manifest");
     if (kitJsonPath) {
-        auto kitText = fs::read_file(*kitJsonPath);
+        auto kitText = os::fs::read(*kitJsonPath);
         nlohmann::json kit;
         bool parsed { false };
         if (kitText) {
@@ -432,7 +469,7 @@ std::vector<std::string> verify(std::string_view payloadDirectory) {
                 problems.push_back(std::format("{} does not parse", *kitJsonPath));
             }
         } else {
-            problems.push_back(std::format("cannot read {}: {}", *kitJsonPath, kitText.error().message));
+            problems.push_back(std::format("cannot read {}: {}", *kitJsonPath, kitText.error().message()));
         }
         if (parsed) {
             const std::string kitDir { base::parent_path(*kitJsonPath) };
@@ -445,29 +482,29 @@ std::vector<std::string> verify(std::string_view payloadDirectory) {
             }
             for (const auto& directory : kit.value("system-include-directories", nlohmann::json::array())) {
                 if (!directory.is_string()) continue;
-                if (!fs::is_directory(base::join_path(kitDir, directory.get<std::string>()))) {
+                if (!std::filesystem::is_directory(base::join_path(kitDir, directory.get<std::string>()), ignored)) {
                     problems.push_back(std::format("kit include directory is missing: {}", directory.get<std::string>()));
                 }
             }
             const auto sysrootField = kit.find("sysroot");
             if (const std::string sysroot { (sysrootField != kit.end() && sysrootField->is_string()) ? sysrootField->get<std::string>() : std::string {} };
                 !sysroot.empty()) {
-                if (!fs::is_directory(base::join_path(kitDir, sysroot))) {
+                if (!std::filesystem::is_directory(base::join_path(kitDir, sysroot), ignored)) {
                     problems.push_back(std::format("kit sysroot is missing: {}", sysroot));
                 }
             }
             for (const auto& licenseFile : kit.value("licenses", nlohmann::json::array())) {
                 if (!licenseFile.is_string()) continue;
-                if (!fs::is_regular_file(base::join_path(kitDir, licenseFile.get<std::string>()))) {
+                if (!std::filesystem::is_regular_file(base::join_path(kitDir, licenseFile.get<std::string>()), ignored)) {
                     problems.push_back(std::format("kit license is missing: {}", licenseFile.get<std::string>()));
                 }
             }
             const std::string metadata { kit.value("stdlib", nlohmann::json::object()).value("module-metadata", std::string {}) };
             const std::string metadataPath { base::join_path(kitDir, metadata) };
-            if (!fs::is_regular_file(metadataPath)) {
+            if (!std::filesystem::is_regular_file(metadataPath, ignored)) {
                 problems.push_back(std::format("kit module manifest is missing: {}", metadata));
             } else {
-                auto metadataText = fs::read_file(metadataPath);
+                auto metadataText = os::fs::read(metadataPath);
                 nlohmann::json metadataJson;
                 bool metadataParsed { false };
                 if (metadataText) {
@@ -484,13 +521,13 @@ std::vector<std::string> verify(std::string_view payloadDirectory) {
                     for (const auto& module : metadataJson.value("modules", nlohmann::json::array())) {
                         names.insert(module.value("logical-name", std::string {}));
                         const std::string sourcePath { module.value("source-path", std::string {}) };
-                        if (!fs::is_regular_file(base::join_path(base_, sourcePath))) {
+                        if (!std::filesystem::is_regular_file(base::join_path(base_, sourcePath), ignored)) {
                             problems.push_back(std::format("module {} source is missing: {}", module.value("logical-name", std::string {}), sourcePath));
                         }
                         const auto localArguments = module.value("local-arguments", nlohmann::json::object());
                         for (const auto& directory : localArguments.value("system-include-directories", nlohmann::json::array())) {
                             if (!directory.is_string()) continue;
-                            if (!fs::is_directory(base::join_path(base_, directory.get<std::string>()))) {
+                            if (!std::filesystem::is_directory(base::join_path(base_, directory.get<std::string>()), ignored)) {
                                 problems.push_back(std::format("module {} include directory is missing: {}",
                                                                module.value("logical-name", std::string {}), directory.get<std::string>()));
                             }
@@ -551,13 +588,14 @@ std::vector<std::string> verify(std::string_view payloadDirectory) {
 }
 
 base::Result<std::string> copy_from(std::string_view source, std::string_view out) {
+    std::error_code ignored;
     const std::string sourceAbsolute { absolute_of(source) };
     const std::string outAbsolute { absolute_of(out) };
-    if (!fs::is_regular_file(base::join_path(sourceAbsolute, "payload.json"))) {
+    if (!std::filesystem::is_regular_file(base::join_path(sourceAbsolute, "payload.json"), ignored)) {
         return base::fail("payload-missing", std::format("{} is not a payload (no payload.json)", sourceAbsolute));
     }
     if (!base::same_path(sourceAbsolute, outAbsolute)) {
-        fs::remove_all(outAbsolute);
+        std::filesystem::remove_all(outAbsolute, ignored);
         if (auto copied = copy_tree_preserving_modes(sourceAbsolute, outAbsolute); !copied) return std::unexpected { copied.error() };
     }
     auto problems = verify(outAbsolute);

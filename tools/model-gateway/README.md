@@ -20,9 +20,11 @@ PROTOCOL.md for the full method list, error codes and configuration.
 
 ## Build form
 
-On openkal, like every other program in this repository: LLVM 22.1.8 with
-`openkal-llvm-runtime` (openkal beneath musl, libc++ above it), one source for
-every target, cross-built from Linux (`.agents/docs/design.md` §2.2).
+On openkal, like every other program in this repository: the workspace's
+platform, openkal-platform 0.17.3, states LLVM 23.1.3, openkal-musl and
+openkal-llvm-runtime (openkal beneath musl, libc++ above it) for every target, so
+one source builds every target, cross-built from Linux (`.agents/docs/design.md`
+§2.2), and this member declares none of them.
 
 The package is a workspace member, so its third-party versions come from the
 root `mcpp.toml`'s `[workspace.dependencies]` and cannot drift from the
@@ -109,7 +111,7 @@ error paths need a provider that misbehaves on command, which no real one
 offers to do). `tests/test_gateway.cpp` holds both halves:
 
 - **A mock provider**: an OpenAI-compatible `POST /v1/chat/completions` on
-  `127.0.0.1`, port chosen by the system (`mcppls.platform.net`). The reply is
+  `127.0.0.1`, port chosen by the system (mcpplibs.os `net`). The reply is
   chosen by the last user message: `plain`, `json-ok`, `json-bad`, `http-500`,
   `slow` (answers after 4 s, for the cancel check).
 - **The gateway under test is the test binary itself**, started again with

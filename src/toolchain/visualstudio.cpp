@@ -4,8 +4,6 @@ import std;
 import nlohmann.json;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.fs;
-
 namespace mcppls::toolchain::visualstudio {
 
 namespace {
@@ -57,12 +55,13 @@ std::string vs_root_of_bundled_clang(std::string_view driverPath) {
 }
 
 std::optional<Installation> installation_of_tools(std::string_view toolsDirectory) {
+    std::error_code ignored;
     const std::string directory { base::normalize_path(without_trailing_separator(toolsDirectory)) };
-    if (directory.empty() || !platform::fs::is_directory(base::join_path(directory, "include"))) return std::nullopt;
+    if (directory.empty() || !std::filesystem::is_directory(base::join_path(directory, "include"), ignored)) return std::nullopt;
     Installation installation;
     installation.toolsDirectory = directory;
     installation.toolsVersion = std::string { base::file_name(directory) };
-    installation.hasStdModules = platform::fs::is_regular_file(base::join_path(directory, "modules/std.ixx"));
+    installation.hasStdModules = std::filesystem::is_regular_file(base::join_path(directory, "modules/std.ixx"), ignored);
     // <vsRoot>/VC/Tools/MSVC/<version>
     const std::string msvc { base::parent_path(directory) };
     const std::string tools { base::parent_path(msvc) };
@@ -75,7 +74,7 @@ std::optional<Installation> installation_of_tools(std::string_view toolsDirector
 
 std::optional<Installation> installation_at(std::string_view vsRoot) {
     std::optional<Installation> best;
-    for (const auto& candidate : platform::fs::list_directory(base::join_path(base::normalize_path(vsRoot), "VC/Tools/MSVC"))) {
+    for (const auto& candidate : base::children(base::join_path(base::normalize_path(vsRoot), "VC/Tools/MSVC"))) {
         auto installation = installation_of_tools(candidate);
         if (!installation) continue;
         if (!best || (installation->hasStdModules && !best->hasStdModules)
@@ -87,13 +86,14 @@ std::optional<Installation> installation_at(std::string_view vsRoot) {
 }
 
 std::optional<std::string> newest_sdk_version(std::string_view sdkRoot) {
+    std::error_code ignored;
     std::optional<std::string> best;
     const std::string root { base::normalize_path(without_trailing_separator(sdkRoot)) };
-    for (const auto& include : platform::fs::list_directory(base::join_path(root, "Include"))) {
+    for (const auto& include : base::children(base::join_path(root, "Include"))) {
         const std::string version { base::file_name(include) };
         if (version_parts(version).empty()) continue;
-        if (!platform::fs::is_regular_file(base::join_path(include, "ucrt/corecrt.h"))) continue;
-        if (!platform::fs::is_regular_file(base::join_path(root, std::format("Lib/{}/um/x64/kernel32.lib", version)))) continue;
+        if (!std::filesystem::is_regular_file(base::join_path(include, "ucrt/corecrt.h"), ignored)) continue;
+        if (!std::filesystem::is_regular_file(base::join_path(root, std::format("Lib/{}/um/x64/kernel32.lib", version)), ignored)) continue;
         if (!best || newer(version, *best)) best = version;
     }
     return best;
@@ -119,6 +119,7 @@ std::string compatibility_version(std::string_view toolsVersion) {
 }
 
 std::optional<Installation> discover(const DiscoveryInputs& inputs) {
+    std::error_code ignored;
     auto environment = [&](std::string_view name) -> std::string {
         if (!inputs.environment) return {};
         return without_trailing_separator(inputs.environment(name).value_or(""));
@@ -133,7 +134,7 @@ std::optional<Installation> discover(const DiscoveryInputs& inputs) {
             installation = installation_at(vsRoot);
         }
     }
-    if (!installation && inputs.run && platform::fs::is_regular_file(inputs.vswhere)) {
+    if (!installation && inputs.run && std::filesystem::is_regular_file(inputs.vswhere, ignored)) {
         const std::vector<std::string> argv { inputs.vswhere, "-products", "*", "-prerelease", "-requires",
                                               "Microsoft.VisualStudio.Component.VC.Tools.x86.x64", "-format", "json", "-utf8" };
         if (auto output = inputs.run(argv)) {
@@ -152,7 +153,7 @@ std::optional<Installation> discover(const DiscoveryInputs& inputs) {
     const std::string declaredSdk { environment("WindowsSdkDir") };
     const std::string declaredVersion { environment("WindowsSDKVersion") };
     if (!declaredSdk.empty() && !declaredVersion.empty()
-        && platform::fs::is_regular_file(base::join_path(declaredSdk, std::format("Include/{}/ucrt/corecrt.h", declaredVersion)))) {
+        && std::filesystem::is_regular_file(base::join_path(declaredSdk, std::format("Include/{}/ucrt/corecrt.h", declaredVersion)), ignored)) {
         installation->sdkRoot = base::normalize_path(declaredSdk);
         installation->sdkVersion = declaredVersion;
     } else if (auto version = newest_sdk_version(declaredSdk.empty() ? inputs.defaultSdkRoot : declaredSdk)) {

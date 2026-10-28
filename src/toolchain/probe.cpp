@@ -5,12 +5,12 @@ import nlohmann.json;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.process;
-import mcppls.platform.toolrun;
-import mcppls.platform.env;
-import mcppls.platform.fs;
 import mcppls.spec.database;
 import mcppls.toolchain.visualstudio;
+import mcpplibs.os;
+import mcppls.toolrun;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::toolchain {
 
@@ -34,11 +34,11 @@ base::Result<std::string> query(const Runner& runner, std::string_view driver, s
     for (const auto argument : extra) argv.emplace_back(argument);
     auto result = runner(argv);
     if (!result) return std::unexpected { result.error() };
-    if (result->timedOut) return base::fail("probe-timeout", std::format("{} did not answer", driver));
-    if (result->exitCode != 0) {
-        return base::fail("probe-failed", std::format("{} exited with {}: {}", driver, result->exitCode, first_line(result->error)));
+    if (result->timed_out) return base::fail("probe-timeout", std::format("{} did not answer", driver));
+    if (!result->status.success()) {
+        return base::fail("probe-failed", std::format("{} exited with {}: {}", driver, toolrun::exit_code(result->status), first_line(result->err)));
     }
-    return std::string { base::trim(result->output) };
+    return std::string { base::trim(result->out) };
 }
 
 // "clang version 22.1.8 (https://github.com/llvm/llvm-project ca7933e47d3a...)" and friends.
@@ -81,6 +81,7 @@ std::optional<spec::Stdlib> stdlib_from_manifest(std::string_view manifest) {
 
 // <prefix>/include/c++/v1 among the arguments -> <prefix>/lib[/<target>]/libc++.modules.json when it exists.
 std::optional<std::string> manifest_from_include_paths(std::span<const std::string> arguments, std::string_view target) {
+    std::error_code ignored;
     for (std::size_t i { 0 }; i < arguments.size(); ++i) {
         std::string_view value { arguments[i] };
         if (value == "-isystem" || value == "-I") {
@@ -99,11 +100,11 @@ std::optional<std::string> manifest_from_include_paths(std::span<const std::stri
         std::vector<std::string> candidates;
         if (!target.empty()) candidates.push_back(base::join_path(prefix, std::format("lib/{}/libc++.modules.json", target)));
         candidates.push_back(base::join_path(prefix, "lib/libc++.modules.json"));
-        for (const auto& child : platform::fs::list_directory(base::join_path(prefix, "lib"))) {
+        for (const auto& child : base::children(base::join_path(prefix, "lib"))) {
             candidates.push_back(base::join_path(child, "libc++.modules.json"));
         }
         for (const auto& candidate : candidates) {
-            if (platform::fs::is_regular_file(candidate)) return candidate;
+            if (std::filesystem::is_regular_file(candidate, ignored)) return candidate;
         }
     }
     return std::nullopt;
@@ -111,15 +112,16 @@ std::optional<std::string> manifest_from_include_paths(std::span<const std::stri
 
 // Visual Studio facts for a driver that targets the MSVC ABI: toolset, SDK and the MSVC STL manifest.
 void apply_visual_studio(std::string_view driver, const Runner& runner, ToolchainFacts& facts) {
+    std::error_code ignored;
     visualstudio::DiscoveryInputs inputs;
-    inputs.environment = [](std::string_view name) { return platform::env::get(name); };
+    inputs.environment = [](std::string_view name) { return os::env::get(name); };
     inputs.run = [&runner](std::span<const std::string> argv) -> std::optional<std::string> {
         auto result = runner(argv);
-        if (!result || result->timedOut || result->exitCode != 0) return std::nullopt;
-        return result->output;
+        if (!result || result->timed_out || !result->status.success()) return std::nullopt;
+        return result->out;
     };
     // CMake records cl.exe under its short name (C:/PROGRA~1/...); derivations need the long one.
-    inputs.recordedDriver = platform::fs::canonical_path(driver);
+    inputs.recordedDriver = base::canonical_path(driver);
     const auto installation = visualstudio::discover(inputs);
     if (!installation) {
         facts.problems.push_back("Visual Studio with the C++ tools was not found");
@@ -128,7 +130,7 @@ void apply_visual_studio(std::string_view driver, const Runner& runner, Toolchai
     facts.msvc = MsvcEnvironment { installation->toolsDirectory, installation->toolsVersion, installation->sdkRoot, installation->sdkVersion };
     const std::string manifest { base::join_path(installation->toolsDirectory, "modules/modules.json") };
     facts.toolchain.stdlib = spec::Stdlib { "msvc-stl", installation->toolsVersion,
-                                            platform::fs::is_regular_file(manifest) ? manifest : std::string {} };
+                                            std::filesystem::is_regular_file(manifest, ignored) ? manifest : std::string {} };
     if (facts.msCompatibilityVersion.empty()) facts.msCompatibilityVersion = visualstudio::compatibility_version(installation->toolsVersion);
 }
 
@@ -157,8 +159,8 @@ void probe_clang(std::string_view driver, std::span<const std::string> relevant,
     std::vector<std::string> argv { std::string { driver } };
     for (const auto& argument : relevant) argv.push_back(argument);
     argv.emplace_back("--version");
-    if (auto result = runner(argv); result && !result->timedOut) {
-        parse_clang_version(result->output, facts);
+    if (auto result = runner(argv); result && !result->timed_out) {
+        parse_clang_version(result->out, facts);
     } else {
         facts.problems.push_back(result ? "the driver did not answer --version" : result.error().message);
     }
@@ -189,9 +191,9 @@ void probe_msvc(std::string_view driver, std::span<const std::string> relevant, 
         std::vector<std::string> argv { normalized };
         argv.insert(argv.end(), relevant.begin(), relevant.end());
         argv.emplace_back("--version");
-        if (auto result = runner(argv); result && !result->timedOut) {
-            parse_clang_version(result->output, facts);
-            for (auto line : base::split_lines(result->output)) {
+        if (auto result = runner(argv); result && !result->timed_out) {
+            parse_clang_version(result->out, facts);
+            for (auto line : base::split_lines(result->out)) {
                 line = base::trim(line);
                 if (line.starts_with("Target:")) facts.toolchain.target = std::string { base::trim(line.substr(7)) };
             }
@@ -199,8 +201,8 @@ void probe_msvc(std::string_view driver, std::span<const std::string> relevant, 
     } else {
         // cl.exe prints its banner to standard error when started without arguments.
         std::vector<std::string> argv { normalized };
-        if (auto result = runner(argv); result && !result->timedOut) {
-            const std::string banner { result->error + result->output };
+        if (auto result = runner(argv); result && !result->timed_out) {
+            const std::string banner { result->err + result->out };
             const std::size_t marker { banner.find("Version ") };
             if (marker != std::string::npos) {
                 const std::string_view rest { std::string_view { banner }.substr(marker + 8) };
@@ -217,16 +219,16 @@ void probe_msvc(std::string_view driver, std::span<const std::string> relevant, 
 } // namespace
 
 Runner process_runner(std::chrono::milliseconds timeout) {
-    return [timeout](std::span<const std::string> argv) -> base::Result<platform::RunResult> {
+    return [timeout](std::span<const std::string> argv) -> base::Result<mcpplibs::os::process::bounded_output> {
         if (argv.empty()) return base::fail("probe-command", "empty command");
         // A compiler is an external program like any other: the user's environment, a bound that
         // ends the unit, and a record of what it cost (design 4.2). `sccache` starts a server on
         // its first run and that server inherits the pipe, which is this bound's reason to exist.
-        return platform::toolrun::run({
+        return mcppls::toolrun::run({
             .program = std::string { argv.front() },
             .arguments = { argv.begin() + 1, argv.end() },
             .purpose = "toolchain",
-            .bounds = platform::RunBounds { .hard = timeout },
+            .bounds = mcpplibs::os::process::bounds { .hard = timeout },
         });
     };
 }
@@ -358,15 +360,15 @@ std::optional<ToolchainFacts> facts_from_json(const nlohmann::json& value) {
 }
 
 ProbeCache::ProbeCache(std::string path) : path_ { std::move(path) } {
-    if (auto text = platform::fs::read_file(path_)) {
+    if (auto text = os::fs::read(path_)) {
         nlohmann::json document = nlohmann::json::parse(*text, nullptr, false);
         if (!document.is_discarded() && document.is_object()) entries_ = std::move(document);
     }
 }
 
 std::string ProbeCache::key_(std::string_view driverPath, std::span<const std::string> relevantArguments) const {
-    const auto stamp = platform::fs::stamp(driverPath);
-    std::string key { std::format("{}|{}|{}", driverPath, stamp ? stamp->size : 0, stamp ? stamp->modified : 0) };
+    const auto stamp = base::file_stamp(driverPath);
+    std::string key { std::format("{}|{}|{}", driverPath, stamp ? stamp->size : 0, stamp ? static_cast<std::int64_t>(stamp->modified_ns) : 0) };
     for (const auto& argument : relevantArguments) key += "|" + argument;
     return key;
 }
@@ -384,10 +386,11 @@ void ProbeCache::store(std::string_view driverPath, std::span<const std::string>
 }
 
 void ProbeCache::save() {
+    std::error_code ignored;
     std::lock_guard lock { mutex_ };
     if (path_.empty()) return;
-    (void)platform::fs::create_directories(base::parent_path(path_));
-    (void)platform::fs::write_file_atomic(path_, entries_.dump(1));
+    (void)std::filesystem::create_directories(base::parent_path(path_), ignored);
+    (void)os::fs::write_atomic(path_, entries_.dump(1));
 }
 
 base::Result<ToolchainFacts> probe_cached(std::string_view driverPath, std::span<const std::string> relevantArguments,

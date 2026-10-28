@@ -10,6 +10,7 @@ import mcppls.toolchain.probe;
 import mcppls.project.detect;
 import mcppls.project.infer;
 import mcppls.project.target;
+import mcppls.base.home;
 
 export namespace mcppls::project {
 
@@ -51,7 +52,7 @@ struct LoadOptions {
     std::string configuredDatabase;
     std::string compilerOverride;             // mcppls.compiler; "kit" forces the semantic kit
     std::string mcppExecutable;               // the producer for mcpp projects; empty: found on PATH
-    std::string homeDirectory;                // empty: platform::dirs::home_directory() (a test override otherwise)
+    std::string homeDirectory;                // empty: base::home_directory() (a test override otherwise)
     bool discoverCompilers { true };          // false: loose sources use the kit
     const spec::Kit* kit { nullptr };
     toolchain::Runner runner;

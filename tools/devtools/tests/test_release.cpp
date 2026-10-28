@@ -5,29 +5,31 @@
 import std;
 import mcppls.testing;
 import mcppls.base.path;
-import mcppls.platform.fs;
-import mcppls.platform.dirs;
 import mcppls.pack.archive;
 import mcppls.devtools.release;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace release = mcppls::devtools::release;
 namespace ar = mcppls::pack::archive;
-namespace fs = mcppls::platform::fs;
 namespace base = mcppls::base;
 
 namespace {
 
 std::string scratch(std::string_view name) {
+    std::error_code ignored;
     const std::string directory { base::join_path(
-        mcppls::platform::dirs::temp_directory(),
+        base::spelled(os::dirs::temp()),
         std::format("mcppls-test-devtools-release-{}-{}", name, std::chrono::steady_clock::now().time_since_epoch().count())) };
-    (void) fs::create_directories(directory);
+    (void)std::filesystem::create_directories(directory, ignored);
     return directory;
 }
 
 void write(const std::string& path, std::string_view content) {
-    (void) fs::create_directories(base::parent_path(path));
-    (void) fs::write_file(path, content);
+    std::error_code ignored;
+    (void)std::filesystem::create_directories(base::parent_path(path), ignored);
+    (void) os::fs::write(path, content);
 }
 
 constexpr std::string_view RELEASE_MANIFEST = R"({
@@ -43,13 +45,14 @@ constexpr std::string_view RELEASE_MANIFEST = R"({
 // One payload-<platform>.tar.gz, shaped like CI's real one: a top-level `payload/` directory
 // holding bin/<exeName> and a two-file kit/.
 std::string make_payload_tarball(const std::string& directory, std::string_view platformTarget, std::string_view exeName) {
+    std::error_code ignored;
     const std::string sourceDir { base::join_path(directory, std::format("payload-source-{}", platformTarget)) };
-    (void) fs::create_directories(base::join_path(sourceDir, "bin"));
-    (void) fs::create_directories(base::join_path(sourceDir, "kit"));
-    (void) fs::write_file(base::join_path(sourceDir, std::format("bin/{}", exeName)), "ELF-ish server bytes");
-    (void) fs::make_executable(std::array { base::join_path(sourceDir, std::format("bin/{}", exeName)) });
-    (void) fs::write_file(base::join_path(sourceDir, "kit/kit.json"), R"({"kit-version": 1})");
-    (void) fs::write_file(base::join_path(sourceDir, "kit/module.pcm"), "pcm-bytes");
+    (void)std::filesystem::create_directories(base::join_path(sourceDir, "bin"), ignored);
+    (void)std::filesystem::create_directories(base::join_path(sourceDir, "kit"), ignored);
+    (void) os::fs::write(base::join_path(sourceDir, std::format("bin/{}", exeName)), "ELF-ish server bytes");
+    (void) base::make_executable(std::array { base::join_path(sourceDir, std::format("bin/{}", exeName)) }).has_value();
+    (void) os::fs::write(base::join_path(sourceDir, "kit/kit.json"), R"({"kit-version": 1})");
+    (void) os::fs::write(base::join_path(sourceDir, "kit/module.pcm"), "pcm-bytes");
 
     const std::string tarball { base::join_path(directory, std::format("payload-{}.tar.gz", platformTarget)) };
     const std::vector<ar::WriteEntry> entries {
@@ -64,11 +67,16 @@ std::string make_payload_tarball(const std::string& directory, std::string_view 
 // make_xlings_artifacts processes every platform the lock has, so a test that wants it to succeed
 // has to provide one tarball per platform -- a partial payloads directory is exactly the "missing
 // tarball" test below.
+// A release's directory: the payload tarballs (the kit comes from these) and the server's single
+// file of each system and architecture (the server comes from these).
 void make_every_payload_tarball(const std::string& directory) {
     make_payload_tarball(directory, "linux-x64", "mcppls");
     make_payload_tarball(directory, "linux-arm64", "mcppls");
     make_payload_tarball(directory, "darwin-arm64", "mcppls");
     make_payload_tarball(directory, "win32-x64", "mcppls.exe");
+    for (const std::string_view file : { "linux-x86_64", "linux-aarch64", "macos-aarch64", "windows-x86_64.exe" }) {
+        write(base::join_path(directory, std::format("mcppls-2026.9.16.1-{}", file)), "single file\n");
+    }
 }
 
 std::string make_root() {
@@ -92,7 +100,7 @@ int main() {
     "release check: a staged directory matching the manifest passes"_test = [&] {
         const std::string root { make_root() };
         const std::string staged { scratch("staged") };
-        (void) fs::write_file(base::join_path(staged, "payload-linux-x64.tar.gz"), "x");
+        (void) os::fs::write(base::join_path(staged, "payload-linux-x64.tar.gz"), "x");
         auto checked = release::check_release(root, "2026.9.16.1", staged, false);
         expect(checked.has_value());
         if (checked) expect(checked->ok);
@@ -109,6 +117,7 @@ int main() {
     };
 
     "release xlings: server and kit archives are written, with sha256 rendered into both templates"_test = [&] {
+        std::error_code ignored;
         const std::string root { make_root() };
         const std::string payloads { scratch("payloads") };
         make_every_payload_tarball(payloads);
@@ -121,15 +130,16 @@ int main() {
 
         const std::string serverArchive { base::join_path(out, "mcpp-language-server-2026.9.16.1-linux-x86_64.tar.gz") };
         const std::string kitArchive { base::join_path(out, "mcppls-kit-23.1.0-linux-x86_64.tar.gz") };
-        expect(fs::is_regular_file(serverArchive));
-        expect(fs::is_regular_file(kitArchive));
+        expect(std::filesystem::is_regular_file(serverArchive, ignored));
+        expect(std::filesystem::is_regular_file(kitArchive, ignored));
 
-        // The server archive carries bin/mcppls and LICENSE, nothing from kit/.
+        // The server archive carries the single file as bin/mcppls, and LICENSE, nothing from kit/.
         auto serverEntries = ar::extract(serverArchive, base::join_path(out, "server-check"), [](std::string_view) { return true; });
         expect(serverEntries.has_value());
         if (serverEntries) {
             expect(std::ranges::find(*serverEntries, "bin/mcppls") != serverEntries->end());
             expect(std::ranges::find(*serverEntries, "LICENSE") != serverEntries->end());
+            expect(os::fs::read(base::join_path(out, "server-check/bin/mcppls")).value_or("") == "single file\n");
         }
         auto kitEntries = ar::extract(kitArchive, base::join_path(out, "kit-check"), [](std::string_view) { return true; });
         expect(kitEntries.has_value());
@@ -138,7 +148,7 @@ int main() {
             expect(std::ranges::find(*kitEntries, "module.pcm") != kitEntries->end());
         }
 
-        auto serverLua = fs::read_file(base::join_path(out, "mcpp-language-server.lua"));
+        auto serverLua = os::fs::read(base::join_path(out, "mcpp-language-server.lua"));
         expect(serverLua.has_value());
         if (serverLua) {
             expect(serverLua->contains("ref = \"2026.9.16.1\""));
@@ -148,7 +158,7 @@ int main() {
             expect(!serverLua->contains("@CLANGD_VERSION@"));
             expect(!serverLua->contains("@SHA256_LINUX_X86_64@"));
         }
-        auto kitLua = fs::read_file(base::join_path(out, "mcppls-kit.lua"));
+        auto kitLua = os::fs::read(base::join_path(out, "mcppls-kit.lua"));
         expect(kitLua.has_value());
         if (kitLua) {
             expect(kitLua->contains("ref = \"23.1.0\""));

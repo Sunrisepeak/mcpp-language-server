@@ -5,7 +5,7 @@
 -- stall while not ready, and the final state. Exits non-zero when a budget env var is crossed, so
 -- this is a CI check, not only a report.
 --
---   MCPPLS_SERVER=<payload>/bin/mcppls nvim --headless --clean -l editors/nvim/tests/stress.lua [FIXTURE]
+--   MCPPLS_SERVER=<payload>/bin/mcppls.okb nvim --headless --clean -l editors/nvim/tests/stress.lua [FIXTURE]
 --
 -- FIXTURE (default "module-faults") names a conformance/fixtures directory; its files are copied
 -- to a private workspace, as smoke.lua does. Env vars, all optional:

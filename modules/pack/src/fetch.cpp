@@ -10,12 +10,12 @@ import mcppls.base.error;
 import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.sha256;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.platform.process;
+import mcpplibs.os;
+import mcppls.base.text;
+import mcppls.toolrun;
 
+namespace os = mcpplibs::os;
 namespace mcppls::pack::fetch {
-namespace fs = mcppls::platform::fs;
 namespace {
 
 constexpr std::size_t BLOCK { 1u << 20 };
@@ -40,16 +40,16 @@ bool header_line_too_long(std::string_view error) { return error.contains("line 
 
 // The download with curl, into `partial`; empty when it worked, else why not.
 std::string download_with_curl(const std::string& url, const std::string& partial) {
-    const auto curl = platform::env::find_executable("curl");
+    const auto curl = toolrun::find_program("curl");
     if (!curl) return "curl is not on PATH";
-    platform::SpawnOptions spawn;
+    os::process::spawn_options spawn;
+    spawn.bound_lifetime = true;
     spawn.program = *curl;
-    spawn.arguments = { "--fail", "--silent", "--show-error", "--location", "--connect-timeout", "30", "--output", partial, url };
-    spawn.pipeError = true;
-    const auto ran = platform::run(std::move(spawn), std::chrono::minutes { 30 });
-    if (!ran) return ran.error().message;
-    if (ran->timedOut) return "curl did not finish in time";
-    if (ran->exitCode != 0) return std::format("curl exited {}: {}", ran->exitCode, platform::last_lines(ran->error, 3));
+    spawn.args = { "--fail", "--silent", "--show-error", "--location", "--connect-timeout", "30", "--output", partial, url };
+    const auto ran = os::process::run(std::move(spawn), os::process::bounds { .hard = std::chrono::minutes { 30 } });
+    if (!ran) return ran.error().message();
+    if (ran->timed_out) return "curl did not finish in time";
+    if (!ran->status.success()) return std::format("curl exited {}: {}", toolrun::exit_code(ran->status), base::last_lines(ran->err, 3));
     return {};
 }
 
@@ -77,12 +77,13 @@ base::Result<std::string> digest_of(std::string_view path) {
 }
 
 base::Result<std::string> get(const Entry& entry, std::string_view cacheDir, int retries, bool quiet) {
-    if (auto made = fs::create_directories(cacheDir); !made) return std::unexpected { made.error() };
+    std::error_code ignored;
+    if (std::error_code failed; !std::filesystem::create_directories(cacheDir, failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", cacheDir, failed.message()));
 
     const std::string target { base::join_path(cacheDir, entry.file) };
-    if (fs::is_regular_file(target)) {
+    if (std::filesystem::is_regular_file(target, ignored)) {
         auto cached = digest_of(target);
-        if (cached && *cached == entry.sha256) return fs::canonical_path(target);
+        if (cached && *cached == entry.sha256) return base::canonical_path(target);
         if (!quiet) {
             base::log::info("fetch: the cached {} does not match the lock; downloading it again", entry.file);
         }
@@ -106,7 +107,7 @@ base::Result<std::string> get(const Entry& entry, std::string_view cacheDir, int
             remove_quietly(partial);
             if (const auto why = download_with_curl(entry.url, partial); why.empty()) {
                 failed.clear();
-                written = fs::stamp(partial) ? fs::stamp(partial)->size : 0;
+                written = base::file_stamp(partial) ? base::file_stamp(partial)->size : 0;
             } else {
                 failed = std::format("{}; with curl: {}", failed, why);
             }
@@ -124,7 +125,7 @@ base::Result<std::string> get(const Entry& entry, std::string_view cacheDir, int
         } else {
             std::error_code failed;
             std::filesystem::rename(partial, target, failed);
-            if (!failed) return fs::canonical_path(target);
+            if (!failed) return base::canonical_path(target);
             lastError = std::format("cannot put the download at {}: {}", target, failed.message());
         }
 

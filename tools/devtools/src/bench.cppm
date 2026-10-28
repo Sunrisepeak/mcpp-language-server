@@ -5,6 +5,7 @@
 //   mcppls-devtools bench tasks run --agent ... --arm ... --repeat N --out FILE ...
 //   mcppls-devtools bench review --server PATH [--payload DIR] [--mock-model PATH]
 //       [--fixture ID ...] [--timeout SECONDS] [--keep] [--report FILE]
+//   mcppls-devtools bench tokens --server PATH --payload DIR [--rounds N] [--out FILE] [--compare FILE]
 //
 // `mcpplibs::cmdline::App::run` dispatches only one level of subcommand (it calls a matched
 // subcommand's own `action`, but does not recurse into that subcommand's `run`), and "tasks

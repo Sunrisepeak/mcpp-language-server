@@ -1,37 +1,36 @@
 // The real conformance runner writes externally supplied details as bounded UTF-8 JSON.
 // This test is also its fake LSP server: no Python, shell, payload or compiler is needed.
 import std;
+import mcppls.toolrun;
 import nlohmann.json;
 import mcppls.testing;
-import mcppls.os;
 import mcppls.base.path;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.platform.dirs;
-import mcppls.platform.process;
-import mcppls.platform.stdio;
 import mcppls.lsp.jsonrpc;
+import mcpplibs.os;
+
+namespace toolrun = mcppls::toolrun;
+
+namespace os = mcpplibs::os;
 
 using Json = nlohmann::json;
 namespace base = mcppls::base;
-namespace platform = mcppls::platform;
-namespace fs = platform::fs;
 namespace lsp = mcppls::lsp;
 
 namespace {
 std::string self_path() {
-    const auto arguments = platform::env::arguments();
+    const auto arguments = os::env::arguments();
     const std::string path { arguments.front() };
-    return base::normalize_path(base::is_absolute_path(path) ? path : base::join_path(fs::current_directory(), path));
+    return base::normalize_path(base::is_absolute_path(path) ? path : base::join_path(base::current_directory(), path));
 }
 
 // A test build and a regular build use sibling fingerprint buckets (test_model.cpp).
 std::optional<std::string> runner_path() {
-    if (const auto configured = platform::env::get("MCPPLS_CONFORMANCE"); configured && !configured->empty()) return *configured;
+    std::error_code ignored;
+    if (const auto configured = os::env::get("MCPPLS_CONFORMANCE"); configured && !configured->empty()) return *configured;
     const std::string triple { base::parent_path(base::parent_path(base::parent_path(self_path()))) };
-    for (const auto& bucket : fs::list_directory(triple)) {
-        const std::string path { base::join_path(base::join_path(bucket, "bin"), "mcppls-conformance" + std::string { mcppls::os::EXECUTABLE_SUFFIX }) };
-        if (fs::is_regular_file(path)) return path;
+    for (const auto& bucket : base::children(triple)) {
+        const std::string path { base::join_path(base::join_path(bucket, "bin"), "mcppls-conformance" + std::string { os::conventions().exe_suffix }) };
+        if (std::filesystem::is_regular_file(path, ignored)) return path;
     }
     return std::nullopt;
 }
@@ -41,10 +40,11 @@ std::string pcm_bytes(const std::string& source) {
 }
 
 int serve() {
-    const auto arguments = platform::env::arguments();
+    std::error_code ignored;
+    const auto arguments = os::env::arguments();
     std::string cacheMode;
     for (const auto& argument : arguments) if (argument.starts_with("--cache-")) cacheMode = argument;
-    const std::string cache { platform::env::get("MCPPLS_CACHE_DIR").value_or("") };
+    const std::string cache { os::env::get("MCPPLS_CACHE_DIR").value_or("") };
     const std::string cacheSource { base::join_path(cache, "std.cppm") };
     const std::string readCopy { base::join_path(cache, "modules/.owned-payload-v1/generation-1-2/payload.pcm") };
     const bool drain { !cacheMode.empty() || std::ranges::find(arguments, "--drain-ready") != arguments.end()
@@ -59,11 +59,24 @@ int serve() {
     int traceReports { 0 };
     std::optional<Json> lateCompletion;
     int reports { 0 }, changes { 0 }, completions { 0 };
-    const auto send = [](const Json& message) { return platform::stdio::write_output(lsp::encode_frame(message)); };
+    // --tokens-poll: a server whose tokens change twice, as clangd's do on a cold open, and that asks for a refresh each
+    // time, as it should. The client's first poll finds nothing new; its second finds the first change -- the server's
+    // compile ends just as it asks, and its refresh is written with the answer -- so a poll is the last question before
+    // the edit. The second change is the edit's, answered at once from the old tokens moved, and refreshed when the new
+    // version is compiled, longer after than the half second within which the client judges a polled answer that changed.
+    const bool tokensPoll { std::ranges::find(arguments, "--tokens-poll") != arguments.end() };
+    int tokensAsked { 0 };
+    bool tokensEdited { false };
+    std::mutex writing;   // the refresh sent later is written by a thread of its own
+    std::jthread laterRefresh;
+    const auto send = [&writing](const Json& message) {
+        const std::scoped_lock lock { writing };
+        return os::stdio::write_output(lsp::encode_frame(message));
+    };
     const auto status = [&](std::string state) { return send(lsp::make_notification("cxxModules/status", Json { { "state", std::move(state) } })); };
     lsp::FrameReader frames;
     while (true) {
-        auto bytes = platform::stdio::read_input();
+        auto bytes = os::stdio::read_input();
         if (!bytes || bytes->empty()) return 0;
         frames.feed(*bytes);
         while (auto frame = frames.next()) {
@@ -95,8 +108,8 @@ int serve() {
             }
             if (drain && method == "initialized") {
                 if (!cacheMode.empty()) {
-                    (void)fs::create_directories(base::parent_path(readCopy));
-                    (void)fs::write_file(readCopy, cacheSource + "\n" + std::string(32, 'x'));
+                    (void)std::filesystem::create_directories(base::parent_path(readCopy), ignored);
+                    (void)os::fs::write(readCopy, cacheSource + "\n" + std::string(32, 'x'));
                 }
                 (void)status("ready");
                 (void)send(lsp::make_request("drain-watch", "client/registerCapability", Json { { "registrations", Json::array({ Json {
@@ -110,10 +123,41 @@ int serve() {
                 (void)status("loading");
                 (void)status("ready");
             }
+            // The check's edit, not the didChange that opening an already open file sends.
+            if (tokensPoll && method == "textDocument/didChange" && request.dump().contains("int added()")) tokensEdited = true;
             if (!request.contains("method")) continue;
             if (!request.contains("id")) continue;
             Json result = nullptr;
             if (method == "initialize") result = Json { { "capabilities", Json { { "experimental", Json { { "cxxModules", Json::object() } } }, { "hoverProvider", true } } } };
+            if (tokensPoll && method == "initialize") {
+                result["capabilities"]["semanticTokensProvider"] = Json { { "legend", Json { { "tokenTypes", Json::array({ "keyword", "function" }) },
+                    { "tokenModifiers", Json::array() } } }, { "full", Json { { "delta", true } } } };
+            }
+            if (tokensPoll && method.starts_with("textDocument/semanticTokens/")) {
+                ++tokensAsked;
+                // `int main() {}`; after the edit `int added() { return 0; }` above it. A keyword alone is mcppls's own; a
+                // function is the compiler's.
+                const Json alone = Json::array({ 0, 0, 3, 0, 0 });
+                const Json compiled = Json::array({ 0, 0, 3, 0, 0, 0, 4, 4, 1, 0 });
+                const Json moved = Json::array({ 1, 0, 3, 0, 0, 0, 4, 4, 1, 0 });
+                const Json recompiled = Json::array({ 0, 0, 3, 0, 0, 0, 4, 5, 1, 0, 1, 0, 3, 0, 0, 0, 4, 4, 1, 0 });
+                const bool refreshLater { tokensEdited && tokensAsked > 0 && !laterRefresh.joinable() };
+                const Json data = !tokensEdited ? (tokensAsked <= 2 ? alone : compiled) : refreshLater ? moved : recompiled;
+                std::string frames { lsp::encode_frame(lsp::make_result(request["id"], Json { { "resultId", std::format("r{}", tokensAsked) }, { "data", data } })) };
+                // The refresh of the first change follows the poll's answer in the same write, so the client reads both at once.
+                if (!tokensEdited && tokensAsked == 3) frames += lsp::encode_frame(lsp::make_request("tokens-refresh-1", "workspace/semanticTokens/refresh", nullptr));
+                {
+                    const std::scoped_lock lock { writing };
+                    if (!os::stdio::write_output(frames)) return 2;
+                }
+                if (refreshLater) {
+                    laterRefresh = std::jthread { [send] {
+                        std::this_thread::sleep_for(std::chrono::milliseconds { 600 });
+                        (void)send(lsp::make_request("tokens-refresh-2", "workspace/semanticTokens/refresh", nullptr));
+                    } };
+                }
+                continue;
+            }
             if (method == "textDocument/completion") {
                 ++completions;
                 if (completionTrace && completions == 1) std::this_thread::sleep_for(std::chrono::milliseconds { 30 });
@@ -166,7 +210,7 @@ int serve() {
                 const bool busy { !cacheMode.empty() ? (++reports < 2 || cacheMode == "--cache-never")
                                                    : !restarting && (never || ++reports < 3) };
                 if (!cacheMode.empty() && !busy) {
-                    (void)fs::write_file(readCopy, pcm_bytes(cacheSource) + (cacheMode == "--cache-new" ? "new-build" : ""));
+                    (void)os::fs::write(readCopy, pcm_bytes(cacheSource) + (cacheMode == "--cache-new" ? "new-build" : ""));
                 }
                 const bool preparationBusy { cacheMode.empty() && busy };
                 Json details {
@@ -183,33 +227,34 @@ int serve() {
                     { "engines", Json::array({ Json { { "name", "clangd" }, { "state", restarting ? "starting" : "ready" }, { "details", std::move(details) } } }) }
                 } }) } };
             }
-            if (!platform::stdio::write_output(lsp::encode_frame(lsp::make_result(request["id"], result)))) return 2;
+            if (!send(lsp::make_result(request["id"], result))) return 2;
         }
     }
 }
 } // namespace
 
 int main() {
-    const auto arguments = platform::env::arguments();
+    std::error_code ignored;
+    const auto arguments = os::env::arguments();
     if (arguments.size() > 1 && arguments[1] == "serve") return serve();
     if (arguments.size() > 1 && arguments[1] == "--invalid-output") {
-        (void)platform::stdio::write_output("external-\xFF-output");
+        (void)os::stdio::write_output("external-\xFF-output");
         return 0;
     }
     using namespace mcppls::testing;
     const auto runner = runner_path();
     if (!runner) {
-        if (platform::env::get("CI").value_or("") == "true") {
+        if (os::env::get("CI").value_or("") == "true") {
             expect(false) << "CI requires a built mcppls-conformance runner for the artifact regression";
         } else {
             std::println("note: build mcppls-conformance before mcpp test to exercise its UTF-8 artifact regression");
         }
         return report();
     }
-    const std::string root { base::join_path(platform::dirs::temp_directory(),
+    const std::string root { base::join_path(base::spelled(os::dirs::temp()),
         std::format("mcppls-test-conformance-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
     const std::string fixture { base::join_path(root, "fixture") };
-    expect(fs::create_directories(fixture).has_value());
+    expect([&] { std::error_code failed; std::filesystem::create_directories(fixture, failed); return !failed; }());
     const Json scenario {
         { "name", "timing" },
         { "checks", Json::array({
@@ -218,15 +263,16 @@ int main() {
             Json { { "id", "TIMELINE" }, { "kind", "timeline" } }
         }) }
     };
-    expect(fs::write_file(base::join_path(fixture, "scenario.json"), scenario.dump()).has_value());
-    expect(fs::write_file(base::join_path(fixture, "main.cpp"), "int main() {}\n").has_value());
+    expect(os::fs::write(base::join_path(fixture, "scenario.json"), scenario.dump()).has_value());
+    expect(os::fs::write(base::join_path(fixture, "main.cpp"), "int main() {}\n").has_value());
     const auto invoke = [&](const std::string& measure, const std::string& evidence, const std::string& cache = std::string {}, bool warm = false) {
-        platform::SpawnOptions spawn;
+        os::process::spawn_options spawn;
+        spawn.bound_lifetime = true;
         spawn.program = *runner;
-        spawn.arguments = { "run", "--server", self_path(), "--fixture", fixture, "--measure", measure, "--timing-evidence", evidence, "--timeout", "5" };
-        if (!cache.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--cache-dir", cache });
-        if (warm) spawn.arguments.push_back("--expect-warm");
-        return platform::run(std::move(spawn), std::chrono::seconds { 30 });
+        spawn.args = { "run", "--server", self_path(), "--fixture", fixture, "--measure", measure, "--timing-evidence", evidence, "--timeout", "5" };
+        if (!cache.empty()) spawn.args.insert(spawn.args.end(), { "--cache-dir", cache });
+        if (warm) spawn.args.push_back("--expect-warm");
+        return os::process::run(std::move(spawn), os::process::bounds { .hard = std::chrono::seconds { 30 } });
     };
     const std::string measure { base::join_path(root, "measure.json") };
     const std::string evidence { base::join_path(root, "evidence.json") };
@@ -234,8 +280,8 @@ int main() {
         const auto result = invoke(measure, evidence);
         expect(result.has_value());
         if (!result) return;
-        expect(result->exitCode == 0) << result->output << result->error;
-        const auto text = fs::read_file(measure);
+        expect(result->status.success()) << result->out << result->err;
+        const auto text = os::fs::read(measure);
         expect(text.has_value());
         if (!text) return;
         const Json summary = Json::parse(*text, nullptr, false);
@@ -252,7 +298,7 @@ int main() {
         expect(timeline["activityAtEnd"]["engines"][0]["preparation"]["runningUnits"][0]["module"] == "sample");
         // Work evidence does not invent completed nodes or relax the original interval metric.
         expect(timeline["longestStallSeconds"].get<double>() > 0.0);
-        const auto evidenceText = fs::read_file(evidence);
+        const auto evidenceText = os::fs::read(evidence);
         expect(evidenceText.has_value());
         if (evidenceText) {
             const Json document = Json::parse(*evidenceText, nullptr, false);
@@ -264,27 +310,27 @@ int main() {
         const auto result = invoke(root, evidence);
         expect(result.has_value());
         if (result) {
-            expect(result->exitCode == 1) << result->output << result->error;
-            expect(result->output.find("conformance: cannot write " + root) != std::string::npos);
+            expect(toolrun::exit_code(result->status) == 1) << result->out << result->err;
+            expect(result->out.find("conformance: cannot write " + root) != std::string::npos);
         }
     };
     "unwritable timing evidence is a reported run failure"_test = [&] {
         const auto result = invoke(measure, root);
         expect(result.has_value());
         if (result) {
-            expect(result->exitCode == 1) << result->output << result->error;
-            expect(result->output.find("conformance: cannot write " + root) != std::string::npos);
+            expect(toolrun::exit_code(result->status) == 1) << result->out << result->err;
+            expect(result->out.find("conformance: cannot write " + root) != std::string::npos);
         }
     };
     "an inactivity gate falls back to the original node gap when engine evidence is missing"_test = [&] {
         Json withoutLogs = scenario;
         withoutLogs["checks"][2]["budget"] = Json { { "maxEngineInactivitySeconds", 0 } };
-        expect(fs::write_file(base::join_path(fixture, "scenario.json"), withoutLogs.dump()).has_value());
+        expect(os::fs::write(base::join_path(fixture, "scenario.json"), withoutLogs.dump()).has_value());
         const auto result = invoke(measure, evidence);
         expect(result.has_value());
         if (result) {
-            expect(result->exitCode == 1) << result->output << result->error;
-            expect(result->output.find("engine work evidence unavailable") != std::string::npos);
+            expect(toolrun::exit_code(result->status) == 1) << result->out << result->err;
+            expect(result->out.find("engine work evidence unavailable") != std::string::npos);
         }
     };
     "a failed timeline preserves exact counted transitions and restart boundaries"_test = [&] {
@@ -294,11 +340,11 @@ int main() {
                 Json { { "id", "STATES" }, { "kind", "timeline" }, { "budget", Json { { "maxChangesPerMinute", 5 } } } }
             }) }
         };
-        expect(fs::write_file(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());
+        expect(os::fs::write(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());
         const auto result = invoke(measure, evidence);
         expect(fatal(result.has_value()));
-        expect(result->exitCode == 1) << result->output << result->error;
-        const auto document = fs::read_file(measure);
+        expect(toolrun::exit_code(result->status) == 1) << result->out << result->err;
+        const auto document = os::fs::read(measure);
         expect(fatal(document.has_value()));
         const Json summary = Json::parse(*document);
         expect(summary["checks"][0]["ok"] == true);
@@ -341,11 +387,11 @@ int main() {
             { "completion-every-ms", 0 }, { "reask", "incomplete" },
             { "scripts", Json::array({ Json { { "line", 0 }, { "text", "abc" } } }) }
         } }) } };
-        expect(fs::write_file(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());
+        expect(os::fs::write(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());
         const auto result = invoke(measure, evidence);
         expect(fatal(result.has_value()));
-        expect(result->exitCode == 0) << result->output << result->error;
-        const auto document = fs::read_file(measure);
+        expect(result->status.success()) << result->out << result->err;
+        const auto document = os::fs::read(measure);
         expect(fatal(document.has_value()));
         const Json summary = Json::parse(*document);
         const Json& typed = summary["checks"][0]["measure"];
@@ -377,11 +423,11 @@ int main() {
                 { "scripts", Json::array({ Json { { "line", 0 }, { "text", "abc" } } }) },
                 { "budget", Json { { "max", 0 } } }
             } }) } };
-        expect(fs::write_file(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());
+        expect(os::fs::write(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());
         const auto result = invoke(measure, evidence);
         expect(fatal(result.has_value()));
-        expect(result->exitCode == 1) << result->output << result->error;
-        const auto text = fs::read_file(measure);
+        expect(toolrun::exit_code(result->status) == 1) << result->out << result->err;
+        const auto text = os::fs::read(measure);
         expect(fatal(text.has_value()));
         const Json summary = Json::parse(*text);
         expect(summary["checks"][0]["ok"] == false);
@@ -441,7 +487,7 @@ int main() {
         expect(slow["eventsAfter"].size() == 4 && slow["eventsAfter"][0].size() == 8) << "at, the four names and the three spans (0.0.17 M3)";
         expect(slow["eventsAfter"][0]["at"] == "fake-at-0" && slow["eventsAfter"][0]["ms"] == 8765);
         expect(server.dump().find("private") == std::string::npos) << "only public method statistics and whitelisted event fields";
-        const auto artifact = fs::read_file(evidence);
+        const auto artifact = os::fs::read(evidence);
         expect(fatal(artifact.has_value()));
         const Json observed = Json::parse(*artifact)["report"]["traceObservation"];
         expect(observed["completionRequests"] == entries.size() && observed["reportRequests"] == 3)
@@ -455,11 +501,11 @@ int main() {
                 { "seconds", 6 }, { "hz", 100 }, { "completion-every-ms", 0 }, { "reask", "always" }, { "requestTimeout", 5 },
                 { "scripts", Json::array({ Json { { "line", 0 }, { "text", std::string(300, 'a') } } }) }
             } }) } };
-        expect(fs::write_file(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());
+        expect(os::fs::write(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());
         const auto result = invoke(measure, evidence);
         expect(fatal(result.has_value()));
-        expect(result->exitCode == 0) << result->output << result->error;
-        const auto text = fs::read_file(measure);
+        expect(result->status.success()) << result->out << result->err;
+        const auto text = os::fs::read(measure);
         expect(fatal(text.has_value()));
         const Json typed = Json::parse(*text)["checks"][0]["measure"];
         expect(fatal(typed.contains("completionTrace")));
@@ -491,25 +537,26 @@ int main() {
         expect(server["slowRequests"]["eventsAfter"].is_null() && server["slowRequests"]["newRetained"].is_null());
     };
     "module reuse drains partial read copies and preserves cold, rebuild and missing-state checks"_test = [&] {
+        std::error_code ignored;
         // Owned payloads are Linux's cache representation; its source scanner uses POSIX paths.
-        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::linux) return;
+        if (os::host() != os::platform::linux) return;
         const std::string cache { base::join_path(root, "module-cache") };
         const std::string source { base::join_path(cache, "std.cppm") };
         const std::string stable { base::join_path(cache, "modules/.owned-payload-v1/generation-0-1/payload.pcm") };
         for (const std::string mode : { "--cache-copy", "--cache-cold", "--cache-new", "--cache-missing", "--cache-never" }) {
-            fs::remove_all(cache);
-            expect(fs::create_directories(base::parent_path(stable)).has_value());
-            expect(fs::write_file(source, "export module std;\n").has_value());
+            std::filesystem::remove_all(cache, ignored);
+            expect([&] { std::error_code failed; std::filesystem::create_directories(base::parent_path(stable), failed); return !failed; }());
+            expect(os::fs::write(source, "export module std;\n").has_value());
             const bool cold { mode == "--cache-cold" };
-            if (!cold) expect(fs::write_file(stable, pcm_bytes(source)).has_value());
+            if (!cold) expect(os::fs::write(stable, pcm_bytes(source)).has_value());
             const Json sample { { "name", "timing" }, { "server-arguments", Json::array({ mode }) },
                 { "checks", Json::array({ Json { { "id", "SC4" }, { "kind", "module-cache-reused" }, { "module", "std" } } }) } };
-            expect(fs::write_file(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());
+            expect(os::fs::write(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());
             const auto result = invoke(measure, evidence, cache, !cold);
             expect(fatal(result.has_value()));
             const bool good { mode == "--cache-copy" || cold };
-            expect(result->exitCode == (good ? 0 : 1)) << mode << result->output << result->error;
-            const auto document = fs::read_file(measure);
+            expect(toolrun::exit_code(result->status) == (good ? 0 : 1)) << mode << result->out << result->err;
+            const auto document = os::fs::read(measure);
             expect(fatal(document.has_value()));
             const Json summary = Json::parse(*document);
             const Json& check = summary["checks"][0];
@@ -533,16 +580,16 @@ int main() {
                 { "file", "mcpp.toml" }, { "replace", Json { { "from", "release" }, { "with", "dev" } } },
                 { "background-work-seconds", bound }, { "wait-seconds", 2 }, { "budget", Json { { "revertNewBmi", 0 } } }
             } }) } };
-        expect(fs::write_file(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());
-        expect(fs::write_file(base::join_path(fixture, "mcpp.toml"), "default-profile = \"release\"\n").has_value());
+        expect(os::fs::write(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());
+        expect(os::fs::write(base::join_path(fixture, "mcpp.toml"), "default-profile = \"release\"\n").has_value());
         return invoke(measure, evidence);
     };
     "configuration undo drains explicit unfinished preparation despite a ready status"_test = [&] {
         const auto result = drain_scenario("--drain-ready", 10);
         expect(result.has_value());
         if (!result) return;
-        expect(result->exitCode == 0) << result->output << result->error;
-        const auto document = fs::read_file(measure);
+        expect(result->status.success()) << result->out << result->err;
+        const auto document = os::fs::read(measure);
         expect(document.has_value());
         if (!document) return;
         const Json summary = Json::parse(*document);
@@ -559,13 +606,36 @@ int main() {
             const auto result = drain_scenario(mode, 0);
             expect(result.has_value());
             if (!result) continue;
-            expect(result->exitCode == 1) << result->output << result->error;
-            expect(result->output.find("background work did not finish within its bound") != std::string::npos);
-            const auto document = fs::read_file(measure);
+            expect(toolrun::exit_code(result->status) == 1) << result->out << result->err;
+            expect(result->out.find("background work did not finish within its bound") != std::string::npos);
+            const auto document = os::fs::read(measure);
             expect(document.has_value());
             if (document) expect(Json::parse(*document)["checks"][0]["measure"]["beforeChangeDrain"]["ready"] == false);
         }
     };
-    fs::remove_all(root);
+    // A tokens-latency check against a server that refreshes whenever its tokens change: a poll that finds nothing new is
+    // no missed refresh; neither is the one that finds the change its refresh crossed, nor the edit's first answer, which
+    // changed because the text did and is not a poll's although the question before it was.
+    "a poll is judged by its own answer, and the refreshes since it was asked"_test = [&] {
+        const Json sample { { "name", "timing" }, { "server-arguments", Json::array({ "--tokens-poll" }) },
+            { "client-capabilities", Json { { "workspace", Json { { "semanticTokens", Json { { "refreshSupport", true } } } } } } },
+            { "checks", Json::array({ Json { { "id", "T1" }, { "kind", "tokens-latency" }, { "file", "main.cpp" }, { "at", Json::array({ 0, 4 }) },
+                { "expect", "private-completion" }, { "poll-ms", 800 }, { "edit", Json { { "line", 0 }, { "text", "int added() { return 0; }" } } },
+                { "budget", Json { { "missedRefreshes", 0 } } } } }) } };
+        expect(os::fs::write(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());
+        expect(os::fs::write(base::join_path(fixture, "main.cpp"), "int main() {}\n").has_value());
+        const auto result = invoke(measure, evidence);
+        expect(fatal(result.has_value()));
+        expect(result->status.success()) << result->out << result->err;
+        const auto document = os::fs::read(measure);
+        expect(fatal(document.has_value()));
+        const Json summary = Json::parse(*document);
+        const Json& measured = summary["checks"][0]["measure"];
+        expect(measured.value("polls", -1) == 2) << measured.dump();
+        expect(measured.value("missedRefreshes", -1) == 0) << measured.dump();
+        expect(measured.value("refreshes", -1) == 2) << measured.dump();
+        expect(measured.value("editUpdated", 0.0) >= 0.6) << measured.dump();
+    };
+    std::filesystem::remove_all(root, ignored);
     return report();
 }

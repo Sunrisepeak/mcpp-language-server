@@ -6,10 +6,10 @@ import mcppls.base.error;
 import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.os;
-import mcppls.platform.fs;
-import mcppls.platform.process;
 import mcppls.lsp.connection;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::engine::clangd {
 
@@ -38,7 +38,7 @@ std::vector<std::string> clangd_arguments(const ProcessConfig& config) {
     // uses Background QoS. On Linux both are SCHED_IDLE, and Windows' background
     // mode also lowers I/O priority, unmeasured for indexing, so only macOS
     // changes. Keep the index and respect an explicit user choice.
-    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::macos) {
+    if (os::host() == os::platform::macos) {
         const bool indexPriorityGiven { std::ranges::any_of(config.extraArguments, [](const std::string& argument) {
             return argument == "--background-index-priority" || argument == "-background-index-priority"
                    || argument.starts_with("--background-index-priority=") || argument.starts_with("-background-index-priority=");
@@ -327,28 +327,30 @@ std::string module_lock_directory(std::string_view databaseDirectory) {
 }
 
 std::size_t clear_module_locks(std::string_view databaseDirectory) {
+    std::error_code ignored;
     std::size_t removed { 0 };
-    for (const auto& entry : platform::fs::list_directory(module_lock_directory(databaseDirectory))) {
-        platform::fs::remove_all(entry);
+    for (const auto& entry : base::children(module_lock_directory(databaseDirectory))) {
+        std::filesystem::remove_all(entry, ignored);
         ++removed;
     }
     return removed;
 }
 
 std::vector<std::string> stale_module_builds(std::string_view databaseDirectory, std::size_t keep) {
+    std::error_code ignored;
     std::vector<std::string> stale;
     const auto newest_write = [](const std::string& directory) {
         std::int64_t newest { std::numeric_limits<std::int64_t>::min() };
-        for (const auto& entry : platform::fs::list_directory(directory)) {
-            if (const auto stamp = platform::fs::stamp(entry)) newest = std::max(newest, stamp->modified);
+        for (const auto& entry : base::children(directory)) {
+            if (const auto stamp = base::file_stamp(entry)) newest = std::max(newest, static_cast<std::int64_t>(stamp->modified_ns));
         }
         return newest;
     };
-    for (const auto& unit : platform::fs::list_directory(base::join_path(databaseDirectory, ".cache/clangd/modules"))) {
-        if (base::file_name(unit).starts_with('.') || !platform::fs::is_directory(unit)) continue;   // .locks
+    for (const auto& unit : base::children(base::join_path(databaseDirectory, ".cache/clangd/modules"))) {
+        if (base::file_name(unit).starts_with('.') || !std::filesystem::is_directory(unit, ignored)) continue;   // .locks
         std::vector<std::pair<std::int64_t, std::string>> builds;
-        for (const auto& build : platform::fs::list_directory(unit)) {
-            if (platform::fs::is_directory(build)) builds.emplace_back(newest_write(build), build);
+        for (const auto& build : base::children(unit)) {
+            if (std::filesystem::is_directory(build, ignored)) builds.emplace_back(newest_write(build), build);
         }
         if (builds.size() <= keep) continue;
         std::ranges::sort(builds, std::greater {});
@@ -362,9 +364,9 @@ std::optional<std::int64_t> module_lock_owner(std::string_view lockPath) {
     // the files that start with the lock's name says who holds it.
     const std::string directory { base::parent_path(lockPath) };
     const std::string name { base::file_name(lockPath) };
-    for (const auto& entry : platform::fs::list_directory(directory)) {
+    for (const auto& entry : base::children(directory)) {
         if (!base::file_name(entry).starts_with(name)) continue;
-        const auto text = platform::fs::read_file(entry);
+        const auto text = os::fs::read(entry);
         if (!text) continue;
         const std::string_view content { base::trim(*text) };
         const auto space = content.rfind(' ');
@@ -620,11 +622,12 @@ std::string parse_clangd_version(std::string_view output) {
 base::Result<void> ClangdProcess::start(const ProcessConfig& config, MessageHandler onMessage, ClosedHandler onClosed, LogHandler onLog) {
     stop(std::chrono::milliseconds { 200 });
     config_ = config;
-    platform::SpawnOptions options;
+    mcpplibs::os::process::spawn_options options;
     options.program = config.executable;
-    options.arguments = clangd_arguments(config);
-    options.workDirectory = config.workDirectory;
-    options.ownUnit = true;
+    options.args = clangd_arguments(config);
+    options.cwd = config.workDirectory;
+    options.own_unit = true;
+    options.bound_lifetime = true;
     auto connection = lsp::Connection::start(std::move(options), std::move(onMessage), std::move(onClosed), std::move(onLog));
     if (!connection) return std::unexpected { connection.error() };
     connection_ = std::move(*connection);
@@ -648,7 +651,11 @@ std::function<std::optional<double>()> ClangdProcess::cpu_reader() const {
     if (!running()) return {};
     const auto pid = connection_->native_pid();
     if (!pid) return {};
-    return [pid = *pid] { return platform::cpu_seconds(pid); };
+    return [pid = *pid]() -> std::optional<double> {
+        const auto described = mcpplibs::os::process::describe(static_cast<std::uint64_t>(pid));
+        if (!described || described->ended) return std::nullopt;
+        return static_cast<double>(described->cpu_ns) / 1e9;
+    };
 }
 
 std::optional<std::int64_t> ClangdProcess::pid() const {

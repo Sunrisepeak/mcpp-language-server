@@ -28,7 +28,9 @@ Download `mcppls-<platform>.vsix` from the [release page][releases] and install 
 
 The VSIX carries everything it needs: the server, a pinned clangd, and the semantic kit. Open a C++
 project and the status bar says what it found. Take the file matching your machine —
-`linux-x64`, `linux-arm64`, `darwin-arm64` or `win32-x64` — since each carries its own platform's payload.
+`linux-x64`, `linux-arm64`, `darwin-arm64` or `win32-x64` — since each carries its own platform's clangd
+and kit. The server in every one of them is the same file, `mcppls.okb` (the server's image for x86_64
+and for arm64), started by the platform's runner `okrun` that the VSIX carries beside it.
 
 The extension is `sunrisepeak.mcpp-language-server`, and it is a different extension from **mcpp**
 (`mcpp-community.mcpp-vscode`), which handles building, toolchains and project operations. Both are
@@ -36,10 +38,26 @@ worth having; see [10-editors.md](10-editors.md).
 
 ## Another editor, from a release
 
-Download `payload-<platform>.tar.gz`, unpack it, and put its `payload/bin/` on `PATH`. That gives you
-`mcppls`, which speaks LSP over stdio (`mcppls serve`) and MCP (`mcppls mcp`). The Zed and CLion
-plugins are separate archives on the same release page; [10-editors.md](10-editors.md) has both.
-The Neovim plugin is [`editors/nvim`](../editors/nvim/README.md) in this repository.
+Two kinds of file on the release page serve every editor but VS Code:
+
+- **The payload**, `payload-<platform>.tar.gz`: the server, a pinned clangd and the semantic kit, as
+  the VSIX carries them. The server is `payload/bin/mcppls.okb`, started by this platform's runner:
+  `payload/bin/okrun payload/bin/mcppls.okb serve` speaks LSP over stdio, and `… mcp` MCP; it finds
+  the clangd and the kit beside it. Unpack it into your user data directory as `mcppls/payload` —
+  `~/.local/share/mcppls/payload` on Linux (`$XDG_DATA_HOME` when it is set),
+  `~/Library/Application Support/mcppls/payload` on macOS, `%LOCALAPPDATA%\mcppls\payload` on
+  Windows — and the Zed, CLion and Neovim plugins start it with nothing else configured.
+- **The server as a command**, `mcppls`: `mcppls-<version>-openkal.zip` is one package for Linux,
+  macOS and Windows on x86_64 and arm64. Unpack it and put its `bin/` on `PATH`; it carries the
+  runner of each of those systems, so nothing else is installed. Or take the single file of your
+  system, `mcppls-<version>-<system>-<arch>` (`linux-x86_64`, `linux-aarch64`, `macos-aarch64`,
+  `windows-x86_64.exe`), and put it on `PATH` as `mcppls`: one executable, nothing to unpack. The
+  plugins start an `mcppls` on `PATH` before an installed payload. Given `--payload <dir>` it uses
+  that payload's clangd and kit; without one, a clangd on `PATH` and the kit xlings installs.
+
+The Zed and CLion plugins are separate archives on the same release page;
+[10-editors.md](10-editors.md) has both. The Neovim plugin is
+[`editors/nvim`](../editors/nvim/README.md) in this repository.
 
 Every asset on a release is listed in its `MANIFEST.md`, with what it is and how to install it, and
 `SHA256SUMS` covers all of them.
@@ -48,8 +66,8 @@ Every asset on a release is listed in its `MANIFEST.md`, with what it is and how
 
 ## Supported Linux systems
 
-The server is a static executable and runs on any Linux of its architecture. The floor is set by the
-clangd the payload carries:
+The server and its runner need nothing of the system and run on any Linux of their architecture. The
+floor is set by the clangd the payload carries:
 
 | Platform | clangd | Needs | Runs on |
 |---|---|---|---|
@@ -66,10 +84,10 @@ does run there. Alpine and other musl distributions run neither architecture's c
 An Android phone or tablet with Termux runs the `linux-arm64` build; there is no separate package
 for it. Termux's PRoot, which many setups run a Linux system under, is a supported environment:
 
-- **The server** is the static `mcppls` of the `linux-arm64` payload. Unpack
-  `payload-linux-arm64.tar.gz` and put its `payload/bin/` on `PATH`, as in [Another editor, from a
-  release](#another-editor-from-a-release), and start it from the editor you run there (Neovim, say);
-  or install `mcppls-linux-arm64.vsix` in a VS Code-compatible editor running inside Termux.
+- **The server** is the `linux-arm64` payload's: unpack `payload-linux-arm64.tar.gz` where the
+  plugins look, as in [Another editor, from a release](#another-editor-from-a-release), and start it
+  from the editor you run there (Neovim, say); or put `mcppls-<version>-linux-aarch64` on `PATH` as
+  `mcppls`; or install `mcppls-linux-arm64.vsix` in a VS Code-compatible editor running inside Termux.
 - **clangd** is the same glibc program as on any `linux-arm64` system, so the floor in the table
   applies: CI runs it in a Debian that `proot-distro` installs in Termux. Where it cannot run (a glibc
   below the floor) the status says `engine-incompatible`, and where the sandbox refuses to start it,
@@ -83,8 +101,10 @@ for it. Termux's PRoot, which many setups run a Linux system under, is a support
 
 ## From source
 
-The server is C++23 modules on [openkal](https://github.com/mcpplibs/openkal), built with
-[mcpp](https://github.com/mcpp-community/mcpp):
+The server is C++23 modules on [mcpplibs.os](https://github.com/mcpplibs/os) over
+[openkal](https://github.com/mcpplibs/openkal), built with [mcpp](https://github.com/mcpp-community/mcpp)
+2026.10.27.1 or later. The workspace's one platform, openkal-platform 0.17.3, states the C library and
+the C++ run-time of every target, so no member declares either:
 
 ```bash
 mcpp build                                        # the server
@@ -105,6 +125,11 @@ step and how long it took. If something it needs is missing it says which and ho
 | Only the payload, for another editor | `mcpp run -p devtools -- payload` |
 | Reuse a clangd or kit you already built | `... -- payload --clangd DIR --kit DIR` |
 | Another platform's server | `mcpp build --target aarch64-macos` / `--target x86_64-windows-gnu` / `--target aarch64-linux-musl` |
+| The server as an ok image, one per architecture | `mcpp build --release --target x86_64-openkal` (or `aarch64-openkal`); `mcpp run --release --target x86_64-openkal mcppls -- serve` runs it through the platform's runner, on Linux, macOS and Windows |
+| The okb every payload carries: both images in one file | `mcpp pack --release --target x86_64-openkal --pkg-format okb` |
+| One package for every system and architecture | `mcpp pack --release --target x86_64-openkal --mode self-contained --pkg-format zip` (the runners of the systems `--systems` names, built over the platform's hosted arrangement on this machine; CI packs Linux's and Windows' on Linux and macOS's on macOS, and joins the two with `mcpp pack --merge`) |
+| One file for this system | `mcpp pack --release --target x86_64-openkal --pkg-format single-file` |
+| Build programs as ok images | `mcpp build --host-platform openkal-platform@0.17.3` |
 
 **Zero setup.** What packaging needs is declared in `mcpp.toml`'s `[xlings.workspace]` — Node for
 the VS Code extension, Rust for Zed — so `mcpp run` provisions it before the tool starts. The
@@ -118,7 +143,7 @@ VS Code has a command line for installing and removing an extension; Zed and CLi
 them `--install` leaves on disk exactly what their own UI would, and nothing else: for Zed it stops
 one step short and names the palette action, the recommended route, unless `--link` asks it to make
 that same link itself; for CLion it unpacks the plugin as *Install Plugin from Disk* does. Both
-start `mcppls` from PATH, or else the server `--install` puts at `<user data>/mcppls/payload`
+start `mcppls` from PATH, or else the server of the payload `--install` puts at `<user data>/mcppls/payload`
 (`$XDG_DATA_HOME` or `~/.local/share` on Linux, `~/Library/Application Support` on macOS,
 `%LOCALAPPDATA%` on Windows); `uninstall` removes that server with the last of the two.
 
@@ -133,10 +158,11 @@ To point the extension at a payload without repackaging, put it at `editors/vsco
 
 | Part | What it is | Why it is pinned |
 |---|---|---|
-| `mcppls` | The server | — |
+| `mcppls.okb` and `okrun` | The server, as the images of both architectures, and the platform's runner of this system that starts it | — |
 | clangd 23.1.0 | The engine it drives for everything but module-level requests | Module support differs between clangd releases; the arguments mcppls generates are matched to this one |
 | `mcppls-kit` | A semantic kit: libc++ built as modules, with a module manifest | It is what makes `import std` resolve on a machine whose compiler cannot provide it |
 
-The server looks for a payload named by `--payload`, then for one containing its own executable.
+The server looks for a payload named by `--payload`, then for one containing its own image or
+executable.
 `--clangd` and `--kit` replace one part of it; a part still missing is looked for outside a payload
 (clangd on `PATH`, the kit where xlings installs it).

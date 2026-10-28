@@ -7,8 +7,6 @@ import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.base.version;
-import mcppls.platform.env;
-import mcppls.platform.stdio;
 import mcppls.orchestrator.workspace;
 import mcppls.ai.model.source;
 import mcppls.ai.model.gateway;
@@ -16,6 +14,10 @@ import mcppls.lsp.jsonrpc;
 import mcppls.orchestrator.kernel;
 import mcppls.ai.query.view;
 import mcppls.ai.mcp.tools;
+import mcpplibs.os;
+import mcppls.toolrun;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::ai::mcp {
 
@@ -63,7 +65,7 @@ Session::Session(orchestrator::Kernel& kernel, std::chrono::seconds toolTimeout,
 std::unique_ptr<model::ModelClient> Session::make_client(model::SourceKind source) {
     if (source == model::SourceKind::gateway) {
         model::GatewayOptions options;
-        options.executable = model_.gatewayExecutable.empty() ? platform::env::find_executable("mcppls-model").value_or("") : model_.gatewayExecutable;
+        options.executable = model_.gatewayExecutable.empty() ? toolrun::find_program("mcppls-model").value_or("") : model_.gatewayExecutable;
         options.arguments = model_.gatewayArguments;
         if (!model_.model.empty()) options.arguments.insert(options.arguments.end(), { "--model", model_.model });
         options.workDirectory = kernel_.root();
@@ -172,7 +174,7 @@ int run_server(const ServerOptions& options) {
     std::thread { [handle] {
         std::string buffer;
         while (true) {
-            auto chunk = platform::stdio::read_input();
+            auto chunk = os::stdio::read_input();
             if (!chunk || chunk->empty()) break;
             buffer += *chunk;
             for (auto& line : take_lines(buffer)) {
@@ -187,7 +189,7 @@ int run_server(const ServerOptions& options) {
 
     auto send = [](const Json& message) {
         // One message per line: dump() escapes every newline inside strings.
-        if (auto written = platform::stdio::write_output(message.dump() + "\n"); !written) log::error("cannot write to the MCP client: {}", written.error().message);
+        if (auto written = os::stdio::write_output(message.dump() + "\n"); !written) log::error("cannot write to the MCP client: {}", written.error().message());
     };
     Session session { *kernel, options.toolTimeout, send, options.model };
     while (true) {

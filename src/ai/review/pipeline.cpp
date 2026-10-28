@@ -5,7 +5,6 @@ import nlohmann.json;
 import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.uri;
-import mcppls.platform.fs;
 import mcppls.spec.query;
 import mcppls.project.git;
 import mcppls.project.scan;
@@ -81,6 +80,7 @@ query::Outcome<ReviewResult> analyze_change(query::View& view, const ReviewReque
 }
 
 query::Outcome<ReviewResult> review_change(query::View& view, const ReviewRequest& request, Clock::time_point deadline) {
+    std::error_code ignored;
     auto analyzed = analyze_change(view, request, deadline);
     if (!analyzed) return analyzed;
     ReviewResult& result { *analyzed };
@@ -93,7 +93,7 @@ query::Outcome<ReviewResult> review_change(query::View& view, const ReviewReques
         }
         for (const auto& display : result.impact.files) {
             const std::string path { view.path_of(display) };
-            if (platform::fs::exists(path) && seen.insert(base::path_key(path)).second) units.emplace_back(path, true);
+            if (std::filesystem::exists(path, ignored) && seen.insert(base::path_key(path)).second) units.emplace_back(path, true);
         }
         for (std::size_t i { request.budget }; i < units.size(); ++i) result.unbuilt.push_back(view.display(units[i].first));
         if (units.size() > request.budget) units.resize(request.budget);

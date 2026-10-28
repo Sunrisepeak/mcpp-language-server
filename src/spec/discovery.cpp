@@ -5,9 +5,9 @@ import nlohmann.json;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.process;
-import mcppls.platform.toolrun;
 import mcppls.spec.database;
+import mcppls.toolrun;
+import mcpplibs.os;
 
 namespace mcppls::spec {
 
@@ -108,43 +108,43 @@ base::Result<DatabaseDocument> run_database_command(std::span<const std::string>
     if (command.empty()) return base::fail("discovery-command", "empty discovery command");
     // The user's build tool in the user's environment (design 4.3), offline unless the user asked
     // otherwise (4.4), in a unit the bound can end whole (4.2).
-    platform::toolrun::Request request {
+    mcppls::toolrun::Request request {
         .program = command.front(),
         .arguments = { command.begin() + 1, command.end() },
         .workDirectory = std::string { workDirectory },
         .purpose = how.purpose,
         .root = how.root,
-        .network = how.offline ? platform::toolrun::Network::offline : platform::toolrun::Network::allowed,
-        .bounds = platform::RunBounds { .hard = how.hard },
+        .network = how.offline ? mcppls::toolrun::Network::offline : mcppls::toolrun::Network::allowed,
+        .bounds = mcpplibs::os::process::bounds { .hard = how.hard },
         .soft = how.soft,
         .environmentWait = how.environmentWait,
         .onSoftDeadline = how.onSoftDeadline,
     };
-    platform::toolrun::Record record;
-    auto result = platform::toolrun::run(request, &record);
+    mcppls::toolrun::Record record;
+    auto result = mcppls::toolrun::run(request, &record);
     if (!result) return std::unexpected { result.error() };
-    if (result->timedOut) {
+    if (result->timed_out) {
         return base::fail("discovery-timeout", std::format("{} did not finish in {} ms", command.front(), how.hard.count()));
     }
-    auto document = parse_database_envelope(result->output);
+    auto document = parse_database_envelope(result->out);
     if (!document) {
         // An envelope that failed still says why. A producer that printed nothing has only its
         // exit status and standard error to speak with.
-        if (auto envelope = parse_envelope_diagnostics(result->output); !envelope.empty()) {
+        if (auto envelope = parse_envelope_diagnostics(result->out); !envelope.empty()) {
             if (auto missing = download_required(envelope)) {
                 return base::fail(std::string { NEEDS_DOWNLOAD }, *missing);
             }
         }
-        if (base::trim(result->output).empty()) {
-            const std::string held { result->outputHeldOpen ? " (something it started held its output open)" : "" };
-            return base::fail("discovery-failed", std::format("{} exited with {}{}: {}", command.front(), result->exitCode,
-                                                              held, base::trim(result->error)));
+        if (base::trim(result->out).empty()) {
+            const std::string held { result->held_open ? " (something it started held its output open)" : "" };
+            return base::fail("discovery-failed", std::format("{} exited with {}{}: {}", command.front(), toolrun::exit_code(result->status),
+                                                              held, base::trim(result->err)));
         }
         return document;
     }
     document->runId = record.id;
     document->networkObserved = std::ranges::find(document->effects, std::string_view { "network" }) != document->effects.end();
-    if (document->networkObserved) platform::toolrun::observed_network(record.id);
+    if (document->networkObserved) mcppls::toolrun::observed_network(record.id);
     return document;
 }
 
@@ -195,28 +195,28 @@ base::Result<DiscoveryResult> run_discovery(std::span<const std::string> command
     // One runner for every external program (design 4.2): the user's environment, offline unless
     // the user allowed the network, a unit the bound ends whole, and a read that ends even when
     // something the producer started still holds the pipe.
-    platform::toolrun::Request run {
+    mcppls::toolrun::Request run {
         .program = command.front(),
         .arguments = { command.begin() + 1, command.end() },
         .workDirectory = std::string { workDirectory },
         .purpose = how.purpose,
         .root = how.root,
-        .network = how.offline ? platform::toolrun::Network::offline : platform::toolrun::Network::allowed,
-        .bounds = platform::RunBounds { .hard = how.hard },
+        .network = how.offline ? mcppls::toolrun::Network::offline : mcppls::toolrun::Network::allowed,
+        .bounds = mcpplibs::os::process::bounds { .hard = how.hard },
         .soft = how.soft,
         .input = make_discovery_request(request).dump() + "\n",
         .environmentWait = how.environmentWait,
         .onSoftDeadline = how.onSoftDeadline,
     };
-    auto result = platform::toolrun::run(run);
+    auto result = mcppls::toolrun::run(run);
     if (!result) return std::unexpected { result.error() };
-    if (result->timedOut) {
+    if (result->timed_out) {
         return base::fail("discovery-timeout", std::format("{} did not finish in {} ms", command.front(), how.hard.count()));
     }
-    auto parsed = parse_discovery_output(result->output);
+    auto parsed = parse_discovery_output(result->out);
     // A producer that reported its error says why better than its exit status does.
-    if (!parsed && result->exitCode != 0 && parsed.error().code != "discovery-failed") {
-        return base::fail("discovery-failed", std::format("{} exited with {}: {}", command.front(), result->exitCode, base::trim(result->error)));
+    if (!parsed && !result->status.success() && parsed.error().code != "discovery-failed") {
+        return base::fail("discovery-failed", std::format("{} exited with {}: {}", command.front(), toolrun::exit_code(result->status), base::trim(result->err)));
     }
     return parsed;
 }

@@ -8,7 +8,6 @@ import mcppls.base.path;
 import mcppls.project.boundary;
 import mcppls.base.text;
 import mcppls.base.uri;
-import mcppls.platform.fs;
 import mcppls.spec.query;
 import mcppls.orchestrator.kernel;
 import mcppls.ai.query.view;
@@ -24,9 +23,12 @@ import mcppls.ai.review.report;
 import mcppls.ai.review.judgement;
 import mcppls.ai.model.source;
 import mcppls.ai.model.gateway;
-import mcppls.platform.env;
 import mcppls.orchestrator.workspace;
 import mcppls.cli.options;
+import mcpplibs.os;
+import mcppls.toolrun;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::cli {
 
@@ -44,8 +46,8 @@ constexpr int EXIT_FAILED { 2 };
 // else the current directory.
 std::string root_of(const cmdline::ParsedArgs& args, std::string_view file) {
     if (auto root = args.value("root")) return absolute(*root);
-    if (file.empty()) return platform::fs::current_directory();
-    return project::find_project_root(base::parent_path(absolute(file))).value_or(platform::fs::current_directory());
+    if (file.empty()) return base::current_directory();
+    return project::find_project_root(base::parent_path(absolute(file))).value_or(base::current_directory());
 }
 
 struct Position {
@@ -208,8 +210,8 @@ int run_in_session(const cmdline::ParsedArgs& args, std::string_view file, const
     }
     const std::string document { format == "markdown" ? result->value("markdown", std::string {}) : result->dump(2) + "\n" };
     if (auto output = args.value("output")) {
-        if (auto written = platform::fs::write_file(absolute(*output), document); !written) {
-            std::println(std::cerr, "cannot write {}: {}", *output, written.error().message);
+        if (auto written = os::fs::write(absolute(*output), document); !written) {
+            std::println(std::cerr, "cannot write {}: {}", *output, written.error().message());
             return EXIT_FAILED;
         }
     } else {
@@ -428,7 +430,7 @@ cmdline::App verify_command(bool& handled, int& status) {
         if (auto at = args.value("snippet")) {
             const auto position = parse_position(*at);
             std::string code { args.value("code").value_or("") };
-            if (auto codeFile = args.value("code-file")) code = platform::fs::read_file(absolute(*codeFile)).value_or("");
+            if (auto codeFile = args.value("code-file")) code = os::fs::read(absolute(*codeFile)).value_or("");
             if (!position) {
                 std::println(std::cerr, "verify: --snippet takes FILE:LINE");
                 status = EXIT_FAILED;
@@ -583,7 +585,7 @@ cmdline::App review_command(bool& handled, int& status) {
                 std::unique_ptr<ai::model::ModelClient> client;
                 if (modelSettings->source == ai::model::SourceKind::gateway) {
                     ai::model::GatewayOptions gateway;
-                    gateway.executable = modelSettings->gatewayExecutable.empty() ? platform::env::find_executable("mcppls-model").value_or("") : modelSettings->gatewayExecutable;
+                    gateway.executable = modelSettings->gatewayExecutable.empty() ? toolrun::find_program("mcppls-model").value_or("") : modelSettings->gatewayExecutable;
                     if (!modelSettings->model.empty()) gateway.arguments = { "--model", modelSettings->model };
                     gateway.workDirectory = view.root();
                     if (!gateway.executable.empty()) client = std::make_unique<ai::model::GatewayClient>(std::move(gateway));

@@ -1,0 +1,5 @@
+[package]
+name        = "hello"
+version     = "0.1.0"
+description = "The CLion plugin's test project as a person has it after `mcpp build`: CI builds it before the tests"
+license     = "Apache-2.0"

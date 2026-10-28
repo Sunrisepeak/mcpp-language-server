@@ -2,7 +2,6 @@ module mcppls.orchestrator.workspace;
 
 import std;
 import nlohmann.json;
-import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.glob;
 import mcppls.base.log;
@@ -13,14 +12,6 @@ import mcppls.base.uri;
 import mcppls.base.version;
 import mcppls.orchestrator.cache;
 import mcppls.engine.clangd.process;
-import mcppls.platform.dirs;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.platform.process;
-import mcppls.platform.system;
-import mcppls.platform.toolenv;
-import mcppls.platform.toolrun;
-import mcppls.platform.task;
 import mcppls.lsp.jsonrpc;
 import mcppls.lsp.protocol;
 import mcppls.spec.database;
@@ -37,7 +28,6 @@ import mcppls.project.mcpp;
 import mcppls.project.target;
 import mcppls.project.modelcache;
 import mcppls.normalize.plan;
-import mcppls.arch;
 import mcppls.bundle.writer;
 import mcppls.engine;
 import mcppls.engine.payload;
@@ -53,6 +43,14 @@ import mcppls.orchestrator.documents;
 import mcppls.orchestrator.instance;
 import mcppls.orchestrator.routing;
 import mcppls.orchestrator.tokens;
+import mcppls.orchestrator.highlights;
+import mcpplibs.os;
+import mcppls.base.home;
+import mcppls.base.payload;
+import mcppls.toolrun;
+import mcppls.toolenv;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::orchestrator {
 
@@ -120,7 +118,7 @@ struct WatchPatterns {
     std::mutex mutex;
     std::vector<std::string> entries;   // glob patterns relative to the root, or absolute paths
     int generation { 0 };               // advanced whenever `entries` is replaced
-    std::map<std::string, std::optional<platform::fs::FileStamp>> concreteBaseline;
+    std::map<std::string, std::optional<os::fs::stamp>> concreteBaseline;
 };
 
 // Whether `path` is one of `entries`: an absolute entry names the file, a relative one is a glob under `root`.
@@ -137,18 +135,18 @@ bool watch_covers(std::span<const std::string> entries, std::string_view root, s
     return is_build_file(base::file_name(path)) || project::is_cxx_source_name(path) || matches_watch_entries(entries, root, path);
 }
 
-std::map<std::string, platform::fs::FileStamp> watched_files_snapshot_of(std::string_view root, std::span<const std::string> entries, bool allRootFiles = false) {
-    std::map<std::string, platform::fs::FileStamp> files;
-    for (const auto& file : platform::fs::list_files(root, {}, WATCH_POLL_SKIP_DIRECTORIES)) {
+std::map<std::string, os::fs::stamp> watched_files_snapshot_of(std::string_view root, std::span<const std::string> entries, bool allRootFiles = false) {
+    std::map<std::string, os::fs::stamp> files;
+    for (const auto& file : base::files_under(root, {}, WATCH_POLL_SKIP_DIRECTORIES)) {
         if (!allRootFiles && !watch_covers(entries, root, file)) continue;
-        if (auto fileStamp = platform::fs::stamp(file)) files.emplace(file, *fileStamp);
+        if (auto fileStamp = base::file_stamp(file)) files.emplace(file, *fileStamp);
     }
     // Explicit files are watched independently of traversal exclusions, including target/ and
     // files outside the root. Globs do not cause traversal into excluded directories.
     for (const auto& entry : entries) {
         if (entry.find_first_of("*?[{") != std::string::npos) continue;
         const std::string path { base::is_absolute_path(entry) ? base::normalize_path(entry) : base::join_path(root, entry) };
-        if (auto fileStamp = platform::fs::stamp(path)) files.insert_or_assign(path, *fileStamp);
+        if (auto fileStamp = base::file_stamp(path)) files.insert_or_assign(path, *fileStamp);
     }
     return files;
 }
@@ -188,7 +186,7 @@ bool is_build_file(std::string_view name) {
     return std::ranges::find(BUILD_FILES, name) != BUILD_FILES.end() || name.ends_with(".cmake");
 }
 
-std::map<std::string, platform::fs::FileStamp> watched_files_snapshot(std::string_view root) { return watched_files_snapshot_of(root, {}); }
+std::map<std::string, os::fs::stamp> watched_files_snapshot(std::string_view root) { return watched_files_snapshot_of(root, {}); }
 
 // ---- Workspace::Impl -------------------------------------------------------------------------
 
@@ -231,21 +229,22 @@ struct Workspace::Impl final : engine::Host {
         if (!now && recentFilesWrittenAt && Clock::now() - *recentFilesWrittenAt < RECENT_FILES_WRITTEN) return;
         Json list = Json::array();
         for (const auto& path : recentFiles) list.push_back(path);
-        (void)platform::fs::write_file_atomic(base::join_path(cacheDirectory, "recent-files.json"), list.dump());
+        (void)os::fs::write_atomic(base::join_path(cacheDirectory, "recent-files.json"), list.dump());
         recentFilesChanged = false;
         recentFilesWrittenAt = Clock::now();
     }
 
     std::vector<std::string> read_recent_files() {
+        std::error_code ignored;
         std::vector<std::string> paths;
-        const auto text = platform::fs::read_file(base::join_path(cacheDirectory, "recent-files.json"));
+        const auto text = os::fs::read(base::join_path(cacheDirectory, "recent-files.json"));
         if (!text) return paths;
         const Json list = Json::parse(*text, nullptr, false);
         if (!list.is_array()) return paths;
         for (const auto& item : list) {
             if (!item.is_string() || paths.size() >= RECENT_FILES) continue;
             const std::string path { item.get<std::string>() };
-            if (base::is_within(path, root) && platform::fs::is_regular_file(path)) paths.push_back(path);
+            if (base::is_within(path, root) && std::filesystem::is_regular_file(path, ignored)) paths.push_back(path);
         }
         recentFiles.assign(paths.begin(), paths.end());
         return paths;
@@ -278,7 +277,7 @@ struct Workspace::Impl final : engine::Host {
     mutable std::unordered_map<std::string, std::string> canonicalByUri;
     index::ModuleIndex index;
     spec::MetadataReader metadataReader { spec::caching_metadata_reader() };
-    std::map<std::string, platform::fs::FileStamp> watchBaseline;
+    std::map<std::string, os::fs::stamp> watchBaseline;
     std::shared_ptr<WatchPatterns> watchPatterns { std::make_shared<WatchPatterns>() };
     bool dynamicWatch { false };             // the client registers watchers for us (else this root polls)
     int watchRegistration { 0 };             // the id suffix of the model's current watcher registration, 0 for none
@@ -310,6 +309,15 @@ struct Workspace::Impl final : engine::Host {
     bool clientSupportsTokensRefresh { false };
     std::optional<Clock::time_point> tokensRefreshAt;   // coalesced: at most one refresh per ~500ms
     std::uint64_t tokensRefreshes { 0 };                // for the refresh requests' ids
+    // mcpp design 2026-10-28 §11.1: what the compiler last answered for each open document, moved with the edits
+    // since; a request is answered from it at once and refreshed when the compiler has caught up (H1).
+    highlights::Store highlights;
+    std::uint64_t tokensAsked { 0 };                    // for the ids of the requests the server asks of its own
+    std::size_t tokensWritten { 0 };                    // H2: files written since the directory was last pruned
+    // H2: when the compiler is asked to confirm tokens read from disk -- a moment after the open, so the request does not
+    // compete with the file's first completion (the key cannot name the headers the file includes; the compiler can).
+    static constexpr std::chrono::milliseconds TOKENS_CONFIRM_DELAY { 1500 };
+    std::map<std::string, Clock::time_point, std::less<>> tokensConfirmAt;
     // Diagnostics published by engines other than mcppls's own, per engine and client URI.
     std::map<std::string, std::map<std::string, Json, std::less<>>, std::less<>> engineDiagnostics;
     std::map<std::string, std::string, std::less<>> publishedDiagnostics;
@@ -317,7 +325,7 @@ struct Workspace::Impl final : engine::Host {
     std::map<std::string, std::int64_t, std::less<>> coreDiagnosticsVersions;
     // The review an editor asked for (overall design 7.7): its findings as LSP diagnostics, by client URI.
     std::map<std::string, Json, std::less<>> reviewDiagnostics;
-    std::shared_ptr<platform::Process> reviewProcess;
+    std::shared_ptr<os::process::process> reviewProcess;
 
     // robustness design O1, O3: what happened, and how requests fared, for a report of a problem.
     Journal journal;
@@ -368,6 +376,19 @@ struct Workspace::Impl final : engine::Host {
     bool vscodeLike { false };                 // the client runs VS Code's commands (completion::vscode_like)
 
     // Requests in flight across engines.
+    // A semantic-tokens request (mcpp design 2026-10-28 §11.1): what the client asked for, and what the engines gave.
+    // Every engine is asked for the whole file; a range is cut from the answer here.
+    struct TokensRequest {
+        enum class Kind { full, delta, range };
+        Kind kind { Kind::full };
+        std::string uri;
+        std::string previousResultId;                     // a delta's: the answer the client holds
+        std::optional<base::Range> range;
+        bool fromKept { false };                          // answered from what is kept: the core engine was not asked for it
+        bool answered { false };                          // an engine gave a result
+        std::vector<tokens::Token> native;                // mcppls's own module-syntax tokens (and any other merging engine's)
+        std::optional<std::vector<tokens::Token>> core;   // the core engine's, when it was asked and answered
+    };
     struct Job {
         Clock::time_point started {};
         std::string answeredBy;   // the engine whose answer went out; "merged" when several were
@@ -404,6 +425,7 @@ struct Workspace::Impl final : engine::Host {
         // The difference is the engine's share of the request's time; the rest is mcppls's own.
         std::optional<Clock::time_point> engineSentAt;
         std::optional<Clock::time_point> engineRepliedAt;
+        std::optional<TokensRequest> tokens;
     };
     std::map<std::uint64_t, Job> jobs;
     std::uint64_t nextJob { 1 };
@@ -445,7 +467,7 @@ struct Workspace::Impl final : engine::Host {
     };
     static constexpr std::chrono::seconds WORD_ANSWER_KEPT { 30 };
     std::map<std::string, WordAnswer, std::less<>> wordAnswers;   // document URI -> its last complete core answer
-    const bool wordAnswersOn { platform::env::get("MCPPLS_COMPLETION_REFILTER").value_or("") != "off" };
+    const bool wordAnswersOn { os::env::get("MCPPLS_COMPLETION_REFILTER").value_or("") != "off" };
     std::size_t completionsFromWord { 0 };
 
     // The answer layer (answer-layer design 2026-10-13): what the core engine answered, kept by what it depends on, and
@@ -494,7 +516,7 @@ struct Workspace::Impl final : engine::Host {
     // dependency graph (#if 0, for example). Remember only inputs a valid answer covered.
     std::map<std::string, std::string> producerSourcePaths;
     std::map<std::string, std::string> loadingSourceStructures;
-    std::map<std::string, platform::fs::FileStamp> loadingSourceStamps;
+    std::map<std::string, os::fs::stamp> loadingSourceStamps;
     std::map<std::string, std::string> describedSourceStructures;
     int describedSourceGeneration { -1 };
     std::string loadingSourceProducerIdentity;
@@ -649,7 +671,8 @@ struct Workspace::Impl final : engine::Host {
         : root { std::move(root_) }, key { std::move(key_) }, options { std::move(options_) }, events { std::move(events_) }, client { client_ },
           compilerOverride { std::move(compilerOverride_) }, kitEnabled { kitEnabled_ }, payload { std::move(payload_) },
           payloadCorrupt { payloadCorrupt_ } {
-        const std::string workspaceDirectory { base::join_path(platform::dirs::cache_directory(), base::join_path("workspaces", project::workspace_key(root))) };
+        std::error_code ignored;
+        const std::string workspaceDirectory { base::join_path(base::cache_directory(), base::join_path("workspaces", project::workspace_key(root))) };
         lease = WorkspaceLease::acquire(workspaceDirectory, std::chrono::system_clock::now(), root);
         workspaceDirectory_ = workspaceDirectory;
         ownToken_ = lease->token();
@@ -659,11 +682,11 @@ struct Workspace::Impl final : engine::Host {
         leaseRenewAt = Clock::now() + LEASE_RENEWAL;
         // Under its one name, like every file the engines are given (engine_uri): the prime units
         // and the database live here, and clangd answers for them under the name it was given.
-        (void)platform::fs::create_directories(cacheDirectory);
-        cacheDirectory = platform::fs::canonical_path(cacheDirectory);
+        (void)std::filesystem::create_directories(cacheDirectory, ignored);
+        cacheDirectory = base::canonical_path(cacheDirectory);
         // 0.0.14 E1: on Windows, a cache off a Dev Drive has every file clangd writes and reads there scanned by
         // Microsoft Defender as it happens. Said once, in the log and the overview; nothing is changed for the person.
-        cacheOnDevDrive = platform::system::on_dev_drive(cacheDirectory);
+        if constexpr (os::is_windows) cacheOnDevDrive = os::windows::on_dev_drive(std::filesystem::path { cacheDirectory });
         if (cacheOnDevDrive == false) {
             log::info("the cache {} is not on a Dev Drive: Microsoft Defender scans the module and preamble files clangd writes and reads "
                       "there as it does; a Dev Drive scans them asynchronously (docs/50-troubleshooting.md, \"Windows\")", cacheDirectory);
@@ -673,7 +696,7 @@ struct Workspace::Impl final : engine::Host {
                                            answer::marks_of(options.completionProvenance).value_or(answer::Marks::subtle), options.answerAgent == "authoritative" };
             if (!wordAnswersOn) settings.cache = "off";   // MCPPLS_COMPLETION_REFILTER=off: as 0.0.14 with A1 off
             answers_ = std::make_unique<answering::Layer>(
-                std::move(settings), base::join_path(workspaceDirectory_, "answers"), base::join_path(platform::dirs::cache_directory(), "answers"),
+                std::move(settings), base::join_path(workspaceDirectory_, "answers"), base::join_path(base::cache_directory(), "answers"),
                 [this](std::string_view path) -> std::optional<std::string> {
                     if (const Document* document = documents_.find_by_path(path)) return document->text;
                     return std::nullopt;
@@ -748,6 +771,7 @@ struct Workspace::Impl final : engine::Host {
         // for the first root), so a request's core-engine tokens are always remapped by the same
         // legend the client was told about.
         tokensLegend = tokens::build_legend(coreCapabilities);
+        highlights.unsettle_all();   // a core engine that (re)started has answered nothing yet
         if (settledReported || !onEngineSettled) return;
         settledReported = true;
         auto callback = std::move(onEngineSettled);
@@ -813,7 +837,7 @@ struct Workspace::Impl final : engine::Host {
     // while one pass runs, another asked-for pass is coalesced and retriggered by
     // `handle_cache_swept`, never queued behind it (review 2026-10-03: a crash-looping engine
     // starting one full pass per restart is many threads on one tree otherwise).
-    void start_cache_task_(std::string_view origin, std::int64_t before = platform::fs::modified_now(), bool reportOnly = false) {
+    void start_cache_task_(std::string_view origin, std::int64_t before = base::file_time_now(), bool reportOnly = false) {
         {
             std::lock_guard lock(cacheMutex_);
             if (sweepRunning_.load()) {
@@ -847,7 +871,7 @@ struct Workspace::Impl final : engine::Host {
                     files += one.files;
                     failed += one.failed;
                 }
-                const cache::Sweep over { cache::enforce_budget(base::join_path(platform::dirs::cache_directory(), "workspaces"), budget, ownKey, now) };
+                const cache::Sweep over { cache::enforce_budget(base::join_path(base::cache_directory(), "workspaces"), budget, ownKey, now) };
                 bytes += over.bytes;
                 files += over.files;
                 failed += over.failed;
@@ -895,8 +919,8 @@ struct Workspace::Impl final : engine::Host {
         Json facts { { "version", std::string { base::VERSION } },
                      { "root", root },
                      { "cacheRoot", workspaceDirectory_ },
-                     { "os", std::string { mcppls::os::FAMILY_NAME } },
-                     { "arch", std::string_view { mcppls::arch::ARCH == mcppls::arch::Arch::aarch64 ? "arm64" : "x64" } },
+                     { "os", std::string { os::name(os::host()) } },
+                     { "arch", std::string_view { base::payload_arch() } },
                      { "logDirectory", base::parent_path(log::file_path()) },
                      { "bundlesDirectory", bundle::default_directory() } };
         if (clientParams.is_object()) {
@@ -918,9 +942,18 @@ struct Workspace::Impl final : engine::Host {
     // workspace/semanticTokens/refresh every ~500ms, and never before this root's own initialize
     // was answered (the same gate update_status uses).
     void semantic_tokens_changed() override {
+        // The compiler may answer differently for every file now: what is kept stands in until it has answered again.
+        highlights.unsettle_all();
+        request_tokens_refresh(std::chrono::milliseconds { 500 });
+    }
+
+    // A refresh within `within`, or sooner when one is due sooner already. A compiler answer the client does not have
+    // asks for one within TOKENS_REFRESH_SOON: the person is looking at a stand-in.
+    static constexpr std::chrono::milliseconds TOKENS_REFRESH_SOON { 20 };
+    void request_tokens_refresh(std::chrono::milliseconds within) {
         if (!clientSupportsTokensRefresh || !initializeAnswered) return;
-        if (tokensRefreshAt) return;
-        tokensRefreshAt = Clock::now() + std::chrono::milliseconds { 500 };
+        const auto at = Clock::now() + within;
+        if (!tokensRefreshAt || at < *tokensRefreshAt) tokensRefreshAt = at;
     }
 
     std::vector<engine::DocumentView> documents() const override {
@@ -934,7 +967,7 @@ struct Workspace::Impl final : engine::Host {
     // The engines are given every file under the one name the model uses for it (v1 design 14.3's
     // "one file, one name"): clangd matches an unsaved buffer to the module source it builds by name.
     std::string engine_uri(std::string_view uri) const override {
-        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+        if (os::host() == os::platform::windows) {
             const std::string path { path_of_uri(uri) };
             if (path.size() < 2 || path[1] != ':') return std::string { uri };
             return "file:///" + path.substr(0, 2) + base::percent_encode_path(std::string_view { path }.substr(2));
@@ -978,7 +1011,7 @@ struct Workspace::Impl final : engine::Host {
         const std::string key_ { uri };
         if (const auto cached = canonicalByUri.find(key_); cached != canonicalByUri.end()) return cached->second;
         auto path = base::uri_to_path(uri);
-        std::string canonical { path ? platform::fs::canonical_path(*path) : std::string {} };
+        std::string canonical { path ? base::canonical_path(*path) : std::string {} };
         if (canonicalByUri.size() > 4096) canonicalByUri.clear();
         canonicalByUri.emplace(key_, canonical);
         return canonical;
@@ -1016,6 +1049,7 @@ struct Workspace::Impl final : engine::Host {
         consider(statusFlushAt);
         consider(leaseRenewAt);
         consider(tokensRefreshAt);
+        for (const auto& [uri, at] : tokensConfirmAt) consider(at);
         for (const auto& [id, job] : jobs) consider(job.budgetAt);
         for (const auto& [id, late] : lateCompletions) consider(late.until);
         for (const auto& [id, background] : background_) consider(background.until);
@@ -1049,7 +1083,7 @@ struct Workspace::Impl final : engine::Host {
                 std::this_thread::sleep_for(std::chrono::seconds { 2 });
                 if (patterns->stopped.load()) return;
                 std::vector<std::string> entries;
-                std::map<std::string, std::optional<platform::fs::FileStamp>> concreteBaseline;
+                std::map<std::string, std::optional<os::fs::stamp>> concreteBaseline;
                 int generation { 0 };
                 {
                     const std::lock_guard lock { patterns->mutex };
@@ -1097,14 +1131,6 @@ struct Workspace::Impl final : engine::Host {
         job.clientId = message["id"];
         job.method = message.value("method", std::string {});
         job.message = message;
-        // Semantic tokens (design doc 2026-09-25 K/§7): this server advertises `full` with no
-        // `delta` (contract T0), so it never hands out a resultId a delta request could build on.
-        // A client that sends one anyway is answered like `full`, which LSP allows.
-        if (job.method == "textDocument/semanticTokens/full/delta") {
-            job.method = "textDocument/semanticTokens/full";
-            job.message["method"] = job.method;
-            if (job.message.contains("params") && job.message["params"].is_object()) job.message["params"].erase("previousResultId");
-        }
         job.params = job.message.contains("params") ? job.message["params"] : Json::object();
         const std::string uri { uri_of_params(job.params) };
         job.path = uri.empty() ? std::string {} : path_of_uri(uri);
@@ -1117,6 +1143,10 @@ struct Workspace::Impl final : engine::Host {
             job.agent = id.starts_with("k:") || id.starts_with("ka:");
         }
         if (!job.path.empty() && readOnlySources.contains(base::path_key(job.path)) && refuse_edit(jobId)) return;
+        if (is_tokens_method(job.method)) {
+            route_tokens_request(jobId, uri);
+            return;
+        }
         if (job.method == lsp::method::TEXT_DOCUMENT_COMPLETION) {
             if (completion::is_space_trigger(job.params)) {
                 route_space_triggered(jobId);
@@ -1159,22 +1189,9 @@ struct Workspace::Impl final : engine::Host {
             job.merging = true;
             job.awaiting = selection.mergers.size();
             job.engineSentAt = Clock::now();
-            // Semantic tokens: the core engine's own answer arrives in its own legend's indices;
-            // remapped into this server's legend right here, once, so routing::merge_results (and
-            // everything downstream) only ever sees the server's own index space (routing itself
-            // stays a pure function of what several engines already answered).
-            const bool remapCoreTokens { coreEngine != nullptr
-                                        && (job.method == "textDocument/semanticTokens/full" || job.method == "textDocument/semanticTokens/range") };
             for (engine::Engine* merger : selection.mergers) {
                 const std::string engineId { merger->id() };
-                engine::Reply reply { [this, jobId, engineId](engine::Answer answer) { merge_answer(jobId, engineId, std::move(answer)); } };
-                if (remapCoreTokens && engineId == coreEngine->id()) {
-                    reply = [this, jobId, engineId](engine::Answer answer) {
-                        if (answer.kind == engine::Answer::Kind::result) answer.value = tokens::remap_core_tokens(answer.value, tokensLegend);
-                        merge_answer(jobId, engineId, std::move(answer));
-                    };
-                }
-                merger->request(job.view, job.message, std::move(reply));
+                merger->request(job.view, job.message, [this, jobId, engineId](engine::Answer answer) { merge_answer(jobId, engineId, std::move(answer)); });
                 if (!jobs.contains(jobId)) return;
             }
             return;
@@ -1209,6 +1226,318 @@ struct Workspace::Impl final : engine::Host {
             return;
         }
         ask_next(jobId);
+    }
+
+    // ---- semantic tokens (mcpp design 2026-10-28 §11.1) -------------------------------------------------------------
+
+    static bool is_tokens_method(std::string_view method) {
+        return method == lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL || method == lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL_DELTA
+               || method == lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_RANGE;
+    }
+
+    static std::optional<base::Range> range_of(const Json& params) {
+        const Json* range { lsp::find(params, "range") };
+        if (range == nullptr || !range->is_object()) return std::nullopt;
+        const Json* start { lsp::find(*range, "start") };
+        const Json* end { lsp::find(*range, "end") };
+        if (start == nullptr || end == nullptr) return std::nullopt;
+        const auto read = [](const Json& position) -> std::optional<base::Position> {
+            const auto line = lsp::int_at(position, "line");
+            const auto character = lsp::int_at(position, "character");
+            if (!line || !character) return std::nullopt;
+            return base::Position { static_cast<int>(*line), static_cast<int>(*character) };
+        };
+        const auto from = read(*start);
+        const auto to = read(*end);
+        if (!from || !to) return std::nullopt;
+        return base::Range { *from, *to };
+    }
+
+    // H1. A request for an open document's tokens is answered at once from what the compiler last gave for it when that
+    // is exact (its very text, nothing it reads changed since), or -- for a client that can be refreshed -- from what was
+    // kept, moved with the edits since (or from mcppls's own module-syntax tokens alone, before the compiler gave any):
+    // the compiler is asked meanwhile, and the client is told to ask again when its answer differs. A client that cannot
+    // be refreshed waits for the compiler, as before.
+    void route_tokens_request(std::uint64_t jobId, const std::string& uri) {
+        Job& job = jobs.at(jobId);
+        TokensRequest request;
+        request.uri = uri;
+        if (job.method == lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL_DELTA) {
+            request.kind = TokensRequest::Kind::delta;
+            if (const Json* previous { lsp::find(job.params, "previousResultId") }; previous != nullptr && previous->is_string()) {
+                request.previousResultId = previous->get<std::string>();
+            }
+        }
+        if (job.method == lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_RANGE) {
+            request.kind = TokensRequest::Kind::range;
+            request.range = range_of(job.params);
+        }
+        // Every engine is asked for the whole file: a range is cut from it, and a delta made of it, here.
+        job.method = std::string { lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL };
+        job.message["method"] = job.method;
+        if (job.message.contains("params") && job.message["params"].is_object()) {
+            job.message["params"].erase("previousResultId");
+            job.message["params"].erase("range");
+        }
+        job.params = job.message.contains("params") ? job.message["params"] : Json::object();
+        job.view = engine::RequestView { job.method, &job.params, job.path, job.text };
+        const Document* document { uri.empty() ? nullptr : documents_.find(uri) };
+        highlights::Kept* kept { document != nullptr && !job.path.empty() ? &highlights.at(uri) : nullptr };
+        const bool coreCan { coreEngine != nullptr && !core_waits_for_producer() && coreEngine->claims(job.view) };
+        if (kept != nullptr && !kept->known && !kept->cacheChecked) read_kept_tokens(*document, *kept);
+        if (kept != nullptr && kept->known && kept->exact && kept->version == document->version) {
+            request.fromKept = true;
+            ++highlights.counters.exact;
+            // H2: what the disk held is confirmed by the compiler once, in the background, a moment later.
+            if (kept->fromCache && coreCan && clientSupportsTokensRefresh) tokensConfirmAt.try_emplace(uri, Clock::now() + TOKENS_CONFIRM_DELAY);
+        } else if (kept != nullptr && coreCan && clientSupportsTokensRefresh) {
+            request.fromKept = true;
+            ++highlights.counters.standIn;
+            ask_core_tokens(uri);
+        } else if (coreCan) {
+            ++highlights.counters.waited;
+        }
+        job.tokens = std::move(request);
+        std::vector<engine::Engine*> candidates;
+        for (const auto& engine : engines) {
+            if (engine.get() == coreEngine && (job.tokens->fromKept || !coreCan)) continue;
+            candidates.push_back(engine.get());
+        }
+        Selection selection { select_engines(candidates, job.view) };
+        if (selection.mergers.empty()) {
+            finish_tokens_job(jobId);
+            return;
+        }
+        job.merging = true;
+        job.awaiting = selection.mergers.size();
+        job.engineSentAt = Clock::now();
+        const std::int64_t version { document != nullptr ? document->version : 0 };
+        for (engine::Engine* merger : selection.mergers) {
+            const std::string engineId { merger->id() };
+            engine::Reply reply { [this, jobId, engineId](engine::Answer answer) { tokens_answer(jobId, engineId, std::move(answer)); } };
+            if (merger == coreEngine) {
+                if (kept != nullptr) kept->asking = version;
+                reply = [this, jobId, engineId, uri, version](engine::Answer answer) {
+                    if (answer.kind == engine::Answer::Kind::result) {
+                        auto core = tokens::remap(answer.value, tokensLegend);
+                        record_core_tokens(uri, answer.version.value_or(version), core);
+                        if (const auto it = jobs.find(jobId); it != jobs.end() && it->second.tokens) it->second.tokens->core = std::move(core);
+                        answer.value = nullptr;
+                    } else if (highlights::Kept* asked = highlights.find(uri)) {
+                        asked->asking.reset();
+                    }
+                    tokens_answer(jobId, engineId, std::move(answer));
+                };
+            }
+            merger->request(job.view, job.message, std::move(reply));
+            if (!jobs.contains(jobId)) return;
+        }
+    }
+
+    void tokens_answer(std::uint64_t jobId, const std::string& engineId, engine::Answer answer) {
+        auto it = jobs.find(jobId);
+        if (it == jobs.end()) return;
+        Job& job = it->second;
+        TokensRequest& request { *job.tokens };
+        switch (answer.kind) {
+        case engine::Answer::Kind::result:
+            if (!answer.value.is_null()) request.answered = true;
+            if (coreEngine == nullptr || engineId != coreEngine->id()) {
+                auto native = tokens::decode(answer.value);
+                tokens::ensure_sorted(native);
+                if (request.native.empty()) request.native = std::move(native);
+                else request.native = tokens::merge_tokens(request.native, native);
+            }
+            break;
+        case engine::Answer::Kind::unavailable: break;
+        case engine::Answer::Kind::error:
+            if (!job.error) job.error = std::move(answer.value);
+            break;
+        case engine::Answer::Kind::cancelled: job.cancelled = true; break;
+        }
+        if (--job.awaiting > 0) return;
+        job.engineRepliedAt = Clock::now();
+        if (job.cancelled) {
+            finish_job_cancelled(jobId);
+        } else if (job.error && !request.fromKept && !request.core) {
+            finish_job_with_error(jobId, std::move(*job.error));
+        } else {
+            finish_tokens_job(jobId);
+        }
+    }
+
+    // The answer: the compiler's tokens (what is kept, moved to the document's current version, which is what the client
+    // shows; else this request's own answer) with mcppls's own in the gaps, cut to the range asked for.
+    void finish_tokens_job(std::uint64_t jobId) {
+        auto it = jobs.find(jobId);
+        if (it == jobs.end()) return;
+        Job& job = it->second;
+        TokensRequest& request { *job.tokens };
+        const auto began = Clock::now();
+        highlights::Kept* kept { highlights.find(request.uri) };
+        const bool fromKept { kept != nullptr && kept->known };
+        if (!fromKept && !request.core && !request.answered) {
+            job.answeredBy = "merged";
+            finish_job(jobId, Json(nullptr));
+            return;
+        }
+        const std::vector<tokens::Token>& core { fromKept ? kept->core : request.core ? *request.core : request.native };
+        std::vector<tokens::Token> merged { &core == &request.native ? request.native : tokens::merge_tokens(core, request.native) };
+        if (request.kind == TokensRequest::Kind::range && request.range) merged = highlights::within(merged, *request.range);
+        std::vector<std::uint32_t> data { tokens::encode_data(merged) };
+        Json result;
+        if (request.kind == TokensRequest::Kind::range || kept == nullptr) {
+            result = tokens::result_of(data);
+        } else if (request.kind == TokensRequest::Kind::delta && !request.previousResultId.empty() && request.previousResultId == kept->resultId) {
+            // H3: the edits of the client's last answer, under a new resultId.
+            Json edits = highlights::edits_between(kept->sent, data);
+            ++highlights.counters.deltas;
+            result = Json { { "resultId", highlights.remember(request.uri, std::move(data)) }, { "edits", std::move(edits) } };
+        } else {
+            const std::string resultId { highlights.remember(request.uri, data) };
+            result = tokens::result_of(kept->sent, resultId);
+        }
+        if (const Document* document { documents_.find(request.uri) }; kept != nullptr && document != nullptr && request.kind != TokensRequest::Kind::range) {
+            kept->givenVersion = document->version;
+            kept->givenDigest = highlights::digest(fromKept && kept->version == document->version ? kept->core : std::span<const tokens::Token> {});
+            kept->givenExact = fromKept && kept->exact;
+        }
+        highlights.composed(std::chrono::duration<double, std::milli>(Clock::now() - began).count());
+        job.answeredBy = request.fromKept ? "kept" : "merged";
+        finish_job(jobId, std::move(result));
+    }
+
+    // The core engine's tokens for `uri`, answered for `answered` (the version it had): kept, moved to the document's
+    // version now. A client given something else for that version is told to ask again; one that holds a stand-in for
+    // a newer text has the compiler asked again, so what it is shown converges on the compiler's once typing pauses.
+    void record_core_tokens(const std::string& uri, std::int64_t answered, std::vector<tokens::Token> core) {
+        const Document* document { documents_.find(uri) };
+        highlights::Kept* kept { highlights.find(uri) };
+        if (document == nullptr || kept == nullptr) return;
+        kept->asking.reset();
+        const bool settled { coreEngine == nullptr || !coreEngine->busy_with(document->path) };
+        const std::size_t count { core.size() };
+        if (!highlights.engine_answered(uri, answered, document->version, std::move(core), settled)) {
+            log::debug("semantic tokens of {}: the core engine's answer for version {} is dropped (now {}, its edits are no longer known)",
+                       document->path, answered, document->version);
+            return;
+        }
+        log::debug("semantic tokens of {}: the core engine answered {} tokens for version {} (now {}; {})", document->path, count, answered,
+                   document->version, kept->exact ? "exact" : settled ? "moved" : "still preparing");
+        if (kept->givenVersion && *kept->givenVersion == kept->version && kept->givenDigest != highlights::digest(kept->core)) {
+            ++highlights.counters.refreshes;
+            request_tokens_refresh(TOKENS_REFRESH_SOON);
+        }
+        if (kept->exact && !kept->edited) write_kept_tokens(*document, *kept);
+        if (!kept->exact && answered != document->version && clientSupportsTokensRefresh) ask_core_tokens(uri);
+    }
+
+    // H2: where a document's tokens are kept on disk, and the key they are kept under -- a digest of everything the
+    // compiler's answer depends on: this server and the compiler, the semantic profile, the plan's command for the file,
+    // the module interface units it reads (transitively; an open one by its text, the rest by size and time), and the text.
+    // Without a plan entry for the file there is no command to name, so no key yet.
+    std::string tokens_directory() const { return base::join_path(workspaceDirectory_, "tokens"); }
+
+    std::optional<std::string> tokens_cache_key(const Document& document) const {
+        const auto command = planCommands_.find(base::path_key(document.path));
+        if (command == planCommands_.end()) return std::nullopt;
+        base::Sha256 hash;
+        hash.update(std::format("mcppls-tokens 1\n{}\n{}\n{}\n", base::VERSION, payload.clangdVersion, profile_json().dump()));
+        hash.update(command->second);
+        hash.update("\n");
+        // The module interface units the file reads, and theirs: each by name and identity, in name order.
+        std::map<std::string, std::string, std::less<>> modules;
+        std::vector<std::pair<std::string, std::string>> pending;   // (importer, module)
+        for (const auto& name : imports_of(document.path)) pending.emplace_back(document.path, name);
+        while (!pending.empty() && modules.size() < 1024) {
+            auto [importer, name] = std::move(pending.back());
+            pending.pop_back();
+            if (modules.contains(name)) continue;
+            std::string identity;
+            const auto units = index.providers_for(importer, name);
+            for (const auto& unit : units) {
+                if (const Document* open { documents_.find_by_path(unit.path) }) identity += std::format("{} text {}\n", unit.path, base::sha256_hex(open->text));
+                else if (const auto stamp = base::file_stamp(unit.path)) identity += std::format("{} {} {}\n", unit.path, stamp->size, static_cast<std::int64_t>(stamp->modified_ns));
+                for (const auto& imported : imports_of(unit.path)) pending.emplace_back(unit.path, imported);
+            }
+            if (units.empty()) {
+                if (const auto* external = index.external(name)) {
+                    const auto stamp = base::file_stamp(external->path);
+                    identity = std::format("{} {} {}\n", external->path, stamp ? stamp->size : 0, stamp ? static_cast<std::int64_t>(stamp->modified_ns) : 0);
+                }
+            }
+            modules.emplace(std::move(name), std::move(identity));
+        }
+        for (const auto& [name, identity] : modules) hash.update(std::format("module {}\n{}", name, identity));
+        hash.update(base::sha256_hex(document.text));
+        return hash.finish();
+    }
+
+    // H2: the tokens the disk keeps for this document's text, read once per open. A hit is exact: the key says the
+    // compiler would answer the same; it is asked once all the same, to confirm.
+    void read_kept_tokens(const Document& document, highlights::Kept& kept) {
+        const auto key = tokens_cache_key(document);
+        if (!key) return;   // no plan entry yet: asked again at the next request
+        kept.cacheChecked = true;
+        const std::string file { base::join_path(tokens_directory(), highlights::cache_file_name(base::path_key(document.path))) };
+        const auto bytes = os::fs::read(file);
+        const auto cached = bytes ? highlights::decode_cache(*bytes) : std::nullopt;
+        if (!cached || cached->key != *key) {
+            ++highlights.counters.cacheMisses;
+            return;
+        }
+        ++highlights.counters.cacheHits;
+        kept.core = std::move(cached->tokens);
+        kept.known = true;
+        kept.exact = true;
+        kept.fromCache = true;
+        kept.version = document.version;
+        kept.writtenKey = *key;
+        log::debug("semantic tokens of {}: {} tokens kept for this text were read", document.path, kept.core.size());
+    }
+
+    // H2: the compiler's exact tokens of a text the disk has (opened or saved, not edited since), written once per key.
+    void write_kept_tokens(const Document& document, highlights::Kept& kept) {
+        std::error_code ignored;
+        const auto key = tokens_cache_key(document);
+        if (!key || *key == kept.writtenKey) return;
+        const std::string directory { tokens_directory() };
+        (void)std::filesystem::create_directories(directory, ignored);
+        const std::string file { base::join_path(directory, highlights::cache_file_name(base::path_key(document.path))) };
+        if (auto written = os::fs::write_atomic(file, highlights::encode_cache(highlights::CacheFile { *key, kept.core })); !written) {
+            log::debug("semantic tokens of {} were not kept on disk: {}", document.path, written.error().message());
+            return;
+        }
+        kept.writtenKey = *key;
+        ++highlights.counters.cacheWrites;
+        if (++tokensWritten % 32 == 1) (void)highlights::prune_cache(directory, highlights::CACHE_FILES, highlights::CACHE_BYTES);
+    }
+
+    // The core engine asked for `uri`'s tokens on the server's own behalf (H1): one request at a time per document.
+    void ask_core_tokens(const std::string& uri) {
+        const Document* document { documents_.find(uri) };
+        highlights::Kept* kept { highlights.find(uri) };
+        if (coreEngine == nullptr || document == nullptr || kept == nullptr || kept->asking || core_waits_for_producer()) return;
+        const std::string path { path_of_uri(uri) };
+        Json message = lsp::make_request(std::format("t:{}", ++tokensAsked), lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
+                                         Json { { "textDocument", Json { { "uri", uri } } } });
+        const engine::RequestView view { lsp::method::TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL, &message["params"], path, document->text };
+        if (!coreEngine->claims(view)) return;
+        const std::int64_t version { document->version };
+        kept->asking = version;
+        log::debug("semantic tokens of {}: the core engine is asked at version {}", path, version);
+        coreEngine->request(view, message, [this, uri, version](engine::Answer answer) {
+            if (answer.kind == engine::Answer::Kind::result) {
+                record_core_tokens(uri, answer.version.value_or(version), tokens::remap(answer.value, tokensLegend));
+                return;
+            }
+            highlights::Kept* asked { highlights.find(uri) };
+            if (asked == nullptr) return;
+            asked->asking.reset();
+            // The text changed while it was asked (clangd answers such a request "content modified"): asked again for the
+            // text now. Otherwise (set aside, restarted, not accepting yet) the engine's next change refreshes and asks again.
+            if (const Document* now { documents_.find(uri) }; now != nullptr && now->version != version) ask_core_tokens(uri);
+        });
     }
 
     // ---- the answer layer -----------------------------------------------------------------------------------------
@@ -1385,7 +1714,7 @@ struct Workspace::Impl final : engine::Host {
                                 if (path.empty()) return;
                                 std::string text;
                                 if (const Document* open = documents_.find_by_path(path)) text = open->text;
-                                else if (auto disk = platform::fs::read_file(path)) text = std::move(*disk);
+                                else if (auto disk = os::fs::read(path)) text = std::move(*disk);
                                 const base::Position start { (*range)["start"].value("line", 0), (*range)["start"].value("character", 0) };
                                 const auto offset = base::offset_at(text, start);
                                 if (!offset) return;
@@ -1499,7 +1828,7 @@ struct Workspace::Impl final : engine::Host {
     // definition and declaration owners before asking for edits, rather than treating
     // that partial edit as proof of safety. Both lookups share the original deadline.
     void preflight_rename(std::uint64_t jobId, bool declaration = false,
-                          std::optional<platform::fs::FileStamp> closedStamp = std::nullopt) {
+                          std::optional<os::fs::stamp> closedStamp = std::nullopt) {
         Job& job = jobs.at(jobId);
         const std::string uri { uri_of_params(job.params) };
         const Document* document { documents_.find(uri) };
@@ -1507,7 +1836,7 @@ struct Workspace::Impl final : engine::Host {
             fail_rename_ownership(jobId, "the symbol's document or compiler is unavailable");
             return;
         }
-        if (!declaration && document == nullptr) closedStamp = platform::fs::stamp(job.path);
+        if (!declaration && document == nullptr) closedStamp = base::file_stamp(job.path);
         if (declaration && closedStamp && document != nullptr) {
             fail_rename_ownership(jobId, "the closed document was opened while resolving the symbol");
             return;
@@ -1540,7 +1869,7 @@ struct Workspace::Impl final : engine::Host {
             }
             const Document* now = documents_.find(uri);
             const bool sameDocument { version ? now != nullptr && now->version == *version && now->text == current->second.text
-                : now == nullptr && closedStamp && platform::fs::stamp(current->second.path) == closedStamp };
+                : now == nullptr && closedStamp && base::file_stamp(current->second.path) == closedStamp };
             if (generation != modelGeneration || ownerModel != model || !sameDocument) {
                 fail_rename_ownership(jobId, "the document or project changed while resolving the symbol");
                 return;
@@ -2093,7 +2422,7 @@ struct Workspace::Impl final : engine::Host {
         const auto known = structures.find(key);
         const auto* scan = index.scan_of(path);
         if (known == structures.end() || scan == nullptr || structure_of(*scan) != known->second) return false;
-        const auto disk = platform::fs::read_file(path);
+        const auto disk = os::fs::read(path);
         if (!disk || structure_of(project::scan_source(*disk)) != known->second) return false;
         const auto required = project::required_names(*scan);
         bool represented { false };
@@ -2137,20 +2466,20 @@ struct Workspace::Impl final : engine::Host {
         std::string signature { options.mcppTarget };
         if (options.mcppTarget == "auto") {
             const auto path = base::join_path(root, "compile_commands.json");
-            signature += "\n" + platform::fs::canonical_path(path);
-            if (const auto stamp = platform::fs::stamp(path)) signature += std::format("\n{}:{}", stamp->size, stamp->modified);
+            signature += "\n" + base::canonical_path(path);
+            if (const auto stamp = base::file_stamp(path)) signature += std::format("\n{}:{}", stamp->size, static_cast<std::int64_t>(stamp->modified_ns));
             else signature += "\nabsent";
-            if (const auto identity = platform::fs::file_identity(path)) signature += std::format("\n{}:{}", identity->volume, identity->index);
+            if (const auto identity = os::fs::identity_of(path)) signature += std::format("\n{}:{}", identity->volume, identity->index);
         }
         return signature;
     }
 
     std::string producer_file_identity() const {
         if (producerPath.empty()) return {};
-        std::string identity { platform::fs::canonical_path(producerPath) };
-        if (const auto stamp = platform::fs::stamp(producerPath)) identity += std::format("\n{}:{}", stamp->size, stamp->modified);
+        std::string identity { base::canonical_path(producerPath) };
+        if (const auto stamp = base::file_stamp(producerPath)) identity += std::format("\n{}:{}", stamp->size, static_cast<std::int64_t>(stamp->modified_ns));
         else identity += "\nabsent";
-        if (const auto file = platform::fs::file_identity(producerPath)) identity += std::format("\n{}:{}", file->volume, file->index);
+        if (const auto file = os::fs::identity_of(producerPath)) identity += std::format("\n{}:{}", file->volume, file->index);
         return identity;
     }
 
@@ -2431,7 +2760,7 @@ struct Workspace::Impl final : engine::Host {
         std::vector<std::string> directories { cacheDirectory };
         if (lease && lease->shared()) directories.push_back(lease->workspace_directory());
         for (const auto& directory : directories) {
-            const auto text = platform::fs::read_file(producer_timing_path(directory));
+            const auto text = os::fs::read(producer_timing_path(directory));
             if (!text) continue;
             const Json timing = Json::parse(*text, nullptr, false);
             if (timing.is_object() && timing.value(std::string { project::to_string(kind) }, std::int64_t { 0 }) > 0) {
@@ -2443,11 +2772,11 @@ struct Workspace::Impl final : engine::Host {
 
     void write_producer_timing(project::SourceKind kind, std::int64_t milliseconds) const {
         const std::string path { producer_timing_path(cacheDirectory) };
-        const auto text = platform::fs::read_file(path);
+        const auto text = os::fs::read(path);
         Json timing = text ? Json::parse(*text, nullptr, false) : Json::object();
         if (!timing.is_object()) timing = Json::object();
         timing[std::string { project::to_string(kind) }] = milliseconds;
-        (void)platform::fs::write_file_atomic(path, timing.dump());
+        (void)os::fs::write_atomic(path, timing.dump());
     }
 
     void save_model_cache() const {
@@ -2527,7 +2856,7 @@ struct Workspace::Impl final : engine::Host {
 
     // Whether `path` holds what it held when last seen; remembers what it holds now.
     bool input_unchanged(const std::string& path) {
-        const auto text = platform::fs::read_file(path);
+        const auto text = os::fs::read(path);
         if (!text) {
             describedInputs.erase(base::path_key(path));
             return false;
@@ -2560,7 +2889,7 @@ struct Workspace::Impl final : engine::Host {
         for (const auto& file : described_files()) {
             if (overwrite) input_unchanged(file);
             else if (!describedInputs.contains(base::path_key(file))) {
-                if (const auto text = platform::fs::read_file(file)) describedInputs.emplace(base::path_key(file), base::sha256_hex(*text));
+                if (const auto text = os::fs::read(file)) describedInputs.emplace(base::path_key(file), base::sha256_hex(*text));
             }
         }
     }
@@ -2574,12 +2903,12 @@ struct Workspace::Impl final : engine::Host {
         std::size_t remaining { 32 * 1024 * 1024 };
         for (const auto& [key, path] : producerSourcePaths) {
             if (remaining == 0) break;
-            const auto before = platform::fs::stamp(path);
+            const auto before = base::file_stamp(path);
             if (!before || before->size > remaining) continue;
-            const auto text = platform::fs::read_file(path, remaining);
+            const auto text = os::fs::read(path, remaining);
             if (!text) break; // a failed bounded read may already have consumed the remaining budget
             remaining -= text->size();
-            if (platform::fs::stamp(path) == before) {
+            if (base::file_stamp(path) == before) {
                 if (auto structure = described_source_structure(*text, project::scan_source(*text, true))) {
                     loadingSourceStructures.emplace(key, std::move(*structure));
                     loadingSourceStamps.emplace(key, *before);
@@ -2601,7 +2930,7 @@ struct Workspace::Impl final : engine::Host {
             const auto path = producerSourcePaths.find(key);
             const auto stamp = loadingSourceStamps.find(key);
             if (units.contains(key) && path != producerSourcePaths.end() && stamp != loadingSourceStamps.end()
-                && platform::fs::stamp(path->second) == std::optional { stamp->second }
+                && base::file_stamp(path->second) == std::optional { stamp->second }
                 && matches_watch_entries(loaded.watch, root, path->second)) {
                 describedSourceStructures.emplace(key, structure);
             }
@@ -2614,10 +2943,11 @@ struct Workspace::Impl final : engine::Host {
     // the cache) goes with a reset too, or a state xmake no longer recovers from outlives the reset that was to clear it. Removed
     // only while no load runs in it: a reset during a load leaves it to the start of the next one.
     void remove_producer_states() {
+        std::error_code ignored;
         for (const auto* provider : project::registered_providers()) {
             const std::string directory { base::join_path(cacheDirectory, std::string { provider->id() }) };
-            if (!platform::fs::is_directory(directory)) continue;
-            platform::fs::remove_all(directory);
+            if (!std::filesystem::is_directory(directory, ignored)) continue;
+            std::filesystem::remove_all(directory, ignored);
             log::info("removed {}'s private state for {} ({})", provider->id(), root, directory);
         }
     }
@@ -2674,7 +3004,7 @@ struct Workspace::Impl final : engine::Host {
         producerSoftAt = Clock::now() + load.producerSoft + std::chrono::milliseconds { 200 };
         std::shared_ptr<const spec::Kit> kitCopy = kit ? std::make_shared<const spec::Kit>(*kit) : nullptr;
         const std::string rootCopy { root };
-        const std::string probeCachePath { base::join_path(platform::dirs::cache_directory(), "toolchains/probe.json") };
+        const std::string probeCachePath { base::join_path(base::cache_directory(), "toolchains/probe.json") };
         auto queue = events;
         const std::string rootKey { key };
         std::thread { [queue, generation, load, kitCopy, rootCopy, probeCachePath, rootKey]() mutable {
@@ -2716,8 +3046,8 @@ struct Workspace::Impl final : engine::Host {
         // or the watch to settle -- on a loaded machine 2 s missed a writer that finished 2.5 s after it started.
         const auto now { std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::file_clock::now().time_since_epoch()).count() };
         const bool written { std::ranges::any_of(candidates, [&](const std::string& path) {
-            const auto stamp { platform::fs::stamp(path) };
-            return stamp && now - stamp->modified < std::chrono::nanoseconds { 10s }.count();
+            const auto stamp { base::file_stamp(path) };
+            return stamp && now - static_cast<std::int64_t>(stamp->modified_ns) < std::chrono::nanoseconds { 10s }.count();
         }) };
         if (!written || invalidFileRetries >= 5) {
             invalidFileRetries = 0;
@@ -2988,7 +3318,7 @@ struct Workspace::Impl final : engine::Host {
                 for (const auto& entry : model->watch) {
                     if (entry.find_first_of("*?[{") != std::string::npos) continue;
                     const std::string path { base::is_absolute_path(entry) ? base::normalize_path(entry) : base::join_path(root, entry) };
-                    watchPatterns->concreteBaseline.emplace(path, platform::fs::stamp(path));
+                    watchPatterns->concreteBaseline.emplace(path, base::file_stamp(path));
                 }
                 ++watchPatterns->generation;
             }
@@ -3036,7 +3366,7 @@ struct Workspace::Impl final : engine::Host {
                 if (index.contains(path)) continue;
                 if (const Document* document = documents_.find_by_path(path)) {
                     index.update(path, document->text);
-                } else if (auto text = platform::fs::read_file(path)) {
+                } else if (auto text = os::fs::read(path)) {
                     index.update(path, *text);
                 }
             }
@@ -3071,6 +3401,7 @@ struct Workspace::Impl final : engine::Host {
     }
 
     void replan() {
+        std::error_code ignored;
         replanAt.reset();
         if (!model) return;
         ++snapshotGeneration;
@@ -3082,13 +3413,13 @@ struct Workspace::Impl final : engine::Host {
         input.macosSdk = macosSdk;
         input.scanner = [this](std::string_view path) {
             if (const auto* scan = index.scan_of(path)) return *scan;
-            auto text = platform::fs::read_file(path);
+            auto text = os::fs::read(path);
             return text ? project::scan_source(*text) : project::ScanResult {};
         };
         input.metadataReader = metadataReader;
         std::set<std::string> openSources;
         for (const auto& path : openedOutsideModel) {
-            if (platform::fs::is_regular_file(path)) openSources.insert(path);
+            if (std::filesystem::is_regular_file(path, ignored)) openSources.insert(path);
         }
         for (const Document* document : documents_.all()) {
             if (!document->path.empty() && project::is_cxx_source_name(document->path) && base::is_within(document->path, root)) openSources.insert(document->path);
@@ -3102,7 +3433,7 @@ struct Workspace::Impl final : engine::Host {
             if (edited == editedAt.end() || now - edited->second >= EDITING_WINDOW) continue;
             input.editingSources.push_back(document->path);
             // Fix plan F13: what an autosave already put on disk is what clangd builds with.
-            if (auto disk = platform::fs::read_file(document->path)) input.editingDiskImports[document->path] = project::required_names(project::scan_source(*disk));
+            if (auto disk = os::fs::read(document->path)) input.editingDiskImports[document->path] = project::required_names(project::scan_source(*disk));
             if (!lastEdit || edited->second > *lastEdit) lastEdit = edited->second;
         }
         input.modelOrigin = modelOrigin;
@@ -3136,7 +3467,15 @@ struct Workspace::Impl final : engine::Host {
             commands[base::path_key(entry.file)] = std::move(command);
         }
         if (answers_ && !planCommands_.empty() && commands != planCommands_) answers_->everything_changed();
+        if (commands != planCommands_) highlights.unsettle_all();
         planCommands_ = std::move(commands);
+        // H2: a document asked for before its command was known is looked up on disk now; a hit is told to the client.
+        for (const Document* document : documents_.all()) {
+            highlights::Kept* kept { highlights.find(document->uri) };
+            if (kept == nullptr || kept->known || kept->cacheChecked || document->path.empty()) continue;
+            read_kept_tokens(*document, *kept);
+            if (kept->known && kept->givenVersion) request_tokens_refresh(TOKENS_REFRESH_SOON);
+        }
         for (const auto& file : plan.excludedFiles) plannedFiles.insert(base::path_key(file));
         structures.clear();
         for (const auto& path : index.files()) {
@@ -3419,7 +3758,7 @@ struct Workspace::Impl final : engine::Host {
     }
 
     Json about_json() const {
-        Json about { { "server", std::string { base::VERSION } }, { "platform", std::string { mcppls::os::PLATFORM } }, { "startedAt", startedAtUtc } };
+        Json about { { "server", std::string { base::VERSION } }, { "platform", std::string { base::payload_platform() } }, { "startedAt", startedAtUtc } };
         if (const std::string extension { extension_version() }; !extension.empty()) about["extension"] = extension;
         if (const Json* info = lsp::find(clientParams, "clientInfo"); info != nullptr && info->is_object()) {
             about["editor"] = Json { { "name", info->value("name", std::string {}) }, { "version", info->value("version", std::string {}) } };
@@ -3454,7 +3793,7 @@ struct Workspace::Impl final : engine::Host {
         } else if (kit) {
             profile = Json { { "kind", "semantic-kit" }, { "stdlib", std::format("{} {}", kit->stdlibName, kit->stdlibVersion) }, { "target", kit->target } };
         } else {
-            profile = Json { { "kind", "semantic-kit" }, { "stdlib", "unknown" }, { "target", std::string { mcppls::os::PLATFORM } } };
+            profile = Json { { "kind", "semantic-kit" }, { "stdlib", "unknown" }, { "target", std::string { base::payload_platform() } } };
         }
         return profile;
     }
@@ -3818,13 +4157,13 @@ struct Workspace::Impl final : engine::Host {
         // The last five starts of this workspace, newest last.
         const std::string path { base::join_path(cacheDirectory, "startups.json") };
         Json history = Json::array();
-        if (auto text = platform::fs::read_file(path)) {
+        if (auto text = os::fs::read(path)) {
             history = Json::parse(*text, nullptr, false);
             if (!history.is_array()) history = Json::array();
         }
         history.push_back(json);
         while (history.size() > 5) history.erase(history.begin());
-        (void)platform::fs::write_file_atomic(path, history.dump());
+        (void)os::fs::write_atomic(path, history.dump());
         healthAt = Clock::now() + HEALTH_EVERY;
     }
 
@@ -3886,7 +4225,7 @@ struct Workspace::Impl final : engine::Host {
         if (buildProgramPending.empty()) return;
         const auto now = Clock::now();
         if (const Document* document = documents_.find_by_path(buildProgramPending)) {
-            if (auto disk = platform::fs::read_file(buildProgramPending)) {
+            if (auto disk = os::fs::read(buildProgramPending)) {
                 std::string_view saved { *disk };
                 if (saved.starts_with("\xEF\xBB\xBF")) saved.remove_prefix(3);   // the editor's text has no BOM
                 if (saved != document->text) {
@@ -4026,7 +4365,7 @@ struct Workspace::Impl final : engine::Host {
             // stays at milliseconds. A live guest's own heartbeat protects it here, owner or not,
             // and a directory that says nothing at all gets the same grace the sweep gives it.
             const auto heartbeat { std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()) };
-            if (cache::rename_dead_instances(workspaceDirectory_, heartbeat, ownToken_, cache_grace()) > 0) start_cache_task_("tick", platform::fs::modified_now());
+            if (cache::rename_dead_instances(workspaceDirectory_, heartbeat, ownToken_, cache_grace()) > 0) start_cache_task_("tick", base::file_time_now());
             leaseRenewAt = now + LEASE_RENEWAL;
         }
         phase("the workspace lease and dead instances");
@@ -4082,6 +4421,15 @@ struct Workspace::Impl final : engine::Host {
             update_status();
         }
         phase("the engine wait and the status");
+        for (auto it = tokensConfirmAt.begin(); it != tokensConfirmAt.end();) {
+            if (it->second > now) {
+                ++it;
+                continue;
+            }
+            const std::string uri { it->first };
+            it = tokensConfirmAt.erase(it);
+            if (const highlights::Kept* kept { highlights.find(uri) }; kept != nullptr && kept->fromCache) ask_core_tokens(uri);
+        }
         if (tokensRefreshAt && *tokensRefreshAt <= now) {
             tokensRefreshAt.reset();
             // A request, not a notification (LSP 3.16): its answer carries nothing, and an id the session cannot
@@ -4157,7 +4505,7 @@ void Workspace::start(Json clientParams, bool clientSupportsStatus, bool usePoll
     impl_->startedAtUtc = std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
     impl_->startup = Impl::Startup {};
     impl_->startup.beganUtc = impl_->startedAtUtc;
-    log::info("mcppls {} ({}) root {}", base::VERSION, mcppls::os::PLATFORM, root_);
+    log::info("mcppls {} ({}) root {}", base::VERSION, base::payload_platform(), root_);
     {
         // 0.0.13 W7: the versions in the log's first lines, so a log read alone says what ran.
         const Json about = impl_->about_json();
@@ -4253,7 +4601,17 @@ void Workspace::did_change(const Json& message, const Json& params) {
     const std::string uri { uri_of_params(params) };
     const std::int64_t version { lsp::find_path(params, { "textDocument", "version" }) != nullptr
                                      ? params["textDocument"].value("version", std::int64_t { 0 }) : 0 };
+    // mcpp design 2026-10-28 §11.1: what is kept of the document's tokens moves with the edits (read from the text
+    // they apply to); every other document's tokens are no longer known to be exact -- it may import this one.
+    std::vector<highlights::Edit> edits;
+    std::int64_t before { 0 };
+    if (const Document* previous { impl_->documents_.find(uri) }; previous != nullptr) {
+        before = previous->version;
+        if (impl_->highlights.find(uri) != nullptr) edits = highlights::edits_of(previous->text, params.value("contentChanges", Json::array()));
+    }
     if (!impl_->documents_.change(uri, version, params.value("contentChanges", Json::array()))) return;
+    impl_->highlights.edited(uri, before, version, edits);
+    impl_->highlights.unsettle_except(uri);
     ++impl_->snapshotGeneration;
     ++impl_->documentChanges;
     impl_->lastDocumentChangeAt = std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::milliseconds>(std::chrono::system_clock::now()));
@@ -4276,6 +4634,8 @@ void Workspace::did_close(const Json& message, const Json& params) {
     if (found == nullptr) return;
     const Document document { *found };
     impl_->documents_.close(uri);
+    impl_->highlights.forget(uri);
+    impl_->tokensConfirmAt.erase(uri);
     if (!document.path.empty()) {
         if (impl_->answers_) impl_->answers_->changed(document.path);   // what it has is the disk's again
         impl_->forget_recent_file(document.path);
@@ -4284,7 +4644,7 @@ void Workspace::did_close(const Json& message, const Json& params) {
     }
     ++impl_->snapshotGeneration;
     if (!document.path.empty()) {
-        if (auto text = platform::fs::read_file(document.path)) impl_->index.update(document.path, *text);
+        if (auto text = os::fs::read(document.path)) impl_->index.update(document.path, *text);
     }
     impl_->document_event(engine::DocumentChange::closed, document, &message);
     // Diagnostics of a closed file are cleared; an engine may send its own empty set too.
@@ -4313,6 +4673,11 @@ void Workspace::did_save(const Json& message, const Json& params) {
         saved.path = path;
     }
     if (!saved.path.empty() && impl_->answers_) impl_->answers_->changed(saved.path);
+    // H2: the saved text is the disk's; the compiler's exact tokens of it are worth keeping for the next open.
+    if (highlights::Kept* kept { impl_->highlights.find(uri) }; kept != nullptr && !saved.path.empty()) {
+        kept->edited = false;
+        if (kept->known && kept->exact && kept->version == saved.version) impl_->write_kept_tokens(saved, *kept);
+    }
     impl_->document_event(engine::DocumentChange::saved, saved, &message);
     // Fix plan F13: an import of a file being edited that the save just put on disk gets its stand-in now, not once the
     // file is quiet (clangd builds with what is on disk).
@@ -4372,7 +4737,7 @@ void Workspace::handle_watched_files(const Json& changes) {
         const bool open { impl_->documents_.find_by_path(path) != nullptr };
         std::optional<std::string> diskText;
         if (type != 3) {
-            if (auto text = platform::fs::read_file(path)) diskText = std::move(*text);
+            if (auto text = os::fs::read(path)) diskText = std::move(*text);
         }
         if (!open) {
             if (type == 3) impl_->index.remove(path);
@@ -4517,25 +4882,25 @@ Json Workspace::report() const {
     }
     // The environment build tools are started in: where it came from, and the NAMES of the variables
     // that differ from this process's. Never the values --- a proxy variable can carry a credential.
-    const auto toolEnvironment = platform::toolenv::get();
+    const auto toolEnvironment = mcppls::toolenv::get();
     Json environment { { "source", toolEnvironment.source }, { "resolved", toolEnvironment.resolved },
                        { "durationMs", toolEnvironment.duration.count() }, { "differing", toolEnvironment.differing },
-                       { "mode", std::string { platform::toolenv::mode_name(platform::toolenv::mode()) } } };
+                       { "mode", std::string { mcppls::toolenv::mode_name(mcppls::toolenv::mode()) } } };
     if (!toolEnvironment.reason.empty()) environment["reason"] = toolEnvironment.reason;
     // The one run a report about a wrong or missing build description is almost always about. It is
     // looked for over everything kept, not over the twenty listed: a load that probes a dozen
     // compilers afterwards would otherwise push the producer out of sight.
     Json lastProducerRun = nullptr;
-    const auto kept = platform::toolrun::recent(platform::toolrun::KEPT);
+    const auto kept = mcppls::toolrun::recent(mcppls::toolrun::KEPT);
     for (const auto& record : kept) {
         if (!record.root.empty() && record.root != key_) continue;
-        if (record.purpose == "producer" || record.purpose.starts_with("configure")) lastProducerRun = platform::toolrun::to_json(record);
+        if (record.purpose == "producer" || record.purpose.starts_with("configure")) lastProducerRun = mcppls::toolrun::to_json(record);
     }
     if (project.is_object()) project["producerRun"] = std::move(lastProducerRun);
     Json toolRuns = Json::array();
     for (const auto& record : kept | std::views::drop(kept.size() > 20 ? kept.size() - 20 : 0)) {
         if (!record.root.empty() && record.root != key_) continue;
-        toolRuns.push_back(platform::toolrun::to_json(record));
+        toolRuns.push_back(mcppls::toolrun::to_json(record));
     }
     Json leftOut = Json::array();
     for (const auto& file : impl.plan.excludedFiles) {
@@ -4622,7 +4987,7 @@ Json Workspace::report() const {
                            { "late", Json { { "arrived", impl.lateCompletionsArrived }, { "served", impl.lateCompletionsServed } } },
                            { "fromWord", impl.completionsFromWord } };
     Json startups = Json::array();
-    if (auto text = platform::fs::read_file(base::join_path(impl.cacheDirectory, "startups.json"))) {
+    if (auto text = os::fs::read(base::join_path(impl.cacheDirectory, "startups.json"))) {
         startups = Json::parse(*text, nullptr, false);
         if (!startups.is_array()) startups = Json::array();
     }
@@ -4631,6 +4996,7 @@ Json Workspace::report() const {
                   { "toolEnvironment", std::move(environment) }, { "toolRuns", std::move(toolRuns) },
                   { "plan", std::move(plan) }, { "engines", std::move(engines) }, { "requests", std::move(requests) },
                   { "answers", impl.answers_ ? impl.answers_->report() : Json() },
+                  { "semanticTokens", impl.highlights.report() },
                   { "slowestFiles", std::move(slowestFiles) },
                   { "completion", std::move(completionCosts) },
                   { "documents", Json { { "changes", impl.documentChanges }, { "lastChangeAt", impl.lastDocumentChangeAt } } },
@@ -4638,18 +5004,20 @@ Json Workspace::report() const {
 }
 
 std::uint64_t Workspace::reset_cache() {
+    std::error_code ignored;
     auto& impl = *impl_;
     std::uint64_t freed { 0 };
     for (const auto& engine : impl.engines) freed += engine->clear_cache_on_request();
-    for (const auto& entry : platform::fs::list_directory(impl.cacheDirectory)) {
+    freed += cache::remove_tree(impl.tokens_directory()).bytes;
+    for (const auto& entry : base::children(impl.cacheDirectory)) {
         const std::string_view name { base::file_name(entry) };
         // The cached models go; the instance's own `instance.json` stays (review 2026-10-03). It is
         // not cache -- it is the heartbeat that says this directory is alive. Removing it here made
         // a guest look dead to the reapers for up to a renewal interval while it was rebuilding
         // (the old comment claimed the opposite); like `owner.lease`, it survives a reset.
         if (!name.starts_with("model.") || !name.ends_with(".json")) continue;
-        if (const auto stamp = platform::fs::stamp(entry)) freed += stamp->size;
-        platform::fs::remove_all(entry);
+        if (const auto stamp = base::file_stamp(entry)) freed += stamp->size;
+        std::filesystem::remove_all(entry, ignored);
     }
     impl.producerStatesResetPending = true;   // removed as the load below starts, or the next one if one runs (XS-4)
     log::info("the cache of {} was reset on request ({} bytes freed)", root_, freed);
@@ -4707,7 +5075,7 @@ void Workspace::handle_cache_swept(const Json& outcome) {
                                                { "failed", failed }, { "origin", outcome.value("origin", std::string {}) } });
         impl.update_status();
     }
-    if (retrigger) impl.start_cache_task_("coalesced", platform::fs::modified_now(), pendingReportOnly);
+    if (retrigger) impl.start_cache_task_("coalesced", base::file_time_now(), pendingReportOnly);
 }
 
 Json Workspace::cache_report() const {
@@ -4731,7 +5099,7 @@ Json Workspace::cache_report() const {
         }
         numbers = impl.cacheReport_;
     }
-    if (refresh) impl.start_cache_task_("report", platform::fs::modified_now(), true);
+    if (refresh) impl.start_cache_task_("report", base::file_time_now(), true);
     Json project { { "name", std::string { base::file_name(root_) } },
                    { "source", impl.model ? std::string { project::to_string(impl.model->source) } : std::string { "inferred" } } };
     if (impl.model) {
@@ -4801,7 +5169,7 @@ SweepStart Workspace::prepare_sweep(const Json& params) {
     start.staleCommands = wants("staleCommands", false);
     start.budget = wants("budget", true);
     // The safety rules of S3 5.8: nothing an engine holds, no canonical BMI, no engine stopped.
-    std::int64_t bound { platform::fs::modified_now() };
+    std::int64_t bound { base::file_time_now() };
     for (const auto& engine : impl.engines) {
         if (const std::int64_t began { engine->generation_started_at() }; began > 0) {
             start.engineLive = true;
@@ -4811,7 +5179,7 @@ SweepStart Workspace::prepare_sweep(const Json& params) {
     start.bound = bound;
     start.cacheDirectory = impl.cacheDirectory;
     start.workspaceDirectory = impl.workspaceDirectory_;
-    start.workspacesRoot = base::join_path(platform::dirs::cache_directory(), "workspaces");
+    start.workspacesRoot = base::join_path(base::cache_directory(), "workspaces");
     start.ownToken = impl.ownToken_;
     start.limits = impl.cache_budget();
     start.grace = impl.cache_grace();
@@ -4852,7 +5220,7 @@ Json run_prepared_sweep(const SweepStart& start) {
                     freed += cache::tree_bytes(build);
                     continue;
                 }
-                const platform::fs::Removal removed { platform::fs::tree_remove(build) };
+                const cache::Removal removed { cache::remove_tree(build) };
                 freed += removed.bytes;
                 failed += removed.failed;
             }
@@ -4896,36 +5264,40 @@ void Workspace::set_context(const Json& id, std::string_view context) {
 bool Workspace::start_review(const Json& arguments) {
     if (impl_->reviewProcess) return false;
     const auto& options = impl_->options;
-    if (options.serverExecutable.empty()) {
+    if (options.serverCommand.empty()) {
         log::warning("cannot review {}: the server does not know its own executable", root_);
         return false;
     }
-    platform::SpawnOptions spawn;
-    spawn.program = options.serverExecutable;
-    spawn.arguments = { "review", "--format", "lsp", "--root", root_ };
+    os::process::spawn_options spawn;
+    spawn.program = options.serverCommand.front();
+    spawn.args.assign(options.serverCommand.begin() + 1, options.serverCommand.end());
+    spawn.args.insert(spawn.args.end(), { "review", "--format", "lsp", "--root", root_ });
     const Json settings = arguments.is_array() && !arguments.empty() && arguments[0].is_object() ? arguments[0] : Json::object();
-    if (auto base = lsp::string_at(settings, "base"); base && !base->empty()) spawn.arguments.insert(spawn.arguments.end(), { "--base", *base });
-    if (!options.payloadDirectory.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--payload", options.payloadDirectory });
-    if (!options.clangd.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--clangd", options.clangd });
-    if (!options.kit.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--kit", options.kit });
-    if (!options.mcpp.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--mcpp", options.mcpp });
-    if (options.mcppTarget != "auto") spawn.arguments.insert(spawn.arguments.end(), { "--mcpp-target", options.mcppTarget });
-    if (!options.database.empty()) spawn.arguments.insert(spawn.arguments.end(), { "--database", options.database });
-    if (options.engine != "clangd") spawn.arguments.insert(spawn.arguments.end(), { "--engine", options.engine });
-    if (!options.discoverCompilers) spawn.arguments.push_back("--no-discover");
-    if (!options.trusted) spawn.arguments.push_back("--untrusted");
-    spawn.workDirectory = root_;
-    spawn.pipeInput = false;
-    spawn.pipeOutput = true;
+    if (auto base = lsp::string_at(settings, "base"); base && !base->empty()) spawn.args.insert(spawn.args.end(), { "--base", *base });
+    if (!options.payloadDirectory.empty()) spawn.args.insert(spawn.args.end(), { "--payload", options.payloadDirectory });
+    if (!options.clangd.empty()) spawn.args.insert(spawn.args.end(), { "--clangd", options.clangd });
+    if (!options.kit.empty()) spawn.args.insert(spawn.args.end(), { "--kit", options.kit });
+    if (!options.mcpp.empty()) spawn.args.insert(spawn.args.end(), { "--mcpp", options.mcpp });
+    if (options.mcppTarget != "auto") spawn.args.insert(spawn.args.end(), { "--mcpp-target", options.mcppTarget });
+    if (!options.database.empty()) spawn.args.insert(spawn.args.end(), { "--database", options.database });
+    if (options.engine != "clangd") spawn.args.insert(spawn.args.end(), { "--engine", options.engine });
+    if (!options.discoverCompilers) spawn.args.push_back("--no-discover");
+    if (!options.trusted) spawn.args.push_back("--untrusted");
+    spawn.cwd = root_;
+    // This server's input is the editor's channel: the review reads nothing.
+    spawn.in = os::process::stdio::null;
+    spawn.out = os::process::stdio::pipe;
+    spawn.err = os::process::stdio::error;
     // The review starts an engine and may start the build tool: ending it must end all of that,
     // which is what a unit of its own buys (design 4.2). shut_down() kills the unit, not one process.
-    spawn.ownUnit = true;
-    auto started = platform::Process::spawn(spawn);
+    spawn.own_unit = true;
+    spawn.bound_lifetime = true;
+    auto started = os::process::process::spawn(spawn);
     if (!started) {
-        log::warning("cannot review {}: {}", root_, started.error().message);
+        log::warning("cannot review {}: {}", root_, started.error().message());
         return false;
     }
-    impl_->reviewProcess = std::make_shared<platform::Process>(std::move(*started));
+    impl_->reviewProcess = std::make_shared<os::process::process>(std::move(*started));
     log::info("review of {} started", root_);
     // The review runs its own headless session; this one keeps serving the editor meanwhile.
     std::thread { [process = impl_->reviewProcess, events = impl_->events, rootKey = key_] {
@@ -4935,8 +5307,9 @@ bool Workspace::start_review(const Json& arguments) {
             if (!chunk || chunk->empty()) break;
             output += *chunk;
         }
-        const auto code = process->wait();
-        events->push(Event { EventKind::review_finished, Json { { "output", std::move(output) }, { "exitCode", code ? *code : -1 } }, 0, {}, rootKey, {} });
+        const auto status = process->wait();
+        const int code { status && !status->by_environment ? status->code : -1 };
+        events->push(Event { EventKind::review_finished, Json { { "output", std::move(output) }, { "exitCode", code } }, 0, {}, rootKey, {} });
     } }.detach();
     return true;
 }
@@ -4987,7 +5360,7 @@ void Workspace::handle_tool_run(const Json& record) {
     const std::string source { record.value("environment", std::string {}) };
     if (!source.empty() && source != impl_->journaledToolEnvironment) {
         impl_->journaledToolEnvironment = source;
-        const auto environment = platform::toolenv::get();
+        const auto environment = mcppls::toolenv::get();
         impl_->journal.add("tool-environment", Json { { "source", source }, { "durationMs", environment.duration.count() },
                                                       { "differing", environment.differing }, { "reason", environment.reason } });
     }

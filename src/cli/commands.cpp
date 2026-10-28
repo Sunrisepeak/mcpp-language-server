@@ -3,17 +3,11 @@ module mcppls.cli.commands;
 import std;
 import nlohmann.json;
 import mcpplibs.cmdline;
-import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.project.boundary;
 import mcppls.base.version;
-import mcppls.platform.fs;
-import mcppls.platform.dirs;
-import mcppls.platform.process;
-import mcppls.platform.toolenv;
-import mcppls.platform.toolrun;
 import mcppls.spec.database;
 import mcppls.spec.kit;
 import mcppls.spec.metadata;
@@ -40,6 +34,13 @@ import mcppls.bundle.writer;
 import mcppls.ai.mcp.server;
 import mcppls.ai.mcp.daemon;
 import mcppls.ai.model.source;
+import mcpplibs.os;
+import mcppls.base.home;
+import mcppls.base.payload;
+import mcppls.toolrun;
+import mcppls.toolenv;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::cli {
 
@@ -66,10 +67,10 @@ Loaded load(std::string_view root, const cmdline::ParsedArgs& args, bool trusted
         if (auto kit = spec::load_kit(loaded.payload.kit)) loaded.kit = std::move(*kit);
         else base::log::warning("semantic kit unusable: {}", kit.error().message);
     }
-    toolchain::ProbeCache cache { base::join_path(platform::dirs::cache_directory(), "toolchains/probe.json") };
+    toolchain::ProbeCache cache { base::join_path(base::cache_directory(), "toolchains/probe.json") };
     project::LoadOptions options;
     options.trusted = trusted && session.trusted;
-    options.cacheDirectory = base::join_path(platform::dirs::cache_directory(), base::join_path("workspaces", project::workspace_key(root)));
+    options.cacheDirectory = base::join_path(base::cache_directory(), base::join_path("workspaces", project::workspace_key(root)));
     options.kit = loaded.kit ? &*loaded.kit : nullptr;
     options.runner = toolchain::process_runner(std::chrono::seconds { 20 });
     options.probeCache = &cache;
@@ -84,8 +85,8 @@ Loaded load(std::string_view root, const cmdline::ParsedArgs& args, bool trusted
     options.offline = session.buildTool != "online";
     options.producerHard = session.producerTimeout.count() > 0 ? std::chrono::milliseconds { session.producerTimeout }
         : std::chrono::milliseconds { options.offline ? std::chrono::minutes { 5 } : std::chrono::minutes { 10 } };
-    platform::toolenv::configure(platform::toolenv::parse_mode(session.toolEnvironment).value_or(platform::toolenv::Mode::automatic), session.serverExecutable);
-    if (options.trusted) platform::toolenv::begin();
+    mcppls::toolenv::configure(mcppls::toolenv::parse_mode(session.toolEnvironment).value_or(mcppls::toolenv::Mode::automatic), session.serverCommand);
+    if (options.trusted) mcppls::toolenv::begin();
     options.environmentWait = options.trusted ? std::chrono::seconds { 10 } : std::chrono::seconds { 0 };
     loaded.model = project::load_project(root, options);
 
@@ -102,7 +103,7 @@ Loaded load(std::string_view root, const cmdline::ParsedArgs& args, bool trusted
 }
 
 int command_model(const cmdline::ParsedArgs& args) {
-    const std::string root { absolute(args.value("root").value_or(platform::fs::current_directory())) };
+    const std::string root { absolute(args.value("root").value_or(base::current_directory())) };
     const Loaded loaded { load(root, args, !args.is_flag_set("untrusted")) };
     const std::string format { args.value("export").value_or("s1") };
     if (format == "compile-commands") {
@@ -121,8 +122,9 @@ int command_model(const cmdline::ParsedArgs& args) {
 }
 
 int command_check(const cmdline::ParsedArgs& args) {
+    std::error_code ignored;
     const std::string file { absolute(args.value("file").value_or("")) };
-    if (file.empty() || !platform::fs::is_regular_file(file)) {
+    if (file.empty() || !std::filesystem::is_regular_file(file, ignored)) {
         std::println(std::cerr, "check: no such file: {}", file);
         return 2;
     }
@@ -146,40 +148,40 @@ int command_check(const cmdline::ParsedArgs& args) {
     for (const auto& set : model.database.sets) {
         for (const auto& unit : set.units) {
             const std::string path { spec::absolute_source(unit) };
-            if (auto text = platform::fs::read_file(path)) index.update(path, *text);
+            if (auto text = os::fs::read(path)) index.update(path, *text);
         }
     }
-    if (auto text = platform::fs::read_file(file)) index.update(file, *text);
+    if (auto text = os::fs::read(file)) index.update(file, *text);
     std::vector<std::pair<std::string, std::string>> manifests;
     for (auto& manifest : project::module_manifests(model, loaded.kit ? &*loaded.kit : nullptr)) manifests.emplace_back(manifest.path, manifest.origin);
     index.set_external(index::external_modules(manifests, spec::caching_metadata_reader()));
     for (const auto& diagnostic : index.diagnostics(file)) {
         std::println("module    {}:{}: {}", base::file_name(file), diagnostic["range"]["start"]["line"].get<int>() + 1, diagnostic.value("message", std::string {}));
     }
-    if (loaded.payload.clangd.empty() || !platform::fs::is_regular_file(loaded.payload.clangd)) {
+    if (loaded.payload.clangd.empty() || !std::filesystem::is_regular_file(loaded.payload.clangd, ignored)) {
         std::println("clangd    not found; skipped the semantic check");
         return loaded.plan.issues.empty() ? 0 : 1;
     }
-    const std::string directory { base::join_path(platform::dirs::temp_directory(), std::format("mcppls-check-{}", project::workspace_key(root))) };
+    const std::string directory { base::join_path(base::spelled(os::dirs::temp()), std::format("mcppls-check-{}", project::workspace_key(root))) };
     if (auto written = normalize::write_engine_database(directory, loaded.plan); !written) {
         std::println(std::cerr, "check: {}", written.error().message);
         return 2;
     }
-    auto result = platform::toolrun::run({
+    auto result = mcppls::toolrun::run({
         .program = loaded.payload.clangd,
         .arguments = { "--check=" + file, "--experimental-modules-support", "--compile-commands-dir=" + directory, "--log=error" },
         .workDirectory = root,
         .purpose = "check",
         .root = root,
-        .bounds = platform::RunBounds { .hard = std::chrono::minutes { 5 } },
+        .bounds = mcpplibs::os::process::bounds { .hard = std::chrono::minutes { 5 } },
     });
     if (!result) {
         std::println(std::cerr, "check: {}", result.error().message);
         return 2;
     }
-    std::print("{}", result->error);
-    std::println("clangd    exit {}{}", result->exitCode, result->timedOut ? " (timed out)" : "");
-    return result->exitCode == 0 && !result->timedOut ? 0 : 1;
+    std::print("{}", result->err);
+    std::println("clangd    exit {}{}", toolrun::exit_code(result->status), result->timed_out ? " (timed out)" : "");
+    return result->status.success() && !result->timed_out ? 0 : 1;
 }
 
 // The options a daemon started for an entry is started with: the entry's own. Every registered
@@ -266,7 +268,7 @@ int run(int argc, char* argv[]) {
     (void)printEnvironmentCommand.arg("marker").required();
     (void)printEnvironmentCommand.action([&](const cmdline::ParsedArgs& args) {
         handled = true;
-        std::print("{}", platform::toolenv::print_environment_text(args.value("marker").value_or(std::string { "MCPPLS-ENVIRONMENT" })));
+        std::print("{}", mcppls::toolenv::print_environment_text(args.value("marker").value_or(std::string { "MCPPLS-ENVIRONMENT" })));
         status = 0;
     });
     (void)app.subcommand(std::move(printEnvironmentCommand));
@@ -284,7 +286,7 @@ int run(int argc, char* argv[]) {
     (void)reportCommand.action([&](const cmdline::ParsedArgs& args) {
         handled = true;
         apply_log_level(args);
-        const std::string root { args.value("root") ? absolute(*args.value("root")) : platform::fs::current_directory() };
+        const std::string root { args.value("root") ? absolute(*args.value("root")) : base::current_directory() };
         const auto started = std::chrono::steady_clock::now();
         orchestrator::KernelOptions options { session_options(args), root };
         auto kernel = orchestrator::Kernel::start(options);
@@ -353,14 +355,14 @@ int run(int argc, char* argv[]) {
             status = 2;
             return;
         }
-        const std::string root { args.value("root") ? absolute(*args.value("root")) : platform::fs::current_directory() };
+        const std::string root { args.value("root") ? absolute(*args.value("root")) : base::current_directory() };
         if (args.is_flag_set("daemon")) {
             // design 6.3: the workspace's daemon serves this connection, started when there is none yet.
             std::optional<ai::mcp::DaemonInfo> daemon { ai::mcp::find_daemon(root) };
             if (daemon && !ai::mcp::control(*daemon, "status")) daemon.reset();
             if (!daemon) {
                 const auto options = session_options(args);
-                auto started = ai::mcp::start_daemon(options.serverExecutable, root, daemon_arguments(args), std::chrono::seconds { 60 });
+                auto started = ai::mcp::start_daemon(options.serverCommand, root, daemon_arguments(args), std::chrono::seconds { 60 });
                 if (started) daemon = *started;
                 else base::log::warning("the workspace daemon did not start ({}); serving this connection alone", started.error().message);
             }
@@ -390,7 +392,7 @@ int run(int argc, char* argv[]) {
         found->second(sub->get());
     });
     const auto daemonRoot = [](const cmdline::ParsedArgs& args) {
-        return args.value("root") ? absolute(*args.value("root")) : platform::fs::current_directory();
+        return args.value("root") ? absolute(*args.value("root")) : base::current_directory();
     };
     const auto addDaemon = [&](std::string name, std::string_view description, std::function<void(const cmdline::ParsedArgs&)> action) {
         cmdline::App sub { name };
@@ -422,7 +424,7 @@ int run(int argc, char* argv[]) {
             status = 0;
             return;
         }
-        auto started = ai::mcp::start_daemon(session_options(args).serverExecutable, root, daemon_arguments(args), std::chrono::seconds { 60 });
+        auto started = ai::mcp::start_daemon(session_options(args).serverCommand, root, daemon_arguments(args), std::chrono::seconds { 60 });
         if (!started) {
             std::println(std::cerr, "daemon start: {}", started.error().message);
             status = 2;
@@ -464,7 +466,7 @@ int run(int argc, char* argv[]) {
     (void)versionCommand.description("Print the version");
     (void)versionCommand.action([&](const cmdline::ParsedArgs&) {
         handled = true;
-        std::println("mcppls {} ({}; S1 {}; clangd {})", base::VERSION, mcppls::os::PLATFORM, spec::PROFILE_VERSION, base::CLANGD_VERSION);
+        std::println("mcppls {} ({}; S1 {}; clangd {})", base::VERSION, base::payload_platform(), spec::PROFILE_VERSION, base::CLANGD_VERSION);
     });
     (void)app.subcommand(std::move(versionCommand));
     const int parsed { app.run(argc, argv) };

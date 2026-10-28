@@ -4,7 +4,6 @@ import std;
 import nlohmann.json;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.fs;
 import mcppls.spec.database;
 import mcppls.spec.query;
 import mcppls.project.model;

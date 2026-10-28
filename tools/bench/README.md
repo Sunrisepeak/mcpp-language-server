@@ -33,7 +33,7 @@ Each `bench/tasks/<id>/` is:
   partitions, a re-exported module — see `conformance/fixtures/mcpp-all-cppm`). Every task starts from one of those
   two fixtures' sources, copied and then modified for the task (never referenced in place).
 - `toolchain` — mirrors the `[toolchain]` table in `project/mcpp.toml` (informational: `mcpp build`/`mcpp test`
-  already read it from there). `llvm@22.1.8` for most tasks; two tasks (`add-parameter-split`,
+  already read it from there). `llvm@23.1.3` for most tasks; two tasks (`add-parameter-split`,
   `export-from-partition-all-cppm`) pin `gcc@16.1.0` instead, one per shape, so both toolchains the rest of this
   project targets are exercised here too.
 - `check` — a list of checks, run in order like a `&&` chain (stop at the first failure). Each entry is one of:

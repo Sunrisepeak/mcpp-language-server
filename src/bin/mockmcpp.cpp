@@ -30,14 +30,11 @@ import std;
 import nlohmann.json;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.platform.process;
-import mcppls.platform.dirs;
-import mcppls.os;
+import mcpplibs.os;
+import mcppls.base.home;
 
+namespace os = mcpplibs::os;
 namespace base = mcppls::base;
-namespace fs = mcppls::platform::fs;
 using Json = nlohmann::ordered_json;
 
 namespace {
@@ -52,6 +49,7 @@ struct ProducerState {
 };
 
 std::string expand(std::string_view text, const std::string& root, const ProducerState& state) {
+    std::error_code ignored;
     std::string out;
     for (std::size_t i { 0 }; i < text.size();) {
         if (text.substr(i).starts_with("${")) {
@@ -63,16 +61,16 @@ std::string expand(std::string_view text, const std::string& root, const Produce
                 } else if (name == "target") {
                     out += state.requestedTarget.empty() ? state.defaultTarget : state.requestedTarget;
                 } else if (name == "compiler") {
-                    const auto configured = mcppls::platform::env::get("CONFORMANCE_CLANGXX");
+                    const auto configured = os::env::get("CONFORMANCE_CLANGXX");
                     std::string compiler { configured && !configured->empty() ? *configured : std::string {} };
                     if (compiler.empty()) {
-                        const std::string home { mcppls::platform::dirs::home_directory() };
+                        const std::string home { base::home_directory() };
                         for (std::string_view store : { ".mcpp/registry/data/xpkgs/xim-x-llvm", ".xlings/data/xpkgs/xim-x-llvm" }) {
-                            auto versions = fs::list_directory(base::join_path(home, store));
+                            auto versions = base::children(base::join_path(home, store));
                             std::ranges::sort(versions, std::greater {});
                             for (const auto& version : versions) {
-                                const std::string candidate { base::join_path(version, "bin/clang++") + std::string { mcppls::os::EXECUTABLE_SUFFIX } };
-                                if (fs::is_regular_file(candidate)) { compiler = candidate; break; }
+                                const std::string candidate { base::join_path(version, "bin/clang++") + std::string { os::conventions().exe_suffix } };
+                                if (std::filesystem::is_regular_file(candidate, ignored)) { compiler = candidate; break; }
                             }
                             if (!compiler.empty()) break;
                         }
@@ -85,7 +83,7 @@ std::string expand(std::string_view text, const std::string& root, const Produce
                         fallback = std::string { variable.substr(bar + 1) };
                         variable = variable.substr(0, bar);
                     }
-                    out += base::normalize_path(mcppls::platform::env::get(variable).value_or(fallback));
+                    out += base::normalize_path(os::env::get(variable).value_or(fallback));
                 } else {
                     out += text.substr(i, close - i + 1);
                 }
@@ -113,15 +111,16 @@ void expand_all(Json& value, const std::string& root, const ProducerState& state
 // what a fixture puts there to give a negotiated candidate its own version and database; every
 // fixture that runs the mock as the project's one and only mcpp keeps reading the project's.
 std::string mock_config_path() {
-    const auto arguments = mcppls::platform::env::arguments();
+    std::error_code ignored;
+    const auto arguments = os::env::arguments();
     if (!arguments.empty()) {
         const std::string& self { arguments.front() };
         const std::string absolute { base::is_absolute_path(self) ? base::normalize_path(self)
-                                                                   : base::normalize_path(base::join_path(fs::current_directory(), self)) };
+                                                                   : base::normalize_path(base::join_path(base::current_directory(), self)) };
         const std::string beside { base::join_path(base::parent_path(absolute), "mcpp-mock.json") };
-        if (fs::is_regular_file(beside)) return beside;
+        if (std::filesystem::is_regular_file(beside, ignored)) return beside;
     }
-    return base::join_path(fs::current_directory(), "mcpp-mock.json");
+    return base::join_path(base::current_directory(), "mcpp-mock.json");
 }
 
 Json envelope(const ProducerState& state, std::string_view kind, Json data, Json diagnostics, Json effects) {
@@ -146,11 +145,11 @@ std::string fingerprint(const std::string& root) {
         }
     };
     static constexpr std::array<std::string_view, 5> SOURCES { ".cppm", ".cpp", ".ixx", ".cc", ".cxx" };
-    for (const auto& file : fs::list_files(root, SOURCES, std::array<std::string_view, 1> { "target" })) {
+    for (const auto& file : base::files_under(root, SOURCES, std::array<std::string_view, 1> { "target" })) {
         mix(file);
-        mix(fs::read_file(file).value_or(""));
+        mix(os::fs::read(file).value_or(""));
     }
-    mix(fs::read_file(base::join_path(root, "mcpp.toml")).value_or(""));
+    mix(os::fs::read(base::join_path(root, "mcpp.toml")).value_or(""));
     return std::format("fnv1a:{:016x}", hash);
 }
 
@@ -174,6 +173,7 @@ int protocol_version(bool oldProtocol, const ProducerState& state) {
 }
 
 int emit_build_database(std::span<const std::string> arguments, const ProducerState& state) {
+    std::error_code ignored;
     std::string format;
     for (std::size_t i { 0 }; i < arguments.size(); ++i) {
         if (arguments[i] == "--format" && i + 1 < arguments.size()) format = arguments[++i];
@@ -183,8 +183,8 @@ int emit_build_database(std::span<const std::string> arguments, const ProducerSt
         std::println(std::cerr, "error: unsupported --format '{}'; expected: json", format);
         return 2;
     }
-    const std::string root { base::normalize_path(fs::current_directory()) };
-    auto text = fs::read_file(mock_config_path());
+    const std::string root { base::normalize_path(base::current_directory()) };
+    auto text = os::fs::read(mock_config_path());
     if (!text) {
         const Json diagnostics = Json::array({ Json { { "code", "MCPP_MOCK_NO_DATA" }, { "severity", "error" }, { "source", "mcpp" },
                                                       { "message", "this fixture recorded no mcpp-mock.json" } } });
@@ -200,7 +200,7 @@ int emit_build_database(std::span<const std::string> arguments, const ProducerSt
     // for mcpp means MCPP_OFFLINE in its environment. A fixture that says `requireOffline` fails
     // unless it is there, so "offline by default" is checked rather than believed.
     if (recorded.value("requireOffline", false)) {
-        const auto offline = mcppls::platform::env::get("MCPP_OFFLINE");
+        const auto offline = os::env::get("MCPP_OFFLINE");
         if (!offline || offline->empty() || *offline == "0") {
             const Json diagnostics = Json::array({ Json { { "code", "MCPP_MOCK_NOT_OFFLINE" }, { "severity", "error" }, { "source", "mcpp" },
                                                           { "message", "this fixture requires MCPP_OFFLINE in the producer's environment and it was not set" } } });
@@ -213,8 +213,8 @@ int emit_build_database(std::span<const std::string> arguments, const ProducerSt
     // {"provisionedWhen": "<file>"}: once <file> exists in the project (a build the person ran in their own terminal
     // wrote it), the offline answer is the "online" one too -- what they fetched is there now (§9.2 rule 4).
     const bool provisioned { recorded.contains("provisionedWhen") && recorded["provisionedWhen"].is_string()
-                             && fs::exists(base::join_path(root, recorded["provisionedWhen"].get<std::string>())) };
-    if (const auto offline = mcppls::platform::env::get("MCPP_OFFLINE"); (provisioned || !offline || offline->empty() || *offline == "0")
+                             && std::filesystem::exists(base::join_path(root, recorded["provisionedWhen"].get<std::string>()), ignored) };
+    if (const auto offline = os::env::get("MCPP_OFFLINE"); (provisioned || !offline || offline->empty() || *offline == "0")
                                                                              && recorded.contains("online") && recorded["online"].is_object()) {
         Json online = recorded["online"];
         recorded = std::move(online);
@@ -235,8 +235,8 @@ int emit_build_database(std::span<const std::string> arguments, const ProducerSt
     for (const auto& rewritten : recorded.value("rewriteEachRun", Json::array())) {
         if (!rewritten.is_string()) continue;
         const std::string path { base::join_path(root, rewritten.get<std::string>()) };
-        (void)fs::create_directories(base::parent_path(path));
-        (void)fs::write_file(path, "# written by every run, the same each time\n");
+        (void)std::filesystem::create_directories(base::parent_path(path), ignored);
+        (void)os::fs::write(path, "# written by every run, the same each time\n");
     }
     Json data = Json::object();
     data["database"] = recorded["database"];
@@ -260,10 +260,14 @@ int emit_build_database(std::span<const std::string> arguments, const ProducerSt
 int hang(const Json& how, std::span<const std::string> self) {
     const int seconds { how.value("seconds", 30) };
     if (how.value("holdPipe", true) && !self.empty()) {
-        auto child = mcppls::platform::Process::spawn({ .program = std::string { self.front() },
-                                                        .arguments = { "--mock-hold", std::to_string(seconds) },
-                                                        .pipeInput = false, .pipeOutput = false, .pipeError = false,
-                                                        .detached = true });
+        // Writes to this program's standard error (the caller's pipe), in a unit of its own, and outlives it.
+        mcpplibs::os::process::spawn_options options;
+        options.program = std::string { self.front() };
+        options.args = { "--mock-hold", std::to_string(seconds) };
+        options.in = mcpplibs::os::process::stdio::inherit;
+        options.out = options.err = mcpplibs::os::process::stdio::error;
+        options.own_unit = true;
+        auto child = mcpplibs::os::process::process::spawn(options);
         if (child) child->detach();
     }
     if (how.value("exitAtOnce", false)) return 0;
@@ -284,36 +288,36 @@ int main(int argc, char* argv[]) {
         else if (arguments[i].starts_with("--target=")) state.requestedTarget = arguments[i].substr(9);
     }
     if (arguments.size() == 2 && arguments[0] == "--copy-self") {
-        const auto ownArguments = mcppls::platform::env::arguments();
+        const auto ownArguments = os::env::arguments();
         if (ownArguments.empty()) return 1;
         const std::string source { base::is_absolute_path(ownArguments.front()) ? ownArguments.front()
-            : base::join_path(fs::current_directory(), ownArguments.front()) };
-        const std::string destination { base::join_path(fs::current_directory(), arguments[1]) };
-        const auto content = fs::read_file(source);
-        if (!content || !fs::create_directories(base::parent_path(destination))) return 1;
-        if (!fs::write_file_atomic(destination, *content)) return 1;
-        return fs::make_executable(std::vector<std::string> {destination}).has_value() ? 0 : 1;
+            : base::join_path(base::current_directory(), ownArguments.front()) };
+        const std::string destination { base::join_path(base::current_directory(), arguments[1]) };
+        const auto content = os::fs::read(source);
+        if (!content || ![&] { std::error_code failed; std::filesystem::create_directories(base::parent_path(destination), failed); return !failed; }()) return 1;
+        if (!os::fs::write_atomic(destination, *content)) return 1;
+        return base::make_executable(std::vector<std::string> {destination}).has_value() ? 0 : 1;
     }
     if (arguments.size() == 2 && arguments[0] == "--write-target-cdb") {
-        const std::string root { fs::current_directory() };
+        const std::string root { base::current_directory() };
         const std::string compiler { expand("${compiler}", root, state) };
         const Json commands = Json::array({ Json { { "directory", root }, { "file", "src/main.cpp" },
             { "arguments", Json::array({ compiler, "--target=" + arguments[1], "-std=c++23", "-c", "src/main.cpp" }) } } });
-        (void)fs::write_file(base::join_path(root, "mcpp-calls.jsonl"), "");
-        return fs::write_file(base::join_path(root, "compile_commands.json"), commands.dump(2)).has_value() ? 0 : 1;
+        (void)os::fs::write(base::join_path(root, "mcpp-calls.jsonl"), "");
+        return os::fs::write(base::join_path(root, "compile_commands.json"), commands.dump(2)).has_value() ? 0 : 1;
     }
     bool oldProtocol { false };
     // {"unavailable": "<text>"}: a project whose .xlings.json asks for an mcpp that is not installed.
     // xlings then answers every command in mcpp's place, with <text> on standard error, and runs nothing.
-    if (auto text = fs::read_file(mock_config_path())) {
+    if (auto text = os::fs::read(mock_config_path())) {
         const Json recorded = Json::parse(*text, nullptr, false);
         if (recorded.is_object()) {
             state.producerVersion = recorded.value("version", std::string { VERSION });
             state.defaultTarget = recorded.value("defaultTarget", state.defaultTarget);
             if (const std::string calls { recorded.value("callLog", std::string {}) }; !calls.empty()) {
-                const std::string path { base::join_path(fs::current_directory(), calls) };
+                const std::string path { base::join_path(base::current_directory(), calls) };
                 const std::string line { Json { { "arguments", arguments }, { "version", state.producerVersion } }.dump() + "\n" };
-                (void)fs::write_file(path, fs::read_file(path).value_or("") + line);
+                (void)os::fs::write(path, os::fs::read(path).value_or("") + line);
             }
         }
         if (recorded.is_object() && recorded.contains("unavailable") && recorded["unavailable"].is_string()) {
@@ -324,10 +328,10 @@ int main(int argc, char* argv[]) {
         // the server would never get as far as asking for a database.
         if (recorded.is_object() && recorded.contains("hang") && recorded["hang"].is_object()
             && arguments.size() >= 2 && arguments[0] == "emit" && arguments[1] == "build-database") {
-            const std::string self { mcppls::platform::env::arguments().empty() ? std::string {}
-                                                                                : mcppls::platform::env::arguments().front() };
+            const std::string self { os::env::arguments().empty() ? std::string {}
+                                                                                : os::env::arguments().front() };
             const std::string absolute { base::is_absolute_path(self) ? base::normalize_path(self)
-                                                                      : base::normalize_path(base::join_path(fs::current_directory(), self)) };
+                                                                      : base::normalize_path(base::join_path(base::current_directory(), self)) };
             const std::vector<std::string> me { absolute };
             return hang(recorded["hang"], me);
         }
@@ -356,7 +360,7 @@ int main(int argc, char* argv[]) {
     // Anything else, notably a modern `build --configure-only`, is what the consumer must not
     // need. A build leaves the mark a real one would, a compile_commands.json in the project, so
     // that a fixture's workspace-unchanged check sees it was run.
-    if (!arguments.empty() && arguments[0] == "build") (void)fs::write_file(base::join_path(fs::current_directory(), "compile_commands.json"), "[]\n");
+    if (!arguments.empty() && arguments[0] == "build") (void)os::fs::write(base::join_path(base::current_directory(), "compile_commands.json"), "[]\n");
     std::println(std::cerr, "mcppls-mock-mcpp: '{}' is not simulated", base::join(arguments, " "));
     return arguments.empty() ? 2 : 127;
 }

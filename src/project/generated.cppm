@@ -12,12 +12,13 @@ export module mcppls.project.generated;
 import std;
 import mcppls.spec.database;
 import mcppls.project.infer;
+import mcppls.base.home;
 
 export namespace mcppls::project {
 
 struct GeneratedSourceOptions {
     std::string root;             // the workspace root
-    std::string homeDirectory;    // platform::dirs::home_directory()
+    std::string homeDirectory;    // base::home_directory()
     Scanner scanner;              // required; a candidate is used only once it declares the module
 };
 

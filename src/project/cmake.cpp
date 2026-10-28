@@ -6,20 +6,17 @@ import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.base.log;
-import mcppls.platform.fs;
-import mcppls.platform.env;
-import mcppls.platform.process;
-import mcppls.platform.toolrun;
 import mcppls.spec.database;
 import mcppls.spec.discovery;
 import mcppls.toolchain.probe;
 import mcppls.project.infer;
 import mcppls.project.provider;
+import mcpplibs.os;
+import mcppls.toolrun;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::project {
-
-namespace fs = platform::fs;
-
 namespace {
 
 base::Result<InferredDatabase> from_commands(std::string_view path, std::string_view root, const ProviderContext& context) {
@@ -90,22 +87,24 @@ bool has_translation_units(const spec::Database& database) {
 // particular preference beyond "found first, sorted"; a configure preset's own `binaryDir`
 // (resolve_cmake_preset) is tried before these.
 std::vector<std::string> cmake_build_directories(std::string_view root) {
+    std::error_code ignored;
     std::vector<std::string> found;
     auto consider = [&](const std::string& directory) {
-        if (fs::is_regular_file(base::join_path(directory, "CMakeCache.txt"))) found.push_back(directory);
+        std::error_code ignored;
+        if (std::filesystem::is_regular_file(base::join_path(directory, "CMakeCache.txt"), ignored)) found.push_back(directory);
     };
     for (std::string_view name : { "build", "out/build", "cmake-build-debug", "cmake-build-release", "builddir" }) {
         const std::string directory { base::join_path(root, name) };
         consider(directory);
-        if (fs::is_directory(directory)) {
-            for (const auto& child : fs::list_directory(directory)) {
-                if (fs::is_directory(child)) consider(child);
+        if (std::filesystem::is_directory(directory, ignored)) {
+            for (const auto& child : base::children(directory)) {
+                if (std::filesystem::is_directory(child, ignored)) consider(child);
             }
         }
     }
-    for (const auto& child : fs::list_directory(root)) {
+    for (const auto& child : base::children(root)) {
         const std::string_view name { base::file_name(child) };
-        if ((name.starts_with("build-") || name.starts_with("cmake-build-")) && fs::is_directory(child)) consider(child);
+        if ((name.starts_with("build-") || name.starts_with("cmake-build-")) && std::filesystem::is_directory(child, ignored)) consider(child);
     }
     std::ranges::sort(found);
     found.erase(std::unique(found.begin(), found.end()), found.end());
@@ -136,7 +135,7 @@ std::string expand_preset_macros(std::string_view text, std::string_view root, s
             const std::size_t close { text.find('}', i) };
             if (close != std::string_view::npos) {
                 const std::string_view name { text.substr(i + 5, close - i - 5) };
-                out += platform::env::get(name).value_or(std::string {});
+                out += os::env::get(name).value_or(std::string {});
                 i = close + 1;
                 continue;
             }
@@ -196,7 +195,7 @@ std::optional<RawPreset> parse_one_preset(const nlohmann::json& entry) {
 // (from CMakePresets.json, when this is the user's file) is replaced outright, not merged --
 // "user presets win" means the user's own spelling of that preset is the whole of it.
 void load_presets_file(std::string_view path, std::vector<std::string>& order, std::map<std::string, RawPreset, std::less<>>& byName) {
-    const auto text = fs::read_file(path);
+    const auto text = os::fs::read(path);
     if (!text) return;
     const nlohmann::json document = nlohmann::json::parse(*text, nullptr, false);
     if (document.is_discarded() || !document.is_object()) return;
@@ -341,8 +340,9 @@ std::vector<std::string> fetchcontent_missing_dependencies(std::string_view outp
 }
 
 std::optional<Claim> CmakeProvider::detect(std::string_view root) const {
+    std::error_code ignored;
     const std::string manifest { base::join_path(std::string { root }, "CMakeLists.txt") };
-    if (!fs::is_regular_file(manifest)) return std::nullopt;
+    if (!std::filesystem::is_regular_file(manifest, ignored)) return std::nullopt;
     Claim claim;
     claim.provider = "cmake";
     claim.confidence = 100;
@@ -352,10 +352,10 @@ std::optional<Claim> CmakeProvider::detect(std::string_view root) const {
         claim.markers.push_back(std::format("configure preset {}", preset->name));
         const std::string database { base::join_path(preset->binaryDir, "build_database.json") };
         const std::string commands { base::join_path(preset->binaryDir, "compile_commands.json") };
-        if (fs::is_regular_file(database)) {
+        if (std::filesystem::is_regular_file(database, ignored)) {
             claim.buildDirectory = preset->binaryDir;
             claim.buildDatabase = database;
-        } else if (fs::is_regular_file(commands)) {
+        } else if (std::filesystem::is_regular_file(commands, ignored)) {
             claim.buildDirectory = preset->binaryDir;
             claim.compileCommands = commands;
         }
@@ -364,11 +364,11 @@ std::optional<Claim> CmakeProvider::detect(std::string_view root) const {
         for (const auto& directory : cmake_build_directories(root)) {
             const std::string database { base::join_path(directory, "build_database.json") };
             const std::string commands { base::join_path(directory, "compile_commands.json") };
-            if (fs::is_regular_file(database) && claim.buildDatabase.empty()) {
+            if (std::filesystem::is_regular_file(database, ignored) && claim.buildDatabase.empty()) {
                 claim.buildDirectory = directory;
                 claim.buildDatabase = database;
             }
-            if (fs::is_regular_file(commands) && claim.compileCommands.empty()) {
+            if (std::filesystem::is_regular_file(commands, ignored) && claim.compileCommands.empty()) {
                 if (claim.buildDirectory.empty()) claim.buildDirectory = directory;
                 claim.compileCommands = commands;
             }
@@ -391,66 +391,67 @@ std::optional<Answer> CmakeProvider::existing(const Claim& claim, const Provider
 }
 
 Answer CmakeProvider::describe(const Claim& claim, const ProviderContext& context) const {
+    std::error_code ignored;
     if (!context.trusted) return Answer { .code = "untrusted-workspace", .reason = "the workspace is not trusted, so CMake was not configured" };
     if (!context.runBuildTool) return Answer { .code = "cmake-no-database", .reason = "mcppls.buildTool is off, so CMake was not configured" };
     const auto cmake = find_tool("cmake", std::vector<std::string> {});
     if (!cmake) return Answer { .code = "cmake-not-found", .reason = "CMakeLists.txt has no build directory and cmake is not on PATH" };
     context.producerUsed = *cmake;
     const std::string buildDirectory { context.privateDirectory };
-    (void)fs::create_directories(buildDirectory);
+    (void)std::filesystem::create_directories(buildDirectory, ignored);
     const bool useNinja { static_cast<bool>(find_tool("ninja", std::vector<std::string> {})) };
 
     // A quick, separately-timed query (mirrors mcpp's own `--protocol-version`
     // probe in project/mcpp.cpp): the configure below can afford its full
     // budget even when this one is slow or unparsable.
-    const auto versionAnswer = platform::toolrun::run({
+    const auto versionAnswer = mcppls::toolrun::run({
         .program = *cmake,
         .arguments = { "--version" },
         .workDirectory = claim.root,
         .purpose = "protocol",
         .root = context.rootKey,
-        .bounds = platform::RunBounds { .hard = std::chrono::seconds { 20 } },
+        .bounds = mcpplibs::os::process::bounds { .hard = std::chrono::seconds { 20 } },
         .environmentWait = context.environmentWait,
     });
     std::optional<std::string> gateUuid;
-    if (versionAnswer && !versionAnswer->timedOut && versionAnswer->exitCode == 0) {
-        gateUuid = build_database_gate_uuid(versionAnswer->output);
-        context.producerVersionUsed = std::string { base::trim(base::split_lines(versionAnswer->output).empty() ? std::string_view {}
-                                                                                                                : base::split_lines(versionAnswer->output).front()) };
+    if (versionAnswer && !versionAnswer->timed_out && versionAnswer->status.success()) {
+        gateUuid = build_database_gate_uuid(versionAnswer->out);
+        context.producerVersionUsed = std::string { base::trim(base::split_lines(versionAnswer->out).empty() ? std::string_view {}
+                                                                                                                : base::split_lines(versionAnswer->out).front()) };
     }
     const bool wantBuildDatabase { useNinja && gateUuid.has_value() };
 
     const auto preset = resolve_cmake_preset(claim.root);
     const ResolvedCMakePreset* presetPtr { preset ? &*preset : nullptr };
 
-    const bool firstConfigure { !fs::is_regular_file(base::join_path(buildDirectory, "CMakeCache.txt")) };
+    const bool firstConfigure { !std::filesystem::is_regular_file(base::join_path(buildDirectory, "CMakeCache.txt"), ignored) };
     if (firstConfigure) {
         base::log::info("configuring {} for the first time{}", buildDirectory,
                         context.offline ? " (offline: FETCHCONTENT_FULLY_DISCONNECTED)" : "; it may reach the network");
     }
-    auto result = platform::toolrun::run({
+    auto result = mcppls::toolrun::run({
         .program = *cmake,
         .arguments = cmake_configure_arguments(claim.root, buildDirectory, useNinja, gateUuid, context.offline, presetPtr),
         .workDirectory = claim.root,
         .purpose = firstConfigure ? "configure-first" : "configure",
         .root = context.rootKey,
-        .network = context.offline ? platform::toolrun::Network::offline : platform::toolrun::Network::allowed,
-        .bounds = platform::RunBounds { .hard = context.configureTimeout },
+        .network = context.offline ? mcppls::toolrun::Network::offline : mcppls::toolrun::Network::allowed,
+        .bounds = mcpplibs::os::process::bounds { .hard = context.configureTimeout },
         .soft = context.producerSoft,
         .environmentWait = context.environmentWait,
         .onSoftDeadline = context.onSlow,
     });
     if (!result) return Answer { .code = result.error().code, .reason = result.error().message };
-    if (result->timedOut) {
+    if (result->timed_out) {
         return Answer { .outcome = Outcome::timed_out, .code = "cmake-configure-failed",
                         .reason = std::format("cmake configure did not finish in {} ms", context.configureTimeout.count()) };
     }
-    if (result->exitCode != 0) {
+    if (!result->status.success()) {
         // B-3(a): the one shape an offline, FETCHCONTENT_FULLY_DISCONNECTED configure fails with
         // that is not a failure of the project's own CMakeLists.txt -- a dependency's source is not
         // already populated, and only a download (or an online configure) can populate it.
         if (context.offline) {
-            if (auto missing = fetchcontent_missing_dependencies(result->output + "\n" + result->error); !missing.empty()) {
+            if (auto missing = fetchcontent_missing_dependencies(result->out + "\n" + result->err); !missing.empty()) {
                 return Answer { .outcome = Outcome::needs_download, .code = std::string { spec::NEEDS_DOWNLOAD },
                                 .reason = std::format("cmake needs {} downloaded: they are what FetchContent would fetch for this project, and this run stayed offline "
                                                       "(FETCHCONTENT_FULLY_DISCONNECTED)",
@@ -459,8 +460,8 @@ Answer CmakeProvider::describe(const Claim& claim, const ProviderContext& contex
             }
         }
         return Answer { .code = "cmake-configure-failed",
-                        .reason = std::format("cmake configure failed ({}): {}", result->exitCode,
-                                              base::trim(result->error.empty() ? result->output : result->error)) };
+                        .reason = std::format("cmake configure failed ({}): {}", toolrun::exit_code(result->status),
+                                              base::trim(result->err.empty() ? result->out : result->err)) };
     }
 
     if (wantBuildDatabase) {
@@ -468,30 +469,30 @@ Answer CmakeProvider::describe(const Claim& claim, const ProviderContext& contex
         // names the file itself as a buildable target (build.ninja: "build
         // build_database.json: CUSTOM_COMMAND ..."), and this alone is fast
         // because it only reruns the dependency scan, not a full compile.
-        auto built = platform::toolrun::run({
+        auto built = mcppls::toolrun::run({
             .program = *cmake,
             .arguments = { "--build", buildDirectory, "--target", "build_database.json" },
             .purpose = "build-database",
             .root = context.rootKey,
-            .bounds = platform::RunBounds { .hard = context.configureTimeout },
+            .bounds = mcpplibs::os::process::bounds { .hard = context.configureTimeout },
             .soft = context.producerSoft,
             .environmentWait = context.environmentWait,
             .onSoftDeadline = context.onSlow,
         });
-        if (built && !built->timedOut && built->exitCode == 0) {
+        if (built && !built->timed_out && built->status.success()) {
             const std::string database { base::join_path(buildDirectory, "build_database.json") };
             if (auto loaded = spec::load_database(database); loaded && has_translation_units(*loaded)) {
                 return Answer { .outcome = Outcome::ok, .database = enrich_database(std::move(*loaded), context.scanner, context.prober) };
             }
             base::log::warning("cmake's build_database.json came out empty; using its compile database instead");
         } else if (built) {
-            base::log::warning("cmake --build --target build_database.json failed ({}): {}", built->exitCode,
-                                base::trim(built->error.empty() ? built->output : built->error));
+            base::log::warning("cmake --build --target build_database.json failed ({}): {}", toolrun::exit_code(built->status),
+                                base::trim(built->err.empty() ? built->out : built->err));
         }
     }
 
     const std::string commands { base::join_path(buildDirectory, "compile_commands.json") };
-    if (!fs::is_regular_file(commands)) return Answer { .code = "cmake-no-database", .reason = "cmake did not write compile_commands.json" };
+    if (!std::filesystem::is_regular_file(commands, ignored)) return Answer { .code = "cmake-no-database", .reason = "cmake did not write compile_commands.json" };
     return from_result(from_commands(commands, claim.root, context));
 }
 

@@ -7,12 +7,11 @@ import std;
 import mcppls.testing;
 import mcppls.base.path;
 import mcppls.pack.lock;
-import mcppls.platform.fs;
+import mcpplibs.os;
 
+namespace os = mcpplibs::os;
 namespace lock = mcppls::pack::lock;
 namespace base = mcppls::base;
-namespace fs = mcppls::platform::fs;
-
 namespace {
 
 std::string scratch_dir() {
@@ -74,7 +73,7 @@ int main() {
 
     const std::string work { scratch_dir() };
     const std::string lockPath { base::join_path(work, "payload.lock.json") };
-    expect(fs::write_file(lockPath, FIXTURE).has_value());
+    expect(os::fs::write(lockPath, FIXTURE).has_value());
 
     "a well-formed lock parses into entries and platforms"_test = [&] {
         auto loaded = lock::load(lockPath);
@@ -165,7 +164,7 @@ int main() {
 
     "a lock that is not valid JSON is an error"_test = [&] {
         const std::string badPath { base::join_path(work, "bad.json") };
-        expect(fs::write_file(badPath, "{ not json").has_value());
+        expect(os::fs::write(badPath, "{ not json").has_value());
         auto loaded = lock::load(badPath);
         expect(!loaded.has_value());
     };

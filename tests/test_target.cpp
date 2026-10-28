@@ -2,38 +2,41 @@ import std;
 import nlohmann.json;
 import mcppls.testing;
 import mcppls.base.path;
-import mcppls.platform.fs;
-import mcppls.platform.dirs;
 import mcppls.project.compdb;
 import mcppls.project.target;
 import mcppls.project.boundary;
 import mcppls.project.model;
 import mcppls.project.modelcache;
+import mcpplibs.os;
+
+namespace base = mcppls::base;
+
+namespace os = mcpplibs::os;
 
 namespace p = mcppls::project;
-namespace fs = mcppls::platform::fs;
 namespace b = mcppls::base;
 
 int main() {
+    std::error_code ignored;
     using namespace mcppls::testing;
-    const std::string root { b::join_path(mcppls::platform::dirs::temp_directory(),
+    const std::string root { b::join_path(base::spelled(os::dirs::temp()),
         std::format("mcppls-test-target-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-    (void)fs::create_directories(root);
+    (void)std::filesystem::create_directories(root, ignored);
     auto command = [&](std::string file, std::vector<std::string> args) {
         return p::CompileCommand { root, b::join_path(root, file), {}, std::move(args) };
     };
 
     "bounded reads reject overflow without trusting a preceding file stamp"_test = [&] {
         const std::string path { b::join_path(root, "bounded.txt") };
-        (void)fs::write_file(path, "12345678");
-        const auto exact = fs::read_file(path, 8);
+        (void)os::fs::write(path, "12345678");
+        const auto exact = os::fs::read(path, 8);
         expect(exact && *exact == "12345678");
-        const auto overflow = fs::read_file(path, 7);
-        expect(!overflow && overflow.error().code == "read-file-limit");
-        (void)fs::write_file(path, "");
-        expect(fs::read_file(path, 0).has_value());
-        (void)fs::write_file(path, std::string(65536, 'x'));
-        expect(!fs::read_file(path, 8).has_value()) << "growth since an earlier stamp cannot expand the read budget";
+        const auto overflow = os::fs::read(path, 7);
+        expect(!overflow && overflow.error().code == os::errc::too_large);
+        (void)os::fs::write(path, "");
+        expect(os::fs::read(path, 0).has_value());
+        (void)os::fs::write(path, std::string(65536, 'x'));
+        expect(!os::fs::read(path, 8).has_value()) << "growth since an earlier stamp cannot expand the read budget";
     };
 
     "automatic selection requires every project command to agree"_test = [&] {
@@ -53,11 +56,12 @@ int main() {
     };
 
     "project ownership follows filesystem aliases without changing compiler commands"_test = [&] {
+        std::error_code ignored;
         const std::string physical { b::join_path(root, "identity/project") };
         const std::string external { b::join_path(root, "identity/external.cpp") };
         const auto write = [&](const std::string& path, std::string_view text) {
-            expect(fatal(fs::create_directories(b::parent_path(path)).has_value()));
-            expect(fatal(fs::write_file(path, text).has_value()));
+            expect(fatal([&] { std::error_code failed; std::filesystem::create_directories(b::parent_path(path), failed); return !failed; }()));
+            expect(fatal(os::fs::write(path, text).has_value()));
         };
         write(b::join_path(physical, "mcpp.toml"), "[workspace]\nmembers = [\"members/one\"]\n");
         write(b::join_path(physical, "src/main.cpp"), "int main() {}\n");
@@ -67,9 +71,9 @@ int main() {
         write(b::join_path(physical, "nested/mcpp.toml"), "[package]\nname = \"nested\"\n");
         write(b::join_path(physical, "nested/main.cpp"), "int nested;\n");
         write(external, "int external;\n");
-        const std::string canonical { fs::canonical_path(physical) };
+        const std::string canonical { base::canonical_path(physical) };
         std::string alias { physical }; // Windows TEMP can already contain a nonprivileged 8.3 alias.
-        if constexpr (b::NATIVE_PATH_STYLE != b::PathStyle::windows) {
+        if (b::native_path_style() != b::PathStyle::windows) {
             alias = b::join_path(root, "identity/project-alias");
             std::error_code error;
             std::filesystem::create_directory_symlink(physical, alias, error);
@@ -80,7 +84,7 @@ int main() {
             write(b::join_path(physical, "packages/glob/src/member.cpp"), "int glob;\n");
             write(b::join_path(physical, "packages/glob/nested/mcpp.toml"), "[package]\nname = \"nested\"\n");
             write(b::join_path(physical, "packages/glob/nested/main.cpp"), "int nested;\n");
-            (void)fs::create_directories(b::join_path(physical, "glob-members"));
+            (void)std::filesystem::create_directories(b::join_path(physical, "glob-members"), ignored);
             std::filesystem::create_directory_symlink(b::join_path(physical, "packages/literal"), b::join_path(physical, "members/literal-alias"), error);
             expect(fatal(!error)) << error.message();
             std::filesystem::create_directory_symlink(b::join_path(physical, "packages/glob"), b::join_path(physical, "glob-members/glob-alias"), error);
@@ -98,7 +102,7 @@ int main() {
         expect(throughCanonical.owns(b::join_path(alias, "members/one/src/one.cpp"))) << "declared workspace members remain part of the project";
         expect(!throughCanonical.owns(b::join_path(alias, "nested/main.cpp"))) << "a separate nested project is still excluded";
         expect(!throughCanonical.owns(external));
-        if constexpr (b::NATIVE_PATH_STYLE != b::PathStyle::windows) {
+        if (b::native_path_style() != b::PathStyle::windows) {
             const std::string linkedExternal { b::join_path(physical, "src/external.cpp") };
             std::error_code error;
             std::filesystem::create_symlink(external, linkedExternal, error);
@@ -108,11 +112,11 @@ int main() {
         const auto unit = [&](const std::string& file, const std::string& target) {
             return p::CompileCommand { alias, file, {}, { "clang++", "--target=" + target, "-c", file } };
         };
-        if constexpr (b::NATIVE_PATH_STYLE != b::PathStyle::windows) {
+        if (b::native_path_style() != b::PathStyle::windows) {
             for (const std::string member : { "members/literal-alias", "glob-members/glob-alias" }) {
                 const std::string memberSource { b::join_path(alias, member + "/src/member.cpp") };
                 expect(throughCanonical.owns(memberSource)) << member;
-                expect(throughAlias.owns(fs::canonical_path(memberSource))) << member;
+                expect(throughAlias.owns(base::canonical_path(memberSource))) << member;
                 const std::vector<p::CompileCommand> memberOnly { unit(memberSource, "i686-windows-msvc") };
                 expect(p::target_from_commands(canonical, memberOnly).requestedTarget == "i686-windows-msvc")
                     << "a declared member remains identifiable through its alias: " << member;
@@ -159,7 +163,7 @@ int main() {
     };
 
     "configuration overrides existing CDB and project mode ignores it"_test = [&] {
-        (void)fs::write_file(b::join_path(root, "compile_commands.json"), "invalid");
+        (void)os::fs::write(b::join_path(root, "compile_commands.json"), "invalid");
         expect(p::select_mcpp_target(root).requestedTarget.empty());
         auto selected = p::select_mcpp_target(root, "aarch64-linux-gnu");
         expect(selected.requestedTarget == "aarch64-linux-gnu" && selected.source == "configuration");
@@ -189,10 +193,10 @@ int main() {
         nlohmann::json db = nlohmann::json::array({{
             {"directory",root}, {"file","main.cpp"}, {"arguments", {"clang++", "--target=i686-windows-msvc"}}
         }});
-        (void)fs::write_file(b::join_path(root, "compile_commands.json"), db.dump());
+        (void)os::fs::write(b::join_path(root, "compile_commands.json"), db.dump());
         expect(p::select_mcpp_target(root).requestedTarget == "i686-windows-msvc");
         db.push_back({{"directory", root}, {"file", "second.cpp"}, {"arguments", {17}}});
-        (void)fs::write_file(b::join_path(root, "compile_commands.json"), db.dump());
+        (void)os::fs::write(b::join_path(root, "compile_commands.json"), db.dump());
         expect(p::select_mcpp_target(root).requestedTarget.empty());
     };
 
@@ -232,6 +236,6 @@ int main() {
         expect(!p::equivalent_mcpp_targets("x86_64-linux", "x86_64-linux-gnu"));
     };
 
-    fs::remove_all(root);
+    std::filesystem::remove_all(root, ignored);
     return report();
 }

@@ -2,21 +2,19 @@ module mcppls.ai.mcp.daemon;
 
 import std;
 import nlohmann.json;
-import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.base.version;
-import mcppls.platform.dirs;
-import mcppls.platform.fs;
-import mcppls.platform.net;
-import mcppls.platform.process;
-import mcppls.platform.stdio;
 import mcppls.project.model;
 import mcppls.orchestrator.kernel;
 import mcppls.orchestrator.workspace;
 import mcppls.ai.mcp.server;
+import mcpplibs.os;
+import mcppls.base.home;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::ai::mcp {
 
@@ -25,32 +23,30 @@ namespace {
 using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 namespace log = base::log;
-namespace net = platform::net;
-
 constexpr std::string_view MARK { "mcppls-daemon" };
 
 // The connections a daemon has open, shared with the threads that read them.
 struct Connections {
     std::mutex mutex;
-    std::map<std::uint64_t, std::shared_ptr<net::Connection>> open;
+    std::map<std::uint64_t, std::shared_ptr<os::ipc::connection>> open;
     std::atomic<bool> stopping { false };
 
-    std::shared_ptr<net::Connection> find(std::uint64_t id) {
+    std::shared_ptr<os::ipc::connection> find(std::uint64_t id) {
         const std::lock_guard lock { mutex };
         const auto found = open.find(id);
         return found == open.end() ? nullptr : found->second;
     }
 };
 
-bool send_line(net::Connection& connection, const Json& message) { return static_cast<bool>(connection.write(message.dump() + "\n")); }
+bool send_line(os::ipc::connection& connection, const Json& message) { return static_cast<bool>(connection.write(message.dump() + "\n")); }
 
 // The first line of a connection, and what came after it in the same reads.
-base::Result<std::pair<std::string, std::string>> read_first_line(net::Connection& connection) {
+base::Result<std::pair<std::string, std::string>> read_first_line(os::ipc::connection& connection) {
     std::string buffer;
     while (buffer.find('\n') == std::string::npos) {
         auto chunk = connection.read();
-        if (!chunk) return std::unexpected { chunk.error() };
-        if (chunk->empty()) return base::fail("daemon-closed", "the daemon closed the connection");
+        if (!chunk && chunk.error().code != os::errc::closed) return base::fail("daemon-read", chunk.error());
+        if (!chunk || chunk->empty()) return base::fail("daemon-closed", "the daemon closed the connection");
         buffer += *chunk;
         if (buffer.size() > 65536) return base::fail("daemon-protocol", "no line from the daemon");
     }
@@ -58,9 +54,9 @@ base::Result<std::pair<std::string, std::string>> read_first_line(net::Connectio
     return std::pair { buffer.substr(0, end), buffer.substr(end + 1) };
 }
 
-base::Result<std::pair<net::Connection, std::string>> open_session_now(const DaemonInfo& daemon, std::string_view session) {
-    auto connection = net::Connection::connect_local(daemon.port);
-    if (!connection) return std::unexpected { connection.error() };
+base::Result<std::pair<os::ipc::connection, std::string>> open_session_now(const DaemonInfo& daemon, std::string_view session) {
+    auto connection = os::net::connect_loopback(static_cast<std::uint16_t>(daemon.port));
+    if (!connection) return base::fail("daemon-connect", connection.error());
     if (!send_line(*connection, Json { { "token", daemon.token }, { "session", std::string { session } } })) {
         return base::fail("daemon-write", "cannot write to the daemon");
     }
@@ -74,8 +70,8 @@ base::Result<std::pair<net::Connection, std::string>> open_session_now(const Dae
 }
 
 // A daemon that accepts but never answers (a stale port now used by something else) must not hold an entry forever.
-base::Result<std::pair<net::Connection, std::string>> open_session(const DaemonInfo& daemon, std::string_view session) {
-    auto opening = std::make_shared<std::promise<base::Result<std::pair<net::Connection, std::string>>>>();
+base::Result<std::pair<os::ipc::connection, std::string>> open_session(const DaemonInfo& daemon, std::string_view session) {
+    auto opening = std::make_shared<std::promise<base::Result<std::pair<os::ipc::connection, std::string>>>>();
     auto opened = opening->get_future();
     std::thread { [opening, daemon, name = std::string { session }] { opening->set_value(open_session_now(daemon, name)); } }.detach();
     if (opened.wait_for(std::chrono::seconds { 30 }) != std::future_status::ready) return base::fail("daemon-timeout", "the daemon did not answer the connection in time");
@@ -85,12 +81,13 @@ base::Result<std::pair<net::Connection, std::string>> open_session(const DaemonI
 } // namespace
 
 std::string discovery_path(std::string_view root) {
-    const std::string canonical { platform::fs::exists(root) ? platform::fs::canonical_path(root) : base::normalize_path(root) };
-    return base::join_path(platform::dirs::cache_directory(), base::join_path("workspaces", base::join_path(project::workspace_key(canonical), "daemon.json")));
+    std::error_code ignored;
+    const std::string canonical { std::filesystem::exists(root, ignored) ? base::canonical_path(root) : base::normalize_path(root) };
+    return base::join_path(base::cache_directory(), base::join_path("workspaces", base::join_path(project::workspace_key(canonical), "daemon.json")));
 }
 
 std::optional<DaemonInfo> find_daemon(std::string_view root) {
-    auto text = platform::fs::read_file(discovery_path(root));
+    auto text = os::fs::read(discovery_path(root));
     if (!text) return std::nullopt;
     const Json info = Json::parse(*text, nullptr, false);
     if (info.is_discarded() || !info.is_object()) return std::nullopt;
@@ -101,10 +98,11 @@ std::optional<DaemonInfo> find_daemon(std::string_view root) {
 }
 
 int run_daemon(const DaemonOptions& options) {
-    const std::string discovery { discovery_path(options.server.kernel.root.empty() ? platform::fs::current_directory() : options.server.kernel.root) };
+    std::error_code ignored;
+    const std::string discovery { discovery_path(options.server.kernel.root.empty() ? base::current_directory() : options.server.kernel.root) };
     // Nobody reads a daemon's standard error, from its first line on: its log is a file beside its
     // discovery file. A line written to a channel nobody drains blocks once the channel is full.
-    (void)platform::fs::create_directories(base::parent_path(discovery));
+    (void)std::filesystem::create_directories(base::parent_path(discovery), ignored);
     const std::string logPath { base::join_path(base::parent_path(discovery), "daemon.log") };
     auto logFile = std::make_shared<std::ofstream>(std::filesystem::path { logPath }, std::ios::app);
     log::set_sink([logFile](std::string_view line) {
@@ -116,17 +114,17 @@ int run_daemon(const DaemonOptions& options) {
     auto kernel = orchestrator::Kernel::start(options.server.kernel);
     const std::string root { kernel->root() };
 
-    auto listener = net::Listener::listen_local();
+    auto listener = os::net::loopback_listener::listen(0);
     if (!listener) {
-        log::error("daemon for {}: {}", root, listener.error().message);
+        log::error("daemon for {}: {}", root, listener.error().message());
         kernel->shut_down();
         return 2;
     }
-    const std::string token { net::random_token() };
-    (void)platform::fs::create_directories(base::parent_path(discovery));
+    const std::string token { os::random::hex(16).value_or(std::string {}) };
+    (void)std::filesystem::create_directories(base::parent_path(discovery), ignored);
     const Json info { { "port", listener->port() }, { "token", token }, { "version", std::string { base::VERSION } }, { "root", root } };
-    if (auto written = platform::fs::write_file_atomic(discovery, info.dump()); !written) {
-        log::error("daemon for {}: cannot write {}: {}", root, discovery, written.error().message);
+    if (auto written = os::fs::write_atomic(discovery, info.dump()); !written) {
+        log::error("daemon for {}: cannot write {}: {}", root, discovery, written.error().message());
         kernel->shut_down();
         return 2;
     }
@@ -134,12 +132,12 @@ int run_daemon(const DaemonOptions& options) {
 
     auto connections = std::make_shared<Connections>();
     orchestrator::Kernel* handle { kernel.get() };
-    std::thread { [listening = std::make_shared<net::Listener>(std::move(*listener)), connections, handle, token] {
+    std::thread { [listening = std::make_shared<os::net::loopback_listener>(std::move(*listener)), connections, handle, token] {
         std::uint64_t nextId { 1 };
         while (!connections->stopping) {
             auto accepted = listening->accept();
             if (!accepted) return;
-            auto connection = std::make_shared<net::Connection>(std::move(*accepted));
+            auto connection = std::make_shared<os::ipc::connection>(std::move(*accepted));
             const std::uint64_t id { nextId++ };
             {
                 const std::lock_guard lock { connections->mutex };
@@ -223,7 +221,7 @@ int run_daemon(const DaemonOptions& options) {
         } else if (event == "close") {
             sessions.erase(id);
             controls.erase(id);
-            if (connection) connection->close();
+            if (connection) connection->shutdown();
             const std::lock_guard lock { connections->mutex };
             connections->open.erase(id);
         }
@@ -231,11 +229,11 @@ int run_daemon(const DaemonOptions& options) {
     connections->stopping = true;
     {
         const std::lock_guard lock { connections->mutex };
-        for (auto& [id, connection] : connections->open) connection->close();
+        for (auto& [id, connection] : connections->open) connection->shutdown();
     }
     // Only this daemon's own discovery file: a newer daemon may have replaced it.
-    if (auto current = platform::fs::read_file(discovery); current && Json::parse(*current, nullptr, false).value("token", std::string {}) == token) {
-        platform::fs::remove_all(discovery);
+    if (auto current = os::fs::read(discovery); current && Json::parse(*current, nullptr, false).value("token", std::string {}) == token) {
+        std::filesystem::remove_all(discovery, ignored);
     }
     sessions.clear();
     kernel->shut_down();
@@ -243,30 +241,28 @@ int run_daemon(const DaemonOptions& options) {
     return 0;
 }
 
-base::Result<DaemonInfo> start_daemon(std::string_view executable, std::string_view root, std::span<const std::string> arguments, std::chrono::milliseconds timeout) {
+base::Result<DaemonInfo> start_daemon(std::span<const std::string> self, std::string_view root, std::span<const std::string> arguments, std::chrono::milliseconds timeout) {
     const std::string discovery { discovery_path(root) };
-    const std::string before { platform::fs::read_file(discovery).value_or(std::string {}) };
-    platform::SpawnOptions spawn;
-    spawn.program = std::string { executable };
-    spawn.arguments = { "daemon", "run", "--root", std::string { root } };
-    spawn.arguments.insert(spawn.arguments.end(), arguments.begin(), arguments.end());
-    spawn.workDirectory = std::string { root };
+    const std::string before { os::fs::read(discovery).value_or(std::string {}) };
+    os::process::spawn_options spawn;
+    if (self.empty()) return base::fail("daemon-start", "the server does not know its own executable");
+    spawn.program = self.front();
+    spawn.args.assign(self.begin() + 1, self.end());
+    spawn.args.insert(spawn.args.end(), { "daemon", "run", "--root", std::string { root } });
+    spawn.args.insert(spawn.args.end(), arguments.begin(), arguments.end());
+    spawn.cwd = std::string { root };
     // A daemon holding its starter's standard output would keep an agent waiting for that output to end.
     // POSIX: fresh channels, closed once the daemon is up. Windows: no streams at all, since a start that
     // places streams hands the child every inheritable handle, the starter's own streams among them.
-    if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
-        spawn.noStreams = true;
-    } else {
-        spawn.pipeInput = true;
-        spawn.pipeOutput = true;
-        spawn.pipeError = true;
-    }
-    spawn.detached = true;
-    auto process = platform::Process::spawn(spawn);
-    if (!process) return std::unexpected { process.error() };
+    const auto streams = os::host() == os::platform::windows ? os::process::stdio::null : os::process::stdio::pipe;
+    spawn.in = spawn.out = spawn.err = streams;
+    // A unit of its own, and not bound to this program: the daemon outlives the session that started it.
+    spawn.own_unit = true;
+    auto process = os::process::process::spawn(spawn);
+    if (!process) return base::fail("daemon-start", process.error());
     const auto until = Clock::now() + timeout;
     while (Clock::now() < until) {
-        const std::string current { platform::fs::read_file(discovery).value_or(std::string {}) };
+        const std::string current { os::fs::read(discovery).value_or(std::string {}) };
         if (!current.empty() && current != before) {
             if (auto daemon = find_daemon(root)) {
                 process->detach();
@@ -274,7 +270,7 @@ base::Result<DaemonInfo> start_daemon(std::string_view executable, std::string_v
             }
         }
         if (auto exited = process->wait_for(std::chrono::milliseconds { 100 }); exited && exited->has_value()) {
-            return base::fail("daemon-exited", std::format("the daemon exited with status {} before it was ready", **exited));
+            return base::fail("daemon-exited", std::format("the daemon exited with status {} before it was ready", (*exited)->code));
         }
     }
     process->detach();
@@ -304,12 +300,12 @@ int relay_mcp(const DaemonInfo& daemon) {
         log::error("cannot reach the daemon on 127.0.0.1:{}: {}", daemon.port, opened.error().message);
         return 2;
     }
-    auto connection = std::make_shared<net::Connection>(std::move(opened->first));
-    if (!opened->second.empty()) (void)platform::stdio::write_output(opened->second);
+    auto connection = std::make_shared<os::ipc::connection>(std::move(opened->first));
+    if (!opened->second.empty()) (void)os::stdio::write_output(opened->second);
     // The agent's messages to the daemon, as they come; the end of them ends this side of the connection.
     std::thread { [connection] {
         while (true) {
-            auto chunk = platform::stdio::read_input();
+            auto chunk = os::stdio::read_input();
             if (!chunk || chunk->empty()) break;
             if (!connection->write(*chunk)) break;
         }
@@ -318,9 +314,9 @@ int relay_mcp(const DaemonInfo& daemon) {
     while (true) {
         auto chunk = connection->read();
         if (!chunk || chunk->empty()) break;
-        if (!platform::stdio::write_output(*chunk)) break;
+        if (!os::stdio::write_output(*chunk)) break;
     }
-    connection->close();
+    connection->shutdown();
     return 0;
 }
 

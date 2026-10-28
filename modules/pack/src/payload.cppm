@@ -8,7 +8,8 @@
 //
 //     <payload>/
 //       payload.json                  versions and relative paths of the three parts
-//       bin/mcppls[.exe]
+//       bin/mcppls[.exe]              the server; or, as an image (below):
+//       bin/mcppls.okb + bin/okrun[.exe]
 //       clangd/bin/clangd[.exe]
 //       clangd/lib/clang/<major>/include/...
 //       kit/kit.json + kit data        (spec S4)
@@ -31,6 +32,12 @@ inline constexpr int IDENTIFIED_PAYLOAD_VERSION { 4 };
 struct AssembleOptions {
     std::string platform;                      // one of the lock's platforms
     std::string serverPath;                    // the mcppls executable built for `platform`
+    // THE SERVER AS AN IMAGE (mcpp design 2026-10-28 part 2 §5, §15): one okb that every system of its architectures
+    // runs, and the loader of `platform` that starts it. When `serverImage` is set the payload carries
+    // `bin/mcppls.okb` and `bin/okrun[.exe]`, `serverPath` is not read, and payload.json's `server` names both
+    // (`path` and `runner`): an editor starts `<runner> <path> serve`.
+    std::string serverImage;
+    std::string serverRunner;
     std::string clangdDirectory;                // produced by mcppls.pack.clangd::trim
     std::string kitDirectory;                   // produced by mcppls.pack.kit (ported separately)
     std::string outDirectory;                   // replaced if it exists

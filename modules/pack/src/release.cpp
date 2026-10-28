@@ -5,10 +5,10 @@ import nlohmann.json;
 import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.platform.fs;
+import mcpplibs.os;
 
+namespace os = mcpplibs::os;
 namespace mcppls::pack::release {
-namespace fs = mcppls::platform::fs;
 namespace {
 
 // Files the release step itself produces after this checks or renders -- never "absent", because
@@ -25,8 +25,8 @@ std::string apply(std::string_view pattern, std::string_view platform, std::stri
 } // namespace
 
 base::Result<Manifest> load_manifest(std::string_view path) {
-    auto text = fs::read_file(path);
-    if (!text) return std::unexpected { text.error() };
+    auto text = os::fs::read(path);
+    if (!text) return base::fail("read-file", text.error());
     Manifest manifest {};
     try {
         const auto json = nlohmann::json::parse(*text);
@@ -83,14 +83,15 @@ std::string render(const Manifest& manifest, std::string_view version, const std
 
 base::Result<CheckReport> check(const Manifest& manifest, std::string_view version, std::string_view directory,
                                 bool renderAlso) {
-    if (!fs::is_directory(directory)) {
+    std::error_code ignored;
+    if (!std::filesystem::is_directory(directory, ignored)) {
         return base::fail("release-dir", std::format("{} is not a directory", directory));
     }
     // `list_directory` returns each entry already joined onto `directory`; what belongs in
     // `onDisk` (compared against the manifest's bare file names) is the name alone.
     std::set<std::string> onDisk;
-    for (const auto& path : fs::list_directory(directory)) {
-        if (fs::is_regular_file(path)) onDisk.insert(std::string { base::file_name(path) });
+    for (const auto& path : base::children(directory)) {
+        if (std::filesystem::is_regular_file(path, ignored)) onDisk.insert(std::string { base::file_name(path) });
     }
 
     const auto declared = expected_files(manifest, version);
@@ -99,8 +100,8 @@ base::Result<CheckReport> check(const Manifest& manifest, std::string_view versi
 
     if (renderAlso) {
         const std::string text { render(manifest, version, declared, onDisk) };
-        if (auto written = fs::write_file_atomic(base::join_path(directory, "MANIFEST.md"), text); !written) {
-            return std::unexpected { written.error() };
+        if (auto written = os::fs::write_atomic(base::join_path(directory, "MANIFEST.md"), text); !written) {
+            return base::fail("write-file", written.error());
         }
         onDisk.insert("MANIFEST.md");
     }
@@ -122,7 +123,7 @@ base::Result<CheckReport> check(const Manifest& manifest, std::string_view versi
     }
     for (const auto& name : onDisk) {
         if (!declaredNames.contains(name)) continue;
-        const auto stamp = fs::stamp(base::join_path(directory, name));
+        const auto stamp = base::file_stamp(base::join_path(directory, name));
         const std::uint64_t size { stamp ? stamp->size : 0 };
         if (size == 0) {
             report.problems.push_back(std::format("empty: {}", name));

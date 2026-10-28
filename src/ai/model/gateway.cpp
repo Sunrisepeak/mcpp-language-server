@@ -4,10 +4,10 @@ import std;
 import nlohmann.json;
 import mcppls.base.error;
 import mcppls.base.log;
-import mcppls.platform.process;
-import mcppls.platform.task;
 import mcppls.lsp.connection;
 import mcppls.ai.model.source;
+import mcppls.base.channel;
+import mcpplibs.os;
 
 namespace mcppls::ai::model {
 
@@ -30,13 +30,13 @@ struct GatewayClient::State {
     std::atomic<bool> closed { true };
 
     std::mutex pendingMutex;
-    std::map<int, std::shared_ptr<platform::Channel<Json>>> pending;
+    std::map<int, std::shared_ptr<mcppls::base::Channel<Json>>> pending;
 
     mutable std::mutex usageMutex;
     Usage usage;
 
-    std::shared_ptr<platform::Channel<Json>> register_pending(int id) {
-        auto channel = std::make_shared<platform::Channel<Json>>();
+    std::shared_ptr<mcppls::base::Channel<Json>> register_pending(int id) {
+        auto channel = std::make_shared<mcppls::base::Channel<Json>>();
         std::lock_guard<std::mutex> lock { pendingMutex };
         pending[id] = channel;
         return channel;
@@ -53,7 +53,7 @@ struct GatewayClient::State {
         if (!message.is_object()) return;
         const auto idField = message.find("id");
         if (idField == message.end() || !idField->is_number_integer()) return;
-        std::shared_ptr<platform::Channel<Json>> channel;
+        std::shared_ptr<mcppls::base::Channel<Json>> channel;
         {
             std::lock_guard<std::mutex> lock { pendingMutex };
             const auto found = pending.find(idField->get<int>());
@@ -83,10 +83,11 @@ GatewayClient::~GatewayClient() { stop(); }
 base::Result<void> GatewayClient::start() {
     if (state_->connection && !state_->closed.load()) return {};
 
-    platform::SpawnOptions spawn;
+    mcpplibs::os::process::spawn_options spawn;
     spawn.program = state_->options.executable;
-    spawn.arguments = state_->options.arguments;
-    spawn.workDirectory = state_->options.workDirectory;
+    spawn.args = state_->options.arguments;
+    spawn.cwd = state_->options.workDirectory;
+    spawn.bound_lifetime = true;
     State* state { state_.get() };
     auto connection = lsp::Connection::start(
         std::move(spawn),

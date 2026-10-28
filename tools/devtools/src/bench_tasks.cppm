@@ -68,7 +68,7 @@ base::Result<void> copy_project(const std::string& projectDir, const std::string
 
 // Copies every regular file under `source` to the same relative path under `destination`,
 // creating directories as needed; an entry (file or directory) whose bare name makes `skip`
-// return true is left out entirely, recursively for a directory. Built on `mcppls.platform.fs`
+// return true is left out entirely, recursively for a directory. Built on mcpplibs.os `fs`
 // rather than `std::filesystem::copy`/`copy_file` (measured: a no-op, without an error, under
 // `mcpp test`'s sandboxing -- see tools/devtools/tests/test_bench_tasks.cpp).
 base::Result<void> copy_tree(const std::string& source, const std::string& destination,

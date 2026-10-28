@@ -7,7 +7,6 @@ import mcppls.base.error;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.base.version;
-import mcppls.platform.fs;
 import mcppls.pack.release;
 import mcppls.pack.archive;
 import mcppls.pack.fetch;
@@ -15,9 +14,11 @@ import mcppls.pack.lock;
 import mcppls.pack.targets;
 import mcppls.devtools.common;
 import mcppls.devtools.version;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::devtools::release {
-namespace fs = mcppls::platform::fs;
 namespace pack = mcppls::pack;
 namespace {
 
@@ -54,7 +55,8 @@ base::Result<XlingsResult> make_xlings_artifacts(const std::string& root, const 
                                                   const std::string& outDir, std::optional<std::string> version,
                                                   std::optional<std::string> kitVersion,
                                                   std::optional<std::string> clangdVersion) {
-    if (auto made = fs::create_directories(outDir); !made) return std::unexpected { made.error() };
+    std::error_code ignored;
+    if (std::error_code failed; !std::filesystem::create_directories(outDir, failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", outDir, failed.message()));
 
     std::string productVersion;
     if (version && !version->empty()) {
@@ -66,8 +68,8 @@ base::Result<XlingsResult> make_xlings_artifacts(const std::string& root, const 
     }
 
     const std::string lockPath { base::join_path(root, "packaging/payload.lock.json") };
-    auto lockText = fs::read_file(lockPath);
-    if (!lockText) return std::unexpected { lockText.error() };
+    auto lockText = os::fs::read(lockPath);
+    if (!lockText) return base::fail("read-file", lockText.error());
     nlohmann::json lock;
     try {
         lock = nlohmann::json::parse(*lockText);
@@ -112,23 +114,31 @@ base::Result<XlingsResult> make_xlings_artifacts(const std::string& root, const 
     XlingsResult result {};
     for (const auto& platform : platforms) {
         const std::string tarball { base::join_path(payloadsDir, std::format("payload-{}.tar.gz", platform.vscodeTarget)) };
-        if (!fs::is_regular_file(tarball)) {
+        if (!std::filesystem::is_regular_file(tarball, ignored)) {
             return base::fail("xlings-artifacts", std::format("missing {}", tarball));
         }
 
         // The archive's own top level is `payload/` (what CI's payload artifacts carry); stripping
         // it (extract's default) leaves this scratch directory holding bin/, kit/, ... directly.
         const std::string scratch { base::join_path(outDir, std::format(".scratch-{}", platform.vscodeTarget)) };
-        fs::remove_all(scratch);
+        std::filesystem::remove_all(scratch, ignored);
         auto extracted = pack::archive::extract(tarball, scratch, [](std::string_view) { return true; });
         if (!extracted) return std::unexpected { extracted.error() };
 
         const std::string exe { platform.windows ? ".exe" : "" };
 
+        // The server is the release's single file of this system and architecture (`mcpp pack
+        // --pkg-format single-file`): a program of the system that carries the image, so the package
+        // registers `bin/mcppls` as it did when the server was a program of its own.
+        const std::string singleFile { base::join_path(payloadsDir, std::format("mcppls-{}-{}-{}{}", productVersion,
+            platform.osName == "macosx" ? std::string_view { "macos" } : platform.osName, platform.arch, exe)) };
+        if (!std::filesystem::is_regular_file(singleFile, ignored)) {
+            return base::fail("xlings-artifacts", std::format("missing {}, the single file of {}", singleFile, platform.vscodeTarget));
+        }
         const std::string serverName { std::format("mcpp-language-server-{}-{}-{}", productVersion, platform.osName, platform.arch) };
         const std::string serverArchive { base::join_path(outDir, serverName + ".tar.gz") };
         const std::vector<pack::archive::WriteEntry> serverEntries {
-            { base::join_path(scratch, "bin/mcppls" + exe), "bin/mcppls" + exe },
+            { singleFile, "bin/mcppls" + exe },
             { base::join_path(root, "LICENSE"), "LICENSE" },
         };
         if (auto wrote = pack::archive::write(serverArchive, serverName, serverEntries); !wrote) {
@@ -141,7 +151,7 @@ base::Result<XlingsResult> make_xlings_artifacts(const std::string& root, const 
         // `list_directory` already returns each entry joined onto `kitDir`; the archive path is
         // the bare name alone (write() joins it under the kit's own root itself).
         std::vector<pack::archive::WriteEntry> kitEntries;
-        for (const auto& path : fs::list_directory(kitDir)) {
+        for (const auto& path : base::children(kitDir)) {
             kitEntries.push_back({ path, std::string { base::file_name(path) } });
         }
         if (auto wrote = pack::archive::write(kitArchive, kitName, kitEntries); !wrote) {
@@ -162,20 +172,20 @@ base::Result<XlingsResult> make_xlings_artifacts(const std::string& root, const 
 
         result.written.push_back(serverArchive);
         result.written.push_back(kitArchive);
-        fs::remove_all(scratch);
+        std::filesystem::remove_all(scratch, ignored);
     }
 
     for (const std::string_view templateName : { std::string_view { "mcpp-language-server.lua.in" }, std::string_view { "mcppls-kit.lua.in" } }) {
         const std::string templatePath { base::join_path(root, std::format("packaging/xlings/{}", templateName)) };
-        auto text = fs::read_file(templatePath);
-        if (!text) return std::unexpected { text.error() };
+        auto text = os::fs::read(templatePath);
+        if (!text) return base::fail("read-file", text.error());
         std::string rendered { *text };
         for (const auto& [placeholder, value] : values) rendered = base::replace_all(rendered, placeholder, value);
         if (auto leftover = leftover_placeholder(rendered)) {
             return base::fail("xlings-artifacts", std::format("unrendered {} in {}", *leftover, templateName));
         }
         const std::string outPath { base::join_path(outDir, std::string { templateName.substr(0, templateName.size() - 3) }) };
-        if (auto written = fs::write_file_atomic(outPath, rendered); !written) return std::unexpected { written.error() };
+        if (auto written = os::fs::write_atomic(outPath, rendered); !written) return base::fail("write-file", written.error());
         std::println("rendered {}", outPath);
         result.written.push_back(outPath);
     }
@@ -255,7 +265,7 @@ cmdline::App release_command(bool& handled, int& status) {
         .help("Also write MANIFEST.md into the directory");
     (void) command.subcommand("xlings")
         .description("Split CI's payload tarballs into xlings-res archives and render the .lua descriptors")
-        .option("payloads").takes_value().value_name("DIR").help("Directory of payload-<platform>.tar.gz").option("out")
+        .option("payloads").takes_value().value_name("DIR").help("A release's directory: payload-<platform>.tar.gz and the single files mcppls-<version>-<system>-<arch>").option("out")
         .takes_value().value_name("DIR").help("Where to write the archives and rendered descriptors").option("version")
         .takes_value().value_name("VERSION").help("Default: mcpp.toml").option("kit-version")
         .takes_value().value_name("VERSION").help("Default: packaging/payload.lock.json's libcxx-version").option("clangd-version")

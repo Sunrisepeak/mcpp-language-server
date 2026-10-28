@@ -32,8 +32,8 @@ impl zed::Extension for Mcppls {
         Ok(zed::Command {
             command,
             args,
-            // The server finds its payload beside its own executable and reads the rest of what it
-            // needs from the environment, so nothing else has to be passed here.
+            // The server finds its payload around its own image (or executable) and reads the rest
+            // of what it needs from the environment, so nothing else has to be passed here.
             env,
         })
     }

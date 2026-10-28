@@ -7,8 +7,6 @@ export module mcppls.orchestrator.workspace;
 import std;
 import nlohmann.json;
 import mcppls.base.text;
-import mcppls.platform.fs;
-import mcppls.platform.task;
 import mcppls.project.model;
 import mcppls.normalize.plan;
 import mcppls.engine;
@@ -17,6 +15,10 @@ import mcppls.engine.native.index;
 import mcppls.orchestrator.client;
 import mcppls.orchestrator.cache;
 import mcppls.config.settings;
+import mcpplibs.os;
+import mcppls.base.channel;
+
+namespace os = mcpplibs::os;
 
 export namespace mcppls::orchestrator {
 
@@ -86,8 +88,10 @@ struct SessionOptions {
     // mcppls.index.primeImplementationUnits (0.0.6 plan §2.6, §9 T5): whether implementation units
     // are opened in the background so go-to-definition reaches them (T5's work; T1 only carries it).
     std::string primeImplementationUnits { "auto" };
-    // This program, to run `mcppls review` for an editor's review command (overall design 7.7).
-    std::string serverExecutable;
+    // What starts this program again, to run `mcppls review` for an editor's review command
+    // (overall design 7.7), the daemon and the login shell's environment report: the executable, or
+    // an ok image's loader and the image.
+    std::vector<std::string> serverCommand;
     // Given by the composition root; a test can substitute engines that start no process.
     std::function<EngineFactories(const SessionOptions&, const engine::PayloadPaths&, bool payloadCorrupt)> engineFactories;
     // The configuration registry resolved against the command line (config settings §9 T1):
@@ -123,14 +127,14 @@ struct Event {
     std::chrono::steady_clock::time_point queuedAt { std::chrono::steady_clock::now() };
 };
 
-using EventChannel = platform::Channel<Event>;
+using EventChannel = mcppls::base::Channel<Event>;
 
 enum class State { starting, loading, preparing, ready, degraded, error };
 std::string_view to_string(State state);
 
 bool is_build_file(std::string_view name);
 // The files a watch (dynamic or the W9.3 polling fallback) cares about under `root`.
-std::map<std::string, platform::fs::FileStamp> watched_files_snapshot(std::string_view root);
+std::map<std::string, os::fs::stamp> watched_files_snapshot(std::string_view root);
 
 // A sweep the session asked for, prepared on its loop (0.0.10 review): the loop-side half
 // (`Workspace::prepare_sweep`) decides the categories and bounds and takes the single-flight

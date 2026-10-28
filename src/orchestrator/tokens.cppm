@@ -40,9 +40,10 @@ struct Legend {
 Legend build_legend(const Json& coreCapabilities);
 
 // The `semanticTokensProvider` entry this server advertises: `legend`'s types and modifiers,
-// `full: true` (no delta -- this server never hands out a resultId a delta could build on), and
-// `range` only when `range` says every engine can answer one: clangd 23.1 has no range request,
-// and advertising it had clients send one clangd rejects with "method not found".
+// `full: { delta: true }` (every whole answer carries a resultId, and a `full/delta` naming the
+// last one is answered with its edits: mcpp design 2026-10-28 §11.1, H3), and `range` when `range`
+// is true -- the server cuts a range from the whole file's tokens itself (H5), so an engine without
+// range requests (clangd 23.1) is no reason to leave it out.
 Json provider_capability(const Legend& legend, bool range);
 
 // One token, decoded to absolute position: `length` and `startChar` are UTF-16 code units, as LSP
@@ -73,5 +74,31 @@ Json remap_core_tokens(const Json& coreResult, const Legend& legend);
 // wins every position it covers; `native`'s tokens fill in only where `core` has none. Sorted,
 // disjoint, relative-encoded. Null only when both inputs are null (neither engine answered).
 Json merge(const Json& core, const Json& native);
+
+// ---- the same, without a document in between (design 2026-10-28 §11.1, H4) -----------------------
+//
+// A large file's answer is some 70 000 tokens. Each step above decodes JSON and encodes JSON again,
+// and the merge compared every native token with every core token; on the event loop that was a
+// third of a second per answer of a 10 000-line file in a debug build. The steps below take and give
+// tokens and integers: one pass each, and the JSON of the reply is made once, from the integers.
+
+// `coreResult`'s tokens, decoded and mapped into `legend` in one pass over its data. Sorted when the
+// engine's data is (LSP's relative encoding cannot express anything else).
+std::vector<Token> remap(const Json& coreResult, const Legend& legend);
+
+// Sorts `tokens` by line then column when they are not already: O(N) for sorted input.
+void ensure_sorted(std::vector<Token>& tokens);
+
+// `core` and `native` merged as `merge` does, both sorted: one pass over each, O(N + M).
+std::vector<Token> merge_tokens(std::span<const Token> core, std::span<const Token> native);
+
+// LSP's relative encoding of sorted tokens, as the integers of a reply's `data`.
+std::vector<std::uint32_t> encode_data(std::span<const Token> sorted);
+
+// The tokens of `data` (LSP's relative encoding) at their absolute positions.
+std::vector<Token> decode_data(std::span<const std::uint32_t> data);
+
+// A `SemanticTokens` result of `data`, with `resultId` when it is not empty.
+Json result_of(std::span<const std::uint32_t> data, std::string_view resultId = {});
 
 } // namespace mcppls::orchestrator::tokens

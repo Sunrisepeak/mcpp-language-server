@@ -1,0 +1,24 @@
+# mcppls.toolrun and mcppls.toolenv: how mcppls runs the programs a project names -- the login
+# shell's environment, offline, bounded, recorded, and never from a relative PATH entry -- over
+# mcpplibs.os. Nothing here is a layer over the system: what is generic is mcpplibs.os's.
+[package]
+name        = "mcppls-toolrun"
+version     = "0.1.0"
+description = "How mcppls runs the programs a project names: the login shell's environment, bounded and recorded runs, the PATH policy"
+license     = "Apache-2.0"
+
+[targets.mcppls-toolrun]
+kind = "lib"
+
+[dependencies]
+mcpplibs.os.workspace = true
+mcppls-base = { path = "../base" }
+
+[dependencies.nlohmann]
+json.workspace = true
+
+[dev-dependencies]
+mcppls-testing = { path = "../testing" }
+
+[lib]
+path = "src/toolrun.cppm"

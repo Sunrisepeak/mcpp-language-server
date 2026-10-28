@@ -5,6 +5,7 @@ import mcpplibs.cmdline;
 import mcppls.devtools.bench.validate;
 import mcppls.devtools.bench.agent;
 import mcppls.devtools.bench.review;
+import mcppls.devtools.bench.tokens;
 
 namespace mcppls::devtools {
 namespace {
@@ -29,16 +30,17 @@ int dispatch_tasks(const cmdline::ParsedArgs& tasksArgs) {
 
 int dispatch_bench(const cmdline::ParsedArgs& benchArgs) {
     if (!benchArgs.has_subcommand()) {
-        std::println(std::cerr, "mcppls-devtools: say `bench tasks ...` or `bench review ...`");
+        std::println(std::cerr, "mcppls-devtools: say `bench tasks ...`, `bench review ...` or `bench tokens ...`");
         return 2;
     }
     const auto inner = benchArgs.subcommand();
     if (!inner) {
-        std::println(std::cerr, "mcppls-devtools: say `bench tasks ...` or `bench review ...`");
+        std::println(std::cerr, "mcppls-devtools: say `bench tasks ...`, `bench review ...` or `bench tokens ...`");
         return 2;
     }
     if (benchArgs.subcommand_name() == "tasks") return dispatch_tasks(inner->get());
     if (benchArgs.subcommand_name() == "review") return bench::command_review(inner->get());
+    if (benchArgs.subcommand_name() == "tokens") return bench::command_tokens(inner->get());
     std::println(std::cerr, "mcppls-devtools: unknown `bench` subcommand '{}'", benchArgs.subcommand_name());
     return 2;
 }
@@ -79,10 +81,22 @@ cmdline::App bench_command(bool& handled, int& status) {
     (void) reviewCmd.option("keep").help("Keep the scratch workspaces afterward");
     (void) reviewCmd.option("report").takes_value().help("Write a JSON report of every fixture and rule to this path");
 
+    cmdline::App tokensCmd { "tokens" };
+    (void) tokensCmd.description("How soon a large file's semantic tokens are the compiler's, beside its first completion, and what an edit costs");
+    (void) tokensCmd.option("server").takes_value().help("The mcppls binary to measure (required)");
+    (void) tokensCmd.option("payload").takes_value().help("A payload directory: its clangd and semantic kit (required)");
+    (void) tokensCmd.option("conformance").takes_value().help("mcppls-conformance (default: beside this program, then beside --server)");
+    (void) tokensCmd.option("rounds").takes_value().help("Rounds of the cold and the warm stage (default 3)");
+    (void) tokensCmd.option("timeout").takes_value().help("Seconds the runner allows a check (default 300)");
+    (void) tokensCmd.option("out").takes_value().help("Write every round and the medians to this JSON file");
+    (void) tokensCmd.option("compare").takes_value().help("Another --out file, whose medians are shown beside these");
+    (void) tokensCmd.option("keep").help("Keep the scratch workspaces and caches afterward");
+
     cmdline::App command { "bench" };
-    (void) command.description("The agent task benchmark and the review fixtures (tools/bench/README.md)");
+    (void) command.description("The agent task benchmark, the review fixtures and the semantic-token timing (tools/bench/README.md)");
     (void) command.subcommand(std::move(tasksCmd));
     (void) command.subcommand(std::move(reviewCmd));
+    (void) command.subcommand(std::move(tokensCmd));
     (void) command.action([&handled, &status](const cmdline::ParsedArgs& arguments) {
         handled = true;
         status = dispatch_bench(arguments);

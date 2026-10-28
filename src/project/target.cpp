@@ -2,11 +2,12 @@ module mcppls.project.target;
 
 import std;
 import nlohmann.json;
-import mcppls.os;
 import mcppls.base.path;
-import mcppls.platform.fs;
 import mcppls.project.compdb;
 import mcppls.project.boundary;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::project {
 
@@ -129,6 +130,7 @@ TargetSelection target_from_commands(std::string_view root, std::span<const Comp
 }
 
 TargetSelection select_mcpp_target(std::string_view root, std::string_view selector) {
+    std::error_code ignored;
     TargetSelection selected;
     selected.evidencePath = base::join_path(root, "compile_commands.json");
     if (selector == "project") {
@@ -147,23 +149,23 @@ TargetSelection select_mcpp_target(std::string_view root, std::string_view selec
         } else selected.reason = "invalid mcpp target setting";
         return selected;
     }
-    if (!platform::fs::exists(selected.evidencePath)) {
+    if (!std::filesystem::exists(selected.evidencePath, ignored)) {
         selected.reason = "no root compilation database is available";
         return selected;
     }
     // This path also runs during file events. Bound memory/work before parsing and never run a command.
-    const auto stamp = platform::fs::stamp(selected.evidencePath);
+    const auto stamp = base::file_stamp(selected.evidencePath);
     if (!stamp || stamp->size > 32 * 1024 * 1024) {
         selected.reason = "the root compilation database exceeds the automatic selection size limit";
         return selected;
     }
-    const auto text = platform::fs::read_file(selected.evidencePath, 32 * 1024 * 1024);
+    const auto text = os::fs::read(selected.evidencePath, 32 * 1024 * 1024);
     if (!text || text->size() > 32 * 1024 * 1024) {
         selected.retryable = true;
         selected.reason = "the root compilation database cannot be read within the automatic selection limit";
         return selected;
     }
-    if (platform::fs::stamp(selected.evidencePath) != stamp) {
+    if (base::file_stamp(selected.evidencePath) != stamp) {
         selected.retryable = true;
         selected.reason = "the root compilation database changed while being read";
         return selected;
@@ -195,7 +197,7 @@ TargetSelection select_mcpp_target(std::string_view root, std::string_view selec
         }
     }
     // Reuse the platform-aware splitter (including Windows quoting) without expanding response files.
-    auto commands = parse_compile_commands(document, mcppls::os::FAMILY == mcppls::os::Family::windows ? CommandSyntax::windows : CommandSyntax::posix);
+    auto commands = parse_compile_commands(document, os::host() == os::platform::windows ? CommandSyntax::windows : CommandSyntax::posix);
     if (!commands) {
         selected.reason = "the root compilation database cannot be read: " + commands.error().message;
         return selected;

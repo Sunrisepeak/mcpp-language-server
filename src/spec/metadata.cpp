@@ -4,8 +4,9 @@ import std;
 import nlohmann.json;
 import mcppls.base.error;
 import mcppls.base.path;
-import mcppls.platform.fs;
+import mcpplibs.os;
 
+namespace os = mcpplibs::os;
 namespace mcppls::spec {
 
 namespace {
@@ -70,8 +71,8 @@ base::Result<std::vector<ModuleEntry>> parse_module_metadata(const nlohmann::jso
 }
 
 base::Result<std::vector<ModuleEntry>> read_module_metadata(std::string_view manifestPath) {
-    auto text = platform::fs::read_file(manifestPath);
-    if (!text) return std::unexpected { text.error() };
+    auto text = os::fs::read(manifestPath);
+    if (!text) return base::fail("read-file", text.error());
     nlohmann::json document = nlohmann::json::parse(*text, nullptr, false);
     if (document.is_discarded()) return base::fail("metadata-invalid", std::format("{} is not valid JSON", manifestPath));
     return parse_module_metadata(document, base::parent_path(manifestPath));

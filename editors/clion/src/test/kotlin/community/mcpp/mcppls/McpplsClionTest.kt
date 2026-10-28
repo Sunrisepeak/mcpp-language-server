@@ -34,8 +34,9 @@ import org.eclipse.lsp4j.Position
 import org.eclipse.lsp4j.jsonrpc.messages.Either
 
 // mcppls inside a running CLion (plugin/CL-3 in the 0.0.8 part 2 plan): the platform's own test
-// framework opens a real directory project in a headless CLion and the plugin starts the `mcppls`
-// found first on the PATH, which CI sets to the payload it built.
+// framework opens a real directory project in a headless CLion and the plugin starts the server of the
+// payload installed in the test's user data directory, which CI sets to the payload it built: its image,
+// through the platform's runner, as its payload.json says.
 //
 // Four things are asserted of an mcpp project: the server is Running within a minute of opening a
 // module, a wrong import gets mcppls's diagnostic, `import ` completes a module name from mcppls, and
@@ -93,9 +94,13 @@ class McpplsClionTest : UsefulTestCase() {
 
     private fun running() = servers().any { it.state == LspServerState.Running }
 
-    // The pid of the mcppls this JVM started, from the process table: the plugin gives no handle.
+    // The pid of the mcppls this JVM started, from the process table: the plugin gives no handle. The
+    // payload's server is its image, which the platform's runner runs (`okrun mcppls.okb serve`).
     private fun serverProcess(): ProcessHandle? = ProcessHandle.current().descendants()
-        .filter { it.info().command().orElse("").endsWith("mcppls") && it.info().arguments().orElse(emptyArray()).contains("serve") }
+        .filter { process ->
+            val arguments = process.info().arguments().orElse(emptyArray())
+            "serve" in arguments && (process.info().command().orElse("").endsWith("mcppls") || arguments.any { it.endsWith("mcppls.okb") })
+        }
         .findFirst().orElse(null)
 
     private fun highlights(): List<HighlightInfo> = fixture.doHighlighting()
@@ -130,6 +135,26 @@ class McpplsClionTest : UsefulTestCase() {
             "none within the test framework's limit (${e.message})"
         }
         println("CLION-ENGINE-EVIDENCE [$what] completions: $completions")
+    }
+
+    // payload.json's `server` is what starts: the image through the runner it names, or a program.
+    fun testTheInstalledPayloadStartsWhatItsManifestNames() {
+        val payload = Files.createTempDirectory("mcppls-payload").toFile()
+        try {
+            val bin = payload.resolve("bin").also { it.mkdirs() }
+            val runner = bin.resolve("okrun").also { it.writeText("runner"); it.setExecutable(true) }
+            val image = bin.resolve("mcppls.okb").also { it.writeText("okb") }
+            payload.resolve("payload.json").writeText("""{"server": {"path": "bin/mcppls.okb", "runner": "bin/okrun"}}""")
+            assertEquals(listOf(runner.path, image.path), installedServer(payload))
+            image.delete()
+            assertNull("an image that is not there is not started", installedServer(payload))
+            val program = bin.resolve("mcppls").also { it.writeText("program"); it.setExecutable(true) }
+            payload.resolve("payload.json").writeText("""{"server": {"path": "bin/mcppls"}}""")
+            assertEquals(listOf(program.path), installedServer(payload))
+            assertNull("no payload, nothing", installedServer(payload.resolve("missing")))
+        } finally {
+            payload.deleteRecursively()
+        }
     }
 
     fun testMcppProjectIsMcpplss() {
@@ -177,6 +202,28 @@ class McpplsClionTest : UsefulTestCase() {
         val probes = ExtensionPointName<ClionWorkspaceProbe>("io.github.sunrisepeak.mcppls.workspaceProbe").extensionList
         assertEquals(listOf(CidrWorkspaceProbe::class.java), probes.map { it.javaClass })
         assertFalse(probes.single().isModelled(project))
+        // mcpp writes no project-root compile_commands.json unless the project asks for one (mcpp
+        // 2026.10.26.2), so CLion loads no compilation database here and the project stays mcppls's.
+        assertFalse("no root compile_commands.json in an mcpp project", java.io.File(project.basePath!!, "compile_commands.json").exists())
+        assertFalse("the mcpp project is not CLion's", ClionModel.models(project))
+    }
+
+    // Issue #71, third item: an mcpp project as a person has it after `mcpp build` (CI builds the fixture with the mcpp
+    // it tests against, before the suite) is not taken over by CLion's Compilation Database. mcpp keeps the database
+    // under target/<triple>/<fingerprint>/ and writes none at the root since 2026.10.26.2, so CLion has nothing to load
+    // and mcppls serves the project.
+    fun testBuiltMcppProjectIsNotTakenOverByCompilationDatabase() {
+        open("mcpp-built")
+        val root = projectDir.toFile()
+        if (System.getProperty("mcppls.fixturesBuilt") == "true") {
+            assertTrue("the fixture was built by mcpp before the suite", File(root, "target").isDirectory)
+        } else {
+            println("mcpp-built was not built by mcpp here (MCPPLS_FIXTURES_BUILT unset): only the unbuilt project is checked")
+        }
+        assertFalse("no root compile_commands.json after mcpp build", File(root, "compile_commands.json").exists())
+        fixture.openFileInEditor(file("src/main.cpp"))
+        waitFor("a running mcppls", 60) { running() }
+        assertFalse("CLion's Compilation Database did not take the mcpp project", ClionModel.models(project))
     }
 
     fun testCMakeProjectIsClionsByDefault() {

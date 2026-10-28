@@ -44,9 +44,28 @@ rendered from the same declaration, so the page and the check cannot drift apart
 | `payload-<platform>.tar.gz` | yes | yes |
 | `mcppls-zed-<version>.tar.gz` | no | yes |
 | `mcppls-clion-<version>.zip` | no | yes |
+| `mcppls-<version>-openkal.zip` | no — one for every system and architecture | yes |
+| `mcppls-<version>.okb` | no — the image of both architectures | yes |
+| `mcppls-<version>-<system>-<arch>` (`linux-x86_64`, `linux-aarch64`, `macos-aarch64`, `windows-x86_64.exe`) | one per system and architecture | yes |
 | `SHA256SUMS`, `MANIFEST.md` | no | yes |
 
 To add or remove an asset, edit the manifest. The workflow needs no change.
+
+**The server is one set of bytes.** It is built as an ok image per architecture (mcpp's
+`<arch>-openkal`, whose platform is openkal-platform), and every file above that holds a server
+holds those images: the okb holds both, and every payload and VSIX carries the okb as
+`bin/mcppls.okb` beside its platform's runner `bin/okrun`; the universal package holds both under
+`lib/<arch>/` with the runner of each system it serves; a single file is a system's runner with one
+image inside. CI checks each against the images it built first (`server-image`): the universal
+package's rows on Linux, macOS and Windows, the okb, every payload's okb, and every VSIX's
+(`distribution`, "one okb, every runner"), and runs each runner it ships on its own system. Only
+clangd and the kit differ per platform, which is why the payloads and the VSIX files still do.
+
+| Job (`ci.yml`) | Makes | On |
+|---|---|---|
+| `server-universal` | each system's self-contained universal package (`mcpp pack --target x86_64-openkal --mode self-contained --pkg-format zip`); on Linux also the okb (`--pkg-format okb`, checked with `okld bundle check`) and the single files (`--pkg-format single-file --systems linux,macos,windows`, both architectures) | Linux, macOS, Windows |
+| `server-openkal` | `mcppls-<version>-openkal.zip`: Linux's package (its runners and Windows') and macOS's joined with `mcpp pack --merge`, runners for linux-x86_64, linux-aarch64, macos-aarch64 and windows-x86_64 | Linux |
+| `distribution` | nothing: each VSIX carries one okb, the one okb, and its runner starts it; the universal package and the single file start the server | every platform |
 
 ## Making one
 

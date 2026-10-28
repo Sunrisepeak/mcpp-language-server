@@ -1,6 +1,7 @@
 module mcppls.base.error;
 
 import std;
+import mcpplibs.os;
 
 namespace mcppls::base {
 
@@ -10,6 +11,10 @@ Error make_error(std::string_view code, std::string message) {
 
 std::unexpected<Error> fail(std::string_view code, std::string message) {
     return std::unexpected<Error> { make_error(code, std::move(message)) };
+}
+
+std::unexpected<Error> fail(std::string_view code, const mcpplibs::os::error& error) {
+    return std::unexpected<Error> { make_error(code, error.message()) };
 }
 
 std::string to_string(const Error& error) {

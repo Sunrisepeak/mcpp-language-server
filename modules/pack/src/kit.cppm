@@ -19,7 +19,7 @@
 //                  built on the same LLVM.
 //
 // This lives in mcppls-pack, not the server: it runs cmake, ninja and a compiler as external
-// programs (mcppls.platform.toolrun), and only mcppls-devtools depends on this package at all
+// programs (mcppls.toolrun), and only mcppls-devtools depends on this package at all
 // (modules/pack/mcpp.toml).
 export module mcppls.pack.kit;
 
@@ -82,7 +82,7 @@ base::Result<BuiltKit> build(const Options& options);
 // recipes used (SOURCE_SUBTREES's prefix test and the llvm-mingw recipe's `select`), the argv
 // each recipe built for cmake and ninja, and the manifest and kit.json checks write_kit_json and
 // check_manifest made. Precedent for exporting a module's internals this way is
-// mcppls.platform.process's `match_preopen` and mcppls.platform.toolenv's merge and marker
+// mcppls.toolenv's merge and marker
 // helpers, both "exposed for tests" the same way.
 namespace testing {
 

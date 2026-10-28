@@ -178,4 +178,20 @@ bool is_identifier_char(char c) {
     return is_identifier_start(c) || (c >= '0' && c <= '9');
 }
 
+std::string last_lines(std::string_view text, std::size_t lines) {
+    if (lines == 0 || text.empty()) return std::string {};
+    std::size_t end { text.size() };
+    while (end > 0 && (text[end - 1] == '\n' || text[end - 1] == '\r')) --end;
+    std::size_t start { end };
+    std::size_t seen { 0 };
+    while (start > 0) {
+        if (text[start - 1] == '\n') {
+            ++seen;
+            if (seen == lines) break;
+        }
+        --start;
+    }
+    return std::string { text.substr(start, end - start) };
+}
+
 } // namespace mcppls::base

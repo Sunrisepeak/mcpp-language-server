@@ -7,6 +7,109 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.18] — 2026-10-27
+
+The bundled engine is unchanged ([mcppls-clangd 0.0.17](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.17),
+`23.1.0-mcppls.5`). This release moves the server onto [mcpplibs.os](https://github.com/mcpplibs/os), ships it as
+one okb of both architectures that every system's runner starts, builds over openkal-platform (mcpp 2026.10.27.1),
+and follows the build record mcpp writes.
+
+### Colours of large files
+
+The semantic tokens of a file need clangd's syntax tree of the whole file; a completion needs only its preamble and
+the text. In a 10 000-line file importing three modules the first completion came at 0.66 s and the colours at 2.96 s,
+and every edit sent the whole file's tokens again, 1 015 373 bytes (`tokens-large-file`, mcpp design 2026-10-28 §11.1).
+
+- **Colours come at once and follow the text.** The server keeps clangd's last tokens of each open file, moves them
+  with every edit (a token the edit touches waits for clangd) and answers from them at once; a
+  `workspace/semanticTokens/refresh` follows within 20 ms when clangd's answer differs from what the editor shows.
+  After an edit the answer comes in 0.02 s (was 0.97 s, the typing pause and the rebuild). An editor that cannot be
+  refreshed waits for clangd, as before.
+- **A file opened again is coloured before clangd has read it.** The tokens of a saved text are kept on disk
+  (`tokens/` in the workspace's cache, the newest 1000 within 64 MiB), under a key of the text, the command, the
+  versions of mcppls and clangd, and the module interfaces the file reads; any other key is a miss. A warm open of
+  the large file has clangd's colours at 0.05 s, before its first completion at 0.15 s (were 0.76 s and 0.22 s).
+- **An edit sends the change, not the file.** Every whole answer carries a `resultId`, and `full/delta` is answered
+  with one edit: 71 bytes after inserting a line.
+- **A range is cut from the whole**, at once, so `range` is declared whether or not clangd answers range requests.
+- Merging clangd's tokens with mcppls's own is one pass over each (was a comparison of every pair), without JSON in
+  between.
+- `cxxModules/report` counts the answers by kind (`semanticTokens.answers`), the kept files' hits and writes, the
+  refreshes and the server's own time per answer. `mcppls-devtools bench tokens` measures the fixture, and CI's
+  bench-validate job holds the criteria: on a warm open the colours come no later than the first completion, an edit's
+  answer is under 5% of the file's, and every change reaches the editor by refresh.
+
+### One server for every system
+
+- **Every payload and VSIX carries the same server: one okb** (`bin/mcppls.okb`, openkal's universal image package,
+  the image of x86_64 and of aarch64), **started by the platform's runner beside it** (`bin/okrun`), as
+  `payload.json`'s `server` says (`path`, `runner`). The images are built once, and CI checks that every okb shipped is
+  that one, byte for byte, and that each VSIX's runner starts it on its own system ("one okb, every runner", on Linux
+  x64 and arm64, macOS arm64 and Windows x64). VS Code, Zed, CLion and Neovim start the runner with the okb before the
+  server's own arguments; the test harnesses (`mcppls-conformance run --server`, `bench`, `stress`) take the okb and
+  start it the same way.
+- **The server for the command line is one package**, `mcppls-<version>-openkal.zip`: both images, the launchers
+  `bin/mcppls` and `bin/mcppls.cmd`, and the runner of Linux x86_64 and aarch64, macOS arm64 and Windows x86_64, so it
+  needs nothing installed. CI packs Linux's and Windows' runners on Linux and macOS's on macOS, and joins the two with `mcpp pack --merge`.
+- **Or one file**: `mcppls-<version>-<system>-<arch>` (`linux-x86_64`, `linux-aarch64`, `macos-aarch64`,
+  `windows-x86_64.exe`), the platform's carrier with the image inside, which runs it from memory.
+- These replace the per-architecture `.oke` assets and the program of each system carrying its image (M3). The
+  xlings server archive of each platform is that platform's single file.
+- The server names what starts it again (`review`, the workspace daemon, the login shell's environment report) as
+  the system does, an image's loader included, and finds its payload around its image.
+
+### mcpp projects
+
+- **The compile database a build left is found where mcpp 2026.10.26.2 puts it.** That mcpp writes no
+  project-root `compile_commands.json` unless the project asks for one; when mcpp cannot be asked, mcppls reads the
+  database named by `target/.last-result.json` and the configuration's `result.json`, and an older mcpp's root copy
+  only when that record is missing (#71).
+- **A build in a terminal, an agent's shell or an IDE refreshes the project model.** `target/.last-result.json`,
+  which every build rewrites, is one of the inputs mcppls watches.
+
+### The platform layer
+
+- **mcppls keeps no operating-system layer of its own.** Files, processes, the environment, directories, loopback
+  connections and the standard streams are mcpplibs.os's, called directly; `modules/os` and `modules/platform` are
+  removed. What was generic went into mcpplibs.os 0.2.1: the bounded run (a hard bound, a grace, a drain, output
+  limits), the threads of a program, environment entries as a started program's overrides, a bounded read, the
+  canonical name of a file. What is mcppls's own stays here, in two small members: `modules/base` (its cache
+  directory, its payload names, `file_stamp`, `make_executable`) and `modules/toolrun` (the login shell's
+  environment, offline and recorded runs, and the rule that a program is never found through a relative PATH
+  entry). The system is a value (mcpplibs.os's `host()`), never a preprocessor branch, so the same source builds
+  for a system and as an image.
+- **The server builds over a C library on openkal on every system.** On macOS and Windows the Linux, macOS and
+  Windows units of mcpplibs.os 0.2.0 included the SDK's headers and passed `path::c_str()` to Win32, which a
+  C library on openkal does not provide; 0.2.1 declares what it calls itself.
+- **Removed workarounds.** WA-PLATFORM-001 (the Darwin pipe protection): openkal-macos ignores SIGPIPE for its own
+  writes. The early PRoot start by `execve` and the patched copy of openkal-linux under `vendor/`: openkal-linux
+  0.18 starts programs that way from the first start under PRoot, and keeps every register PRoot rewrites. The
+  Win32 declarations for process times and identity, and the Windows loopback reads in slices: mcpplibs.os
+  answers both on every system, and openkal-windows' sockets carry both directions at once.
+- **A process's CPU time and identity are known on every system**, Windows and macOS included, from openkal's
+  program information instead of `/proc` and `ps(1)`. A workspace lease an older server wrote names its start in
+  another scheme and is judged by whether its process is alive, so an upgrade never takes over a live server's
+  workspace.
+- On Windows a program found on PATH by a bare name is never the extension-less file beside its `.cmd` shim.
+
+### Building mcppls
+
+- **One platform for every target** (mcpp SPEC-013): the workspace selects openkal-platform 0.17.3 for Linux, macOS
+  and Windows, whose hosted arrangement is openkal-musl and openkal-llvm-runtime over the system's openkal, and mcpp
+  selects it for the ok images (`<arch>-openkal`). No member declares a C library, a C++ run-time, okld, okrun or a
+  link any more; `[workspace.package] mcpp = ">=2026.10.27.1"` makes an older mcpp refuse instead of building
+  without them. CI also builds every build program of the graph as an ok image
+  (`--host-platform openkal-platform@0.17.3`) on the three systems.
+- **A payload's server is the image form by default.** `mcppls-devtools payload` packs the okb
+  (`mcpp pack --pkg-format okb`) and a self-contained universal package of this system, and carries the okb and
+  this system's runner; `--server-image` and `--server-runner` name them for another platform, and `--server` still
+  carries a program. `payload --verify` checks both forms.
+- CI finds the platform's tools as mcpp names them (`mcpp toolchain install --target`, `mcpp self env --target
+  … --format json`), and spells the container `--pkg-format`.
+- The toolchain is `llvm@23.1.3`, the LLVM of openkal-platform's version group.
+- The CLion tests open an mcpp project as it is after `mcpp build` and check that CLion's Compilation Database does
+  not take it (#71).
+
 ## [0.0.17] — 2026-10-24
 
 The bundled engine is [mcppls-clangd 0.0.17](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.17)

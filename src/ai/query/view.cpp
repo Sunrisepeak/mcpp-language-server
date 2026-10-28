@@ -2,17 +2,18 @@ module mcppls.ai.query.view;
 
 import std;
 import nlohmann.json;
-import mcppls.os;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.base.uri;
-import mcppls.platform.fs;
 import mcppls.lsp.jsonrpc;
 import mcppls.spec.query;
 import mcppls.project.scan;
 import mcppls.engine.native.index;
 import mcppls.orchestrator.kernel;
 import mcppls.orchestrator.workspace;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::ai::query {
 
@@ -42,15 +43,16 @@ View::View(orchestrator::Kernel& kernel) : kernel_ { kernel } {}
 const std::string& View::root() const { return kernel_.root(); }
 
 std::string View::path_of(std::string_view file) const {
+    std::error_code ignored;
     const std::string absolute { kernel_.absolute_path(file) };
     if (absolute.empty()) return {};
-    return platform::fs::exists(absolute) ? platform::fs::canonical_path(absolute) : absolute;
+    return std::filesystem::exists(absolute, ignored) ? base::canonical_path(absolute) : absolute;
 }
 
 std::string View::display(std::string_view path) const {
     if (auto relative = base::relative_path(path, root()); relative && base::is_within(path, root())) {
         std::string name { *relative };
-        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) std::ranges::replace(name, '\\', '/');
+        if (os::host() == os::platform::windows) std::ranges::replace(name, '\\', '/');
         return name;
     }
     return std::string { path };
@@ -78,9 +80,10 @@ spec::Location View::location(std::string_view path, const Json& range) const {
 }
 
 std::optional<std::string> View::path_of_uri(std::string_view uri) const {
+    std::error_code ignored;
     auto path = base::uri_to_path(uri);
     if (!path) return std::nullopt;
-    return platform::fs::exists(*path) ? platform::fs::canonical_path(*path) : base::normalize_path(*path);
+    return std::filesystem::exists(*path, ignored) ? base::canonical_path(*path) : base::normalize_path(*path);
 }
 
 std::optional<spec::Location> View::location(const Json& lspLocation) const {

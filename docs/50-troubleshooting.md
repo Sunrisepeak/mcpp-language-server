@@ -397,14 +397,17 @@ the one workspace instead of deleting directories by hand:
 - **Neovim**: `:McpplsResetCache`
 - **Other clients**: `workspace/executeCommand` `mcppls.resetCache`
 
-It stops the root's engines, removes its cache — the models, the engine database, clangd's
-module cache and locks, and the private states of the build tools mcppls runs (xmake, CMake, Meson; removed
+It stops the root's engines, removes its cache — the models, the engine database, the kept semantic
+tokens, clangd's module cache and locks, and the private states of the build tools mcppls runs (xmake, CMake, Meson; removed
 before the next description starts, so never under one that is running) — and starts again. The logs stay. The first session afterwards is a cold
 one.
 
 Old modules are pruned by themselves: each unit keeps the built modules (BMIs) of its two newest
 commands, and older ones are removed in the background when clangd starts. `mcppls cache --prune`
 does the same for every workspace no instance has open.
+
+The kept semantic tokens (`tokens/`, one file per saved document) keep their newest 1000 files
+within 64 MiB by themselves; `mcppls cache --format json` counts them as `tokens`.
 
 The rest of the cache keeps itself under a budget (`mcppls.cache.maxBytes`, 4 GB a workspace by
 default): the copy-on-read copies clangd leaves behind when it dies are swept before the next

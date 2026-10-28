@@ -1,8 +1,11 @@
 // Locates the language server and the payload it ships with.
 //
-// A platform-specific package carries `payload/payload.json`, the server
-// executable, clangd and the standard library kit. MCPPLS_SERVER and
-// MCPPLS_PAYLOAD point somewhere else during development and tests.
+// A platform-specific package carries `payload/payload.json`, the server,
+// clangd and the standard library kit. The server is an image of every
+// architecture (`bin/mcppls.okb`) that the platform's runner (`bin/okrun`)
+// starts, as payload.json's `server.runner` says, or a program of the
+// platform. MCPPLS_SERVER and MCPPLS_PAYLOAD point somewhere else during
+// development and tests.
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -12,10 +15,15 @@ export interface PayloadEntry {
     path: string;
 }
 
+// The server: a program (`path`), or an image (`path`) that the program `runner` starts.
+export interface PayloadServer extends PayloadEntry {
+    runner?: string;
+}
+
 export interface PayloadManifest {
     'payload-version': number;
     platform: string;
-    server: PayloadEntry;
+    server: PayloadServer;
     clangd: PayloadEntry;
     kit: { name: string; path: string };
     // Version 2 (usable plan W9.4): size and sha256 of the files the server verifies at startup.
@@ -28,7 +36,10 @@ export interface PayloadManifest {
 export const SUPPORTED_PAYLOAD_VERSIONS: readonly number[] = [1, 2, 3, 4];
 
 export interface ServerLaunch {
+    // The program started: the server, or the runner of an image server.
     executable: string;
+    // What comes before the server's own arguments: the image, when `executable` is its runner.
+    leading: string[];
     // Passed to the server as `--payload`; absent when no payload directory exists.
     payloadDir?: string;
     manifest?: PayloadManifest;
@@ -86,6 +97,7 @@ export function readManifest(payloadDir: string): { manifest?: PayloadManifest; 
     }
     if (typeof manifest.platform !== 'string'
         || !manifest.server || !insideRelative(manifest.server.path)
+        || (manifest.server.runner !== undefined && !insideRelative(manifest.server.runner))
         || !manifest.clangd || !insideRelative(manifest.clangd.path)
         || !manifest.kit || !insideRelative(manifest.kit.path)) {
         return { problem: `The payload manifest ${file} is incomplete.` };
@@ -142,7 +154,7 @@ export function resolveLaunch(extensionPath: string, env: NodeJS.ProcessEnv = pr
             return { ok: false, reason: `MCPPLS_SERVER does not name an existing executable: ${override}` };
         }
         ensureExecutable(override);
-        return { ok: true, launch: { executable: override, payloadDir: hasPayload ? payloadDir : undefined, manifest, source: 'environment' } };
+        return { ok: true, launch: { executable: override, leading: [], payloadDir: hasPayload ? payloadDir : undefined, manifest, source: 'environment' } };
     }
 
     if (!hasPayload || !manifest) {
@@ -153,10 +165,18 @@ export function resolveLaunch(extensionPath: string, env: NodeJS.ProcessEnv = pr
                 : `C++ Modules has no package for ${currentPlatform()} yet.`,
         };
     }
-    const executable = path.join(payloadDir, manifest.server.path);
-    if (!isFile(executable)) {
-        return { ok: false, reason: `The language server executable is missing: ${executable}. Reinstall the extension.` };
+    const server = path.join(payloadDir, manifest.server.path);
+    if (!isFile(server)) {
+        return { ok: false, reason: `The language server is missing: ${server}. Reinstall the extension.` };
     }
-    ensureExecutable(executable);
-    return { ok: true, launch: { executable, payloadDir, manifest, source: 'payload' } };
+    if (manifest.server.runner === undefined) {
+        ensureExecutable(server);
+        return { ok: true, launch: { executable: server, leading: [], payloadDir, manifest, source: 'payload' } };
+    }
+    const runner = path.join(payloadDir, manifest.server.runner);
+    if (!isFile(runner)) {
+        return { ok: false, reason: `The program that starts the language server is missing: ${runner}. Reinstall the extension.` };
+    }
+    ensureExecutable(runner);
+    return { ok: true, launch: { executable: runner, leading: [server], payloadDir, manifest, source: 'payload' } };
 }

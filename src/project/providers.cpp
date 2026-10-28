@@ -3,7 +3,6 @@ module mcppls.project.providers;
 import std;
 import mcppls.base.error;
 import mcppls.base.path;
-import mcppls.platform.fs;
 import mcppls.project.compdb;
 import mcppls.project.infer;
 import mcppls.project.provider;
@@ -15,8 +14,9 @@ import mcppls.project.meson;
 namespace mcppls::project {
 
 std::optional<Claim> CompileCommandsProvider::detect(std::string_view root) const {
+    std::error_code ignored;
     for (std::string_view candidate : { "compile_commands.json", "build/compile_commands.json" }) {
-        if (const std::string commands { base::join_path(std::string { root }, candidate) }; platform::fs::is_regular_file(commands)) {
+        if (const std::string commands { base::join_path(std::string { root }, candidate) }; std::filesystem::is_regular_file(commands, ignored)) {
             Claim claim;
             claim.provider = "compile-commands";
             claim.confidence = 50;   // the last resort of a "real" provider: whatever wrote this did not say

@@ -6,10 +6,12 @@ import mcppls.base.error;
 import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.sha256;
-import mcppls.platform.fs;
 import mcppls.spec.database;
 import mcppls.toolchain.probe;
 import mcppls.project.target;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::project {
 
@@ -177,13 +179,13 @@ std::string inputs_fingerprint(std::string_view root, std::span<const std::strin
     std::string text;
     text += std::format("producer\t{}\t{}\n", producer, producerVersion);
     if (!producer.empty()) {
-        if (auto stamp = platform::fs::stamp(producer)) {
-            text += std::format("producer-file\t{}\t{}\n", stamp->size, stamp->modified);
+        if (auto stamp = base::file_stamp(producer)) {
+            text += std::format("producer-file\t{}\t{}\n", stamp->size, static_cast<std::int64_t>(stamp->modified_ns));
         }
     }
     for (const auto& path : paths) {
-        if (auto stamp = platform::fs::stamp(path)) {
-            text += std::format("{}\t{}\t{}\n", path, stamp->size, stamp->modified);
+        if (auto stamp = base::file_stamp(path)) {
+            text += std::format("{}\t{}\t{}\n", path, stamp->size, static_cast<std::int64_t>(stamp->modified_ns));
         } else {
             text += std::format("{}\tabsent\n", path);
         }
@@ -205,12 +207,12 @@ std::vector<std::string> fingerprint_paths(std::string_view root, std::span<cons
 InputStamp stamp_of(std::string path, bool hashContent) {
     InputStamp stamp;
     stamp.path = std::move(path);
-    if (auto found = platform::fs::stamp(stamp.path)) {
+    if (auto found = base::file_stamp(stamp.path)) {
         stamp.present = true;
         stamp.size = found->size;
-        stamp.modified = static_cast<std::int64_t>(found->modified);
+        stamp.modified = static_cast<std::int64_t>(found->modified_ns);
         if (hashContent && found->size <= CONTENT_HASH_LIMIT) {
-            if (auto text = platform::fs::read_file(stamp.path)) stamp.contentHash = base::sha256_hex(*text);
+            if (auto text = os::fs::read(stamp.path)) stamp.contentHash = base::sha256_hex(*text);
         }
     }
     return stamp;
@@ -285,12 +287,13 @@ base::Result<void> save_model(std::string_view directory, const CachedModel& cac
         { "model", model_to_json(cached.model) },
     };
     const std::string path { base::join_path(directory, cache_file_name(cached.model.source)) };
-    return platform::fs::write_file_atomic(path, envelope.dump());
+    if (auto written = os::fs::write_atomic(path, envelope.dump()); !written) return base::fail("write-file", written.error());
+    return {};
 }
 
 std::optional<CachedModel> load_model(std::string_view directory, SourceKind source) {
     const std::string path { base::join_path(directory, cache_file_name(source)) };
-    auto text = platform::fs::read_file(path);
+    auto text = os::fs::read(path);
     if (!text) return std::nullopt;
     const Json envelope = Json::parse(*text, nullptr, false);
     if (envelope.is_discarded() || !envelope.is_object() || envelope.value("version", 0) != CACHE_VERSION) return std::nullopt;

@@ -1,11 +1,10 @@
 import std;
 import mcppls.testing;
 import nlohmann.json;
-import mcppls.platform.task;
-
+import mcppls.base.channel;
 int main() {
     using namespace mcppls::testing;
-    using mcppls::platform::Channel;
+    using mcppls::base::Channel;
 
     "values cross threads in order"_test = [] {
         Channel<int> channel;

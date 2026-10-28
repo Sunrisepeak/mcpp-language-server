@@ -3,68 +3,65 @@ import std;
 import mcppls.testing;
 import nlohmann.json;
 import mcppls.base.path;
-import mcppls.platform.fs;
-import mcppls.platform.dirs;
 import mcppls.spec.database;
 import mcppls.spec.metadata;
 import mcppls.spec.kit;
 import mcppls.spec.discovery;
-import mcppls.platform.env;
-import mcppls.platform.stdio;
+import mcpplibs.os;
 
-
-namespace fs = mcppls::platform::fs;
+namespace os = mcpplibs::os;
 namespace base = mcppls::base;
 using Json = nlohmann::json;
 
 namespace {
 
 std::string repository_root() {
-    std::string directory { fs::current_directory() };
+    std::error_code ignored;
+    std::string directory { base::current_directory() };
     while (true) {
-        if (fs::is_regular_file(base::join_path(directory, "docs/specs/README.md"))) return directory;
+        if (std::filesystem::is_regular_file(base::join_path(directory, "docs/specs/README.md"), ignored)) return directory;
         const std::string parent { base::parent_path(directory) };
-        if (parent == directory) return fs::current_directory();
+        if (parent == directory) return base::current_directory();
         directory = parent;
     }
 }
 
 std::string scratch(std::string_view name) {
-    const std::string directory { base::join_path(mcppls::platform::dirs::temp_directory(),
+    std::error_code ignored;
+    const std::string directory { base::join_path(base::spelled(os::dirs::temp()),
         std::format("mcppls-test-spec-{}-{}", name, std::chrono::steady_clock::now().time_since_epoch().count())) };
-    (void)fs::create_directories(directory);
+    (void)std::filesystem::create_directories(directory, ignored);
     return directory;
 }
 
 // This program started again as an S2 producer, so discovery runs through a real child on every system.
 int producer_main(std::string_view mode, std::string_view databasePath) {
-    namespace stdio = mcppls::platform::stdio;
     std::string request;
     while (true) {
-        auto chunk = stdio::read_input();
+        auto chunk = os::stdio::read_input();
         if (!chunk || chunk->empty()) break;
         request += *chunk;
     }
     const Json parsed = Json::parse(request, nullptr, false);
     if (parsed.is_discarded() || !parsed.contains("workspace") || !parsed.contains("profile-version")) {
-        (void)stdio::write_output(R"({"kind":"error","message":"the request is not an S2 request"})" "\n");
+        (void)os::stdio::write_output(R"({"kind":"error","message":"the request is not an S2 request"})" "\n");
         return 1;
     }
     if (mode == "stream") {
         // Standard error is free text a consumer does not interpret, even when it looks like a message.
-        (void)stdio::write_error(R"({"kind":"error","message":"not on standard output"})" "\n");
-        (void)stdio::write_output(R"({"kind":"progress","message":"configuring"})" "\n");
-        (void)stdio::write_output(R"({"kind":"vendor-note","detail":1})" "\n");
-        (void)stdio::write_output(Json { { "kind", "finished" }, { "database", std::string { databasePath } }, { "watch", Json::array({ "mcpp.toml" }) },
+        (void)os::stdio::write_error(R"({"kind":"error","message":"not on standard output"})" "\n");
+        (void)os::stdio::write_output(R"({"kind":"progress","message":"configuring"})" "\n");
+        (void)os::stdio::write_output(R"({"kind":"vendor-note","detail":1})" "\n");
+        (void)os::stdio::write_output(Json { { "kind", "finished" }, { "database", std::string { databasePath } }, { "watch", Json::array({ "mcpp.toml" }) },
                                          { "future-field", true } }.dump() + "\n");
         return 0;
     }
     if (mode == "truncated") {
-        (void)stdio::write_output(R"({"kind":"progress","message":"configuring"})" "\n");
+        (void)os::stdio::write_output(R"({"kind":"progress","message":"configuring"})" "\n");
         return 0;
     }
     if (mode == "failing") {
-        (void)stdio::write_output(R"({"kind":"error","message":"no toolchain","code":"toolchain"})" "\n");
+        (void)os::stdio::write_output(R"({"kind":"error","message":"no toolchain","code":"toolchain"})" "\n");
         return 3;
     }
     if (mode == "sleeping") std::this_thread::sleep_for(std::chrono::seconds { 30 });
@@ -72,9 +69,9 @@ int producer_main(std::string_view mode, std::string_view databasePath) {
 }
 
 std::string self_path() {
-    const auto arguments = mcppls::platform::env::arguments();
+    const auto arguments = os::env::arguments();
     std::string path { arguments.empty() ? std::string {} : arguments.front() };
-    if (!base::is_absolute_path(path)) path = base::join_path(fs::current_directory(), path);
+    if (!base::is_absolute_path(path)) path = base::join_path(base::current_directory(), path);
     return base::normalize_path(path);
 }
 
@@ -186,11 +183,12 @@ int main(int argc, char* argv[]) {
     };
 
     "module metadata paths resolve against the manifest"_test = [] {
+        std::error_code ignored;
         const std::string directory { scratch("metadata") };
         const std::string lib { base::join_path(directory, "lib/x86_64-unknown-linux-gnu") };
-        expect(fs::create_directories(lib).has_value());
+        expect([&] { std::error_code failed; std::filesystem::create_directories(lib, failed); return !failed; }());
         const std::string manifest { base::join_path(lib, "libc++.modules.json") };
-        expect(fs::write_file(manifest, R"({"version":1,"revision":1,"modules":[
+        expect(os::fs::write(manifest, R"({"version":1,"revision":1,"modules":[
             {"logical-name":"std","source-path":"../../share/libc++/v1/std.cppm","is-std-library":true,
              "local-arguments":{"system-include-directories":["../../share/libc++/v1"]}},
             {"logical-name":"std.compat","source-path":"../../share/libc++/v1/std.compat.cppm","is-std-library":true,
@@ -202,25 +200,25 @@ int main(int argc, char* argv[]) {
         expect((*entries)[0].systemIncludeDirectories.size() == 1u);
         expect((*entries)[1].definitions.size() == 1u && (*entries)[1].definitions[0].value == std::optional<std::string> { "1" });
         const std::string gcc { base::join_path(directory, "gcc.json") };
-        expect(fs::write_file(gcc, R"({"version":1,"revision":1,"modules":[{"logical-name":"std","source-path":"/usr/include/c++/16/bits/std.cc","is-std-library":true}]})").has_value());
+        expect(os::fs::write(gcc, R"({"version":1,"revision":1,"modules":[{"logical-name":"std","source-path":"/usr/include/c++/16/bits/std.cc","is-std-library":true}]})").has_value());
         auto gccEntries = mcppls::spec::read_module_metadata(gcc);
         expect(fatal(gccEntries.has_value() && gccEntries->size() == 1u));
         expect((*gccEntries)[0].source == "/usr/include/c++/16/bits/std.cc");
         expect(!mcppls::spec::read_module_metadata(base::join_path(directory, "absent.json")).has_value());
         // The MSVC STL's own shape, as windows-2022's 14.44.35207 ships it (usable plan E1).
         const std::string msvc { base::join_path(directory, "msvc/modules/modules.json") };
-        expect(fs::create_directories(base::parent_path(msvc)).has_value());
-        expect(fs::write_file(msvc, R"({"version": 1, "revision": 0, "library": "microsoft/STL", "module-sources": ["std.ixx", "std.compat.ixx"]})").has_value());
+        expect([&] { std::error_code failed; std::filesystem::create_directories(base::parent_path(msvc), failed); return !failed; }());
+        expect(os::fs::write(msvc, R"({"version": 1, "revision": 0, "library": "microsoft/STL", "module-sources": ["std.ixx", "std.compat.ixx"]})").has_value());
         auto msvcEntries = mcppls::spec::read_module_metadata(msvc);
         expect(fatal(msvcEntries.has_value() && msvcEntries->size() == 2u));
         expect((*msvcEntries)[0].logicalName == "std" && (*msvcEntries)[1].logicalName == "std.compat") << (*msvcEntries)[1].logicalName;
         expect((*msvcEntries)[0].source == base::join_path(directory, "msvc/modules/std.ixx") && (*msvcEntries)[0].isStdLibrary);
-        fs::remove_all(directory);
+        std::filesystem::remove_all(directory, ignored);
     };
 
     "kit examples load and bad kits are refused"_test = [&] {
         for (std::string_view name : { "s4-kit-linux-x64.json", "s4-kit-win32-x64.json", "s4-kit-darwin-arm64.json" }) {
-            auto text = fs::read_file(base::join_path(root, base::join_path("docs/specs/examples", name)));
+            auto text = os::fs::read(base::join_path(root, base::join_path("docs/specs/examples", name)));
             expect(fatal(text.has_value()));
             auto kit = mcppls::spec::parse_kit(Json::parse(*text), "/kits/k");
             expect(kit.has_value()) << name << (kit ? "" : kit.error().message);
@@ -253,7 +251,7 @@ int main(int argc, char* argv[]) {
     };
 
     "discovery output is interpreted"_test = [&] {
-        auto text = fs::read_file(base::join_path(root, "docs/specs/examples/s2-messages.jsonl"));
+        auto text = os::fs::read(base::join_path(root, "docs/specs/examples/s2-messages.jsonl"));
         expect(fatal(text.has_value()));
         auto result = mcppls::spec::parse_discovery_output(*text);
         expect(fatal(result.has_value()));
@@ -314,7 +312,7 @@ int main(int argc, char* argv[]) {
 
     "a single-document envelope is read, and only a database answers"_test = [&] {
         namespace spec = mcppls::spec;
-        const auto text = fs::read_file(base::join_path(root, "docs/specs/examples/s2-envelope.json"));
+        const auto text = os::fs::read(base::join_path(root, "docs/specs/examples/s2-envelope.json"));
         expect(fatal(text.has_value()));
         auto document = spec::parse_database_envelope(*text);
         expect(fatal(document.has_value())) << (document ? "" : document.error().message);

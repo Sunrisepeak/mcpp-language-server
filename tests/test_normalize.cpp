@@ -3,8 +3,6 @@ import std;
 import mcppls.testing;
 import nlohmann.json;
 import mcppls.base.path;
-import mcppls.platform.fs;
-import mcppls.platform.dirs;
 import mcppls.spec.database;
 import mcppls.spec.kit;
 import mcppls.spec.metadata;
@@ -19,6 +17,11 @@ import mcppls.normalize.gnu;
 import mcppls.normalize.msvc;
 import mcppls.normalize.plan;
 import mcppls.normalize.semantic;
+import mcpplibs.os;
+
+namespace base = mcppls::base;
+
+namespace os = mcpplibs::os;
 
 namespace s = mcppls::spec;
 namespace n = mcppls::normalize;
@@ -504,9 +507,10 @@ int main() {
     };
 
     "a plan resolves, injects std once and leaves out what cannot resolve"_test = [] {
-        const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+        std::error_code ignored;
+        const std::string root { mcppls::base::join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-test-plan-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-        (void)mcppls::platform::fs::create_directories(root);
+        (void)std::filesystem::create_directories(root, ignored);
         const std::map<std::string, std::string> sources {
             { "/p/src/main.cpp", "import std;\nimport hello.greet;\nimport missing.module;\nint main() {}\n" },
             { "/p/src/app.cpp", "import std;\nimport hello.greet;\nint run() { return 0; }\n" },
@@ -576,10 +580,10 @@ int main() {
         }
         const auto written = n::write_engine_database(root, plan);
         expect(written.has_value());
-        const auto text = mcppls::platform::fs::read_file(mcppls::base::join_path(root, "compile_commands.json"));
+        const auto text = os::fs::read(mcppls::base::join_path(root, "compile_commands.json"));
         expect(fatal(text.has_value()));
         expect(nlohmann::json::parse(*text).size() == plan.entries.size());
-        mcppls::platform::fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "a C library listed first decides neither how std nor how C sources are built"_test = [] {
@@ -854,16 +858,17 @@ int main() {
     // plan instead -- exactly what showed up as spurious unresolved/ambiguous-module issues against
     // mcppls's own repository (conformance fixtures and tools/bench each have their own manifest).
     "an opened file inside a nested project's own manifest is not folded into this plan"_test = [] {
-        const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+        std::error_code ignored;
+        const std::string root { mcppls::base::join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-test-plan-boundary-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
         const std::string coreSource { mcppls::base::join_path(root, "src/core/a.cppm") };
         const std::string vendoredMain { mcppls::base::join_path(root, "vendor/fixture/src/main.cpp") };
-        (void)mcppls::platform::fs::create_directories(mcppls::base::parent_path(coreSource));
-        (void)mcppls::platform::fs::create_directories(mcppls::base::parent_path(vendoredMain));
-        (void)mcppls::platform::fs::write_file(coreSource, "export module core.a;\n");
-        (void)mcppls::platform::fs::write_file(vendoredMain, "import missing.from.the.fixture;\nint main() {}\n");
+        (void)std::filesystem::create_directories(mcppls::base::parent_path(coreSource), ignored);
+        (void)std::filesystem::create_directories(mcppls::base::parent_path(vendoredMain), ignored);
+        (void)os::fs::write(coreSource, "export module core.a;\n");
+        (void)os::fs::write(vendoredMain, "import missing.from.the.fixture;\nint main() {}\n");
         // What marks "vendor/fixture" as its own project rather than more of this one's sources.
-        (void)mcppls::platform::fs::write_file(mcppls::base::join_path(root, "vendor/fixture/mcpp.toml"), "[package]\nname = \"fixture\"\n");
+        (void)os::fs::write(mcppls::base::join_path(root, "vendor/fixture/mcpp.toml"), "[package]\nname = \"fixture\"\n");
 
         s::Database database;
         database.hasIde = true;
@@ -889,7 +894,7 @@ int main() {
         expect(std::ranges::none_of(plan.entries, [&](const n::EngineEntry& entry) { return entry.file == vendoredMain; }));
         expect(plan.issues.empty()) << "no spurious unresolved-module for the fixture's own deliberately-missing import: "
                                     << std::format("{}", plan.issues.size());
-        mcppls::platform::fs::remove_all(root);
+        std::filesystem::remove_all(root, ignored);
     };
 
     "a module clangd could not find leaves out only the providers that import it"_test = [] {

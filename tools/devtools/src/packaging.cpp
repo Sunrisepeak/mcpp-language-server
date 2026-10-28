@@ -3,7 +3,6 @@ module mcppls.devtools.packaging;
 import std;
 import nlohmann.json;
 import mcpplibs.cmdline;
-import mcppls.os;
 import mcppls.base.error;
 import mcppls.base.log;
 import mcppls.base.path;
@@ -13,15 +12,16 @@ import mcppls.pack.kit;
 import mcppls.pack.fetch;
 import mcppls.pack.lock;
 import mcppls.pack.payload;
-import mcppls.platform.env;
-import mcppls.platform.fs;
 import mcppls.devtools.common;
 import mcppls.devtools.editors;
+import mcpplibs.os;
+import mcppls.base.payload;
+import mcppls.toolrun;
+
+namespace os = mcpplibs::os;
 
 namespace mcppls::devtools {
 namespace {
-
-namespace platform = mcppls::platform;
 namespace cmdline = mcpplibs::cmdline;
 namespace pack = mcppls::pack;
 
@@ -36,37 +36,57 @@ std::optional<pack::lock::Lock> load_lock(const std::string& root) {
     return std::move(*loaded);
 }
 
-// The server a payload carries: the one given, or the one `mcpp build` makes for `platformName` --
-// this host's own build when the platform is this host's, the lock's `server-target` otherwise.
-std::optional<std::string> server_for(const std::string& root, const cmdline::ParsedArgs& arguments,
-                                      std::string_view platformName) {
-    if (const auto given = arguments.value("server"); given && !given->empty()) {
-        if (platform::fs::is_regular_file(*given)) return *given;
-        std::println(std::cerr, "mcppls-devtools: no server at {}", *given);
+// The system and the architecture of a payload platform (`<os>-<arch>`, as VS Code names it), as mcpp
+// names them: the runner of `linux-arm64` is `libexec/okrun/linux-aarch64/okrun`.
+std::pair<std::string, std::string> runner_system(std::string_view platformName) {
+    const auto dash = platformName.find('-');
+    const std::string_view system { platformName.substr(0, dash) };
+    const std::string_view arch { dash == std::string_view::npos ? std::string_view {} : platformName.substr(dash + 1) };
+    return { system == "win32" ? "windows" : system == "darwin" ? "macos" : "linux", arch == "arm64" ? "aarch64" : "x86_64" };
+}
+
+// The server a payload for `platformName` carries. THE SERVER IS AN IMAGE: one okb of every
+// architecture, started by the runner of the platform (mcpp design 2026-10-28 part 2 §15) -- the two
+// `--server-image` and `--server-runner` give, or packed here. `--server` gives a program of the
+// platform instead, which a payload may carry as well. Nullopt, said on stderr, when none can be had.
+struct ServerChoice {
+    std::string program;
+    std::string image;
+    std::string runner;
+};
+
+std::optional<ServerChoice> choose_server(const std::string& root, const cmdline::ParsedArgs& arguments, std::string_view platformName) {
+    ServerChoice choice { arguments.value("server").value_or(""), arguments.value("server-image").value_or(""),
+                          arguments.value("server-runner").value_or("") };
+    if (choice.image.empty() != choice.runner.empty()) {
+        std::println(std::cerr, "mcppls-devtools: --server-image and --server-runner go together: the image, and the okrun of {} that starts it",
+                     platformName);
         return std::nullopt;
     }
-    ServerBuild build {};
-    if (arguments.is_flag_set("dev")) build.profile = "dev";
-    if (platformName != mcppls::os::PLATFORM) {
-        const auto lockData = load_lock(root);
-        if (!lockData) return std::nullopt;
-        auto row = pack::lock::platform(*lockData, platformName);
-        if (!row) {
-            std::println(std::cerr, "mcppls-devtools: {}", row.error().message);
-            return std::nullopt;
-        }
-        build.target = row->serverTarget;
+    if (!choice.program.empty() && !choice.image.empty()) {
+        std::println(std::cerr, "mcppls-devtools: --server names a program and --server-image an image; a payload carries one of them");
+        return std::nullopt;
     }
-    auto located = locate_server(root, build);
+    std::error_code ignored;
+    if (!choice.program.empty()) {
+        if (std::filesystem::is_regular_file(choice.program, ignored)) return choice;
+        std::println(std::cerr, "mcppls-devtools: no server at {}", choice.program);
+        return std::nullopt;
+    }
+    if (!choice.image.empty()) return choice;
+    const auto [system, arch] = runner_system(platformName);
+    auto located = locate_image_server(root, arguments.is_flag_set("dev") ? "dev" : "release", system, arch);
     if (!located) {
         std::println(std::cerr, "mcppls-devtools: {}", located.error().message);
         return std::nullopt;
     }
-    return *located;
+    choice.image = located->image;
+    choice.runner = located->runner;
+    return choice;
 }
 
 std::optional<std::string> parse_platform(const std::string& root, const cmdline::ParsedArgs& arguments) {
-    const std::string given { arguments.value("platform").value_or(std::string { mcppls::os::PLATFORM }) };
+    const std::string given { arguments.value("platform").value_or(std::string { base::payload_platform() }) };
     const auto lockData = load_lock(root);
     if (!lockData) return std::nullopt;
     const auto known = pack::lock::platform_names(*lockData);
@@ -79,7 +99,7 @@ std::optional<std::string> parse_platform(const std::string& root, const cmdline
 // carrying it is for -- not necessarily this host's: a linux-arm64 payload is packaged the same way
 // on any host.
 std::optional<std::string> payload_platform(const std::string& directory) {
-    auto text = platform::fs::read_file(base::join_path(directory, "payload.json"));
+    auto text = os::fs::read(base::join_path(directory, "payload.json"));
     if (!text) return std::nullopt;
     try {
         const auto manifest = nlohmann::json::parse(*text);
@@ -100,9 +120,11 @@ struct Payload {
 Payload assemble_payload(const std::string& root, std::string_view platformName, const std::string& outDirectory,
                          const std::string& clangdDirectory, const std::string& kitDirectory,
                          const std::string& serverPath, const std::string& cacheDirectory,
-                         std::optional<std::string> serverVersion, bool strip, bool candidateEngine) {
+                         std::optional<std::string> serverVersion, bool strip, bool candidateEngine,
+                         const std::string& serverImage = {}, const std::string& serverRunner = {}) {
+    std::error_code ignored;
     const std::string work { base::join_path(root, "target/pack") };
-    (void) platform::fs::create_directories(work);
+    (void)std::filesystem::create_directories(work, ignored);
 
     auto lockData = pack::lock::load(base::join_path(root, "packaging/payload.lock.json"));
     if (!lockData) {
@@ -150,6 +172,8 @@ Payload assemble_payload(const std::string& root, std::string_view platformName,
     auto assembled = pack::payload::assemble(pack::payload::AssembleOptions {
         .platform = std::string { platformName },
         .serverPath = serverPath,
+        .serverImage = serverImage,
+        .serverRunner = serverRunner,
         .clangdDirectory = clangd,
         .kitDirectory = kit,
         .outDirectory = outDirectory,
@@ -172,7 +196,9 @@ void print_verify_result(std::string_view directory, const std::vector<std::stri
         body["problems"] = problems;
         // A digest of the server binary, for a caller (CI, replacing its own inline hashlib check)
         // that wants to compare it against a cross-built one without reading the file itself.
-        if (auto digest = pack::fetch::digest_of(base::join_path(directory, "bin/mcppls")); digest) {
+        if (auto image = pack::fetch::digest_of(base::join_path(directory, "bin/mcppls.okb")); image) {
+            body["server"] = { { "path", "bin/mcppls.okb" }, { "sha256", *image } };
+        } else if (auto digest = pack::fetch::digest_of(base::join_path(directory, "bin/mcppls")); digest) {
             body["server"] = { { "path", "bin/mcppls" }, { "sha256", *digest } };
         } else if (auto digestExe = pack::fetch::digest_of(base::join_path(directory, "bin/mcppls.exe")); digestExe) {
             body["server"] = { { "path", "bin/mcppls.exe" }, { "sha256", *digestExe } };
@@ -215,6 +241,7 @@ std::optional<Editor> parse_editor(std::string_view name) {
 // the editor's "install dev extension" action pointed at this directory, and removing it is its
 // extension manager. Saying so is better than writing into Zed's extension index behind it.
 bool build_zed(const std::string& root) {
+    std::error_code ignored;
     const std::string directory { base::join_path(root, "editors/zed") };
     auto cargo = tool("cargo", "a Zed extension is a Rust crate compiled to WebAssembly");
     if (!cargo) return false;
@@ -226,7 +253,7 @@ bool build_zed(const std::string& root) {
     //
     // The target is part of the toolchain, not of the crate, so it is added here rather than left
     // as a sentence for the reader to act on. Already-present is a no-op.
-    if (auto rustup = platform::env::find_executable("rustup")) {
+    if (auto rustup = toolrun::find_program("rustup")) {
         (void) step("checking the wasm32-wasip2 target", *rustup, { "target", "add", "wasm32-wasip2" }, directory);
     }
     if (!step("building the Zed extension", *cargo,
@@ -235,15 +262,15 @@ bool build_zed(const std::string& root) {
         return false;
     }
     const std::string wasm { base::join_path(directory, "target/wasm32-wasip2/release/zed_mcppls.wasm") };
-    if (!platform::fs::is_regular_file(wasm)) {
+    if (!std::filesystem::is_regular_file(wasm, ignored)) {
         std::println(std::cerr, "  the build produced no {}", wasm);
         return false;
     }
     // Zed loads `extension.wasm` from the extension directory.
     const std::string installed { base::join_path(directory, "extension.wasm") };
-    if (auto text = platform::fs::read_file(wasm)) {
-        if (auto written = platform::fs::write_file_atomic(installed, *text); !written) {
-            std::println(std::cerr, "  cannot write {}: {}", installed, written.error().message);
+    if (auto text = os::fs::read(wasm)) {
+        if (auto written = os::fs::write_atomic(installed, *text); !written) {
+            std::println(std::cerr, "  cannot write {}: {}", installed, written.error().message());
             return false;
         }
     }
@@ -332,14 +359,15 @@ int command_payload(const cmdline::ParsedArgs& arguments) {
         return 0;
     }
 
-    auto server = server_for(root, arguments, *platformName);
+    const auto server = choose_server(root, arguments, *platformName);
     if (!server) return 2;
-    std::println("mcppls-devtools: payload for {} from {}", *platformName, *server);
+    std::println("mcppls-devtools: payload for {} from {}", *platformName, server->image.empty() ? server->program : server->image);
     const std::string cache { arguments.value("cache").value_or(base::join_path(root, ".payload-cache")) };
     const bool strip { !arguments.is_flag_set("no-strip") };
     const auto payload = assemble_payload(root, *platformName, out, arguments.value("clangd").value_or(""),
-                                          arguments.value("kit").value_or(""), *server, cache,
-                                          arguments.value("server-version"), strip, arguments.is_flag_set("candidate"));
+                                          arguments.value("kit").value_or(""), server->program, cache,
+                                          arguments.value("server-version"), strip, arguments.is_flag_set("candidate"),
+                                          server->image, server->runner);
     if (!payload.built) return 1;
 
     auto problems = pack::payload::verify(payload.directory);
@@ -362,7 +390,7 @@ std::optional<std::string> build_clion(const std::string& root) {
 
     const std::string distributions { base::join_path(directory, "build/distributions") };
     std::string zip;
-    for (const auto& entry : platform::fs::list_directory(distributions)) {
+    for (const auto& entry : base::children(distributions)) {
         if (entry.ends_with(".zip")) zip = base::join_path(distributions, entry);
     }
     if (zip.empty()) {
@@ -380,8 +408,9 @@ std::optional<std::string> build_clion(const std::string& root) {
 // making another. Such a caller has no server beside this tool and needs none: the payload it hands
 // over already contains the built server.
 int put_payload(const std::string& root, const cmdline::ParsedArgs& arguments, const std::string& directory) {
+    std::error_code ignored;
     if (const auto given = arguments.value("payload"); given && !given->empty()) {
-        if (!platform::fs::is_regular_file(base::join_path(*given, "payload.json"))) {
+        if (!std::filesystem::is_regular_file(base::join_path(*given, "payload.json"), ignored)) {
             std::println(std::cerr, "mcppls-devtools: {} is not a payload (no payload.json)", *given);
             return 2;
         }
@@ -397,32 +426,34 @@ int put_payload(const std::string& root, const cmdline::ParsedArgs& arguments, c
         }
         return 0;
     }
-    auto server = server_for(root, arguments, mcppls::os::PLATFORM);
+    const auto server = choose_server(root, arguments, base::payload_platform());
     if (!server) return 2;
-    const auto payload = assemble_payload(root, mcppls::os::PLATFORM, directory,
+    const auto payload = assemble_payload(root, base::payload_platform(), directory,
                                           arguments.value("clangd").value_or(""), arguments.value("kit").value_or(""),
-                                          *server, base::join_path(root, ".payload-cache"), std::nullopt, true, false);
+                                          server->program, base::join_path(root, ".payload-cache"), std::nullopt, true, false,
+                                          server->image, server->runner);
     return payload.built ? 0 : 1;
 }
 
 int build_vscode(const std::string& root, const cmdline::ParsedArgs& arguments, std::string& vsixOut) {
+    std::error_code ignored;
     const std::string extension { base::join_path(root, "editors/vscode") };
     // The extension carries its payload inside itself.
     if (const int status = put_payload(root, arguments, base::join_path(extension, "payload")); status != 0) return status;
 
     auto npm = tool("npm", "the VS Code extension is TypeScript");
     if (!npm) return 1;
-    const bool haveModules { platform::fs::is_directory(base::join_path(extension, "node_modules")) };
+    const bool haveModules { std::filesystem::is_directory(base::join_path(extension, "node_modules"), ignored) };
     if (!step(haveModules ? "refreshing the extension's dependencies" : "installing the extension's dependencies",
               *npm, { haveModules ? "install" : "ci", "--no-audit", "--no-fund" }, extension)) {
         return 1;
     }
     if (!step("compiling the extension", *npm, { "run", "compile" }, extension)) return 1;
 
-    const std::string target { payload_platform(base::join_path(extension, "payload")).value_or(std::string { mcppls::os::PLATFORM }) };
+    const std::string target { payload_platform(base::join_path(extension, "payload")).value_or(std::string { base::payload_platform() }) };
     const std::string vsix { arguments.value("out").value_or(
         base::join_path(root, std::format("target/pack/mcppls-{}.vsix", target))) };
-    (void) platform::fs::create_directories(base::parent_path(vsix));
+    (void)std::filesystem::create_directories(base::parent_path(vsix), ignored);
     auto npx = tool("npx", "packaging a VSIX runs vsce from the extension's own dependencies");
     if (!npx) return 1;
     if (!step("packaging the VSIX", *npx,
@@ -461,7 +492,7 @@ std::vector<std::string> clion_directories(const cmdline::ParsedArgs& arguments)
 int install_server(const std::string& root, const cmdline::ParsedArgs& arguments) {
     const std::string directory { server_directory(arguments) };
     if (const int status = put_payload(root, arguments, directory); status != 0) return status;
-    std::println("server: {}", base::join_path(directory, std::format("bin/mcppls{}", mcppls::os::EXECUTABLE_SUFFIX)));
+    std::println("server: the payload at {} (payload.json's `server`)", directory);
     return 0;
 }
 
@@ -539,7 +570,7 @@ int command_extension(const cmdline::ParsedArgs& arguments) {
     }
 
     for (const Editor editor : editors) {
-        std::println("mcppls-devtools: {} extension for {}", editor_name(editor), mcppls::os::PLATFORM);
+        std::println("mcppls-devtools: {} extension for {}", editor_name(editor), base::payload_platform());
         if (editor == Editor::zed) {
             const std::string source { plugin.value_or(base::join_path(root, "editors/zed")) };
             if (!plugin && !build_zed(root)) return 1;
@@ -572,6 +603,7 @@ int command_extension(const cmdline::ParsedArgs& arguments) {
 }
 
 int command_uninstall(const cmdline::ParsedArgs& arguments) {
+    std::error_code ignored;
     const std::string root { repository_root() };
     const std::string wanted { arguments.value("editor").value_or("all") };
     std::vector<Editor> editors;
@@ -600,7 +632,7 @@ int command_uninstall(const cmdline::ParsedArgs& arguments) {
             if (!any) std::println("clion: was not installed");
             continue;
         }
-        auto code = platform::env::find_executable("code");
+        auto code = toolrun::find_program("code");
         if (!code) {
             std::println("vscode: the `code` command is not on PATH; remove it from the Extensions view.");
             continue;
@@ -614,8 +646,8 @@ int command_uninstall(const cmdline::ParsedArgs& arguments) {
     const bool zedLeft { editors::zed_installed(zed_directory(arguments)) };
     const bool clionLeft { std::ranges::any_of(clion_directories(arguments), editors::clion_installed) };
     const std::string server { server_directory(arguments) };
-    if (!zedLeft && !clionLeft && platform::fs::exists(server)) {
-        platform::fs::remove_all(server);
+    if (!zedLeft && !clionLeft && std::filesystem::exists(server, ignored)) {
+        std::filesystem::remove_all(server, ignored);
         std::println("server: removed {}", server);
     }
     return failures == 0 ? 0 : 1;
@@ -627,14 +659,17 @@ cmdline::App payload_command(bool& handled, int& status) {
     cmdline::App command { "payload" };
     (void) command.description(
         "Assemble, verify or copy a payload: the server, a trimmed clangd and the semantic kit.\n"
-        "  payload --platform win32-x64 --server cross/mcppls.exe --kit work/kit --out payload\n"
+        "  payload                                       this host's: the okb and this host's runner, packed here\n"
+        "  payload --platform win32-x64 --server-image mcppls.okb --server-runner okrun.exe --out payload\n"
         "  payload --verify payload                      check an already-assembled payload\n"
         "  payload --from payload --out editors/vscode/payload   copy one, keeping exec bits\n"
         "  payload --only clangd --out work/clangd        trim clangd alone (CI's cache step)");
     (void) command.option("platform").takes_value().help("One of packaging/payload.lock.json's platforms, e.g. linux-arm64 (default: this host)");
     (void) command.option("out").takes_value().help("Where to put it (default target/pack/payload)");
-    (void) command.option("server").takes_value().help("The server to package (default: `mcpp build --profile release` for --platform)");
+    (void) command.option("server").takes_value().help("A program of --platform to carry as the server, instead of the image");
     (void) command.option("server-version").takes_value().help("Defaults to this build's own version");
+    (void) command.option("server-image").takes_value().help("The server's okb (default: `mcpp pack --pkg-format okb`)");
+    (void) command.option("server-runner").takes_value().help("With --server-image: the okrun of --platform (default: the self-contained package's)");
     (void) command.option("dev").help("Package a dev-profile server rather than a release one");
     (void) command.option("clangd").takes_value().help("Use this already-trimmed clangd directory");
     (void) command.option("kit").takes_value().help("Use this already-built semantic kit directory");
@@ -656,7 +691,9 @@ cmdline::App extension_command(bool& handled, int& status) {
     (void) command.option("payload").takes_value().help("Use this payload instead of assembling one (CI)");
     (void) command.option("install").help("Also install it (Zed: everything but its palette action unless --link)");
     (void) command.option("out").takes_value().help("Where to write the .vsix");
-    (void) command.option("server").takes_value().help("The server to package (default: `mcpp build --profile release` for this host)");
+    (void) command.option("server").takes_value().help("A program of this host to carry as the server, instead of the image");
+    (void) command.option("server-image").takes_value().help("The server's okb (default: `mcpp pack --pkg-format okb`)");
+    (void) command.option("server-runner").takes_value().help("With --server-image: this host's okrun (default: the self-contained package's)");
     (void) command.option("dev").help("Package a dev-profile server rather than a release one");
     (void) command.option("clangd").takes_value().help("Use this already-trimmed clangd directory");
     (void) command.option("kit").takes_value().help("Use this already-built semantic kit directory");

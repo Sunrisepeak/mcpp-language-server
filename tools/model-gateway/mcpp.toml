@@ -13,7 +13,7 @@ kind = "bin"
 main = "src/main.cpp"
 
 [toolchain]
-default = "llvm@22.1.8"
+default = "llvm@23.1.3"
 
 # Experiment X3 (see README.md "Build form"): the toolchain's normal C library,
 # not openkal-llvm-runtime. The gateway builds natively on each host (it is not
@@ -24,9 +24,8 @@ default = "llvm@22.1.8"
 # which would land squarely on a stdio line-protocol tool that reads argv.
 # openkal beneath it, like every other program in this repository: one source, cross-built from
 # Linux for all three targets (.agents/docs/design.md §2.2; this reverses experiment X3 -- its reason was openkal 0.9.6's release-profile defects,
-# closed by 0.14/0.15). Versions come from the workspace root.
+# closed by 0.14/0.15). The C library and the C++ run-time are the workspace's platform's.
 [dependencies]
-openkal-llvm-runtime.workspace = true
 cmdline.workspace              = true
 
 [dependencies.nlohmann]
@@ -45,9 +44,4 @@ tinyhttps.workspace = true
 [dev-dependencies]
 mcppls-testing  = { path = "../../modules/testing" }
 mcppls-base     = { path = "../../modules/base" }
-mcppls-platform = { path = "../../modules/platform" }
-
-[target.'cfg(os = "linux")'.dependencies]
-# The patched openkal-linux the root mcpp.toml declares (vendor/README.md): a member is its own root
-# when built with -p, and only the root's declaration outranks openkal-musl's version requirement.
-openkal-linux = { path = "../../vendor/openkal-linux" }
+mcpplibs.os.workspace = true

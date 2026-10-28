@@ -134,15 +134,10 @@ Json merge_capabilities(const Json& engineCapabilities) {
     // Semantic tokens (design doc 2026-09-25 K/§7, contract T0): the legend is this server's own,
     // built from whatever the core engine (if any) declared, so a restart or a missing core engine
     // cannot shift an index a client has already seen.
-    // Range only when the core engine answers range requests too (mcppls's own engine always does).
-    bool range { true };
-    if (engineCapabilities.is_object()) {
-        if (const auto provider = engineCapabilities.find("semanticTokensProvider"); provider != engineCapabilities.end() && provider->is_object()) {
-            const auto declared = provider->find("range");
-            range = declared != provider->end() && (declared->is_object() || (declared->is_boolean() && declared->get<bool>()));
-        }
-    }
-    capabilities["semanticTokensProvider"] = tokens::provider_capability(tokens::build_legend(engineCapabilities), range);
+    // Range always (mcpp design 2026-10-28 §11.1, H5): every engine is asked for the whole file and the server cuts a range
+    // from it -- from what it keeps at once, so the part of a file the editor shows first is coloured first. Whether the
+    // core engine answers range requests of its own no longer matters.
+    capabilities["semanticTokensProvider"] = tokens::provider_capability(tokens::build_legend(engineCapabilities), true);
     if (!capabilities.contains("experimental") || !capabilities["experimental"].is_object()) capabilities["experimental"] = Json::object();
     capabilities["experimental"]["cxxModules"] = Json { { "version", 1 }, { "databaseSpec", ">=0.2 <1" } };
     // usable plan W9.1: without this, a client has no reason to ever send

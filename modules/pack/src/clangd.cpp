@@ -5,19 +5,16 @@ import mcppls.base.error;
 import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.text;
-import mcppls.os;
 import mcppls.pack.archive;
 import mcppls.pack.fetch;
 import mcppls.pack.lock;
 import mcppls.pack.targets;
-import mcppls.platform.env;
-import mcppls.platform.fs;
-import mcppls.platform.process;
+import mcpplibs.os;
+import mcppls.base.payload;
+import mcppls.toolrun;
 
+namespace os = mcpplibs::os;
 namespace mcppls::pack::clangd {
-namespace fs = mcppls::platform::fs;
-namespace env = mcppls::platform::env;
-namespace platform = mcppls::platform;
 namespace {
 
 
@@ -80,15 +77,15 @@ base::Result<Shape> shape_of(std::string_view archivePath, const std::vector<arc
 // A tool run to completion; the tail of standard error on a non-zero exit, so a strip or codesign
 // failure says what it said rather than just that it failed.
 base::Result<std::string> run_tool(const std::string& program, std::vector<std::string> arguments) {
-    auto result = platform::run(platform::SpawnOptions { .program = program, .arguments = std::move(arguments) },
-                                platform::RunBounds { .hard = std::chrono::minutes { 5 } });
-    if (!result) return std::unexpected { result.error() };
-    if (result->exitCode != 0 || result->timedOut) {
-        return base::fail("clangd-tool", std::format("{} exited {}{}\n{}", program, result->exitCode,
-                                                      result->timedOut ? " (timed out)" : "",
-                                                      platform::last_lines(result->error, 20)));
+    auto result = os::process::run(os::process::spawn_options { .program = program, .args = std::move(arguments), .bound_lifetime = true },
+                                mcpplibs::os::process::bounds { .hard = std::chrono::minutes { 5 } });
+    if (!result) return base::fail("spawn-failed", result.error());
+    if (!result->status.success() || result->timed_out) {
+        return base::fail("clangd-tool", std::format("{} exited {}{}\n{}", program, toolrun::exit_code(result->status),
+                                                      result->timed_out ? " (timed out)" : "",
+                                                      base::last_lines(result->err, 20)));
     }
-    return std::move(result->output);
+    return std::move(result->out);
 }
 
 // A missing strip tool is not a failure -- trim_clangd.py leaves the binary with its symbols and
@@ -98,8 +95,8 @@ base::Result<std::string> run_tool(const std::string& program, std::vector<std::
 // another architecture (linux-arm64 trimmed on an x64 host) is left with its symbols when
 // llvm-strip is absent, rather than failing on a strip that could never have read it.
 base::Result<bool> strip_linux(const std::string& binary, bool hostArchitecture) {
-    auto tool = env::find_executable("llvm-strip");
-    if (!tool && hostArchitecture) tool = env::find_executable("strip");
+    auto tool = toolrun::find_program("llvm-strip");
+    if (!tool && hostArchitecture) tool = toolrun::find_program("strip");
     if (!tool) {
         base::log::info("trim-clangd: no strip tool on PATH that reads this binary; it keeps its symbols");
         return false;
@@ -109,10 +106,10 @@ base::Result<bool> strip_linux(const std::string& binary, bool hostArchitecture)
 }
 
 base::Result<void> thin_and_strip_macos(const std::string& binary, std::string_view appleArch) {
-    if constexpr (mcppls::os::FAMILY != mcppls::os::Family::macos) {
+    if (os::host() != os::platform::macos) {
         return base::fail("clangd-host", "a darwin clangd needs a macOS host (lipo, strip -x and codesign)");
     } else {
-        auto lipo = env::find_executable("lipo");
+        auto lipo = toolrun::find_program("lipo");
         if (!lipo) return base::fail("clangd-tool-missing", "lipo is not on PATH");
         const std::string thin { std::format("{}.{}", binary, appleArch) };
         if (auto ran = run_tool(*lipo, { "-thin", std::string { appleArch }, binary, "-output", thin }); !ran) return std::unexpected { ran.error() };
@@ -120,13 +117,13 @@ base::Result<void> thin_and_strip_macos(const std::string& binary, std::string_v
         std::filesystem::rename(thin, binary, renamed);
         if (renamed) return base::fail("clangd-tool", std::format("cannot replace {}: {}", binary, renamed.message()));
 
-        auto strip = env::find_executable("strip");
+        auto strip = toolrun::find_program("strip");
         if (!strip) return base::fail("clangd-tool-missing", "strip is not on PATH");
         if (auto ran = run_tool(*strip, { "-x", binary }); !ran) return std::unexpected { ran.error() };
 
         // Modifying a Mach-O invalidates its signature, and arm64 macOS refuses to run an arm64
         // executable without a valid one.
-        auto codesign = env::find_executable("codesign");
+        auto codesign = toolrun::find_program("codesign");
         if (!codesign) return base::fail("clangd-tool-missing", "codesign is not on PATH");
         if (auto ran = run_tool(*codesign, { "--force", "--sign", "-", binary }); !ran) return std::unexpected { ran.error() };
         return {};
@@ -147,6 +144,7 @@ std::uint64_t dir_size(std::string_view path) {
 // (`license-from`): one member of another entry's archive, fetched and verified like any entry.
 base::Result<void> license_from_lock(const lock::Lock& lockData, const std::string& clangdEntry,
                                      const std::string& cacheDirectory, const std::string& outDirectory) {
+    std::error_code ignored;
     const auto from = lockData.licenseFrom.find(clangdEntry);
     if (from == lockData.licenseFrom.end()) return {};
     auto source = lock::entry(lockData, from->second.entry);
@@ -163,14 +161,14 @@ base::Result<void> license_from_lock(const lock::Lock& lockData, const std::stri
     std::error_code moved;
     std::filesystem::rename(base::join_path(scratch, member), base::join_path(outDirectory, "LICENSE.TXT"), moved);
     if (moved) return base::fail("clangd-license", std::format("cannot place {}: {}", member, moved.message()));
-    fs::remove_all(scratch);
+    std::filesystem::remove_all(scratch, ignored);
     return {};
 }
 
 // The first line of `clangd --version`, when this host runs the binary (trim_clangd.py's
 // `host_runs_it`: PLATFORM already folds in family and architecture).
 base::Result<std::optional<std::string>> version_line(const std::string& binary, std::string_view platformName) {
-    if (platformName != mcppls::os::PLATFORM) return std::optional<std::string> {};
+    if (platformName != base::payload_platform()) return std::optional<std::string> {};
     auto out = run_tool(binary, { "--version" });
     if (!out) return std::unexpected { out.error() };
     const auto lines = base::split_lines(*out);
@@ -181,26 +179,27 @@ base::Result<std::optional<std::string>> version_line(const std::string& binary,
 // runtime licenses and engine.json -- unchanged: no strip, no thinning, no re-signing.
 base::Result<Result> take_engine_part(const std::string& archivePath, const Options& options, const targets::Target& target,
                                       const Shape& shape) {
+    std::error_code ignored;
     const std::string scratch { options.outDirectory + ".part" };
-    if (fs::exists(scratch)) fs::remove_all(scratch);
+    if (std::filesystem::exists(scratch, ignored)) std::filesystem::remove_all(scratch, ignored);
     auto written = archive::extract(archivePath, scratch, [](std::string_view relative) { return relative.starts_with("clangd/"); });
     if (!written) return std::unexpected { written.error() };
     std::error_code moved;
     std::filesystem::rename(base::join_path(scratch, "clangd"), options.outDirectory, moved);
-    fs::remove_all(scratch);
+    std::filesystem::remove_all(scratch, ignored);
     if (moved) return base::fail("clangd-part", std::format("cannot place the engine part of {}: {}", archivePath, moved.message()));
     const std::string binary { base::join_path(options.outDirectory, std::format("bin/clangd{}", targets::executable_suffix(target))) };
     for (const std::string& required : { binary, base::join_path(options.outDirectory, "LICENSE.TXT"), base::join_path(options.outDirectory, "engine.json") }) {
-        if (!fs::is_regular_file(required)) return base::fail("clangd-missing-binary", std::format("{} has no {}", archivePath, required));
+        if (!std::filesystem::is_regular_file(required, ignored)) return base::fail("clangd-missing-binary", std::format("{} has no {}", archivePath, required));
     }
     if (target.os != targets::Os::win32) {
         const std::vector<std::string> executables { binary };
-        if (auto marked = fs::make_executable(executables); !marked) return std::unexpected { marked.error() };
+        if (auto marked = base::make_executable(executables); !marked) return std::unexpected { marked.error() };
     }
     auto versionLine = version_line(binary, options.platform);
     if (!versionLine) return std::unexpected { versionLine.error() };
     return Result {
-        .directory = fs::canonical_path(options.outDirectory),
+        .directory = base::canonical_path(options.outDirectory),
         .binary = binary,
         .clangMajor = shape.major,
         .filesKept = written->size(),
@@ -214,6 +213,7 @@ base::Result<Result> take_engine_part(const std::string& archivePath, const Opti
 } // namespace
 
 base::Result<Result> trim(const Options& options, const lock::Lock& lockData) {
+    std::error_code ignored;
     // The lock names the platforms, whether the archive then comes from the lock or from --zip.
     auto platformEntry = lock::platform(lockData, options.platform);
     if (!platformEntry) return base::fail("clangd-platform", platformEntry.error().message);
@@ -239,31 +239,31 @@ base::Result<Result> trim(const Options& options, const lock::Lock& lockData) {
     const std::string binWanted { "bin/" + exe };
     const std::string includePrefix { std::format("lib/clang/{}/include/", shape->major) };
 
-    if (fs::exists(options.outDirectory)) fs::remove_all(options.outDirectory);
+    if (std::filesystem::exists(options.outDirectory, ignored)) std::filesystem::remove_all(options.outDirectory, ignored);
     if (shape->enginePart) return take_engine_part(archivePath, options, *target, *shape);
     auto written = archive::extract(archivePath, options.outDirectory, [&](std::string_view relative) {
         return relative == binWanted || relative == "LICENSE.TXT" || relative.starts_with(includePrefix);
     });
     if (!written) return std::unexpected { written.error() };
-    if (!fs::is_regular_file(base::join_path(options.outDirectory, "LICENSE.TXT"))) {
+    if (!std::filesystem::is_regular_file(base::join_path(options.outDirectory, "LICENSE.TXT"), ignored)) {
         if (auto placed = license_from_lock(lockData, platformEntry->clangd, options.cacheDirectory, options.outDirectory); !placed) {
             return std::unexpected { placed.error() };
         }
     }
 
     const std::string binary { base::join_path(options.outDirectory, binWanted) };
-    if (!fs::is_regular_file(binary)) {
+    if (!std::filesystem::is_regular_file(binary, ignored)) {
         return base::fail("clangd-missing-binary", std::format("{} has no {}", archivePath, binWanted));
     }
     if (target->os != targets::Os::win32) {
         const std::vector<std::string> executables { binary };
-        if (auto marked = fs::make_executable(executables); !marked) return std::unexpected { marked.error() };
+        if (auto marked = base::make_executable(executables); !marked) return std::unexpected { marked.error() };
     }
 
     bool stripped { false };
     if (options.strip) {
         if (target->os == targets::Os::linux) {
-            auto ran = strip_linux(binary, options.platform == mcppls::os::PLATFORM);
+            auto ran = strip_linux(binary, options.platform == base::payload_platform());
             if (!ran) return std::unexpected { ran.error() };
             stripped = *ran;
         } else if (target->os == targets::Os::darwin) {
@@ -276,7 +276,7 @@ base::Result<Result> trim(const Options& options, const lock::Lock& lockData) {
     if (!versionLine) return std::unexpected { versionLine.error() };
 
     return Result {
-        .directory = fs::canonical_path(options.outDirectory),
+        .directory = base::canonical_path(options.outDirectory),
         .binary = binary,
         .clangMajor = shape->major,
         .filesKept = written->size(),

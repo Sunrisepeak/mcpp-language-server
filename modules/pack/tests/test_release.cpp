@@ -4,20 +4,20 @@ import std;
 import mcppls.testing;
 import mcppls.base.path;
 import mcppls.pack.release;
-import mcppls.platform.fs;
-import mcppls.platform.dirs;
+import mcpplibs.os;
 
+namespace os = mcpplibs::os;
 namespace release = mcppls::pack::release;
-namespace fs = mcppls::platform::fs;
 namespace base = mcppls::base;
 
 namespace {
 
 std::string scratch(std::string_view name) {
+    std::error_code ignored;
     const std::string directory { base::join_path(
-        mcppls::platform::dirs::temp_directory(),
+        base::spelled(os::dirs::temp()),
         std::format("mcppls-test-release-{}-{}", name, std::chrono::steady_clock::now().time_since_epoch().count())) };
-    (void) fs::create_directories(directory);
+    (void)std::filesystem::create_directories(directory, ignored);
     return directory;
 }
 
@@ -42,11 +42,12 @@ constexpr std::string_view MANIFEST = R"({
 } // namespace
 
 int main() {
+    std::error_code ignored;
     using namespace mcppls::testing;
 
     const std::string work { scratch("work") };
     const std::string manifestPath { base::join_path(work, "release.manifest.json") };
-    expect(fs::write_file(manifestPath, MANIFEST).has_value());
+    expect(os::fs::write(manifestPath, MANIFEST).has_value());
 
     auto manifest = release::load_manifest(manifestPath);
     expect(manifest.has_value());
@@ -63,9 +64,9 @@ int main() {
 
     "a directory with every required file and nothing undeclared matches"_test = [&] {
         const std::string directory { scratch("match") };
-        expect(fs::write_file(base::join_path(directory, "payload-linux-x64.tar.gz"), "x").has_value());
-        expect(fs::write_file(base::join_path(directory, "payload-darwin-arm64.tar.gz"), "x").has_value());
-        expect(fs::write_file(base::join_path(directory, "SHA256SUMS"), "x").has_value());
+        expect(os::fs::write(base::join_path(directory, "payload-linux-x64.tar.gz"), "x").has_value());
+        expect(os::fs::write(base::join_path(directory, "payload-darwin-arm64.tar.gz"), "x").has_value());
+        expect(os::fs::write(base::join_path(directory, "SHA256SUMS"), "x").has_value());
         auto report = release::check(*manifest, "2026.9.16.1", directory, false);
         expect(report.has_value());
         if (!report) return;
@@ -78,7 +79,7 @@ int main() {
 
     "a missing required file fails, naming it"_test = [&] {
         const std::string directory { scratch("missing") };
-        expect(fs::write_file(base::join_path(directory, "payload-linux-x64.tar.gz"), "x").has_value());
+        expect(os::fs::write(base::join_path(directory, "payload-linux-x64.tar.gz"), "x").has_value());
         // darwin payload and SHA256SUMS both missing
         auto report = release::check(*manifest, "2026.9.16.1", directory, false);
         expect(report.has_value());
@@ -91,10 +92,10 @@ int main() {
 
     "an undeclared file fails, naming it"_test = [&] {
         const std::string directory { scratch("undeclared") };
-        expect(fs::write_file(base::join_path(directory, "payload-linux-x64.tar.gz"), "x").has_value());
-        expect(fs::write_file(base::join_path(directory, "payload-darwin-arm64.tar.gz"), "x").has_value());
-        expect(fs::write_file(base::join_path(directory, "SHA256SUMS"), "x").has_value());
-        expect(fs::write_file(base::join_path(directory, "nobody-declared-this.bin"), "x").has_value());
+        expect(os::fs::write(base::join_path(directory, "payload-linux-x64.tar.gz"), "x").has_value());
+        expect(os::fs::write(base::join_path(directory, "payload-darwin-arm64.tar.gz"), "x").has_value());
+        expect(os::fs::write(base::join_path(directory, "SHA256SUMS"), "x").has_value());
+        expect(os::fs::write(base::join_path(directory, "nobody-declared-this.bin"), "x").has_value());
         auto report = release::check(*manifest, "2026.9.16.1", directory, false);
         expect(report.has_value());
         if (!report) return;
@@ -106,9 +107,9 @@ int main() {
 
     "an empty declared file fails"_test = [&] {
         const std::string directory { scratch("empty") };
-        expect(fs::write_file(base::join_path(directory, "payload-linux-x64.tar.gz"), "").has_value());
-        expect(fs::write_file(base::join_path(directory, "payload-darwin-arm64.tar.gz"), "x").has_value());
-        expect(fs::write_file(base::join_path(directory, "SHA256SUMS"), "x").has_value());
+        expect(os::fs::write(base::join_path(directory, "payload-linux-x64.tar.gz"), "").has_value());
+        expect(os::fs::write(base::join_path(directory, "payload-darwin-arm64.tar.gz"), "x").has_value());
+        expect(os::fs::write(base::join_path(directory, "SHA256SUMS"), "x").has_value());
         auto report = release::check(*manifest, "2026.9.16.1", directory, false);
         expect(report.has_value());
         if (!report) return;
@@ -119,15 +120,15 @@ int main() {
 
     "--render writes MANIFEST.md, and it counts as present for the rest of the check"_test = [&] {
         const std::string directory { scratch("render") };
-        expect(fs::write_file(base::join_path(directory, "payload-linux-x64.tar.gz"), "x").has_value());
-        expect(fs::write_file(base::join_path(directory, "payload-darwin-arm64.tar.gz"), "x").has_value());
-        expect(fs::write_file(base::join_path(directory, "SHA256SUMS"), "x").has_value());
+        expect(os::fs::write(base::join_path(directory, "payload-linux-x64.tar.gz"), "x").has_value());
+        expect(os::fs::write(base::join_path(directory, "payload-darwin-arm64.tar.gz"), "x").has_value());
+        expect(os::fs::write(base::join_path(directory, "SHA256SUMS"), "x").has_value());
         auto report = release::check(*manifest, "2026.9.16.1", directory, true);
         expect(report.has_value());
         if (!report) return;
         expect(report->ok);
-        expect(fs::is_regular_file(base::join_path(directory, "MANIFEST.md")));
-        auto text = fs::read_file(base::join_path(directory, "MANIFEST.md"));
+        expect(std::filesystem::is_regular_file(base::join_path(directory, "MANIFEST.md"), ignored));
+        auto text = os::fs::read(base::join_path(directory, "MANIFEST.md"));
         expect(text.has_value());
         if (!text) return;
         expect(text->contains("mcpp-language-server 2026.9.16.1"));

@@ -94,6 +94,8 @@ export interface TestApi {
     // Hands the notification logic the issues of a status, as if the server had sent them; returns the
     // codes it showed a notification for. Test mode only.
     injectIssues(issues: { code: string; message: string; category?: string; bundle?: string }[]): string[];
+    // The running server's `cxxModules/report` (undefined when it is not running), for what only the server counts.
+    serverReport(): Promise<unknown>;
     // Whether the server is running, and whether mcppls.enable lets it.
     serverRunning(): boolean;
     serverEnabled(): boolean;
@@ -307,7 +309,7 @@ class ServerHost implements vscode.Disposable {
         const launch = resolution.launch;
         const configuration = vscode.workspace.getConfiguration('mcppls');
 
-        const args = ['serve'];
+        const args = [...launch.leading, 'serve'];
         if (launch.payloadDir) {
             args.push('--payload', launch.payloadDir);
         }
@@ -798,6 +800,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
         cacheDetail: async () => fetchCacheReport(host.runningClient()),
         lastPrompt: (kind) => promptTestHarness?.lastShown(kind),
         injectIssues: (issues) => promptTestHarness ? fatal.onIssues(issues as ModuleIssue[]).map((notice) => notice.code) : [],
+        serverReport: async () => host.runningClient()?.sendRequest('cxxModules/report', {}),
         serverRunning: () => host.runningClient() !== undefined,
         serverEnabled: () => serverEnabled(),
         statusBarText: () => status.barText(),

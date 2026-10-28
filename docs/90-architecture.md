@@ -36,6 +36,14 @@ editor / coding agent / CI
   given so only while the file it lands in is as it was. Agents and the command line are told which
   answers were not clangd's own, and can wait for them ([40-agents.md](40-agents.md)). clangd stays
   the one source of correctness.
+- **Colours come at once and follow the text.** A file's semantic tokens need clangd's syntax tree of
+  the whole file, which a completion does not. The server keeps clangd's last tokens of each open file,
+  moves them with every edit (a token the edit touches waits for clangd) and answers from them at once;
+  `workspace/semanticTokens/refresh` follows when clangd's answer differs. The tokens of a saved text
+  are kept on disk under a key of the text, the command, the versions of mcppls and clangd, and the
+  module interfaces the file reads, so the next open of the same text is coloured before clangd has read
+  a line. A client holding the last answer is sent only the change (`full/delta`), and a range is cut
+  from the whole. A client that cannot be refreshed waits for clangd, as before.
 - **Background work happens in idle time.** Implementation units are built for clangd's index one at
   a time, and only after 10 s without typing, opening a file or a request; a restart clangd needs for
   a changed build description waits until typing has paused for 3 s (at most 60 s). A crash or a

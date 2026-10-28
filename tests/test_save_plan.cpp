@@ -4,10 +4,6 @@ import nlohmann.json;
 import mcppls.testing;
 import mcppls.base.path;
 import mcppls.base.uri;
-import mcppls.platform.dirs;
-import mcppls.platform.fs;
-import mcppls.platform.env;
-import mcppls.platform.toolrun;
 import mcppls.engine;
 import mcppls.engine.payload;
 import mcppls.normalize.plan;
@@ -17,12 +13,18 @@ import mcppls.spec.database;
 import mcppls.toolchain.probe;
 import mcppls.orchestrator.client;
 import mcppls.orchestrator.workspace;
+import mcpplibs.os;
+import mcppls.toolrun;
+
+namespace toolrun = mcppls::toolrun;
+
+namespace base = mcppls::base;
+
+namespace os = mcpplibs::os;
 
 using Json = nlohmann::json;
 namespace o = mcppls::orchestrator;
 namespace e = mcppls::engine;
-namespace fs = mcppls::platform::fs;
-
 namespace {
 struct State {
     int plans { 0 };
@@ -67,10 +69,11 @@ class Sink : public o::ClientSink { void send(const Json&) override {} };
 // document's URI the same way. The temporary directory is an alias on macOS (/var is /private/var)
 // and may be a short name on Windows, so the hand-built model starts from the canonical root too.
 std::string canonical_root() {
-    const std::string root { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+    std::error_code ignored;
+    const std::string root { mcppls::base::join_path(base::spelled(os::dirs::temp()),
         std::format("mcppls-save-plan-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-    (void)fs::create_directories(root);
-    return fs::canonical_path(root);
+    (void)std::filesystem::create_directories(root, ignored);
+    return base::canonical_path(root);
 }
 
 struct Fixture {
@@ -85,7 +88,7 @@ struct Fixture {
     int version { 1 };
 
     explicit Fixture(const std::string& text, std::vector<std::string> producerImports = {}) {
-        (void)fs::write_file(source, text);
+        (void)os::fs::write(source, text);
         o::SessionOptions options;
         options.engineFactories = [state = state, stubs = mcppls::base::join_path(root, "stubs")](const auto&, const auto&, bool) {
             o::EngineFactories factories;
@@ -122,10 +125,11 @@ struct Fixture {
     }
 
     ~Fixture() {
+        std::error_code ignored;
         workspace->shut_down();
         workspace.reset();
-        fs::remove_all(cache);
-        fs::remove_all(root);
+        std::filesystem::remove_all(cache, ignored);
+        std::filesystem::remove_all(root, ignored);
     }
 
     void change(const std::string& text) {
@@ -133,7 +137,7 @@ struct Fixture {
         workspace->did_change(Json { { "method", "textDocument/didChange" }, { "params", params } }, params);
     }
     void save(const std::string& text) {
-        (void)fs::write_file(source, text);
+        (void)os::fs::write(source, text);
         Json params { { "textDocument", { { "uri", uri } } } };
         workspace->did_save(Json { { "method", "textDocument/didSave" }, { "params", params } }, params);
     }
@@ -145,29 +149,30 @@ struct Fixture {
 }
 
 int main() {
+    std::error_code ignored;
     using namespace mcppls::testing;
     using namespace std::chrono_literals;
-    const auto arguments = mcppls::platform::env::arguments();
+    const auto arguments = os::env::arguments();
     if (arguments.size() == 1) {
         // The real workspace starts a cache sweep. Isolate the whole child process's cache,
         // including its worker threads, so this test never sweeps a user's workspaces.
-        const std::string cache { mcppls::base::join_path(mcppls::platform::dirs::temp_directory(),
+        const std::string cache { mcppls::base::join_path(base::spelled(os::dirs::temp()),
             std::format("mcppls-save-tests-cache-{}", std::chrono::steady_clock::now().time_since_epoch().count())) };
-        auto environment = mcppls::platform::env::variables();
+        auto environment = os::env::variables();
         std::erase_if(environment, [](const std::string& entry) { return entry.starts_with("MCPPLS_CACHE_DIR="); });
         environment.push_back("MCPPLS_CACHE_DIR=" + cache);
-        mcppls::platform::toolrun::Request request;
+        mcppls::toolrun::Request request;
         request.program = arguments.front();
         request.arguments = { "--isolated-save-tests" };
         request.purpose = "save-plan-test";
         request.bounds.hard = 30s;
         request.environment = std::move(environment);
-        const auto result = mcppls::platform::toolrun::run(request);
-        fs::remove_all(cache);
+        const auto result = mcppls::toolrun::run(request);
+        std::filesystem::remove_all(cache, ignored);
         if (!result) { std::println(std::cerr, "{}", result.error().message); return 1; }
-        std::print("{}", result->output);
-        std::print(std::cerr, "{}", result->error);
-        return result->timedOut ? 1 : result->exitCode;
+        std::print("{}", result->out);
+        std::print(std::cerr, "{}", result->err);
+        return result->timed_out ? 1 : toolrun::exit_code(result->status);
     }
     "saving an export body preserves the already planned module graph"_test = [] {
         Fixture f { "export module app;\nexport int answer() { return 1; }\n" };

@@ -13,12 +13,11 @@ import std;
 import mcppls.testing;
 import mcppls.base.path;
 import mcppls.pack.archive;
-import mcppls.platform.fs;
-import mcppls.os;
-import openkal.fs;
+import mcpplibs.os;
+
+namespace os = mcpplibs::os;
 
 namespace ar = mcppls::pack::archive;
-namespace fs = mcppls::platform::fs;
 namespace base = mcppls::base;
 
 namespace {
@@ -52,20 +51,10 @@ bool write_archive(const std::string& path, std::string_view format, const std::
         // arrives in 8.3 short form (`C:/Users/RUNNER~1/...`), and the
         // question that settles it is which spelling the program holds --
         // so it prints them rather than leaving it to be inferred.
-        const kal_uintptr count { kal_fs_preopen_count() };
+        const auto names = mcpplibs::os::fs::preopens();
         std::println(stderr, "  the program holds {} preopened director{}:",
-                     count, count == 1 ? "y" : "ies");
-        for (kal_uintptr i = 0; i < count; ++i) {
-            kal_dir dir {};
-            std::string name(1024, '\0');
-            kal_uintptr length {};
-            if (kal_fs_preopen(i, &dir, name.data(), name.size(), &length) != kal_ok) {
-                std::println(stderr, "    [{}] <could not be read>", i);
-                continue;
-            }
-            name.resize(length);
-            std::println(stderr, "    [{}] '{}'", i, name);
-        }
+                     names.size(), names.size() == 1 ? "y" : "ies");
+        for (std::size_t i = 0; i < names.size(); ++i) std::println(stderr, "    [{}] '{}'", i, names[i]);
         return false;
     };
     ::archive* out = ::archive_write_new();
@@ -235,6 +224,7 @@ int main() {
     };
 
     "the top-level directory is stripped and the selection honoured"_test = [&] {
+        std::error_code ignored;
         const std::string path { base::join_path(work, "select.tar.gz") };
         const std::string out { base::join_path(work, "select-out") };
         expect(write_archive(path, "paxr",
@@ -254,8 +244,8 @@ int main() {
         expect(written->size() == 2);
         expect(contains(*written, "bin/clangd"));
         expect(!contains(*written, "share/man/clangd.1"));
-        expect(fs::is_regular_file(base::join_path(out, "bin/clangd")));
-        expect(!fs::exists(base::join_path(out, "share/man/clangd.1")));
+        expect(std::filesystem::is_regular_file(base::join_path(out, "bin/clangd"), ignored));
+        expect(!std::filesystem::exists(base::join_path(out, "share/man/clangd.1"), ignored));
 
         // THE EXECUTE BIT IS A POSIX PROPERTY, AND WINDOWS HAS NO OPINION.
         //
@@ -270,7 +260,7 @@ int main() {
         const auto exeMode = std::filesystem::status(base::join_path(out, "bin/clangd")).permissions();
         const auto dataMode =
             std::filesystem::status(base::join_path(out, "lib/clang/20/include/stddef.h")).permissions();
-        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+        if (os::host() == os::platform::windows) {
             expect(exeMode == dataMode);
         } else {
             expect((exeMode & std::filesystem::perms::owner_exec) != std::filesystem::perms::none);
@@ -279,6 +269,7 @@ int main() {
     };
 
     "a symlink inside the selection becomes a copy"_test = [&] {
+        std::error_code ignored;
         const std::string path { base::join_path(work, "links.tar.gz") };
         const std::string out { base::join_path(work, "links-out") };
         expect(write_archive(path, "paxr",
@@ -287,14 +278,15 @@ int main() {
         auto written = ar::extract(path, out, [](std::string_view) { return true; });
         expect(written.has_value());
         const std::string copied { base::join_path(out, "lib/libc++.so") };
-        expect(fs::is_regular_file(copied));
+        expect(std::filesystem::is_regular_file(copied, ignored));
         expect(!std::filesystem::is_symlink(copied));
-        auto content = fs::read_file(copied);
+        auto content = os::fs::read(copied);
         expect(content.has_value());
         expect(*content == "REAL");
     };
 
     "a link pointing outside the selection is skipped, not followed"_test = [&] {
+        std::error_code ignored;
         const std::string path { base::join_path(work, "dangling.tar.gz") };
         const std::string out { base::join_path(work, "dangling-out") };
         expect(write_archive(path, "paxr",
@@ -306,7 +298,7 @@ int main() {
         });
         expect(written.has_value());
         expect(contains(*written, "keep/file"));
-        expect(!fs::exists(base::join_path(out, "keep/alias")));
+        expect(!std::filesystem::exists(base::join_path(out, "keep/alias"), ignored));
     };
 
     // The one above is skipped because its target is outside the selection. This one climbs with
@@ -321,7 +313,7 @@ int main() {
         expect(written.has_value());
         if (!written) return;
         expect(contains(*written, "bin/alias"));
-        auto content = fs::read_file(base::join_path(out, "bin/alias"));
+        auto content = os::fs::read(base::join_path(out, "bin/alias"));
         expect(content.has_value() && *content == "REAL");
     };
 
@@ -337,7 +329,7 @@ int main() {
         expect(written.has_value());
         if (!written) return;
         expect(written->size() == 3);
-        auto content = fs::read_file(base::join_path(out, "lib/libc++.so"));
+        auto content = os::fs::read(base::join_path(out, "lib/libc++.so"));
         expect(content.has_value() && *content == "REAL");
     };
 
@@ -367,6 +359,7 @@ int main() {
     };
 
     "zip is read by the same call"_test = [&] {
+        std::error_code ignored;
         const std::string path { base::join_path(work, "release.zip") };
         const std::string out { base::join_path(work, "zip-out") };
         expect(write_archive(path, "zip",
@@ -377,8 +370,8 @@ int main() {
         });
         expect(written.has_value());
         expect(written->size() == 1);
-        expect(fs::is_regular_file(base::join_path(out, "bin/clangd.exe")));
-        expect(!fs::exists(base::join_path(out, "LICENSE.TXT")));
+        expect(std::filesystem::is_regular_file(base::join_path(out, "bin/clangd.exe"), ignored));
+        expect(!std::filesystem::exists(base::join_path(out, "LICENSE.TXT"), ignored));
     };
 
     "an archive with two top-level directories is refused, not guessed at"_test = [&] {
@@ -392,6 +385,7 @@ int main() {
     };
 
     "an entry climbing out of the directory writes nothing"_test = [&] {
+        std::error_code ignored;
         const std::string path { base::join_path(work, "escape.tar.gz") };
         const std::string out { base::join_path(work, "escape-out") };
         expect(write_archive(path, "paxr",
@@ -400,7 +394,7 @@ int main() {
         auto written = ar::extract(path, out, [](std::string_view) { return true; });
         expect(written.has_value());
         expect(contains(*written, "ok"));
-        expect(!fs::exists(base::join_path(base::parent_path(base::parent_path(out)), "escaped")));
+        expect(!std::filesystem::exists(base::join_path(base::parent_path(base::parent_path(out)), "escaped"), ignored));
     };
 
     "a missing archive is an error rather than an empty result"_test = [&] {
@@ -412,12 +406,12 @@ int main() {
 
     "a written archive round-trips through list and extract"_test = [&] {
         const std::string sourceDir { base::join_path(work, "write-source") };
-        expect(fs::create_directories(base::join_path(sourceDir, "bin")).has_value());
-        expect(fs::create_directories(base::join_path(sourceDir, "kit/include")).has_value());
-        expect(fs::write_file(base::join_path(sourceDir, "bin/tool"), "ELF-ish").has_value());
-        expect(fs::make_executable(std::array { base::join_path(sourceDir, "bin/tool") }).has_value());
-        expect(fs::write_file(base::join_path(sourceDir, "kit/include/header.h"), "typedef").has_value());
-        expect(fs::write_file(base::join_path(sourceDir, "LICENSE"), "Apache-2.0").has_value());
+        expect([&] { std::error_code failed; std::filesystem::create_directories(base::join_path(sourceDir, "bin"), failed); return !failed; }());
+        expect([&] { std::error_code failed; std::filesystem::create_directories(base::join_path(sourceDir, "kit/include"), failed); return !failed; }());
+        expect(os::fs::write(base::join_path(sourceDir, "bin/tool"), "ELF-ish").has_value());
+        expect(base::make_executable(std::array { base::join_path(sourceDir, "bin/tool") }).has_value());
+        expect(os::fs::write(base::join_path(sourceDir, "kit/include/header.h"), "typedef").has_value());
+        expect(os::fs::write(base::join_path(sourceDir, "LICENSE"), "Apache-2.0").has_value());
 
         const std::string archivePath { base::join_path(work, "written.tar.gz") };
         const std::vector<ar::WriteEntry> entries {
@@ -439,7 +433,7 @@ int main() {
         // The writer carries the source file's execute bit, and on Windows a file has none to carry
         // (the extraction test above says why that is not a no-op to assert away). So there the
         // program and the data file must look alike; elsewhere they must differ.
-        if constexpr (mcppls::os::FAMILY == mcppls::os::Family::windows) {
+        if (os::host() == os::platform::windows) {
             expect(executable_bit("mcppls-1.0-linux-x86_64/bin/tool") == executable_bit("mcppls-1.0-linux-x86_64/LICENSE"));
         } else {
             expect(executable_bit("mcppls-1.0-linux-x86_64/bin/tool"));
@@ -456,10 +450,10 @@ int main() {
         expect(contains(*extracted, "bin/tool"));
         expect(contains(*extracted, "kit/include/header.h"));
         expect(contains(*extracted, "LICENSE"));
-        auto header = fs::read_file(base::join_path(out, "kit/include/header.h"));
+        auto header = os::fs::read(base::join_path(out, "kit/include/header.h"));
         expect(header.has_value() && *header == "typedef");
         const auto toolMode = std::filesystem::status(base::join_path(out, "bin/tool")).permissions();
-        if constexpr (mcppls::os::FAMILY != mcppls::os::Family::windows) {
+        if (os::host() != os::platform::windows) {
             expect((toolMode & std::filesystem::perms::owner_exec) != std::filesystem::perms::none);
         }
     };

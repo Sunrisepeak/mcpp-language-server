@@ -2,7 +2,10 @@
 -- fixture (C++ modules, no build system) and the answers that matter come back through Neovim's
 -- own LSP client.
 --
---   MCPPLS_SERVER=<payload>/bin/mcppls nvim --headless --clean -l editors/nvim/tests/smoke.lua [setup|enable]
+--   MCPPLS_SERVER=<payload>/bin/mcppls.okb nvim --headless --clean -l editors/nvim/tests/smoke.lua [setup|enable]
+--
+-- MCPPLS_SERVER is the payload's server: its image, which the plugin starts through the runner the
+-- payload names, or a program.
 --
 -- `setup` (the default) goes through require('mcppls').setup(); `enable` through
 -- vim.lsp.enable('mcppls') and lsp/mcppls.lua, which needs Neovim 0.11. Exits 0 when every check
@@ -52,8 +55,13 @@ if mode == 'enable' then
     print('SKIP vim.lsp.enable needs Neovim 0.11')
     os.exit(0)
   end
-  -- lsp/mcppls.lua finds the server on PATH, as a user's would.
-  vim.env.PATH = vim.fs.dirname(server) .. (sep == '\\' and ';' or ':') .. vim.env.PATH
+  -- lsp/mcppls.lua finds the server as a user's would: a payload's (MCPPLS_PAYLOAD) when it is an
+  -- image, a program on PATH otherwise.
+  if server:match('%.okb$') then
+    vim.env.MCPPLS_PAYLOAD = vim.fs.dirname(vim.fs.dirname(server))
+  else
+    vim.env.PATH = vim.fs.dirname(server) .. (sep == '\\' and ';' or ':') .. vim.env.PATH
+  end
   vim.lsp.enable('mcppls')
 else
   mcppls.setup({ server = server })

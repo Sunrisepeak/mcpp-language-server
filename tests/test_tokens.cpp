@@ -113,16 +113,90 @@ int main() {
 
     "merge: with neither engine, the answer is null"_test = [] { expect(tokens::merge(Json(nullptr), Json(nullptr)).is_null()); };
 
-    "provider_capability advertises full, no delta, and range only when every engine answers it"_test = [] {
+    "remap maps types and every set modifier bit in one pass, as remap_core_tokens did"_test = [] {
+        const Json clangdCapabilities { { "semanticTokensProvider", Json { { "legend",
+            Json { { "tokenTypes", Json::array({ "variable", "namespace", "function" }) },
+                   { "tokenModifiers", Json::array({ "declaration", "static", "readonly" }) } } } } } };
+        const Legend legend { tokens::build_legend(clangdCapabilities) };
+        // Three tokens on two lines: function (declaration|readonly), variable (static), namespace (none).
+        const Json clangdResult { { "data", Json::array({ 0, 4, 3, 2, 5, 0, 6, 1, 0, 2, 2, 1, 5, 1, 0 }) } };
+        const auto mapped = tokens::remap(clangdResult, legend);
+        expect(fatal(mapped.size() == 3u));
+        expect(mapped[0].line == 0 && mapped[0].startChar == 4 && legend.types[mapped[0].type] == "function");
+        expect(mapped[0].modifiers == (tokens::modifier_bit("declaration") | tokens::modifier_bit("readonly")));
+        expect(mapped[1].line == 0 && mapped[1].startChar == 10 && legend.types[mapped[1].type] == "variable");
+        expect(mapped[1].modifiers == tokens::modifier_bit("static"));
+        expect(mapped[2].line == 2 && mapped[2].startChar == 1 && legend.types[mapped[2].type] == "namespace" && mapped[2].modifiers == 0u);
+        expect(tokens::decode(tokens::remap_core_tokens(clangdResult, legend)).size() == 3u);
+    };
+
+    "encode_data and decode_data are LSP's relative encoding, both ways"_test = [] {
+        const std::vector<Token> sorted { { 0, 0, 6, 15, 0 }, { 0, 7, 3, 27, 1 }, { 4, 2, 5, 12, 3 } };
+        const auto data = tokens::encode_data(sorted);
+        expect(data == std::vector<std::uint32_t> { 0, 0, 6, 15, 0, 0, 7, 3, 27, 1, 4, 2, 5, 12, 3 });
+        const auto back = tokens::decode_data(data);
+        expect(fatal(back.size() == 3u));
+        expect(back[2].line == 4 && back[2].startChar == 2 && back[2].length == 5 && back[2].type == 12u && back[2].modifiers == 3u);
+        expect(tokens::result_of(data, "7")["resultId"] == "7");
+        expect(!tokens::result_of(data).contains("resultId"));
+    };
+
+    "merge_tokens is the quadratic merge's answer, in one pass over each side"_test = [] {
+        // The old rule, written out: a native token is dropped when any core token on its line overlaps it.
+        const auto reference = [](const std::vector<Token>& core, const std::vector<Token>& native) {
+            std::vector<Token> merged { core };
+            for (const auto& candidate : native) {
+                const bool covered { std::ranges::any_of(core, [&](const Token& existing) {
+                    return existing.line == candidate.line && candidate.startChar < existing.startChar + existing.length
+                        && existing.startChar < candidate.startChar + candidate.length;
+                }) };
+                if (!covered) merged.push_back(candidate);
+            }
+            tokens::ensure_sorted(merged);
+            return tokens::encode_data(merged);
+        };
+        std::mt19937 random { 7 };
+        for (int round { 0 }; round < 200; ++round) {
+            std::vector<Token> core;
+            std::vector<Token> native;
+            for (int line { 0 }; line < 12; ++line) {
+                int column { 0 };
+                while (column < 60) {   // core tokens of a line do not overlap one another, as clangd's do not
+                    column += static_cast<int>(random() % 6);
+                    const int length { 1 + static_cast<int>(random() % 5) };
+                    if (random() % 3 == 0) core.push_back(Token { line, column, length, 1, 0 });
+                    column += length;
+                }
+                for (int i { 0 }; i < 4; ++i) {
+                    native.push_back(Token { line, static_cast<int>(random() % 60), 1 + static_cast<int>(random() % 7), 2, 0 });
+                }
+            }
+            tokens::ensure_sorted(native);
+            std::vector<Token> nativeDisjoint;   // the module-syntax tokens never overlap one another either
+            for (const auto& token : native) {
+                if (nativeDisjoint.empty() || nativeDisjoint.back().line != token.line
+                    || nativeDisjoint.back().startChar + nativeDisjoint.back().length <= token.startChar) nativeDisjoint.push_back(token);
+            }
+            expect(tokens::encode_data(tokens::merge_tokens(core, nativeDisjoint)) == reference(core, nativeDisjoint)) << "round " << round;
+        }
+    };
+
+    "ensure_sorted leaves sorted tokens as they are and sorts the rest"_test = [] {
+        std::vector<Token> tokens { { 2, 0, 1, 0, 0 }, { 0, 5, 1, 0, 0 }, { 0, 1, 1, 0, 0 } };
+        tokens::ensure_sorted(tokens);
+        expect(tokens[0].line == 0 && tokens[0].startChar == 1 && tokens[1].startChar == 5 && tokens[2].line == 2);
+    };
+
+    "provider_capability advertises full with delta, and range, which the server cuts from the whole file"_test = [] {
         const Json capability = tokens::provider_capability(tokens::build_legend(Json::object()), true);
-        expect(capability.value("full", false) == true);
+        expect(capability["full"].is_object() && capability["full"].value("delta", false) == true);
         expect(capability.value("range", false) == true);
-        expect(!capability.contains("delta"));
         expect(capability["legend"]["tokenTypes"].is_array() && !capability["legend"]["tokenTypes"].empty());
         expect(tokens::provider_capability(tokens::build_legend(Json::object()), false).value("range", true) == false);
-        // clangd 23.1 declares full (with delta) and no range: a range request would be rejected by it.
+        // clangd 23.1 declares full (with delta) and no range; no range request is ever forwarded to it.
         const Json clangd = Json::parse(R"({"semanticTokensProvider":{"full":{"delta":true},"legend":{"tokenTypes":["variable"],"tokenModifiers":[]}}})");
-        expect(mcppls::orchestrator::merge_capabilities(clangd)["semanticTokensProvider"].value("range", true) == false);
+        expect(mcppls::orchestrator::merge_capabilities(clangd)["semanticTokensProvider"].value("range", false) == true)
+            << "clangd 23.1 has no range request; the server answers ranges itself";
         const Json ranged = Json::parse(R"({"semanticTokensProvider":{"full":true,"range":true,"legend":{"tokenTypes":[],"tokenModifiers":[]}}})");
         expect(mcppls::orchestrator::merge_capabilities(ranged)["semanticTokensProvider"].value("range", false) == true);
         expect(mcppls::orchestrator::merge_capabilities(Json::object())["semanticTokensProvider"].value("range", false) == true)
