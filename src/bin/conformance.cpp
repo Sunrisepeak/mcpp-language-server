@@ -467,6 +467,7 @@ public:
     std::map<std::string, Json> diagnostics;     // uri -> latest diagnostics
     std::map<std::string, int> diagnosticsCount; // uri -> publishes received
     std::map<std::string, std::int64_t> diagnosticsVersion; // uri -> the version the latest publication named
+    std::map<std::string, std::vector<std::optional<std::int64_t>>> diagnosticsVersions; // uri -> each publication's version, in order
     std::map<std::string, int> moduleFailedCount; // uri -> publishes received that carried a diagnostic with code "module-failed"
     std::vector<std::string> progressKinds;      // $/progress kinds in order: begin, report…, end
     Json status;                                 // the latest cxxModules/status, whichever root sent it
@@ -557,6 +558,7 @@ public:
         diagnostics.clear();
         diagnosticsCount.clear();
         diagnosticsVersion.clear();
+        diagnosticsVersions.clear();
         moduleFailedCount.clear();
         diagnosticsAt.clear();
         status = Json {};
@@ -722,6 +724,9 @@ public:
                 ++diagnosticsCount[uri];
                 if (const Json* version { lsp::find(message["params"], "version") }; version != nullptr && version->is_number_integer()) {
                     diagnosticsVersion[uri] = version->get<std::int64_t>();
+                    diagnosticsVersions[uri].push_back(version->get<std::int64_t>());
+                } else {
+                    diagnosticsVersions[uri].push_back(std::nullopt);
                 }
                 if (std::ranges::any_of(diagnostics[uri], [](const Json& one) { const auto code = one.find("code"); return code != one.end() && code->is_string() && code->get<std::string>() == "module-failed"; })) {
                     ++moduleFailedCount[uri];
@@ -2797,6 +2802,8 @@ public:
         const std::string typed { check.value("type", std::string {}) };
         const std::chrono::milliseconds gap { check.value("gap-ms", 120) };
         const int before { client_.diagnosticsCount[documentUri] };
+        const std::size_t publishedBefore { client_.diagnosticsVersions[documentUri].size() };
+        const std::int64_t firstTyped { open_[file].second + 1 };
         std::vector<std::int64_t> tokens;
         for (const char c : typed) {
             lines[row].insert(column++, 1, c);
@@ -2806,14 +2813,26 @@ public:
             tokens.push_back(client_.send_async("textDocument/semanticTokens/full", Json { { "textDocument", Json { { "uri", documentUri } } } }));
             client_.pump_until(Clock::now() + gap);
         }
-        const int during { client_.diagnosticsCount[documentUri] - before };
+        const int published { client_.diagnosticsCount[documentUri] - before };
+        // A publication while typing is one of a typed version (or one naming none). The text's before the first key,
+        // arriving late, is the server finishing the open, not diagnosing a key; it is counted apart.
+        const auto& versions = client_.diagnosticsVersions[documentUri];
+        int late { 0 };
+        for (std::size_t i { publishedBefore }; i < versions.size(); ++i) {
+            if (versions[i] && *versions[i] < firstTyped) ++late;
+        }
+        const int during { published - late };
+        std::string duringVersions;
+        for (std::size_t i { publishedBefore }; i < versions.size(); ++i) {
+            duringVersions += std::format("{}{}", duringVersions.empty() ? "" : ", ", versions[i] ? std::to_string(*versions[i]) : std::string { "none" });
+        }
         // The latest text's diagnostics: a publication after the last key, naming the version where the server says one,
         // and what only the whole of the typed text gives ("expect").
         const std::int64_t last { open_[file].second };
         const std::string expect { check.value("expect", std::string {}) };
         const bool diagnosed { client_.wait_for([&] {
             const auto version = client_.diagnosticsVersion.find(documentUri);
-            return client_.diagnosticsCount[documentUri] > before + during && (version == client_.diagnosticsVersion.end() || version->second == last)
+            return client_.diagnosticsCount[documentUri] > before + published && (version == client_.diagnosticsVersion.end() || version->second == last)
                    && (expect.empty() || diagnostic_mentions(documentUri, expect));
         }, std::chrono::seconds { check.value("within-seconds", 5) }) };
         const bool mentions { expect.empty() || diagnostic_mentions(documentUri, expect) };
@@ -2826,8 +2845,10 @@ public:
         change(file, original);
         client_.drain(std::chrono::milliseconds { 500 });
         const int maxDuring { check.value("max-during", 0) };
-        const std::string detail { std::format("{} keys: {} publication(s) while typing (at most {}), the last version {}diagnosed{}; token requests {} "
-                                               "answered, {} superseded, the last {}", typed.size(), during, maxDuring, diagnosed ? "" : "not ",
+        const std::string detail { std::format("{} keys: {} publication(s) while typing (at most {}{}), the last version {}diagnosed{}; token requests {} "
+                                               "answered, {} superseded, the last {}", typed.size(), during, maxDuring,
+                                               published > 0 ? std::format("; versions {} of {}..{}", duringVersions, firstTyped, last) : std::string {},
+                                               diagnosed ? "" : "not ",
                                                expect.empty() ? "" : mentions ? std::format(" with '{}'", expect) : std::format(" without '{}'", expect),
                                                answered ? "all" : "not all", modified, lastHasTokens ? "with tokens" : "without tokens") };
         return { during <= maxDuring && diagnosed && mentions && answered && lastHasTokens, detail };
