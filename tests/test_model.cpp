@@ -446,6 +446,11 @@ int main() {
 
     // ---- mcppls.ai.model.gateway: against the built mcppls-mock-model --------------------------
 
+    // How long the mock may take to answer initialize: these tests are about the requests, not the start. The first
+    // start of a program just built is the slow one -- on windows-2022 the dev build's mock missed ten seconds there,
+    // while every later start in the same run answered at once (runs 40685857568 and 40706226894).
+    constexpr std::chrono::seconds GATEWAY_START { 60 };
+
     "gateway: initialize and a scripted complete succeed, usage accumulates across calls"_test = [&] {
         if (!mockModel) return;
         const std::string script { write_temp_json("basic", Json::parse(R"({
@@ -455,6 +460,7 @@ int main() {
         model::GatewayOptions options;
         options.executable = *mockModel;
         options.requestTimeout = std::chrono::seconds { 10 };
+        options.initializeTimeout = GATEWAY_START;
         options.arguments = { "--script", script };
         model::GatewayClient client { options };
         auto started = client.start();
@@ -485,6 +491,7 @@ int main() {
         model::GatewayOptions options;
         options.executable = *mockModel;
         options.requestTimeout = std::chrono::seconds { 10 };
+        options.initializeTimeout = GATEWAY_START;
         options.arguments = { "--script", script };
         model::GatewayClient client { options };
         expect(fatal(client.start().has_value()));
@@ -525,7 +532,7 @@ int main() {
         model::GatewayOptions options;
         options.executable = *mockModel;
         options.requestTimeout = std::chrono::milliseconds { 300 };
-        options.initializeTimeout = std::chrono::seconds { 10 };
+        options.initializeTimeout = GATEWAY_START;
         options.arguments = { "--script", script, "--trace", trace };
         model::GatewayClient client { options };
         expect(fatal(client.start().has_value()));
@@ -562,6 +569,7 @@ int main() {
         model::GatewayOptions options;
         options.executable = *mockModel;
         options.requestTimeout = std::chrono::seconds { 10 };
+        options.initializeTimeout = GATEWAY_START;
         options.arguments = { "--script", script };
         model::GatewayClient client { options };
         expect(fatal(client.start().has_value()));
