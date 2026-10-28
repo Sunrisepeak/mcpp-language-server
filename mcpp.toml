@@ -30,6 +30,10 @@ members = [
 [workspace.target.'cfg(any(linux, macos, windows))']
 platform = "openkal-platform@0.17.2"
 
+# The first mcpp that reads `platform` (2026.10.27.1); an older one would build without it.
+[workspace.package]
+mcpp = ">=2026.10.27.1"
+
 # One version of each third-party package for every member.
 [workspace.dependencies]
 # The operating-system layer: mcpplibs.os over openkal (mcpp design 2026-10-26 part 2). The
