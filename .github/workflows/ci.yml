@@ -1878,11 +1878,11 @@ jobs:
       - name: Tests in CLion
         working-directory: editors/clion
         env:
-          MCPPLS_PAYLOAD_BIN: ${{ github.workspace }}/payload/bin
+          MCPPLS_PAYLOAD: ${{ github.workspace }}/payload
           MCPPLS_FIXTURES_BUILT: '1'
         run: |
           set -euo pipefail
-          "$MCPPLS_PAYLOAD_BIN/mcppls" version
+          "$MCPPLS_PAYLOAD/bin/okrun" "$MCPPLS_PAYLOAD/bin/mcppls.okb" version
           gradle --no-daemon test
       - uses: actions/upload-artifact@v7
         if: always()
