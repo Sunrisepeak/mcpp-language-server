@@ -49,30 +49,12 @@ jobs:
           "$RUNNER_TEMP/specs/bin/python" docs/specs/tools/validate.py | grep -v '^PASS'
 
   # ---------------------------------------------------------------------------
-  # The mcpp every other job builds with, once per runner: MCPP_SOURCE_REF (.github/versions.env)
-  # names an mcpp branch under cross-validation, which `.github/actions/setup-mcpp` builds and caches
-  # by its commit. Built here, before the jobs that use it, so they restore one build instead of each
-  # building its own; with no MCPP_SOURCE_REF this is the released mcpp's install and nothing more.
-  mcpp:
-    name: mcpp (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14, windows-2022]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup-mcpp
-
-  # ---------------------------------------------------------------------------
   # Unit tests on each host, and every executable starts. `--workspace` reaches every member:
   # modules/base, toolrun and pack, tools/devtools, and tools/model-gateway, whose tests run the
   # gateway against a mock provider (tools/model-gateway/README.md "Tests") -- so the gateway is
   # built and tested on each host's openkal target here, with no job of its own.
   build-test:
     name: build and unit tests (${{ matrix.os }}, ${{ matrix.profile }})
-    needs: mcpp
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
@@ -161,7 +143,6 @@ jobs:
   # cross-built. On the arm64 runners these are also the tools: mcpp is not installed there.
   cross-build:
     name: cross-build from Linux (${{ matrix.target }})
-    needs: mcpp
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
@@ -206,7 +187,6 @@ jobs:
   # platform's runner. The server and the tools built over them are the same programs, and start.
   host-platform:
     name: build programs as images (${{ matrix.os }})
-    needs: mcpp
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -241,7 +221,6 @@ jobs:
   # are checked against them.
   server-image:
     name: server image (${{ matrix.arch }}-openkal)
-    needs: mcpp
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -323,7 +302,7 @@ jobs:
           sha256() { if command -v sha256sum > /dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
           version=$(sed -n 's/^version *= *"\(.*\)"$/\1/p' mcpp.toml | head -1)
           mcpp pack --profile release --target x86_64-openkal --mode self-contained --systems '${{ matrix.systems }}' \
-              --pkg-format zip -o "mcppls-$version-openkal-${{ matrix.system }}.zip" --message-format json > pack.json
+              --pkg-format zip -o "mcppls-$version-openkal.zip" --message-format json > pack.json
           jq '.data | {pkgFormat, mode, legs, systems, artifacts}' pack.json
           stage=$(jq -r '.data.stage.dir' pack.json)
           [ "$RUNNER_OS" = Windows ] && stage=$(cygpath -u "$stage")
@@ -428,23 +407,25 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-mcpp
+      # Each system's package is the same tree, mcppls-<version>-openkal, in an artifact of its own: the merged
+      # package takes its name from the trees it joins.
       - uses: actions/download-artifact@v8
         with:
           pattern: server-universal-*
-          merge-multiple: true
           path: parts
       - name: Merge
         run: |
           set -euo pipefail
           version=$(sed -n 's/^version *= *"\(.*\)"$/\1/p' mcpp.toml | head -1)
           inputs=()
-          for part in parts/*.zip; do inputs+=(--merge "$part"); done
+          for part in parts/*/*.zip; do inputs+=(--merge "$part"); done
           mkdir -p openkal
           mcpp pack "${inputs[@]}" -o "$PWD/openkal/mcppls-$version-openkal.zip"
           python3 - "openkal/mcppls-$version-openkal.zip" <<'PY'
           import hashlib, json, sys, zipfile
           z = zipfile.ZipFile(sys.argv[1])
           top = z.namelist()[0].split("/")[0]
+          assert top == sys.argv[1].split("/")[-1].removesuffix(".zip"), top
           d = json.loads(z.read(f"{top}/mcpp-package.json"))
           assert d["systems"] == ["linux-aarch64", "linux-x86_64", "macos-aarch64", "windows-x86_64"], d["systems"]
           assert sorted(d["legs"]) == ["aarch64-openkal", "x86_64-openkal"], d["legs"]
@@ -456,7 +437,7 @@ jobs:
           print(top, d["systems"], len(d["files"]), "files")
           PY
           (cd openkal && sha256sum * | tee SHA256SUMS)
-          ls -l parts openkal
+          ls -lR parts openkal
       - uses: actions/upload-artifact@v7
         with:
           name: server-openkal
@@ -1799,7 +1780,6 @@ jobs:
   # 2025.2, the oldest build it claims, and against the one it is built on.
   clion-verify:
     name: CLion plugin verifier
-    needs: mcpp
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
