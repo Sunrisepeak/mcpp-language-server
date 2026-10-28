@@ -21,16 +21,16 @@
       "pattern": "payload-{platform}.tar.gz",
       "per-platform": true,
       "required": true,
-      "what": "The server, the clangd it drives and the semantic kit, as one tree. The server is the platform's program carrying the ok image of its architecture (M3). What every non-VS-Code editor needs",
-      "install": "Unpack it and put `payload/bin/` on PATH; `mcppls serve` speaks LSP over stdio"
+      "what": "The server, the clangd it drives and the semantic kit, as one tree. The server is the one okb of every architecture (`bin/mcppls.okb`), started by the platform's runner (`bin/okrun`), as payload.json's `server` says. What every editor but VS Code installs beside its plugin",
+      "install": "Unpack it; `payload/bin/okrun payload/bin/mcppls.okb serve` speaks LSP over stdio. For a command named `mcppls`, use the universal package or a single file below"
     },
     {
       "id": "zed",
       "pattern": "mcppls-zed-{version}.tar.gz",
       "per-platform": false,
       "required": true,
-      "what": "The Zed extension directory `mcppls-zed/`: extension.toml, the compiled extension.wasm and the crate it was compiled from, which Zed's dev-extension install compiles again. Platform-independent; the server comes from the payload",
-      "install": "Unpack it, put the payload's `payload/bin/` on PATH, then Zed's command palette: `zed: install dev extension`, and choose `mcppls-zed` (Zed compiles it, which needs Rust through rustup)"
+      "what": "The Zed extension directory `mcppls-zed/`: extension.toml, the compiled extension.wasm and the crate it was compiled from, which Zed's dev-extension install compiles again. Platform-independent; the server comes from PATH or the installed payload",
+      "install": "Unpack it, then Zed's command palette: `zed: install dev extension`, and choose `mcppls-zed` (Zed compiles it, which needs Rust through rustup). The server is `mcppls` on PATH (the universal package or a single file), else the payload `mcppls-devtools extension --editor zed --install` puts in place"
     },
     {
       "id": "clion",
@@ -38,23 +38,55 @@
       "per-platform": false,
       "required": true,
       "what": "The IntelliJ-platform plugin archive Gradle produces. Gradle and the JDK it compiles with come from the `clion` feature (xim:gradle, xim:jdk-temurin), so it does not depend on whatever JDK the machine happens to default to",
-      "install": "Put the payload's `payload/bin/` on PATH, then CLion: Settings → Plugins → the gear menu → *Install Plugin from Disk*, and restart"
+      "install": "CLion: Settings → Plugins → the gear menu → *Install Plugin from Disk*, and restart. The server is `mcppls` on PATH (the universal package or a single file), else the installed payload"
     },
     {
-      "id": "image-x86_64",
-      "pattern": "mcppls-{version}-x86_64.oke",
+      "id": "openkal",
+      "pattern": "mcppls-{version}-openkal.zip",
       "per-platform": false,
       "required": true,
-      "what": "The server as an ok image (M2) for x86_64: one file that okrun runs on Linux, macOS and Windows of that architecture. The payloads of linux-x64 and win32-x64 carry these bytes inside their server (M3)",
-      "install": "`okrun mcppls-{version}-x86_64.oke serve` (okrun is mcpplibs/openkal-image's runner); the payloads need nothing of this"
+      "what": "The server for every system and architecture as one package (mcpp's universal package): both architectures' images under `lib/<arch>/`, the launchers `bin/mcppls` and `bin/mcppls.cmd`, and the platform's runner of Linux x86_64 and aarch64, macOS arm64 and Windows x86_64 under `libexec/okrun/`, so it needs nothing installed. The server alone: clangd and the kit come from a payload, PATH or xlings",
+      "install": "Unpack it and put its `bin/` on PATH; `mcppls serve` speaks LSP over stdio (on Windows `bin\\\\mcppls.cmd`)"
     },
     {
-      "id": "image-aarch64",
-      "pattern": "mcppls-{version}-aarch64.oke",
+      "id": "okb",
+      "pattern": "mcppls-{version}.okb",
       "per-platform": false,
       "required": true,
-      "what": "The server as an ok image (M2) for aarch64, as above; the payloads of linux-arm64 and darwin-arm64 carry these bytes",
-      "install": "`okrun mcppls-{version}-aarch64.oke serve`"
+      "what": "The server as one okb (openkal's universal image package): the image of x86_64 and of aarch64, which the platform's runner of any system starts. Every payload and VSIX carries these bytes as `bin/mcppls.okb`",
+      "install": "`okrun mcppls-{version}.okb serve`, with the platform's runner of this system: a payload's `bin/okrun`, or the universal package's `libexec/okrun/<system>-<arch>/okrun`"
+    },
+    {
+      "id": "single-linux-x86_64",
+      "pattern": "mcppls-{version}-linux-x86_64",
+      "per-platform": false,
+      "required": true,
+      "what": "The server as one executable file for Linux x86_64: the platform's carrier with the image inside, which it runs from memory; nothing to unpack or install (a static program)",
+      "install": "Rename it `mcppls`, put it on PATH and `chmod +x` it; `mcppls serve` speaks LSP over stdio"
+    },
+    {
+      "id": "single-linux-aarch64",
+      "pattern": "mcppls-{version}-linux-aarch64",
+      "per-platform": false,
+      "required": true,
+      "what": "The server as one executable file for Linux aarch64: the platform's carrier with the image inside, which it runs from memory; nothing to unpack or install (a static program)",
+      "install": "Rename it `mcppls`, put it on PATH and `chmod +x` it; `mcppls serve` speaks LSP over stdio"
+    },
+    {
+      "id": "single-macos-aarch64",
+      "pattern": "mcppls-{version}-macos-aarch64",
+      "per-platform": false,
+      "required": true,
+      "what": "The server as one executable file for macOS arm64: the platform's carrier with the image inside, which it runs from memory; nothing to unpack or install",
+      "install": "Rename it `mcppls`, put it on PATH and `chmod +x` it; `mcppls serve` speaks LSP over stdio"
+    },
+    {
+      "id": "single-windows-x86_64",
+      "pattern": "mcppls-{version}-windows-x86_64.exe",
+      "per-platform": false,
+      "required": true,
+      "what": "The server as one executable file for Windows x86_64: the platform's carrier with the image inside, which it runs from memory; nothing to unpack or install",
+      "install": "Rename it `mcppls.exe`, put it on PATH; `mcppls serve` speaks LSP over stdio"
     },
     {
       "id": "checksums",

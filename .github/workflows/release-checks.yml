@@ -121,8 +121,8 @@ jobs:
           ls "$t"/clion/CLion2026.2/mcppls-clion/lib/mcppls-clion-*.jar
 
           # The server both plugins fall back to answers a project.
-          "$t/server/bin/mcppls${{ matrix.exe }}" --version
-          "stage/mcppls-conformance${{ matrix.exe }}" run --server "$t/server/bin/mcppls${{ matrix.exe }}" --payload "$t/server" \
+          "$t/server/bin/okrun${{ matrix.exe }}" "$t/server/bin/mcppls.okb" --version
+          "stage/mcppls-conformance${{ matrix.exe }}" run --server "$t/server/bin/mcppls.okb" --payload "$t/server" \
               --fixture conformance/fixtures/inferred --timeout 180
 
           "$dev" uninstall --editor zed "${where[@]}"
@@ -176,7 +176,7 @@ jobs:
             for start in cold warm; do
               warm=(); [ "$start" = warm ] && warm=(--expect-warm)
               python3 .github/scripts/timing_evidence.py --output "$results/evidence/$start-$round" -- \
-                  "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls${{ matrix.exe }}" --payload payload \
+                  "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls.okb" --payload payload \
                   --fixture conformance/fixtures/timing \
                   --workspace-dir "$RUNNER_TEMP/timing-$round/workspace" --cache-dir "$RUNNER_TEMP/timing-$round/cache" \
                   --timeout 120 --measure "$results/$start-$round.json" ${warm[@]+"${warm[@]}"}
@@ -203,7 +203,7 @@ jobs:
           for start in cold warm; do
             warm=(); [ "$start" = warm ] && warm=(--expect-warm)
             status=0
-            "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls${{ matrix.exe }}" --payload payload \
+            "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls.okb" --payload payload \
                 --fixture conformance/fixtures/ux-modules-windows-large --msvc-env "$RUNNER_TEMP/msvc.env" \
                 --workspace-dir "$RUNNER_TEMP/large/workspace" --cache-dir "$RUNNER_TEMP/large/cache" \
                 --timeout 900 --measure "$large/$start.json" --verbose ${warm[@]+"${warm[@]}"} > "$large/$start.log" 2>&1 || status=$?
@@ -252,9 +252,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/self"
-          if ! stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture conformance/fixtures/self-mcpp \
+          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/self-mcpp \
                 --timeout 900 --measure "$RUNNER_TEMP/self/self-mcpp.json"; then
-            stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture conformance/fixtures/self-mcpp \
+            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/self-mcpp \
                 --timeout 300 --verbose 2>&1 | tail -300 || true
             exit 1
           fi
@@ -263,9 +263,9 @@ jobs:
       - name: mcppls on its own repository, timed
         run: |
           set -euo pipefail
-          if ! stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture conformance/fixtures/self-mcppls \
+          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/self-mcppls \
                 --timeout 900 --measure "$RUNNER_TEMP/self/self-mcppls.json"; then
-            stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture conformance/fixtures/self-mcppls \
+            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/self-mcppls \
                 --timeout 300 --verbose 2>&1 | tail -300 || true
             exit 1
           fi
@@ -277,9 +277,9 @@ jobs:
           set -euo pipefail
           xlings install mcpp@2026.8.8.4 -y -g
           xlings use mcpp "$MCPP_VERSION"
-          if ! stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture conformance/fixtures/real-xlings-old-mcpp \
+          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/real-xlings-old-mcpp \
                 --timeout 900 --measure "$RUNNER_TEMP/self/real-xlings-old-mcpp.json"; then
-            stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture conformance/fixtures/real-xlings-old-mcpp \
+            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/real-xlings-old-mcpp \
                 --timeout 300 --verbose 2>&1 | tail -300 || true
             exit 1
           fi
@@ -356,7 +356,7 @@ jobs:
               key="$round-${fixture//@/-}"
               scratch="$RUNNER_TEMP/stability-scratch/$key"
               if ! python3 .github/scripts/stability_evidence.py --output "$evidence/$key" --scratch "$scratch" -- \
-                    "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls${{ matrix.exe }}" --payload payload \
+                    "stage/mcppls-conformance${{ matrix.exe }}" run --server "payload/bin/mcppls.okb" --payload payload \
                     ${extra[@]+"${extra[@]}"} --fixture "conformance/fixtures/${fixture%@*}" --timeout 180 \
                     --workspace-dir "$scratch/workspace" --cache-dir "$scratch/cache" --keep --measure "$scratch/measure.json"; then
                 failed="$failed $round:$fixture"
@@ -398,11 +398,11 @@ jobs:
           find artifacts -type f \( -name '*.vsix' -o -name 'payload-*.tar.gz' \
                                  -o -name 'mcppls-zed-*.tar.gz' -o -name 'mcppls-clion-*.zip' \) \
                -exec cp {} release/ \;
-          # The ok images (M2), one per architecture, named for the release.
+          # The server for the command line and every system (ci.yml's server-universal and
+          # server-openkal): the one okb, the universal package and the single files, as CI named them.
           version='${{ needs.plugins.outputs.version }}'
-          for arch in x86_64 aarch64; do
-            cp "$(find artifacts -type f -name "mcppls-$arch.oke" | head -1)" "release/mcppls-$version-$arch.oke"
-          done
+          cp "artifacts/server-okb/mcppls-$version.okb" "artifacts/server-openkal/mcppls-$version-openkal.zip" release/
+          find artifacts/server-single-files -type f -name "mcppls-$version-*" -exec cp {} release/ \;
           ls -l release
       # The Linux payload artifact carries the devtools the same run built (stage/mcppls-devtools),
       # a static openkal executable, so this job needs no toolchain.

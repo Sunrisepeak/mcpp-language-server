@@ -84,7 +84,7 @@ jobs:
           for round in 1 2 3; do
             for start in cold warm; do
               warm=(); [ "$start" = warm ] && warm=(--expect-warm)
-              "stage/mcppls-conformance$exe" run --server "payload/bin/mcppls$exe" --payload payload --fixture conformance/fixtures/timing \
+              "stage/mcppls-conformance$exe" run --server "payload/bin/mcppls.okb" --payload payload --fixture conformance/fixtures/timing \
                   --workspace-dir "$RUNNER_TEMP/timing-$round/workspace" --cache-dir "$RUNNER_TEMP/timing-$round/cache" --timeout 120 \
                   --measure "$results/$start-$round.json" ${warm[@]+"${warm[@]}"}
             done
@@ -125,7 +125,7 @@ jobs:
           failed=''
           for fixture in mcpp-gcc mcpp-llvm mcpp-watch; do
             echo "::group::$fixture"
-            if ! stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture "conformance/fixtures/$fixture" --timeout 180; then
+            if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture "conformance/fixtures/$fixture" --timeout 180; then
               failed="$failed $fixture"
             fi
             echo "::endgroup::"
@@ -178,7 +178,7 @@ jobs:
           work=/tmp/termux-report
           rm -rf "$work" && mkdir -p "$work" && cp -R conformance/fixtures/inferred "$work/project"
           rm -f "$work/project/scenario.json"
-          MCPPLS_CACHE_DIR="$work/cache" payload/bin/mcppls report --root "$work/project" \
+          MCPPLS_CACHE_DIR="$work/cache" payload/bin/okrun payload/bin/mcppls.okb report --root "$work/project" \
               --settle 20 --payload /work/payload > "$work/report.json" 2> "$work/report.err"
           tail -5 "$work/report.err"
           if grep -q -e 'not supported' -e 'outside every preopened' -e 'no preopened directory is named' "$work/report.json" "$work/report.err"; then
@@ -189,7 +189,7 @@ jobs:
           echo "clangd: $state"
           [ "$state" = ready ]
           for fixture in inferred typing-import; do
-            stage/mcppls-conformance run --server /work/payload/bin/mcppls --payload /work/payload \
+            stage/mcppls-conformance run --server /work/payload/bin/mcppls.okb --payload /work/payload \
                 --fixture "conformance/fixtures/$fixture" --timeout 300
           done
           EOF
@@ -267,9 +267,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/self"
-          if ! stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture conformance/fixtures/${{ matrix.fixture }} \
+          if ! stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/${{ matrix.fixture }} \
                 --timeout 900 --measure "$RUNNER_TEMP/self/${{ matrix.fixture }}.json"; then
-            stage/mcppls-conformance run --server payload/bin/mcppls --payload payload --fixture conformance/fixtures/${{ matrix.fixture }} \
+            stage/mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture conformance/fixtures/${{ matrix.fixture }} \
                 --timeout 300 --verbose 2>&1 | tail -300 || true
             exit 1
           fi
@@ -330,7 +330,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/baseline"
           gh release download '${{ inputs.ux-baseline }}' --repo '${{ github.repository }}' --pattern payload-linux-x64.tar.gz --dir "$RUNNER_TEMP/baseline"
           tar -xzf "$RUNNER_TEMP/baseline/payload-linux-x64.tar.gz" -C "$RUNNER_TEMP/baseline"
-          "$RUNNER_TEMP/baseline/payload/bin/mcppls" --version
+          # The release's server as its payload.json names it: a program, or an image and its runner.
+          baseline="$RUNNER_TEMP/baseline/payload"
+          runner=$(jq -r '.server.runner // empty' "$baseline/payload.json")
+          ${runner:+"$baseline/$runner"} "$baseline/$(jq -r .server.path "$baseline/payload.json")" --version
       - name: The stages
         env:
           REPEAT: ${{ inputs.ux-repeat || '1' }}
@@ -358,7 +361,7 @@ jobs:
             fi
             mkdir -p "$into" "$space"
             echo "::group::${{ matrix.fixture }} ${{ matrix.round }} $label"
-            if ! ${pin[@]+"${pin[@]}"} stage/mcppls-conformance run --server "$payload/bin/mcppls" --payload "$payload" \
+            if ! ${pin[@]+"${pin[@]}"} stage/mcppls-conformance run --server "$payload/$(jq -r .server.path "$payload/payload.json")" --payload "$payload" \
                 --fixture conformance/fixtures/${{ matrix.fixture }} --workspace-dir "$space/workspace" --cache-dir "$space/$cache" \
                 --stage "$name" --timeout 900 --measure "$into/${{ matrix.fixture }}-${{ matrix.round }}-$name$suffix.json" "$@"; then
               if [ "$server" = this ]; then failed="$failed $name$suffix"; else echo "::warning::the baseline failed $name$suffix"; fi
