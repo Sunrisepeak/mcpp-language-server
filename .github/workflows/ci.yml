@@ -21,6 +21,14 @@ env:
   # so a bump lands in one file instead of three. A job may still set one to override it.
   XLINGS_NON_INTERACTIVE: '1'
   PAYLOAD_CACHE: ${{ github.workspace }}/.payload-cache
+  # The tools mcpp.toml's [xlings.workspace] declares for packaging (`when = "dev"`: Node for the VS Code
+  # extension, Rust for Zed) are the runner's in this workflow (mcpp's `MCPP_XLINGS_OVERRIDE_<NS>_<NAME>`):
+  # no job here packages through `mcpp run -p devtools -- extension` -- the ones that run npm set Node up
+  # -- yet every `mcpp build` and `mcpp pack` at the root provisioned both, and the download of Node
+  # stalled past xlings' deadline on job after job (2026-10-28). release-checks' plugins job, a workflow
+  # of its own, still provisions them: that is what it shows.
+  MCPP_XLINGS_OVERRIDE_XIM_NODE: path:node
+  MCPP_XLINGS_OVERRIDE_XIM_RUST: path:cargo
 
 jobs:
   # ---------------------------------------------------------------------------
