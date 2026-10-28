@@ -28,7 +28,7 @@ members = [
 # builds every target and no member declares a run-time. A Windows build is the GNU row
 # (`--target x86_64-windows-gnu`): the platform states no MSVC arrangement.
 [workspace.target.'cfg(any(linux, macos, windows))']
-platform = "openkal-platform@0.17.2"
+platform = "openkal-platform@0.17.3"
 
 # The first mcpp that reads `platform` (2026.10.27.1); an older one would build without it.
 [workspace.package]

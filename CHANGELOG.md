@@ -94,12 +94,12 @@ and every edit sent the whole file's tokens again, 1 015 373 bytes (`tokens-larg
 
 ### Building mcppls
 
-- **One platform for every target** (mcpp SPEC-013): the workspace selects openkal-platform 0.17.2 for Linux, macOS
+- **One platform for every target** (mcpp SPEC-013): the workspace selects openkal-platform 0.17.3 for Linux, macOS
   and Windows, whose hosted arrangement is openkal-musl and openkal-llvm-runtime over the system's openkal, and mcpp
   selects it for the ok images (`<arch>-openkal`). No member declares a C library, a C++ run-time, okld, okrun or a
   link any more; `[workspace.package] mcpp = ">=2026.10.27.1"` makes an older mcpp refuse instead of building
   without them. CI also builds every build program of the graph as an ok image
-  (`--host-platform openkal-platform@0.17.2`) on the three systems.
+  (`--host-platform openkal-platform@0.17.3`) on the three systems.
 - **A payload's server is the image form by default.** `mcppls-devtools payload` packs the okb
   (`mcpp pack --pkg-format okb`) and a self-contained universal package of this system, and carries the okb and
   this system's runner; `--server-image` and `--server-runner` name them for another platform, and `--server` still

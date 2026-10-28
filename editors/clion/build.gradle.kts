@@ -7,6 +7,7 @@
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
+import java.nio.file.Files
 
 plugins {
     id("java")
@@ -70,10 +71,10 @@ tasks.test {
     val installed = home.resolve(".local/share/mcppls/payload")
     val payload = providers.environmentVariable("MCPPLS_PAYLOAD").orNull?.let { File(it).absoluteFile }
     doFirst {
-        java.nio.file.Files.deleteIfExists(installed.toPath())
+        Files.deleteIfExists(installed.toPath())
         if (payload != null) {
             installed.parentFile.mkdirs()
-            java.nio.file.Files.createSymbolicLink(installed.toPath(), payload.toPath())
+            Files.createSymbolicLink(installed.toPath(), payload.toPath())
         }
     }
     environment("PATH", "/usr/bin:/bin")

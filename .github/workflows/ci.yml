@@ -192,7 +192,7 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # THE HOST GRAPH ON THE PLATFORM (mcpp SPEC-013 §6): with `--host-platform openkal-platform@0.17.2`
+  # THE HOST GRAPH ON THE PLATFORM (mcpp SPEC-013 §6): with `--host-platform openkal-platform@0.17.3`
   # every build program of the graph -- openkal-platform's and openkal-musl's build.mcpp -- compiles as
   # an ok image of this machine's architecture, with one toolchain on each system, and runs through the
   # platform's runner. The server and the tools built over them are the same programs, and start.
@@ -217,9 +217,9 @@ jobs:
       - name: Build with the host graph's platform
         run: |
           set -euo pipefail
-          mcpp build --host-platform openkal-platform@0.17.2 ${{ matrix.target }} 2>&1 | tee build.log
-          grep -q 'Host platform openkal-platform 0.17.2 (--host-platform): build programs are [a-z0-9_]*-openkal images run by okrun' build.log
-          mcpp build -p devtools --host-platform openkal-platform@0.17.2 ${{ matrix.target }}
+          mcpp build --host-platform openkal-platform@0.17.3 ${{ matrix.target }} 2>&1 | tee build.log
+          grep -q 'Host platform openkal-platform 0.17.3 (--host-platform): build programs are [a-z0-9_]*-openkal images run by okrun' build.log
+          mcpp build -p devtools --host-platform openkal-platform@0.17.3 ${{ matrix.target }}
           for exe in mcppls mcppls-devtools; do
             path=$(find target -type f \( -name "$exe" -o -name "$exe.exe" \) -path '*/bin/*' -newer mcpp.toml | head -1)
             echo "$exe -> $path"
@@ -380,15 +380,17 @@ jobs:
           retention-days: 7
       # The command line's server as one file per system and architecture: the platform's carrier with
       # the image inside, which loads it from memory (SPEC-014 §5.2). Written here for every system this
-      # mcpp builds a carrier for; the distribution job runs each on its own system.
+      # mcpp builds a carrier for -- not x86_64-macos (a planned row) nor aarch64 Windows (no row), which
+      # mcpp refuses -- and the distribution job runs each on its own system.
       - name: Single files
         if: matrix.system == 'linux'
         run: |
           set -euo pipefail
           version=$(sed -n 's/^version *= *"\(.*\)"$/\1/p' mcpp.toml | head -1)
           mkdir -p single
-          for arch in x86_64 aarch64; do
-            mcpp pack --profile release --target "$arch-openkal" --pkg-format single-file --systems linux,macos,windows \
+          for leg in x86_64:linux,windows aarch64:linux,macos; do
+            arch=${leg%%:*}
+            mcpp pack --profile release --target "$arch-openkal" --pkg-format single-file --systems "${leg#*:}" \
                 --message-format json > "single-$arch.json"
             for file in $(jq -r '.data.artifacts[].path' "single-$arch.json"); do
               name=$(basename "$file")

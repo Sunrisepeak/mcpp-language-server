@@ -103,7 +103,7 @@ for it. Termux's PRoot, which many setups run a Linux system under, is a support
 
 The server is C++23 modules on [mcpplibs.os](https://github.com/mcpplibs/os) over
 [openkal](https://github.com/mcpplibs/openkal), built with [mcpp](https://github.com/mcpp-community/mcpp)
-2026.10.27.1 or later. The workspace's one platform, openkal-platform 0.17.2, states the C library and
+2026.10.27.1 or later. The workspace's one platform, openkal-platform 0.17.3, states the C library and
 the C++ run-time of every target, so no member declares either:
 
 ```bash
@@ -129,7 +129,7 @@ step and how long it took. If something it needs is missing it says which and ho
 | The okb every payload carries: both images in one file | `mcpp pack --release --target x86_64-openkal --pkg-format okb` |
 | One package for every system and architecture | `mcpp pack --release --target x86_64-openkal --mode self-contained --pkg-format zip` (the runners this system builds; CI packs each system's and joins them with `mcpp pack --merge`) |
 | One file for this system | `mcpp pack --release --target x86_64-openkal --pkg-format single-file` |
-| Build programs as ok images | `mcpp build --host-platform openkal-platform@0.17.2` |
+| Build programs as ok images | `mcpp build --host-platform openkal-platform@0.17.3` |
 
 **Zero setup.** What packaging needs is declared in `mcpp.toml`'s `[xlings.workspace]` — Node for
 the VS Code extension, Rust for Zed — so `mcpp run` provisions it before the tool starts. The
