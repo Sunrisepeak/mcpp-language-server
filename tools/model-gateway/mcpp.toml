@@ -44,4 +44,4 @@ tinyhttps.workspace = true
 [dev-dependencies]
 mcppls-testing  = { path = "../../modules/testing" }
 mcppls-base     = { path = "../../modules/base" }
-os.workspace    = true
+mcpplibs.os.workspace = true

@@ -20,7 +20,7 @@ main = "src/main.cpp"
 clion = {}
 
 [dependencies]
-os.workspace                   = true
+mcpplibs.os.workspace          = true
 cmdline.workspace              = true
 mcppls-base                    = { path = "../../modules/base" }
 mcppls-toolrun                 = { path = "../../modules/toolrun" }

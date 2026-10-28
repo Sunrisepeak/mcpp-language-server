@@ -8,7 +8,7 @@ license     = "Apache-2.0"
 kind = "lib"
 
 [dependencies]
-os.workspace = true
+mcpplibs.os.workspace = true
 
 [dev-dependencies]
 mcppls-testing = { path = "../testing" }

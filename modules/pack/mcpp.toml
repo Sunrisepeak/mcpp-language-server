@@ -13,7 +13,7 @@ license     = "Apache-2.0"
 kind = "lib"
 
 [dependencies]
-os.workspace = true
+mcpplibs.os.workspace = true
 tinyhttps.workspace = true
 mcppls-base = { path = "../base" }
 mcppls-toolrun = { path = "../toolrun" }
