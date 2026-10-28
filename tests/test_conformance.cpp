@@ -59,7 +59,20 @@ int serve() {
     int traceReports { 0 };
     std::optional<Json> lateCompletion;
     int reports { 0 }, changes { 0 }, completions { 0 };
-    const auto send = [](const Json& message) { return os::stdio::write_output(lsp::encode_frame(message)); };
+    // --tokens-poll: a server whose tokens change twice, as clangd's do on a cold open, and that asks for a refresh each
+    // time, as it should. The first change is found by the client's poll -- the server's compile ends just as it asks,
+    // and its refresh is written with the answer -- so the poll is the last question before the edit; the second is the
+    // edit's, answered at once from the old tokens moved, and refreshed when the new version is compiled, longer after
+    // than the half second within which the client judges a polled answer that changed.
+    const bool tokensPoll { std::ranges::find(arguments, "--tokens-poll") != arguments.end() };
+    int tokensAsked { 0 };
+    bool tokensEdited { false };
+    std::mutex writing;   // the refresh sent later is written by a thread of its own
+    std::jthread laterRefresh;
+    const auto send = [&writing](const Json& message) {
+        const std::scoped_lock lock { writing };
+        return os::stdio::write_output(lsp::encode_frame(message));
+    };
     const auto status = [&](std::string state) { return send(lsp::make_notification("cxxModules/status", Json { { "state", std::move(state) } })); };
     lsp::FrameReader frames;
     while (true) {
@@ -110,10 +123,41 @@ int serve() {
                 (void)status("loading");
                 (void)status("ready");
             }
+            // The check's edit, not the didChange that opening an already open file sends.
+            if (tokensPoll && method == "textDocument/didChange" && request.dump().contains("int added()")) tokensEdited = true;
             if (!request.contains("method")) continue;
             if (!request.contains("id")) continue;
             Json result = nullptr;
             if (method == "initialize") result = Json { { "capabilities", Json { { "experimental", Json { { "cxxModules", Json::object() } } }, { "hoverProvider", true } } } };
+            if (tokensPoll && method == "initialize") {
+                result["capabilities"]["semanticTokensProvider"] = Json { { "legend", Json { { "tokenTypes", Json::array({ "keyword", "function" }) },
+                    { "tokenModifiers", Json::array() } } }, { "full", Json { { "delta", true } } } };
+            }
+            if (tokensPoll && method.starts_with("textDocument/semanticTokens/")) {
+                ++tokensAsked;
+                // `int main() {}`; after the edit `int added() { return 0; }` above it. A keyword alone is mcppls's own; a
+                // function is the compiler's.
+                const Json alone = Json::array({ 0, 0, 3, 0, 0 });
+                const Json compiled = Json::array({ 0, 0, 3, 0, 0, 0, 4, 4, 1, 0 });
+                const Json moved = Json::array({ 1, 0, 3, 0, 0, 0, 4, 4, 1, 0 });
+                const Json recompiled = Json::array({ 0, 0, 3, 0, 0, 0, 4, 5, 1, 0, 1, 0, 3, 0, 0, 0, 4, 4, 1, 0 });
+                const bool refreshLater { tokensEdited && tokensAsked > 0 && !laterRefresh.joinable() };
+                const Json data = !tokensEdited ? (tokensAsked == 1 ? alone : compiled) : refreshLater ? moved : recompiled;
+                std::string frames { lsp::encode_frame(lsp::make_result(request["id"], Json { { "resultId", std::format("r{}", tokensAsked) }, { "data", data } })) };
+                // The refresh of the first change follows the poll's answer in the same write, so the client reads both at once.
+                if (!tokensEdited && tokensAsked == 2) frames += lsp::encode_frame(lsp::make_request("tokens-refresh-1", "workspace/semanticTokens/refresh", nullptr));
+                {
+                    const std::scoped_lock lock { writing };
+                    if (!os::stdio::write_output(frames)) return 2;
+                }
+                if (refreshLater) {
+                    laterRefresh = std::jthread { [send] {
+                        std::this_thread::sleep_for(std::chrono::milliseconds { 900 });
+                        (void)send(lsp::make_request("tokens-refresh-2", "workspace/semanticTokens/refresh", nullptr));
+                    } };
+                }
+                continue;
+            }
             if (method == "textDocument/completion") {
                 ++completions;
                 if (completionTrace && completions == 1) std::this_thread::sleep_for(std::chrono::milliseconds { 30 });
@@ -183,7 +227,7 @@ int serve() {
                     { "engines", Json::array({ Json { { "name", "clangd" }, { "state", restarting ? "starting" : "ready" }, { "details", std::move(details) } } }) }
                 } }) } };
             }
-            if (!os::stdio::write_output(lsp::encode_frame(lsp::make_result(request["id"], result)))) return 2;
+            if (!send(lsp::make_result(request["id"], result))) return 2;
         }
     }
 }
@@ -568,6 +612,28 @@ int main() {
             expect(document.has_value());
             if (document) expect(Json::parse(*document)["checks"][0]["measure"]["beforeChangeDrain"]["ready"] == false);
         }
+    };
+    // A tokens-latency check whose last question before the edit was a poll: the edit's first answer changed because the
+    // text did, and is not a poll's -- the server refreshing a second later is not a refresh it failed to ask for.
+    "an answer is a poll's only when its own question was a poll"_test = [&] {
+        const Json sample { { "name", "timing" }, { "server-arguments", Json::array({ "--tokens-poll" }) },
+            { "client-capabilities", Json { { "workspace", Json { { "semanticTokens", Json { { "refreshSupport", true } } } } } } },
+            { "checks", Json::array({ Json { { "id", "T1" }, { "kind", "tokens-latency" }, { "file", "main.cpp" }, { "at", Json::array({ 0, 4 }) },
+                { "expect", "private-completion" }, { "poll-ms", 1500 }, { "edit", Json { { "line", 0 }, { "text", "int added() { return 0; }" } } },
+                { "budget", Json { { "missedRefreshes", 0 } } } } }) } };
+        expect(os::fs::write(base::join_path(fixture, "scenario.json"), sample.dump()).has_value());
+        expect(os::fs::write(base::join_path(fixture, "main.cpp"), "int main() {}\n").has_value());
+        const auto result = invoke(measure, evidence);
+        expect(fatal(result.has_value()));
+        expect(result->status.success()) << result->out << result->err;
+        const auto document = os::fs::read(measure);
+        expect(fatal(document.has_value()));
+        const Json summary = Json::parse(*document);
+        const Json& measured = summary["checks"][0]["measure"];
+        expect(measured.value("polls", -1) == 1) << measured.dump();
+        expect(measured.value("missedRefreshes", -1) == 0) << measured.dump();
+        expect(measured.value("refreshes", -1) == 2) << measured.dump();
+        expect(measured.value("editUpdated", 0.0) >= 0.9) << measured.dump();
     };
     std::filesystem::remove_all(root, ignored);
     return report();
