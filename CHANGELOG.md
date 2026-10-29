@@ -7,6 +7,63 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.20] — 2026-10-30
+
+The bundled engine is unchanged ([mcppls-clangd 0.0.17](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.17),
+`23.1.0-mcppls.5`), native on each system. One package serves every system and architecture: one payload, one VSIX,
+one CLion plugin. A project is read without a compiler with the semantic kit of its target, and the payload carries
+the openkal kit, with which any target's code reads with the standard library (ecosystem design 2026-10-29 §9; mcpp
+2026.10.30.1).
+
+### One package for every system
+
+- **One payload** (`payload.json` version 5): the server's okb of both architectures (`bin/mcppls.okb`), the runner
+  of every system it runs on by itself (`libexec/okrun/<system>-<arch>/okrun[.exe]`, from the tree `mcpp pack --target
+  openkal --mode self-contained --systems all` writes), the clangd of every platform (`clangd/<platform>/`, with its
+  identity and integrity files) and the openkal kit. Its entry of a platform names the runner and the engine; the
+  server, the VS Code extension, the CLion plugin, Neovim, Zed and the conformance runner take the entry of the
+  platform they run on, and refuse a payload without one, naming the platforms it carries. Measured: 298 MiB, 86 MiB
+  compressed, against four payloads of 26 to 42 MiB compressed each.
+- **One VSIX** (`mcppls-<version>.vsix`, no target platform) and **one CLion plugin** (`mcppls-clion-<version>.zip`,
+  no per-system variants), each carrying the payload. Open VSX lists the VSIX as universal.
+- **The server for the command line** is the openkal tree `mcppls-<version>-openkal.zip`: the launchers `bin/mcppls`
+  (POSIX) and `bin/mcppls.exe` (Windows; the `.cmd` is gone), both images and the runner of Linux x86_64 and aarch64,
+  macOS arm64 and Windows x86_64; its `mcpp-package.json` says where it runs (`runs_on`). The xlings descriptor is one
+  asset for the three systems, each naming the architectures `runs_on.self` covers.
+
+### The semantic kit of a target
+
+- **Kits are chosen per project target** (S4 revision, kit version 2): the target's own kit when installed, else the
+  host's, else the openkal kit of the host's architecture; a target an mcpp project asks for chooses again. A kit of
+  several targets gives each its include directories in its own order (`targets`).
+- **The openkal kit is in the payload**: libc++ 22.1.8 headers and the `std` and `std.compat` module sources,
+  openkal-musl's headers and the generated headers of x86_64 and aarch64, 19 MiB, made from mcpp's build database of
+  each openkal target. Without a compiler, offline and before the host's kit is installed, a project reads with it:
+  `import std` and the standard library work; the system's own headers (`windows.h`, glibc's and the Linux kernel's)
+  and macros (`_WIN32`, `__linux__`) do not. The status says what is missing and the command that installs it
+  (`kit-missing`), and the state stays ready. A kit's libc++ is the version its headers carry (S4-4-5): the openkal
+  kit's is not clangd's, and it is taken whatever the engine's version.
+- **The target kits** (`mcppls-kit-x86_64-linux-gnu`, `-aarch64-linux-gnu`, `-x86_64-w64-mingw32`,
+  `-arm64-apple-darwin`; macOS still uses the installed SDK) are xlings packages and release assets for a machine
+  without the network. With the person's consent the server installs the kit of the project's target in the
+  background (`mcppls.installKit`, `xlings install mcppls-kit-<target>@<version>`) and reads the project with it.
+- **Both editors ask, once per kit**: *Install*, *Always Install Kits*, *Copy Command*, *Don't Ask Again*; nothing
+  waits for the answer, and how the install ended is told once (`kitInstall`). *C++ Modules: Ask Before Installing
+  Semantic Kits in This Workspace* (VS Code) and Tools | mcppls | *Ask Before Installing Semantic Kits* (CLion) take
+  the answers back. The CLion plugin now declares `experimental.cxxModules` and reads the status for this.
+
+### Built once, tested on every system
+
+- CI builds every platform's programs and unit tests once on Linux and runs the archived tests on Linux x86_64 and
+  aarch64, macOS arm64 and Windows x86_64 (`mcpp test --no-run --archive`, `mcpp test --archive`), in both profiles;
+  the server is packed once (`--pkg-format zip,okb`), the single files cover every leg and system with one command,
+  and the payload, the VSIX and the CLion plugin are made once. The conformance fixture `kit-openkal` reads a project
+  with the openkal kit and no target kit installed.
+- `mcppls-devtools payload` assembles the one payload (`--server-image`, `--server-tree`, `--clangd <platform>=DIR`);
+  `kit --openkal` makes the openkal kit, `kit --platform P --archive DIR` a target kit and its release archive, `kit
+  --verify` checks a kit; `release xlings` renders the descriptors from a release's assets; `check platforms` holds
+  the new CI jobs and the lock's kit names.
+
 ## [0.0.19] — 2026-10-29
 
 The bundled engine is unchanged ([mcppls-clangd 0.0.17](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.17),
