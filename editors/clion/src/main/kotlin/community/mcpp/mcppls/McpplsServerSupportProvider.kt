@@ -5,11 +5,11 @@ import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.editor.event.EditorFactoryEvent
 import com.intellij.openapi.editor.event.EditorFactoryListener
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.lsp.api.LspServerSupportProvider
@@ -72,7 +72,7 @@ internal class McpplsEditorListener : EditorFactoryListener {
         if (project.isDisposed || !file.isInLocalFileSystem || file.extension?.lowercase() !in CXX_EXTENSIONS) return
         // Off the EDT: the decision reads the payload's manifest and CLion's workspace.
         ApplicationManager.getApplication().executeOnPooledThread {
-            val answered = runReadAction { !project.isDisposed && OneEngine.answers(project, file) }
+            val answered = ApplicationManager.getApplication().runReadAction(Computable { !project.isDisposed && OneEngine.answers(project, file) })
             if (answered && resolveLaunch() is Launch.Found) OneEngine.fileOpened(project, file)
         }
     }
