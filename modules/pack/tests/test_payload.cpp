@@ -40,12 +40,17 @@ std::string suffix_for(std::string_view platform) { return platform == "win32-x6
 // clangd does (see main). The code under test runs `clangd --version` when the platform being
 // packaged is this host's, as the Python it replaced did. A shell script stood in for clangd before,
 // and it runs on Linux and macOS but not on Windows, where every fixture that matched the host
-// failed to start (openkal error 14). The same bytes serve all three hosts.
-std::string runnable_clangd() {
-    const auto self = os::env::arguments();
-    std::string path { base::normalize_path(self.empty() ? std::string {} : self.front()) };
-    if (!base::is_absolute_path(path)) path = base::join_path(base::current_directory(), path);
-    return os::fs::read(path).value_or(std::string {});
+// failed to start (openkal error 14). The same bytes serve all three hosts. Read once: a dev build of
+// this program on Windows is large enough that reading and hashing it for every fixture outlasted the
+// test's time limit.
+const std::string& runnable_clangd() {
+    static const std::string bytes = [] {
+        const auto self = os::env::arguments();
+        std::string path { base::normalize_path(self.empty() ? std::string {} : self.front()) };
+        if (!base::is_absolute_path(path)) path = base::join_path(base::current_directory(), path);
+        return os::fs::read(path).value_or(std::string {});
+    }();
+    return bytes;
 }
 
 // A clangd directory shaped like a maintained engine part: the executable, the license, one
@@ -56,9 +61,9 @@ std::string make_clangd_directory(const std::string& root, std::string_view plat
     const std::string dir { base::join_path(root, std::format("clangd-{}", std::random_device {}())) };
     const std::string exe { suffix_for(platform) };
     // On the host this platform matches, assemble()'s own clangd-version check runs this and
-    // compares what it prints -- "23.1.0-mcppls.5" -- against the identity.
-    const std::string binary { runnable_clangd() };
-    put(base::join_path(dir, "bin/clangd" + exe), binary);
+    // compares what it prints -- "23.1.0-mcppls.5" -- against the identity. Another platform's
+    // engine is never started here, so a few bytes stand for it.
+    put(base::join_path(dir, "bin/clangd" + exe), platform == base::payload_platform() ? std::string_view { runnable_clangd() } : std::string_view { "a clangd" });
     put(base::join_path(dir, "LICENSE.TXT"), "Apache-2.0 WITH LLVM-exception");
     put(base::join_path(dir, "lib/clang/23/include/stddef.h"), "typedef long ptrdiff_t;");
     const auto digest = mcppls::pack::fetch::digest_of(base::join_path(dir, "bin/clangd" + exe));

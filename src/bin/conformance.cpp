@@ -2583,17 +2583,14 @@ public:
     std::optional<std::string> retired_canary(const Json& check) const {
         const std::string feature { check.value("retired-by", std::string {}) };
         if (feature.empty() || !options_.clangd.empty() || options_.payload.empty()) return std::nullopt;
+        // The engine of this platform's entry: payload version 5 names one per platform, an older one its only engine.
         const auto text = os::fs::read(base::join_path(options_.payload, "payload.json"));
         if (!text) return std::nullopt;
-        const Json manifest = Json::parse(*text, nullptr, false);
-        if (manifest.is_discarded() || manifest.value("payload-version", 0) < 4) return std::nullopt;
-        const Json* identity { nullptr };
-        if (const auto engines = manifest.find("engines"); engines != manifest.end() && engines->is_object()) {
-            if (const auto clangd = engines->find("clangd"); clangd != engines->end() && clangd->is_object()) {
-                if (const auto found = clangd->find("identity"); found != clangd->end() && found->is_object()) identity = &*found;
-            }
-        }
-        if (identity == nullptr) return std::nullopt;
+        const auto manifest = mcppls::engine::read_payload_manifest(*text);
+        if (!manifest || manifest->version < 4) return std::nullopt;
+        const auto entry = mcppls::engine::payload_entry(*manifest, base::payload_platform());
+        if (!entry || !entry->identity.is_object()) return std::nullopt;
+        const Json* identity { &entry->identity };
         for (const auto& declared : identity->value("features", Json::array())) {
             if (declared.is_string() && declared.get<std::string>() == feature) {
                 return std::format("retired: the payload's engine {} declares {}", identity->value("engine-version", std::string {}), feature);
