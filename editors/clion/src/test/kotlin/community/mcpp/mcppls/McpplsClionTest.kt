@@ -331,8 +331,8 @@ class McpplsClionTest : UsefulTestCase() {
 
         OneEngine.choose(project, Engines.BOTH)
         waitFor("broken.cpp back to its level", 30) { level("src/broken.cpp") == before }
+        waitFor("nothing left to restore", 30) { McpplsProjectSettings.of(project).lowered.isEmpty() }
         assertEquals("the user's level stays", FileHighlightingSetting.SKIP_HIGHLIGHTING, level("src/scratch.cpp"))
-        assertTrue(McpplsProjectSettings.of(project).lowered.isEmpty())
     }
 
     // "Always use mcppls only" is the application's answer: a project with none of its own follows it unasked.

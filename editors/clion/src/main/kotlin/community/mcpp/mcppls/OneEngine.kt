@@ -77,18 +77,19 @@ internal object OneEngine {
         levels.setHighlightingSettingForRoot(psi, FileHighlightingSetting.SKIP_INSPECTION)
     }
 
-    // Every level mcppls lowered goes back to what it was, unless it is no longer the one mcppls set.
+    // Every level mcppls lowered goes back to what it was, unless it is no longer the one mcppls set. Each entry is
+    // let go before its level is set, so what is remembered never outlives what was restored.
     private fun restore(project: Project) {
         val lowered = McpplsProjectSettings.of(project).lowered
         val levels = HighlightingSettingsPerFile.getInstance(project)
         for ((url, before) in lowered.toMap()) {
+            lowered.remove(url)
             val psi = VirtualFileManager.getInstance().findFileByUrl(url)?.let { PsiManager.getInstance(project).findFile(it) }
             val previous = FileHighlightingSetting.entries.firstOrNull { it.name == before }
             if (psi != null && previous != null && levels.getHighlightingSettingForRoot(psi) == FileHighlightingSetting.SKIP_INSPECTION) {
                 levels.setHighlightingSettingForRoot(psi, previous)
             }
         }
-        lowered.clear()
     }
 
     // Once per project, the first time a file mcppls answers opens and nothing is decided.
