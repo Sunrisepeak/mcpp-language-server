@@ -418,14 +418,15 @@ int put_payload(const std::string& root, const cmdline::ParsedArgs& arguments, c
 // Gradle variant of its system and architecture, given the payload with -Pmcppls.payload.<platform>.
 // Named the way the release names it, `mcppls-clion-<version>-<platform>.zip` under target/pack/.
 struct ClionVariant {
-    std::string_view platform;   // the payload's, packaging/release.manifest.json's
-    std::string_view gradle;     // the Gradle plugin's `<os>_<arch>` (task) and `<os>-<arch>` (archive)
+    std::string_view platform;     // the payload's, packaging/release.manifest.json's
+    std::string_view task;         // the Gradle plugin's task suffix, `<os>_<arch>`
+    std::string_view classifier;   // and its archive's, `<os>-<arch>`
 };
 inline constexpr std::array CLION_VARIANTS {
-    ClionVariant { "linux-x64", "linux_x86_64" },
-    ClionVariant { "linux-arm64", "linux_arm64" },
-    ClionVariant { "darwin-arm64", "mac_arm64" },
-    ClionVariant { "win32-x64", "windows_x86_64" },
+    ClionVariant { "linux-x64", "linux_x86_64", "linux-x86_64" },
+    ClionVariant { "linux-arm64", "linux_arm64", "linux-arm64" },
+    ClionVariant { "darwin-arm64", "mac_arm64", "mac-arm64" },
+    ClionVariant { "win32-x64", "windows_x86_64", "windows-x86_64" },
 };
 
 struct ClionPackage {
@@ -475,7 +476,7 @@ std::optional<std::vector<ClionPackage>> build_clion(const std::string& root, co
             return std::nullopt;
         }
         gradleArguments.push_back(std::format("-Pmcppls.payload.{}={}", platform, payload));
-        gradleArguments.push_back(std::format("buildPluginVariants_{}", variant->gradle));
+        gradleArguments.push_back(std::format("buildPluginVariants_{}", variant->task));
         built.push_back(&*variant);
     }
     const std::string distributions { base::join_path(directory, "build/distributions") };
@@ -485,8 +486,7 @@ std::optional<std::vector<ClionPackage>> build_clion(const std::string& root, co
 
     std::vector<ClionPackage> packages;
     for (const ClionVariant* variant : built) {
-        std::string classifier { variant->gradle };
-        std::ranges::replace(classifier, '_', '-');
+        const std::string_view classifier { variant->classifier };
         std::string produced;
         for (const auto& entry : base::children(distributions)) {
             if (entry.ends_with(std::format("-{}.zip", classifier))) produced = base::join_path(distributions, entry);
