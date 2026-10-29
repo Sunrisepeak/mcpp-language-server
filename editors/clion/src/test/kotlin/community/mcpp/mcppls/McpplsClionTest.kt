@@ -19,6 +19,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.lsp.api.LspServer
 import com.intellij.platform.lsp.api.LspServerManager
 import com.intellij.platform.lsp.api.LspServerState
+import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiManager
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.TestApplicationManager
@@ -26,6 +27,7 @@ import com.intellij.testFramework.UsefulTestCase
 import com.intellij.testFramework.fixtures.CodeInsightTestFixture
 import com.intellij.testFramework.builders.EmptyModuleFixtureBuilder
 import com.intellij.testFramework.fixtures.IdeaTestFixtureFactory
+import com.intellij.testFramework.fixtures.impl.CodeInsightTestFixtureImpl
 import com.intellij.testFramework.fixtures.impl.TempDirTestFixtureImpl
 import com.jetbrains.cidr.project.workspace.CidrWorkspaceManager
 import java.io.File
@@ -112,7 +114,13 @@ class McpplsClionTest : UsefulTestCase() {
         }
         .findFirst().orElse(null)
 
-    private fun highlights(): List<HighlightInfo> = fixture.doHighlighting()
+    // The passes run on the EDT here and dispatch events while they run, among them Nova's frontend setting a file's
+    // level again as its backend reports it back (FrontendDaemonHost.setHighlightingSetting). In the IDE such a change
+    // restarts the daemon; here the passes allow it (`canChangeDocument`), which doHighlighting() does not.
+    private fun highlights(): List<HighlightInfo> {
+        PsiDocumentManager.getInstance(project).commitAllDocuments()
+        return CodeInsightTestFixtureImpl.instantiateAndRun(checkNotNull(fixture.file), fixture.editor, IntArray(0), true)
+    }
 
     // What the platform's completion contributor for LSP sends and reads, asked of the server directly
     // (off the EDT, which the platform keeps free for the response to be handled).
