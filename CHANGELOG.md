@@ -45,8 +45,10 @@ the openkal kit, with which any target's code reads with the standard library (e
   kit's is not clangd's, and it is taken whatever the engine's version.
 - **The target kits** (`mcppls-kit-x86_64-linux-gnu`, `-aarch64-linux-gnu`, `-x86_64-w64-mingw32`,
   `-arm64-apple-darwin`; macOS still uses the installed SDK) are xlings packages and release assets for a machine
-  without the network. With the person's consent the server installs the kit of the project's target in the
-  background (`mcppls.installKit`, `xlings install mcppls-kit-<target>@<version>`) and reads the project with it.
+  without the network. With the person's consent the kit of the project's target is installed in the background
+  (`xlings install mcppls-kit-<target>@<version>`): by the server when VS Code asks (`mcppls.installKit`), by the
+  plugin itself in CLion. The server looks for the missing kit every 30 s and reads the project with it once it is
+  there, however it was installed.
 - **Both editors ask, once per kit**: *Install*, *Always Install Kits*, *Copy Command*, *Don't Ask Again*; nothing
   waits for the answer, and how the install ended is told once (`kitInstall`). *C++ Modules: Ask Before Installing
   Semantic Kits in This Workspace* (VS Code) and Tools | mcppls | *Ask Before Installing Semantic Kits* (CLion) take

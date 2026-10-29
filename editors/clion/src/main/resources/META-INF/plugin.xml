@@ -36,6 +36,7 @@
                                 implementationClass="community.mcpp.mcppls.McpplsOnlyCompletion"/>
         <editorFactoryListener implementation="community.mcpp.mcppls.McpplsEditorListener"/>
         <notificationGroup id="mcppls" displayType="BALLOON"/>
+        <notificationGroup id="mcppls.kits" displayType="BALLOON"/>
     </extensions>
 
     <actions>

@@ -202,7 +202,8 @@ internal object KitPrompt {
             if (installed) NotificationType.INFORMATION else NotificationType.WARNING).notify(project)
     }
 
-    private fun group() = NotificationGroupManager.getInstance().getNotificationGroup("mcppls")
+    // A group of its own: the person can mute these balloons alone in Settings | Appearance & Behavior | Notifications.
+    private fun group() = NotificationGroupManager.getInstance().getNotificationGroup("mcppls.kits")
 }
 
 // The client side of mcppls's own notifications: `cxxModules/status` (S3 4), which the server sends to a client that
