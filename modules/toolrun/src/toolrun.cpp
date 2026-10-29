@@ -6,6 +6,7 @@ import mcppls.base.error;
 import mcppls.base.log;
 import mcpplibs.os;
 import mcppls.base.path;
+import mcppls.base.payload;
 import mcppls.base.text;
 import mcppls.toolenv;
 
@@ -246,7 +247,16 @@ base::Result<std::vector<std::string>> server_command(std::string_view server) {
         const auto manifest = nlohmann::json::parse(*text, nullptr, false);
         if (manifest.is_object() && manifest.contains("server") && manifest["server"].is_object()
             && base::normalize_path(base::join_path(payload, manifest["server"].value("path", std::string {}))) == base::normalize_path(server)) {
-            if (const auto named = manifest["server"].value("runner", std::string {}); !named.empty()) runner = base::join_path(payload, named);
+            // Payload version 5 carries the runner of every platform: this one's is under its entry.
+            std::string named { manifest["server"].value("runner", std::string {}) };
+            if (const auto platforms = manifest.find("platforms"); platforms != manifest.end() && platforms->is_object()) {
+                const auto entry = platforms->find(std::string { base::payload_platform() });
+                named = entry != platforms->end() && entry->is_object() ? entry->value("runner", std::string {}) : std::string {};
+                if (named.empty()) {
+                    return base::fail("server-runner", std::format("the payload of {} carries no runner for {}", server, base::payload_platform()));
+                }
+            }
+            if (!named.empty()) runner = base::join_path(payload, named);
         }
     }
     if (runner.empty()) runner = base::join_path(directory, std::format("okrun{}", mcpplibs::os::conventions().exe_suffix));

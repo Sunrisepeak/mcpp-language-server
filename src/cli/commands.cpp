@@ -63,9 +63,14 @@ Loaded load(std::string_view root, const cmdline::ParsedArgs& args, bool trusted
     Loaded loaded;
     const auto session = session_options(args);
     loaded.payload = engine::resolve_payload(engine::PayloadRequest { session.payloadDirectory, session.clangd, session.kit });
-    if (session.semanticKit != "off" && !loaded.payload.kit.empty()) {
-        if (auto kit = spec::load_kit(loaded.payload.kit)) loaded.kit = std::move(*kit);
-        else base::log::warning("semantic kit unusable: {}", kit.error().message);
+    // S4 section 5: the kit of the target asked for, else of this host.
+    if (session.semanticKit != "off") {
+        const bool named { session.mcppTarget != "auto" && session.mcppTarget != "project" };
+        auto choice = engine::kit_for_target(loaded.payload, named ? session.mcppTarget : std::string {});
+        loaded.kit = std::move(choice.kit);
+        if (!choice.missingTarget.empty()) {
+            base::log::warning("the semantic kit for {} is not installed; install it: xlings install mcppls-kit-{}", choice.missingTarget, choice.missingTarget);
+        }
     }
     toolchain::ProbeCache cache { base::join_path(base::cache_directory(), "toolchains/probe.json") };
     project::LoadOptions options;

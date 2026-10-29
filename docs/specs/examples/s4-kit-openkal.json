@@ -1,0 +1,99 @@
+{
+  "kit-version": 2,
+  "name": "mcppls-kit-openkal-0.17.3",
+  "target": "x86_64-unknown-none-elf",
+  "stdlib": {
+    "name": "libc++",
+    "version": "22.1.8",
+    "module-metadata": "lib/libc++.modules.json"
+  },
+  "system-include-directories": [
+    "include/openkal-llvm-runtime/port/include",
+    "include/openkal-llvm-runtime/llvm/libcxx/include",
+    "include/openkal-llvm-runtime/llvm/libcxxabi/include",
+    "include/openkal-llvm-runtime/llvm/libunwind/include",
+    "include/openkal-llvm-runtime/llvm-generated/generic",
+    "include/openkal-musl/port/include",
+    "include/openkal-musl/musl/include",
+    "include/x86_64-openkal/openkal-musl/musl-generated/x86_64-openkal",
+    "include/x86_64-openkal/openkal-musl/musl/arch/x86_64",
+    "include/openkal-musl/musl/arch/generic",
+    "include/openkal/include",
+    "include/openkal-image/ld/include"
+  ],
+  "sysroot": null,
+  "arguments": [
+    "-nostdlibinc",
+    "-nostdinc++",
+    "-D_XOPEN_SOURCE=700",
+    "-D__MCPP_TARGET_OPENKAL__=1",
+    "-D__OPENKAL__",
+    "-D__unix__",
+    "-fno-short-wchar"
+  ],
+  "targets": {
+    "x86_64-openkal": {
+      "target": "x86_64-unknown-none-elf",
+      "system-include-directories": [
+        "include/openkal-llvm-runtime/port/include",
+        "include/openkal-llvm-runtime/llvm/libcxx/include",
+        "include/openkal-llvm-runtime/llvm/libcxxabi/include",
+        "include/openkal-llvm-runtime/llvm/libunwind/include",
+        "include/openkal-llvm-runtime/llvm-generated/generic",
+        "include/openkal-musl/port/include",
+        "include/openkal-musl/musl/include",
+        "include/x86_64-openkal/openkal-musl/musl-generated/x86_64-openkal",
+        "include/x86_64-openkal/openkal-musl/musl/arch/x86_64",
+        "include/openkal-musl/musl/arch/generic",
+        "include/openkal/include",
+        "include/openkal-image/ld/include"
+      ],
+      "arguments": [
+        "-nostdlibinc",
+        "-nostdinc++",
+        "-D_XOPEN_SOURCE=700",
+        "-D__MCPP_TARGET_OPENKAL__=1",
+        "-D__OPENKAL__",
+        "-D__unix__",
+        "-fno-short-wchar"
+      ]
+    },
+    "aarch64-openkal": {
+      "target": "aarch64-unknown-none-elf",
+      "system-include-directories": [
+        "include/openkal-llvm-runtime/port/include",
+        "include/openkal-llvm-runtime/llvm/libcxx/include",
+        "include/openkal-llvm-runtime/llvm/libcxxabi/include",
+        "include/openkal-llvm-runtime/llvm/libunwind/include",
+        "include/openkal-llvm-runtime/llvm-generated/generic",
+        "include/openkal-musl/port/include",
+        "include/openkal-musl/musl/include",
+        "include/aarch64-openkal/openkal-musl/musl-generated/aarch64-openkal",
+        "include/aarch64-openkal/openkal-musl/musl/arch/aarch64",
+        "include/openkal-musl/musl/arch/generic",
+        "include/openkal/include",
+        "include/openkal-image/ld/include"
+      ],
+      "arguments": [
+        "-nostdlibinc",
+        "-nostdinc++",
+        "-D_XOPEN_SOURCE=700",
+        "-D__MCPP_TARGET_OPENKAL__=1",
+        "-D__OPENKAL__",
+        "-D__unix__",
+        "-fno-short-wchar"
+      ]
+    }
+  },
+  "licenses": [
+    "licenses/openkal-llvm-runtime/LICENSE",
+    "licenses/openkal-llvm-runtime/llvm/libcxx/LICENSE.TXT",
+    "licenses/openkal-llvm-runtime/llvm/LICENSE.TXT",
+    "licenses/openkal-llvm-runtime/llvm/libcxxabi/LICENSE.TXT",
+    "licenses/openkal-llvm-runtime/llvm/libunwind/LICENSE.TXT",
+    "licenses/openkal-musl/LICENSE",
+    "licenses/openkal-musl/musl/COPYRIGHT",
+    "licenses/openkal/LICENSE",
+    "licenses/openkal-image/LICENSE"
+  ]
+}
