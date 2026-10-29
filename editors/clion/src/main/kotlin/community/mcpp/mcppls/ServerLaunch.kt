@@ -3,8 +3,7 @@ package community.mcpp.mcppls
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.intellij.execution.configurations.PathEnvironmentVariableUtil
-import com.intellij.ide.plugins.PluginManagerCore
-import com.intellij.openapi.extensions.PluginId
+import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.util.system.CpuArch
 import java.io.File
@@ -22,10 +21,16 @@ internal sealed interface Launch {
     data object Missing : Launch
 }
 
-internal val PLUGIN_ID: PluginId = PluginId.getId("io.github.sunrisepeak.mcppls")
-
-// The payload this installation carries; null when the plugin is not loaded from a directory.
-internal fun carriedPayload(): File? = PluginManagerCore.getPlugin(PLUGIN_ID)?.pluginPath?.resolve("payload")?.toFile()
+// The payload this installation carries, `<plugin>/payload` (looking a plugin up by its id is the platform's internal
+// API): the plugin directory this class's jar is in (`<plugin>/lib/<jar>`), else the one the IDE installs plugins as
+// (`<plugins>/mcppls-clion`, the archive's top directory), which is also the tests' sandbox. Null when neither holds one.
+internal fun carriedPayload(): File? {
+    val fromJar = runCatching {
+        File(Launch::class.java.protectionDomain.codeSource.location.toURI()).parentFile?.parentFile?.resolve("payload")
+    }.getOrNull()
+    val installed = runCatching { PathManager.getPluginsDir().resolve("mcppls-clion/payload").toFile() }.getOrNull()
+    return listOfNotNull(fromJar, installed).firstOrNull { it.resolve("payload.json").isFile }
+}
 
 // The payload platforms (packaging/release.manifest.json): `${process.platform}-${process.arch}` as Node names them.
 internal fun currentPlatform(): String {

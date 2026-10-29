@@ -5,7 +5,7 @@ import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.editor.event.EditorFactoryEvent
 import com.intellij.openapi.editor.event.EditorFactoryListener
 import com.intellij.openapi.fileEditor.FileDocumentManager
@@ -72,7 +72,7 @@ internal class McpplsEditorListener : EditorFactoryListener {
         if (project.isDisposed || !file.isInLocalFileSystem || file.extension?.lowercase() !in CXX_EXTENSIONS) return
         // Off the EDT: the decision reads the payload's manifest and CLion's workspace.
         ApplicationManager.getApplication().executeOnPooledThread {
-            val answered = ReadAction.compute<Boolean, RuntimeException> { !project.isDisposed && OneEngine.answers(project, file) }
+            val answered = runReadAction { !project.isDisposed && OneEngine.answers(project, file) }
             if (answered && resolveLaunch() is Launch.Found) OneEngine.fileOpened(project, file)
         }
     }

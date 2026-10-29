@@ -2,12 +2,10 @@ package community.mcpp.mcppls
 
 import com.intellij.codeInsight.daemon.impl.analysis.FileHighlightingSetting
 import com.intellij.codeInsight.daemon.impl.analysis.HighlightingSettingsPerFile
-import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
@@ -119,22 +117,23 @@ internal fun askedAboutEngines(project: Project): Boolean = McpplsProjectSetting
 // Other plugins that may run a language server for C and C++ (design 2026-10-29 §3.4). A plugin has no public way to
 // stop another plugin's server, so they are named, once per project, with the way to turn them off. Their completion
 // and their diagnostics through the platform's inspections are already left out of a file under "mcppls only".
+//
+// A plugin is known by an extension point it declares, which exists while it is installed and enabled (looking a
+// plugin up by its id is the platform's internal API).
 internal object OtherLanguageServices {
-    data class Candidate(val pluginId: String, val name: String)
+    data class Candidate(val extensionPoint: String, val name: String)
 
     val CANDIDATES = listOf(
-        Candidate("com.redhat.devtools.lsp4ij", "LSP4IJ"),
+        Candidate("com.redhat.devtools.lsp4ij.server", "LSP4IJ"),
     )
 
-    fun active(): List<Candidate> = CANDIDATES.filter { candidate ->
-        val id = PluginId.getId(candidate.pluginId)
-        PluginManagerCore.getPlugin(id) != null && !PluginManagerCore.isDisabled(id)
-    }
+    fun active(): List<Candidate> =
+        CANDIDATES.filter { ApplicationManager.getApplication().extensionArea.hasExtensionPoint(it.extensionPoint) }
 
     fun tellOnce(project: Project) {
         val told = McpplsProjectSettings.of(project).toldAbout
-        for (candidate in active().filter { it.pluginId !in told }) {
-            told += candidate.pluginId
+        for (candidate in active().filter { it.extensionPoint !in told }) {
+            told += candidate.extensionPoint
             NotificationGroupManager.getInstance().getNotificationGroup("mcppls")
                 .createNotification(
                     "mcppls",
