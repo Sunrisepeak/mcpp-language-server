@@ -1,6 +1,9 @@
 package community.mcpp.mcppls
 
 import com.google.gson.JsonObject
+import com.intellij.execution.configurations.GeneralCommandLine
+import com.intellij.execution.configurations.PathEnvironmentVariableUtil
+import com.intellij.execution.util.ExecUtil
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
@@ -11,18 +14,20 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.SystemInfo
 import com.intellij.platform.lsp.api.Lsp4jClient
-import com.intellij.platform.lsp.api.LspServerManager
 import com.intellij.platform.lsp.api.LspServerNotificationsHandler
 import java.awt.datatransfer.StringSelection
-import org.eclipse.lsp4j.ExecuteCommandParams
+import java.io.File
 import org.eclipse.lsp4j.jsonrpc.services.JsonNotification
 
 // The semantic kit of a target (ecosystem design 2026-10-29 §9.2, S3-4-37 to S3-4-40). Without a compiler the server
 // reads a project with the kit of its target; when that kit is not installed it reads with the openkal kit the
 // payload carries -- `import std` and the standard library work, the system's own headers and macros do not -- and
-// its status says so in a `kit-missing` issue, with `askInstall` when it can install the kit in the background
-// (`mcppls.installKit`). This asks, as the VS Code extension does (editors/vscode/src/kitPrompt.ts):
+// its status says so in a `kit-missing` issue, with `askInstall` when xlings is there to install it. This asks, as the
+// VS Code extension does (editors/vscode/src/kitPrompt.ts), and runs the issue's own command (`xlings install
+// mcppls-kit-<target>@<version>`) in the background; the server finds the installed kit by itself within half a
+// minute and reads the project with it (the LSP API's requests are not the same in every CLion this supports):
 //
 //   - never blocking anything: a balloon, which may stay unanswered; the project is served meanwhile;
 //   - once per project for one kit, and never again after "Don't Ask Again";
@@ -30,10 +35,9 @@ import org.eclipse.lsp4j.jsonrpc.services.JsonNotification
 //     Installing Semantic Kits takes it back;
 //   - an answer to a question that no longer applies does nothing.
 //
-// How an install ended is told once, from the status's `kitInstall`.
+// How an install ended is told once.
 
 internal const val KIT_MISSING = "kit-missing"
-internal const val INSTALL_KIT_COMMAND = "mcppls.installKit"
 
 // What the status says of a missing kit.
 internal data class KitIssue(val target: String, val pkg: String, val version: String, val command: String, val message: String, val askInstall: Boolean) {
@@ -97,13 +101,15 @@ internal object KitPrompt {
     // Projects with a question open: the next status does not ask again.
     private val open = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Project, Boolean>())
     // The kit each project still lacks, from its latest status.
-    private val pending = java.util.concurrent.ConcurrentHashMap<Project, String>()
+    private val pending = java.util.concurrent.ConcurrentHashMap<Project, KitIssue>()
+    // Projects with an install running: one at a time.
+    private val installing = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Project, Boolean>())
 
     fun onStatus(project: Project, status: JsonObject) {
         if (project.isDisposed) return
         tellInstall(project, status)
         val issue = kitIssue(status)
-        if (issue != null) pending[project] = issue.target else pending.remove(project)
+        if (issue != null) pending[project] = issue else pending.remove(project)
         val properties = PropertiesComponent.getInstance(project)
         val action = kitAction(issue, properties.getBoolean(KitAnswers.NEVER), properties.getBoolean(KitAnswers.ALWAYS),
             KitAnswers.list(project, KitAnswers.ASKED), project in open)
@@ -111,7 +117,7 @@ internal object KitPrompt {
         // Recorded before the answer: another status while the question is open must not ask again.
         KitAnswers.remember(project, KitAnswers.ASKED, issue.key)
         if (action == KitAction.INSTALL) {
-            install(project, issue.target)
+            install(project, issue)
             return
         }
         open += project
@@ -139,7 +145,7 @@ internal object KitPrompt {
     }
 
     // An answer acts on the kit the project still lacks; one installed meanwhile is left alone (S3-4-21).
-    private fun answer(project: Project, text: String, act: (String) -> Unit) = NotificationAction.createSimpleExpiring(text) {
+    private fun answer(project: Project, text: String, act: (KitIssue) -> Unit) = NotificationAction.createSimpleExpiring(text) {
         open -= project
         pending[project]?.let(act)
     }
@@ -151,15 +157,41 @@ internal object KitPrompt {
         properties.unsetValue(KitAnswers.ASKED)
     }
 
-    // `mcppls.installKit` to every mcppls server of the project, off the EDT.
-    fun install(project: Project, target: String) {
+    // The issue's own command, `xlings install mcppls-kit-<target>@<version>`, run off the EDT; its end is told once.
+    fun install(project: Project, issue: KitIssue) {
+        if (!installing.add(project)) return
         ApplicationManager.getApplication().executeOnPooledThread {
-            if (project.isDisposed) return@executeOnPooledThread
-            val arguments = listOf<Any>(JsonObject().apply { addProperty("target", target) })
-            for (server in LspServerManager.getInstance(project).getServersForProvider(McpplsServerSupportProvider::class.java)) {
-                runCatching { server.sendRequestSync { it.workspaceService.executeCommand(ExecuteCommandParams(INSTALL_KIT_COMMAND, arguments)) } }
+            try {
+                val words = issue.command.split(' ').filter { it.isNotEmpty() }
+                val xlings = findXlings()
+                if (xlings == null || words.size < 3 || words[0] != "xlings") {
+                    tell(project, false, "${issue.pkg} cannot be installed here: xlings is not installed. Install xlings, or unpack the release's " +
+                        "${issue.pkg}-<version>.tar.gz into its store.")
+                    return@executeOnPooledThread
+                }
+                val line = GeneralCommandLine(listOf(xlings.path) + words.drop(1) + "-y")
+                val output = ExecUtil.execAndGetOutput(line, 15 * 60 * 1000)
+                if (output.exitCode == 0 && !output.isTimeout) {
+                    tell(project, true, "${issue.pkg} is installed; the project is read with it within half a minute.")
+                } else {
+                    val why = (output.stderr.ifBlank { output.stdout }).lines().takeLast(6).joinToString("\n")
+                    tell(project, false, "${issue.command} failed${if (output.isTimeout) " (timed out)" else ""}: $why")
+                }
+            } finally {
+                installing.remove(project)
             }
         }
+    }
+
+    private fun findXlings(): File? {
+        PathEnvironmentVariableUtil.findExecutableInPathOnAnyOS("xlings")?.let { return it }
+        val exe = if (SystemInfo.isWindows) "xlings.exe" else "xlings"
+        return File(System.getProperty("user.home"), ".xlings/subos/current/bin/$exe").takeIf { it.isFile }
+    }
+
+    private fun tell(project: Project, installed: Boolean, message: String) {
+        if (project.isDisposed) return
+        group().createNotification("mcppls", message, if (installed) NotificationType.INFORMATION else NotificationType.WARNING).notify(project)
     }
 
     private fun tellInstall(project: Project, status: JsonObject) {

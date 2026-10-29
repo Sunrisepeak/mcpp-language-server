@@ -584,6 +584,9 @@ struct Workspace::Impl final : engine::Host {
     std::optional<Clock::time_point> loadGiveUpAt;       // the producer has not answered: take what there is (design 4.1)
     std::optional<Clock::time_point> lastResortAt;       // nothing at all came: serve without a database rather than nothing
     std::optional<Clock::time_point> sdkCheckAt;
+    // While the kit of the target is missing: when to look again for it, installed by the editor, by hand, or by
+    // another window (a kit appears in xlings' store without this server's own install).
+    std::optional<Clock::time_point> kitCheckAt;
 
     // Model sources (design 4.1). The cache is per source and carries a fingerprint of everything
     // the producer read, so a session can start from it and confirm it in the background.
@@ -1060,6 +1063,7 @@ struct Workspace::Impl final : engine::Host {
         consider(lastResortAt);
         consider(producerSoftAt);
         consider(sdkCheckAt);
+        consider(kitCheckAt);
         consider(statusFlushAt);
         consider(leaseRenewAt);
         consider(tokensRefreshAt);
@@ -3845,6 +3849,8 @@ struct Workspace::Impl final : engine::Host {
             // while the server runs is picked up without a restart.
             if (macosSdk.empty()) sdkCheckAt = Clock::now() + std::chrono::seconds { 30 };
         }
+        kitCheckAt.reset();
+        if (!kitMissingTarget.empty()) kitCheckAt = Clock::now() + std::chrono::seconds { 30 };
         const std::string after { kit ? std::format("{} {}", kit->name, kit->target) : std::string {} };
         if (after == before) return;
         if (!kit) log::warning("no semantic kit serves {} ({})", kitTarget, root);
@@ -3918,6 +3924,26 @@ struct Workspace::Impl final : engine::Host {
             queue->push(Event { EventKind::kit_installed, Json { { "ok", ok }, { "message", message }, { "target", target } }, 0, {}, rootKey });
         } }.detach();
         return true;
+    }
+
+    // The kits installed since they were read: the target's kit, installed by the editor itself or by hand, is taken
+    // without a restart; the project is read again with it.
+    void look_for_kits() {
+        if (kitInstalling || payloadCorrupt || !kitEnabled) {
+            if (!kitMissingTarget.empty()) kitCheckAt = Clock::now() + std::chrono::seconds { 30 };
+            return;
+        }
+        if (engine::kit_roots(payload) == payload.kits) {
+            if (!kitMissingTarget.empty()) kitCheckAt = Clock::now() + std::chrono::seconds { 30 };
+            return;
+        }
+        const std::string before { kit ? kit->root : std::string {} };
+        read_kits();
+        select_kit();
+        if ((kit ? kit->root : std::string {}) == before) return;
+        log::info("a semantic kit was installed; reading the project with {} ({})", kit ? kit->name : std::string { "none" }, root);
+        schedule_reload();
+        update_status();
     }
 
     void kit_installed(const Json& outcome) {
@@ -4589,6 +4615,10 @@ struct Workspace::Impl final : engine::Host {
             // A request, not a notification (LSP 3.16): its answer carries nothing, and an id the session cannot
             // parse as an engine's is dropped, like the watcher registrations' answers.
             client.send(lsp::make_request(std::format("w:{}:t{}", key, ++tokensRefreshes), lsp::method::WORKSPACE_SEMANTIC_TOKENS_REFRESH, nullptr));
+        }
+        if (kitCheckAt && *kitCheckAt <= now) {
+            kitCheckAt.reset();
+            look_for_kits();
         }
         if (sdkCheckAt && *sdkCheckAt <= now) {
             sdkCheckAt.reset();

@@ -75,7 +75,7 @@ Zed 自带 C/C++ 的 clangd，不做第 2 步它会和 mcppls 同时跑在同一
 
 对没有构建系统配置的文件夹，CLion 自身的引擎也会按默认编译器分析，因此在 mcppls 回答的文件里，问题和补全会出现两份。项目里第一次出现这样的文件时，插件询问一次：*Use mcppls only in this project*、*Always use mcppls only* 或 *Keep both*。回答之前不做任何改动。"mcppls only" 把这些文件的高亮级别设为 Syntax——即 CLion 检查组件里的级别，CLion 的引擎也遵循它，于是在这些文件里只报语法错误——并让补全列表只留 mcppls 的条目和 Live Template；语法着色、行标记和 mcppls 的诊断保留。Settings | Tools | mcppls 可以为所有项目或当前项目修改这个回答；Tools | mcppls 里有 *Use mcppls Only in This Project* 和 *Restore CLion's Engine in This Project*，恢复时把每个文件写回原来的级别，用户之后改过的文件不动。另一个可能为 C/C++ 运行语言服务器的插件（LSP4IJ）每个项目提示一次，并说明关闭的办法。要在某个项目里无论如何都关掉 mcppls，就在 Settings | Plugins 里只为这个项目禁用插件（[editors/clion/README.md](../../editors/clion/README.md#keeping-mcppls-off-for-one-project)）。
 
-项目目标的语义工具包与 VS Code 一样询问，以气泡给出 *Install*、*Always Install Kits*、*Copy Command* 和 *Don't Ask Again*；Tools | mcppls | *Ask Before Installing Semantic Kits* 撤回这些回答。插件为此声明 `experimental.cxxModules`，不读服务端状态的其他部分。
+项目目标的语义工具包与 VS Code 一样询问，以气泡给出 *Install*、*Always Install Kits*、*Copy Command* 和 *Don't Ask Again*；*Install* 在后台运行 `xlings install mcppls-kit-<target>@<version>`，服务端在半分钟内发现装好的工具包。Tools | mcppls | *Ask Before Installing Semantic Kits* 撤回这些回答。插件为此声明 `experimental.cxxModules`，不读服务端状态的其他部分。
 
 ## 其他 LSP 客户端
 

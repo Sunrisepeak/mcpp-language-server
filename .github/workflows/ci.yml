@@ -134,16 +134,22 @@ jobs:
       - name: The tests, built once and archived
         run: |
           set -euo pipefail
-          mkdir -p tests
-          # The server's own, then each member's that has tests.
-          for package in '' pack devtools model-gateway; do
-            name=${package:-mcppls}
-            echo "::group::$name"
-            mcpp test ${package:+-p "$package"} --profile ${{ matrix.profile }} --target ${{ matrix.target }} \
-                --no-run --archive "tests/$name.tar.gz"
+          mkdir -p test-archives
+          common=(--profile ${{ matrix.profile }} --target ${{ matrix.target }} --no-run)
+          # The server's own tests by the first letter of their names (`mcpp test <pattern>`): mcpp writes an archive
+          # as one gzip stream of at most 4 GiB, and the server's dev tests with their debug information are more.
+          for letter in $(ls tests/test_*.cpp | sed 's,tests/test_\(.\).*,\1,' | sort -u); do
+            echo "::group::mcppls test_$letter"
+            mcpp test "test_$letter" "${common[@]}" --archive "test-archives/mcppls-$letter.tar.gz"
             echo "::endgroup::"
           done
-          ls -l tests
+          # Then each member's that has tests.
+          for package in pack devtools model-gateway; do
+            echo "::group::$package"
+            mcpp test -p "$package" "${common[@]}" --archive "test-archives/$package.tar.gz"
+            echo "::endgroup::"
+          done
+          ls -l test-archives
       # The repository's invariants (docs/93-devtools.md): versions agree everywhere, the platform
       # surface is six constants, members depend only downward and nothing but devtools reaches
       # packaging, no script outside the allowlist -- and the server's own symbol table carries no
@@ -164,7 +170,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: tests-${{ matrix.platform }}-${{ matrix.profile }}
-          path: tests
+          path: test-archives
           retention-days: 7
       # A tarball keeps executable bits, which an artifact zip does not.
       - name: The test tools of ${{ matrix.platform }}
@@ -207,12 +213,12 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: tests-${{ matrix.platform }}-${{ matrix.profile }}
-          path: tests
+          path: test-archives
       - name: Run the archived tests
         run: |
           set -euo pipefail
           failed=''
-          for archive in tests/*.tar.gz; do
+          for archive in test-archives/*.tar.gz; do
             echo "::group::$archive"
             if ! mcpp test --archive "$archive"; then failed="$failed $(basename "$archive" .tar.gz)"; fi
             echo "::endgroup::"

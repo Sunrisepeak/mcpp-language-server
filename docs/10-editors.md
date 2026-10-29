@@ -179,9 +179,10 @@ is, disable the plugin for that project in Settings | Plugins
 ([editors/clion/README.md](../editors/clion/README.md#keeping-mcppls-off-for-one-project)).
 
 The semantic kit of a project's target is asked about as in VS Code, in a balloon with *Install*,
-*Always Install Kits*, *Copy Command* and *Don't Ask Again*; Tools | mcppls | *Ask Before Installing
-Semantic Kits* takes the answers back. The plugin declares `experimental.cxxModules` for this and
-reads nothing else of the server's status.
+*Always Install Kits*, *Copy Command* and *Don't Ask Again*; *Install* runs `xlings install
+mcppls-kit-<target>@<version>` in the background, and the server finds the installed kit within half
+a minute. Tools | mcppls | *Ask Before Installing Semantic Kits* takes the answers back. The plugin
+declares `experimental.cxxModules` for this and reads nothing else of the server's status.
 
 ## Any other LSP client
 

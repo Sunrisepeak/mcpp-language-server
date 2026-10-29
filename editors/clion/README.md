@@ -61,8 +61,9 @@ With none of them, the plugin says so once per project and starts nothing.
 The plugin declares `experimental.cxxModules` and reads one thing of the server's status: a
 `kit-missing` issue. Without a compiler a project reads with the semantic kit of its target, and with
 the openkal kit until that one is installed; the plugin then asks once per kit, in a balloon:
-*Install* (the server installs it in the background with xlings), *Always Install Kits*, *Copy
-Command* and *Don't Ask Again*, and says once how the install ended. Tools | mcppls | *Ask Before
+*Install* (the plugin runs the issue's `xlings install mcppls-kit-<target>@<version>` in the
+background, and the server finds the installed kit within half a minute), *Always Install Kits*,
+*Copy Command* and *Don't Ask Again*, and says once how the install ended. Tools | mcppls | *Ask Before
 Installing Semantic Kits* takes the answers back (`KitInstall.kt`).
 
 CLion 2026.1 and later are supported (`sinceBuild` 261). The plugin is built against CLion 2026.2.3
