@@ -1,28 +1,72 @@
 name: The payload
 description: >-
-  Download a platform's payload artifact and unpack it (payload/ and stage/): the one this run built,
-  or the one another run of this repository built (nightly's `payload-run`, which tests a pull
-  request's own bytes instead of building them again).
+  Download the payload artifact (payload/, one for every platform) and this platform's test tools (stage/), and unpack
+  them: the ones this run built, or the ones another run of this repository built (nightly's `payload-run`, which tests
+  a pull request's own bytes instead of building them again). With `kit`, this platform's target kit is put where xlings
+  installs it, as on a machine whose person agreed to install it.
 inputs:
   platform:
-    description: The payload's platform (linux-x64, linux-arm64, darwin-arm64, win32-x64)
+    description: The platform whose test tools to unpack (linux-x64, linux-arm64, darwin-arm64, win32-x64)
     required: true
   run-id:
-    description: The run that built it; empty for this run
+    description: The run that built them; empty for this run
     default: ''
+  kit:
+    description: Also install this platform's target kit (mcppls-kit-<target>) into the xlings store
+    default: 'false'
 runs:
   using: composite
   steps:
     - if: inputs.run-id == ''
       uses: actions/download-artifact@v8
       with:
-        name: payload-${{ inputs.platform }}
+        name: payload
     - if: inputs.run-id != ''
       uses: actions/download-artifact@v8
       with:
-        name: payload-${{ inputs.platform }}
+        name: payload
         run-id: ${{ inputs.run-id }}
         github-token: ${{ github.token }}
-    - name: Unpack the payload
+    - if: inputs.run-id == ''
+      uses: actions/download-artifact@v8
+      with:
+        name: stage-${{ inputs.platform }}
+    - if: inputs.run-id != ''
+      uses: actions/download-artifact@v8
+      with:
+        name: stage-${{ inputs.platform }}
+        run-id: ${{ inputs.run-id }}
+        github-token: ${{ github.token }}
+    - if: inputs.kit == 'true' && inputs.run-id == ''
+      uses: actions/download-artifact@v8
+      with:
+        name: kit-${{ inputs.platform }}
+        path: kit-archive
+    - if: inputs.kit == 'true' && inputs.run-id != ''
+      uses: actions/download-artifact@v8
+      with:
+        name: kit-${{ inputs.platform }}
+        path: kit-archive
+        run-id: ${{ inputs.run-id }}
+        github-token: ${{ github.token }}
+    - name: Unpack the payload and the test tools
       shell: bash
-      run: tar -xzf payload-${{ inputs.platform }}.tar.gz
+      run: |
+        set -euo pipefail
+        tar -xzf payload.tar.gz
+        tar -xzf stage-${{ inputs.platform }}.tar.gz
+        ls payload stage
+    # As `xlings install mcppls-kit-<target>@<version>` leaves it: <store>/xim-x-mcppls-kit-<target>/<version>/kit.json.
+    - name: This platform's target kit, installed
+      if: inputs.kit == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        archive=$(ls kit-archive/mcppls-kit-*.tar.gz)
+        name=$(basename "$archive" .tar.gz)
+        version=${name##*-}; target=${name%-*}; target=${target#mcppls-kit-}
+        store="$HOME/.xlings/data/xpkgs/xim-x-mcppls-kit-$target/$version"
+        mkdir -p "$store"
+        tar -xzf "$archive" -C "$store" --strip-components 1
+        test -f "$store/kit.json"
+        echo "the kit of $target, $version, at $store"

@@ -1,10 +1,13 @@
 name: Set up mcpp
-description: Install xlings, the pinned mcpp and the pinned LLVM toolchain, with the package store cached.
+description: >-
+  Install xlings, the pinned mcpp (or the mcpp a branch of mcpp-community/mcpp builds, MCPP_SOURCE_REF) and the pinned
+  LLVM toolchain, with the package store cached.
 runs:
   using: composite
   steps:
     # One source for the build pins (.github/versions.env). A workflow that set one of them keeps
-    # its value, which is how nightly asks for `latest` without editing anything here.
+    # its value, which is how nightly asks for `latest` and a dispatch for another branch of mcpp
+    # without editing anything here.
     - name: Version pins
       shell: bash
       run: |
@@ -39,3 +42,52 @@ runs:
     - name: Install mcpp and LLVM
       shell: bash
       run: bash .github/scripts/install-mcpp.sh
+    # A branch of mcpp under review (MCPP_SOURCE_REF): the latest released mcpp builds it, once per commit and
+    # system, and it is the mcpp of every step after this one. The commit is the cache key, so the jobs of one run
+    # build it once (ci.yml's `mcpp` job) and a later commit of the branch is built again.
+    - name: The branch of mcpp under review
+      id: source
+      if: env.MCPP_SOURCE_REF != ''
+      shell: bash
+      run: |
+        set -euo pipefail
+        commit=$(git ls-remote https://github.com/mcpp-community/mcpp.git "refs/heads/$MCPP_SOURCE_REF" | cut -f1)
+        [ -n "$commit" ] || { echo "::error::mcpp-community/mcpp has no branch $MCPP_SOURCE_REF"; exit 1; }
+        echo "commit=$commit" >> "$GITHUB_OUTPUT"
+        echo "$MCPP_SOURCE_REF is $commit"
+    - name: Cache the mcpp under review
+      id: source-cache
+      if: env.MCPP_SOURCE_REF != ''
+      uses: actions/cache@v6
+      with:
+        path: ~/mcpp-under-review
+        key: mcpp-source-${{ runner.os }}-${{ runner.arch }}-${{ steps.source.outputs.commit }}
+    - name: Build the mcpp under review
+      if: env.MCPP_SOURCE_REF != '' && steps.source-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        src="$RUNNER_TEMP/mcpp-src"
+        rm -rf "$src"
+        git clone --quiet --depth 1 --branch "$MCPP_SOURCE_REF" https://github.com/mcpp-community/mcpp.git "$src"
+        rm -f "$src/.xlings.json"
+        ( cd "$src" && mcpp build --release )
+        built=$(find "$src/target" -type f \( -name mcpp -o -name mcpp.exe \) -path '*/bin/*' | head -1)
+        [ -n "$built" ] || { echo "::error::mcpp did not build from $MCPP_SOURCE_REF"; exit 1; }
+        mkdir -p ~/mcpp-under-review
+        cp "$built" ~/mcpp-under-review/
+        rm -rf "$src"
+    - name: Use the mcpp under review
+      if: env.MCPP_SOURCE_REF != ''
+      shell: bash
+      run: |
+        set -euo pipefail
+        bin="$HOME/mcpp-under-review"
+        [ "$RUNNER_OS" = Windows ] && bin=$(cygpath -w "$bin")
+        echo "$bin" >> "$GITHUB_PATH"
+        # The store the released mcpp provisioned is the one this mcpp reads.
+        home="$HOME/.mcpp"; [ "$RUNNER_OS" = Windows ] && home=$(cygpath -w "$home")
+        echo "MCPP_HOME=$home" >> "$GITHUB_ENV"
+        exe=''; [ "$RUNNER_OS" = Windows ] && exe='.exe'
+        MCPP_HOME="$home" "$HOME/mcpp-under-review/mcpp$exe" --version
+        MCPP_HOME="$home" "$HOME/mcpp-under-review/mcpp$exe" toolchain default "llvm@$LLVM_VERSION"

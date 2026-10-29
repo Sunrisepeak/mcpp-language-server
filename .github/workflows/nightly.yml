@@ -75,6 +75,7 @@ jobs:
         with:
           platform: ${{ matrix.platform }}
           run-id: ${{ inputs.payload-run }}
+          kit: 'true'
       - name: Three cold and warm starts
         run: |
           set -euo pipefail
@@ -118,6 +119,7 @@ jobs:
         with:
           platform: linux-x64
           run-id: ${{ inputs.payload-run }}
+          kit: 'true'
       - name: The mcpp fixtures
         run: |
           set -euo pipefail
@@ -178,7 +180,7 @@ jobs:
           work=/tmp/termux-report
           rm -rf "$work" && mkdir -p "$work" && cp -R conformance/fixtures/inferred "$work/project"
           rm -f "$work/project/scenario.json"
-          MCPPLS_CACHE_DIR="$work/cache" payload/bin/okrun payload/bin/mcppls.okb report --root "$work/project" \
+          MCPPLS_CACHE_DIR="$work/cache" payload/libexec/okrun/linux-aarch64/okrun payload/bin/mcppls.okb report --root "$work/project" \
               --settle 20 --payload /work/payload > "$work/report.json" 2> "$work/report.err"
           tail -5 "$work/report.err"
           if grep -q -e 'not supported' -e 'outside every preopened' -e 'no preopened directory is named' "$work/report.json" "$work/report.err"; then
@@ -263,6 +265,7 @@ jobs:
         with:
           platform: ${{ matrix.platform }}
           run-id: ${{ inputs.payload-run }}
+          kit: 'true'
       - name: The fixture, timed
         run: |
           set -euo pipefail
@@ -319,6 +322,7 @@ jobs:
         with:
           platform: linux-x64
           run-id: ${{ inputs.payload-run }}
+          kit: 'true'
       # ux-baseline: the release's own server and stage tools, beside this run's; its own workspace
       # and cache, since the two servers' caches are not each other's.
       - name: The baseline release
@@ -328,11 +332,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/baseline"
-          gh release download '${{ inputs.ux-baseline }}' --repo '${{ github.repository }}' --pattern payload-linux-x64.tar.gz --dir "$RUNNER_TEMP/baseline"
-          tar -xzf "$RUNNER_TEMP/baseline/payload-linux-x64.tar.gz" -C "$RUNNER_TEMP/baseline"
-          # The release's server as its payload.json names it: a program, or an image and its runner.
+          # A release's payload: one for every platform from 0.0.20 (mcppls-payload-<version>.tar.gz), one per platform before.
+          gh release download '${{ inputs.ux-baseline }}' --repo '${{ github.repository }}' --pattern 'mcppls-payload-*.tar.gz' --dir "$RUNNER_TEMP/baseline" \
+            || gh release download '${{ inputs.ux-baseline }}' --repo '${{ github.repository }}' --pattern payload-linux-x64.tar.gz --dir "$RUNNER_TEMP/baseline"
+          tar -xzf "$(ls "$RUNNER_TEMP"/baseline/*payload*.tar.gz | head -1)" -C "$RUNNER_TEMP/baseline"
+          # The release's server as its payload.json names it: a program, or an image and this platform's runner.
           baseline="$RUNNER_TEMP/baseline/payload"
-          runner=$(jq -r '.server.runner // empty' "$baseline/payload.json")
+          runner=$(jq -r '.platforms["linux-x64"].runner // .server.runner // empty' "$baseline/payload.json")
           ${runner:+"$baseline/$runner"} "$baseline/$(jq -r .server.path "$baseline/payload.json")" --version
       - name: The stages
         env:
@@ -433,6 +439,7 @@ jobs:
         with:
           platform: linux-x64
           run-id: ${{ inputs.payload-run }}
+          kit: 'true'
       - uses: actions/download-artifact@v8
         with:
           pattern: nightly-ux-ux-*-[123]
