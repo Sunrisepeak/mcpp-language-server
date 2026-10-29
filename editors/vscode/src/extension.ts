@@ -29,6 +29,7 @@ import {
 import { TransportWriter } from './transportWriter';
 import { CommandLineToolsController, withInstallCommandFallback } from './commandLineTools';
 import { DownloadPromptController } from './downloadPrompt';
+import { KitPromptController } from './kitPrompt';
 import { declaresModules, editorEnvironment, exportDiagnosticBundle, extensionEnvironment, registerCommands, reloadBuildDescription } from './commands';
 import { fetchCacheReport } from './cacheHubView';
 import { CompletionReady, completionStillWanted, sendTriggeredCompletion } from './completionGate';
@@ -660,6 +661,10 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     const downloadPrompt = new DownloadPromptController(context, (line) => host.log(line));
     status.onUpdate((current) => downloadPrompt.onStatus(current));
     context.subscriptions.push(vscode.commands.registerCommand('mcppls.askBeforeDownloading', () => downloadPrompt.askBeforeDownloading()));
+    // Ecosystem design §9.2: the semantic kit of a target, installed in the background once the person agrees.
+    const kitPrompt = new KitPromptController(context, (line) => host.log(line));
+    status.onUpdate((current) => kitPrompt.onStatus(current));
+    context.subscriptions.push(vscode.commands.registerCommand('mcppls.askBeforeInstallingKits', () => kitPrompt.askBeforeInstalling()));
 
     let latestConflictCheck: Promise<ConflictCheck> = Promise.resolve('none-found');
     // Conflicts can appear or disappear after activation (another extension

@@ -8,8 +8,9 @@
         project is built — mcpp, CMake, a compile_commands.json, or nothing — into one module
         description, drives its own pinned clangd with it, and answers module-level requests.
         <br/><br/>
-        The plugin carries the server, its pinned clangd and the semantic kit for the system it is installed
-        on: nothing else to install. A file is answered by one engine: projects CLion models (CMake, a
+        The plugin carries the server, its pinned clangd for every system and the openkal semantic kit: nothing else
+        to install. Where no compiler is found, a project is read with the semantic kit of its target; the kit of
+        this system is installed in the background once you agree, and meanwhile the openkal kit reads the files. A file is answered by one engine: projects CLion models (CMake, a
         compilation database, Makefile) stay CLion's, every other project is mcppls's, and in those files
         the plugin asks once whether CLion's own engine should stop answering them
         (Settings | Tools | mcppls).
@@ -46,6 +47,9 @@
             <action id="community.mcpp.mcppls.RestoreClionEngine" class="community.mcpp.mcppls.RestoreClionEngineAction"
                     text="Restore CLion's Engine in This Project"
                     description="CLion's own C/C++ engine answers the files mcppls answers again, as before"/>
+            <action id="community.mcpp.mcppls.AskBeforeInstallingKits" class="community.mcpp.mcppls.AskBeforeInstallingKitsAction"
+                    text="Ask Before Installing Semantic Kits"
+                    description="A semantic kit this project lacks is asked about again before it is installed"/>
         </group>
     </actions>
 </idea-plugin>

@@ -256,6 +256,11 @@
         "category": "C++ Modules"
       },
       {
+        "command": "mcppls.askBeforeInstallingKits",
+        "title": "%command.mcppls.askBeforeInstallingKits.title%",
+        "category": "C++ Modules"
+      },
+      {
         "command": "mcppls.turnOffOtherCppFeatures",
         "title": "%command.mcppls.turnOffOtherCppFeatures.title%",
         "category": "C++ Modules"
