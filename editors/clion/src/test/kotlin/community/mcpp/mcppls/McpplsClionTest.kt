@@ -3,6 +3,10 @@ package community.mcpp.mcppls
 import com.intellij.codeInsight.completion.CodeCompletionHandlerBase
 import com.intellij.codeInsight.completion.CompletionType
 import com.intellij.codeInsight.daemon.impl.HighlightInfo
+import com.intellij.codeInsight.daemon.impl.analysis.FileHighlightingSetting
+import com.intellij.codeInsight.daemon.impl.analysis.HighlightingSettingsPerFile
+import com.intellij.codeInsight.lookup.LookupElementBuilder
+import com.intellij.codeInsight.lookup.LookupElementDecorator
 import com.intellij.codeInsight.lookup.LookupManager
 import com.intellij.notification.Notification
 import com.intellij.notification.Notifications
@@ -15,6 +19,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.lsp.api.LspServer
 import com.intellij.platform.lsp.api.LspServerManager
 import com.intellij.platform.lsp.api.LspServerState
+import com.intellij.psi.PsiManager
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.TestApplicationManager
 import com.intellij.testFramework.UsefulTestCase
@@ -34,15 +39,17 @@ import org.eclipse.lsp4j.Position
 import org.eclipse.lsp4j.jsonrpc.messages.Either
 
 // mcppls inside a running CLion (plugin/CL-3 in the 0.0.8 part 2 plan): the platform's own test
-// framework opens a real directory project in a headless CLion and the plugin starts the server of the
-// payload installed in the test's user data directory, which CI sets to the payload it built: its image,
-// through the platform's runner, as its payload.json says.
+// framework opens a real directory project in a headless CLion, whose sandbox holds this machine's
+// package of the plugin with the payload CI built inside it (design 2026-10-29 §2), and the plugin
+// starts that payload's server: its image, through the platform's runner, as its payload.json says.
 //
 // Four things are asserted of an mcpp project: the server is Running within a minute of opening a
 // module, a wrong import gets mcppls's diagnostic, `import ` completes a module name from mcppls, and
-// closing the project ends the process. Two more of the one-engine rule (McpplsServerSupportProvider):
-// a CMake project is CLion's and gets no server, and with the setting on it gets both engines and one
-// notice. What CLion's own engine answers for the same file is printed, not asserted.
+// closing the project ends the process. The one-engine rule (McpplsServerSupportProvider, OneEngine):
+// a CMake project is CLion's and gets no server; with the setting on it gets mcppls too and the one
+// question; "mcppls only" lowers a file's highlighting level to Syntax and keeps mcppls's diagnostics,
+// and restoring puts back what was there. What CLion's own engine answers for the same file is
+// printed, not asserted: headless CLion's engine does not answer (design 2026-10-29 §1.4).
 class McpplsClionTest : UsefulTestCase() {
     private lateinit var fixture: CodeInsightTestFixture
     private lateinit var projectDir: Path
@@ -54,11 +61,13 @@ class McpplsClionTest : UsefulTestCase() {
         super.setUp()
         TestApplicationManager.getInstance()
         settings.alsoForModelledProjects = false
+        settings.engines = Engines.ASK
     }
 
     override fun tearDown() {
         try {
             settings.alsoForModelledProjects = false
+            settings.engines = Engines.ASK
             if (::fixture.isInitialized && !closed) fixture.tearDown()
         } finally {
             super.tearDown()
@@ -137,24 +146,58 @@ class McpplsClionTest : UsefulTestCase() {
         println("CLION-ENGINE-EVIDENCE [$what] completions: $completions")
     }
 
-    // payload.json's `server` is what starts: the image through the runner it names, or a program.
-    fun testTheInstalledPayloadStartsWhatItsManifestNames() {
+    // payload.json's `server` is what starts: the image through the runner it names, or a program; a payload built
+    // for another system is refused; MCPPLS_SERVER comes first and PATH last.
+    fun testThePayloadStartsWhatItsManifestNames() {
         val payload = Files.createTempDirectory("mcppls-payload").toFile()
         try {
             val bin = payload.resolve("bin").also { it.mkdirs() }
-            val runner = bin.resolve("okrun").also { it.writeText("runner"); it.setExecutable(true) }
+            val runner = bin.resolve("okrun").also { it.writeText("runner") }
             val image = bin.resolve("mcppls.okb").also { it.writeText("okb") }
-            payload.resolve("payload.json").writeText("""{"server": {"path": "bin/mcppls.okb", "runner": "bin/okrun"}}""")
-            assertEquals(listOf(runner.path, image.path), installedServer(payload))
+            payload.resolve("payload.json").writeText("""{"platform": "linux-x64", "server": {"path": "bin/mcppls.okb", "runner": "bin/okrun"}}""")
+            assertEquals(listOf(runner.path, image.path), serverCommand(payload))
+            assertTrue("the runner's executable bit is put back", runner.canExecute())
+            assertEquals(Launch.Found(listOf(runner.path, image.path), "payload"), payloadLaunch(payload, "linux-x64"))
+            assertTrue("another system's payload is refused", payloadLaunch(payload, "win32-x64") is Launch.Refused)
             image.delete()
-            assertNull("an image that is not there is not started", installedServer(payload))
-            val program = bin.resolve("mcppls").also { it.writeText("program"); it.setExecutable(true) }
+            assertNull("an image that is not there is not started", serverCommand(payload))
+            assertTrue(payloadLaunch(payload, "linux-x64") is Launch.Refused)
+            val program = bin.resolve("mcppls").also { it.writeText("program") }
             payload.resolve("payload.json").writeText("""{"server": {"path": "bin/mcppls"}}""")
-            assertEquals(listOf(program.path), installedServer(payload))
-            assertNull("no payload, nothing", installedServer(payload.resolve("missing")))
+            assertEquals(listOf(program.path), serverCommand(payload))
+
+            val elsewhere = File("/usr/bin/env")
+            val onPath = { elsewhere }
+            assertEquals(Launch.Found(listOf(program.path), "MCPPLS_SERVER"),
+                resolveLaunch(mapOf("MCPPLS_SERVER" to program.path), payload, "linux-x64", onPath))
+            assertTrue(resolveLaunch(mapOf("MCPPLS_SERVER" to "relative/mcppls"), payload, "linux-x64", onPath) is Launch.Refused)
+            assertEquals(Launch.Found(listOf(program.path), "payload"), resolveLaunch(emptyMap(), payload, "linux-x64", onPath))
+            assertEquals(Launch.Found(listOf(elsewhere.path), "PATH"), resolveLaunch(emptyMap(), payload.resolve("missing"), "linux-x64", onPath))
+            assertEquals(Launch.Missing, resolveLaunch(emptyMap(), null, "linux-x64") { null })
         } finally {
             payload.deleteRecursively()
         }
+    }
+
+    // This machine's package carries the payload, and that is what the plugin starts.
+    fun testTheSandboxPackageCarriesItsPayload() {
+        if (System.getProperty("mcppls.carriesPayload") != "true") {
+            println("no payload for this machine (MCPPLS_PAYLOAD unset): the package carries none here")
+            return
+        }
+        val carried = checkNotNull(carriedPayload()) { "the plugin is loaded from a directory" }
+        assertTrue("payload.json at ${carried.path}", carried.resolve("payload.json").isFile)
+        val launch = resolveLaunch()
+        assertTrue("the carried payload starts: $launch", launch is Launch.Found && launch.source == "payload")
+    }
+
+    // What "mcppls only" keeps: mcppls's items, through the decorators the platform wraps them in, and live
+    // templates; nothing else.
+    fun testMcpplsOnlyKeepsMcpplsItems() {
+        assertFalse("another engine's item", keeps(LookupElementBuilder.create("other")))
+        val marked = markAsMcppls(LookupElementBuilder.create("hello.greet"))
+        assertTrue(keeps(marked))
+        assertTrue("through a decorator", keeps(LookupElementDecorator.withInsertHandler(marked) { _, _ -> }))
     }
 
     fun testMcppProjectIsMcpplss() {
@@ -176,6 +219,10 @@ class McpplsClionTest : UsefulTestCase() {
         var names = emptyList<String>()
         waitFor("a completion of `hello.greet`", 120) { names = mcpplsCompletions(); "hello.greet" in names }
         println("MCPPLS-COMPLETION " + names.take(20))
+
+        // Nothing was decided, so the project was asked, once, and no level was changed.
+        waitFor("the project asked about the engines", 30) { askedAboutEngines(project) }
+        assertTrue(McpplsProjectSettings.of(project).lowered.isEmpty())
 
         // (4) closing the project ends the process.
         closeProject()
@@ -237,7 +284,7 @@ class McpplsClionTest : UsefulTestCase() {
         assertTrue("no mcppls for a project CLion models", servers().isEmpty())
     }
 
-    fun testCMakeProjectWithTheSwitchOnHasBothEnginesAndOneNotice() {
+    fun testCMakeProjectWithTheSwitchOnHasMcpplsAndOneQuestion() {
         settings.alsoForModelledProjects = true
         open("cmake")
         val notices = mutableListOf<Notification>()
@@ -250,15 +297,52 @@ class McpplsClionTest : UsefulTestCase() {
         fixture.openFileInEditor(file("src/main.cpp"))
         fixture.openFileInEditor(file("src/greet/greet.cppm"))
         waitFor("a running mcppls", 60) { running() }
-        // The plugin's own decision that both engines answer, made once per project. The balloon itself is the
+        // The plugin's own decision to ask about the engines, made once per project. The balloon itself is the
         // platform's to deliver, and headless CLion's message bus did not always within 30 s (CI runs 36782178214,
         // 36797333606), so its count is only held to never more than one.
-        waitFor("the project told that both engines answer", 30) { toldAboutTwoEngines(project) }
+        waitFor("the project asked about the engines", 30) { askedAboutEngines(project) }
         val settled = System.currentTimeMillis() + 3_000
         while (System.currentTimeMillis() < settled) {
             PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
             Thread.sleep(100)
         }
         assertTrue("one notice per project at most: $notices", notices.size <= 1)
+    }
+
+    // "mcppls only": the files mcppls answers go to Syntax, mcppls's diagnostics stay, and restoring puts back what
+    // was there -- but not where the user set the level since.
+    fun testMcpplsOnlyLowersTheLevelAndRestoringPutsItBack() {
+        open("mcpp")
+        val levels = HighlightingSettingsPerFile.getInstance(project)
+        fun level(relative: String) = levels.getHighlightingSettingForRoot(checkNotNull(PsiManager.getInstance(project).findFile(file(relative))))
+        val before = level("src/broken.cpp")
+
+        OneEngine.choose(project, Engines.MCPPLS_ONLY)
+        fixture.openFileInEditor(file("src/broken.cpp"))
+        waitFor("a running mcppls", 60) { running() }
+        waitFor("broken.cpp at Syntax", 30) { level("src/broken.cpp") == FileHighlightingSetting.SKIP_INSPECTION }
+        assertEquals(before.name, McpplsProjectSettings.of(project).lowered[file("src/broken.cpp").url])
+        waitFor("mcppls's diagnostic at Syntax", 120) { highlights().any { it.description?.contains("missing.module") == true } }
+
+        fixture.openFileInEditor(file("src/scratch.cpp"))
+        waitFor("scratch.cpp at Syntax", 30) { level("src/scratch.cpp") == FileHighlightingSetting.SKIP_INSPECTION }
+        // The user sets scratch.cpp to None themselves.
+        levels.setHighlightingSettingForRoot(checkNotNull(PsiManager.getInstance(project).findFile(file("src/scratch.cpp"))), FileHighlightingSetting.SKIP_HIGHLIGHTING)
+
+        OneEngine.choose(project, Engines.BOTH)
+        waitFor("broken.cpp back to its level", 30) { level("src/broken.cpp") == before }
+        assertEquals("the user's level stays", FileHighlightingSetting.SKIP_HIGHLIGHTING, level("src/scratch.cpp"))
+        assertTrue(McpplsProjectSettings.of(project).lowered.isEmpty())
+    }
+
+    // "Always use mcppls only" is the application's answer: a project with none of its own follows it unasked.
+    fun testEverywhereIsTheApplicationsAnswer() {
+        open("mcpp")
+        OneEngine.choose(project, Engines.MCPPLS_ONLY, everywhere = true)
+        assertEquals(Engines.MCPPLS_ONLY, settings.engines)
+        assertNull("the project follows the application", McpplsProjectSettings.of(project).engines)
+        assertEquals(Engines.MCPPLS_ONLY, McpplsProjectSettings.of(project).effective)
+        assertTrue(OneEngine.mcpplsOnly(project, file("src/broken.cpp")))
+        assertFalse("not a C++ file", OneEngine.mcpplsOnly(project, file("mcpp.toml")))
     }
 }

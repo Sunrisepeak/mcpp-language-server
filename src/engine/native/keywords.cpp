@@ -32,14 +32,11 @@ constexpr std::array<Keyword, 6> KEYWORDS { {
     { "module :private;", "module :private;", "start the private module fragment", false },
 } };
 
-// What the text before a line says about it: whether it is at global scope, and whether anything
-// but comments and blanks comes before it. Braces are counted outside comments, string and
-// character literals, and preprocessor lines (a macro's braces are not the file's).
-struct Before {
-    int depth { 0 };
-    bool inComment { false };   // the line starts inside a block comment
-    bool anything { false };    // a token or a preprocessor line comes before the line
-};
+bool has_private_fragment(std::string_view text) {
+    return text.find("module :private") != std::string_view::npos || text.find("module:private") != std::string_view::npos;
+}
+
+} // namespace
 
 Before read_before(std::string_view text) {
     Before before;
@@ -78,19 +75,23 @@ Before read_before(std::string_view text) {
                 if (text[back] != '\\') break;
                 ++end;
             }
-            if (end == std::string_view::npos) break;
+            before.continued = end == std::string_view::npos;
+            if (before.continued) break;
             i = end - 1;
             continue;
         }
         lineStart = false;
+        before.last = c;
         if (c == 'R' && i + 1 < text.size() && text[i + 1] == '"' && (i == 0 || !is_word_char(text[i - 1]) || text[i - 1] == '8'
                                                                     || text[i - 1] == 'u' || text[i - 1] == 'U' || text[i - 1] == 'L')) {
             // A raw string literal: R"delimiter( ... )delimiter"
             const std::size_t open { text.find('(', i + 2) };
-            if (open == std::string_view::npos) break;
+            before.continued = open == std::string_view::npos;
+            if (before.continued) break;
             const std::string closing { ")" + std::string { text.substr(i + 2, open - i - 2) } + "\"" };
             const std::size_t end { text.find(closing, open + 1) };
-            if (end == std::string_view::npos) break;
+            before.continued = end == std::string_view::npos;
+            if (before.continued) break;
             i = end + closing.size() - 1;
             continue;
         }
@@ -107,12 +108,6 @@ Before read_before(std::string_view text) {
     }
     return before;
 }
-
-bool has_private_fragment(std::string_view text) {
-    return text.find("module :private") != std::string_view::npos || text.find("module:private") != std::string_view::npos;
-}
-
-} // namespace
 
 Json keyword_completion(std::string_view text, base::Position position, const project::ScanResult* scan, KeywordOptions options) {
     const auto offset = base::offset_at(text, position);

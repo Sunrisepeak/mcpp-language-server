@@ -1,8 +1,9 @@
 # Install
 
-> Releases come from the GitHub release page, and the VS Code extension is also on the VS Code
-> Marketplace and on Open VSX. Nothing is on the xlings index yet. Termux on Android runs the
-> `linux-arm64` build ([below](#android-under-termux)).
+> Releases come from the GitHub release page. The VS Code extension is also on the VS Code
+> Marketplace and on Open VSX, the CLion plugin on the JetBrains Marketplace, and the server on the
+> xlings index (`xlings install mcppls`). Termux on Android runs the `linux-arm64` build
+> ([below](#android-under-termux)).
 
 ## VS Code, from the Marketplace
 
@@ -18,6 +19,16 @@ These editors install extensions from [Open VSX](https://open-vsx.org/extension/
 search their extensions view for **mcppls**. It is the same extension, built from the same release,
 with the same platforms. A release reaches Open VSX when it is published, and the VS Code Marketplace
 shortly after.
+
+## CLion, from the JetBrains Marketplace
+
+Settings | Plugins | Marketplace, search **C++ Modules Language Server**
+(`io.github.sunrisepeak.mcppls`), and restart. CLion 2026.1 and later are given the package of their
+own system — `linux-x64`, `linux-arm64`, `darwin-arm64` or `win32-x64` — and each carries the server,
+a pinned clangd and the semantic kit, as the VSIX does: nothing else to install. From a release, the
+same package is `mcppls-clion-<version>-<platform>.zip`, installed with Settings | Plugins → the gear
+menu → *Install Plugin from Disk*. How it shares files with CLion's own engine is in
+[10-editors.md](10-editors.md#clion).
 
 ## VS Code, from a release
 
@@ -38,7 +49,7 @@ worth having; see [10-editors.md](10-editors.md).
 
 ## Another editor, from a release
 
-Two kinds of file on the release page serve every editor but VS Code:
+Two kinds of file on the release page serve every editor but VS Code and CLion:
 
 - **The payload**, `payload-<platform>.tar.gz`: the server, a pinned clangd and the semantic kit, as
   the VSIX carries them. The server is `payload/bin/mcppls.okb`, started by this platform's runner:
@@ -46,17 +57,17 @@ Two kinds of file on the release page serve every editor but VS Code:
   the clangd and the kit beside it. Unpack it into your user data directory as `mcppls/payload` —
   `~/.local/share/mcppls/payload` on Linux (`$XDG_DATA_HOME` when it is set),
   `~/Library/Application Support/mcppls/payload` on macOS, `%LOCALAPPDATA%\mcppls\payload` on
-  Windows — and the Zed, CLion and Neovim plugins start it with nothing else configured.
+  Windows — and the Zed and Neovim plugins start it with nothing else configured.
 - **The server as a command**, `mcppls`: `mcppls-<version>-openkal.zip` is one package for Linux,
   macOS and Windows on x86_64 and arm64. Unpack it and put its `bin/` on `PATH`; it carries the
   runner of each of those systems, so nothing else is installed. Or take the single file of your
   system, `mcppls-<version>-<system>-<arch>` (`linux-x86_64`, `linux-aarch64`, `macos-aarch64`,
   `windows-x86_64.exe`), and put it on `PATH` as `mcppls`: one executable, nothing to unpack. The
-  plugins start an `mcppls` on `PATH` before an installed payload. Given `--payload <dir>` it uses
+  Zed and Neovim plugins start an `mcppls` on `PATH` before an installed payload. Given `--payload <dir>` it uses
   that payload's clangd and kit; without one, a clangd on `PATH` and the kit xlings installs.
 
-The Zed and CLion plugins are separate archives on the same release page;
-[10-editors.md](10-editors.md) has both. The Neovim plugin is
+The Zed extension is a separate archive on the same release page;
+[10-editors.md](10-editors.md) has it. The Neovim plugin is
 [`editors/nvim`](../editors/nvim/README.md) in this repository.
 
 Every asset on a release is listed in its `MANIFEST.md`, with what it is and how to install it, and
@@ -119,7 +130,7 @@ step and how long it took. If something it needs is missing it says which and ho
 |---|---|
 | A release build | `mcpp run --release -p devtools -- extension --editor vscode --install` |
 | Zed | `mcpp run -p devtools -- extension --editor zed --install`, then Zed's palette: *zed: install dev extension* (or add `--link`) |
-| CLion | `mcpp run --features clion -p devtools -- extension --editor clion --install`, then restart CLion |
+| CLion | `mcpp run --features clion -p devtools -- extension --editor clion --install` (this system's package, the payload inside it), then restart CLion |
 | All three, packaged but not installed | `mcpp run -p devtools -- extension` |
 | Remove what was installed | `mcpp run -p devtools -- uninstall --editor vscode\|zed\|clion\|all` |
 | Only the payload, for another editor | `mcpp run -p devtools -- payload` |
@@ -142,10 +153,11 @@ needs.
 VS Code has a command line for installing and removing an extension; Zed and CLion do not. For
 them `--install` leaves on disk exactly what their own UI would, and nothing else: for Zed it stops
 one step short and names the palette action, the recommended route, unless `--link` asks it to make
-that same link itself; for CLion it unpacks the plugin as *Install Plugin from Disk* does. Both
-start `mcppls` from PATH, or else the server of the payload `--install` puts at `<user data>/mcppls/payload`
-(`$XDG_DATA_HOME` or `~/.local/share` on Linux, `~/Library/Application Support` on macOS,
-`%LOCALAPPDATA%` on Windows); `uninstall` removes that server with the last of the two.
+that same link itself; for CLion it unpacks this system's package as *Install Plugin from Disk*
+does, and the package carries its payload. Zed starts `mcppls` from PATH, or else the server of the
+payload `--install` puts at `<user data>/mcppls/payload` (`$XDG_DATA_HOME` or `~/.local/share` on
+Linux, `~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows); `uninstall` removes
+that server with Zed.
 
 The first run compiles the semantic kit from libc++ sources, which takes a while; it is cached
 under `.payload-cache` afterwards. What the steps actually are, and the payload layout they

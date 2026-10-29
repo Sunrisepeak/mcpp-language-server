@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-29 — S3: code templates
+
+S3 6.4 describes the code templates a server may offer for the declaration every program needs and nothing declares
+yet, `main`: `auto main() -> int { }` and `int main() { }`, merged with the semantic engine's result as the
+module-syntax keywords are. They are offered only at file scope where a declaration begins and what was typed is a
+prefix of `main`, alone or after the template's type (S3-6.4-1); never in a file that declares `main` or in a named
+module unit (S3-6.4-2); as a snippet with the cursor in the body to a client that supports snippets (S3-6.4-3), else
+as the template as written in plain text (S3-6.4-4); sorted after the semantic engine's items and named a template
+(S3-6.4-5). Additive: protocol version stays 1.
+
 ## 2026-10-22 — S3: requested and adopted analysis targets
 
 The optional `targetSelection` describes an mcpp target request, its source and whether it is pending

@@ -7,7 +7,6 @@
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
-import java.nio.file.Files
 
 plugins {
     id("java")
@@ -37,48 +36,79 @@ dependencies {
 
 kotlin {
     jvmToolchain(21)
-    // Built against 2026.2.3 but run on 2025.2 too. Without this Kotlin copies the platform
+    // Built against 2026.2.3 but run on 2026.1 too. Without this Kotlin copies the platform
     // interfaces' default methods into our classes as calls to `super`, and 2026.2's renamed LSP
-    // interface has defaults 2025.2 does not (the verifier's NoSuchMethodError).
+    // interface has defaults an older platform does not (the verifier's NoSuchMethodError).
     compilerOptions { jvmDefault = JvmDefaultMode.NO_COMPATIBILITY }
+}
+
+// The payload each package carries (design 2026-10-29 §2.1): `-Pmcppls.payload.<platform>=<dir>` for the
+// platforms of packaging/release.manifest.json, each a payload directory as a release's
+// payload-<platform>.tar.gz unpacks it (named `payload`, holding payload.json). MCPPLS_PAYLOAD names this
+// machine's, for a developer and the tests. With any of them the build makes one package per system and
+// architecture, each with its payload at `<plugin>/payload`, and the sandbox the tests run in is this
+// machine's; with none, the plugin carries no server (a build for development).
+val platforms = listOf("linux-x64", "linux-arm64", "darwin-arm64", "win32-x64")
+val hostPlatform: String = run {
+    val os = System.getProperty("os.name").lowercase()
+    val system = when {
+        os.startsWith("windows") -> "win32"
+        os.startsWith("mac") -> "darwin"
+        else -> "linux"
+    }
+    val arch = System.getProperty("os.arch").lowercase()
+    "$system-${if (arch == "aarch64" || arch == "arm64") "arm64" else "x64"}"
+}
+val payloads: Map<String, File> = platforms.mapNotNull { platform ->
+    val named = providers.gradleProperty("mcppls.payload.$platform").orNull
+        ?: providers.environmentVariable("MCPPLS_PAYLOAD").orNull?.takeIf { platform == hostPlatform }
+    named?.let { platform to File(it).absoluteFile }
+}.toMap()
+payloads.forEach { (platform, directory) ->
+    require(directory.name == "payload" && directory.resolve("payload.json").isFile) {
+        "the payload for $platform must be a directory named payload holding payload.json: $directory"
+    }
 }
 
 intellijPlatform {
     pluginConfiguration {
+        // 2026.1 is the first IDE the Marketplace gives a package for its own system and architecture.
         ideaVersion {
-            sinceBuild = "252"
+            sinceBuild = "261"
             untilBuild = provider { null }
         }
     }
-    // `gradle verifyPlugin`: the plugin against the oldest CLion it claims (sinceBuild 252) and the
+    nativeVariants {
+        enabled = payloads.isNotEmpty()
+        // A directory named `payload` lands as `<plugin>/payload`: the tree keeps the paths below its root.
+        fun carried(platform: String) = payloads[platform]?.let { directory ->
+            fileTree(directory.parentFile) { include("${directory.name}/**") }
+        } ?: files()
+        linux.x86_64.from(carried("linux-x64"))
+        linux.arm64.from(carried("linux-arm64"))
+        mac.arm64.from(carried("darwin-arm64"))
+        windows.x86_64.from(carried("win32-x64"))
+    }
+    // `gradle verifyPlugin`: the plugin against the oldest CLion it claims (sinceBuild 261) and the
     // one it is built on. Each download is about 1.9 GB; CI caches them by version.
     pluginVerification {
         ides {
-            create(IntelliJPlatformType.CLion, "2025.2")
+            create(IntelliJPlatformType.CLion, "2026.1")
             create(IntelliJPlatformType.CLion, providers.gradleProperty("platformVersion").get())
         }
     }
 }
 
-// The tests start the server the way CLion does with nothing on the PATH: the payload installed at
-// <user data>/mcppls/payload, as its payload.json's `server` says. CI names the payload it built
-// (MCPPLS_PAYLOAD, a directory), which is linked there in the tests' own home; a developer names any
-// payload. `mcpp` is left off the PATH on purpose: the test's project is an mcpp package, and with no
-// mcpp to ask the server reads its sources, which is what a test of the plugin needs and what finishes
-// in seconds.
+// The tests start the server the way CLion does with nothing on the PATH: the payload the plugin
+// carries, which the sandbox of this machine's package holds when MCPPLS_PAYLOAD names one (CI names
+// the payload it built), started as its payload.json's `server` says. `mcpp` is left off the PATH on
+// purpose: the test's project is an mcpp package, and with no mcpp to ask the server reads its
+// sources, which is what a test of the plugin needs and what finishes in seconds.
 tasks.test {
     val home = layout.buildDirectory.dir("home").get().asFile.also { it.mkdirs() }
-    val installed = home.resolve(".local/share/mcppls/payload")
-    val payload = providers.environmentVariable("MCPPLS_PAYLOAD").orNull?.let { File(it).absoluteFile }
-    doFirst {
-        Files.deleteIfExists(installed.toPath())
-        if (payload != null) {
-            installed.parentFile.mkdirs()
-            Files.createSymbolicLink(installed.toPath(), payload.toPath())
-        }
-    }
     environment("PATH", "/usr/bin:/bin")
     environment("XDG_DATA_HOME", home.resolve(".local/share").absolutePath)
+    systemProperty("mcppls.carriesPayload", payloads.containsKey(hostPlatform).toString())
     environment("MCPPLS_CACHE_DIR", layout.buildDirectory.dir("mcppls-cache").get().asFile.absolutePath)
     // The server reads the login shell's environment to find build tools; an empty home and a plain
     // `sh` keep whatever the machine's profile adds (an installed mcpp, say) out of the test.
@@ -92,4 +122,18 @@ tasks.test {
     systemProperty("patch.engine.backend.freeze.timeout", "0")
     // Every wait in the tests is bounded; a test that never finishes is the one to report.
     testLogging { showStandardStreams = true; events("passed", "failed", "skipped") }
+}
+
+// A program of the payload (its runner, clangd) keeps its executable bit in this system's package, as it has
+// in the payload; the plugin also puts the bit back when an installation loses it (ServerLaunch.kt). The bits
+// are read from the payloads themselves: the archive's own source is a copy that lost them.
+val programs: Set<String> = payloads.values.flatMap { directory ->
+    directory.walkTopDown().filter { it.isFile && it.canExecute() }
+        .map { "${directory.name}/${it.relativeTo(directory).invariantSeparatorsPath}" }.toList()
+}.toSet()
+tasks.withType<Zip>().matching { it.name.startsWith("buildPluginVariants_") }.configureEach {
+    eachFile {
+        val path = relativePath.pathString
+        if (programs.any { path == it || path.endsWith("/$it") }) permissions { unix("rwxr-xr-x") }
+    }
 }

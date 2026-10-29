@@ -9,6 +9,7 @@ subdirectory is self-contained.
 | `zed` | The Zed extension: finds `mcppls` on PATH and starts it; built to WebAssembly |
 | `nvim` | The Neovim plugin (Lua, Neovim 0.10+): finds `mcppls` and starts it for C/C++ buffers through Neovim's own LSP client, with a statusline component and `vim.lsp.enable('mcppls')` support; no build step |
 | `vscode` | The VS Code extension ("C++ Modules"): a full npm package, marketplace `README.md`/`CHANGELOG.md`, and a bundled payload (server + clangd + semantic kit) |
+| `clion` | The CLion plugin (Kotlin, CLion 2026.1+): one package per system carrying that system's payload, started through the IntelliJ platform's LSP API, with one engine per file (CLion's own or mcppls); built with Gradle |
 | `claude-code` | A Claude Code plugin marketplace (`.claude-plugin/marketplace.json`) holding one plugin, `mcppls-lsp`, that registers the server as an LSP and MCP source |
 | `copilot-cli` | Two JSON config fragments (`lsp.json`, `mcp-config.json`) a user copies or merges into GitHub Copilot CLI's own config — no build, nothing installed from here |
 | `agents` | Not an integration itself: the overview doc for driving mcppls from any coding agent, covering the `PATH` requirement, all three integrations above, and the MCP tool surface (`cxx_symbol`, `cxx_review`, ...) directly |

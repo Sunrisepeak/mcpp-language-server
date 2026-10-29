@@ -43,7 +43,7 @@ rendered from the same declaration, so the page and the check cannot drift apart
 | `mcppls-<platform>.vsix` | yes | yes |
 | `payload-<platform>.tar.gz` | yes | yes |
 | `mcppls-zed-<version>.tar.gz` | no | yes |
-| `mcppls-clion-<version>.zip` | no | yes |
+| `mcppls-clion-<version>-<platform>.zip` | yes | yes |
 | `mcppls-<version>-openkal.zip` | no — one for every system and architecture | yes |
 | `mcppls-<version>.okb` | no — the image of both architectures | yes |
 | `mcppls-<version>-<system>-<arch>` (`linux-x86_64`, `linux-aarch64`, `macos-aarch64`, `windows-x86_64.exe`) | one per system and architecture | yes |
@@ -59,7 +59,8 @@ holds those images: the okb holds both, and every payload and VSIX carries the o
 image inside. CI checks each against the images it built first (`server-image`): the universal
 package's rows on Linux, macOS and Windows, the okb, every payload's okb, and every VSIX's
 (`distribution`, "one okb, every runner"), and runs each runner it ships on its own system. Only
-clangd and the kit differ per platform, which is why the payloads and the VSIX files still do.
+clangd and the kit differ per platform, which is why the payloads, the VSIX files and the CLion
+packages still do.
 
 | Job (`ci.yml`) | Makes | On |
 |---|---|---|
@@ -90,13 +91,15 @@ CLion plugins, installs them, measures performance and stability, stages everyth
 against the manifest and writes `SHA256SUMS` and `MANIFEST.md`. Only when all of that passes does it
 create the tag and publish the staged candidate, file for file.
 
-A release reaches its users in four steps, and only the first is automatic:
+A release reaches its users in five steps, and only the first is automatic:
 
 1. The run creates the release as a **draft**.
 2. You verify the draft's `mcppls-<platform>.vsix` files locally ([Verifying a release](#verifying-a-release)).
 3. You publish the draft. That triggers `.github/workflows/publish-openvsx.yml`, which puts the same
    files on Open VSX ([Open VSX](#open-vsx)).
 4. You upload the same files to the VS Code Marketplace ([below](#the-vs-code-marketplace)).
+5. You upload the four `mcppls-clion-<version>-<platform>.zip` files to the JetBrains Marketplace
+   ([below](#the-jetbrains-marketplace)).
 
 A run with `draft` off skips step 2 on purpose: the release is published at once, and its `openvsx`
 job sends it to Open VSX, since a release created by a workflow triggers no other workflow.
@@ -112,8 +115,8 @@ not run twice for it. Its jobs, each on Linux, macOS and Windows unless noted:
 | Job | Passes when |
 |---|---|
 | CI | every job of `ci.yml` passes |
-| plugins (Linux) | the Zed and CLion plugins build and package |
-| install | devtools installs both plugins from the release archives, the installed server answers the `inferred` fixture, and `uninstall` leaves nothing behind |
+| plugins (Linux) | the Zed extension builds and packages, and the CLion plugin builds one package per platform, each carrying that platform's payload |
+| install | devtools installs the Zed extension and this platform's CLion package; the server Zed falls back to and the server the CLion package carries each answer the `inferred` fixture; `uninstall` leaves nothing behind |
 | performance | the median first navigation of five cold starts is under 12 s and of five warm starts under 5 s, with no failed check |
 | performance on a real project (Linux) | the server passes the `self-mcpp` fixture: the mcpp repository at a fixed commit |
 | stability | the fixtures of the project shapes that matter (all-`.cppm`, `.cppm`/`.cpp` split, watched edits, a broken module, a hung build tool, several roots) pass three rounds in a row |
@@ -224,9 +227,20 @@ or one at a time on the publisher's management page (the first as a new extensio
 *Update*). A version is published once: the Marketplace takes only a version higher than every one
 it has had.
 
+## The JetBrains Marketplace
+
+Uploaded by hand, after the local verification: the plugin `io.github.sunrisepeak.mcppls` (vendor
+Sunrisepeak) gets the four `mcppls-clion-<version>-<platform>.zip` files of the published release,
+each as an update of its own (versions `<version>-linux-x86_64`, `<version>-linux-arm64`,
+`<version>-mac-arm64` and `<version>-windows-x86_64`, the suffixes the build gives them). The
+Marketplace gives an IDE the package whose `plugin.xml` depends on the IDE's system and architecture
+(`com.intellij.modules.os.*`, `com.intellij.modules.arch.*`), which every package declares; that is
+why `since-build` is 261, the first IDE it does this for. A new plugin's first upload is reviewed by
+JetBrains, and mcpp-clion, which depends on this plugin, is accepted once this plugin is listed.
+
 ## Not here yet
 
-The xlings index needs its own credentials and a publish step in the release workflow.
-`mcppls-devtools release xlings` already produces the xlings package descriptors; the index pull
-request is still to be added. Uploading to the VS Code Marketplace from a workflow is deliberately
-not done: it stays behind the local verification above.
+The xlings index carries the server (`pkgs/m/mcppls.lua` in openxlings/xim-pkgindex), updated by a
+pull request to the index; the release workflow does not open it. `mcppls-devtools release xlings`
+produces the package descriptors. Uploading to the VS Code Marketplace or the JetBrains Marketplace
+from a workflow is deliberately not done: both stay behind the local verification above.

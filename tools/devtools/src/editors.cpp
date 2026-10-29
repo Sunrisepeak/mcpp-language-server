@@ -190,6 +190,13 @@ base::Result<void> install_clion(const std::string& pluginsDirectory, const std:
     return {};
 }
 
+base::Result<bool> clion_archive_carries_payload(const std::string& archivePath) {
+    auto entries = archive::list(archivePath);
+    if (!entries) return std::unexpected { entries.error() };
+    const std::string manifest { std::format("{}/payload/payload.json", CLION_PLUGIN_DIRECTORY) };
+    return std::ranges::any_of(*entries, [&](const archive::Entry& entry) { return entry.path == manifest; });
+}
+
 bool clion_installed(const std::string& pluginsDirectory) {
     std::error_code ignored;
     return std::filesystem::is_directory(base::join_path(pluginsDirectory, CLION_PLUGIN_DIRECTORY), ignored);

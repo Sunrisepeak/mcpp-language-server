@@ -103,6 +103,29 @@ int main() {
         expect(editors::clion_installed(plugins));
         expect(editors::remove_clion(plugins));
         expect(!editors::clion_installed(plugins));
+        auto carries = editors::clion_archive_carries_payload(archive);
+        expect(carries.has_value() && !*carries) << "a build without a payload";
+        std::filesystem::remove_all(root);
+    };
+
+    "clion: a system's package carries its payload, and installs with it"_test = [&] {
+        std::error_code ignored;
+        const std::string root { scratch("clion-package") };
+        const std::string built { base::join_path(root, "built") };
+        (void)std::filesystem::create_directories(base::join_path(built, "lib"), ignored);
+        (void)std::filesystem::create_directories(base::join_path(built, "payload/bin"), ignored);
+        (void) os::fs::write(base::join_path(built, "lib/mcppls-clion.jar"), "jar");
+        (void) os::fs::write(base::join_path(built, "payload/payload.json"), "{}");
+        (void) os::fs::write(base::join_path(built, "payload/bin/mcppls.okb"), "okb");
+        const std::string archive { base::join_path(root, "plugin.tar.gz") };
+        const std::vector<mcppls::pack::archive::WriteEntry> entries { { built, "" } };
+        expect(mcppls::pack::archive::write(archive, "mcppls-clion", entries).has_value());
+
+        auto carries = editors::clion_archive_carries_payload(archive);
+        expect(carries.has_value() && *carries);
+        const std::string plugins { base::join_path(root, "CLion2026.2") };
+        expect(editors::install_clion(plugins, archive).has_value());
+        expect(std::filesystem::is_regular_file(base::join_path(plugins, "mcppls-clion/payload/bin/mcppls.okb"), ignored));
         std::filesystem::remove_all(root);
     };
 

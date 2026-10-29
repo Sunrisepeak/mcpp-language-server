@@ -33,6 +33,7 @@ import mcppls.engine;
 import mcppls.engine.payload;
 import mcppls.engine.native.index;
 import mcppls.engine.native.keywords;
+import mcppls.engine.native.templates;
 import mcppls.orchestrator.completion;
 import mcppls.orchestrator.answer;
 import mcppls.orchestrator.answering;
@@ -366,6 +367,7 @@ struct Workspace::Impl final : engine::Host {
     };
     SpaceTriggerStats spaceTrigger;
     std::size_t keywordsWithoutEngine { 0 };   // F15: keyword completions answered before the core engine did
+    std::size_t templatesWithoutEngine { 0 };  // S3-6.4: completions with code templates answered before the core engine did
     std::size_t wordsWithoutCore { 0 };        // M-2 (plan 0.0.8): completions the core engine did not answer, given the file's words
     // C-2 (plan 0.0.8 part 2): completions the core engine answered after their budget, and requests given such an answer.
     std::size_t lateCompletionsArrived { 0 };
@@ -374,6 +376,7 @@ struct Workspace::Impl final : engine::Host {
     std::size_t documentChanges { 0 };
     std::string lastDocumentChangeAt;
     bool vscodeLike { false };                 // the client runs VS Code's commands (completion::vscode_like)
+    bool snippetSupport { false };             // textDocument.completion.completionItem.snippetSupport: templates are snippets
 
     // Requests in flight across engines.
     // A semantic-tokens request (mcpp design 2026-10-28 §11.1): what the client asked for, and what the engines gave.
@@ -409,6 +412,8 @@ struct Workspace::Impl final : engine::Host {
         Json message;
         // F15: a completion's module-syntax keywords, merged into whatever the engines answer.
         Json keywords;
+        // S3-6.4: its code templates, merged the same way.
+        Json templates;
         // R-7 (plan 2026-09-30): when mcppls answers without the core engine (routing::answer_budget).
         std::optional<Clock::time_point> budgetAt;
         // M-2 (plan 0.0.8): the core engine gave an answer, even an empty one; a completion it did not answer
@@ -1154,8 +1159,9 @@ struct Workspace::Impl final : engine::Host {
             }
             if (document != nullptr && !job.path.empty()) {
                 if (const auto position = position_of(job.params)) {
-                    job.keywords = index::keyword_completion(job.text, *position, index.scan_of(job.path),
-                                                             index::KeywordOptions { .suggestModulesAfterImport = vscodeLike });
+                    const project::ScanResult* scan { index.scan_of(job.path) };
+                    job.keywords = index::keyword_completion(job.text, *position, scan, index::KeywordOptions { .suggestModulesAfterImport = vscodeLike });
+                    job.templates = index::template_completion(job.text, *position, scan, index::TemplateOptions { .snippets = snippetSupport });
                     if (answered_from_word(jobId, uri, *position)) return;
                     if (answered_late(jobId, uri, *position)) return;
                 }
@@ -2042,6 +2048,7 @@ struct Workspace::Impl final : engine::Host {
         Job& job = jobs.at(jobId);
         const Json clientId = job.clientId;   // `=`: braces make an array holding it (CWG 2137)
         if (job.keywords.is_array() && !job.keywords.empty()) ++keywordsWithoutEngine;
+        if (job.templates.is_array() && !job.templates.empty()) ++templatesWithoutEngine;
         job.answeredBy = "mcppls";
         job.withoutCore = true;
         Json result;
@@ -2345,10 +2352,10 @@ struct Workspace::Impl final : engine::Host {
                 }
             }
         }
-        // F15: the module-syntax keywords, with the engine's items, or alone (and incomplete, so the
-        // client asks again) when the engine gave none.
-        if (it->second.keywords.is_array() && !it->second.keywords.empty()) {
-            result = result.is_null() ? completion::keywords_only(it->second.keywords) : completion::merge(result, it->second.keywords);
+        // F15, S3-6.4: the module-syntax keywords and the code templates, with the engine's items, or alone
+        // (and incomplete, so the client asks again) when the engine gave none.
+        for (const Json* own : { &it->second.keywords, &it->second.templates }) {
+            if (own->is_array() && !own->empty()) result = result.is_null() ? completion::keywords_only(*own) : completion::merge(result, *own);
         }
         result = explain_if_preparing(it->second, std::move(result));
         // A rename from a file of the project that reaches mcpp's engine interface (mcpp#797) is not made in part.
@@ -4500,6 +4507,10 @@ void Workspace::start(Json clientParams, bool clientSupportsStatus, bool usePoll
     }
     impl_->onEngineSettled = std::move(onEngineSettled);
     impl_->vscodeLike = completion::vscode_like(impl_->clientParams);
+    if (const Json* supported = lsp::find_path(impl_->clientParams, { "capabilities", "textDocument", "completion", "completionItem", "snippetSupport" });
+        supported != nullptr && supported->is_boolean()) {
+        impl_->snippetSupport = supported->get<bool>();
+    }
     impl_->dynamicWatch = !usePolling;
     if (usePolling) impl_->start_watch_polling();
     impl_->startedAtUtc = std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
@@ -4980,10 +4991,11 @@ Json Workspace::report() const {
     std::ranges::sort(files, std::greater {}, [](const auto& entry) { return entry.first; });
     Json slowestFiles = Json::array();
     for (auto& [worst, entry] : files | std::views::take(10)) slowestFiles.push_back(std::move(entry));
-    // F9, F15: what space-triggered completion cost, and how often keywords answered without the core engine.
+    // F9, F15, S3-6.4: what space-triggered completion cost, and how often keywords and templates answered without the core engine.
     Json completionCosts { { "spaceTrigger", Json { { "count", impl.spaceTrigger.count }, { "passed", impl.spaceTrigger.passed },
                                                      { "maxMicros", impl.spaceTrigger.maxMicros }, { "totalMicros", impl.spaceTrigger.totalMicros } } },
-                           { "keywordsWithoutEngine", impl.keywordsWithoutEngine }, { "wordsWithoutCore", impl.wordsWithoutCore },
+                           { "keywordsWithoutEngine", impl.keywordsWithoutEngine }, { "templatesWithoutEngine", impl.templatesWithoutEngine },
+                           { "wordsWithoutCore", impl.wordsWithoutCore },
                            { "late", Json { { "arrived", impl.lateCompletionsArrived }, { "served", impl.lateCompletionsServed } } },
                            { "fromWord", impl.completionsFromWord } };
     Json startups = Json::array();

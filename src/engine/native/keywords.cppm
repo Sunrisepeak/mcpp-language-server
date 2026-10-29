@@ -12,6 +12,20 @@ import mcppls.project.scan;
 
 export namespace mcppls::index {
 
+// What the text before a line says about it: whether it is at global scope, and whether anything
+// but comments and blanks comes before it. Braces are counted outside comments, string and
+// character literals, and preprocessor lines (a macro's braces are not the file's). The code
+// templates read it too (templates.cppm).
+struct Before {
+    int depth { 0 };
+    bool inComment { false };   // the line starts inside a block comment
+    bool continued { false };   // the line continues a preprocessor line or a raw string literal
+    bool anything { false };    // a token or a preprocessor line comes before the line
+    char last { 0 };            // the last character of code before the line, a literal's first; 0 when there is none
+};
+
+Before read_before(std::string_view text);
+
 struct KeywordOptions {
     // For a client that runs VS Code's commands: accepting `import` or `export import` opens the
     // module list at once (editor.action.triggerSuggest), without waiting for a space.

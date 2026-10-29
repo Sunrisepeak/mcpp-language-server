@@ -8,9 +8,11 @@
         project is built — mcpp, CMake, a compile_commands.json, or nothing — into one module
         description, drives its own pinned clangd with it, and answers module-level requests.
         <br/><br/>
-        The server must be on PATH: download payload-&lt;platform&gt;.tar.gz from the
-        <a href="https://github.com/Sunrisepeak/mcpp-language-server/releases">release page</a>,
-        unpack it and put its payload/bin directory on PATH.
+        The plugin carries the server, its pinned clangd and the semantic kit for the system it is installed
+        on: nothing else to install. A file is answered by one engine: projects CLion models (CMake, a
+        compilation database, Makefile) stay CLion's, every other project is mcppls's, and in those files
+        the plugin asks once whether CLion's own engine should stop answering them
+        (Settings | Tools | mcppls).
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
@@ -26,8 +28,24 @@
         <platform.lsp.serverSupportProvider
             implementation="community.mcpp.mcppls.McpplsServerSupportProvider"/>
         <applicationService serviceImplementation="community.mcpp.mcppls.McpplsSettings"/>
-        <applicationConfigurable parentId="tools" instance="community.mcpp.mcppls.McpplsConfigurable"
-                                 id="community.mcpp.mcppls.settings" displayName="mcppls"/>
+        <projectConfigurable parentId="tools" instance="community.mcpp.mcppls.McpplsConfigurable"
+                             id="community.mcpp.mcppls.settings" displayName="mcppls"/>
+        <!-- First, so that in a file mcppls answers alone it sees every other contributor's items (OneEngine). -->
+        <completion.contributor language="any" order="first" id="McpplsOnlyCompletion"
+                                implementationClass="community.mcpp.mcppls.McpplsOnlyCompletion"/>
+        <editorFactoryListener implementation="community.mcpp.mcppls.McpplsEditorListener"/>
         <notificationGroup id="mcppls" displayType="BALLOON"/>
     </extensions>
+
+    <actions>
+        <group id="community.mcpp.mcppls.Tools" text="mcppls" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <action id="community.mcpp.mcppls.UseMcpplsOnly" class="community.mcpp.mcppls.UseMcpplsOnlyAction"
+                    text="Use mcppls Only in This Project"
+                    description="CLion's own C/C++ engine stops answering the files mcppls answers in this project"/>
+            <action id="community.mcpp.mcppls.RestoreClionEngine" class="community.mcpp.mcppls.RestoreClionEngineAction"
+                    text="Restore CLion's Engine in This Project"
+                    description="CLion's own C/C++ engine answers the files mcppls answers again, as before"/>
+        </group>
+    </actions>
 </idea-plugin>

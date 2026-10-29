@@ -376,35 +376,10 @@ int command_payload(const cmdline::ParsedArgs& arguments) {
     return problems.empty() ? 0 : 1;
 }
 
-// The CLion plugin is a Gradle project: Kotlin against the IntelliJ platform's LSP API, which the
-// paid IDEs have and CLion is one of. Gradle downloads the IDE it compiles against on first build,
-// so the first one is long and needs the network. Returns the plugin archive.
-std::optional<std::string> build_clion(const std::string& root) {
-    const std::string directory { base::join_path(root, "editors/clion") };
-    // `xim:gradle` declares the JDK it runs on, so the manifest naming the one package is what
-    // gets both — which is why nothing here asks for a JDK.
-    auto gradle = tool("gradle", "an IntelliJ-platform plugin is a Gradle project");
-    if (!gradle) return std::nullopt;
-    std::println("  the first build downloads the CLion SDK; it takes a while and needs the network");
-    if (!step("building the CLion plugin", *gradle, { "buildPlugin", "--console=plain" }, directory)) return std::nullopt;
-
-    const std::string distributions { base::join_path(directory, "build/distributions") };
-    std::string zip;
-    for (const auto& entry : base::children(distributions)) {
-        if (entry.ends_with(".zip")) zip = base::join_path(distributions, entry);
-    }
-    if (zip.empty()) {
-        std::println(std::cerr, "  the build produced no plugin archive under {}", distributions);
-        return std::nullopt;
-    }
-    std::println("clion plugin: {}", zip);
-    return zip;
-}
-
 // A payload at `directory`: the one `--payload` names, copied (keeping the executable bits, and
 // verified), or one assembled from the server this checkout builds. Every editor needs one — VS
-// Code inside its VSIX, Zed and CLion at editors::server_directory() — and a caller that already
-// has one (CI, which built the three platforms' payloads in an earlier job) passes it rather than
+// Code inside its VSIX, CLion inside its package, Zed at editors::server_directory() — and a caller that
+// already has one (CI, which built the platforms' payloads in an earlier job) passes it rather than
 // making another. Such a caller has no server beside this tool and needs none: the payload it hands
 // over already contains the built server.
 int put_payload(const std::string& root, const cmdline::ParsedArgs& arguments, const std::string& directory) {
@@ -433,6 +408,103 @@ int put_payload(const std::string& root, const cmdline::ParsedArgs& arguments, c
                                           server->program, base::join_path(root, ".payload-cache"), std::nullopt, true, false,
                                           server->image, server->runner);
     return payload.built ? 0 : 1;
+}
+
+// The CLion plugin is a Gradle project: Kotlin against the IntelliJ platform's LSP API, which the
+// paid IDEs have and CLion is one of. Gradle downloads the IDE it compiles against on first build,
+// so the first one is long and needs the network.
+//
+// Each system gets a package of its own, carrying that system's payload (design 2026-10-29 §2): the
+// Gradle variant of its system and architecture, given the payload with -Pmcppls.payload.<platform>.
+// Named the way the release names it, `mcppls-clion-<version>-<platform>.zip` under target/pack/.
+struct ClionVariant {
+    std::string_view platform;   // the payload's, packaging/release.manifest.json's
+    std::string_view gradle;     // the Gradle plugin's `<os>_<arch>` (task) and `<os>-<arch>` (archive)
+};
+inline constexpr std::array CLION_VARIANTS {
+    ClionVariant { "linux-x64", "linux_x86_64" },
+    ClionVariant { "linux-arm64", "linux_arm64" },
+    ClionVariant { "darwin-arm64", "mac_arm64" },
+    ClionVariant { "win32-x64", "windows_x86_64" },
+};
+
+struct ClionPackage {
+    std::string platform;
+    std::string archive;
+};
+
+// The payloads to carry: `--payloads DIR`, a directory of `<platform>/payload` trees (CI's four), else this
+// machine's own -- `--payload`, or one assembled here -- at target/pack/clion/<platform>/payload.
+std::optional<std::vector<std::pair<std::string, std::string>>> clion_payloads(const std::string& root, const cmdline::ParsedArgs& arguments) {
+    std::error_code ignored;
+    std::vector<std::pair<std::string, std::string>> payloads;
+    if (auto given = arguments.value("payloads"); given && !given->empty()) {
+        for (const auto& variant : CLION_VARIANTS) {
+            const std::string directory { base::join_path(*given, std::format("{}/payload", variant.platform)) };
+            if (std::filesystem::is_regular_file(base::join_path(directory, "payload.json"), ignored)) payloads.emplace_back(variant.platform, directory);
+        }
+        if (payloads.empty()) {
+            std::println(std::cerr, "mcppls-devtools: {} holds no <platform>/payload/payload.json", *given);
+            return std::nullopt;
+        }
+        return payloads;
+    }
+    const std::string platform { base::payload_platform() };
+    const std::string directory { base::join_path(root, std::format("target/pack/clion/{}/payload", platform)) };
+    if (put_payload(root, arguments, directory) != 0) return std::nullopt;
+    payloads.emplace_back(platform, directory);
+    return payloads;
+}
+
+std::optional<std::vector<ClionPackage>> build_clion(const std::string& root, const cmdline::ParsedArgs& arguments) {
+    std::error_code ignored;
+    const std::string directory { base::join_path(root, "editors/clion") };
+    const auto payloads = clion_payloads(root, arguments);
+    if (!payloads) return std::nullopt;
+    // `xim:gradle` declares the JDK it runs on, so the manifest naming the one package is what
+    // gets both — which is why nothing here asks for a JDK.
+    auto gradle = tool("gradle", "an IntelliJ-platform plugin is a Gradle project");
+    if (!gradle) return std::nullopt;
+
+    std::vector<std::string> gradleArguments { "--console=plain" };
+    std::vector<const ClionVariant*> built;
+    for (const auto& [platform, payload] : *payloads) {
+        const auto variant = std::ranges::find(CLION_VARIANTS, platform, &ClionVariant::platform);
+        if (variant == CLION_VARIANTS.end()) {
+            std::println(std::cerr, "mcppls-devtools: the CLion plugin has no package for {}", platform);
+            return std::nullopt;
+        }
+        gradleArguments.push_back(std::format("-Pmcppls.payload.{}={}", platform, payload));
+        gradleArguments.push_back(std::format("buildPluginVariants_{}", variant->gradle));
+        built.push_back(&*variant);
+    }
+    const std::string distributions { base::join_path(directory, "build/distributions") };
+    std::filesystem::remove_all(distributions, ignored);
+    std::println("  the first build downloads the CLion SDK; it takes a while and needs the network");
+    if (!step("building the CLion plugin", *gradle, gradleArguments, directory)) return std::nullopt;
+
+    std::vector<ClionPackage> packages;
+    for (const ClionVariant* variant : built) {
+        std::string classifier { variant->gradle };
+        std::ranges::replace(classifier, '_', '-');
+        std::string produced;
+        for (const auto& entry : base::children(distributions)) {
+            if (entry.ends_with(std::format("-{}.zip", classifier))) produced = base::join_path(distributions, entry);
+        }
+        if (produced.empty()) {
+            std::println(std::cerr, "  the build produced no {} package under {}", classifier, distributions);
+            return std::nullopt;
+        }
+        // mcppls-clion-<version>-<os>-<arch>.zip -> mcppls-clion-<version>-<platform>.zip
+        std::string name { base::file_name(produced) };
+        name.replace(name.size() - classifier.size() - 4, classifier.size(), variant->platform);
+        const std::string archive { base::join_path(root, std::format("target/pack/{}", name)) };
+        (void) std::filesystem::create_directories(base::parent_path(archive), ignored);
+        std::filesystem::copy_file(produced, archive, std::filesystem::copy_options::overwrite_existing, ignored);
+        std::println("clion plugin ({}): {}", variant->platform, archive);
+        packages.push_back(ClionPackage { .platform = std::string { variant->platform }, .archive = archive });
+    }
+    return packages;
 }
 
 int build_vscode(const std::string& root, const cmdline::ParsedArgs& arguments, std::string& vsixOut) {
@@ -474,7 +546,7 @@ int install_vscode(const std::string& root, const std::string& vsix) {
     return 0;
 }
 
-// Where Zed and CLion find the server when PATH has none, overridable for tests.
+// Where Zed finds the server when PATH has none, overridable for tests.
 std::string server_directory(const cmdline::ParsedArgs& arguments) {
     return arguments.value("server-dir").value_or(editors::server_directory());
 }
@@ -519,14 +591,20 @@ int install_zed(const std::string& root, const cmdline::ParsedArgs& arguments, c
     return 0;
 }
 
-int install_clion(const std::string& root, const cmdline::ParsedArgs& arguments, const std::string& archive) {
+// The package carries the server; a plugin archive that carries none starts `mcppls` from PATH.
+int install_clion(const cmdline::ParsedArgs& arguments, const std::string& archive) {
     const auto directories = clion_directories(arguments);
     if (directories.empty()) {
         std::println(std::cerr, "mcppls-devtools: no CLion here (nothing under JetBrains' data directory); "
                                 "start CLion once, or name its plugins directory with --clion-dir");
         return 1;
     }
-    if (const int status = install_server(root, arguments); status != 0) return status;
+    if (auto carries = editors::clion_archive_carries_payload(archive); !carries) {
+        std::println(std::cerr, "mcppls-devtools: {}", carries.error().message);
+        return 1;
+    } else if (!*carries) {
+        std::println("  {} carries no payload: the plugin starts mcppls from the PATH CLion sees", archive);
+    }
     for (const auto& directory : directories) {
         if (auto installed = editors::install_clion(directory, archive); !installed) {
             std::println(std::cerr, "mcppls-devtools: {}", installed.error().message);
@@ -582,10 +660,19 @@ int command_extension(const cmdline::ParsedArgs& arguments) {
             continue;
         }
         if (editor == Editor::clion) {
-            auto archive = plugin ? plugin : build_clion(root);
-            if (!archive) return 1;
+            std::optional<std::string> archive { plugin };
+            if (!archive) {
+                const auto packages = build_clion(root, arguments);
+                if (!packages) return 1;
+                const auto own = std::ranges::find(*packages, std::string { base::payload_platform() }, &ClionPackage::platform);
+                if (own != packages->end()) archive = own->archive;
+            }
             if (install) {
-                if (const int status = install_clion(root, arguments, *archive); status != 0) return status;
+                if (!archive) {
+                    std::println(std::cerr, "mcppls-devtools: no package of this system ({}) was built to install", base::payload_platform());
+                    return 1;
+                }
+                if (const int status = install_clion(arguments, *archive); status != 0) return status;
             } else {
                 std::println("  Install it with: mcpp run --features clion -p devtools -- extension --editor clion --install");
             }
@@ -642,11 +729,10 @@ int command_uninstall(const cmdline::ParsedArgs& arguments) {
         }
     }
 
-    // The server Zed and CLion share goes with the last of them.
+    // The server Zed installed goes with Zed; the CLion plugin carries its own.
     const bool zedLeft { editors::zed_installed(zed_directory(arguments)) };
-    const bool clionLeft { std::ranges::any_of(clion_directories(arguments), editors::clion_installed) };
     const std::string server { server_directory(arguments) };
-    if (!zedLeft && !clionLeft && std::filesystem::exists(server, ignored)) {
+    if (!zedLeft && std::filesystem::exists(server, ignored)) {
         std::filesystem::remove_all(server, ignored);
         std::println("server: removed {}", server);
     }
@@ -689,6 +775,7 @@ cmdline::App extension_command(bool& handled, int& status) {
     (void) command.description("Build an editor extension: VS Code (VSIX), Zed (WebAssembly) or CLion (Gradle)");
     (void) command.option("editor").takes_value().help("vscode | zed | clion | all (default all)");
     (void) command.option("payload").takes_value().help("Use this payload instead of assembling one (CI)");
+    (void) command.option("payloads").takes_value().value_name("DIR").help("CLion: a directory of <platform>/payload trees; a package is built for each (CI)");
     (void) command.option("install").help("Also install it (Zed: everything but its palette action unless --link)");
     (void) command.option("out").takes_value().help("Where to write the .vsix");
     (void) command.option("server").takes_value().help("A program of this host to carry as the server, instead of the image");
@@ -699,7 +786,7 @@ cmdline::App extension_command(bool& handled, int& status) {
     (void) command.option("kit").takes_value().help("Use this already-built semantic kit directory");
     (void) command.option("plugin").takes_value().help("Zed: an extension directory, CLion: a plugin archive, to install instead of building one");
     (void) command.option("link").help("Zed: link the extension into Zed here rather than naming its palette action");
-    (void) command.option("server-dir").takes_value().help("Where Zed and CLion's server goes (default <user data>/mcppls/payload)");
+    (void) command.option("server-dir").takes_value().help("Where Zed's server goes (default <user data>/mcppls/payload)");
     (void) command.option("zed-dir").takes_value().help("Zed's data directory (default: this user's)");
     (void) command.option("clion-dir").takes_value().help("A CLion plugins directory (default: every CLion found)");
     (void) command.action([&handled, &status](const cmdline::ParsedArgs& arguments) { handled = true; status = command_extension(arguments); });
