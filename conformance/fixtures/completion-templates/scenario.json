@@ -1,0 +1,183 @@
+{
+  "name": "completion-templates",
+  "description": "S3-6.4, as a client that declared snippets: the code templates `auto main() -> int { }` and `int main() { }` come from mcppls where a declaration begins at file scope and what was typed of it is a prefix of `main`, alone or after `int` or `auto`, merged with clangd's answer. An item is a snippet with the cursor in the body, its edit replacing the declaration typed so far, its filterText that text with `main` in full, sorted after clangd's items. None inside a function's body, in a file that declares `main`, or in a named module unit, where the module-syntax keywords still are. The module unit is the last file opened: it gives the plan a module.",
+  "server-arguments": [
+    "--no-discover"
+  ],
+  "client-capabilities": {
+    "textDocument": {
+      "completion": {
+        "completionItem": {
+          "snippetSupport": true
+        }
+      }
+    }
+  },
+  "checks": [
+    {
+      "id": "S1",
+      "kind": "status",
+      "source": "inferred",
+      "state": "ready",
+      "engine-name": "clangd"
+    },
+    {
+      "id": "T0-clangd-answers",
+      "kind": "hover-contains",
+      "file": "src/main.cpp",
+      "at": [
+        0,
+        8
+      ],
+      "expect": "max_type",
+      "timeout": 90
+    },
+    {
+      "id": "T1-file-scope",
+      "kind": "completion-contains",
+      "file": "src/tool.cpp",
+      "text": "struct max_type {};\nint max_value = 1;\nma\n",
+      "at": [
+        2,
+        2
+      ],
+      "expect": [
+        "auto main() -> int { }",
+        "int main() { }",
+        "max_type"
+      ],
+      "exact": true
+    },
+    {
+      "id": "T2-after-its-type",
+      "kind": "completion-contains",
+      "file": "src/tool.cpp",
+      "text": "struct max_type {};\nint max_value = 1;\nint ma\n",
+      "at": [
+        2,
+        6
+      ],
+      "expect": [
+        "int main() { }"
+      ],
+      "absent": [
+        "auto main() -> int { }"
+      ],
+      "exact": true
+    },
+    {
+      "id": "T3-snippet",
+      "kind": "completion-item",
+      "file": "src/tool.cpp",
+      "text": "struct max_type {};\n  auto ma\n",
+      "at": [
+        1,
+        9
+      ],
+      "label": "auto main() -> int { }",
+      "expect": [
+        {
+          "path": "/insertTextFormat",
+          "equals": 2
+        },
+        {
+          "path": "/kind",
+          "equals": 15
+        },
+        {
+          "path": "/textEdit/newText",
+          "equals": "auto main() -> int {\n\t$0\n}"
+        },
+        {
+          "path": "/textEdit/range/start",
+          "equals": {
+            "line": 1,
+            "character": 2
+          }
+        },
+        {
+          "path": "/textEdit/range/end",
+          "equals": {
+            "line": 1,
+            "character": 9
+          }
+        },
+        {
+          "path": "/filterText",
+          "equals": "auto main"
+        },
+        {
+          "path": "/sortText",
+          "contains": "~"
+        },
+        {
+          "path": "/detail",
+          "contains": "template"
+        }
+      ]
+    },
+    {
+      "id": "T4-not-in-a-body",
+      "kind": "completion-contains",
+      "file": "src/tool.cpp",
+      "text": "struct max_type {};\nint max_value = 1;\nint f() {\n    ma\n}\n",
+      "at": [
+        3,
+        6
+      ],
+      "expect": [
+        "max_value"
+      ],
+      "absent": [
+        "auto main() -> int { }",
+        "int main() { }"
+      ]
+    },
+    {
+      "id": "T5-main-declared",
+      "kind": "completion-contains",
+      "file": "src/main.cpp",
+      "text": "struct max_type {};\n\nint main() {\n    int max_value = 1;\n    return max_value - 1;\n}\nm\n",
+      "at": [
+        6,
+        1
+      ],
+      "expect": [
+        "module"
+      ],
+      "absent": [
+        "auto main() -> int { }",
+        "int main() { }"
+      ],
+      "exact": true
+    },
+    {
+      "id": "T6-module-unit",
+      "kind": "completion-contains",
+      "file": "src/unit.cppm",
+      "text": "export module unit;\nstruct max_type {};\nm\n",
+      "at": [
+        2,
+        1
+      ],
+      "expect": [
+        "module :private;"
+      ],
+      "absent": [
+        "auto main() -> int { }",
+        "int main() { }"
+      ],
+      "exact": true
+    },
+    {
+      "id": "R1-counted",
+      "kind": "report",
+      "expect": [
+        {
+          "path": "/roots/0/completion/templatesWithoutEngine",
+          "exists": true
+        }
+      ]
+    }
+  ]
+}

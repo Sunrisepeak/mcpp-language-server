@@ -28,7 +28,7 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 | `mcppls-<platform>.vsix` | 是 | 是 |
 | `payload-<platform>.tar.gz` | 是 | 是 |
 | `mcppls-zed-<version>.tar.gz` | 否 | 是 |
-| `mcppls-clion-<version>.zip` | 否 | 是 |
+| `mcppls-clion-<version>-<platform>.zip` | 是 | 是 |
 | `mcppls-<version>-openkal.zip` | 否——一个包服务所有系统和架构 | 是 |
 | `mcppls-<version>.okb` | 否——两种架构的映像 | 是 |
 | `mcppls-<version>-<system>-<arch>`（`linux-x86_64`、`linux-aarch64`、`macos-aarch64`、`windows-x86_64.exe`） | 每个系统与架构一个 | 是 |
@@ -36,7 +36,7 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 
 增减 release 文件只需修改这份发布清单，workflow 不用改。
 
-**服务端只有一份字节。** 它按架构构建为 ok 映像（mcpp 的 `<arch>-openkal`，平台为 openkal-platform），上表中凡是带服务端的文件，带的都是这些映像：okb 带两份；每个 payload 和 VSIX 都把这个 okb 作为 `bin/mcppls.okb`，旁边是本平台的运行器 `bin/okrun`；通用包在 `lib/<arch>/` 下带两份，并带它服务的每个系统的运行器；单文件是一个系统的运行器，里面装着一份映像。CI 把每一个都与最先构建的映像（`server-image`）比对：通用包在 Linux、macOS、Windows 上的各行、okb、每个 payload 的 okb、每个 VSIX 的 okb（`distribution`，“一个 okb，每个运行器都能启动它”），并在各自的系统上运行它分发的每个运行器。按平台不同的只有 clangd 和工具包，所以 payload 和 VSIX 仍然按平台各一份。
+**服务端只有一份字节。** 它按架构构建为 ok 映像（mcpp 的 `<arch>-openkal`，平台为 openkal-platform），上表中凡是带服务端的文件，带的都是这些映像：okb 带两份；每个 payload 和 VSIX 都把这个 okb 作为 `bin/mcppls.okb`，旁边是本平台的运行器 `bin/okrun`；通用包在 `lib/<arch>/` 下带两份，并带它服务的每个系统的运行器；单文件是一个系统的运行器，里面装着一份映像。CI 把每一个都与最先构建的映像（`server-image`）比对：通用包在 Linux、macOS、Windows 上的各行、okb、每个 payload 的 okb、每个 VSIX 的 okb（`distribution`，“一个 okb，每个运行器都能启动它”），并在各自的系统上运行它分发的每个运行器。按平台不同的只有 clangd 和工具包，所以 payload、VSIX 和 CLion 的包仍然按平台各一份。
 
 | 任务（`ci.yml`） | 产出 | 运行于 |
 |---|---|---|
@@ -62,12 +62,13 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 
 接下来这次运行会执行下面的 pre-release 测试：重新运行完整的 CI，构建 Zed 和 CLion 插件并安装，测性能和稳定性，把所有东西暂存好，对着发布清单检查，写出 `SHA256SUMS` 和 `MANIFEST.md`。只有全部通过，才会创建标签，把暂存好的候选版本逐个文件发布出去。
 
-一个 release 到达用户要经过四步，只有第一步是自动的：
+一个 release 到达用户要经过五步，只有第一步是自动的：
 
 1. 这次运行把 release 创建成**草稿**。
 2. 你在本地验证草稿里的 `mcppls-<platform>.vsix`（见[核实一次发布](#核实一次发布)）。
 3. 你发布这个草稿。这会触发 `.github/workflows/publish-openvsx.yml`，把同样的文件发到 Open VSX（见 [Open VSX](#open-vsx)）。
 4. 你把同样的文件上传到 VS Code Marketplace（见[下文](#vs-code-marketplace)）。
+5. 你把四个 `mcppls-clion-<version>-<platform>.zip` 上传到 JetBrains Marketplace（见[下文](#jetbrains-marketplace)）。
 
 关掉 `draft` 的运行有意跳过第 2 步：release 立即发布，并由它的 `openvsx` job 发到 Open VSX，因为 workflow 创建的 release 不会触发其他 workflow。
 
@@ -78,8 +79,8 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 | Job | 通过条件 |
 |---|---|
 | CI | `ci.yml` 的每个 job 都通过 |
-| plugins (Linux) | Zed 和 CLion 插件能构建、能打包 |
-| install | devtools 能从 release 压缩包里装好两个插件，装好的服务端能应答 `inferred` 这个 fixture，`uninstall` 之后什么都不留下 |
+| plugins (Linux) | Zed 扩展能构建、能打包；CLion 插件按平台各构建一个包，每个包带着本平台的 payload |
+| install | devtools 装好 Zed 扩展和本平台的 CLion 包；Zed 回退使用的服务端和 CLion 包自带的服务端都能应答 `inferred` 这个 fixture；`uninstall` 之后什么都不留下 |
 | performance | 五次冷启动首次导航的中位数在 12 秒以内，五次热启动在 5 秒以内，且没有检查失败 |
 | performance on a real project (Linux) | 服务端能通过 `self-mcpp` 这个 fixture：固定某次提交的 mcpp 仓库本身 |
 | stability | 关键项目形态的 fixture（全 `.cppm`、`.cppm`/`.cpp` 混合、被监视的编辑、损坏的模块、挂起的构建工具、多个根目录）连续跑三轮都通过 |
@@ -157,6 +158,10 @@ token 是仓库 secret `OVSX_PAT`，属于拥有该命名空间的 Open VSX 账�
 
 本地验证之后手动上传：把已发布 release 的每个 `mcppls-<platform>.vsix` 上传到 publisher `sunrisepeak`，可以用 `npx @vscode/vsce publish --packagePath <这些文件>`，也可以在 publisher 管理页面上逐个上传（第一个用新建扩展，其余用 *Update*）。一个版本号只发布一次：Marketplace 只接受比它见过的所有版本都高的版本号。
 
+## JetBrains Marketplace
+
+本地验证之后手动上传：插件 `io.github.sunrisepeak.mcppls`（vendor 为 Sunrisepeak）接收已发布 release 的四个 `mcppls-clion-<version>-<platform>.zip`，每个作为一次单独的更新上传（版本号为 `<version>-linux-x86_64`、`<version>-linux-arm64`、`<version>-mac-arm64` 和 `<version>-windows-x86_64`，即构建给它们加的后缀）。Marketplace 按 `plugin.xml` 中对 IDE 所在系统和架构的依赖（`com.intellij.modules.os.*`、`com.intellij.modules.arch.*`）给 IDE 下发对应的包，每个包都声明了这些依赖；这也是 `since-build` 为 261 的原因，这是 Marketplace 这样做的第一个 IDE 版本。新插件的第一次上传要经过 JetBrains 审核；依赖本插件的 mcpp-clion 要等本插件上架后才能被接受。
+
 ## 还没做的
 
-xlings 索引还需要自己的凭证，以及 release workflow 里的一个发布步骤。`mcppls-devtools release xlings` 已经能生成 xlings 的包描述文件；提交到索引的 pull request 还没加上。从 workflow 直接上传到 VS Code Marketplace 是有意不做的：它要留在上面的本地验证之后。
+xlings 索引上有服务端（openxlings/xim-pkgindex 的 `pkgs/m/mcppls.lua`），由提交到索引的 pull request 更新；release workflow 不会开这个 pull request。`mcppls-devtools release xlings` 能生成包描述文件。从 workflow 直接上传到 VS Code Marketplace 或 JetBrains Marketplace 是有意不做的：两者都要留在上面的本地验证之后。

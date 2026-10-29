@@ -102,7 +102,8 @@ platforms`).
 | Check a payload | `mcpp run -p devtools -- payload --verify DIR` |
 | The semantic kit alone | `mcpp run -p devtools -- kit --platform linux-x64 --out DIR` |
 | Editor extensions | `mcpp run -p devtools -- extension [--editor vscode\|zed\|clion\|all] [--install [--link]]` |
-| Install a plugin you already have (a release's) | `... -- extension --editor zed\|clion --install --plugin PATH --payload DIR` |
+| Install a plugin you already have (a release's) | `... -- extension --editor zed --install --plugin PATH --payload DIR`; `... -- extension --editor clion --install --plugin mcppls-clion-<version>-<platform>.zip` (the package carries its payload) |
+| The CLion packages of several platforms, from their payloads (CI) | `mcpp run --features clion -p devtools -- extension --editor clion --payloads DIR` (DIR holds `<platform>/payload`); each is written to `target/pack/mcppls-clion-<version>-<platform>.zip` |
 | Remove an installed extension | `mcpp run -p devtools -- uninstall --editor vscode\|zed\|clion\|all` |
 | Check a staged release | `mcppls-devtools release check --version V --dir release [--render]` |
 | The xlings artifacts of a release (its payloads and single files) | `mcppls-devtools release xlings --payloads DIR --out DIR` |

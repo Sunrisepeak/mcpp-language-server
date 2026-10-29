@@ -14,10 +14,10 @@ so `mcpp run` provisions it before the tool starts. Gradle and the JDK it runs o
 `mcpp run --features clion -p devtools -- extension --editor clion`. Zed and CLion have no
 command line for installing a plugin, so `--install` leaves on disk exactly what their own UI would:
 for Zed it stops one step short and names the palette action, the recommended route (`--link`
-takes that step too); for CLion it unpacks the plugin as *Install Plugin from Disk* does. Both
-start `mcppls` from PATH, or else the server of the payload `--install` puts at
+takes that step too); for CLion it unpacks this system's package as *Install Plugin from Disk*
+does. Zed starts `mcppls` from PATH, or else the server of the payload `--install` puts at
 `<user data>/mcppls/payload`: its runner `bin/okrun` starting the okb `bin/mcppls.okb`, as its
-`payload.json` says.
+`payload.json` says. The CLion package carries its own payload, as the VSIX does.
 
 ## VS Code
 
@@ -140,19 +140,31 @@ them off). There is no per-project switch; the README shows two ways to keep it 
 ## CLion
 
 The plugin at [`editors/clion/`](../editors/clion/README.md) registers mcppls through the IntelliJ
-platform's LSP API.
-
-`mcpp run --features clion -p devtools -- extension --editor clion --install` builds it, puts the
-server in place and unpacks the plugin into every CLion's plugins directory; restart CLion. CLion
-2025.2 and later are supported; it is built against, and tested inside, CLion 2026.2.3.
+platform's LSP API. It is on the JetBrains Marketplace as **C++ Modules Language Server**
+(`io.github.sunrisepeak.mcppls`), one package per system and architecture, each carrying that
+platform's server, pinned clangd and semantic kit; CLion 2026.1 and later are given the package of
+their own system. It is built against, and tested inside, CLion 2026.2.3.
+`mcpp run --features clion -p devtools -- extension --editor clion --install` builds this system's
+package and unpacks it into every CLion's plugins directory; restart CLion.
 
 A file is answered by one engine. A project CLion models itself -- a loaded CMake, compilation
 database or Makefile workspace, or a `CMakeLists.txt` at the root -- is answered by CLion's own C/C++
 engine, and mcppls does not start for it. Every other project (mcpp, xmake, a plain folder) is
-mcppls's. Settings | Tools | mcppls has one checkbox, "Also for projects CLion models", that turns
-mcppls on for the first kind too; both engines then answer, and the plugin says so once per
-project. To keep mcppls off for one project whatever it is, disable the plugin for that project in
-Settings | Plugins
+mcppls's. Settings | Tools | mcppls has a checkbox, "Also for projects CLion models", that turns
+mcppls on for the first kind too.
+
+CLion's own engine also analyses a folder no build system configures, with the default compiler, so
+in the files mcppls answers its problems and completions would come twice. The first time a project
+has such a file, the plugin asks once: *Use mcppls only in this project*, *Always use mcppls only*,
+or *Keep both*. Nothing changes until it is answered. "mcppls only" sets those files' highlighting
+level to Syntax -- the level of CLion's inspection widget, which CLion's engine also takes, so it
+reports syntax errors alone there -- and keeps the completion list to mcppls's items and live
+templates; syntax colouring, gutter icons and mcppls's diagnostics stay. Settings | Tools | mcppls
+changes the answer for every project or for this one, and Tools | mcppls has *Use mcppls Only in This
+Project* and *Restore CLion's Engine in This Project*; restoring puts back each file's earlier level
+unless it was changed since. Another plugin that may run a language server for C and C++ (LSP4IJ) is
+named once per project, with the way to turn it off. To keep mcppls off for one project whatever it
+is, disable the plugin for that project in Settings | Plugins
 ([editors/clion/README.md](../editors/clion/README.md#keeping-mcppls-off-for-one-project)).
 
 ## Any other LSP client

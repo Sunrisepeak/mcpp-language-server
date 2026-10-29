@@ -85,7 +85,8 @@ mcpp run -p devtools -- extension --editor vscode --install  # payload、VS Code
 | 检查一个 payload | `mcpp run -p devtools -- payload --verify DIR` |
 | 单独构建语义工具包 | `mcpp run -p devtools -- kit --platform linux-x64 --out DIR` |
 | 编辑器扩展 | `mcpp run -p devtools -- extension [--editor vscode\|zed\|clion\|all] [--install [--link]]` |
-| 安装一个已有的插件（来自某次 release） | `... -- extension --editor zed\|clion --install --plugin PATH --payload DIR` |
+| 安装一个已有的插件（来自某次 release） | `... -- extension --editor zed --install --plugin PATH --payload DIR`；`... -- extension --editor clion --install --plugin mcppls-clion-<version>-<platform>.zip`（包里自带 payload） |
+| 用若干平台的 payload 构建 CLion 的包（CI） | `mcpp run --features clion -p devtools -- extension --editor clion --payloads DIR`（DIR 下是 `<platform>/payload`）；每个包写到 `target/pack/mcppls-clion-<version>-<platform>.zip` |
 | 移除已安装的扩展 | `mcpp run -p devtools -- uninstall --editor vscode\|zed\|clion\|all` |
 | 检查暂存好的 release | `mcppls-devtools release check --version V --dir release [--render]` |
 | 一次 release 的 xlings 产物（取自它的 payload 和单文件） | `mcppls-devtools release xlings --payloads DIR --out DIR` |

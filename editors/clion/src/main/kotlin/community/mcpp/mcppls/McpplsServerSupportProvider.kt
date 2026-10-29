@@ -1,34 +1,39 @@
 package community.mcpp.mcppls
 
-import com.google.gson.JsonParser
+import com.intellij.execution.ExecutionException
 import com.intellij.execution.configurations.GeneralCommandLine
-import com.intellij.execution.configurations.PathEnvironmentVariableUtil
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
-import com.intellij.openapi.util.Key
-import com.intellij.openapi.util.SystemInfo
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.editor.event.EditorFactoryEvent
+import com.intellij.openapi.editor.event.EditorFactoryListener
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Computable
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.lsp.api.LspServerSupportProvider
 import com.intellij.platform.lsp.api.ProjectWideLspServerDescriptor
-import java.io.File
+import com.intellij.platform.lsp.api.customization.LspCompletionCustomizer
+import com.intellij.platform.lsp.api.customization.LspCustomization
 
 // Starts `mcppls serve` for C and C++ files. Everything else — finding the build, preparing the
 // modules, driving clangd — happens in the server, which is why this file is this short.
 //
 // A file is answered by one engine: a project CLion models is CLion's and mcppls does not start for
-// it, unless Settings | Tools | mcppls says otherwise (ClionModel).
-private val CXX_EXTENSIONS = setOf(
+// it, unless Settings | Tools | mcppls says otherwise (ClionModel). In the files mcppls answers, CLion's
+// own engine answers too until the user lets mcppls answer them alone (OneEngine).
+internal val CXX_EXTENSIONS = setOf(
     "cpp", "cxx", "cc", "c++", "c",
     "h", "hpp", "hxx", "hh",
     "cppm", "ccm", "cxxm", "c++m", "ixx", "mpp", "mxx",
     "mcpp",   // mcpp's build programs, build.mcpp
 )
 
-private val TOLD_ABOUT_TWO_ENGINES = Key.create<Boolean>("community.mcpp.mcppls.toldAboutTwoEngines")
+private val TOLD_NO_SERVER = Key.create<Boolean>("community.mcpp.mcppls.toldNoServer")
 
-// Whether this project was told that both engines answer its files (once per project); the tests read it.
-internal fun toldAboutTwoEngines(project: Project): Boolean = project.getUserData(TOLD_ABOUT_TWO_ENGINES) == true
+// Whether this project was told that no server can start (once per project); the tests read it.
+internal fun toldNoServer(project: Project): Boolean = project.getUserData(TOLD_NO_SERVER) == true
 
 internal class McpplsServerSupportProvider : LspServerSupportProvider {
     override fun fileOpened(
@@ -36,25 +41,40 @@ internal class McpplsServerSupportProvider : LspServerSupportProvider {
         file: VirtualFile,
         serverStarter: LspServerSupportProvider.LspServerStarter,
     ) {
-        if (file.extension?.lowercase() !in CXX_EXTENSIONS) return
-        val modelled = ClionModel.models(project)
-        if (modelled && !McpplsSettings.getInstance().alsoForModelledProjects) return
-        serverStarter.ensureServerStarted(McpplsServerDescriptor(project))
-        if (modelled) tellOnce(project)
+        if (!OneEngine.answers(project, file)) return
+        when (val launch = resolveLaunch()) {
+            is Launch.Found -> serverStarter.ensureServerStarted(McpplsServerDescriptor(project))
+            is Launch.Refused -> tellOnce(project, launch.reason)
+            Launch.Missing -> tellOnce(
+                project,
+                "This build of the plugin carries no language server for this system, and there is no mcppls on the PATH " +
+                    "CLion sees. Install the plugin from the Marketplace (its package for this system carries the server), " +
+                    "or put mcppls on the PATH: `xlings install mcppls`, or the release's universal package.",
+            )
+        }
     }
 
-    // Once per project, the first time both engines answer a file.
-    private fun tellOnce(project: Project) {
-        if (project.getUserData(TOLD_ABOUT_TWO_ENGINES) == true) return
-        project.putUserData(TOLD_ABOUT_TWO_ENGINES, true)
+    private fun tellOnce(project: Project, reason: String) {
+        if (project.getUserData(TOLD_NO_SERVER) == true) return
+        project.putUserData(TOLD_NO_SERVER, true)
         NotificationGroupManager.getInstance().getNotificationGroup("mcppls")
-            .createNotification(
-                "mcppls",
-                "CLion models this project, and mcppls is on for such projects (Settings | Tools | mcppls), " +
-                    "so completion and diagnostics come from both engines.",
-                NotificationType.INFORMATION,
-            )
+            .createNotification("mcppls", reason, NotificationType.WARNING)
             .notify(project)
+    }
+}
+
+// Every editor of a file, for OneEngine. The platform calls the provider's fileOpened to start a server, not for
+// every file once one runs, so the files opened afterwards are seen here.
+internal class McpplsEditorListener : EditorFactoryListener {
+    override fun editorCreated(event: EditorFactoryEvent) {
+        val project = event.editor.project ?: return
+        val file = FileDocumentManager.getInstance().getFile(event.editor.document) ?: return
+        if (project.isDisposed || !file.isInLocalFileSystem || file.extension?.lowercase() !in CXX_EXTENSIONS) return
+        // Off the EDT: the decision reads the payload's manifest and CLion's workspace.
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val answered = ApplicationManager.getApplication().runReadAction(Computable { !project.isDisposed && OneEngine.answers(project, file) })
+            if (answered && resolveLaunch() is Launch.Found) OneEngine.fileOpened(project, file)
+        }
     }
 }
 
@@ -63,41 +83,16 @@ private class McpplsServerDescriptor(project: Project) :
 
     override fun isSupportedFile(file: VirtualFile) = file.extension?.lowercase() in CXX_EXTENSIONS
 
-    // PATH first, the way every other tool the user installed is found: the universal package's
-    // `mcppls`, a single file, or a build of one's own. Then the payload
-    // `mcpp run -p devtools -- extension --editor clion --install` puts at <user data>/mcppls/payload
-    // (tools/devtools/src/editors.cppm), started as its payload.json's `server` says.
-    override fun createCommandLine(): GeneralCommandLine {
-        PathEnvironmentVariableUtil.findExecutableInPathOnAnyOS("mcppls")?.let { return GeneralCommandLine(it.path, "serve") }
-        return GeneralCommandLine((installedServer() ?: listOf("mcppls")) + "serve")
+    // ServerLaunch says where: MCPPLS_SERVER, the payload this plugin carries, then PATH. fileOpened starts no
+    // server unless one is found, so a refusal here is a payload that changed since.
+    override fun createCommandLine(): GeneralCommandLine = when (val launch = resolveLaunch()) {
+        is Launch.Found -> GeneralCommandLine(launch.command + "serve")
+        is Launch.Refused -> throw ExecutionException(launch.reason)
+        Launch.Missing -> throw ExecutionException("no mcppls to start")
     }
-}
 
-// The command payload.json's `server` names in the installed payload: the platform's runner and the
-// image (`server.runner`, `server.path`: `bin/okrun bin/mcppls.okb`), or a program alone. Null when
-// there is no payload, or what it names is not there to start.
-internal fun installedServer(payload: File? = installedPayload()): List<String>? {
-    val manifest = payload?.resolve("payload.json")?.takeIf { it.isFile } ?: return null
-    val server = runCatching { JsonParser.parseString(manifest.readText()).asJsonObject.getAsJsonObject("server") }.getOrNull()
-        ?: return null
-    val path = server.get("path")?.takeIf { it.isJsonPrimitive }?.asString ?: return null
-    val runner = server.get("runner")?.takeIf { it.isJsonPrimitive }?.asString
-    val image = payload.resolve(path)
-    if (runner == null) return image.takeIf { it.canExecute() }?.let { listOf(it.path) }
-    val program = payload.resolve(runner)
-    return if (program.canExecute() && image.isFile) listOf(program.path, image.path) else null
-}
-
-// <user data>/mcppls/payload: $XDG_DATA_HOME or ~/.local/share on Linux, ~/Library/Application
-// Support on macOS, %LOCALAPPDATA% on Windows.
-private fun installedPayload(): File? {
-    val home = System.getProperty("user.home") ?: return null
-    return when {
-        SystemInfo.isWindows -> System.getenv("LOCALAPPDATA")?.takeIf { it.isNotEmpty() }?.let { File(it, "mcppls\\payload") }
-        SystemInfo.isMac -> File(home, "Library/Application Support/mcppls/payload")
-        else -> {
-            val data = System.getenv("XDG_DATA_HOME")?.takeIf { it.startsWith("/") } ?: "$home/.local/share"
-            File(data, "mcppls/payload")
-        }
+    // mcppls's completion items carry a mark, which "mcppls only" keeps (McpplsOnlyCompletion).
+    override val lspCustomization: LspCustomization = object : LspCustomization() {
+        override val completionCustomizer: LspCompletionCustomizer = McpplsCompletionSupport()
     }
 }

@@ -2317,6 +2317,69 @@
       "test": "tests/test_answer.cpp: a class that changed: members added and removed by its outline, marked; only those"
     }
   ],
+  "S3-6.4-1": [
+    {
+      "test": "tests/test_templates.cpp: the templates of main where a declaration begins, filtered by what was typed"
+    },
+    {
+      "test": "tests/test_templates.cpp: nothing inside braces, comments, literals or preprocessor lines, nor in a declaration begun before the line"
+    },
+    {
+      "test": "tests/test_templates.cpp: the cursor ends what was typed, with nothing after it on the line"
+    },
+    {
+      "check": "completion-templates/T1-file-scope"
+    },
+    {
+      "check": "completion-templates/T2-after-its-type"
+    },
+    {
+      "check": "completion-templates/T4-not-in-a-body"
+    },
+    {
+      "script": "src/orchestrator/workspace.cpp",
+      "contains": "job.templates = index::template_completion(job.text, *position, scan, index::TemplateOptions { .snippets = snippetSupport });"
+    }
+  ],
+  "S3-6.4-2": [
+    {
+      "test": "tests/test_templates.cpp: none where main is declared already, the line being typed aside"
+    },
+    {
+      "test": "tests/test_templates.cpp: none in a named module unit, before its declaration or after it"
+    },
+    {
+      "check": "completion-templates/T5-main-declared"
+    },
+    {
+      "check": "completion-templates/T6-module-unit"
+    }
+  ],
+  "S3-6.4-3": [
+    {
+      "test": "tests/test_templates.cpp: a snippet with the cursor in the body where the client declared snippets, the same text plain otherwise"
+    },
+    {
+      "check": "completion-templates/T3-snippet"
+    }
+  ],
+  "S3-6.4-4": [
+    {
+      "test": "tests/test_templates.cpp: a snippet with the cursor in the body where the client declared snippets, the same text plain otherwise"
+    },
+    {
+      "script": "src/orchestrator/kernel.cpp",
+      "contains": "{ \"completion\", Json { { \"completionItem\", Json { { \"snippetSupport\", false } } } } },"
+    }
+  ],
+  "S3-6.4-5": [
+    {
+      "test": "tests/test_templates.cpp: the templates join the core engine's answer and sort after its items"
+    },
+    {
+      "check": "completion-templates/T3-snippet"
+    }
+  ],
   "S5-2.6-1": [
     {
       "test": "tests/test_answer_routing.cpp: an agent is told where every answer came from"

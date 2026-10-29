@@ -624,21 +624,21 @@ jobs:
             part: 2 of 2
             os: ubuntu-24.04
             extras: true
-            fixtures: inferred inferred-bom typing-pause module-fails-in-import save-plan build-discovery-off engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-provisioned mcpp-emit-watch mcpp-emit-watch@polling mcpp-emit-edits mcpp-build-programs-cross cmake-clang cmake-clang-bdb cmake-fetchcontent-offline watch-polling payload-corrupt clangd-cannot-load generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed failure-at-base failure-at-base@neovim completion-keywords diagnostic-bundle clangd-crash-context clangd-exit-strike clangd-crash-closure mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views format-explicit preparation-after-idle build-program-broken build-program-gated build-program-manual
+            fixtures: inferred inferred-bom typing-pause module-fails-in-import save-plan build-discovery-off engine-none module-faults untrusted mcpp-gcc mcpp-gcc@plain mcpp-emit-package-std mcpp-emit-broken mcpp-emit-unavailable mcpp-emit-hang mcpp-emit-needs-download mcpp-emit-provisioned mcpp-emit-watch mcpp-emit-watch@polling mcpp-emit-edits mcpp-build-programs-cross cmake-clang cmake-clang-bdb cmake-fetchcontent-offline watch-polling payload-corrupt clangd-cannot-load generated-module generated-module@vscode generated-module-old-mcpp generated-module-old-mcpp@neovim module-faults@zed failure-at-base failure-at-base@neovim completion-keywords completion-templates diagnostic-bundle clangd-crash-context clangd-exit-strike clangd-crash-closure mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views format-explicit preparation-after-idle build-program-broken build-program-gated build-program-manual
           # generated-module{,-old-mcpp,-negotiated}'s mcpp-mock.json bakes in a POSIX driver path
           # (${env:HOME}/.mcpp/registry/..., no {exe}); it resolves the same way here as on Linux, so
           # these run on macOS but are left off win32-x64 below rather than fixed unverified.
           - platform: darwin-arm64
             os: macos-14
             extras: true
-            fixtures: inferred inferred-bom typing-pause module-fails-in-import save-plan build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-build-programs mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context clangd-exit-strike clangd-crash-closure mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views format-explicit build-program-broken build-program-gated build-program-manual mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve mcpp-watched-source-structure mcpp-autosave-import-typing
+            fixtures: inferred inferred-bom typing-pause module-fails-in-import save-plan build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-build-programs mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords completion-templates diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context clangd-exit-strike clangd-crash-closure mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views format-explicit build-program-broken build-program-gated build-program-manual mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve mcpp-watched-source-structure mcpp-autosave-import-typing
           # No mcpp on the arm64 runner: the server and mock producers are cross-built. Most
           # fixtures use the semantic kit; the SDK-free target fixtures probe distribution clang,
           # installed below. Module faults, a corrupt payload and polling are included.
           - platform: linux-arm64
             os: ubuntu-24.04-arm
             cross-tools: true
-            fixtures: inferred inferred-bom typing-pause module-fails-in-import build-discovery-off engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling typing-import typing-import-spin workaround-canaries completion-keywords diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context clangd-exit-strike clangd-crash-closure inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve mcpp-watched-source-structure mcpp-autosave-import-typing
+            fixtures: inferred inferred-bom typing-pause module-fails-in-import build-discovery-off engine-none module-faults untrusted payload-corrupt clangd-cannot-load failure-at-base watch-polling typing-import typing-import-spin workaround-canaries completion-keywords completion-templates diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context clangd-exit-strike clangd-crash-closure inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve mcpp-watched-source-structure mcpp-autosave-import-typing
           - platform: win32-x64
             part: 1 of 2
             os: windows-2022
@@ -647,7 +647,7 @@ jobs:
             part: 2 of 2
             os: windows-2022
             extras: true
-            fixtures: inferred inferred-bom typing-pause module-fails-in-import save-plan build-discovery-off engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-clangxx-msvc cmake-clang-cl mcpp-msvc mcpp-watch failure-at-base clangd-cannot-load completion-keywords diagnostic-bundle mcpp-emit-wait inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views format-explicit preparation-after-idle
+            fixtures: inferred inferred-bom typing-pause module-fails-in-import save-plan build-discovery-off engine-none module-faults mcpp-emit-hang inferred-msvc untrusted mingw cmake-msvc cmake-msvc-bdb cmake-clangxx-msvc cmake-clang-cl mcpp-msvc mcpp-watch failure-at-base clangd-cannot-load completion-keywords completion-templates diagnostic-bundle mcpp-emit-wait inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views format-explicit preparation-after-idle
     defaults:
       run:
         shell: bash
@@ -1777,7 +1777,7 @@ jobs:
   # bump, not once per run.
   #
   # verifyPlugin (the JetBrains Plugin Verifier) runs on every pull request: the plugin against CLion
-  # 2025.2, the oldest build it claims, and against the one it is built on.
+  # 2026.1, the oldest build it claims, and against the one it is built on.
   clion-verify:
     name: CLion plugin verifier
     runs-on: ubuntu-24.04
@@ -1839,11 +1839,13 @@ jobs:
           fi
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
 
-  # CLion 2026.2.3 itself, headless, with the platform's test framework: the plugin starts the
-  # mcppls this run built (first on the PATH, as the plugin finds it), and the test asserts what a
-  # person sees in an mcpp project -- the server Running, a diagnostic, a module-name completion, the
-  # process gone when the project closes -- and the one-engine rule on a CMake project
-  # (editors/clion/src/test). What CLion's own engine answers for the same file is printed in the log.
+  # CLion 2026.2.3 itself, headless, with the platform's test framework: the sandbox holds this
+  # system's package of the plugin, carrying the payload this run built (MCPPLS_PAYLOAD), and the
+  # plugin starts that payload's server with nothing on the PATH. The test asserts what a person sees
+  # in an mcpp project -- the server Running, a diagnostic, a module-name completion, the process gone
+  # when the project closes -- and the one-engine rule: a CMake project stays CLion's, and "mcppls
+  # only" lowers a file to Syntax with mcppls's diagnostics kept (editors/clion/src/test). What CLion's
+  # own engine answers for the same file is printed in the log.
   clion-e2e:
     name: CLion 2026.2.3 (headless)
     needs: [payload, clion-changes]

@@ -3,9 +3,10 @@
 // and says what happened; this module only knows the places and does the moves, so the tests can
 // point it at a scratch directory.
 //
-// Zed and CLion both start `mcppls` from PATH first. A server installed here, the one the VS Code
-// extension carries inside itself, is their fallback: `<user data>/mcppls/payload`, which both
-// plugins compute the same way (editors/zed/src/lib.rs, editors/clion/.../McpplsServerSupportProvider.kt).
+// Zed starts `mcppls` from PATH first. A server installed here, the one the VS Code extension
+// carries inside itself, is its fallback: `<user data>/mcppls/payload` (editors/zed/src/lib.rs). The
+// CLion plugin carries its own: each system's package holds that system's payload (design
+// 2026-10-29 §2), so a CLion install needs no server here.
 export module mcppls.devtools.editors;
 
 import std;
@@ -17,7 +18,7 @@ export namespace mcppls::devtools::editors {
 // Linux, ~/Library/Application Support on macOS, %LOCALAPPDATA% on Windows.
 std::string user_data_directory();
 
-// <user data>/mcppls/payload: the server Zed and CLion fall back to when PATH has none.
+// <user data>/mcppls/payload: the server Zed falls back to when PATH has none.
 std::string server_directory();
 
 // ---- Zed -------------------------------------------------------------------------------------
@@ -56,6 +57,9 @@ std::vector<std::string> clion_plugin_directories();
 
 // Unpacks `archive` into `pluginsDirectory`, replacing an earlier copy of this plugin.
 base::Result<void> install_clion(const std::string& pluginsDirectory, const std::string& archive);
+
+// Whether a plugin archive is a system's package, with its payload at `mcppls-clion/payload/`.
+base::Result<bool> clion_archive_carries_payload(const std::string& archive);
 
 bool remove_clion(const std::string& pluginsDirectory);
 

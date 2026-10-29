@@ -85,8 +85,8 @@ int main() {
         expect(report->ok);
     };
 
-    // A root with the five files the check reads, all agreeing on two platforms; then one matrix
-    // drops a platform and another names one the lock does not have.
+    // A root with the six files the check reads, all agreeing on two platforms; then one matrix
+    // drops a platform and another names one the lock does not have, and the CLion build drops one.
     "platforms: a job missing a platform and a job naming an unknown one both fail"_test = [&] {
         const std::string synthetic { scratch("platforms") };
         auto put = [&](std::string_view relative, std::string_view text) {
@@ -100,6 +100,7 @@ int main() {
                           "linux-arm64": {"clangd": "clangd-arm", "server-target": "aarch64-linux-musl"}}})");
         put("editors/vscode/src/payload.ts", "export const SUPPORTED_PLATFORMS: readonly string[] = ['linux-x64', 'linux-arm64'];\n");
         put("packaging/release.manifest.json", R"({"platforms": ["linux-x64", "linux-arm64"]})");
+        put("editors/clion/build.gradle.kts", "val platforms = listOf(\"linux-x64\", \"linux-arm64\")\n");
         const std::string ci { "jobs:\n"
                                "  cross-build:\n    strategy:\n      matrix:\n        include:\n          - { target: aarch64-linux-musl, exe: '' }\n"
                                "  payload:\n    strategy:\n      matrix:\n        include:\n          - { platform: linux-x64, os: ubuntu-24.04 }\n"
@@ -121,6 +122,7 @@ int main() {
         broken.replace(broken.find("          - platform: linux-arm64\n"), std::string_view { "          - platform: linux-arm64\n" }.size(), "");
         broken += "          - { platform: darwin-x64, os: macos-13 }\n";
         put(".github/workflows/ci.yml", broken);
+        put("editors/clion/build.gradle.kts", "val platforms = listOf(\"linux-x64\")\n");
         auto bad = check::platforms(synthetic);
         expect(fatal(bad.has_value()));
         if (!bad) return;
@@ -130,6 +132,7 @@ int main() {
         };
         expect(names("job conformance does not list platform linux-arm64"));
         expect(names("job vscode-e2e lists darwin-x64"));
+        expect(names("build.gradle.kts platforms does not list platform linux-arm64"));
         std::filesystem::remove_all(synthetic);
     };
 

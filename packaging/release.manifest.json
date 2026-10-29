@@ -21,7 +21,7 @@
       "pattern": "payload-{platform}.tar.gz",
       "per-platform": true,
       "required": true,
-      "what": "The server, the clangd it drives and the semantic kit, as one tree. The server is the one okb of every architecture (`bin/mcppls.okb`), started by the platform's runner (`bin/okrun`), as payload.json's `server` says. What every editor but VS Code installs beside its plugin",
+      "what": "The server, the clangd it drives and the semantic kit, as one tree. The server is the one okb of every architecture (`bin/mcppls.okb`), started by the platform's runner (`bin/okrun`), as payload.json's `server` says. The VSIX and the CLion package carry these bytes; Zed and Neovim use it installed beside their plugin",
       "install": "Unpack it; `payload/bin/okrun payload/bin/mcppls.okb serve` speaks LSP over stdio. For a command named `mcppls`, use the universal package or a single file below"
     },
     {
@@ -34,11 +34,11 @@
     },
     {
       "id": "clion",
-      "pattern": "mcppls-clion-{version}.zip",
-      "per-platform": false,
+      "pattern": "mcppls-clion-{version}-{platform}.zip",
+      "per-platform": true,
       "required": true,
-      "what": "The IntelliJ-platform plugin archive Gradle produces. Gradle and the JDK it compiles with come from the `clion` feature (xim:gradle, xim:jdk-temurin), so it does not depend on whatever JDK the machine happens to default to",
-      "install": "CLion: Settings → Plugins → the gear menu → *Install Plugin from Disk*, and restart. The server is `mcppls` on PATH (the universal package or a single file), else the installed payload"
+      "what": "The CLion plugin for one platform, with that platform's payload inside it (`mcppls-clion/payload/`), so it needs nothing else installed. Its plugin.xml depends on the platform's `com.intellij.modules.os.*` and `com.intellij.modules.arch.*`, by which the JetBrains Marketplace gives CLion 2026.1 and later the package of its own system. Gradle and the JDK it compiles with come from the `clion` feature (xim:gradle, xim:jdk-temurin)",
+      "install": "The JetBrains Marketplace, or CLion: Settings → Plugins → the gear menu → *Install Plugin from Disk* with this platform's file, and restart"
     },
     {
       "id": "openkal",

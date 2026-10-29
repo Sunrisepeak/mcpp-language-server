@@ -10,7 +10,7 @@ mcpp run -p devtools -- extension --editor vscode|zed|clion --install   # 并安
 mcpp run -p devtools -- uninstall --editor vscode|zed|clion|all   # 卸载
 ```
 
-打包需要什么——Node 和 Rust——都写在 `mcpp.toml` 的 `[xlings.workspace]` 里，工具启动前 `mcpp run` 会先准备好。Gradle 和它要用的 JDK 放在 `clion` feature 后面，只有构建那个插件的人才需要下载它们：`mcpp run --features clion -p devtools -- extension --editor clion`。Zed 和 CLion 都没有装插件的命令行，所以 `--install` 在磁盘上留下的东西和它们自己的 UI 装出来的完全一样：对 Zed，它停在最后一步之前，告诉你在命令面板里执行哪个操作（推荐这样装，加 `--link` 则由它自己完成）；对 CLion，它按 *Install Plugin from Disk* 的方式解包插件。两者都会先从 PATH 启动 `mcppls`，找不到就按 `payload.json` 的说明，启动 `--install` 放在 `<user data>/mcppls/payload` 的那个 payload 的服务端：它的运行器 `bin/okrun` 启动 okb `bin/mcppls.okb`。
+打包需要什么——Node 和 Rust——都写在 `mcpp.toml` 的 `[xlings.workspace]` 里，工具启动前 `mcpp run` 会先准备好。Gradle 和它要用的 JDK 放在 `clion` feature 后面，只有构建那个插件的人才需要下载它们：`mcpp run --features clion -p devtools -- extension --editor clion`。Zed 和 CLion 都没有装插件的命令行，所以 `--install` 在磁盘上留下的东西和它们自己的 UI 装出来的完全一样：对 Zed，它停在最后一步之前，告诉你在命令面板里执行哪个操作（推荐这样装，加 `--link` 则由它自己完成）；对 CLion，它按 *Install Plugin from Disk* 的方式解包本系统的包。Zed 先从 PATH 启动 `mcppls`，找不到就按 `payload.json` 的说明，启动 `--install` 放在 `<user data>/mcppls/payload` 的那个 payload 的服务端：它的运行器 `bin/okrun` 启动 okb `bin/mcppls.okb`。CLion 的包像 VSIX 一样自带 payload。
 
 ## VS Code
 
@@ -67,11 +67,11 @@ Zed 自带 C/C++ 的 clangd，不做第 2 步它会和 mcppls 同时跑在同一
 
 ## CLion
 
-[`editors/clion/`](../../editors/clion/README.md) 里的插件通过 IntelliJ 平台的 LSP API 注册 mcppls。
+[`editors/clion/`](../../editors/clion/README.md) 里的插件通过 IntelliJ 平台的 LSP API 注册 mcppls。它以 **C++ Modules Language Server**（`io.github.sunrisepeak.mcppls`）上架 JetBrains Marketplace，每个系统和架构一个包，各自带着本平台的服务端、锁定版本的 clangd 和语义工具包；CLion 2026.1 及以上会拿到本系统的包。插件基于 CLion 2026.2.3 构建，并在这个版本里测试。`mcpp run --features clion -p devtools -- extension --editor clion --install` 会构建本系统的包，并把它解包进每一个 CLion 的插件目录；然后重启 CLion。
 
-`mcpp run --features clion -p devtools -- extension --editor clion --install` 会构建它、把服务端放到位，并把插件解包进每一个 CLion 的插件目录；然后重启 CLion。支持 CLion 2025.2 及以上；插件基于 CLion 2026.2.3 构建，并在这个版本里测试。
+一个文件只由一个引擎回答。CLion 自己建模的项目（已加载的 CMake、compilation database 或 Makefile 工作区，或者根目录有 `CMakeLists.txt`）由 CLion 自带的 C/C++ 引擎回答，mcppls 不启动；其余项目（mcpp、xmake、普通文件夹）由 mcppls 回答。Settings | Tools | mcppls 里有一个选项"Also for projects CLion models"，打开后 mcppls 也用于前一类项目。
 
-一个文件只由一个引擎回答。CLion 自己建模的项目（已加载的 CMake、compilation database 或 Makefile 工作区，或者根目录有 `CMakeLists.txt`）由 CLion 自带的 C/C++ 引擎回答，mcppls 不启动；其余项目（mcpp、xmake、普通文件夹）由 mcppls 回答。Settings | Tools | mcppls 里有一个选项"Also for projects CLion models"，打开后 mcppls 也用于前一类项目；两个引擎会同时回答，插件对每个项目提示一次。要在某个项目里无论如何都关掉 mcppls，就在 Settings | Plugins 里只为这个项目禁用插件（[editors/clion/README.md](../../editors/clion/README.md#keeping-mcppls-off-for-one-project)）。
+对没有构建系统配置的文件夹，CLion 自身的引擎也会按默认编译器分析，因此在 mcppls 回答的文件里，问题和补全会出现两份。项目里第一次出现这样的文件时，插件询问一次：*Use mcppls only in this project*、*Always use mcppls only* 或 *Keep both*。回答之前不做任何改动。"mcppls only" 把这些文件的高亮级别设为 Syntax——即 CLion 检查组件里的级别，CLion 的引擎也遵循它，于是在这些文件里只报语法错误——并让补全列表只留 mcppls 的条目和 Live Template；语法着色、行标记和 mcppls 的诊断保留。Settings | Tools | mcppls 可以为所有项目或当前项目修改这个回答；Tools | mcppls 里有 *Use mcppls Only in This Project* 和 *Restore CLion's Engine in This Project*，恢复时把每个文件写回原来的级别，用户之后改过的文件不动。另一个可能为 C/C++ 运行语言服务器的插件（LSP4IJ）每个项目提示一次，并说明关闭的办法。要在某个项目里无论如何都关掉 mcppls，就在 Settings | Plugins 里只为这个项目禁用插件（[editors/clion/README.md](../../editors/clion/README.md#keeping-mcppls-off-for-one-project)）。
 
 ## 其他 LSP 客户端
 

@@ -5188,6 +5188,29 @@ public:
             const bool inTime { !check.contains("within-ms") || elapsed <= check.value("within-ms", std::int64_t { 0 }) };
             return { empty && inTime, std::format("{} in {} ms", clipped(lsp::dump(*answer), 120), elapsed) };
         }
+        if (kind == "completion-item") {
+            // S3-6.4: the item labelled "label" (trimmed) meets "expect", expectations as for a report, on the item --
+            // what a label does not show: its insertTextFormat, its edit, its filterText.
+            open(file);
+            const std::string label { check.value("label", std::string {}) };
+            const Json expectations = check.value("expect", Json::array());
+            const auto item_of = [&](const Json& value) -> std::optional<Json> {
+                const Json items = value.is_object() ? value.value("items", Json::array()) : value;
+                if (!items.is_array()) return std::nullopt;
+                const auto found = std::ranges::find_if(items, [&](const Json& item) {
+                    return item.is_object() && base::trim(item.value("label", std::string {})) == label;
+                });
+                return found == items.end() ? std::nullopt : std::optional<Json> { *found };
+            };
+            auto [ok, result] = retry("textDocument/completion", [&] { return completion_params(check, file); }, [&](const Json& value) {
+                const auto item = item_of(value);
+                return item && expectations_hold(*item, expectations).first;
+            });
+            const auto item = item_of(result);
+            if (!item) return { false, std::format("no item {}: {}", label, lsp::dump(completion_labels(result))) };
+            if (!ok) return { false, expectations_hold(*item, expectations).second };
+            return { true, clipped(lsp::dump(*item), 160) };
+        }
         if (kind == "capabilities") {
             // The server capabilities initialize answered with, held to "expect" like a tool's result.
             auto [held, detail] = expectations_hold(capabilities_, check.value("expect", Json::array()));

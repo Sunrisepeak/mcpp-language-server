@@ -359,12 +359,13 @@ namespace {
 
 // ---- platforms: one table, held to by everything that cannot read it -------------------------
 
-// The quoted strings on the line that declares SUPPORTED_PLATFORMS in the extension's source.
-std::optional<std::vector<std::string>> typescript_platforms(std::string_view text) {
+// The quoted strings on the first line that names `marker` and opens `open`: the line that declares
+// SUPPORTED_PLATFORMS in the VS Code extension's source (`[`), and the CLion build's `platforms` (`(`).
+std::optional<std::vector<std::string>> quoted_platforms(std::string_view text, std::string_view marker, char open) {
     for (const auto line : base::split_lines(text)) {
-        if (!line.contains("SUPPORTED_PLATFORMS") || !line.contains('[')) continue;
+        if (!line.contains(marker) || !line.contains(open)) continue;
         std::vector<std::string> names;
-        const std::string_view list { line.substr(line.find('[')) };
+        const std::string_view list { line.substr(line.find(open)) };
         for (std::size_t i { 0 }; i < list.size(); ++i) {
             if (list[i] != '\'' && list[i] != '"') continue;
             const auto end = list.find(list[i], i + 1);
@@ -480,10 +481,20 @@ base::Result<Report> platforms(const std::string& root) {
     const std::string tsPath { base::join_path(root, "editors/vscode/src/payload.ts") };
     auto tsText = os::fs::read(tsPath);
     if (!tsText) return base::fail("read-file", tsText.error());
-    if (auto listed = typescript_platforms(*tsText)) {
+    if (auto listed = quoted_platforms(*tsText, "SUPPORTED_PLATFORMS", '[')) {
         compare(std::format("{} SUPPORTED_PLATFORMS", tsPath), { listed->begin(), listed->end() });
     } else {
         report.problems.push_back(std::format("{} declares no SUPPORTED_PLATFORMS", tsPath));
+    }
+
+    // The CLion plugin's packages: one per platform, each carrying that platform's payload.
+    const std::string gradlePath { base::join_path(root, "editors/clion/build.gradle.kts") };
+    auto gradleText = os::fs::read(gradlePath);
+    if (!gradleText) return base::fail("read-file", gradleText.error());
+    if (auto listed = quoted_platforms(*gradleText, "val platforms = listOf", '(')) {
+        compare(std::format("{} platforms", gradlePath), { listed->begin(), listed->end() });
+    } else {
+        report.problems.push_back(std::format("{} declares no `val platforms = listOf(...)`", gradlePath));
     }
 
     const std::string manifestPath { base::join_path(root, "packaging/release.manifest.json") };
@@ -532,7 +543,7 @@ base::Result<Report> platforms(const std::string& root) {
 
     report.ok = report.problems.empty();
     if (report.ok) {
-        report.notes.push_back(std::format("platforms: {} in the lock, and the extension, the release manifest and CI's per-platform jobs list exactly those",
+        report.notes.push_back(std::format("platforms: {} in the lock, and the extension, the CLion build, the release manifest and CI's per-platform jobs list exactly those",
                                            base::join(std::vector<std::string> { known.begin(), known.end() }, ", ")));
     }
     return report;

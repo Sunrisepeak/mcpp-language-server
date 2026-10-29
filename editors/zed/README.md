@@ -51,7 +51,7 @@ To remove it again:
 
 ```bash
 mcpp run -p devtools -- uninstall --editor zed     # the extension, its work directory, and the
-                                                   # server when CLion no longer uses it either
+                                                   # server it installed
 ```
 
 Removing it from Zed's Extensions view works as well.

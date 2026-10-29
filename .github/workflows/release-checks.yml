@@ -10,9 +10,11 @@ name: Release checks
 #   (The CLion plugin inside a real CLion, clion-verify and clion-e2e, is in ci.yml: both callers run
 #   all of it first, so the release checks have those results too.)
 #
-#   plugins       the Zed and CLion plugins, packaged exactly as a release ships them
-#   install       each host: the Zed and CLion plugins installed from those archives by devtools,
-#                 the installed server answering a project, and uninstall leaving nothing behind
+#   plugins       the Zed and CLion plugins, packaged exactly as a release ships them: the Zed
+#                 extension once, the CLion plugin once per platform with that payload inside
+#   install       each host: the Zed extension and this platform's CLion package installed by
+#                 devtools, Zed's server and the one the CLion package carries each answering a
+#                 project, and uninstall leaving nothing behind
 #   zed           the Zed extension in a real Zed on Linux, under both the recommended settings and
 #                 Zed's defaults (zed-smoke.yml)
 #   performance   each host: five cold and five warm starts, medians against a budget; on Linux the
@@ -30,8 +32,9 @@ env:
   PAYLOAD_CACHE: ${{ github.workspace }}/.payload-cache
 
 jobs:
-  # The two plugins that are not built per platform: one wasm, one jar. Neither carries a payload,
-  # so one archive serves every machine.
+  # The Zed extension is wasm and carries no payload, so one archive serves every machine. The CLion
+  # plugin carries its server: one package per platform, each holding that platform's payload
+  # (design 2026-10-29 §2), from the payloads this run built.
   plugins:
     name: zed and clion plugins
     runs-on: ubuntu-24.04
@@ -64,13 +67,30 @@ jobs:
               --transform 's,^zed,mcppls-zed,' \
               zed/extension.toml zed/extension.wasm zed/README.md zed/Cargo.toml zed/Cargo.lock zed/src
           tar -tzf "mcppls-zed-${{ steps.version.outputs.version }}.tar.gz"
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: payload-*
+          path: payload-artifacts
+      # A payload artifact is the payload tree and this run's test tools (stage/); a package carries
+      # the payload alone, as the release's payload-<platform>.tar.gz does.
+      - name: The payloads the CLion packages carry
+        run: |
+          set -euo pipefail
+          for archive in payload-artifacts/*/payload-*.tar.gz; do
+            platform=$(basename "$archive" .tar.gz); platform=${platform#payload-}
+            mkdir -p "payloads/$platform"
+            tar -xzf "$archive" -C "payloads/$platform" payload
+          done
+          ls payloads
       - name: CLion plugin
         run: |
           set -euo pipefail
-          mcpp run --release --features clion -p devtools -- extension --editor clion
-          archive=$(ls editors/clion/build/distributions/*.zip | head -1)
-          cp "$archive" "mcppls-clion-${{ steps.version.outputs.version }}.zip"
-          unzip -l "mcppls-clion-${{ steps.version.outputs.version }}.zip"
+          mcpp run --release --features clion -p devtools -- extension --editor clion --payloads "$PWD/payloads"
+          cp target/pack/mcppls-clion-${{ steps.version.outputs.version }}-*.zip .
+          for package in mcppls-clion-*.zip; do
+            echo "$package: $(unzip -l "$package" | tail -1)"
+            unzip -l "$package" mcppls-clion/payload/payload.json > /dev/null
+          done
       - uses: actions/upload-artifact@v7
         with:
           name: editor-plugins
@@ -117,16 +137,20 @@ jobs:
 
           "$dev" extension --editor zed --install --link --plugin "$t/mcppls-zed" --payload payload "${where[@]}"
           test -f "$t/zed/extensions/installed/mcppls/extension.wasm"
-          "$dev" extension --editor clion --install --plugin "$(ls mcppls-clion-*.zip)" --payload payload "${where[@]}"
-          ls "$t"/clion/CLion2026.2/mcppls-clion/lib/mcppls-clion-*.jar
+          "$dev" extension --editor clion --install --plugin "$(ls mcppls-clion-*-${{ matrix.platform }}.zip)" "${where[@]}"
+          plugin="$t/clion/CLion2026.2/mcppls-clion"
+          ls "$plugin"/lib/mcppls-clion-*.jar
+          [ "$(jq -r .platform "$plugin/payload/payload.json")" = '${{ matrix.platform }}' ]
 
-          # The server both plugins fall back to answers a project.
-          "$t/server/bin/okrun${{ matrix.exe }}" "$t/server/bin/mcppls.okb" --version
-          "stage/mcppls-conformance${{ matrix.exe }}" run --server "$t/server/bin/mcppls.okb" --payload "$t/server" \
-              --fixture conformance/fixtures/inferred --timeout 180
+          # The server Zed falls back to, and the one this platform's CLion package carries, each answer a project.
+          for server in "$t/server" "$plugin/payload"; do
+            "$server/bin/okrun${{ matrix.exe }}" "$server/bin/mcppls.okb" --version
+            "stage/mcppls-conformance${{ matrix.exe }}" run --server "$server/bin/mcppls.okb" --payload "$server" \
+                --fixture conformance/fixtures/inferred --timeout 180
+          done
 
           "$dev" uninstall --editor zed "${where[@]}"
-          test -d "$t/server"   # CLion still uses it
+          if [ -e "$t/server" ]; then echo "::error::Zed's server outlived Zed: the CLion package carries its own"; exit 1; fi
           "$dev" uninstall --editor clion "${where[@]}"
           for gone in "$t/server" "$t/zed/extensions/installed/mcppls" "$t/clion/CLion2026.2/mcppls-clion"; do
             if [ -e "$gone" ]; then echo "::error::$gone is still there after uninstall"; exit 1; fi

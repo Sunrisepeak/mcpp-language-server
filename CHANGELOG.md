@@ -7,6 +7,60 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
+## [0.0.19] — 2026-10-29
+
+The bundled engine is unchanged ([mcppls-clangd 0.0.17](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.17),
+`23.1.0-mcppls.5`). The CLion plugin carries its server, as the VS Code extension does, and keeps CLion's own engine
+out of the files mcppls answers when the user says so; completion offers the code templates of `main`.
+
+### Code templates for `main`
+
+- **`auto main() -> int { }` and `int main() { }` are offered as code templates** at file scope, where a declaration
+  begins and what was typed is a prefix of `main`, alone or after the template's type (`ma`, `int ma`, `auto ma`):
+  a declaration no semantic engine offers, since nothing declares it yet. To an editor that supports snippets the
+  cursor is left in the body; otherwise the template is inserted as written. None in a file that declares `main`
+  already, in a named module unit (`main` cannot be attached to a module), inside braces, comments, literals or
+  preprocessor lines (S3-6.4). The templates are one table in their own module, `mcppls.engine.native.templates`,
+  merged with clangd's answer as the module-syntax keywords are; `cxxModules/report` counts templates answered
+  without the engine beside the keywords' count. The conformance fixture `completion-templates` holds the rules,
+  through a new check kind, `completion-item`, that reads one item's fields.
+
+### CLion: one package per system, the server inside
+
+- **Each system has a package of its own**, `mcppls-clion-<version>-<platform>.zip` for `linux-x64`, `linux-arm64`,
+  `darwin-arm64` and `win32-x64`, carrying that platform's payload (the server's okb and runner, the pinned clangd and
+  the semantic kit) at `mcppls-clion/payload/`; nothing else is installed. Its `plugin.xml` depends on the system's
+  `com.intellij.modules.os.*` and `com.intellij.modules.arch.*`, by which the JetBrains Marketplace gives CLion 2026.1
+  and later the package of its own system. The 0.0.18 archive held the plugin alone (25 992 bytes), and its listing
+  told the user to put a payload's `bin/` on PATH, where there is no `mcppls`.
+- **CLion 2026.1 and later** (`sinceBuild` 261, the first IDE the Marketplace does this for); the Plugin Verifier checks
+  2026.1 and 2026.2.3.
+- **The server is the one the package carries**: `MCPPLS_SERVER` (development and tests), then `<plugin>/payload` as its
+  `payload.json` says, then `mcppls` on PATH for a build without a payload. A payload built for another system is
+  refused with what to install; a runner or clangd that lost its executable bit in an installation gets it back, and
+  the packages keep the bit. With no server the plugin says so once per project instead of failing to start.
+- `mcpp run --features clion -p devtools -- extension --editor clion` builds this system's package;
+  `--payloads DIR` builds one per platform it holds (the release does). `--install` unpacks the package; the server
+  Zed falls back to (`<user data>/mcppls/payload`) is no longer installed for CLion and goes with Zed.
+- CI's CLion test runs the sandbox of this system's package, with nothing on PATH, so what it starts is the server the
+  package carries; the release checks install each platform's package and have its server answer a project.
+  `mcppls-devtools check platforms` holds the CLion build's platforms to the lock.
+
+### CLion: one engine per file
+
+- **CLion's own engine also analyses a folder no build system configures**, with the default compiler, so in the files
+  mcppls answers its problems and completions came twice. The first time a project has such a file the plugin asks,
+  once: *Use mcppls only in this project*, *Always use mcppls only*, or *Keep both*; nothing changes until it is
+  answered. Settings | Tools | mcppls holds the answer for every project and for this one, and Tools | mcppls has *Use
+  mcppls Only in This Project* and *Restore CLion's Engine in This Project*.
+- **"mcppls only"** sets those files' highlighting level to Syntax (the inspection widget's level, which CLion Nova's
+  frontend passes to its backend, so it reports syntax errors alone there; the platform's inspections stop) and keeps
+  the completion list to mcppls's items and live templates. Syntax colouring, gutter icons and mcppls's diagnostics
+  stay. Every lowered level is remembered and restoring puts it back, except where the user changed it since.
+- Another plugin that may run a language server for C and C++ (LSP4IJ) is named once per project, with the way to turn
+  it off. The question replaces the notice that both engines answer a modelled project when "Also for projects CLion
+  models" is on.
+
 ## [0.0.18] — 2026-10-27
 
 The bundled engine is unchanged ([mcppls-clangd 0.0.17](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.17),

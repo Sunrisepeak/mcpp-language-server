@@ -2,7 +2,7 @@
 
 [English](../00-install.md) | **简体中文**
 
-> release 发布在 GitHub release 页面，VS Code 扩展同时也上架了 VS Code Marketplace 和 Open VSX。xlings 索引上暂时还没有。Android 上的 Termux 运行的是 `linux-arm64` 版本（见[下文](#android-上的-termux)）。
+> release 发布在 GitHub release 页面。VS Code 扩展同时上架 VS Code Marketplace 和 Open VSX，CLion 插件上架 JetBrains Marketplace，服务端在 xlings 索引上（`xlings install mcppls`）。Android 上的 Termux 运行的是 `linux-arm64` 版本（见[下文](#android-上的-termux)）。
 
 ## VS Code：从 Marketplace 安装
 
@@ -11,6 +11,10 @@
 ## Cursor、VSCodium、Windsurf 等兼容 VS Code 的编辑器：从 Open VSX 安装
 
 这些编辑器从 [Open VSX](https://open-vsx.org/extension/sunrisepeak/mcpp-language-server) 安装扩展：在它们的扩展视图里搜索 **mcppls** 即可。这是同一个扩展，由同一个 release 构建，支持的平台也一样。release 发布时就会上架 Open VSX，VS Code Marketplace 稍后跟上。
+
+## CLion：从 JetBrains Marketplace 安装
+
+在 Settings | Plugins | Marketplace 里搜索 **C++ Modules Language Server**（`io.github.sunrisepeak.mcppls`），安装后重启。CLion 2026.1 及以上会拿到本系统的包——`linux-x64`、`linux-arm64`、`darwin-arm64` 或 `win32-x64`——每个包都像 VSIX 一样带着服务端、锁定版本的 clangd 和语义工具包，不需要再装别的。从 release 安装时，同一个包是 `mcppls-clion-<version>-<platform>.zip`，用 Settings | Plugins → 齿轮菜单 → *Install Plugin from Disk* 安装。它如何与 CLion 自身的引擎分担文件，见 [10-editors.md](10-editors.md#clion)。
 
 ## VS Code：从 release 安装
 
@@ -25,12 +29,12 @@ VSIX 里带了所需的一切：服务端、一个锁定版本的 clangd，以�
 
 ## 其他编辑器：从 release 安装
 
-release 页面上有两类文件供 VS Code 以外的编辑器使用：
+release 页面上有两类文件供 VS Code 和 CLion 以外的编辑器使用：
 
-- **payload**，`payload-<platform>.tar.gz`：服务端、一个锁定版本的 clangd 和语义工具包，与 VSIX 里带的相同。服务端是 `payload/bin/mcppls.okb`，由本平台的运行器启动：`payload/bin/okrun payload/bin/mcppls.okb serve` 通过 stdio 提供 LSP，`… mcp` 提供 MCP；它在旁边找到 clangd 和工具包。把它解压到用户数据目录下的 `mcppls/payload`——Linux 上是 `~/.local/share/mcppls/payload`（设置了 `$XDG_DATA_HOME` 时以它为准），macOS 上是 `~/Library/Application Support/mcppls/payload`，Windows 上是 `%LOCALAPPDATA%\mcppls\payload`——Zed、CLion 和 Neovim 插件不需要任何配置就会启动它。
-- **作为命令的服务端** `mcppls`：`mcppls-<version>-openkal.zip` 是一个包，服务 Linux、macOS 与 Windows 上的 x86_64 和 arm64。解压后把其中的 `bin/` 加进 `PATH`；它带着这些系统各自的运行器，不需要再装任何东西。也可以取本系统的单文件 `mcppls-<version>-<system>-<arch>`（`linux-x86_64`、`linux-aarch64`、`macos-aarch64`、`windows-x86_64.exe`），以 `mcppls` 之名放到 `PATH` 上：一个可执行文件，不用解压。插件先启动 `PATH` 上的 `mcppls`，再找已安装的 payload。给出 `--payload <dir>` 时它用该 payload 的 clangd 和工具包；没有时用 `PATH` 上的 clangd 和 xlings 安装的工具包。
+- **payload**，`payload-<platform>.tar.gz`：服务端、一个锁定版本的 clangd 和语义工具包，与 VSIX 里带的相同。服务端是 `payload/bin/mcppls.okb`，由本平台的运行器启动：`payload/bin/okrun payload/bin/mcppls.okb serve` 通过 stdio 提供 LSP，`… mcp` 提供 MCP；它在旁边找到 clangd 和工具包。把它解压到用户数据目录下的 `mcppls/payload`——Linux 上是 `~/.local/share/mcppls/payload`（设置了 `$XDG_DATA_HOME` 时以它为准），macOS 上是 `~/Library/Application Support/mcppls/payload`，Windows 上是 `%LOCALAPPDATA%\mcppls\payload`——Zed 和 Neovim 插件不需要任何配置就会启动它。
+- **作为命令的服务端** `mcppls`：`mcppls-<version>-openkal.zip` 是一个包，服务 Linux、macOS 与 Windows 上的 x86_64 和 arm64。解压后把其中的 `bin/` 加进 `PATH`；它带着这些系统各自的运行器，不需要再装任何东西。也可以取本系统的单文件 `mcppls-<version>-<system>-<arch>`（`linux-x86_64`、`linux-aarch64`、`macos-aarch64`、`windows-x86_64.exe`），以 `mcppls` 之名放到 `PATH` 上：一个可执行文件，不用解压。Zed 和 Neovim 插件先启动 `PATH` 上的 `mcppls`，再找已安装的 payload。给出 `--payload <dir>` 时它用该 payload 的 clangd 和工具包；没有时用 `PATH` 上的 clangd 和 xlings 安装的工具包。
 
-Zed 和 CLion 的插件是同一个 release 页面上的独立压缩包；[10-editors.md](10-editors.md) 里两个都有。Neovim 插件就是本仓库的 [`editors/nvim`](../../editors/nvim/README.md)。
+Zed 扩展是同一个 release 页面上的独立压缩包；[10-editors.md](10-editors.md) 里有它。Neovim 插件就是本仓库的 [`editors/nvim`](../../editors/nvim/README.md)。
 
 release 里的每个文件都列在它的 `MANIFEST.md` 里，说明是什么、怎么装；`SHA256SUMS` 覆盖所有文件。
 
@@ -70,7 +74,7 @@ mcpp run -p devtools -- extension --install       # payload、扩展，装进 VS
 |---|---|
 | release 构建 | `mcpp run --release -p devtools -- extension --editor vscode --install` |
 | Zed | `mcpp run -p devtools -- extension --editor zed --install`，然后在 Zed 的命令面板执行 *zed: install dev extension*（或者加上 `--link`） |
-| CLion | `mcpp run --features clion -p devtools -- extension --editor clion --install`，然后重启 CLion |
+| CLion | `mcpp run --features clion -p devtools -- extension --editor clion --install`（本系统的包，payload 在包里），然后重启 CLion |
 | 三者都打包但不安装 | `mcpp run -p devtools -- extension` |
 | 移除已安装的内容 | `mcpp run -p devtools -- uninstall --editor vscode\|zed\|clion\|all` |
 | 只要 payload，给其他编辑器用 | `mcpp run -p devtools -- payload` |
@@ -84,7 +88,7 @@ mcpp run -p devtools -- extension --install       # payload、扩展，装进 VS
 
 **零配置。** 打包需要什么，都写在 `mcpp.toml` 的 `[xlings.workspace]` 里——VS Code 扩展需要 Node，Zed 需要 Rust——工具启动前 `mcpp run` 会先把这些准备好。payload 本身（clangd、语义工具包）由工具用 C++ 组装，不涉及任何解释器。所有贡献者会用到的命令都在 [93-devtools.md](93-devtools.md) 里。Gradle 和它要用的 JDK 放在 `clion` feature 后面（`mcpp run --features clion ...`），这样不构建那个插件的人就不用下载它们。没有什么需要手动安装，工具也不会背着你装东西：需要什么，只写在这一份 manifest 里。
 
-VS Code 有装卸扩展的命令行；Zed 和 CLion 没有。对这两个编辑器，`--install` 在磁盘上留下的内容与它们自己的界面安装的结果完全相同：对 Zed，它停在最后一步之前，告诉你在命令面板里执行哪个操作（推荐这样装），加 `--link` 则由它自己完成这一步；对 CLion，它按 *Install Plugin from Disk* 的方式解包插件。两者都会先从 PATH 启动 `mcppls`，找不到就用 `--install` 放在 `<user data>/mcppls/payload` 的那个 payload 的服务端（Linux 上是 `$XDG_DATA_HOME` 或 `~/.local/share`，macOS 上是 `~/Library/Application Support`，Windows 上是 `%LOCALAPPDATA%`）；用 `uninstall` 卸载 Zed 和 CLion 中的最后一个时，这个服务端也会一起删除。
+VS Code 有装卸扩展的命令行；Zed 和 CLion 没有。对这两个编辑器，`--install` 在磁盘上留下的内容与它们自己的界面安装的结果完全相同：对 Zed，它停在最后一步之前，告诉你在命令面板里执行哪个操作（推荐这样装），加 `--link` 则由它自己完成这一步；对 CLion，它按 *Install Plugin from Disk* 的方式解包本系统的包，payload 就在包里。Zed 先从 PATH 启动 `mcppls`，找不到就用 `--install` 放在 `<user data>/mcppls/payload` 的那个 payload 的服务端（Linux 上是 `$XDG_DATA_HOME` 或 `~/.local/share`，macOS 上是 `~/Library/Application Support`，Windows 上是 `%LOCALAPPDATA%`）；用 `uninstall` 卸载 Zed 时，这个服务端也会一起删除。
 
 第一次运行会从 libc++ 源码编译语义工具包，这一步比较慢；之后会缓存在 `.payload-cache` 里。具体步骤是什么、生成的 payload 目录结构是什么样，见 [packaging/README.md](../../packaging/README.md)。
 
