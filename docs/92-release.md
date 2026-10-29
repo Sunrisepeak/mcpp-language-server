@@ -40,33 +40,39 @@ rendered from the same declaration, so the page and the check cannot drift apart
 
 | | Per platform | Required |
 |---|---|---|
-| `mcppls-<platform>.vsix` | yes | yes |
-| `payload-<platform>.tar.gz` | yes | yes |
+| `mcppls-<version>.vsix` | no — one for every system | yes |
+| `mcppls-payload-<version>.tar.gz` | no — an entry per platform inside | yes |
 | `mcppls-zed-<version>.tar.gz` | no | yes |
-| `mcppls-clion-<version>-<platform>.zip` | yes | yes |
+| `mcppls-clion-<version>.zip` | no — one for every system | yes |
 | `mcppls-<version>-openkal.zip` | no — one for every system and architecture | yes |
 | `mcppls-<version>.okb` | no — the image of both architectures | yes |
 | `mcppls-<version>-<system>-<arch>` (`linux-x86_64`, `linux-aarch64`, `macos-aarch64`, `windows-x86_64.exe`) | one per system and architecture | yes |
+| `mcppls-kit-openkal-<platform version>.tar.gz` | no — the kit of every openkal target | yes |
+| `mcppls-kit-<target>-<version>.tar.gz` | one per platform's target (`x86_64-linux-gnu`, `aarch64-linux-gnu`, `arm64-apple-darwin`, `x86_64-w64-mingw32`) | yes |
 | `SHA256SUMS`, `MANIFEST.md` | no | yes |
 
-To add or remove an asset, edit the manifest. The workflow needs no change.
+To add or remove an asset, edit the manifest; a `*` in a pattern stands for a version the release does
+not name (a kit's), and `{kit}` for a platform's kit as `packaging/payload.lock.json` names it. The
+workflow needs no change.
 
-**The server is one set of bytes.** It is built as an ok image per architecture (mcpp's
-`<arch>-openkal`, whose platform is openkal-platform), and every file above that holds a server
-holds those images: the okb holds both, and every payload and VSIX carries the okb as
-`bin/mcppls.okb` beside its platform's runner `bin/okrun`; the universal package holds both under
-`lib/<arch>/` with the runner of each system it serves; a single file is a system's runner with one
-image inside. CI checks each against the images it built first (`server-image`): the universal
-package's rows on Linux, macOS and Windows, the okb, every payload's okb, and every VSIX's
-(`distribution`, "one okb, every runner"), and runs each runner it ships on its own system. Only
-clangd and the kit differ per platform, which is why the payloads, the VSIX files and the CLion
-packages still do.
+**One package for every system** (ecosystem design 2026-10-29 §9). The server is built as an ok image
+per architecture (mcpp's `openkal` set, whose platform is openkal-platform) and every file above that
+holds a server holds those images: the okb holds both; the openkal tree holds both under `lib/<arch>/`
+with the launchers `bin/mcppls` and `bin/mcppls.exe` and the runner of every system it serves; the
+payload carries the okb as `bin/mcppls.okb` with those runners under `libexec/okrun/<system>-<arch>/`,
+and the VSIX and the CLion plugin carry the payload; a single file is a system's runner with one image
+inside. What differs per platform is clangd (`clangd/<platform>/`, native on each system) and the
+kit of a target; payload.json's entry for each platform names its runner and its engine.
 
 | Job (`ci.yml`) | Makes | On |
 |---|---|---|
-| `server-universal` | each system's self-contained universal package (`mcpp pack --target x86_64-openkal --mode self-contained --pkg-format zip`); on Linux also the okb (`--pkg-format okb`, checked with `okld bundle check`) and the single files (`--pkg-format single-file --systems linux,macos,windows`, both architectures) | Linux, macOS, Windows |
-| `server-openkal` | `mcppls-<version>-openkal.zip`: Linux's package (its runners and Windows') and macOS's joined with `mcpp pack --merge`, runners for linux-x86_64, linux-aarch64, macos-aarch64 and windows-x86_64 | Linux |
-| `distribution` | nothing: each VSIX carries one okb, the one okb, and its runner starts it; the universal package and the single file start the server | every platform |
+| `build` | every platform's programs, test tools (`stage-<platform>`) and unit tests, the tests archived (`mcpp test --no-run --archive`) | Linux |
+| `test` | nothing: each platform's archived tests run on its own system (`mcpp test --archive`), in both profiles | every platform |
+| `server` | `mcppls-<version>-openkal.zip` and `mcppls-<version>.okb` from one build (`mcpp pack --target openkal --mode self-contained --systems all --pkg-format zip,okb`), the tree's `runs_on.self` being every platform; the single files (`--pkg-format single-file --systems all`) | Linux |
+| `kits` | each platform's target kit, `mcppls-kit-<target>-<version>.tar.gz` | Linux, Linux arm64, macOS |
+| `payload` | the openkal kit and the one payload | Linux |
+| `vsix` | the one VSIX | Linux |
+| `distribution` | nothing: the VSIX carries one okb, the one okb, and this platform's runner starts it; the tree's launcher and the single file start the server | every platform |
 
 ## Making one
 
@@ -94,11 +100,11 @@ create the tag and publish the staged candidate, file for file.
 A release reaches its users in five steps, and only the first is automatic:
 
 1. The run creates the release as a **draft**.
-2. You verify the draft's `mcppls-<platform>.vsix` files locally ([Verifying a release](#verifying-a-release)).
+2. You verify the draft's `mcppls-<version>.vsix` locally ([Verifying a release](#verifying-a-release)).
 3. You publish the draft. That triggers `.github/workflows/publish-openvsx.yml`, which puts the same
    files on Open VSX ([Open VSX](#open-vsx)).
-4. You upload the same files to the VS Code Marketplace ([below](#the-vs-code-marketplace)).
-5. You upload the four `mcppls-clion-<version>-<platform>.zip` files to the JetBrains Marketplace
+4. You upload the same file to the VS Code Marketplace ([below](#the-vs-code-marketplace)).
+5. You upload `mcppls-clion-<version>.zip` to the JetBrains Marketplace
    ([below](#the-jetbrains-marketplace)).
 
 A run with `draft` off skips step 2 on purpose: the release is published at once, and its `openvsx`
@@ -115,8 +121,8 @@ not run twice for it. Its jobs, each on Linux, macOS and Windows unless noted:
 | Job | Passes when |
 |---|---|
 | CI | every job of `ci.yml` passes |
-| plugins (Linux) | the Zed extension builds and packages, and the CLion plugin builds one package per platform, each carrying that platform's payload |
-| install | devtools installs the Zed extension and this platform's CLion package; the server Zed falls back to and the server the CLion package carries each answer the `inferred` fixture; `uninstall` leaves nothing behind |
+| plugins (Linux) | the Zed extension builds and packages, and the CLion plugin builds one package carrying the payload, with an entry for every platform |
+| install | devtools installs the Zed extension and the CLion package; the server Zed falls back to and the server the CLion package carries each answer the `inferred` fixture through this platform's entry; `uninstall` leaves nothing behind |
 | performance | the median first navigation of five cold starts is under 12 s and of five warm starts under 5 s, with no failed check |
 | performance on a real project (Linux) | the server passes the `self-mcpp` fixture: the mcpp repository at a fixed commit |
 | stability | the fixtures of the project shapes that matter (all-`.cppm`, `.cppm`/`.cpp` split, watched edits, a broken module, a hung build tool, several roots) pass three rounds in a row |
@@ -145,7 +151,7 @@ The bundled clangd is mcppls-clangd, released from its own repository and pinned
 releases has already passed this repository's CI with it, and the release brings no surprise:
 
 1. **The engine PR's CI builds the packaged part** for each platform (`clangd-<platform>-portable`,
-   with its `engine.json`), proved like a release's.
+   with its `engine.json`, which names its platform), proved like a release's.
 2. **This repository's PR tests with that build before the engine is merged.** Commit
    `packaging/engine-candidate.json`, naming the engine PR's run:
 
@@ -154,9 +160,9 @@ releases has already passed this repository's CI with it, and the release brings
      "engine-commit": "<the engine PR head it was built from>" }
    ```
 
-   CI's `payload` jobs then assemble every payload from that run's parts instead of the lock's
-   archives (`payload --clangd <part> --candidate`: a fork version other than the lock's is taken
-   for the same LLVM base, its identity still checked), and every later job tests them. Fix what it
+   CI's `payload` job then assembles the payload from that run's parts instead of the lock's
+   archives (`payload --clangd <platform>=<part> ... --candidate`: a fork version other than the
+   lock's is taken for the same LLVM base, its identity still checked), and every later job tests it. Fix what it
    finds in either PR, and point the file at the new run, until both are green.
 3. **Merge and release the engine**, then switch the lock to the released archives (their size and
    SHA-256, each checked against two downloads and the published `.sha256`) and **delete the
@@ -177,7 +183,7 @@ One red round is not a regression, and one green round is not a fix. A manual ni
 
 | Input | What it does |
 |---|---|
-| `payload-run` | Tests the payloads a CI run of the branch built (its run id) instead of building them again: about 35 minutes instead of 80, on the bytes the pull request's CI tested |
+| `payload-run` | Tests the payload, test tools and kits a CI run of the branch built (its run id) instead of building them again: about 35 minutes instead of 80, on the bytes the pull request's CI tested |
 | `scope` | `all` (every job) or `ux` (only the ux rounds, their budgets and the comparison) |
 | `ux-repeat` | Each round runs its edits stage (typing, saving, U5, U6, U7a, U15) this many times, each in a new server session on what the cold and warm stages prepared: 4 over the three rounds is 12 samples of each, built once |
 | `ux-baseline` | A release (`v0.0.16`) whose server runs the same stages on the same machines, in its own workspace and cache, alternating with this one (A B B A); `ux budgets` then prints `mcppls-devtools measure compare`, the typing, save, state-change, idle and timeout numbers side by side, with those whose median is worse than the baseline's beyond their spread marked |
@@ -202,13 +208,13 @@ finished by hand. It is how the next person finds out what actually happens.
 ## Open VSX
 
 Open VSX is where VS Code-compatible editors (Cursor, VSCodium, Windsurf, Trae, ...) find
-extensions. `.github/workflows/publish-openvsx.yml` publishes every `mcppls-<platform>.vsix` of a
-release to the namespace `sunrisepeak` when the release is published: from the UI
-(`release: published`), or from Release's `openvsx` job when the run published it directly. It
-downloads the files from the release, checks them against `SHA256SUMS`, checks that the token may
-publish to the namespace, then publishes each one; each VSIX carries its platform, so every platform
-gets its own file. Afterwards it downloads each file back from Open VSX and compares its hash with
-`SHA256SUMS`; the job fails when Open VSX serves something else. A GitHub pre-release is published as
+extensions. `.github/workflows/publish-openvsx.yml` publishes the release's `mcppls-<version>.vsix`
+to the namespace `sunrisepeak` when the release is published: from the UI (`release: published`), or
+from Release's `openvsx` job when the run published it directly. It downloads the file from the
+release, checks it against `SHA256SUMS`, checks that the token may publish to the namespace, then
+publishes it; the VSIX names no target platform, so Open VSX lists it as universal. Afterwards it
+downloads the file back from Open VSX and compares its hash with `SHA256SUMS`; the job fails when Open
+VSX serves something else. A GitHub pre-release is published as
 an ordinary version.
 
 A version Open VSX already has is skipped (`--skip-duplicate`), so re-running is safe: **Actions →
@@ -221,26 +227,27 @@ workflow's *The token may publish to the namespace* step is what fails first whe
 
 ## The VS Code Marketplace
 
-Uploaded by hand, after the local verification: every `mcppls-<platform>.vsix` of the published
-release goes to the publisher `sunrisepeak`, by `npx @vscode/vsce publish --packagePath <the files>`
-or one at a time on the publisher's management page (the first as a new extension, the others with
-*Update*). A version is published once: the Marketplace takes only a version higher than every one
+Uploaded by hand, after the local verification: the published release's `mcppls-<version>.vsix` goes
+to the publisher `sunrisepeak`, by `npx @vscode/vsce publish --packagePath <the file>` or on the
+publisher's management page with *Update*. A Marketplace listing that had a file per platform
+(0.0.19 and earlier) is replaced by the one universal file. A version is published once: the Marketplace takes only a version higher than every one
 it has had.
 
 ## The JetBrains Marketplace
 
 Uploaded by hand, after the local verification: the plugin `io.github.sunrisepeak.mcppls` (vendor
-Sunrisepeak) gets the four `mcppls-clion-<version>-<platform>.zip` files of the published release,
-each as an update of its own (versions `<version>-linux-x86_64`, `<version>-linux-arm64`,
-`<version>-mac-arm64` and `<version>-windows-x86_64`, the suffixes the build gives them). The
-Marketplace gives an IDE the package whose `plugin.xml` depends on the IDE's system and architecture
-(`com.intellij.modules.os.*`, `com.intellij.modules.arch.*`), which every package declares; that is
-why `since-build` is 261, the first IDE it does this for. A new plugin's first upload is reviewed by
-JetBrains, and mcpp-clion, which depends on this plugin, is accepted once this plugin is listed.
+Sunrisepeak) gets `mcppls-clion-<version>.zip` of the published release, one package for every
+system (0.0.19 had one per system, by `com.intellij.modules.os.*` and `com.intellij.modules.arch.*`
+dependencies, which this package does not declare). `since-build` stays 261. A new plugin's first
+upload is reviewed by JetBrains, and mcpp-clion, which depends on this plugin, is accepted once this
+plugin is listed.
 
 ## Not here yet
 
-The xlings index carries the server (`pkgs/m/mcppls.lua` in openxlings/xim-pkgindex), updated by a
-pull request to the index; the release workflow does not open it. `mcppls-devtools release xlings`
-produces the package descriptors. Uploading to the VS Code Marketplace or the JetBrains Marketplace
+The xlings index carries the server (`pkgs/m/mcpp-language-server.lua` in openxlings/xim-pkgindex)
+and the kits (`pkgs/m/mcppls-kit-<target>.lua`, `mcppls-kit-openkal.lua`), updated by a pull request
+to the index; the release workflow does not open it. `mcppls-devtools release xlings --release DIR
+--out DIR` renders the descriptors from a release's assets: the server's one asset, whose system
+blocks name the architectures its `mcpp-package.json` `runs_on.self` covers, and one asset per kit for
+every system. Uploading to the VS Code Marketplace or the JetBrains Marketplace
 from a workflow is deliberately not done: both stay behind the local verification above.

@@ -1430,10 +1430,14 @@
       "contains": "S4-4-5: libc++"
     },
     {
-      "test": "tests/test_instance.cpp: a payload's kit is taken only when its libc++ is the core engine's version"
+      "test": "tests/test_instance.cpp: a payload's kit is taken whatever its libc++, which is the version its headers carry (S4-4-5)"
     },
     {
       "test": "tests/test_text.cpp: only a valid maintained-engine suffix selects its LLVM base"
+    },
+    {
+      "script": "modules/pack/tests/test_payload.cpp",
+      "contains": "S4-4-5"
     }
   ],
   "S4-4-6": [
@@ -2190,7 +2194,7 @@
     },
     {
       "script": "modules/pack/tests/test_payload.cpp",
-      "contains": "maintained engine assembly requires matching immutable identity before replacing output"
+      "contains": "every engine's immutable identity binds its platform and bytes before the output is replaced"
     },
     {
       "script": "src/engine/payload.cpp",
@@ -2435,6 +2439,100 @@
     {
       "script": "editors/vscode/test/unit/profileText.test.ts",
       "contains": "a pending requested target does not rename the adopted profile"
+    }
+  ],
+  "S4-3-11": [
+    {
+      "test": "tests/test_spec.cpp: a kit of several targets serves each with its own include directories (kit-version 2)"
+    },
+    {
+      "validate": "S4 schema rejects targets in kit-version 1"
+    },
+    {
+      "validate": "S4 schema rejects a target without its triple"
+    }
+  ],
+  "S4-3-12": [
+    {
+      "validate": "S4 s4-kit-openkal.json: the top level is one of its targets"
+    },
+    {
+      "validate": "S4 s4-kit-openkal.json: each target reads its own architecture's headers"
+    },
+    {
+      "script": "modules/pack/src/openkal.cpp",
+      "contains": "kit[\"system-include-directories\"] = primary.includes"
+    }
+  ],
+  "S4-5.1-1": [
+    {
+      "test": "tests/test_instance.cpp: the kit of a target: its own, else the host's, else the openkal kit, and the kit that would serve it"
+    },
+    {
+      "script": "src/orchestrator/workspace.cpp",
+      "contains": "if (previous != project::target_selection_key(targetSelection)) select_kit();"
+    }
+  ],
+  "S4-5.1-2": [
+    {
+      "check": "kit-openkal/S1"
+    },
+    {
+      "script": "src/orchestrator/workspace.cpp",
+      "contains": "add(\"kit-missing\", kit_missing_message()"
+    }
+  ],
+  "S4-5.1-3": [
+    {
+      "script": "src/orchestrator/workspace.cpp",
+      "contains": "bool install_kit(std::string_view wanted)"
+    },
+    {
+      "script": "editors/vscode/src/kitAsk.ts",
+      "contains": "if (issue === undefined || issue.askInstall !== true || open) return 'none';"
+    }
+  ],
+  "S3-4-37": [
+    {
+      "check": "kit-openkal/S1"
+    },
+    {
+      "script": "src/orchestrator/workspace.cpp",
+      "contains": "issues.back()[\"kit\"]"
+    }
+  ],
+  "S3-4-38": [
+    {
+      "script": "src/server/session.cpp",
+      "contains": "\"mcppls.installKit\""
+    },
+    {
+      "script": "src/orchestrator/routing.cpp",
+      "contains": "\"mcppls.installKit\""
+    },
+    {
+      "script": "editors/vscode/src/kitAsk.ts",
+      "contains": "issue.askInstall !== true"
+    }
+  ],
+  "S3-4-39": [
+    {
+      "script": "src/orchestrator/workspace.cpp",
+      "contains": "params[\"kitInstall\"] = kitInstall"
+    },
+    {
+      "script": "editors/vscode/src/kitAsk.ts",
+      "contains": "told.includes(run.at)"
+    }
+  ],
+  "S3-4-40": [
+    {
+      "script": "editors/vscode/src/kitPrompt.ts",
+      "contains": "askBeforeInstalling(): void"
+    },
+    {
+      "script": "editors/clion/src/main/kotlin/community/mcpp/mcppls/KitInstall.kt",
+      "contains": "fun askAgain(project: Project)"
     }
   ]
 }

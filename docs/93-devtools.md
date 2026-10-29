@@ -52,9 +52,10 @@ them (the root package is reached by the plain command). The system is a value, 
 preprocessor branch: mcpplibs.os's `host()` is a constant expression on a native build and the
 loaded system in an ok image (`<arch>-openkal`), and `mcppls::base::payload_platform()` names it with
 the architecture, so an arm64 build says `linux-arm64` (`mcppls-devtools check os-surface`).
-The platforms themselves are the rows of `packaging/payload.lock.json`; the VS Code extension,
-`release.manifest.json` and CI's per-platform jobs list the same ones (`mcppls-devtools check
-platforms`).
+The platforms themselves are the rows of `packaging/payload.lock.json`; the VS Code extension, the
+CLion build, `release.manifest.json` and CI's per-platform jobs (`build`, `test`, `kits`,
+`conformance`, `vscode-e2e`, `distribution`, the release checks' `install`) list the same ones, and
+each row names its kit (`mcppls-devtools check platforms`).
 
 ## Commands by task
 
@@ -95,18 +96,19 @@ platforms`).
 
 | Task | Command |
 |---|---|
-| A payload for this host: the server is the okb (`bin/mcppls.okb`) and this host's runner (`bin/okrun`), packed for you | `mcpp run -p devtools -- payload` |
-| A payload for another platform, from an okb and that platform's runner (a universal package's `libexec/okrun/<system>-<arch>/`) | `mcpp run -p devtools -- payload --platform win32-x64 --server-image mcppls.okb --server-runner okrun.exe` |
-| A payload whose server is a program of the platform instead | `mcpp run -p devtools -- payload --platform win32-x64 --server PATH` |
-| A test harness against a payload's server (`--server` takes the okb; its runner is the one `payload.json` names) | `mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture …` |
+| The payload, one for every platform: the okb and the tree with the runner of every system, packed for you (`mcpp pack --target openkal --mode self-contained --systems all --pkg-format zip,okb`), the clangd of every platform from the lock, and the openkal kit | `mcpp run -p devtools -- payload` |
+| The same from what is already built: the okb, the tree (a directory or its zip), a kit, engines of your own | `mcpp run -p devtools -- payload --server-image mcppls.okb --server-tree mcppls-<v>-openkal.zip --kit DIR [--clangd <platform>=DIR ...] [--platforms linux-x64,win32-x64]` |
+| A test harness against a payload's server (`--server` takes the okb; its runner is the one the payload's entry for this platform names) | `mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture …` |
 | Check a payload | `mcpp run -p devtools -- payload --verify DIR` |
-| The semantic kit alone | `mcpp run -p devtools -- kit --platform linux-x64 --out DIR` |
+| The openkal kit, from mcpp's build database of each openkal target | `mcpp run -p devtools -- kit --openkal --out DIR [--archive DIR]` |
+| A target's kit, and its release archive (`mcppls-kit-<target>-<version>.tar.gz`) | `mcpp run -p devtools -- kit --platform linux-x64 --out DIR [--archive DIR]` |
+| Check a kit by S4's rules | `mcpp run -p devtools -- kit --verify DIR` |
 | Editor extensions | `mcpp run -p devtools -- extension [--editor vscode\|zed\|clion\|all] [--install [--link]]` |
-| Install a plugin you already have (a release's) | `... -- extension --editor zed --install --plugin PATH --payload DIR`; `... -- extension --editor clion --install --plugin mcppls-clion-<version>-<platform>.zip` (the package carries its payload) |
-| The CLion packages of several platforms, from their payloads (CI) | `mcpp run --features clion -p devtools -- extension --editor clion --payloads DIR` (DIR holds `<platform>/payload`); each is written to `target/pack/mcppls-clion-<version>-<platform>.zip` |
+| Install a plugin you already have (a release's) | `... -- extension --editor zed --install --plugin PATH --payload DIR`; `... -- extension --editor clion --install --plugin mcppls-clion-<version>.zip` (the package carries the payload) |
+| The CLion package from a payload already made (CI) | `mcpp run --features clion -p devtools -- extension --editor clion --payload DIR`; written to `target/pack/mcppls-clion-<version>.zip` |
 | Remove an installed extension | `mcpp run -p devtools -- uninstall --editor vscode\|zed\|clion\|all` |
 | Check a staged release | `mcppls-devtools release check --version V --dir release [--render]` |
-| The xlings artifacts of a release (its payloads and single files) | `mcppls-devtools release xlings --payloads DIR --out DIR` |
+| The xim-pkgindex descriptors of a release (its openkal tree and kits) | `mcppls-devtools release xlings --release DIR --out DIR [--url PREFIX]` |
 
 ## Environment
 
@@ -118,7 +120,7 @@ devtools` provisions it first:
 | Node (npm, npx) | the VS Code extension | `[xlings.workspace]`, `when = "dev"` |
 | Rust (cargo, rustup) | the Zed extension | `[xlings.workspace]`, `when = "dev"` |
 | Gradle and its JDK | the CLion plugin | `[feature-xlings.clion]`: `mcpp run -p devtools --features clion -- extension --editor clion` |
-| cmake, ninja | the semantic kit's libc++ configure | the host (CI installs them) |
+| cmake, ninja | a target kit's libc++ configure | the host (CI installs them) |
 
 `when = "dev"` means these are provisioned for `mcpp run`, never for `mcpp build` or `mcpp test`,
 and never for a consumer.
