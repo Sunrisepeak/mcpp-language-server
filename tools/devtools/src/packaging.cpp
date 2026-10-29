@@ -12,6 +12,8 @@ import mcppls.pack.kit;
 import mcppls.pack.fetch;
 import mcppls.pack.lock;
 import mcppls.pack.payload;
+import mcppls.devtools.kit;
+import mcppls.base.version;
 import mcppls.devtools.common;
 import mcppls.devtools.editors;
 import mcpplibs.os;
@@ -36,77 +38,67 @@ std::optional<pack::lock::Lock> load_lock(const std::string& root) {
     return std::move(*loaded);
 }
 
-// The system and the architecture of a payload platform (`<os>-<arch>`, as VS Code names it), as mcpp
-// names them: the runner of `linux-arm64` is `libexec/okrun/linux-aarch64/okrun`.
-std::pair<std::string, std::string> runner_system(std::string_view platformName) {
-    const auto dash = platformName.find('-');
-    const std::string_view system { platformName.substr(0, dash) };
-    const std::string_view arch { dash == std::string_view::npos ? std::string_view {} : platformName.substr(dash + 1) };
-    return { system == "win32" ? "windows" : system == "darwin" ? "macos" : "linux", arch == "arm64" ? "aarch64" : "x86_64" };
-}
-
-// The server a payload for `platformName` carries. THE SERVER IS AN IMAGE: one okb of every
-// architecture, started by the runner of the platform (mcpp design 2026-10-28 part 2 §15) -- the two
-// `--server-image` and `--server-runner` give, or packed here. `--server` gives a program of the
-// platform instead, which a payload may carry as well. Nullopt, said on stderr, when none can be had.
-struct ServerChoice {
-    std::string program;
-    std::string image;
-    std::string runner;
+// What one payload is made of (ecosystem design 2026-10-29 §9): the server's okb and the tree that carries the
+// runner of every system, the engine of every platform and the openkal kit. Each is given, or made here.
+struct PayloadInputs {
+    std::string serverImage;                    // --server-image: the okb
+    std::string serverTree;                     // --server-tree: the tree, a directory or its archive
+    std::string kit;                            // --kit: the openkal kit; empty: built from mcpp's build database
+    std::map<std::string, std::string> clangd;  // --clangd <platform>=DIR: an engine already trimmed (a candidate's)
+    std::vector<std::string> platforms;         // --platforms: which of the lock's; empty: every one
+    std::string cache;
+    std::string profile { "release" };
+    std::optional<std::string> serverVersion;
+    bool strip { true };
+    bool candidate { false };
 };
 
-std::optional<ServerChoice> choose_server(const std::string& root, const cmdline::ParsedArgs& arguments, std::string_view platformName) {
-    ServerChoice choice { arguments.value("server").value_or(""), arguments.value("server-image").value_or(""),
-                          arguments.value("server-runner").value_or("") };
-    if (choice.image.empty() != choice.runner.empty()) {
-        std::println(std::cerr, "mcppls-devtools: --server-image and --server-runner go together: the image, and the okrun of {} that starts it",
-                     platformName);
-        return std::nullopt;
+std::vector<std::string> list_option(const cmdline::ParsedArgs& arguments, std::string_view name) {
+    std::vector<std::string> values;
+    if (auto option = arguments.option(name)) {
+        for (const auto& value : option->get().values) {
+            for (const auto part : base::split(value, ',')) {
+                if (!part.empty()) values.emplace_back(base::trim(part));
+            }
+        }
     }
-    if (!choice.program.empty() && !choice.image.empty()) {
-        std::println(std::cerr, "mcppls-devtools: --server names a program and --server-image an image; a payload carries one of them");
-        return std::nullopt;
-    }
-    std::error_code ignored;
-    if (!choice.program.empty()) {
-        if (std::filesystem::is_regular_file(choice.program, ignored)) return choice;
-        std::println(std::cerr, "mcppls-devtools: no server at {}", choice.program);
-        return std::nullopt;
-    }
-    if (!choice.image.empty()) return choice;
-    const auto [system, arch] = runner_system(platformName);
-    auto located = locate_image_server(root, arguments.is_flag_set("dev") ? "dev" : "release", system, arch);
-    if (!located) {
-        std::println(std::cerr, "mcppls-devtools: {}", located.error().message);
-        return std::nullopt;
-    }
-    choice.image = located->image;
-    choice.runner = located->runner;
-    return choice;
+    return values;
 }
 
-std::optional<std::string> parse_platform(const std::string& root, const cmdline::ParsedArgs& arguments) {
-    const std::string given { arguments.value("platform").value_or(std::string { base::payload_platform() }) };
+std::optional<PayloadInputs> payload_inputs(const std::string& root, const cmdline::ParsedArgs& arguments) {
+    PayloadInputs inputs {
+        .serverImage = arguments.value("server-image").value_or(""),
+        .serverTree = arguments.value("server-tree").value_or(""),
+        .kit = arguments.value("kit").value_or(""),
+        .platforms = list_option(arguments, "platforms"),
+        .cache = arguments.value("cache").value_or(base::join_path(root, ".payload-cache")),
+        .profile = arguments.is_flag_set("dev") ? "dev" : "release",
+        .serverVersion = arguments.value("server-version"),
+        .strip = !arguments.is_flag_set("no-strip"),
+        .candidate = arguments.is_flag_set("candidate"),
+    };
+    if (inputs.serverImage.empty() != inputs.serverTree.empty()) {
+        std::println(std::cerr, "mcppls-devtools: --server-image and --server-tree go together: the okb, and the tree whose runners start it");
+        return std::nullopt;
+    }
+    for (const auto& item : list_option(arguments, "clangd")) {
+        const auto equals = item.find('=');
+        if (equals == std::string::npos) {
+            std::println(std::cerr, "mcppls-devtools: --clangd takes <platform>=<directory>, got {}", item);
+            return std::nullopt;
+        }
+        inputs.clangd[item.substr(0, equals)] = item.substr(equals + 1);
+    }
     const auto lockData = load_lock(root);
     if (!lockData) return std::nullopt;
     const auto known = pack::lock::platform_names(*lockData);
-    if (std::ranges::find(known, given) != known.end()) return given;
-    std::println(std::cerr, "mcppls-devtools: unknown platform {} — packaging/payload.lock.json has {}", given, base::join(known, ", "));
-    return std::nullopt;
-}
-
-// The platform of the payload at `directory` (payload.json's `platform`), which is what a VSIX
-// carrying it is for -- not necessarily this host's: a linux-arm64 payload is packaged the same way
-// on any host.
-std::optional<std::string> payload_platform(const std::string& directory) {
-    auto text = os::fs::read(base::join_path(directory, "payload.json"));
-    if (!text) return std::nullopt;
-    try {
-        const auto manifest = nlohmann::json::parse(*text);
-        if (const auto found = manifest.find("platform"); found != manifest.end() && found->is_string()) return found->get<std::string>();
-    } catch (const std::exception&) {
+    if (inputs.platforms.empty()) inputs.platforms = known;
+    for (const auto& platform : inputs.platforms) {
+        if (std::ranges::find(known, platform) != known.end()) continue;
+        std::println(std::cerr, "mcppls-devtools: unknown platform {} — packaging/payload.lock.json has {}", platform, base::join(known, ", "));
+        return std::nullopt;
     }
-    return std::nullopt;
+    return inputs;
 }
 
 struct Payload {
@@ -114,72 +106,81 @@ struct Payload {
     bool built { false };
 };
 
-// Fetch -> trim clangd -> build the semantic kit -> assemble, in that order (tooling architecture
-// §4), all in this process. The kit step runs cmake and ninja over the libc++ sources; nothing
-// here runs an interpreter.
-Payload assemble_payload(const std::string& root, std::string_view platformName, const std::string& outDirectory,
-                         const std::string& clangdDirectory, const std::string& kitDirectory,
-                         const std::string& serverPath, const std::string& cacheDirectory,
-                         std::optional<std::string> serverVersion, bool strip, bool candidateEngine,
-                         const std::string& serverImage = {}, const std::string& serverRunner = {}) {
-    std::error_code ignored;
-    const std::string work { base::join_path(root, "target/pack") };
-    (void)std::filesystem::create_directories(work, ignored);
+// The engine of one platform: the one given, else the lock's, trimmed.
+std::optional<std::string> engine_of(const std::string& root, const PayloadInputs& inputs, const pack::lock::Lock& lockData, const std::string& platform) {
+    if (const auto given = inputs.clangd.find(platform); given != inputs.clangd.end()) return given->second;
+    const std::string directory { base::join_path(root, std::format("target/pack/clangd/{}", platform)) };
+    std::println("  the engine of {} ...", platform);
+    auto trimmed = pack::clangd::trim(pack::clangd::Options {
+        .platform = platform,
+        .outDirectory = directory,
+        .cacheDirectory = inputs.cache,
+        .strip = inputs.strip,
+    }, lockData);
+    if (!trimmed) {
+        std::println(std::cerr, "  the engine of {} failed: {}", platform, trimmed.error().message);
+        return std::nullopt;
+    }
+    std::println("  clangd ({}): {} files, lib/clang/{}/include, {:.1f} MB", platform, trimmed->filesKept, trimmed->clangMajor,
+                 static_cast<double>(trimmed->totalBytes) / 1e6);
+    return directory;
+}
 
+// The server, the engines, the kit -> assemble, in that order (tooling architecture §4), all in this process.
+Payload assemble_payload(const std::string& root, const PayloadInputs& inputs, const std::string& outDirectory) {
+    std::error_code ignored;
+    (void)std::filesystem::create_directories(base::join_path(root, "target/pack"), ignored);
     auto lockData = pack::lock::load(base::join_path(root, "packaging/payload.lock.json"));
     if (!lockData) {
         std::println(std::cerr, "mcppls-devtools: {}", lockData.error().message);
         return {};
     }
-
-    std::string clangd { clangdDirectory };
-    if (clangd.empty()) {
-        clangd = base::join_path(work, "clangd");
-        std::println("  trimming clangd for {} ...", platformName);
-        auto trimmed = pack::clangd::trim(pack::clangd::Options {
-            .platform = std::string { platformName },
-            .outDirectory = clangd,
-            .cacheDirectory = cacheDirectory,
-            .strip = strip,
-        }, *lockData);
-        if (!trimmed) {
-            std::println(std::cerr, "  trimming clangd failed: {}", trimmed.error().message);
+    std::string image { inputs.serverImage };
+    std::string tree;
+    if (image.empty()) {
+        auto packed = pack_server(root, inputs.profile);
+        if (!packed) {
+            std::println(std::cerr, "mcppls-devtools: {}", packed.error().message);
             return {};
         }
-        std::println("  clangd: {} files, lib/clang/{}/include, {:.1f} MB", trimmed->filesKept, trimmed->clangMajor,
-                     static_cast<double>(trimmed->totalBytes) / 1e6);
-        if (trimmed->versionLine) std::println("  {}", *trimmed->versionLine);
+        image = packed->image;
+        tree = packed->tree;
+    } else {
+        auto unpacked = server_tree(inputs.serverTree, base::join_path(root, "target/pack/server-tree"));
+        if (!unpacked) {
+            std::println(std::cerr, "mcppls-devtools: {}", unpacked.error().message);
+            return {};
+        }
+        tree = *unpacked;
     }
 
-    std::string kit { kitDirectory };
+    std::vector<pack::payload::PlatformEngine> engines;
+    for (const auto& platform : inputs.platforms) {
+        auto engine = engine_of(root, inputs, *lockData, platform);
+        if (!engine) return {};
+        engines.push_back({ platform, *engine });
+    }
+
+    std::string kit { inputs.kit };
     if (kit.empty()) {
-        kit = base::join_path(work, "kit");
-        std::println("  the semantic kit is compiled from libc++ sources; the first time takes a while");
-        auto built = pack::kit::build(pack::kit::Options {
-            .platform = std::string { platformName },
-            .outDir = kit,
-            .cacheDir = cacheDirectory,
-            .lockPath = base::join_path(root, "packaging/payload.lock.json"),
-            .workDir = base::join_path(work, "kit-build"),
-        });
+        std::println("  the openkal kit, from mcpp's build database of each openkal target");
+        auto built = openkal_kit(root, base::join_path(root, "target/pack/kit-openkal"));
         if (!built) {
-            std::println(std::cerr, "  building the semantic kit failed: {}", built.error().message);
+            std::println(std::cerr, "  the openkal kit failed: {}", built.error().message);
             return {};
         }
-        std::println("  kit {}: {} files, {:.1f} MB", built->name, built->fileCount, static_cast<double>(built->totalBytes) / 1e6);
+        kit = *built;
     }
 
     auto assembled = pack::payload::assemble(pack::payload::AssembleOptions {
-        .platform = std::string { platformName },
-        .serverPath = serverPath,
-        .serverImage = serverImage,
-        .serverRunner = serverRunner,
-        .clangdDirectory = clangd,
+        .serverImage = image,
+        .serverTree = tree,
+        .engines = std::move(engines),
         .kitDirectory = kit,
         .outDirectory = outDirectory,
         .repositoryRoot = root,
-        .serverVersion = serverVersion,
-        .candidateEngine = candidateEngine,
+        .serverVersion = inputs.serverVersion,
+        .candidateEngine = inputs.candidate,
     }, *lockData);
     if (!assembled) {
         std::println(std::cerr, "  assembling the payload failed: {}", assembled.error().message);
@@ -198,10 +199,15 @@ void print_verify_result(std::string_view directory, const std::vector<std::stri
         // that wants to compare it against a cross-built one without reading the file itself.
         if (auto image = pack::fetch::digest_of(base::join_path(directory, "bin/mcppls.okb")); image) {
             body["server"] = { { "path", "bin/mcppls.okb" }, { "sha256", *image } };
-        } else if (auto digest = pack::fetch::digest_of(base::join_path(directory, "bin/mcppls")); digest) {
-            body["server"] = { { "path", "bin/mcppls" }, { "sha256", *digest } };
-        } else if (auto digestExe = pack::fetch::digest_of(base::join_path(directory, "bin/mcppls.exe")); digestExe) {
-            body["server"] = { { "path", "bin/mcppls.exe" }, { "sha256", *digestExe } };
+        }
+        // The platforms the payload serves, as its payload.json says.
+        if (auto text = os::fs::read(base::join_path(directory, "payload.json"))) {
+            const auto manifest = nlohmann::json::parse(*text, nullptr, false);
+            nlohmann::json platforms = nlohmann::json::array();
+            if (manifest.is_object()) {
+                for (const auto& item : manifest.value("platforms", nlohmann::json::object()).items()) platforms.push_back(item.key());
+            }
+            body["platforms"] = platforms;
         }
         print_json(body);
         return;
@@ -329,15 +335,13 @@ int command_payload(const cmdline::ParsedArgs& arguments) {
         return problems.empty() ? 0 : 1;
     }
 
-    auto platformName = parse_platform(root, arguments);
-    if (!platformName) return 2;
-
     if (auto only = arguments.value("only"); only && !only->empty()) {
         if (*only != "clangd") {
             std::println(std::cerr, "mcppls-devtools: --only accepts clangd (the other parts have no standalone step here)");
             return 2;
         }
-        return command_payload_only_clangd(root, *platformName, arguments, wantJson);
+        const std::string platform { arguments.value("platform").value_or(std::string { base::payload_platform() }) };
+        return command_payload_only_clangd(root, platform, arguments, wantJson);
     }
 
     const std::string out { arguments.value("out").value_or(base::join_path(root, "target/pack/payload")) };
@@ -359,15 +363,10 @@ int command_payload(const cmdline::ParsedArgs& arguments) {
         return 0;
     }
 
-    const auto server = choose_server(root, arguments, *platformName);
-    if (!server) return 2;
-    std::println("mcppls-devtools: payload for {} from {}", *platformName, server->image.empty() ? server->program : server->image);
-    const std::string cache { arguments.value("cache").value_or(base::join_path(root, ".payload-cache")) };
-    const bool strip { !arguments.is_flag_set("no-strip") };
-    const auto payload = assemble_payload(root, *platformName, out, arguments.value("clangd").value_or(""),
-                                          arguments.value("kit").value_or(""), server->program, cache,
-                                          arguments.value("server-version"), strip, arguments.is_flag_set("candidate"),
-                                          server->image, server->runner);
+    const auto inputs = payload_inputs(root, arguments);
+    if (!inputs) return 2;
+    std::println("mcppls-devtools: one payload for {}", base::join(inputs->platforms, ", "));
+    const auto payload = assemble_payload(root, *inputs, out);
     if (!payload.built) return 1;
 
     auto problems = pack::payload::verify(payload.directory);
@@ -379,9 +378,9 @@ int command_payload(const cmdline::ParsedArgs& arguments) {
 // A payload at `directory`: the one `--payload` names, copied (keeping the executable bits, and
 // verified), or one assembled from the server this checkout builds. Every editor needs one — VS
 // Code inside its VSIX, CLion inside its package, Zed at editors::server_directory() — and a caller that
-// already has one (CI, which built the platforms' payloads in an earlier job) passes it rather than
-// making another. Such a caller has no server beside this tool and needs none: the payload it hands
-// over already contains the built server.
+// already has one (CI, which built the payload in an earlier job) passes it rather than making
+// another. Such a caller has no server beside this tool and needs none: the payload it hands over
+// already contains the built server.
 int put_payload(const std::string& root, const cmdline::ParsedArgs& arguments, const std::string& directory) {
     std::error_code ignored;
     if (const auto given = arguments.value("payload"); given && !given->empty()) {
@@ -401,12 +400,9 @@ int put_payload(const std::string& root, const cmdline::ParsedArgs& arguments, c
         }
         return 0;
     }
-    const auto server = choose_server(root, arguments, base::payload_platform());
-    if (!server) return 2;
-    const auto payload = assemble_payload(root, base::payload_platform(), directory,
-                                          arguments.value("clangd").value_or(""), arguments.value("kit").value_or(""),
-                                          server->program, base::join_path(root, ".payload-cache"), std::nullopt, true, false,
-                                          server->image, server->runner);
+    const auto inputs = payload_inputs(root, arguments);
+    if (!inputs) return 2;
+    const auto payload = assemble_payload(root, *inputs, directory);
     return payload.built ? 0 : 1;
 }
 
@@ -414,97 +410,37 @@ int put_payload(const std::string& root, const cmdline::ParsedArgs& arguments, c
 // paid IDEs have and CLion is one of. Gradle downloads the IDE it compiles against on first build,
 // so the first one is long and needs the network.
 //
-// Each system gets a package of its own, carrying that system's payload (design 2026-10-29 §2): the
-// Gradle variant of its system and architecture, given the payload with -Pmcppls.payload.<platform>.
-// Named the way the release names it, `mcppls-clion-<version>-<platform>.zip` under target/pack/.
-struct ClionVariant {
-    std::string_view platform;     // the payload's, packaging/release.manifest.json's
-    std::string_view task;         // the Gradle plugin's task suffix, `<os>_<arch>`
-    std::string_view classifier;   // and its archive's, `<os>-<arch>`
-};
-inline constexpr std::array CLION_VARIANTS {
-    ClionVariant { "linux-x64", "linux_x86_64", "linux-x86_64" },
-    ClionVariant { "linux-arm64", "linux_arm64", "linux-arm64" },
-    ClionVariant { "darwin-arm64", "mac_arm64", "mac-arm64" },
-    ClionVariant { "win32-x64", "windows_x86_64", "windows-x86_64" },
-};
-
-struct ClionPackage {
-    std::string platform;
-    std::string archive;
-};
-
-// The payloads to carry: `--payloads DIR`, a directory of `<platform>/payload` trees (CI's four), else this
-// machine's own -- `--payload`, or one assembled here -- at target/pack/clion/<platform>/payload.
-std::optional<std::vector<std::pair<std::string, std::string>>> clion_payloads(const std::string& root, const cmdline::ParsedArgs& arguments) {
-    std::error_code ignored;
-    std::vector<std::pair<std::string, std::string>> payloads;
-    if (auto given = arguments.value("payloads"); given && !given->empty()) {
-        for (const auto& variant : CLION_VARIANTS) {
-            const std::string directory { base::join_path(*given, std::format("{}/payload", variant.platform)) };
-            if (std::filesystem::is_regular_file(base::join_path(directory, "payload.json"), ignored)) payloads.emplace_back(variant.platform, directory);
-        }
-        if (payloads.empty()) {
-            std::println(std::cerr, "mcppls-devtools: {} holds no <platform>/payload/payload.json", *given);
-            return std::nullopt;
-        }
-        return payloads;
-    }
-    const std::string platform { base::payload_platform() };
-    const std::string directory { base::join_path(root, std::format("target/pack/clion/{}/payload", platform)) };
-    if (put_payload(root, arguments, directory) != 0) return std::nullopt;
-    payloads.emplace_back(platform, directory);
-    return payloads;
-}
-
-std::optional<std::vector<ClionPackage>> build_clion(const std::string& root, const cmdline::ParsedArgs& arguments) {
+// One package for every system (ecosystem design 2026-10-29 §9.3): it carries the one payload at
+// `<plugin>/payload`, given to Gradle with -Pmcppls.payload. Named the way the release names it,
+// `mcppls-clion-<version>.zip` under target/pack/.
+std::optional<std::string> build_clion(const std::string& root, const cmdline::ParsedArgs& arguments) {
     std::error_code ignored;
     const std::string directory { base::join_path(root, "editors/clion") };
-    const auto payloads = clion_payloads(root, arguments);
-    if (!payloads) return std::nullopt;
+    const std::string payload { base::join_path(root, "target/pack/clion/payload") };
+    if (put_payload(root, arguments, payload) != 0) return std::nullopt;
     // `xim:gradle` declares the JDK it runs on, so the manifest naming the one package is what
     // gets both — which is why nothing here asks for a JDK.
     auto gradle = tool("gradle", "an IntelliJ-platform plugin is a Gradle project");
     if (!gradle) return std::nullopt;
-
-    std::vector<std::string> gradleArguments { "--console=plain" };
-    std::vector<const ClionVariant*> built;
-    for (const auto& [platform, payload] : *payloads) {
-        const auto variant = std::ranges::find(CLION_VARIANTS, platform, &ClionVariant::platform);
-        if (variant == CLION_VARIANTS.end()) {
-            std::println(std::cerr, "mcppls-devtools: the CLion plugin has no package for {}", platform);
-            return std::nullopt;
-        }
-        gradleArguments.push_back(std::format("-Pmcppls.payload.{}={}", platform, payload));
-        gradleArguments.push_back(std::format("buildPluginVariants_{}", variant->task));
-        built.push_back(&*variant);
-    }
     const std::string distributions { base::join_path(directory, "build/distributions") };
     std::filesystem::remove_all(distributions, ignored);
     std::println("  the first build downloads the CLion SDK; it takes a while and needs the network");
-    if (!step("building the CLion plugin", *gradle, gradleArguments, directory)) return std::nullopt;
-
-    std::vector<ClionPackage> packages;
-    for (const ClionVariant* variant : built) {
-        const std::string_view classifier { variant->classifier };
-        std::string produced;
-        for (const auto& entry : base::children(distributions)) {
-            if (entry.ends_with(std::format("-{}.zip", classifier))) produced = base::join_path(distributions, entry);
-        }
-        if (produced.empty()) {
-            std::println(std::cerr, "  the build produced no {} package under {}", classifier, distributions);
-            return std::nullopt;
-        }
-        // mcppls-clion-<version>-<os>-<arch>.zip -> mcppls-clion-<version>-<platform>.zip
-        std::string name { base::file_name(produced) };
-        name.replace(name.size() - classifier.size() - 4, classifier.size(), variant->platform);
-        const std::string archive { base::join_path(root, std::format("target/pack/{}", name)) };
-        (void) std::filesystem::create_directories(base::parent_path(archive), ignored);
-        std::filesystem::copy_file(produced, archive, std::filesystem::copy_options::overwrite_existing, ignored);
-        std::println("clion plugin ({}): {}", variant->platform, archive);
-        packages.push_back(ClionPackage { .platform = std::string { variant->platform }, .archive = archive });
+    if (!step("building the CLion plugin", *gradle, { "--console=plain", std::format("-Pmcppls.payload={}", payload), "buildPlugin" }, directory)) {
+        return std::nullopt;
     }
-    return packages;
+    std::string produced;
+    for (const auto& entry : base::children(distributions)) {
+        if (entry.ends_with(".zip")) produced = entry;
+    }
+    if (produced.empty()) {
+        std::println(std::cerr, "  the build produced no package under {}", distributions);
+        return std::nullopt;
+    }
+    const std::string archive { base::join_path(root, std::format("target/pack/{}", base::file_name(produced))) };
+    (void) std::filesystem::create_directories(base::parent_path(archive), ignored);
+    std::filesystem::copy_file(produced, archive, std::filesystem::copy_options::overwrite_existing, ignored);
+    std::println("clion plugin: {}", archive);
+    return archive;
 }
 
 int build_vscode(const std::string& root, const cmdline::ParsedArgs& arguments, std::string& vsixOut) {
@@ -522,15 +458,13 @@ int build_vscode(const std::string& root, const cmdline::ParsedArgs& arguments, 
     }
     if (!step("compiling the extension", *npm, { "run", "compile" }, extension)) return 1;
 
-    const std::string target { payload_platform(base::join_path(extension, "payload")).value_or(std::string { base::payload_platform() }) };
+    // One VSIX for every system (ecosystem design 2026-10-29 §9.3): no target platform, the one payload inside.
     const std::string vsix { arguments.value("out").value_or(
-        base::join_path(root, std::format("target/pack/mcppls-{}.vsix", target))) };
+        base::join_path(root, std::format("target/pack/mcppls-{}.vsix", base::VERSION))) };
     (void)std::filesystem::create_directories(base::parent_path(vsix), ignored);
     auto npx = tool("npx", "packaging a VSIX runs vsce from the extension's own dependencies");
     if (!npx) return 1;
-    if (!step("packaging the VSIX", *npx,
-              { "--no-install", "vsce", "package", "--target", target, "--out", vsix },
-              extension)) {
+    if (!step("packaging the VSIX", *npx, { "--no-install", "vsce", "package", "--out", vsix }, extension)) {
         return 1;
     }
     std::println("vscode extension: {}", vsix);
@@ -648,7 +582,7 @@ int command_extension(const cmdline::ParsedArgs& arguments) {
     }
 
     for (const Editor editor : editors) {
-        std::println("mcppls-devtools: {} extension for {}", editor_name(editor), base::payload_platform());
+        std::println("mcppls-devtools: {} extension", editor_name(editor));
         if (editor == Editor::zed) {
             const std::string source { plugin.value_or(base::join_path(root, "editors/zed")) };
             if (!plugin && !build_zed(root)) return 1;
@@ -662,16 +596,10 @@ int command_extension(const cmdline::ParsedArgs& arguments) {
         if (editor == Editor::clion) {
             std::optional<std::string> archive { plugin };
             if (!archive) {
-                const auto packages = build_clion(root, arguments);
-                if (!packages) return 1;
-                const auto own = std::ranges::find(*packages, std::string { base::payload_platform() }, &ClionPackage::platform);
-                if (own != packages->end()) archive = own->archive;
+                archive = build_clion(root, arguments);
+                if (!archive) return 1;
             }
             if (install) {
-                if (!archive) {
-                    std::println(std::cerr, "mcppls-devtools: no package of this system ({}) was built to install", base::payload_platform());
-                    return 1;
-                }
                 if (const int status = install_clion(arguments, *archive); status != 0) return status;
             } else {
                 std::println("  Install it with: mcpp run --features clion -p devtools -- extension --editor clion --install");
@@ -744,21 +672,21 @@ int command_uninstall(const cmdline::ParsedArgs& arguments) {
 cmdline::App payload_command(bool& handled, int& status) {
     cmdline::App command { "payload" };
     (void) command.description(
-        "Assemble, verify or copy a payload: the server, a trimmed clangd and the semantic kit.\n"
-        "  payload                                       this host's: the okb and this host's runner, packed here\n"
-        "  payload --platform win32-x64 --server-image mcppls.okb --server-runner okrun.exe --out payload\n"
+        "Assemble, verify or copy the payload: the server, the engine of every platform and the openkal kit.\n"
+        "  payload                                       one payload: the okb and the runners packed here, every platform's engine\n"
+        "  payload --server-image mcppls.okb --server-tree mcppls-<v>-openkal.zip --kit kit --out payload\n"
         "  payload --verify payload                      check an already-assembled payload\n"
         "  payload --from payload --out editors/vscode/payload   copy one, keeping exec bits\n"
-        "  payload --only clangd --out work/clangd        trim clangd alone (CI's cache step)");
-    (void) command.option("platform").takes_value().help("One of packaging/payload.lock.json's platforms, e.g. linux-arm64 (default: this host)");
+        "  payload --only clangd --platform linux-x64 --out work/clangd   trim one platform's clangd alone");
+    (void) command.option("platforms").takes_value().multiple().help("Which of packaging/payload.lock.json's platforms it serves (default: every one)");
+    (void) command.option("platform").takes_value().help("--only clangd: the platform (default: this host)");
     (void) command.option("out").takes_value().help("Where to put it (default target/pack/payload)");
-    (void) command.option("server").takes_value().help("A program of --platform to carry as the server, instead of the image");
     (void) command.option("server-version").takes_value().help("Defaults to this build's own version");
-    (void) command.option("server-image").takes_value().help("The server's okb (default: `mcpp pack --pkg-format okb`)");
-    (void) command.option("server-runner").takes_value().help("With --server-image: the okrun of --platform (default: the self-contained package's)");
+    (void) command.option("server-image").takes_value().help("The server's okb (default: packed here)");
+    (void) command.option("server-tree").takes_value().help("With --server-image: the openkal tree packed self-contained for every system, or its archive");
     (void) command.option("dev").help("Package a dev-profile server rather than a release one");
-    (void) command.option("clangd").takes_value().help("Use this already-trimmed clangd directory");
-    (void) command.option("kit").takes_value().help("Use this already-built semantic kit directory");
+    (void) command.option("clangd").takes_value().multiple().help("<platform>=DIR: an engine already trimmed (repeatable)");
+    (void) command.option("kit").takes_value().help("Use this already-built openkal kit directory");
     (void) command.option("cache").takes_value().help("Where fetched inputs are cached (default <root>/.payload-cache)");
     (void) command.option("no-strip").help("Keep clangd's debug symbols instead of stripping it");
     (void) command.option("candidate").help("With --clangd: a new engine under test, another fork version of the locked LLVM base (CI only)");
@@ -772,18 +700,18 @@ cmdline::App payload_command(bool& handled, int& status) {
 
 cmdline::App extension_command(bool& handled, int& status) {
     cmdline::App command { "extension" };
-    (void) command.description("Build an editor extension: VS Code (VSIX), Zed (WebAssembly) or CLion (Gradle)");
+    (void) command.description("Build an editor extension: VS Code (VSIX), Zed (WebAssembly) or CLion (Gradle); each carries the one payload");
     (void) command.option("editor").takes_value().help("vscode | zed | clion | all (default all)");
     (void) command.option("payload").takes_value().help("Use this payload instead of assembling one (CI)");
-    (void) command.option("payloads").takes_value().value_name("DIR").help("CLion: a directory of <platform>/payload trees; a package is built for each (CI)");
     (void) command.option("install").help("Also install it (Zed: everything but its palette action unless --link)");
     (void) command.option("out").takes_value().help("Where to write the .vsix");
-    (void) command.option("server").takes_value().help("A program of this host to carry as the server, instead of the image");
-    (void) command.option("server-image").takes_value().help("The server's okb (default: `mcpp pack --pkg-format okb`)");
-    (void) command.option("server-runner").takes_value().help("With --server-image: this host's okrun (default: the self-contained package's)");
+    (void) command.option("server-image").takes_value().help("The server's okb (default: packed here)");
+    (void) command.option("server-tree").takes_value().help("With --server-image: the openkal tree packed self-contained for every system, or its archive");
     (void) command.option("dev").help("Package a dev-profile server rather than a release one");
-    (void) command.option("clangd").takes_value().help("Use this already-trimmed clangd directory");
-    (void) command.option("kit").takes_value().help("Use this already-built semantic kit directory");
+    (void) command.option("platforms").takes_value().multiple().help("Which platforms the payload serves (default: every one)");
+    (void) command.option("clangd").takes_value().multiple().help("<platform>=DIR: an engine already trimmed (repeatable)");
+    (void) command.option("kit").takes_value().help("Use this already-built openkal kit directory");
+    (void) command.option("cache").takes_value().help("Where fetched inputs are cached (default <root>/.payload-cache)");
     (void) command.option("plugin").takes_value().help("Zed: an extension directory, CLion: a plugin archive, to install instead of building one");
     (void) command.option("link").help("Zed: link the extension into Zed here rather than naming its palette action");
     (void) command.option("server-dir").takes_value().help("Where Zed's server goes (default <user data>/mcppls/payload)");

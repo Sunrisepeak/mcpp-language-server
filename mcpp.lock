@@ -137,11 +137,11 @@ source  = "index+mcpplibs@0.2.1"
 hash    = "fnv1a:d0be97a50033077e"
 targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
-[package."mcpplibs.tinyhttps"]
+[package."tinyhttps"]
 namespace = "mcpplibs"
 version = "0.3.1"
 source  = "index+mcpplibs@0.3.1"
-hash    = "fnv1a:c9bc1a873a07579e"
+hash    = "fnv1a:a8acdb89364006ee"
 
 [package."nlohmann.json"]
 namespace = "nlohmann"

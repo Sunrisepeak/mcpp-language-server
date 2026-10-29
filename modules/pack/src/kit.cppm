@@ -34,7 +34,7 @@ export namespace mcppls::pack::kit {
 // imported, because the boundary this package exists for (tooling architecture §3.1: pack is depended on only by devtools) runs the
 // other way from spec: the server must not import anything from mcppls-pack, and mcppls-pack must
 // not import server code either, so a `mcpp test -p pack` never risks the server domain.
-inline constexpr int KIT_VERSION { 1 };
+inline constexpr int KIT_VERSION { 2 };
 
 // Everything build_kit.py took from argv, plus `lockPath` (which the script found next to itself;
 // a library takes it explicitly because it does not know where the repository root is).

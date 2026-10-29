@@ -19,6 +19,7 @@ struct KitSource {
     std::string recipe;
     std::string source;   // a key into `entries`: the archive the recipe is built from
     std::string target;   // the triple passed to the recipe
+    std::string name;     // the target as the published kit names it: package mcppls-kit-<name> (x86_64-linux-gnu)
 };
 
 // packaging/payload.lock.json's `platforms.<name>`: the one table of platforms. A name is

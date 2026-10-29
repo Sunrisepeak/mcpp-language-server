@@ -10,6 +10,8 @@ import mcppls.base.version;
 import mcppls.pack.fetch;
 import mcppls.pack.lock;
 import mcppls.pack.targets;
+import mcppls.pack.kit;
+import mcppls.pack.openkal;
 import mcpplibs.os;
 import mcppls.base.payload;
 import mcppls.toolrun;
@@ -17,16 +19,6 @@ import mcppls.toolrun;
 namespace os = mcpplibs::os;
 namespace mcppls::pack::payload {
 namespace {
-
-// An assembled payload is checked without the lock (`payload --verify` runs on a copy anywhere), so
-// its platform is checked for being a platform name at all; which ones exist is the lock's to say,
-// and assemble() refuses one the lock does not have.
-bool known_platform(std::string_view platform) { return targets::parse(platform).has_value(); }
-
-std::string suffix(std::string_view platform) {
-    const auto target = targets::parse(platform);
-    return std::string { target ? targets::executable_suffix(*target) : "" };
-}
 
 std::string absolute_of(std::string_view path) {
     if (base::is_absolute_path(path)) return base::normalize_path(path);
@@ -163,10 +155,8 @@ constexpr std::array<std::string_view, 9> PROGRAM_SUFFIXES {
     ".so", ".dll", ".dylib", ".exe", ".sh", ".bat", ".cmd", ".ps1", ".py",
 };
 
-// S4 section 4: what a kit may contain, checked on the assembled files.
-std::vector<std::string> kit_problems(const std::string& kitDir, const nlohmann::json& kit,
-                                      std::string_view platformName, const std::string& clangdVersion) {
-    std::vector<std::string> problems;
+// S4 section 4: what a kit may contain, checked on its files. A walk of the tree, then the rules on kit.json.
+void data_only_problems(const std::string& kitDir, std::vector<std::string>& problems) {
     std::error_code failed;
     auto it = std::filesystem::recursive_directory_iterator(kitDir, failed);
     for (; !failed && it != std::filesystem::recursive_directory_iterator(); it.increment(failed)) {
@@ -196,158 +186,339 @@ std::vector<std::string> kit_problems(const std::string& kitDir, const nlohmann:
             problems.push_back(std::format("S4-4-2: the kit contains a program, library or script: {}", relative));
         }
     }
+}
+
+// The include directories of the kit's top level and of each of its `targets` (kit-version 2), as kit paths.
+std::vector<std::string> include_lists(const nlohmann::json& kit) {
+    std::vector<std::string> directories;
+    const auto collect = [&](const nlohmann::json& layout) {
+        for (const auto& directory : layout.value("system-include-directories", nlohmann::json::array())) {
+            if (directory.is_string() && std::ranges::find(directories, directory.get<std::string>()) == directories.end()) {
+                directories.push_back(directory.get<std::string>());
+            }
+        }
+    };
+    collect(kit);
+    for (const auto& item : kit.value("targets", nlohmann::json::object()).items()) {
+        if (item.value().is_object()) collect(item.value());
+    }
+    return directories;
+}
+
+// The libc++ version the kit's headers carry: `_LIBCPP_VERSION` of the first `__config` that states it.
+std::optional<std::string> headers_libcxx_version(const std::string& kitDir, const nlohmann::json& kit) {
+    std::vector<std::string> directories;
+    for (const auto& directory : include_lists(kit)) directories.push_back(base::join_path(kitDir, directory));
+    return openkal::libcxx_version(directories);
+}
+
+std::vector<std::string> module_manifest_problems(const std::string& kitDir, const nlohmann::json& kit) {
+    std::error_code ignored;
+    std::vector<std::string> problems;
+    const std::string metadata { kit.value("stdlib", nlohmann::json::object()).value("module-metadata", std::string {}) };
+    const std::string metadataPath { base::join_path(kitDir, metadata) };
+    if (!std::filesystem::is_regular_file(metadataPath, ignored)) return { std::format("kit module manifest is missing: {}", metadata) };
+    const auto metadataText = os::fs::read(metadataPath);
+    const nlohmann::json metadataJson = metadataText ? nlohmann::json::parse(*metadataText, nullptr, false) : nlohmann::json {};
+    if (metadataJson.is_discarded() || !metadataJson.is_object()) return { std::format("{} does not parse", metadataPath) };
+    const std::string base_ { base::parent_path(metadataPath) };
+    std::set<std::string> names;
+    for (const auto& module : metadataJson.value("modules", nlohmann::json::array())) {
+        const std::string logical { module.value("logical-name", std::string {}) };
+        names.insert(logical);
+        const std::string sourcePath { module.value("source-path", std::string {}) };
+        if (!std::filesystem::is_regular_file(base::join_path(base_, sourcePath), ignored)) {
+            problems.push_back(std::format("module {} source is missing: {}", logical, sourcePath));
+        }
+        const auto localArguments = module.value("local-arguments", nlohmann::json::object());
+        for (const auto& directory : localArguments.value("system-include-directories", nlohmann::json::array())) {
+            if (directory.is_string() && !std::filesystem::is_directory(base::join_path(base_, directory.get<std::string>()), ignored)) {
+                problems.push_back(std::format("module {} include directory is missing: {}", logical, directory.get<std::string>()));
+            }
+        }
+    }
+    if (!names.contains("std")) problems.emplace_back("the kit's module manifest does not provide std");
+    return problems;
+}
+
+// One platform's entry of payload version 5: its runner, its engine and the engine's identity.
+void platform_problems(const std::string& dir, std::string_view platform, const nlohmann::json& entry, std::vector<std::string>& problems) {
+    std::error_code ignored;
+    const auto target = targets::parse(platform);
+    if (!target) {
+        problems.push_back(std::format("platforms has {}, which is not a platform name", platform));
+        return;
+    }
+    const std::string exe { targets::executable_suffix(*target) };
+    const std::string runner { std::format("libexec/okrun/{}/okrun{}", targets::runner_system(*target), exe) };
+    const std::string clangd { std::format("clangd/{}/bin/clangd{}", platform, exe) };
+    if (entry.value("runner", std::string {}) != runner) {
+        problems.push_back(std::format("platforms.{}.runner is {}, expected {}", platform, entry.value("runner", std::string {}), runner));
+    }
+    const auto engine = entry.value("engines", nlohmann::json::object()).value("clangd", nlohmann::json::object());
+    const std::string version { engine.value("version", std::string {}) };
+    if (engine.value("path", std::string {}) != clangd) {
+        problems.push_back(std::format("platforms.{}.engines.clangd.path is {}, expected {}", platform, engine.value("path", std::string {}), clangd));
+    }
+    if (version.empty()) problems.push_back(std::format("platforms.{}.engines.clangd.version is empty", platform));
+    for (const auto& path : { runner, clangd }) {
+        const std::string full { base::join_path(dir, path) };
+        if (!std::filesystem::is_regular_file(full, ignored)) {
+            problems.push_back(std::format("{} of {} is missing: {}", path == runner ? "the runner" : "clangd", platform, path));
+        } else if (exe.empty() && os::host() != os::platform::windows) {
+            const auto anyExec = std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec;
+            if ((std::filesystem::status(full, ignored).permissions() & anyExec) == std::filesystem::perms::none) {
+                problems.push_back(std::format("{} is not executable", path));
+            }
+        }
+    }
+    const std::string major { version.substr(0, version.find('.')) };
+    if (!std::filesystem::is_regular_file(base::join_path(dir, std::format("clangd/{}/lib/clang/{}/include/stddef.h", platform, major)), ignored)) {
+        problems.push_back(std::format("clang builtin headers of {} are missing: clangd/{}/lib/clang/{}/include", platform, platform, major));
+    }
+    auto identity = base::decode_engine_identity(engine.value("identity", nlohmann::json {}));
+    auto digest = fetch::digest_of(base::join_path(dir, clangd));
+    if (!identity || !digest) problems.push_back(std::format("the engine of {} lacks a complete identity or readable bytes", platform));
+    else if (auto problem = base::engine_identity_problem(*identity, version, platform, *digest)) problems.push_back(std::format("{}: {}", platform, *problem));
+    if (!entry.value("files", nlohmann::json::object()).contains(clangd)) {
+        problems.push_back(std::format("platforms.{}.files does not list {}", platform, clangd));
+    }
+}
+
+// Every `files` entry (shared, or one platform's): present, the size and sha256 payload.json says.
+void integrity_problems(const std::string& dir, const nlohmann::json& files, std::vector<std::string>& problems) {
+    std::error_code ignored;
+    for (const auto& item : files.items()) {
+        const std::string relative { item.key() };
+        const auto& expected = item.value();
+        const std::string path { base::join_path(dir, relative) };
+        if (!std::filesystem::is_regular_file(path, ignored)) {
+            problems.push_back(std::format("an integrity-checked file is missing: {}", relative));
+            continue;
+        }
+        auto digest = fetch::digest_of(path);
+        std::error_code sized;
+        const auto size = std::filesystem::file_size(path, sized);
+        if (!digest || sized) {
+            problems.push_back(std::format("cannot check {}", relative));
+            continue;
+        }
+        if (size != expected.value("size", std::uint64_t { 0 })) {
+            problems.push_back(std::format("{} is {} bytes, but payload.json says {}", relative, size, expected.value("size", std::uint64_t { 0 })));
+        }
+        if (*digest != expected.value("sha256", std::string {})) problems.push_back(std::format("{} sha256 does not match payload.json", relative));
+    }
+}
+
+nlohmann::json integrity_entry(const std::string& path) {
+    auto digest = fetch::digest_of(path);
+    std::error_code sized;
+    const auto size = std::filesystem::file_size(path, sized);
+    if (!digest || sized) return nullptr;
+    return { { "size", size }, { "sha256", *digest } };
+}
+
+// The `<os>-<arch>` the server tree runs on by itself (mcpp-package.json `runs_on.self`); nullopt when the tree was
+// packed before `runs_on` was written, and then its runners say it.
+std::optional<std::set<std::string>> tree_runs_on(const std::string& tree) {
+    const auto text = os::fs::read(base::join_path(tree, "mcpp-package.json"));
+    if (!text) return std::nullopt;
+    const auto package = nlohmann::json::parse(*text, nullptr, false);
+    if (!package.is_object() || !package.contains("runs_on") || !package["runs_on"].is_object()) return std::nullopt;
+    std::set<std::string> self;
+    for (const auto& pair : package["runs_on"].value("self", nlohmann::json::array())) {
+        if (pair.is_string()) self.insert(pair.get<std::string>());
+    }
+    return self;
+}
+
+// What assemble() checks of one platform's engine before anything is written: the binary, and the identity it states.
+base::Result<nlohmann::json> engine_identity(const PlatformEngine& engine, const lock::Lock& lockData, bool candidate, std::string& version) {
+    std::error_code ignored;
+    const auto target = targets::parse(engine.platform);
+    const std::string binary { base::join_path(engine.clangdDirectory, std::format("bin/clangd{}", targets::executable_suffix(*target))) };
+    if (!std::filesystem::is_regular_file(binary, ignored)) {
+        return base::fail("payload-missing", std::format("{} has no bin/clangd{}; is it trimmed for {}?", engine.clangdDirectory,
+                                                          targets::executable_suffix(*target), engine.platform));
+    }
+    if (!std::filesystem::is_regular_file(base::join_path(engine.clangdDirectory, "LICENSE.TXT"), ignored)) {
+        return base::fail("payload-missing", std::format("{} has no LICENSE.TXT", engine.clangdDirectory));
+    }
+    version = lockData.clangdVersion;
+    const auto text = os::fs::read(base::join_path(engine.clangdDirectory, "engine.json"));
+    if (!text) return base::fail("payload-engine-identity", std::format("the engine of {} has no engine.json with its immutable provenance", engine.platform));
+    nlohmann::json identity = nlohmann::json::parse(*text, nullptr, false);
+    auto decoded = base::decode_engine_identity(identity);
+    auto digest = fetch::digest_of(binary);
+    if (!decoded || !digest) return base::fail("payload-engine-identity", std::format("cannot read a complete engine identity and binary SHA of {}", engine.platform));
+    const bool maintained { base::llvm_base_version(lockData.clangdVersion) != lockData.clangdVersion };
+    if (base::llvm_base_version(decoded->version) != base::llvm_base_version(lockData.clangdVersion)
+        || (maintained && decoded->version != lockData.clangdVersion && !candidate)) {
+        return base::fail("payload-engine-identity", std::format("the engine of {} does not match the locked LLVM base or fork version", engine.platform));
+    }
+    version = decoded->version;
+    if (auto problem = base::engine_identity_problem(*decoded, version, engine.platform, *digest)) {
+        return base::fail("payload-engine-identity", std::format("{}: {}", engine.platform, *problem));
+    }
+    return identity;
+}
+
+} // namespace
+
+std::vector<std::string> verify_kit(std::string_view kitDirectory) {
+    std::error_code ignored;
+    const std::string kitDir { kitDirectory };
+    const std::string kitJson { base::join_path(kitDir, "kit.json") };
+    if (!std::filesystem::is_regular_file(kitJson, ignored)) return { std::format("kit manifest is missing: {}", kitJson) };
+    const auto text = os::fs::read(kitJson);
+    const nlohmann::json kit = text ? nlohmann::json::parse(*text, nullptr, false) : nlohmann::json {};
+    if (kit.is_discarded() || !kit.is_object()) return { std::format("{} does not parse", kitJson) };
+    std::vector<std::string> problems;
+    const int kitVersion { kit.value("kit-version", -1) };
+    if (kitVersion < 1 || kitVersion > kit::KIT_VERSION) problems.push_back(std::format("kit-version is {}, expected 1 to {}", kitVersion, kit::KIT_VERSION));
+    for (const auto& directory : include_lists(kit)) {
+        if (!std::filesystem::is_directory(base::join_path(kitDir, directory), ignored)) problems.push_back(std::format("kit include directory is missing: {}", directory));
+    }
+    const auto sysrootField = kit.find("sysroot");
+    if (sysrootField != kit.end() && sysrootField->is_string() && !std::filesystem::is_directory(base::join_path(kitDir, sysrootField->get<std::string>()), ignored)) {
+        problems.push_back(std::format("kit sysroot is missing: {}", sysrootField->get<std::string>()));
+    }
+    for (const auto& licenseFile : kit.value("licenses", nlohmann::json::array())) {
+        if (licenseFile.is_string() && !std::filesystem::is_regular_file(base::join_path(kitDir, licenseFile.get<std::string>()), ignored)) {
+            problems.push_back(std::format("kit license is missing: {}", licenseFile.get<std::string>()));
+        }
+    }
+    auto modules = module_manifest_problems(kitDir, kit);
+    problems.insert(problems.end(), modules.begin(), modules.end());
+    data_only_problems(kitDir, problems);
     const auto stdlib = kit.value("stdlib", nlohmann::json::object());
-    // Rule 3: a libc++ kit describes the headers of the engine it ships with.
-    if (stdlib.value("name", std::string {}) == "libc++" && stdlib.value("version", std::string {}) != base::llvm_base_version(clangdVersion)) {
-        problems.push_back(std::format("S4-4-5: libc++ {} in the kit, clangd {} in the payload",
-                                       stdlib.value("version", std::string {}), clangdVersion));
+    // Rule 3: a libc++ kit's version is the version of the libc++ headers it carries.
+    if (stdlib.value("name", std::string {}) == "libc++") {
+        const auto carried = headers_libcxx_version(kitDir, kit);
+        if (!carried) problems.emplace_back("S4-4-5: libc++ in the kit, but no __config of its headers states _LIBCPP_VERSION");
+        else if (*carried != stdlib.value("version", std::string {})) {
+            problems.push_back(std::format("S4-4-5: libc++ {} in kit.json, {} in the headers the kit carries", stdlib.value("version", std::string {}), *carried));
+        }
     }
     // Rule 4: a macOS kit declares the SDK it needs.
-    if (platformName.starts_with("darwin")) {
-        bool declared { false };
-        for (const auto& requirement : kit.value("requires", nlohmann::json::array())) {
-            if (requirement.is_object() && requirement.value("kind", std::string {}) == "macos-sdk") { declared = true; break; }
-        }
+    if (kit.value("target", std::string {}).contains("apple-darwin")) {
+        const auto requirements = kit.value("requires", nlohmann::json::array());
+        const bool declared { std::ranges::any_of(requirements, [](const nlohmann::json& requirement) {
+            return requirement.is_object() && requirement.value("kind", std::string {}) == "macos-sdk";
+        }) };
         if (!declared) problems.emplace_back("S4-4-6: a macOS kit does not declare requires macos-sdk");
     }
     return problems;
 }
 
-} // namespace
-
 base::Result<std::string> assemble(const AssembleOptions& options, const lock::Lock& lockData) {
     std::error_code ignored;
-    if (!known_platform(options.platform)) return base::fail("payload-platform", std::format("unknown platform {}", options.platform));
-    if (auto listed = lock::platform(lockData, options.platform); !listed) return std::unexpected { listed.error() };
-    const bool image { !options.serverImage.empty() };
-    if (image) {
-        if (!std::filesystem::is_regular_file(options.serverImage, ignored)) {
-            return base::fail("payload-missing", std::format("--server-image {} does not exist", options.serverImage));
+    if (!std::filesystem::is_regular_file(options.serverImage, ignored)) {
+        return base::fail("payload-missing", std::format("the server image {} does not exist", options.serverImage));
+    }
+    if (options.engines.empty()) return base::fail("payload-platform", "a payload serves at least one platform");
+    const auto runsOn = tree_runs_on(options.serverTree);
+    std::vector<nlohmann::json> identities;
+    std::vector<std::string> versions;
+    for (const auto& engine : options.engines) {
+        const auto target = targets::parse(engine.platform);
+        if (!target) return base::fail("payload-platform", std::format("unknown platform {}", engine.platform));
+        if (auto listed = lock::platform(lockData, engine.platform); !listed) return std::unexpected { listed.error() };
+        const std::string system { targets::runner_system(*target) };
+        const std::string runner { base::join_path(options.serverTree, std::format("libexec/okrun/{}/okrun{}", system, targets::executable_suffix(*target))) };
+        if (!std::filesystem::is_regular_file(runner, ignored)) {
+            return base::fail("payload-missing", std::format("the server tree {} carries no runner for {} ({}): pack it with --mode self-contained --systems all",
+                                                              options.serverTree, system, runner));
         }
-        if (!std::filesystem::is_regular_file(options.serverRunner, ignored)) {
-            return base::fail("payload-missing", std::format("--server-runner {} does not exist: an image needs the loader of {}",
-                                                              options.serverRunner, options.platform));
+        if (runsOn && !runsOn->contains(system)) {
+            return base::fail("payload-runs-on", std::format("the server tree does not run on {} by itself (runs_on.self: {})", system,
+                                                             base::join(std::vector<std::string> { runsOn->begin(), runsOn->end() }, ", ")));
         }
-    } else if (!std::filesystem::is_regular_file(options.serverPath, ignored)) {
-        return base::fail("payload-missing", std::format("--server {} does not exist", options.serverPath));
-    }
-    if (!std::filesystem::is_directory(options.clangdDirectory, ignored)) {
-        return base::fail("payload-missing", std::format("--clangd {} does not exist", options.clangdDirectory));
-    }
-    if (!std::filesystem::is_directory(options.kitDirectory, ignored)) {
-        return base::fail("payload-missing", std::format("--kit {} does not exist", options.kitDirectory));
-    }
-    const std::string kitJsonPath { base::join_path(options.kitDirectory, "kit.json") };
-    if (!std::filesystem::is_regular_file(kitJsonPath, ignored)) {
-        return base::fail("payload-missing", std::format("{} has no kit.json", options.kitDirectory));
-    }
-    nlohmann::json kit;
-    {
-        auto text = os::fs::read(kitJsonPath);
-        if (!text) return base::fail("read-file", text.error());
-        try {
-            kit = nlohmann::json::parse(*text);
-        } catch (const std::exception& error) {
-            return base::fail("payload-kit-json", std::format("cannot parse {}: {}", kitJsonPath, error.what()));
+        if (!std::filesystem::is_directory(engine.clangdDirectory, ignored)) {
+            return base::fail("payload-missing", std::format("the engine of {}, {}, does not exist", engine.platform, engine.clangdDirectory));
         }
+        std::string version;
+        auto identity = engine_identity(engine, lockData, options.candidateEngine, version);
+        if (!identity) return std::unexpected { identity.error() };
+        identities.push_back(std::move(*identity));
+        versions.push_back(std::move(version));
     }
-    const std::string exe { suffix(options.platform) };
-    const std::string clangdBinary { base::join_path(options.clangdDirectory, "bin/clangd" + exe) };
-    if (!std::filesystem::is_regular_file(clangdBinary, ignored)) {
-        return base::fail("payload-missing", std::format("{} has no bin/clangd{}; is it trimmed for {}?",
-                                                          options.clangdDirectory, exe, options.platform));
+    if (auto problems = verify_kit(options.kitDirectory); !problems.empty()) {
+        return base::fail("payload-kit", std::format("the kit {} is not one: {}", options.kitDirectory, base::join(problems, "; ")));
     }
-
-    std::string engineVersion { lockData.clangdVersion };
-    nlohmann::json identity;
-    const std::string identityPath { base::join_path(options.clangdDirectory, "engine.json") };
-    const bool maintained { base::llvm_base_version(lockData.clangdVersion) != lockData.clangdVersion };
-    if (auto identityText = os::fs::read(identityPath)) {
-        identity = nlohmann::json::parse(*identityText, nullptr, false);
-        auto decoded = base::decode_engine_identity(identity);
-        auto digest = fetch::digest_of(clangdBinary);
-        if (!decoded || !digest) return base::fail("payload-engine-identity", "cannot read a complete engine identity and binary SHA");
-        if (base::llvm_base_version(decoded->version) != base::llvm_base_version(lockData.clangdVersion) ||
-            (maintained && decoded->version != lockData.clangdVersion && !options.candidateEngine)) {
-            return base::fail("payload-engine-identity", "supplied engine does not match the locked LLVM base or fork version");
-        }
-        engineVersion = decoded->version;
-        if (auto problem = base::engine_identity_problem(*decoded, engineVersion, options.platform, *digest)) {
-            return base::fail("payload-engine-identity", *problem);
-        }
-    } else if (maintained) {
-        return base::fail("payload-engine-identity", "a maintained engine requires engine.json with immutable provenance");
-    }
+    const auto kitText = os::fs::read(base::join_path(options.kitDirectory, "kit.json"));
+    const nlohmann::json kit = nlohmann::json::parse(kitText.value_or("{}"), nullptr, false);
 
     const std::string out { absolute_of(options.outDirectory) };
     if (std::filesystem::exists(out, ignored)) std::filesystem::remove_all(out, ignored);
-    if (std::error_code failed; !std::filesystem::create_directories(base::join_path(out, "bin"), failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", base::join_path(out, "bin"), failed.message()));
-
-    const std::string serverRelative { image ? std::string { "bin/mcppls.okb" } : "bin/mcppls" + exe };
-    const std::string runnerRelative { "bin/okrun" + exe };
-    if (image) {
-        if (auto copied = copy_one(options.serverImage, base::join_path(out, serverRelative)); !copied) return std::unexpected { copied.error() };
-        const std::string runnerTarget { base::join_path(out, runnerRelative) };
-        if (auto copied = copy_one(options.serverRunner, runnerTarget); !copied) return std::unexpected { copied.error() };
-        if (auto marked = base::make_executable(std::vector<std::string> { runnerTarget }); !marked) return std::unexpected { marked.error() };
-    } else {
-        const std::string serverTarget { base::join_path(out, serverRelative) };
-        if (auto copied = copy_one(options.serverPath, serverTarget); !copied) return std::unexpected { copied.error() };
-        if (auto marked = base::make_executable(std::vector<std::string> { serverTarget }); !marked) return std::unexpected { marked.error() };
+    if (std::error_code failed; !std::filesystem::create_directories(base::join_path(out, "bin"), failed) && failed) {
+        return base::fail("create-directory", std::format("cannot create {}: {}", base::join_path(out, "bin"), failed.message()));
     }
+    if (auto copied = copy_one(options.serverImage, base::join_path(out, "bin/mcppls.okb")); !copied) return std::unexpected { copied.error() };
 
-    if (auto copied = copy_tree(options.clangdDirectory, base::join_path(out, "clangd"), "LICENSE.TXT"); !copied) return std::unexpected { copied.error() };
-    if (auto marked = base::make_executable(std::vector<std::string> { base::join_path(out, "clangd/bin/clangd" + exe) }); !marked) {
-        return std::unexpected { marked.error() };
+    nlohmann::json platforms = nlohmann::json::object();
+    std::vector<std::string> programs;
+    for (std::size_t i { 0 }; i < options.engines.size(); ++i) {
+        const auto& engine = options.engines[i];
+        const auto target = *targets::parse(engine.platform);
+        const std::string exe { targets::executable_suffix(target) };
+        const std::string system { targets::runner_system(target) };
+        const std::string runnerDirectory { std::format("libexec/okrun/{}", system) };
+        if (auto copied = copy_tree_preserving_modes(base::join_path(options.serverTree, runnerDirectory), base::join_path(out, runnerDirectory)); !copied) {
+            return std::unexpected { copied.error() };
+        }
+        const std::string clangdDirectory { std::format("clangd/{}", engine.platform) };
+        if (auto copied = copy_tree(engine.clangdDirectory, base::join_path(out, clangdDirectory), "LICENSE.TXT"); !copied) return std::unexpected { copied.error() };
+        const std::string runner { std::format("{}/okrun{}", runnerDirectory, exe) };
+        const std::string clangd { std::format("{}/bin/clangd{}", clangdDirectory, exe) };
+        programs.push_back(base::join_path(out, runner));
+        programs.push_back(base::join_path(out, clangd));
+        const nlohmann::json integrity = integrity_entry(base::join_path(out, clangd));
+        if (integrity.is_null()) return base::fail("payload-stat", std::format("cannot read {}", clangd));
+        nlohmann::json entry = nlohmann::json::object();
+        entry["runner"] = runner;
+        entry["engines"]["clangd"]["version"] = versions[i];
+        entry["engines"]["clangd"]["path"] = clangd;
+        entry["engines"]["clangd"]["identity"] = identities[i];
+        entry["files"][clangd] = integrity;
+        platforms[engine.platform] = std::move(entry);
     }
+    if (auto marked = base::make_executable(programs); !marked) return std::unexpected { marked.error() };
     if (auto copied = copy_tree(options.kitDirectory, base::join_path(out, "kit"), ""); !copied) return std::unexpected { copied.error() };
 
-    if (std::error_code failed; !std::filesystem::create_directories(base::join_path(out, "licenses"), failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", base::join_path(out, "licenses"), failed.message()));
+    if (std::error_code failed; !std::filesystem::create_directories(base::join_path(out, "licenses"), failed) && failed) {
+        return base::fail("create-directory", std::format("cannot create {}: {}", base::join_path(out, "licenses"), failed.message()));
+    }
     if (auto copied = copy_one(base::join_path(options.repositoryRoot, "LICENSE"), base::join_path(out, "licenses/mcppls-LICENSE.txt")); !copied) {
         return std::unexpected { copied.error() };
     }
-    const std::string clangdLicense { base::join_path(options.clangdDirectory, "LICENSE.TXT") };
-    if (!std::filesystem::is_regular_file(clangdLicense, ignored)) {
-        return base::fail("payload-missing", std::format("{} has no LICENSE.TXT", options.clangdDirectory));
+    if (auto copied = copy_one(base::join_path(options.engines.front().clangdDirectory, "LICENSE.TXT"), base::join_path(out, "licenses/LLVM-LICENSE.TXT")); !copied) {
+        return std::unexpected { copied.error() };
     }
-    if (auto copied = copy_one(clangdLicense, base::join_path(out, "licenses/LLVM-LICENSE.TXT")); !copied) return std::unexpected { copied.error() };
-
-    // usable plan W9.4: the server compares these at startup (cheap: two small reads and, unless
-    // a file changed, a cached hash) and reports payload-corrupt on a mismatch.
-    nlohmann::json files = nlohmann::json::object();
-    for (const std::string relative : { std::string { "clangd/bin/clangd" } + exe, std::string { "kit/kit.json" } }) {
-        const std::string path { base::join_path(out, relative) };
-        auto digest = fetch::digest_of(path);
-        if (!digest) return std::unexpected { digest.error() };
-        std::error_code sized;
-        const auto size = std::filesystem::file_size(path, sized);
-        if (sized) return base::fail("payload-stat", std::format("cannot stat {}: {}", path, sized.message()));
-        files[relative] = { { "size", size }, { "sha256", *digest } };
+    // The runner's own license texts, as the tree states them.
+    if (const std::string treeLicenses { base::join_path(options.serverTree, "share/licenses") }; std::filesystem::is_directory(treeLicenses, ignored)) {
+        if (auto copied = copy_tree(treeLicenses, base::join_path(out, "licenses/server"), ""); !copied) return std::unexpected { copied.error() };
     }
 
+    const nlohmann::json kitIntegrity = integrity_entry(base::join_path(out, "kit/kit.json"));
     const std::string serverVersion { options.serverVersion.value_or(std::string { mcppls::base::VERSION }) };
-    const std::string kitName { kit.value("name", std::string {}) };
-    nlohmann::json kitEntry { { "name", kitName }, { "path", "kit" } };
     nlohmann::json manifest;
-    manifest["payload-version"] = identity.is_object() ? IDENTIFIED_PAYLOAD_VERSION : PAYLOAD_VERSION;
-    manifest["platform"] = options.platform;
-    manifest["server"] = { { "version", serverVersion }, { "path", serverRelative } };
-    if (image) manifest["server"]["runner"] = runnerRelative;
-    manifest["clangd"] = { { "version", engineVersion }, { "path", "clangd/bin/clangd" + exe } };
-    manifest["kit"] = kitEntry;
-    manifest["engines"] = { { "clangd", { { "version", engineVersion }, { "path", "clangd/bin/clangd" + exe }, { "kit", kitEntry } } } };
-    if (identity.is_object()) manifest["engines"]["clangd"]["identity"] = identity;
-    manifest["files"] = files;
+    manifest["payload-version"] = PAYLOAD_VERSION;
+    manifest["server"]["version"] = serverVersion;
+    manifest["server"]["path"] = "bin/mcppls.okb";
+    manifest["kit"]["name"] = kit.value("name", std::string {});
+    manifest["kit"]["path"] = "kit";
+    manifest["platforms"] = platforms;
+    manifest["files"]["kit/kit.json"] = kitIntegrity;
     manifest["build"] = provenance(options.repositoryRoot);
-
     if (auto written = os::fs::write(base::join_path(out, "payload.json"), manifest.dump(2) + "\n"); !written) {
         return base::fail("write-file", written.error());
     }
 
-    // Only when this host can actually run what it just assembled: a cross-assembled payload's
-    // clangd cannot be started here to ask it, and asking would be the wrong question anyway.
-    if (options.platform == base::payload_platform()) {
-        auto reported = run_capture(base::join_path(out, "clangd/bin/clangd" + exe), { "--version" });
+    // Only the engine this host runs is asked its version: another platform's cannot be started here.
+    if (const auto own = platforms.find(std::string { base::payload_platform() }); own != platforms.end()) {
+        const std::string engineVersion { (*own)["engines"]["clangd"].value("version", std::string {}) };
+        auto reported = run_capture(base::join_path(out, (*own)["engines"]["clangd"].value("path", std::string {})), { "--version" });
         if (!reported) return std::unexpected { reported.error() };
         const std::string_view report { *reported };
         const std::size_t marker { report.find("clangd version ") };
@@ -364,211 +535,43 @@ std::vector<std::string> verify(std::string_view payloadDirectory) {
     std::error_code ignored;
     std::vector<std::string> problems;
     const std::string dir { payloadDirectory };
-
-    auto needFile = [&](std::string_view relative, std::string_view what) -> std::optional<std::string> {
-        std::error_code ignored;
-        const std::string path { base::join_path(dir, relative) };
-        if (!std::filesystem::is_regular_file(path, ignored)) {
-            problems.push_back(std::format("{} is missing: {}", what, relative));
-            return std::nullopt;
-        }
-        return path;
-    };
-
     const std::string manifestPath { base::join_path(dir, "payload.json") };
     if (!std::filesystem::is_regular_file(manifestPath, ignored)) return { std::format("payload.json is missing in {}", dir) };
     auto text = os::fs::read(manifestPath);
     if (!text) return { std::format("cannot read {}: {}", manifestPath, text.error().message()) };
-    nlohmann::json manifest;
-    try {
-        manifest = nlohmann::json::parse(*text);
-    } catch (const std::exception& error) {
-        return { std::format("payload.json does not parse: {}", error.what()) };
+    const nlohmann::json manifest = nlohmann::json::parse(*text, nullptr, false);
+    if (manifest.is_discarded() || !manifest.is_object()) return { "payload.json does not parse" };
+
+    if (const int version { manifest.value("payload-version", -1) }; version != PAYLOAD_VERSION) {
+        problems.push_back(std::format("payload-version is {}, expected {}", version, PAYLOAD_VERSION));
+    }
+    const auto server = manifest.value("server", nlohmann::json::object());
+    if (server.value("path", std::string {}) != "bin/mcppls.okb") problems.push_back(std::format("server.path is {}, expected bin/mcppls.okb", server.value("path", std::string {})));
+    if (server.value("version", std::string {}).empty()) problems.emplace_back("server.version is empty");
+    if (!std::filesystem::is_regular_file(base::join_path(dir, "bin/mcppls.okb"), ignored)) problems.emplace_back("the server image is missing: bin/mcppls.okb");
+
+    const auto platforms = manifest.value("platforms", nlohmann::json::object());
+    if (platforms.empty()) problems.emplace_back("payload.json serves no platform");
+    for (const auto& item : platforms.items()) {
+        platform_problems(dir, item.key(), item.value(), problems);
+        integrity_problems(dir, item.value().value("files", nlohmann::json::object()), problems);
     }
 
-    const int payloadVersion { manifest.value("payload-version", -1) };
-    if (payloadVersion != PAYLOAD_VERSION && payloadVersion != IDENTIFIED_PAYLOAD_VERSION) {
-        problems.push_back(std::format("payload-version is {}, expected {} or {}", payloadVersion, PAYLOAD_VERSION, IDENTIFIED_PAYLOAD_VERSION));
-    }
-    const std::string platform { manifest.value("platform", std::string {}) };
-    if (!known_platform(platform)) {
-        problems.push_back(std::format("unknown platform {}", platform));
-        return problems;
-    }
-    const std::string exe { suffix(platform) };
-
-    // The server is a program of the platform, or an image with the platform's loader beside it.
-    const bool image { manifest.value("server", nlohmann::json::object()).contains("runner") };
-    std::vector<std::pair<std::string, std::string>> programs { { "clangd", "clangd/bin/clangd" + exe } };
-    if (image) {
-        const auto server = manifest.value("server", nlohmann::json::object());
-        if (server.value("path", std::string {}) != "bin/mcppls.okb") {
-            problems.push_back(std::format("server.path is {}, expected bin/mcppls.okb beside a runner", server.value("path", std::string {})));
-        }
-        if (server.value("version", std::string {}).empty()) problems.emplace_back("server.version is empty");
-        needFile("bin/mcppls.okb", "server image");
-        if (server.value("runner", std::string {}) != "bin/okrun" + exe) {
-            problems.push_back(std::format("server.runner is {}, expected bin/okrun{}", server.value("runner", std::string {}), exe));
-        }
-    } else {
-        programs.insert(programs.begin(), { "server", "bin/mcppls" + exe });
-    }
-    if (image) programs.emplace_back("runner", "bin/okrun" + exe);
-    for (const auto& [part, expected] : programs) {
-        const auto entry = part == "runner" ? nlohmann::json::object() : manifest.value(part, nlohmann::json::object());
-        if (part != "runner") {
-            const std::string path { entry.value("path", std::string {}) };
-            if (path != expected) problems.push_back(std::format("{}.path is {}, expected {}", part, path, expected));
-            if (entry.value("version", std::string {}).empty()) problems.push_back(std::format("{}.version is empty", part));
-        }
-        auto found = needFile(expected, part);
-        if (found && suffix(platform).empty()) {
-            if (os::host() != os::platform::windows) {
-                const auto permissions = std::filesystem::status(*found).permissions();
-                const auto anyExec = std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec;
-                if ((permissions & anyExec) == std::filesystem::perms::none) problems.push_back(std::format("{} is not executable", expected));
-            }
-        }
-    }
-
-    const std::string clangdVersion { manifest.value("clangd", nlohmann::json::object()).value("version", std::string { "0" }) };
-    const std::string major { clangdVersion.substr(0, clangdVersion.find('.')) };
-    needFile(std::format("clangd/lib/clang/{}/include/stddef.h", major), "clang builtin headers");
-
-    const auto engines = manifest.value("engines", nlohmann::json::object());
-    const auto clangdEngine = engines.value("clangd", nlohmann::json::object());
-    const auto clangdPart = manifest.value("clangd", nlohmann::json::object());
-    if (clangdEngine.value("path", std::string {}) != std::format("clangd/bin/clangd{}", exe) ||
-        clangdEngine.value("version", std::string {}) != clangdPart.value("version", std::string {})) {
-        problems.push_back(std::format("engines.clangd is {}, expected the clangd part's path and version", clangdEngine.dump()));
-    }
-    if (payloadVersion == IDENTIFIED_PAYLOAD_VERSION) {
-        auto identity = base::decode_engine_identity(clangdEngine.value("identity", nlohmann::json {}));
-        auto digest = fetch::digest_of(base::join_path(dir, "clangd/bin/clangd" + exe));
-        if (!identity || !digest) problems.emplace_back("payload version 4 lacks complete engine identity or readable bytes");
-        else if (auto problem = base::engine_identity_problem(*identity, clangdVersion, platform, *digest)) problems.push_back(*problem);
-    }
     const auto kitPart = manifest.value("kit", nlohmann::json::object());
-    if (clangdEngine.value("kit", nlohmann::json::object()) != kitPart) {
-        problems.emplace_back("engines.clangd.kit differs from the kit part");
+    if (kitPart.value("path", std::string {}) != "kit") problems.push_back(std::format("kit.path is {}, expected 'kit'", kitPart.value("path", std::string {})));
+    const auto kitText = os::fs::read(base::join_path(dir, "kit/kit.json"));
+    const nlohmann::json kit = kitText ? nlohmann::json::parse(*kitText, nullptr, false) : nlohmann::json {};
+    if (kit.is_object() && kit.value("name", std::string {}) != kitPart.value("name", std::string {})) {
+        problems.push_back(std::format("kit name {} differs from payload.json {}", kit.value("name", std::string {}), kitPart.value("name", std::string {})));
     }
+    for (const auto& problem : verify_kit(base::join_path(dir, "kit"))) problems.push_back(problem);
 
-    if (kitPart.value("path", std::string {}) != "kit") {
-        problems.push_back(std::format("kit.path is {}, expected 'kit'", kitPart.value("path", std::string {})));
+    for (std::string_view license : { "licenses/mcppls-LICENSE.txt", "licenses/LLVM-LICENSE.TXT" }) {
+        if (!std::filesystem::is_regular_file(base::join_path(dir, license), ignored)) problems.push_back(std::format("license is missing: {}", license));
     }
-    auto kitJsonPath = needFile("kit/kit.json", "kit manifest");
-    if (kitJsonPath) {
-        auto kitText = os::fs::read(*kitJsonPath);
-        nlohmann::json kit;
-        bool parsed { false };
-        if (kitText) {
-            try {
-                kit = nlohmann::json::parse(*kitText);
-                parsed = true;
-            } catch (const std::exception&) {
-                problems.push_back(std::format("{} does not parse", *kitJsonPath));
-            }
-        } else {
-            problems.push_back(std::format("cannot read {}: {}", *kitJsonPath, kitText.error().message()));
-        }
-        if (parsed) {
-            const std::string kitDir { base::parent_path(*kitJsonPath) };
-            if (kit.value("name", std::string {}) != kitPart.value("name", std::string {})) {
-                problems.push_back(std::format("kit name {} differs from payload.json {}", kit.value("name", std::string {}),
-                                               kitPart.value("name", std::string {})));
-            }
-            if (kit.value("kit-version", -1) != 1) {
-                problems.push_back(std::format("kit-version is {}, expected 1", kit.value("kit-version", -1)));
-            }
-            for (const auto& directory : kit.value("system-include-directories", nlohmann::json::array())) {
-                if (!directory.is_string()) continue;
-                if (!std::filesystem::is_directory(base::join_path(kitDir, directory.get<std::string>()), ignored)) {
-                    problems.push_back(std::format("kit include directory is missing: {}", directory.get<std::string>()));
-                }
-            }
-            const auto sysrootField = kit.find("sysroot");
-            if (const std::string sysroot { (sysrootField != kit.end() && sysrootField->is_string()) ? sysrootField->get<std::string>() : std::string {} };
-                !sysroot.empty()) {
-                if (!std::filesystem::is_directory(base::join_path(kitDir, sysroot), ignored)) {
-                    problems.push_back(std::format("kit sysroot is missing: {}", sysroot));
-                }
-            }
-            for (const auto& licenseFile : kit.value("licenses", nlohmann::json::array())) {
-                if (!licenseFile.is_string()) continue;
-                if (!std::filesystem::is_regular_file(base::join_path(kitDir, licenseFile.get<std::string>()), ignored)) {
-                    problems.push_back(std::format("kit license is missing: {}", licenseFile.get<std::string>()));
-                }
-            }
-            const std::string metadata { kit.value("stdlib", nlohmann::json::object()).value("module-metadata", std::string {}) };
-            const std::string metadataPath { base::join_path(kitDir, metadata) };
-            if (!std::filesystem::is_regular_file(metadataPath, ignored)) {
-                problems.push_back(std::format("kit module manifest is missing: {}", metadata));
-            } else {
-                auto metadataText = os::fs::read(metadataPath);
-                nlohmann::json metadataJson;
-                bool metadataParsed { false };
-                if (metadataText) {
-                    try {
-                        metadataJson = nlohmann::json::parse(*metadataText);
-                        metadataParsed = true;
-                    } catch (const std::exception&) {
-                        problems.push_back(std::format("{} does not parse", metadataPath));
-                    }
-                }
-                if (metadataParsed) {
-                    const std::string base_ { base::parent_path(metadataPath) };
-                    std::set<std::string> names;
-                    for (const auto& module : metadataJson.value("modules", nlohmann::json::array())) {
-                        names.insert(module.value("logical-name", std::string {}));
-                        const std::string sourcePath { module.value("source-path", std::string {}) };
-                        if (!std::filesystem::is_regular_file(base::join_path(base_, sourcePath), ignored)) {
-                            problems.push_back(std::format("module {} source is missing: {}", module.value("logical-name", std::string {}), sourcePath));
-                        }
-                        const auto localArguments = module.value("local-arguments", nlohmann::json::object());
-                        for (const auto& directory : localArguments.value("system-include-directories", nlohmann::json::array())) {
-                            if (!directory.is_string()) continue;
-                            if (!std::filesystem::is_directory(base::join_path(base_, directory.get<std::string>()), ignored)) {
-                                problems.push_back(std::format("module {} include directory is missing: {}",
-                                                               module.value("logical-name", std::string {}), directory.get<std::string>()));
-                            }
-                        }
-                    }
-                    if (!names.contains("std")) problems.emplace_back("the kit's module manifest does not provide std");
-                }
-            }
-            const std::string clangdVersionStr { clangdPart.value("version", std::string {}) };
-            auto extra = kit_problems(kitDir, kit, platform, clangdVersionStr);
-            problems.insert(problems.end(), extra.begin(), extra.end());
-        }
-    }
-
-    needFile("licenses/mcppls-LICENSE.txt", "license");
-    needFile("licenses/LLVM-LICENSE.TXT", "license");
-
-    const auto integrityFiles = manifest.value("files", nlohmann::json::object());
-    for (const std::string expected : { std::string { "clangd/bin/clangd" } + exe, std::string { "kit/kit.json" } }) {
-        if (!integrityFiles.contains(expected)) problems.push_back(std::format("payload.json \"files\" does not list {}", expected));
-    }
-    for (const auto& item : integrityFiles.items()) {
-        const std::string& relative = item.key();
-        const auto& expected = item.value();
-        auto path = needFile(relative, "an integrity-checked file");
-        if (!path) continue;
-        auto digest = fetch::digest_of(*path);
-        std::error_code sized;
-        const auto size = std::filesystem::file_size(*path, sized);
-        if (!digest || sized) {
-            problems.push_back(std::format("cannot check {}", relative));
-            continue;
-        }
-        const auto expectedSize = expected.value("size", std::uint64_t { 0 });
-        if (size != expectedSize) {
-            problems.push_back(std::format("{} is {} bytes, but payload.json says {}", relative, size, expectedSize));
-        }
-        if (*digest != expected.value("sha256", std::string {})) {
-            problems.push_back(std::format("{} sha256 does not match payload.json", relative));
-        }
-    }
+    const auto shared = manifest.value("files", nlohmann::json::object());
+    if (!shared.contains("kit/kit.json")) problems.emplace_back("payload.json \"files\" does not list kit/kit.json");
+    integrity_problems(dir, shared, problems);
 
     // A VSIX cannot hold two paths that differ only in case, and neither can the file systems of
     // Windows and macOS.
@@ -578,15 +581,11 @@ std::vector<std::string> verify(std::string_view payloadDirectory) {
     for (; !failed && it != std::filesystem::recursive_directory_iterator(); it.increment(failed)) {
         if (!it->is_regular_file(failed)) continue;
         const std::string relative { std::filesystem::relative(it->path(), dir).generic_string() };
-        const std::string lowered { base::to_lower_ascii(relative) };
-        const auto [entryIt, inserted] = seen.try_emplace(lowered, relative);
-        if (!inserted && entryIt->second != relative) {
-            problems.push_back(std::format("paths differ only in case: {} and {}", entryIt->second, relative));
-        }
+        const auto [entryIt, inserted] = seen.try_emplace(base::to_lower_ascii(relative), relative);
+        if (!inserted && entryIt->second != relative) problems.push_back(std::format("paths differ only in case: {} and {}", entryIt->second, relative));
     }
     return problems;
 }
-
 base::Result<std::string> copy_from(std::string_view source, std::string_view out) {
     std::error_code ignored;
     const std::string sourceAbsolute { absolute_of(source) };

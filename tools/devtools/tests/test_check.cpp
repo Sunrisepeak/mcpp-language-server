@@ -86,7 +86,8 @@ int main() {
     };
 
     // A root with the six files the check reads, all agreeing on two platforms; then one matrix
-    // drops a platform and another names one the lock does not have, and the CLion build drops one.
+    // drops a platform and another names one the lock does not have, the CLion build drops one, and the
+    // build job does not build a platform's target.
     "platforms: a job missing a platform and a job naming an unknown one both fail"_test = [&] {
         const std::string synthetic { scratch("platforms") };
         auto put = [&](std::string_view relative, std::string_view text) {
@@ -96,19 +97,20 @@ int main() {
             (void) os::fs::write(path, text);
         };
         put("packaging/payload.lock.json", R"({"entries": {"clangd-linux": {}, "clangd-arm": {}},
-            "platforms": {"linux-x64": {"clangd": "clangd-linux", "server-target": "x86_64-linux-gnu"},
-                          "linux-arm64": {"clangd": "clangd-arm", "server-target": "aarch64-linux-musl"}}})");
+            "platforms": {"linux-x64": {"clangd": "clangd-linux", "server-target": "x86_64-linux-gnu", "kit": {"name": "x86_64-linux-gnu"}},
+                          "linux-arm64": {"clangd": "clangd-arm", "server-target": "aarch64-linux-musl", "kit": {"name": "aarch64-linux-gnu"}}}})");
         put("editors/vscode/src/payload.ts", "export const SUPPORTED_PLATFORMS: readonly string[] = ['linux-x64', 'linux-arm64'];\n");
         put("packaging/release.manifest.json", R"({"platforms": ["linux-x64", "linux-arm64"]})");
         put("editors/clion/build.gradle.kts", "val platforms = listOf(\"linux-x64\", \"linux-arm64\")\n");
+        const std::string rows { "          - { platform: linux-x64, os: ubuntu-24.04 }\n          - { platform: linux-arm64, os: ubuntu-24.04-arm }\n" };
+        const std::string matrix { "    strategy:\n      matrix:\n        include:\n" };
         const std::string ci { "jobs:\n"
-                               "  cross-build:\n    strategy:\n      matrix:\n        include:\n          - { target: aarch64-linux-musl, exe: '' }\n"
-                               "  payload:\n    strategy:\n      matrix:\n        include:\n          - { platform: linux-x64, os: ubuntu-24.04 }\n"
-                               "          - { platform: linux-arm64, os: ubuntu-24.04-arm }\n"
-                               "  conformance:\n    strategy:\n      matrix:\n        include:\n          - platform: linux-x64\n            part: 1 of 2\n"
+                               "  build:\n" + matrix + "          - { platform: linux-x64, target: x86_64-linux-gnu, profile: dev }\n"
+                               "          - { platform: linux-arm64, target: aarch64-linux-musl, profile: dev }\n"
+                               "  test:\n" + matrix + rows + "  kits:\n" + matrix + rows + "  distribution:\n" + matrix + rows +
+                               "  conformance:\n" + matrix + "          - platform: linux-x64\n            part: 1 of 2\n"
                                "          - platform: linux-arm64\n"
-                               "  vscode-e2e:\n    name: VS Code end to end (${{ matrix.platform }})\n    strategy:\n      matrix:\n        include:\n"
-                               "          - { platform: linux-x64, os: ubuntu-24.04 }\n          - { platform: linux-arm64, os: ubuntu-24.04-arm }\n" };
+                               "  vscode-e2e:\n    name: VS Code end to end (${{ matrix.platform }})\n" + matrix + rows };
         put(".github/workflows/ci.yml", ci);
         put(".github/workflows/release-checks.yml", "jobs:\n  install:\n    strategy:\n      matrix:\n        include:\n"
                                                     "          - { platform: linux-x64 }\n          - { platform: linux-arm64 }\n");
@@ -123,6 +125,8 @@ int main() {
         broken += "          - { platform: darwin-x64, os: macos-13 }\n";
         put(".github/workflows/ci.yml", broken);
         put("editors/clion/build.gradle.kts", "val platforms = listOf(\"linux-x64\")\n");
+        broken.replace(broken.find("target: aarch64-linux-musl"), std::string_view { "target: aarch64-linux-musl" }.size(), "target: aarch64-linux-gnu");
+        put(".github/workflows/ci.yml", broken);
         auto bad = check::platforms(synthetic);
         expect(fatal(bad.has_value()));
         if (!bad) return;
@@ -133,6 +137,7 @@ int main() {
         expect(names("job conformance does not list platform linux-arm64"));
         expect(names("job vscode-e2e lists darwin-x64"));
         expect(names("build.gradle.kts platforms does not list platform linux-arm64"));
+        expect(names("job build does not build aarch64-linux-musl"));
         std::filesystem::remove_all(synthetic);
     };
 

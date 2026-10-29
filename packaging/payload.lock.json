@@ -1,6 +1,6 @@
 {
   "lock-version": 1,
-  "comment": "Every upstream input of the bundled payload, and the one table of platforms. Change versions here only; CI fetches, verifies and assembles. Each sha256 was checked against two independent downloads and against the digest the release publishes beside the asset. The server version is read from mcpp.toml. A platform is named <os>-<arch> as VS Code names extension targets; the VS Code extension, the release manifest and CI's matrices list the same platforms, which `mcppls-devtools check platforms` holds them to.",
+  "comment": "Every upstream input of the payload and the target kits, and the one table of platforms. Change versions here only; CI fetches, verifies and assembles. Each sha256 was checked against two independent downloads and against the digest the release publishes beside the asset. The server version is read from mcpp.toml. A platform is named <os>-<arch> as VS Code names extension targets; each row names the engine its payload entry carries, the target kit built for it (published as mcppls-kit-<kit.name>) and the target its test tools are built for. The VS Code extension, the CLion plugin, the release manifest and CI's matrices list the same platforms, which `mcppls-devtools check platforms` holds them to.",
   "clangd-version": "23.1.0-mcppls.5",
   "libcxx-version": "23.1.0",
   "entries": {
@@ -54,7 +54,8 @@
       "kit": {
         "recipe": "libcxx-source",
         "source": "llvm-project-src",
-        "target": "x86_64-unknown-linux-gnu"
+        "target": "x86_64-unknown-linux-gnu",
+        "name": "x86_64-linux-gnu"
       },
       "server-target": "x86_64-linux-gnu"
     },
@@ -63,7 +64,8 @@
       "kit": {
         "recipe": "libcxx-source",
         "source": "llvm-project-src",
-        "target": "aarch64-unknown-linux-gnu"
+        "target": "aarch64-unknown-linux-gnu",
+        "name": "aarch64-linux-gnu"
       },
       "server-target": "aarch64-linux-musl"
     },
@@ -72,7 +74,8 @@
       "kit": {
         "recipe": "libcxx-source",
         "source": "llvm-project-src",
-        "target": "arm64-apple-darwin"
+        "target": "arm64-apple-darwin",
+        "name": "arm64-apple-darwin"
       },
       "server-target": "aarch64-macos"
     },
@@ -81,7 +84,8 @@
       "kit": {
         "recipe": "llvm-mingw",
         "source": "llvm-mingw",
-        "target": "x86_64-w64-mingw32"
+        "target": "x86_64-w64-mingw32",
+        "name": "x86_64-w64-mingw32"
       },
       "server-target": "x86_64-windows-gnu"
     }

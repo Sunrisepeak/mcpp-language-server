@@ -15,11 +15,21 @@ namespace {
 // a first pass runs before they exist and a final pass runs after.
 const std::set<std::string> SELF { "MANIFEST.md", "SHA256SUMS" };
 
-std::string apply(std::string_view pattern, std::string_view platform, std::string_view version) {
+std::string apply(std::string_view pattern, std::string_view platform, std::string_view version, std::string_view kit = {}) {
     std::string out { pattern };
     out = base::replace_all(out, "{platform}", platform);
     out = base::replace_all(out, "{version}", version);
+    out = base::replace_all(out, "{kit}", kit);
     return out;
+}
+
+// `name` against a declared name with at most one `*`, which stands for one or more characters.
+bool matches(std::string_view declared, std::string_view name) {
+    const auto star = declared.find('*');
+    if (star == std::string_view::npos) return declared == name;
+    const std::string_view head { declared.substr(0, star) };
+    const std::string_view tail { declared.substr(star + 1) };
+    return name.size() > head.size() + tail.size() && name.starts_with(head) && name.ends_with(tail);
 }
 
 } // namespace
@@ -55,7 +65,10 @@ std::vector<Expected> expected_files(const Manifest& manifest, std::string_view 
     std::vector<Expected> out;
     for (const auto& asset : manifest.assets) {
         if (asset.perPlatform) {
-            for (const auto& platform : manifest.platforms) out.push_back({ apply(asset.pattern, platform, version), asset });
+            for (const auto& platform : manifest.platforms) {
+                const auto kit = manifest.kits.find(platform);
+                out.push_back({ apply(asset.pattern, platform, version, kit == manifest.kits.end() ? platform : kit->second), asset });
+            }
         } else {
             out.push_back({ apply(asset.pattern, "", version), asset });
         }
@@ -71,8 +84,13 @@ std::string render(const Manifest& manifest, std::string_view version, const std
     out += "|---|---|---|\n";
     for (const auto& file : files) {
         if (file.name == "MANIFEST.md") continue;
-        const bool present { onDisk.contains(file.name) || SELF.contains(file.name) };
-        out += std::format("| `{}`{} | {} | {} |\n", file.name, present ? "" : " *(not in this release)*",
+        // A name with a `*` is shown as the file it matched.
+        std::string shown { file.name };
+        for (const auto& name : onDisk) {
+            if (file.name.contains('*') && matches(file.name, name)) shown = name;
+        }
+        const bool present { onDisk.contains(shown) || SELF.contains(file.name) };
+        out += std::format("| `{}`{} | {} | {} |\n", shown, present ? "" : " *(not in this release)*",
                             file.asset.what, file.asset.install);
     }
     out += "\n## Not in a release\n\n";
@@ -95,8 +113,6 @@ base::Result<CheckReport> check(const Manifest& manifest, std::string_view versi
     }
 
     const auto declared = expected_files(manifest, version);
-    std::set<std::string> declaredNames;
-    for (const auto& file : declared) declaredNames.insert(file.name);
 
     if (renderAlso) {
         const std::string text { render(manifest, version, declared, onDisk) };
@@ -107,8 +123,12 @@ base::Result<CheckReport> check(const Manifest& manifest, std::string_view versi
     }
 
     CheckReport report {};
+    const auto declares = [&](std::string_view name) {
+        return std::ranges::any_of(declared, [&](const Expected& file) { return matches(file.name, name); });
+    };
     for (const auto& file : declared) {
-        if (onDisk.contains(file.name)) continue;
+        const bool present { std::ranges::any_of(onDisk, [&](const std::string& name) { return matches(file.name, name); }) };
+        if (present) continue;
         if (file.asset.required && !SELF.contains(file.name)) {
             report.problems.push_back(std::format("missing (required): {} — {}", file.name, file.asset.what));
         } else if (!file.asset.required) {
@@ -117,12 +137,10 @@ base::Result<CheckReport> check(const Manifest& manifest, std::string_view versi
     }
     // `onDisk` is a std::set, so this iterates in the same sorted order Python's `sorted()` gave.
     for (const auto& name : onDisk) {
-        if (!declaredNames.contains(name)) {
+        if (!declares(name)) {
             report.problems.push_back(std::format("undeclared: {} — add it to packaging/release.manifest.json or do not ship it", name));
+            continue;
         }
-    }
-    for (const auto& name : onDisk) {
-        if (!declaredNames.contains(name)) continue;
         const auto stamp = base::file_stamp(base::join_path(directory, name));
         const std::uint64_t size { stamp ? stamp->size : 0 };
         if (size == 0) {
