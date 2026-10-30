@@ -12,8 +12,9 @@ product version unchanged.
 The bundled engine is unchanged ([mcppls-clangd 0.0.17](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.17),
 `23.1.0-mcppls.5`), native on each system. One package serves every system and architecture: one payload, one VSIX,
 one CLion plugin. A project is read without a compiler with the semantic kit of its target, and the payload carries
-the openkal kit, with which any target's code reads with the standard library (ecosystem design 2026-10-29 §9; mcpp
-2026.10.30.1).
+the openkal kit, with which any target's code reads with the standard library (ecosystem design 2026-10-29 §9). Built
+with mcpp 2026.10.31.2 over openkal-platform 0.19.0, openkal 0.18's version group, for every target, ok images included,
+and mcpplibs.os 0.2.4; the runner each system's payload carries maps the image it runs.
 
 ### One package for every system
 
