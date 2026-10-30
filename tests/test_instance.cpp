@@ -10,6 +10,8 @@ import mcppls.orchestrator.instance;
 import mcpplibs.os;
 import mcppls.base.payload;
 import mcppls.spec.kit;
+import mcppls.cli.status;
+import mcppls.project.model;
 
 namespace base = mcppls::base;
 
@@ -318,6 +320,50 @@ int main() {
         const auto resolved = eng::resolve_payload(eng::PayloadRequest { payload, "", "", "none" });
         expect(resolved.clangd == clangd) << resolved.clangd;
         std::filesystem::remove_all(payload, ignored);
+    };
+
+    // `mcppls status` (S3 section 8): the instances still alive, each read from its own directory, and
+    // the best state among them; one whose process is gone is not counted.
+    "status names the live instances of a workspace and their best state"_test = [] {
+        std::error_code ignored;
+        const std::string cache { scratch("status") };
+        const std::string root { base::normalize_path(base::join_path(cache, "project")) };
+        const std::string workspace { base::join_path(cache, base::join_path("workspaces", mcppls::project::workspace_key(root))) };
+        (void)std::filesystem::create_directories(base::join_path(workspace, "instances/dead"), ignored);
+        const auto self = os::process::self();
+        expect(fatal(self.has_value()));
+        const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        const Json alive { { "pid", static_cast<std::int64_t>(self->id) }, { "started", std::format("ok:{}", self->started_ns) }, { "at", now } };
+        (void)os::fs::write(base::join_path(workspace, "instance.json"), alive.dump());
+        const Json status { { "schema", 1 }, { "pid", static_cast<std::int64_t>(self->id) },
+                            { "mcpp", Json { { "version", "2026.10.31.1" }, { "program", "/bin/mcpp" } } },
+                            { "status", Json { { "state", "ready" }, { "engine", Json { { "name", "clangd" }, { "version", "23" } } },
+                                               { "issues", Json::array({ Json { { "code", "kit-missing" }, { "message", "m" } } }) },
+                                               { "about", Json { { "startedAt", "2026-10-31T00:00:00Z" }, { "editor", Json { { "name", "vscode" } } },
+                                                                 { "engine", Json { { "restarts", 2 } } } } } } } };
+        (void)os::fs::write(base::join_path(workspace, "status.json"), status.dump());
+        // An instance whose heartbeat stopped long ago.
+        const Json dead { { "pid", 999999 }, { "started", "ok:1" }, { "at", now - 3600000 } };
+        (void)os::fs::write(base::join_path(workspace, "instances/dead/instance.json"), dead.dump());
+        (void)os::fs::write(base::join_path(workspace, "instances/dead/status.json"),
+                            Json { { "status", Json { { "state", "degraded" } } } }.dump());
+
+        const Json document = mcppls::cli::status_document(root, cache);
+        expect(document.value("schema", 0) == 1);
+        expect(document["instances"].size() == 1u) << document.dump();
+        expect(document["instances"][0].value("editor", std::string {}) == "vscode");
+        const Json& w = document["workspace"];
+        expect(w.value("state", std::string {}) == "ready") << document.dump();
+        expect(w["engine"].value("restarts", 0) == 2);
+        expect(w["mcpp"].value("version", std::string {}) == "2026.10.31.1");
+        expect(w["problems"].size() == 1u && w["problems"][0].value("code", std::string {}) == "kit-missing");
+        expect(document["actions"].is_array() && !document["actions"].empty());
+
+        // Every instance gone: the workspace was served and is not now.
+        std::filesystem::remove(base::join_path(workspace, "instance.json"), ignored);
+        expect(mcppls::cli::status_document(root, cache)["workspace"].value("state", std::string {}) == "stopped");
+        std::filesystem::remove_all(cache, ignored);
+        expect(mcppls::cli::status_document(root, cache)["workspace"].value("state", std::string {}) == "none");
     };
 
     return report();

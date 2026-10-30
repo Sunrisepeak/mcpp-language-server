@@ -31,6 +31,21 @@ the openkal kit, with which any target's code reads with the standard library (e
   macOS arm64 and Windows x86_64; its `mcpp-package.json` says where it runs (`runs_on`). The xlings descriptor is one
   asset for the three systems, each naming the architectures `runs_on.self` covers.
 
+### The status of a workspace, for any program
+
+- **`mcppls status [--root <dir>] --format json`** (S3 section 8) prints the state of the servers serving a workspace
+  without starting an engine: this mcppls (version, platform, payload, capabilities), the workspace (the best state
+  among the live instances, the engine and its restarts, the semantic kit and the command that installs a missing one,
+  the mcpp the server ran, the problems), each live instance (process, editor, state, since) and mcppls's actions
+  under each editor's own id. A running server states its last `cxxModules/status` beside its `instance.json`; an
+  instance whose process is gone is not counted. mcpp's IDE plugins read it instead of an extension's API object
+  (mcpp design 2026-10-30 part 2 §5.2).
+- **CLion: Tools | mcppls | Restart the Language Server** and **Reset the Workspace Cache**, the JetBrains ids
+  `mcppls status` names.
+- **A build tool runs for the root it is started in** (S2-6-8): `XLINGS_PROJECT_DIR`, which an editor started from
+  another project's terminal inherits and a version manager's shim reads where the directory has no pin, is not passed
+  to it. A root without a pin ran the other project's pinned mcpp.
+
 ### The semantic kit of a target
 
 - **Kits are chosen per project target** (S4 revision, kit version 2): the target's own kit when installed, else the

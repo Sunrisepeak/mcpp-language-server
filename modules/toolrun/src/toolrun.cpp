@@ -55,6 +55,11 @@ void put(std::vector<std::string>& environment, std::string_view name, std::stri
     environment.push_back(std::format("{}{}", prefix, value));
 }
 
+void drop(std::vector<std::string>& environment, std::string_view name) {
+    const std::string prefix { std::format("{}=", name) };
+    std::erase_if(environment, [&](const std::string& variable) { return variable.starts_with(prefix); });
+}
+
 } // namespace
 
 base::Result<process::bounded_output> run(const Request& request, Record* out) {
@@ -84,6 +89,13 @@ base::Result<process::bounded_output> run(const Request& request, Record* out) {
         record.environmentSource = resolved.source;
     }
     if (record.offline) put(environment, "MCPP_OFFLINE", "1");
+    // THE DIRECTORY DECIDES WHICH VERSION OF A TOOL RUNS (mcpp docs/50, "How a tool runs mcpp for a
+    // project"). An xlings shim looks for the project's pin from its working directory upward, and
+    // only when it finds none reads XLINGS_PROJECT_DIR -- which an editor started from one project's
+    // terminal hands to every program it starts, so a project without a pin ran another project's
+    // pinned mcpp (measured, design 2026-10-30 part 2 D1). It names a project; this run's own is
+    // its working directory.
+    drop(environment, "XLINGS_PROJECT_DIR");
 
     process::spawn_options options;
     options.program = request.program;

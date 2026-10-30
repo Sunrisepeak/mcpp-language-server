@@ -51,6 +51,12 @@
             <action id="community.mcpp.mcppls.AskBeforeInstallingKits" class="community.mcpp.mcppls.AskBeforeInstallingKitsAction"
                     text="Ask Before Installing Semantic Kits"
                     description="A semantic kit this project lacks is asked about again before it is installed"/>
+            <action id="community.mcpp.mcppls.RestartServer" class="community.mcpp.mcppls.RestartServerAction"
+                    text="Restart the Language Server"
+                    description="Stops mcppls for this project and starts it again"/>
+            <action id="community.mcpp.mcppls.ResetWorkspaceCache" class="community.mcpp.mcppls.ResetWorkspaceCacheAction"
+                    text="Reset the Workspace Cache"
+                    description="Removes this project's mcppls cache and reads the project again"/>
         </group>
     </actions>
 </idea-plugin>

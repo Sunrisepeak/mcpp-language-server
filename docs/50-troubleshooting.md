@@ -24,6 +24,10 @@ carrying what almost every question turns out to need:
 Log files outlive the editor: the report names the path, and they are kept under the cache
 directory with timestamps.
 
+`mcppls status --root <dir>` answers the shorter question --- is a server serving this workspace, in what
+state, with which engine, kit and mcpp --- in milliseconds and without starting anything; `--format json` is
+what mcpp's IDE plugins read ([S3 section 8](specs/s3-lsp-extensions.md)).
+
 ### What the log says
 
 A default log (`info`) answers "why is it slow" and "why did it do that" without `debug`. These

@@ -471,3 +471,32 @@ To a client that declared `textDocument.completion.completionItem.snippetSupport
 ## 7. Versioning
 
 The protocol version is an integer. Version 1 is defined by this document. A later version adds optional fields and new messages only; a change that is not backward compatible requires a new method prefix.
+
+## 8. The status of a workspace, from the command line
+
+`mcppls status [--root <dir>] --format json` prints the state of the servers serving a workspace without starting an engine or waiting for one, so that a program that is not the server's client --- an IDE's own backend, a script --- reads what the client reads. It answers in the time it takes to read a few files (35 ms through okrun measured on Linux x86-64, mcpp design 2026-10-30 part 2 D3). <a id="S3-8-1"></a><sup>S3-8-1</sup>
+
+```ts
+interface WorkspaceStatusDocument {
+  schema: 1;
+  server: { version: string; platform: string; payload: string };   // this mcppls, whether or not one serves
+  capabilities: string[];          // "status", "kit-install", "module-graph", "other-cpp-features", ...
+  workspace: {
+    root: string;                  // normalized; compared case-insensitively where the system's names are
+    state: "ready" | "starting" | "degraded" | "stopped" | "none";
+    since?: string;                // when the best instance began serving the root (RFC 3339)
+    engine?: { name: string; version: string; restarts?: number };
+    kit?: { name: string; state: "ok" | "missing"; install?: string };
+    mcpp?: { version: string; program: string };   // the mcpp the server ran for the root
+    problems?: { code: string; message: string }[];   // the issues of section 4
+  };
+  instances: { pid: number; editor?: string; state: string; since: string }[];
+  actions: { id: string; title: string; vscode?: string; jetbrains?: string; nvim?: string }[];
+}
+```
+
+- A server **MUST** state the status it last sent (section 4) beside its own `instance.json`, and remove it when it releases the workspace. The command reads only instances whose heartbeat is fresh and whose process is the one that wrote it; `workspace.state` is the best state among them (`ready` over `starting` over `degraded`). S3's `starting`, `loading` and `preparing` are `starting` here. A workspace whose instances are all gone is `stopped`; one never served is `none`. <a id="S3-8-2"></a><sup>S3-8-2</sup>
+- `--root` is normalized as the server normalizes a root: separators and a drive letter spelled one way, and compared without case where the system's names are (Windows, macOS). A program that asks about a root uses the same rule. <a id="S3-8-3"></a><sup>S3-8-3</sup>
+- `capabilities` names what this mcppls does; a program turns a feature on by a name and ignores a name it does not know. A name, once given, keeps its meaning. <a id="S3-8-4"></a><sup>S3-8-4</sup>
+- `actions` are mcppls's own, each under the id of the editor that offers it; an action an editor does not offer has no id for it. A program that offers mcppls's actions reads the ids here and keeps none of its own. <a id="S3-8-5"></a><sup>S3-8-5</sup>
+- The document is versioned by `schema`; a later version adds fields only. <a id="S3-8-6"></a><sup>S3-8-6</sup>

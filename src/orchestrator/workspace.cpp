@@ -4138,7 +4138,8 @@ struct Workspace::Impl final : engine::Host {
         if (state == State::ready || state == State::degraded) say_one_engine_per_file_once();
         // A start that ends degraded is the one most worth reading: it is said too, with the state it reached.
         if ((state == State::ready || state == State::degraded) && !startup.said) say_startup_(state);
-        if (!clientSupportsStatus) return;
+        // Past here the status is built for every client: one that does not understand
+        // `cxxModules/status` is not sent it, and `mcppls status` (S3 section 8) still reads it.
         Json issues = Json::array();
         auto add = [&](std::string_view code, std::string_view message, std::string_view command, std::string_view title = "Fix",
                        std::string_view category = "project") {
@@ -4285,7 +4286,20 @@ struct Workspace::Impl final : engine::Host {
         lastStatus = std::move(serialized);
         lastSentState = state;
         lastStatusSentAt = now;
-        client.notify("cxxModules/status", std::move(params));
+        state_status_file_(params);
+        if (clientSupportsStatus) client.notify("cxxModules/status", std::move(params));
+    }
+
+    // What `mcppls status` reads of this instance (S3 section 8): the status it last sent, and the
+    // mcpp it ran for the root, written where its `instance.json` is. A reader that finds the
+    // instance gone ignores the file; the server removes it when it releases the workspace.
+    void state_status_file_(const Json& params) const {
+        if (!lease) return;
+        Json document { { "schema", 1 }, { "status", params } };
+        if (const auto self = os::process::self()) document["pid"] = static_cast<std::int64_t>(self->id);
+        if (detectedSource == project::SourceKind::mcpp)
+            document["mcpp"] = Json { { "version", producerVersion }, { "program", producerPath } };
+        (void)os::fs::write_atomic(lease->status_path(), document.dump());
     }
 
     // ---- timers -----------------------------------------------------------------------

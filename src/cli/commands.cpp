@@ -27,6 +27,7 @@ import mcppls.cli.options;
 import mcppls.cli.query;
 import mcppls.cli.cache;
 import mcppls.cli.settings;
+import mcppls.cli.status;
 import mcppls.config.settings;
 import mcppls.orchestrator.report;
 import mcppls.orchestrator.kernel;
@@ -466,6 +467,7 @@ int run(int argc, char* argv[]) {
     (void)app.subcommand(review_command(handled, status));
     (void)app.subcommand(cache_command(handled, status));
     (void)app.subcommand(settings_command(handled, status));
+    (void)app.subcommand(status_command(handled, status));
 
     cmdline::App versionCommand { "version" };
     (void)versionCommand.description("Print the version");
