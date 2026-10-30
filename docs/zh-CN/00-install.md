@@ -105,6 +105,18 @@ VS Code 有装卸扩展的命令行；Zed 和 CLion 没有。对这两个编辑�
 
 想让扩展直接使用某个 payload 而不用重新打包，把它放到 `editors/vscode/payload`，或者设置 `MCPPLS_PAYLOAD`。
 
+## Windows 与 macOS 可能提出的问题
+
+- **Windows：路径长度。** payload 中每个路径在其最深的安装目录（CLion 插件的目录，用户名二十个字符时约 90 个字符）下都不超过
+  Windows 的 260 个字符；超过的 payload 被发布检查拒绝。含空格与非 ASCII 字符的用户目录由发布检查测试。
+- **Windows：未签名的程序。** `okrun.exe` 与启动器 `bin/mcppls.exe` 尚未签名。从浏览器下载后启动时 SmartScreen 可能拦截（“Windows
+  已保护你的电脑”：*更多信息*、*仍要运行*）；杀毒软件可能隔离 `okrun.exe`，之后服务器不能启动，编辑器报告缺少运行器。VSIX、CLion
+  插件与 xlings 安装不属于这类下载。
+- **macOS：quarantine。** 浏览器下载的 zip 给其中每个文件加上 `com.apple.quarantine`，macOS 拒绝启动带此标记的未签名运行器。启动器
+  发现标记时写出原因；以 `xattr -dr com.apple.quarantine <解开的目录>` 去除。VSIX、CLion 插件与 xlings 安装不带此标记。
+- **服务器运行时更新。** xlings 把每个版本装在各自的目录并切换过去，正在运行的服务器保留它启动时的文件，编辑器下次启动时使用新版本；
+  编辑器安装插件的新版本同样放在新目录。
+
 ## 装的都是什么、装在哪
 
 | 组成 | 是什么 | 为什么锁定版本 |

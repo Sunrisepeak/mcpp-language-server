@@ -531,6 +531,9 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
     return out;
 }
 
+constexpr std::size_t WINDOWS_MAX_PATH { 260 };
+constexpr std::size_t PAYLOAD_PREFIX_BUDGET { 110 };
+
 std::vector<std::string> verify(std::string_view payloadDirectory) {
     std::error_code ignored;
     std::vector<std::string> problems;
@@ -575,6 +578,14 @@ std::vector<std::string> verify(std::string_view payloadDirectory) {
 
     // A VSIX cannot hold two paths that differ only in case, and neither can the file systems of
     // Windows and macOS.
+    //
+    // NOR A PATH LONGER THAN WINDOWS' 260 CHARACTERS WHERE IT IS INSTALLED (mcpp design 2026-10-30
+    // part 2 §10 D3): an extractor or a program without long-path support fails on it. The deepest
+    // place the payload is installed is a CLion plugin's directory, `C:\Users\<user>\AppData\
+    // Roaming\JetBrains\CLion<version>\plugins\mcppls-clion\lib\payload\`, about 90 characters
+    // with a twenty-character user name; PAYLOAD_PREFIX_BUDGET leaves a margin above it.
+    std::size_t longest { 0 };
+    std::string longestPath;
     std::map<std::string, std::string> seen;
     std::error_code failed;
     auto it = std::filesystem::recursive_directory_iterator(dir, failed);
@@ -583,7 +594,11 @@ std::vector<std::string> verify(std::string_view payloadDirectory) {
         const std::string relative { std::filesystem::relative(it->path(), dir).generic_string() };
         const auto [entryIt, inserted] = seen.try_emplace(base::to_lower_ascii(relative), relative);
         if (!inserted && entryIt->second != relative) problems.push_back(std::format("paths differ only in case: {} and {}", entryIt->second, relative));
+        if (relative.size() > longest) { longest = relative.size(); longestPath = relative; }
     }
+    if (longest + PAYLOAD_PREFIX_BUDGET >= WINDOWS_MAX_PATH)
+        problems.push_back(std::format("{} is {} characters; with an installation directory of {} it passes Windows' {}",
+                                       longestPath, longest, PAYLOAD_PREFIX_BUDGET, WINDOWS_MAX_PATH));
     return problems;
 }
 base::Result<std::string> copy_from(std::string_view source, std::string_view out) {

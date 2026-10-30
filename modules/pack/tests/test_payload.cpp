@@ -207,6 +207,22 @@ int main(int argc, char* argv[]) {
         expect(payload::verify(*assembled).empty());
     };
 
+    // D3 (mcpp design 2026-10-30 part 2 §10): a path that, under the deepest directory the payload
+    // is installed in, would pass Windows' 260 characters is a problem of the payload.
+    "a path too long for Windows where the payload is installed is reported"_test = [&] {
+        const std::string out { base::join_path(work, "payload-long") };
+        auto assembled = payload::assemble(options_for(fixture, { "linux-x64" }, out), lockData);
+        expect(fatal(assembled.has_value())) << (assembled ? std::string {} : assembled.error().message);
+        if (!assembled) return;
+        expect(payload::verify(*assembled).empty());
+        const std::string deep { base::join_path(*assembled, std::string(60, 'd') + "/" + std::string(60, 'e') + "/" + std::string(40, 'f') + ".h") };
+        std::error_code ignored;
+        (void)std::filesystem::create_directories(base::parent_path(deep), ignored);
+        (void)os::fs::write(deep, "x");
+        const auto problems = payload::verify(*assembled);
+        expect(std::ranges::any_of(problems, [](const std::string& p) { return p.find("Windows' 260") != std::string::npos; }));
+    };
+
     "a tree that does not run on a platform's system is refused before anything is written"_test = [&] {
         std::error_code ignored;
         auto options = options_for(fixture, { "darwin-arm64" }, base::join_path(work, "payload-no-runner"));

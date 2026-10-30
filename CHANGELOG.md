@@ -46,6 +46,15 @@ the openkal kit, with which any target's code reads with the standard library (e
   another project's terminal inherits and a version manager's shim reads where the directory has no pin, is not passed
   to it. A root without a pin ran the other project's pinned mcpp.
 
+### Installing on every system
+
+- **The release check refuses a payload path that would pass Windows' 260 characters** under the deepest
+  directory the payload is installed in (D3); the install checks run in a user directory with a space and a name
+  that is not ASCII (D5) and read `mcppls status` from the installed payload.
+- **docs/00-install.md states what Windows and macOS may ask**: SmartScreen and antivirus products and the
+  unsigned runner (D4), the quarantine mark of a browser's zip and how to remove it (D6), and that an update while a
+  server runs takes effect at the editor's next start (D8). mcpp design 2026-10-30 part 2 §10.
+
 ### The semantic kit of a target
 
 - **Kits are chosen per project target** (S4 revision, kit version 2): the target's own kit when installed, else the

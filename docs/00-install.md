@@ -195,6 +195,24 @@ and the payload layout they produce, is in [packaging/README.md](../packaging/RE
 To point the extension at a payload without repackaging, put it at `editors/vscode/payload` or set
 `MCPPLS_PAYLOAD`.
 
+## What Windows and macOS may ask
+
+- **Windows: path length.** Every path in the payload is short enough that, under the deepest directory it is
+  installed in (a CLion plugin's, about 90 characters with a twenty-character user name), it stays within
+  Windows' 260 characters; the release check refuses a payload that would not. A user directory with spaces or
+  characters outside ASCII is tested by the release checks.
+- **Windows: unsigned programs.** `okrun.exe` and the launcher `bin/mcppls.exe` are not signed yet. SmartScreen
+  can stop a program started from a browser download ("Windows protected your PC": *More info*, *Run anyway*),
+  and an antivirus product can quarantine `okrun.exe`, after which the server does not start and the editor says
+  the runner is missing. A VSIX, the CLion plugin and an xlings install are not downloads of that kind.
+- **macOS: quarantine.** A zip a browser downloaded marks every file it holds with `com.apple.quarantine`, and
+  macOS refuses to start an unsigned runner so marked. The launcher says so when it finds the mark; remove it
+  with `xattr -dr com.apple.quarantine <the unpacked directory>`. A VSIX, the CLion plugin and an xlings install
+  are not marked.
+- **Updating while a server runs.** xlings installs each version in a directory of its own and switches to it,
+  so a running server keeps the files it started from; the editor's next start takes the new version. An editor
+  installs a plugin's new version in a new directory in the same way.
+
 ## What gets installed where
 
 | Part | What it is | Why it is pinned |
