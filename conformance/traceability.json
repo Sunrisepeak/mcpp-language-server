@@ -949,7 +949,7 @@
     },
     {
       "script": "src/orchestrator/workspace.cpp",
-      "contains": "if (!clientSupportsStatus) return;"
+      "contains": "if (clientSupportsStatus) client.notify(\"cxxModules/status\", std::move(params));"
     }
   ],
   "S3-3-2": [
@@ -2533,6 +2533,59 @@
     {
       "script": "editors/clion/src/main/kotlin/community/mcpp/mcppls/KitInstall.kt",
       "contains": "fun askAgain(project: Project)"
+    }
+  ],
+  "S2-6-8": [
+    {
+      "script": "modules/toolrun/src/toolrun.cpp",
+      "contains": "options.cwd = request.workDirectory;"
+    }
+  ],
+  "S2-6-9": [
+    {
+      "test": "tests/test_process.cpp: a tool run does not carry another project's XLINGS_PROJECT_DIR"
+    }
+  ],
+  "S3-8-1": [
+    {
+      "test": "tests/test_instance.cpp: status names the live instances of a workspace and their best state"
+    },
+    {
+      "script": "src/cli/status.cpp",
+      "contains": "without starting an engine"
+    }
+  ],
+  "S3-8-2": [
+    {
+      "test": "tests/test_instance.cpp: status names the live instances of a workspace and their best state"
+    }
+  ],
+  "S3-8-3": [
+    {
+      "script": "src/cli/status.cpp",
+      "contains": "base::normalize_path(args.value(\"root\")"
+    }
+  ],
+  "S3-8-4": [
+    {
+      "script": "src/cli/status.cpp",
+      "contains": "const std::vector<std::string_view> CAPABILITIES"
+    }
+  ],
+  "S3-8-5": [
+    {
+      "test": "tests/test_instance.cpp: status names the live instances of a workspace and their best state"
+    }
+  ],
+  "S3-8-6": [
+    {
+      "script": "src/cli/status.cpp",
+      "contains": "{ \"schema\", 1 },"
+    }
+  ],
+  "S3-8-7": [
+    {
+      "test": "tests/test_instance.cpp: status names the live instances of a workspace and their best state"
     }
   ]
 }
