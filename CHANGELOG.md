@@ -37,7 +37,7 @@ the openkal kit, with which any target's code reads with the standard library (e
   without starting an engine: this mcppls (version, platform, payload, capabilities), the workspace (the best state
   among the live instances, the engine and its restarts, the semantic kit and the command that installs a missing one,
   the mcpp the server ran, the problems), each live instance (process, editor, state, since) and mcppls's actions
-  under each editor's own id. A running server states its last `cxxModules/status` beside its `instance.json`; an
+  under each editor's own id: twenty, and `installKit` with its target while the kit is missing (S3-8-7). A running server states its last `cxxModules/status` beside its `instance.json`; an
   instance whose process is gone is not counted. mcpp's IDE plugins read it instead of an extension's API object
   (mcpp design 2026-10-30 part 2 §5.2).
 - **CLion: Tools | mcppls | Restart the Language Server** and **Reset the Workspace Cache**, the JetBrains ids

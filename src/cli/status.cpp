@@ -27,18 +27,45 @@ using namespace mcpplibs;
 const std::vector<std::string_view> CAPABILITIES { "status", "kit-install", "module-graph", "other-cpp-features" };
 
 // The actions this mcppls offers, under each editor's own id (S3 section 8.2). The ids are mcppls's:
-// an IDE that offers an action of another product reads the id here instead of keeping it.
+// an IDE that offers an action of another product reads the id here instead of keeping it. An editor
+// without a key has no such action; `vscodeArguments` are what the VS Code command is called with.
 Json actions() {
+    const std::string plugin { "community.mcpp.mcppls." };
     return Json::array({
         Json { { "id", "restart" }, { "title", "Restart the language server" },
-               { "vscode", "mcppls.restartServer" }, { "jetbrains", "community.mcpp.mcppls.RestartServer" }, { "nvim", "McpplsRestart" } },
+               { "vscode", "mcppls.restartServer" }, { "jetbrains", plugin + "RestartServer" }, { "nvim", "McpplsRestart" } },
+        Json { { "id", "reload" }, { "title", "Read the build description again" },
+               { "vscode", "mcppls.reloadBuildDescription" }, { "nvim", "McpplsReload" } },
         Json { { "id", "restartEngine" }, { "title", "Restart the engine" }, { "vscode", "mcppls.restartClangd" } },
         Json { { "id", "resetCache" }, { "title", "Reset the workspace cache" },
-               { "vscode", "mcppls.resetWorkspaceCache" }, { "jetbrains", "community.mcpp.mcppls.ResetWorkspaceCache" }, { "nvim", "McpplsResetCache" } },
-        Json { { "id", "exportDiagnostics" }, { "title", "Export a diagnostic bundle" }, { "vscode", "mcppls.exportDiagnosticBundle" } },
+               { "vscode", "mcppls.resetWorkspaceCache" }, { "jetbrains", plugin + "ResetWorkspaceCache" }, { "nvim", "McpplsResetCache" } },
+        Json { { "id", "showStatus" }, { "title", "Show the status" }, { "nvim", "McpplsStatus" } },
         Json { { "id", "showLog" }, { "title", "Show the log" }, { "vscode", "mcppls.showLogs" } },
-        Json { { "id", "turnOffOtherCppFeatures" }, { "title", "Turn off other C++ features" }, { "vscode", "mcppls.turnOffOtherCppFeatures" } },
+        Json { { "id", "openLogDirectory" }, { "title", "Open the log directory" },
+               { "vscode", "mcppls.revealCacheDirectory" }, { "vscodeArguments", Json::array({ "logs" }) } },
+        Json { { "id", "openCacheDirectory" }, { "title", "Open the workspace cache directory" }, { "vscode", "mcppls.revealCacheDirectory" } },
+        Json { { "id", "collectReport" }, { "title", "Collect a report" }, { "vscode", "mcppls.collectReport" } },
+        Json { { "id", "exportDiagnostics" }, { "title", "Export a diagnostic bundle" }, { "vscode", "mcppls.exportDiagnosticBundle" } },
+        Json { { "id", "selectContext" }, { "title", "Select the analysis context" }, { "vscode", "mcppls.selectContext" } },
+        Json { { "id", "moduleGraph" }, { "title", "Show the module graph" }, { "vscode", "mcppls.showModuleGraph" } },
+        Json { { "id", "runBuildTool" }, { "title", "Run the build tool in a terminal" }, { "vscode", "mcppls.runBuildToolInTerminal" } },
+        Json { { "id", "installTools" }, { "title", "Install the command line tools" }, { "vscode", "mcppls.installCommandLineTools" } },
+        Json { { "id", "reviewRun" }, { "title", "Review the workspace's changes" }, { "vscode", "mcppls.review.run" } },
+        Json { { "id", "reviewClear" }, { "title", "Clear the review" }, { "vscode", "mcppls.review.clear" } },
+        Json { { "id", "turnOffInWorkspace" }, { "title", "Turn off in this workspace" }, { "vscode", "mcppls.turnOffInWorkspace" } },
+        Json { { "id", "turnOnInWorkspace" }, { "title", "Turn on in this workspace" }, { "vscode", "mcppls.turnOnInWorkspace" } },
+        Json { { "id", "turnOffOtherCppFeatures" }, { "title", "Turn off other C++ features" },
+               { "vscode", "mcppls.turnOffOtherCppFeatures" }, { "jetbrains", plugin + "UseMcpplsOnly" } },
+        Json { { "id", "restoreOtherCppFeatures" }, { "title", "Restore other C++ features" },
+               { "vscode", "mcppls.restoreOtherCppFeatures" }, { "jetbrains", plugin + "RestoreClionEngine" } },
     });
+}
+
+// Installing the kit is an action only while a kit is missing, and it names the target.
+Json install_kit_action(const std::string& target) {
+    return Json { { "id", "installKit" }, { "title", "Install the semantic kit" }, { "vscode", "mcppls.installKit" },
+                  { "vscodeArguments", Json::array({ Json { { "target", target } } }) },
+                  { "command", std::format("xlings install mcppls-kit-{}", target) } };
 }
 
 std::int64_t milliseconds_now() {
@@ -118,9 +145,11 @@ nlohmann::json status_document(std::string_view rootText, std::string_view cache
         // A kit that stands in for the target's own (the openkal kit, another host's) names the
         // published kit that would serve it: that one is missing, and installing it is the action.
         const auto choice = engine::kit_for_target(payload, std::string {});
-        if (!choice.missingTarget.empty())
+        if (!choice.missingTarget.empty()) {
             workspace["kit"] = Json { { "name", std::format("mcppls-kit-{}", choice.missingTarget) }, { "state", "missing" },
                                       { "install", std::format("xlings install mcppls-kit-{}", choice.missingTarget) } };
+            document["actions"].push_back(install_kit_action(choice.missingTarget));
+        }
         else if (choice.kit) workspace["kit"] = Json { { "name", choice.kit->name }, { "state", "ok" } };
         else workspace["kit"] = Json { { "name", "" }, { "state", "missing" } };
     }
@@ -153,7 +182,9 @@ nlohmann::json status_document(std::string_view rootText, std::string_view cache
             if (about.contains("engine") && about["engine"].contains("restarts")) engine["restarts"] = about["engine"]["restarts"];
             workspace["engine"] = std::move(engine);
         }
-        if (about.contains("kit")) workspace["kit"] = Json { { "name", about["kit"] }, { "state", "ok" } };
+        // The kit the server reads with: the published kit, or the openkal kit standing in for it, which
+        // leaves the published one missing and its installation an action.
+        if (about.contains("kit")) workspace["kit"]["inUse"] = about["kit"];
         if (best->status.contains("mcpp")) workspace["mcpp"] = best->status["mcpp"];
         Json problems = Json::array();
         for (const auto& issue : sent.value("issues", Json::array()))

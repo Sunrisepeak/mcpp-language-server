@@ -358,6 +358,19 @@ int main() {
         expect(w["mcpp"].value("version", std::string {}) == "2026.10.31.1");
         expect(w["problems"].size() == 1u && w["problems"][0].value("code", std::string {}) == "kit-missing");
         expect(document["actions"].is_array() && !document["actions"].empty());
+        // The actions under each editor's id (S3-8-5, S3-8-7): an editor without an id has none.
+        const auto action = [&](std::string_view id) -> Json {
+            for (const auto& a : document["actions"]) if (a.value("id", std::string {}) == id) return a;
+            return Json {};
+        };
+        expect(action("restart").value("jetbrains", std::string {}) == "community.mcpp.mcppls.RestartServer");
+        expect(action("restart").value("nvim", std::string {}) == "McpplsRestart");
+        expect(action("openLogDirectory")["vscodeArguments"] == Json::array({ "logs" }));
+        expect(!action("restartEngine").contains("jetbrains"));
+        expect(action("turnOffOtherCppFeatures").value("jetbrains", std::string {}) == "community.mcpp.mcppls.UseMcpplsOnly");
+        // Installing the kit is offered exactly while the kit is missing, for its target.
+        const Json kit = w.value("kit", Json::object());
+        expect(action("installKit").is_null() == (kit.value("state", std::string {}) != "missing")) << document.dump();
 
         // Every instance gone: the workspace was served and is not now.
         std::filesystem::remove(base::join_path(workspace, "instance.json"), ignored);

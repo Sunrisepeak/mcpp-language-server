@@ -486,12 +486,18 @@ interface WorkspaceStatusDocument {
     state: "ready" | "starting" | "degraded" | "stopped" | "none";
     since?: string;                // when the best instance began serving the root (RFC 3339)
     engine?: { name: string; version: string; restarts?: number };
-    kit?: { name: string; state: "ok" | "missing"; install?: string };
+    kit?: { name: string; state: "ok" | "missing"; install?: string; inUse?: string };   // inUse: what the server reads with
     mcpp?: { version: string; program: string };   // the mcpp the server ran for the root
     problems?: { code: string; message: string }[];   // the issues of section 4
   };
   instances: { pid: number; editor?: string; state: string; since: string }[];
-  actions: { id: string; title: string; vscode?: string; jetbrains?: string; nvim?: string }[];
+  actions: {
+    id: string; title: string;
+    vscode?: string; vscodeArguments?: unknown[];   // a VS Code command and what it is called with
+    jetbrains?: string;            // an action id of the JetBrains plugin
+    nvim?: string;                 // a user command of mcppls-nvim
+    command?: string;              // a command line that does the same, where there is one
+  }[];
 }
 ```
 
@@ -500,3 +506,4 @@ interface WorkspaceStatusDocument {
 - `capabilities` names what this mcppls does; a program turns a feature on by a name and ignores a name it does not know. A name, once given, keeps its meaning. <a id="S3-8-4"></a><sup>S3-8-4</sup>
 - `actions` are mcppls's own, each under the id of the editor that offers it; an action an editor does not offer has no id for it. A program that offers mcppls's actions reads the ids here and keeps none of its own. <a id="S3-8-5"></a><sup>S3-8-5</sup>
 - The document is versioned by `schema`; a later version adds fields only. <a id="S3-8-6"></a><sup>S3-8-6</sup>
+- The actions are `restart`, `reload`, `restartEngine`, `resetCache`, `showStatus`, `showLog`, `openLogDirectory`, `openCacheDirectory`, `collectReport`, `exportDiagnostics`, `selectContext`, `moduleGraph`, `runBuildTool`, `installTools`, `reviewRun`, `reviewClear`, `turnOffInWorkspace`, `turnOnInWorkspace`, `turnOffOtherCppFeatures` and `restoreOtherCppFeatures`, and `installKit` while the workspace's kit is missing: its VS Code arguments and its command line name the target. An id, once given, keeps its meaning. <a id="S3-8-7"></a><sup>S3-8-7</sup>
