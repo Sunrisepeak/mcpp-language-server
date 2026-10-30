@@ -73,7 +73,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14, windows-2022]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, windows-2022]
     defaults:
       run:
         shell: bash
@@ -197,8 +197,8 @@ jobs:
           - { platform: linux-x64,    os: ubuntu-24.04,     profile: release }
           - { platform: linux-arm64,  os: ubuntu-24.04-arm, profile: dev }
           - { platform: linux-arm64,  os: ubuntu-24.04-arm, profile: release }
-          - { platform: darwin-arm64, os: macos-14,         profile: dev }
-          - { platform: darwin-arm64, os: macos-14,         profile: release }
+          - { platform: darwin-arm64, os: macos-15,         profile: dev }
+          - { platform: darwin-arm64, os: macos-15,         profile: release }
           - { platform: win32-x64,    os: windows-2022,     profile: dev }
           - { platform: win32-x64,    os: windows-2022,     profile: release }
     defaults:
@@ -237,7 +237,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-24.04, target: '' }
-          - { os: macos-14,     target: '--target aarch64-macos' }
+          - { os: macos-15,     target: '--target aarch64-macos' }
           - { os: windows-2022, target: '--target x86_64-windows-gnu' }
     defaults:
       run:
@@ -384,7 +384,7 @@ jobs:
         include:
           - { platform: linux-x64,    os: ubuntu-24.04,     tools: linux-x64 }
           - { platform: linux-arm64,  os: ubuntu-24.04-arm, tools: linux-arm64 }
-          - { platform: darwin-arm64, os: macos-14,         tools: darwin-arm64 }
+          - { platform: darwin-arm64, os: macos-15,         tools: darwin-arm64 }
           - { platform: win32-x64,    os: ubuntu-24.04,     tools: linux-x64 }
     defaults:
       run:
@@ -602,7 +602,7 @@ jobs:
           # (${env:HOME}/.mcpp/registry/..., no {exe}); it resolves the same way here as on Linux, so
           # these run on macOS but are left off win32-x64 below rather than fixed unverified.
           - platform: darwin-arm64
-            os: macos-14
+            os: macos-15
             extras: true
             fixtures: inferred inferred-bom typing-pause module-fails-in-import save-plan build-discovery-off engine-none module-faults untrusted mcpp-llvm mcpp-build-programs mcpp-split mcpp-partition-definition mcpp-all-cppm verify-changes mcpp-watch multi-root failure-at-base clangd-cannot-load failure-at-base@zed generated-module generated-module-old-mcpp generated-module-negotiated typing-import typing-import-spin workaround-canaries completion-keywords completion-templates diagnostic-bundle typing-autosave module-edit-autosave partial-scan-standins clangd-crash-context clangd-exit-strike clangd-crash-closure mcpp-emit-wait provisional-no-prime inferred-cxx26 reset-cache cache-budget include-cleaner-modules no-modules tidy-const-views format-explicit build-program-broken build-program-gated build-program-manual mcpp-target-selection mcpp-target-explicit mcpp-target-project mcpp-target-invalid mcpp-target-windows mcpp-producer-identity mcpp-target-race mcpp-target-live mcpp-target-mismatch mcpp-target-mismatch-cold mcpp-target-build-tool-off mcpp-target-provider-excluded mcpp-target-discovery-off mcpp-target-auto-fallback mcpp-producer-file-identity mcpp-producer-relative-path mcpp-polling-watch-inputs@polling mcpp-target-fallback-mismatch mcpp-target-fallback-preserve mcpp-watched-source-structure mcpp-autosave-import-typing kit-openkal
           # The arm64 row takes no mcpp: the server and mock producers are built on Linux. Most
@@ -1264,7 +1264,7 @@ jobs:
           # openkal kit. macOS has its kit, whose SDK the hidden Command Line Tools take away (inferred-no-sdk).
           - { platform: linux-x64,    os: ubuntu-24.04, exe: '',     kit: 'false' }
           - { platform: win32-x64,    os: windows-2022, exe: '.exe', kit: 'false' }
-          - { platform: darwin-arm64, os: macos-14,     exe: '',     kit: 'true' }
+          - { platform: darwin-arm64, os: macos-15,     exe: '',     kit: 'true' }
     defaults:
       run:
         shell: bash
@@ -1374,7 +1374,7 @@ jobs:
         include:
           - { platform: linux-x64,    os: ubuntu-24.04,     exe: '' }
           - { platform: linux-arm64,  os: ubuntu-24.04-arm, exe: '' }
-          - { platform: darwin-arm64, os: macos-14,         exe: '' }
+          - { platform: darwin-arm64, os: macos-15,         exe: '' }
           - { platform: win32-x64,    os: windows-2022,     exe: '.exe' }
     env:
       MCPPLS_LOG_LEVEL: debug
@@ -1474,7 +1474,7 @@ jobs:
         include:
           - { platform: linux-x64,    system: linux-x86_64,   os: ubuntu-24.04,     exe: '' }
           - { platform: linux-arm64,  system: linux-aarch64,  os: ubuntu-24.04-arm, exe: '' }
-          - { platform: darwin-arm64, system: macos-aarch64,  os: macos-14,         exe: '' }
+          - { platform: darwin-arm64, system: macos-aarch64,  os: macos-15,         exe: '' }
           - { platform: win32-x64,    system: windows-x86_64, os: windows-2022,     exe: '.exe' }
     defaults:
       run:
@@ -1650,7 +1650,7 @@ jobs:
       matrix:
         include:
           - { platform: linux-x64,    os: ubuntu-24.04, versions: 0.10.4 0.11.5 0.12.5 }
-          - { platform: darwin-arm64, os: macos-14,     versions: 0.10.4 0.12.5 }
+          - { platform: darwin-arm64, os: macos-15,     versions: 0.10.4 0.12.5 }
           - { platform: win32-x64,    os: windows-2022, versions: 0.10.4 0.12.5 }
     defaults:
       run:
