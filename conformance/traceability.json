@@ -2230,6 +2230,27 @@
       "check": "format-external/E3-native-default"
     }
   ],
+  "S4-4-12": [
+    {
+      "test": "tests/test_instance.cpp: an ok engine is started by its runner and identified as openkal"
+    },
+    {
+      "script": "modules/pack/tests/test_payload.cpp",
+      "contains": "the ok image serves the platforms that select it, carried once and started by each one's runner"
+    },
+    {
+      "script": "modules/pack/tests/test_payload.cpp",
+      "contains": "two different ok images in one payload are refused"
+    },
+    {
+      "script": "modules/pack/tests/test_clangd.cpp",
+      "contains": "the ok image's part is taken as it is, not marked executable and not run"
+    },
+    {
+      "script": "src/engine/payload.cpp",
+      "contains": "engine_command"
+    }
+  ],
   "S3-4-31": [
     {
       "check": "build-program-broken/S1"

@@ -75,6 +75,7 @@ PayloadEntry single_platform_entry(const nlohmann::json& document) {
     if (clangd == nullptr) clangd = object_member(document, "clangd");
     if (clangd != nullptr) {
         entry.clangd = clangd->value("path", std::string {});
+        entry.clangdRunner = clangd->value("runner", std::string {});
         entry.clangdVersion = clangd->value("version", std::string {});
         if (const auto identity = clangd->find("identity"); identity != clangd->end()) entry.identity = *identity;
     }
@@ -172,6 +173,7 @@ base::Result<PayloadManifest> read_payload_manifest(std::string_view text) {
         if (const auto* engines = object_member(value, "engines")) {
             if (const auto* clangd = object_member(*engines, "clangd")) {
                 entry.clangd = clangd->value("path", std::string {});
+                entry.clangdRunner = clangd->value("runner", std::string {});
                 entry.clangdVersion = clangd->value("version", std::string {});
                 if (const auto identity = clangd->find("identity"); identity != clangd->end()) entry.identity = *identity;
             }
@@ -189,6 +191,11 @@ std::expected<PayloadEntry, std::string> payload_entry(const PayloadManifest& ma
     for (const auto& entry : manifest.entries) carried.push_back(entry.platform);
     return std::unexpected { std::format("this payload carries no engine for {}, the platform this server runs on; it carries {}", platform,
                                          carried.empty() ? std::string { "none" } : base::join(carried, ", ")) };
+}
+
+EngineCommand engine_command(std::string_view clangd, std::string_view runner) {
+    if (runner.empty()) return EngineCommand { std::string { clangd }, {} };
+    return EngineCommand { std::string { runner }, { std::string { clangd } } };
 }
 
 PayloadPaths resolve_payload(const PayloadRequest& requested) {
@@ -214,6 +221,7 @@ PayloadPaths resolve_payload(const PayloadRequest& requested) {
                     if (!entry->clangd.empty()) {
                         clangdRelative = entry->clangd;
                         paths.clangd = base::join_path(paths.directory, entry->clangd);
+                        if (!entry->clangdRunner.empty()) paths.clangdRunner = base::join_path(paths.directory, entry->clangdRunner);
                         paths.clangdVersion = entry->clangdVersion;
                         clangdDeclared = true;
                     }
@@ -242,12 +250,15 @@ PayloadPaths resolve_payload(const PayloadRequest& requested) {
     }
     if (paths.engineIdentity) {
         const auto expected = paths.files.find(clangdRelative.empty() ? "clangd/bin/clangd" + suffix : clangdRelative);
-        const auto problem = base::engine_identity_problem(*paths.engineIdentity, paths.clangdVersion, paths.platform,
+        // An engine its runner starts is the ok image, whose identity names openkal, not a system.
+        const auto problem = base::engine_identity_problem(*paths.engineIdentity, paths.clangdVersion,
+            paths.clangdRunner.empty() ? std::string_view { paths.platform } : std::string_view { "openkal" },
             expected == paths.files.end() ? std::string_view {} : std::string_view { expected->second.sha256 });
         if (problem) paths.identityProblem = *problem;
     }
     if (!request.clangd.empty()) {
         paths.clangd = absolute(request.clangd);
+        paths.clangdRunner.clear();
         paths.clangdVersion.clear();
         paths.engineIdentity.reset();
         paths.identityProblem.clear();
@@ -256,7 +267,10 @@ PayloadPaths resolve_payload(const PayloadRequest& requested) {
         if (auto found = toolrun::find_program("clangd")) paths.clangd = *found;
     }
     if (paths.clangdVersion.empty() && !paths.clangd.empty() && std::filesystem::is_regular_file(paths.clangd, ignored)) {
-        if (auto result = mcppls::toolrun::run({ .program = paths.clangd, .arguments = { "--version" },
+        const auto command = engine_command(paths.clangd, paths.clangdRunner);
+        auto arguments = command.arguments;
+        arguments.push_back("--version");
+        if (auto result = mcppls::toolrun::run({ .program = command.program, .arguments = arguments,
                                                    .purpose = "engine-version",
                                                    .bounds = mcpplibs::os::process::bounds { .hard = std::chrono::seconds { 20 } } });
             result && !result->timed_out) {

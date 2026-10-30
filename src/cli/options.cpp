@@ -32,6 +32,7 @@ orchestrator::EngineFactories engine_factories(const orchestrator::SessionOption
     factories.core = [options, payload, payloadCorrupt]() -> std::unique_ptr<engine::Engine> {
         engine::clangd::Options clangd;
         clangd.executable = payload.clangd;
+        clangd.runner = payload.clangdRunner;
         clangd.version = payload.clangdVersion;
         if (!payloadCorrupt && payload.engineIdentity) clangd.verifiedFeatures = payload.engineIdentity->features;
         clangd.formatFallbackStyle = options.formatFallbackStyle;

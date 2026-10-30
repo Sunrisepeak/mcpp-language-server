@@ -173,9 +173,12 @@ int command_check(const cmdline::ParsedArgs& args) {
         std::println(std::cerr, "check: {}", written.error().message);
         return 2;
     }
+    const auto engine = engine::engine_command(loaded.payload.clangd, loaded.payload.clangdRunner);
+    auto arguments = engine.arguments;
+    arguments.insert(arguments.end(), { "--check=" + file, "--experimental-modules-support", "--compile-commands-dir=" + directory, "--log=error" });
     auto result = mcppls::toolrun::run({
-        .program = loaded.payload.clangd,
-        .arguments = { "--check=" + file, "--experimental-modules-support", "--compile-commands-dir=" + directory, "--log=error" },
+        .program = engine.program,
+        .arguments = arguments,
         .workDirectory = root,
         .purpose = "check",
         .root = root,

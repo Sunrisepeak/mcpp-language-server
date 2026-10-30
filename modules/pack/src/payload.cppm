@@ -3,8 +3,10 @@
 //
 // ONE PAYLOAD FOR EVERY PLATFORM (payload version 5; ecosystem design 2026-10-29 §9): the server is
 // one okb of both architectures, started on each system by the platform's runner, which the
-// payload carries for every system it serves; the engine (clangd) is native, one per platform; the
-// kit is the openkal kit, whose standard library reads code for any target. The layout is the
+// payload carries for every system it serves; the engine (clangd) of a platform is native, or the ok
+// image `clangd.okb` the platform's runner starts -- the lock's row chooses (part 2 §25.3), and the
+// image is carried once for every platform that selects it; the kit is the openkal kit, whose
+// standard library reads code for any target. The layout is the
 // contract the server and the editor extensions rely on:
 //
 //     <payload>/
@@ -15,6 +17,8 @@
 //       clangd/<platform>/bin/clangd[.exe]    the engine of each platform (linux-x64, darwin-arm64, ...)
 //       clangd/<platform>/lib/clang/<major>/include/...
 //       clangd/<platform>/engine.json
+//       clangd/openkal/bin/clangd.okb         the ok image of the engine, for the platforms whose row selects it,
+//       clangd/openkal/lib/clang/<major>/...  their entries naming it with `engines.clangd.runner`
 //       kit/kit.json + kit data               the openkal kit (spec S4, kit-version 2)
 //       licenses/                             mcppls, LLVM and the runner's license texts
 export module mcppls.pack.payload;
@@ -30,7 +34,8 @@ export namespace mcppls::pack::payload {
 // (S4-4-10), as version 4 did for its one platform.
 inline constexpr int PAYLOAD_VERSION { 5 };
 
-// The engine of one platform: mcppls.pack.clangd::trim's output (or a maintained engine part).
+// The engine of one platform: mcppls.pack.clangd::trim's output (or a maintained engine part). A
+// directory holding bin/clangd.okb is the ok image, whose identity names openkal.
 struct PlatformEngine {
     std::string platform;          // one of the lock's platforms
     std::string clangdDirectory;

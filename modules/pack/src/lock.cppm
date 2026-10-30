@@ -27,10 +27,15 @@ struct KitSource {
 // extension, the release manifest, CI's matrices -- is checked against these rows by
 // `mcppls-devtools check platforms`.
 struct Platform {
-    std::string clangd;         // a key into `entries`: the clangd release for this platform
+    std::string clangd;         // a key into `entries`: the platform's native engine, or the ok image (OK_ENGINE_ENTRY)
     KitSource kit;
     std::string serverTarget;   // the mcpp `--target` the payload's server is built for
 };
+
+// The entry of the engine's ok image, mcppls-clangd's `clangd-<version>-openkal.tar.gz` (mcpp design 2026-10-30
+// part 2 §25.3): a platform whose row names it uses bin/clangd.okb, started by the platform's runner. Every other
+// engine entry, `mcppls-clangd-<platform>`, is a platform's native engine.
+inline constexpr std::string_view OK_ENGINE_ENTRY { "mcppls-clangd-openkal" };
 
 // packaging/payload.lock.json's `entries.<name>.license-from`: for an archive that carries no
 // LICENSE.TXT of its own (LLVM's Linux arm64 release), where the same license text is -- one

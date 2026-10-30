@@ -87,6 +87,11 @@ suffix grants none. Legacy payloads keep their previous parsing and have no
 identified-engine capabilities. An explicit external `--clangd` overrides the
 bundled engine and does not inherit its identity or features.
 
+An engine may be the ok image `clangd.okb`, which a platform's runner starts (`okrun clangd.okb <arguments>`). Its
+entry names the runner under `engines.clangd.runner`, and its identity's `platform` is `openkal`, whichever platform's
+entry selects it; one image serves every entry that names it. An entry without a runner is a program of its platform,
+and its identity names that platform. <a id="S4-4-12"></a><sup>S4-4-12</sup>
+
 ### Capability selected formatting
 
 Automatic `mcpp` formatting fallback **MUST** require a verified `format-style-mcpp` capability and `mcpp.toml` at the workspace root, preserve explicit user fallback settings and project `.clang-format` precedence, and grant no bundled capability to an external engine. Selecting this fallback writes no project configuration. <a id="S4-4-11"></a><sup>S4-4-11</sup>

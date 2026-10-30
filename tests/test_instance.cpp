@@ -222,6 +222,47 @@ int main() {
         std::filesystem::remove_all(payload, ignored);
     };
 
+    // Part 2 §25.3: the ok image of the engine, which the platform's runner starts; its identity names openkal.
+    "an ok engine is started by its runner and identified as openkal"_test = [] {
+        std::error_code ignored;
+        const std::string payload { scratch("payload-ok") };
+        const std::string platform { base::payload_platform() };
+        const std::string image { "clangd/openkal/bin/clangd.okb" };
+        const std::string runner { "libexec/okrun/here/okrun" };
+        (void)std::filesystem::create_directories(base::parent_path(mcppls::base::join_path(payload, image)), ignored);
+        (void)os::fs::write(mcppls::base::join_path(payload, image), "the ok image");
+        write_kit(mcppls::base::join_path(payload, "kit"), "23.1.0");
+        const std::string digest { mcppls::base::sha256_hex("the ok image") };
+        Json identity { { "engine-version", "23.1.0-mcppls.6" }, { "llvm-base-version", "23.1.0" },
+                        { "llvm-commit", std::string(40, 'a') }, { "fork-commit", std::string(40, 'b') },
+                        { "patch-series-sha256", std::string(64, 'c') }, { "platform", "openkal" },
+                        { "sha256", digest }, { "features", Json::array() } };
+        Json manifest { { "payload-version", 5 }, { "server", Json { { "version", "0.0.20" }, { "path", "bin/mcppls.okb" } } },
+                        { "kit", Json { { "name", "k" }, { "path", "kit" } } },
+                        { "platforms", Json { { platform, Json { { "runner", runner },
+                            { "engines", Json { { "clangd", Json { { "version", "23.1.0-mcppls.6" }, { "path", image }, { "runner", runner }, { "identity", identity } } } } },
+                            { "files", Json { { image, Json { { "size", 12 }, { "sha256", digest } } } } } } } } } };
+        (void)os::fs::write(mcppls::base::join_path(payload, "payload.json"), manifest.dump());
+        const auto taken = eng::resolve_payload(eng::PayloadRequest { payload, "", "", "clangd" });
+        expect(taken.clangd == mcppls::base::join_path(payload, image) && taken.identityProblem.empty()) << taken.clangd << taken.identityProblem;
+        expect(taken.clangdRunner == mcppls::base::join_path(payload, runner)) << taken.clangdRunner;
+        const auto command = eng::engine_command(taken.clangd, taken.clangdRunner);
+        expect(command.program == taken.clangdRunner && command.arguments == std::vector<std::string> { taken.clangd }) << "okrun <image> <arguments>";
+        expect(eng::engine_command("/x/clangd", "").program == "/x/clangd") << "a native engine starts by itself";
+        // An ok image's identity is never a system's, and a native engine's is never openkal.
+        manifest["platforms"][platform]["engines"]["clangd"]["identity"]["platform"] = platform;
+        (void)os::fs::write(mcppls::base::join_path(payload, "payload.json"), manifest.dump());
+        expect(!eng::resolve_payload(eng::PayloadRequest { payload, "", "", "clangd" }).identityProblem.empty());
+        manifest["platforms"][platform]["engines"]["clangd"]["identity"]["platform"] = "openkal";
+        manifest["platforms"][platform]["engines"]["clangd"].erase("runner");
+        (void)os::fs::write(mcppls::base::join_path(payload, "payload.json"), manifest.dump());
+        expect(!eng::resolve_payload(eng::PayloadRequest { payload, "", "", "clangd" }).identityProblem.empty());
+        // A clangd given on the command line starts by itself.
+        const auto external = eng::resolve_payload(eng::PayloadRequest { payload, mcppls::base::join_path(payload, "external"), "", "clangd" });
+        expect(external.clangdRunner.empty());
+        std::filesystem::remove_all(payload, ignored);
+    };
+
     "the kit of a target: its own, else the host's, else the openkal kit, and the kit that would serve it"_test = [] {
         using Kits = std::vector<mcppls::spec::Kit>;
         const auto openkal = kit_of("openkal", "x86_64-unknown-none-elf", { "x86_64-openkal", "aarch64-openkal" });

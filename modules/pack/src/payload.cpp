@@ -241,6 +241,28 @@ std::vector<std::string> module_manifest_problems(const std::string& kitDir, con
     return problems;
 }
 
+// The ok image of clangd (mcpp design 2026-10-30 part 2 §25.3): `bin/clangd.okb`, which each system's runner starts.
+// One image serves every platform whose lock row selects it; the payload carries it once, under clangd/openkal/, and its
+// identity names openkal rather than a system.
+constexpr std::string_view OK_ENGINE { "openkal" };
+
+bool is_ok_engine(const std::string& directory) {
+    std::error_code ignored;
+    return std::filesystem::is_regular_file(base::join_path(directory, "bin/clangd.okb"), ignored);
+}
+
+// Where an engine's directory goes in the payload, its program there, and the platform its identity names.
+struct EnginePlace {
+    std::string directory;   // clangd/linux-x64, clangd/openkal
+    std::string program;     // clangd/linux-x64/bin/clangd, clangd/openkal/bin/clangd.okb
+    std::string identity;    // linux-x64, openkal
+};
+
+EnginePlace engine_place(bool ok, std::string_view platform, std::string_view exe) {
+    if (ok) return { std::format("clangd/{}", OK_ENGINE), std::format("clangd/{}/bin/clangd.okb", OK_ENGINE), std::string { OK_ENGINE } };
+    return { std::format("clangd/{}", platform), std::format("clangd/{}/bin/clangd{}", platform, exe), std::string { platform } };
+}
+
 // One platform's entry of payload version 5: its runner, its engine and the engine's identity.
 void platform_problems(const std::string& dir, std::string_view platform, const nlohmann::json& entry, std::vector<std::string>& problems) {
     std::error_code ignored;
@@ -251,12 +273,18 @@ void platform_problems(const std::string& dir, std::string_view platform, const 
     }
     const std::string exe { targets::executable_suffix(*target) };
     const std::string runner { std::format("libexec/okrun/{}/okrun{}", targets::runner_system(*target), exe) };
-    const std::string clangd { std::format("clangd/{}/bin/clangd{}", platform, exe) };
     if (entry.value("runner", std::string {}) != runner) {
         problems.push_back(std::format("platforms.{}.runner is {}, expected {}", platform, entry.value("runner", std::string {}), runner));
     }
     const auto engine = entry.value("engines", nlohmann::json::object()).value("clangd", nlohmann::json::object());
     const std::string version { engine.value("version", std::string {}) };
+    // An engine with a runner is the ok image, started by the platform's own runner.
+    const bool ok { engine.contains("runner") };
+    if (ok && engine.value("runner", std::string {}) != runner) {
+        problems.push_back(std::format("platforms.{}.engines.clangd.runner is {}, expected {}", platform, engine.value("runner", std::string {}), runner));
+    }
+    const EnginePlace place { engine_place(ok, platform, exe) };
+    const std::string& clangd { place.program };
     if (engine.value("path", std::string {}) != clangd) {
         problems.push_back(std::format("platforms.{}.engines.clangd.path is {}, expected {}", platform, engine.value("path", std::string {}), clangd));
     }
@@ -265,7 +293,7 @@ void platform_problems(const std::string& dir, std::string_view platform, const 
         const std::string full { base::join_path(dir, path) };
         if (!std::filesystem::is_regular_file(full, ignored)) {
             problems.push_back(std::format("{} of {} is missing: {}", path == runner ? "the runner" : "clangd", platform, path));
-        } else if (exe.empty() && os::host() != os::platform::windows) {
+        } else if (exe.empty() && os::host() != os::platform::windows && !(ok && path == clangd)) {
             const auto anyExec = std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec;
             if ((std::filesystem::status(full, ignored).permissions() & anyExec) == std::filesystem::perms::none) {
                 problems.push_back(std::format("{} is not executable", path));
@@ -273,13 +301,13 @@ void platform_problems(const std::string& dir, std::string_view platform, const 
         }
     }
     const std::string major { version.substr(0, version.find('.')) };
-    if (!std::filesystem::is_regular_file(base::join_path(dir, std::format("clangd/{}/lib/clang/{}/include/stddef.h", platform, major)), ignored)) {
-        problems.push_back(std::format("clang builtin headers of {} are missing: clangd/{}/lib/clang/{}/include", platform, platform, major));
+    if (!std::filesystem::is_regular_file(base::join_path(dir, std::format("{}/lib/clang/{}/include/stddef.h", place.directory, major)), ignored)) {
+        problems.push_back(std::format("clang builtin headers of {} are missing: {}/lib/clang/{}/include", platform, place.directory, major));
     }
     auto identity = base::decode_engine_identity(engine.value("identity", nlohmann::json {}));
     auto digest = fetch::digest_of(base::join_path(dir, clangd));
     if (!identity || !digest) problems.push_back(std::format("the engine of {} lacks a complete identity or readable bytes", platform));
-    else if (auto problem = base::engine_identity_problem(*identity, version, platform, *digest)) problems.push_back(std::format("{}: {}", platform, *problem));
+    else if (auto problem = base::engine_identity_problem(*identity, version, place.identity, *digest)) problems.push_back(std::format("{}: {}", platform, *problem));
     if (!entry.value("files", nlohmann::json::object()).contains(clangd)) {
         problems.push_back(std::format("platforms.{}.files does not list {}", platform, clangd));
     }
@@ -336,10 +364,12 @@ std::optional<std::set<std::string>> tree_runs_on(const std::string& tree) {
 base::Result<nlohmann::json> engine_identity(const PlatformEngine& engine, const lock::Lock& lockData, bool candidate, std::string& version) {
     std::error_code ignored;
     const auto target = targets::parse(engine.platform);
-    const std::string binary { base::join_path(engine.clangdDirectory, std::format("bin/clangd{}", targets::executable_suffix(*target))) };
+    const bool ok { is_ok_engine(engine.clangdDirectory) };
+    const EnginePlace place { engine_place(ok, engine.platform, targets::executable_suffix(*target)) };
+    const std::string binary { base::join_path(engine.clangdDirectory, place.program.substr(place.directory.size() + 1)) };
     if (!std::filesystem::is_regular_file(binary, ignored)) {
-        return base::fail("payload-missing", std::format("{} has no bin/clangd{}; is it trimmed for {}?", engine.clangdDirectory,
-                                                          targets::executable_suffix(*target), engine.platform));
+        return base::fail("payload-missing", std::format("{} has no {}; is it trimmed for {}?", engine.clangdDirectory,
+                                                          binary.substr(engine.clangdDirectory.size() + 1), engine.platform));
     }
     if (!std::filesystem::is_regular_file(base::join_path(engine.clangdDirectory, "LICENSE.TXT"), ignored)) {
         return base::fail("payload-missing", std::format("{} has no LICENSE.TXT", engine.clangdDirectory));
@@ -357,7 +387,7 @@ base::Result<nlohmann::json> engine_identity(const PlatformEngine& engine, const
         return base::fail("payload-engine-identity", std::format("the engine of {} does not match the locked LLVM base or fork version", engine.platform));
     }
     version = decoded->version;
-    if (auto problem = base::engine_identity_problem(*decoded, version, engine.platform, *digest)) {
+    if (auto problem = base::engine_identity_problem(*decoded, version, place.identity, *digest)) {
         return base::fail("payload-engine-identity", std::format("{}: {}", engine.platform, *problem));
     }
     return identity;
@@ -458,6 +488,7 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
 
     nlohmann::json platforms = nlohmann::json::object();
     std::vector<std::string> programs;
+    std::optional<std::string> okDigest;   // the ok image is carried once; every platform selecting it names the same bytes
     for (std::size_t i { 0 }; i < options.engines.size(); ++i) {
         const auto& engine = options.engines[i];
         const auto target = *targets::parse(engine.platform);
@@ -467,18 +498,27 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
         if (auto copied = copy_tree_preserving_modes(base::join_path(options.serverTree, runnerDirectory), base::join_path(out, runnerDirectory)); !copied) {
             return std::unexpected { copied.error() };
         }
-        const std::string clangdDirectory { std::format("clangd/{}", engine.platform) };
-        if (auto copied = copy_tree(engine.clangdDirectory, base::join_path(out, clangdDirectory), "LICENSE.TXT"); !copied) return std::unexpected { copied.error() };
+        const bool ok { is_ok_engine(engine.clangdDirectory) };
+        const EnginePlace place { engine_place(ok, engine.platform, exe) };
+        const std::string sha { identities[i].value("sha256", std::string {}) };
+        if (ok && okDigest && *okDigest != sha) {
+            return base::fail("payload-engine-identity", std::format("the ok image of {} is not the one the other platforms carry", engine.platform));
+        }
+        if (!ok || !okDigest) {
+            if (auto copied = copy_tree(engine.clangdDirectory, base::join_path(out, place.directory), "LICENSE.TXT"); !copied) return std::unexpected { copied.error() };
+        }
+        if (ok) okDigest = sha;
         const std::string runner { std::format("{}/okrun{}", runnerDirectory, exe) };
-        const std::string clangd { std::format("{}/bin/clangd{}", clangdDirectory, exe) };
+        const std::string& clangd { place.program };
         programs.push_back(base::join_path(out, runner));
-        programs.push_back(base::join_path(out, clangd));
+        if (!ok) programs.push_back(base::join_path(out, clangd));
         const nlohmann::json integrity = integrity_entry(base::join_path(out, clangd));
         if (integrity.is_null()) return base::fail("payload-stat", std::format("cannot read {}", clangd));
         nlohmann::json entry = nlohmann::json::object();
         entry["runner"] = runner;
         entry["engines"]["clangd"]["version"] = versions[i];
         entry["engines"]["clangd"]["path"] = clangd;
+        if (ok) entry["engines"]["clangd"]["runner"] = runner;
         entry["engines"]["clangd"]["identity"] = identities[i];
         entry["files"][clangd] = integrity;
         platforms[engine.platform] = std::move(entry);
@@ -517,8 +557,11 @@ base::Result<std::string> assemble(const AssembleOptions& options, const lock::L
 
     // Only the engine this host runs is asked its version: another platform's cannot be started here.
     if (const auto own = platforms.find(std::string { base::payload_platform() }); own != platforms.end()) {
-        const std::string engineVersion { (*own)["engines"]["clangd"].value("version", std::string {}) };
-        auto reported = run_capture(base::join_path(out, (*own)["engines"]["clangd"].value("path", std::string {})), { "--version" });
+        const auto& engine = (*own)["engines"]["clangd"];
+        const std::string engineVersion { engine.value("version", std::string {}) };
+        const std::string program { base::join_path(out, engine.value("path", std::string {})) };
+        auto reported = engine.contains("runner") ? run_capture(base::join_path(out, engine.value("runner", std::string {})), { program, "--version" })
+                                                  : run_capture(program, { "--version" });
         if (!reported) return std::unexpected { reported.error() };
         const std::string_view report { *reported };
         const std::size_t marker { report.find("clangd version ") };

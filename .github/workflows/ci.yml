@@ -422,7 +422,8 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # THE PAYLOAD, ONE FOR EVERY PLATFORM (ecosystem design 2026-10-29 §9.1): the server's okb, the runner of every
-  # system from the tree, each platform's clangd (mcppls-clangd, native per system), and the openkal kit, made
+  # system from the tree, each platform's clangd (mcppls-clangd: native, or the ok image clangd.okb its runner starts,
+  # as the platform's lock row selects), and the openkal kit, made
   # from mcpp's build database of each openkal target. Assembled and verified on Linux; every later job of every
   # platform takes this one payload and its platform's entry.
   payload:
@@ -470,7 +471,7 @@ jobs:
       - uses: actions/download-artifact@v8
         if: steps.candidate.outputs.run-id != ''
         with:
-          pattern: clangd-*-portable
+          pattern: clangd-*
           repository: ${{ steps.candidate.outputs.repository }}
           run-id: ${{ steps.candidate.outputs.run-id }}
           github-token: ${{ github.token }}
@@ -499,6 +500,10 @@ jobs:
           version=$(sed -n 's/^version *= *"\(.*\)"$/\1/p' mcpp.toml | head -1)
           engine=()
           if [ -d candidate ]; then
+            # The ok image's part (clangd-openkal) is its release archive; its engine.json names openkal.
+            for archive in candidate/clangd-openkal/*.tar.gz; do
+              [ -f "$archive" ] && tar -xzf "$archive" -C candidate/clangd-openkal
+            done
             for part in $(find candidate -path '*clangd/engine.json' -exec dirname {} \;); do
               platform=$(jq -r .platform "$part/engine.json")
               chmod +x "$part"/bin/*

@@ -44,7 +44,7 @@ struct PayloadInputs {
     std::string serverImage;                    // --server-image: the okb
     std::string serverTree;                     // --server-tree: the tree, a directory or its archive
     std::string kit;                            // --kit: the openkal kit; empty: built from mcpp's build database
-    std::map<std::string, std::string> clangd;  // --clangd <platform>=DIR: an engine already trimmed (a candidate's)
+    std::map<std::string, std::string> clangd;  // --clangd <platform>=DIR, or openkal=DIR for the ok image: an engine already trimmed (a candidate's)
     std::vector<std::string> platforms;         // --platforms: which of the lock's; empty: every one
     std::string cache;
     std::string profile { "release" };
@@ -106,23 +106,31 @@ struct Payload {
     bool built { false };
 };
 
-// The engine of one platform: the one given, else the lock's, trimmed.
-std::optional<std::string> engine_of(const std::string& root, const PayloadInputs& inputs, const pack::lock::Lock& lockData, const std::string& platform) {
-    if (const auto given = inputs.clangd.find(platform); given != inputs.clangd.end()) return given->second;
-    const std::string directory { base::join_path(root, std::format("target/pack/clangd/{}", platform)) };
+// The engine of one platform, in the form its lock row selects: the one given for that form (`--clangd
+// <platform>=DIR` for a native engine, `--clangd openkal=DIR` for the ok image), else the lock's, trimmed.
+// Platforms whose rows name the same entry (the ok image) share one trimmed directory, `trimmed` keyed by
+// the entry.
+std::optional<std::string> engine_of(const std::string& root, const PayloadInputs& inputs, const pack::lock::Lock& lockData, const std::string& platform,
+                                     std::map<std::string, std::string>& trimmed) {
+    const std::string entry { pack::lock::platform(lockData, platform)->clangd };
+    const std::string form { entry == pack::lock::OK_ENGINE_ENTRY ? std::string { "openkal" } : platform };
+    if (const auto given = inputs.clangd.find(form); given != inputs.clangd.end()) return given->second;
+    if (const auto done = trimmed.find(entry); done != trimmed.end()) return done->second;
+    const std::string directory { base::join_path(root, std::format("target/pack/clangd/{}", form)) };
     std::println("  the engine of {} ...", platform);
-    auto trimmed = pack::clangd::trim(pack::clangd::Options {
+    auto part = pack::clangd::trim(pack::clangd::Options {
         .platform = platform,
         .outDirectory = directory,
         .cacheDirectory = inputs.cache,
         .strip = inputs.strip,
     }, lockData);
-    if (!trimmed) {
-        std::println(std::cerr, "  the engine of {} failed: {}", platform, trimmed.error().message);
+    if (!part) {
+        std::println(std::cerr, "  the engine of {} failed: {}", platform, part.error().message);
         return std::nullopt;
     }
-    std::println("  clangd ({}): {} files, lib/clang/{}/include, {:.1f} MB", platform, trimmed->filesKept, trimmed->clangMajor,
-                 static_cast<double>(trimmed->totalBytes) / 1e6);
+    std::println("  clangd ({}): {} files, lib/clang/{}/include, {:.1f} MB", platform, part->filesKept, part->clangMajor,
+                 static_cast<double>(part->totalBytes) / 1e6);
+    trimmed[entry] = directory;
     return directory;
 }
 
@@ -155,8 +163,9 @@ Payload assemble_payload(const std::string& root, const PayloadInputs& inputs, c
     }
 
     std::vector<pack::payload::PlatformEngine> engines;
+    std::map<std::string, std::string> trimmed;
     for (const auto& platform : inputs.platforms) {
-        auto engine = engine_of(root, inputs, *lockData, platform);
+        auto engine = engine_of(root, inputs, *lockData, platform, trimmed);
         if (!engine) return {};
         engines.push_back({ platform, *engine });
     }
@@ -685,7 +694,7 @@ cmdline::App payload_command(bool& handled, int& status) {
     (void) command.option("server-image").takes_value().help("The server's okb (default: packed here)");
     (void) command.option("server-tree").takes_value().help("With --server-image: the openkal tree packed self-contained for every system, or its archive");
     (void) command.option("dev").help("Package a dev-profile server rather than a release one");
-    (void) command.option("clangd").takes_value().multiple().help("<platform>=DIR: an engine already trimmed (repeatable)");
+    (void) command.option("clangd").takes_value().multiple().help("<platform>=DIR, or openkal=DIR for the ok image: an engine already trimmed (repeatable)");
     (void) command.option("kit").takes_value().help("Use this already-built openkal kit directory");
     (void) command.option("cache").takes_value().help("Where fetched inputs are cached (default <root>/.payload-cache)");
     (void) command.option("no-strip").help("Keep clangd's debug symbols instead of stripping it");
@@ -709,7 +718,7 @@ cmdline::App extension_command(bool& handled, int& status) {
     (void) command.option("server-tree").takes_value().help("With --server-image: the openkal tree packed self-contained for every system, or its archive");
     (void) command.option("dev").help("Package a dev-profile server rather than a release one");
     (void) command.option("platforms").takes_value().multiple().help("Which platforms the payload serves (default: every one)");
-    (void) command.option("clangd").takes_value().multiple().help("<platform>=DIR: an engine already trimmed (repeatable)");
+    (void) command.option("clangd").takes_value().multiple().help("<platform>=DIR, or openkal=DIR for the ok image: an engine already trimmed (repeatable)");
     (void) command.option("kit").takes_value().help("Use this already-built openkal kit directory");
     (void) command.option("cache").takes_value().help("Where fetched inputs are cached (default <root>/.payload-cache)");
     (void) command.option("plugin").takes_value().help("Zed: an extension directory, CLion: a plugin archive, to install instead of building one");

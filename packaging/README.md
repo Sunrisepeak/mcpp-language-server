@@ -80,11 +80,13 @@ by hand.
 | Entry | What | Used by |
 |---|---|---|
 | `mcppls-clangd-<platform>` | the maintained engine, mcppls-clangd 0.0.17's `clangd-23.1.0-mcppls.5-<platform>.tar.gz`: clangd, its builtin headers, licenses and `engine.json` (source and binary identity), taken byte for byte | `mcppls.pack.clangd` |
+| `mcppls-clangd-openkal` | the engine's ok image, `clangd-<engine>-openkal.tar.gz`: `bin/clangd.okb` of both architectures, which each system's runner starts, its builtin headers, licenses and `engine.json` (platform `openkal`), taken byte for byte and carried once for every platform whose row selects it | `mcppls.pack.clangd`, `mcppls.pack.payload` |
 | `llvm-project-src` | llvm-project 23.1.0 source archive | `mcppls.pack.kit`, recipe `libcxx-source` |
 | `llvm-mingw` | llvm-mingw 20260826 (LLVM 23.1.0), UCRT, Linux x86_64 host | `mcppls.pack.kit`, recipe `llvm-mingw` |
 
 `platforms` is the one table of platforms. Each row, named `<os>-<arch>` as VS Code names extension
-targets, gives the clangd entry the payload's entry of that platform carries, the target kit (recipe,
+targets, gives the clangd entry the payload's entry of that platform carries (its native engine, or
+`mcppls-clangd-openkal` where the ok image meets mcppls-clangd's acceptance on that system), the target kit (recipe,
 source, target triple, and `name`, the published kit `mcppls-kit-<name>`), and `server-target`, the
 mcpp `--target` the platform's programs and tests are built for (CI's `build` job). The VS Code
 extension, the CLion build, `release.manifest.json` and CI's per-platform jobs list the same

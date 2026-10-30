@@ -75,6 +75,22 @@ std::string make_clangd_directory(const std::string& root, std::string_view plat
     return dir;
 }
 
+// The ok image's part (mcppls-clangd's clangd-<version>-openkal): bin/clangd.okb, the builtin headers, the license and
+// engine.json, whose identity names openkal.
+std::string make_ok_directory(const std::string& root, std::string_view bytes = "an ok image of clangd") {
+    const std::string dir { base::join_path(root, std::format("clangd-ok-{}", std::random_device {}())) };
+    put(base::join_path(dir, "bin/clangd.okb"), bytes);
+    put(base::join_path(dir, "LICENSE.TXT"), "Apache-2.0 WITH LLVM-exception");
+    put(base::join_path(dir, "lib/clang/23/include/stddef.h"), "typedef long ptrdiff_t;");
+    const auto digest = mcppls::pack::fetch::digest_of(base::join_path(dir, "bin/clangd.okb"));
+    const nlohmann::json identity { { "engine-version", "23.1.0-mcppls.5" }, { "llvm-base-version", "23.1.0" },
+                                    { "llvm-commit", std::string(40, 'a') }, { "fork-commit", std::string(40, 'b') },
+                                    { "patch-series-sha256", std::string(64, 'c') }, { "platform", "openkal" },
+                                    { "sha256", digest.value_or(std::string(64, 'd')) }, { "features", nlohmann::json::array() } };
+    put(base::join_path(dir, "engine.json"), identity.dump());
+    return dir;
+}
+
 // The tree `mcpp pack --target openkal --mode self-contained --systems all` writes: the runner of
 // every system, and mcpp-package.json saying where it runs.
 std::string make_server_tree(const std::string& root, std::vector<std::string> runsOn = { "linux-aarch64", "linux-x86_64", "macos-aarch64", "windows-x86_64" }) {
@@ -151,7 +167,8 @@ payload::AssembleOptions options_for(const Fixture& fixture, std::vector<std::st
 int main(int argc, char* argv[]) {
     std::error_code ignored;
     // Started as the fixture's clangd (runnable_clangd): answer the one question asked of it.
-    if (argc > 1 && std::string_view { argv[1] } == "--version") {
+    // As a runner (`okrun <image> --version`), the same.
+    if ((argc > 1 && std::string_view { argv[1] } == "--version") || (argc > 2 && std::string_view { argv[2] } == "--version")) {
         std::println("clangd version 23.1.0-mcppls.5 (fixture)");
         return 0;
     }
@@ -195,6 +212,52 @@ int main(int argc, char* argv[]) {
         auto problems = payload::verify(*assembled);
         for (const auto& problem : problems) std::println(std::cerr, "  verify problem: {}", problem);
         expect(problems.empty());
+    };
+
+    // Part 2 §25.3: a platform whose lock row selects the ok image uses clangd.okb, which its own runner starts.
+    "the ok image serves the platforms that select it, carried once and started by each one's runner"_test = [&] {
+        std::error_code ignored;
+        auto options = options_for(fixture, { "linux-arm64" }, base::join_path(work, "payload-ok"));
+        const std::string ok { make_ok_directory(work) };
+        for (const std::string_view platform : { "linux-x64", "darwin-arm64", "win32-x64" }) options.engines.push_back({ std::string { platform }, ok });
+        // assemble() asks the host's engine its version; an ok one through the host's runner, which this program stands for.
+        const std::map<std::string_view, std::string_view> systems { { "linux-x64", "linux-x86_64" }, { "linux-arm64", "linux-aarch64" },
+                                                                    { "darwin-arm64", "macos-aarch64" }, { "win32-x64", "windows-x86_64" } };
+        if (const auto host = systems.find(base::payload_platform()); host != systems.end()) {
+            const bool windows { host->second.starts_with("windows") };
+            put(base::join_path(options.serverTree, std::format("libexec/okrun/{}/okrun{}", host->second, windows ? ".exe" : "")), runnable_clangd());
+        }
+        auto assembled = payload::assemble(options, lockData);
+        expect(fatal(assembled.has_value())) << (assembled ? std::string {} : assembled.error().message);
+        if (!assembled) return;
+        expect(std::filesystem::is_regular_file(base::join_path(*assembled, "clangd/openkal/bin/clangd.okb"), ignored));
+        expect(std::filesystem::is_regular_file(base::join_path(*assembled, "clangd/linux-arm64/bin/clangd"), ignored));
+        for (const std::string_view platform : { "linux-x64", "darwin-arm64", "win32-x64" }) {
+            expect(!std::filesystem::exists(base::join_path(*assembled, std::format("clangd/{}", platform)), ignored)) << platform;
+        }
+        const auto manifest = nlohmann::json::parse(os::fs::read(base::join_path(*assembled, "payload.json")).value_or("{}"));
+        const auto& windows = manifest["platforms"]["win32-x64"]["engines"]["clangd"];
+        expect(windows.value("path", std::string {}) == "clangd/openkal/bin/clangd.okb");
+        expect(windows.value("runner", std::string {}) == "libexec/okrun/windows-x86_64/okrun.exe");
+        expect(windows["identity"].value("platform", std::string {}) == "openkal");
+        expect(!manifest["platforms"]["linux-arm64"]["engines"]["clangd"].contains("runner")) << "a native engine starts by itself";
+        auto problems = payload::verify(*assembled);
+        for (const auto& problem : problems) std::println(std::cerr, "  verify problem: {}", problem);
+        expect(problems.empty());
+        // An engine runner other than its platform's is a problem of the payload.
+        auto edited = manifest;
+        edited["platforms"]["linux-x64"]["engines"]["clangd"]["runner"] = "libexec/okrun/linux-aarch64/okrun";
+        put(base::join_path(*assembled, "payload.json"), edited.dump());
+        expect(std::ranges::any_of(payload::verify(*assembled), [](const std::string& p) { return p.contains("engines.clangd.runner"); }));
+    };
+
+    "two different ok images in one payload are refused"_test = [&] {
+        auto options = options_for(fixture, {}, base::join_path(work, "payload-two-ok"));
+        options.engines.push_back({ "darwin-arm64", make_ok_directory(work) });
+        options.engines.push_back({ "win32-x64", make_ok_directory(work, "another ok image") });
+        auto assembled = payload::assemble(options, lockData);
+        expect(!assembled.has_value());
+        if (!assembled) expect(assembled.error().message.contains("ok image")) << assembled.error().message;
     };
 
     "a payload of some platforms serves those only"_test = [&] {

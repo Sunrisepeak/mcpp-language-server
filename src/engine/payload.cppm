@@ -30,6 +30,7 @@ struct PayloadEntry {
     std::string platform;                                   // linux-x64, linux-arm64, darwin-arm64, win32-x64
     std::string runner;                                     // the program that starts the server image here; empty for a program server
     std::string clangd;                                     // the engine built for this platform
+    std::string clangdRunner;                               // the program that starts it, for an ok image (clangd.okb); empty for a program
     std::string clangdVersion;
     nlohmann::json identity;                                // engines.clangd.identity; null when not stated
     std::map<std::string, PayloadFileIntegrity> files;      // this platform's own integrity-checked files
@@ -56,6 +57,9 @@ std::expected<PayloadEntry, std::string> payload_entry(const PayloadManifest& ma
 struct PayloadPaths {
     std::string directory;     // empty when no payload is used
     std::string clangd;        // absolute executable path, or empty
+    // The program that starts the engine when it is an ok image (`okrun clangd.okb`, ecosystem design
+    // 2026-10-30 part 2 §25.3): absolute, or empty for an engine that is a program of this system.
+    std::string clangdRunner;
     std::string clangdVersion;
     std::string kit;           // the kit for this host's own target (S4 section 5), or empty
     std::vector<std::string> kits;   // every kit root to choose from, in order: --kit, the payload's, the installed ones
@@ -78,6 +82,13 @@ struct PayloadRequest {
     std::string kit;                // --kit
     std::string engine { "clangd" };   // the core engine, whose version decides the installed kits taken; none: any
 };
+
+// How the engine is started: the runner and the engine as its first argument, or the engine itself.
+struct EngineCommand {
+    std::string program;
+    std::vector<std::string> arguments;   // before the engine's own
+};
+EngineCommand engine_command(std::string_view clangd, std::string_view runner);
 
 // Explicit paths win; then the payload named or enclosing this executable (payload.json's entry
 // for this platform, else the conventional layout); then clangd on PATH. The kits are --kit, the

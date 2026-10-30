@@ -31,6 +31,15 @@ the openkal kit, with which any target's code reads with the standard library (e
   macOS arm64 and Windows x86_64; its `mcpp-package.json` says where it runs (`runs_on`). The xlings descriptor is one
   asset for the three systems, each naming the architectures `runs_on.self` covers.
 
+### The engine as an ok image
+
+- **A platform's engine may be `clangd.okb`** (S4-4-12; mcpp design 2026-10-30 part 2 §25.3): a platform whose row of
+  `packaging/payload.lock.json` names `mcppls-clangd-openkal` uses the ok image of the engine, which the platform's
+  runner starts. The payload carries the image once (`clangd/openkal/`), every entry that selects it names it with
+  `engines.clangd.runner`, and its identity names `openkal`; the server verifies it as it verifies a native engine,
+  and starts it, its version probe and `mcppls check` through the runner. `payload --clangd openkal=DIR` replaces the
+  lock's image, as `--clangd <platform>=DIR` replaces a native engine.
+
 ### The status of a workspace, for any program
 
 - **`mcppls status [--root <dir>] --format json`** (S3 section 8) prints the state of the servers serving a workspace

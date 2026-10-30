@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-31 — S4: an engine that is an ok image
+
+S4-4-12: a payload entry's engine may be the ok image `clangd.okb`, started by the platform's runner, which the entry
+names under `engines.clangd.runner`; the image's identity names the platform `openkal`, and one image serves every
+entry that selects it. The identity schema's `platform` gains `openkal`. Additive: payload version stays 5.
+
 ## 2026-10-30 — S4 kit version 2 and the kit of a target; S3: a kit the server installs when asked
 
 S4 kit version 2 adds `targets` (S4-3-11): a kit that serves several targets with one standard library gives each its

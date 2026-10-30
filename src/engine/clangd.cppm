@@ -29,6 +29,7 @@ bool plan_uses_modules(const normalize::EnginePlan& plan);
 
 struct Options {
     std::string executable;        // empty, or a file that does not exist: the engine is unavailable
+    std::string runner;            // the program that starts an ok-image engine (`okrun clangd.okb`); empty for a program
     std::string version;
     bool payloadCorrupt { false };
     bool verboseLog { false };
