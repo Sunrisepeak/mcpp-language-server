@@ -89,7 +89,7 @@ std::string make_server_tree(const std::string& root, std::vector<std::string> r
 // A kit directory shaped like the openkal kit: kit.json of two targets, one module-metadata file
 // naming the `std` module, the include directories and license it points at, and a `__config` that
 // states the libc++ version its headers are (S4-4-5).
-std::string make_kit_directory(const std::string& root, std::string_view name = "mcppls-kit-openkal-0.17.3", std::string_view headers = "220108") {
+std::string make_kit_directory(const std::string& root, std::string_view name = "mcppls-kit-openkal-0.18.0", std::string_view headers = "220108") {
     const std::string dir { base::join_path(root, std::format("kit-{}", std::random_device {}())) };
     put(base::join_path(dir, "include/c++/v1/vector"), "// fixture header");
     put(base::join_path(dir, "include/c++/v1/__config"), std::format("#ifndef _LIBCPP___CONFIG\n#  define _LIBCPP_VERSION {}\n#endif\n", headers));
@@ -293,7 +293,7 @@ int main(int argc, char* argv[]) {
         const std::string script { make_kit_directory(work) };
         put(base::join_path(script, "configure.sh"), "#!/bin/sh\necho no\n");
         expect(std::ranges::any_of(payload::verify_kit(script), [](const std::string& p) { return p.contains("S4-4-2"); }));
-        const std::string otherHeaders { make_kit_directory(work, "mcppls-kit-openkal-0.17.3", "230103") };
+        const std::string otherHeaders { make_kit_directory(work, "mcppls-kit-openkal-0.18.0", "230103") };
         expect(std::ranges::any_of(payload::verify_kit(otherHeaders), [](const std::string& p) { return p.contains("S4-4-5") && p.contains("23.1.3"); }));
         const std::string darwin { make_kit_directory(work) };
         auto kit = nlohmann::json::parse(os::fs::read(base::join_path(darwin, "kit.json")).value_or("{}"));

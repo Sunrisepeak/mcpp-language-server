@@ -223,7 +223,7 @@ jobs:
           if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi
 
   # ---------------------------------------------------------------------------
-  # THE HOST GRAPH ON THE PLATFORM (mcpp SPEC-013 §6): with `--host-platform openkal-platform@0.17.3`
+  # THE HOST GRAPH ON THE PLATFORM (mcpp SPEC-013 §6): with `--host-platform openkal-platform@0.18.0`
   # every build program of the graph -- openkal-platform's and openkal-musl's build.mcpp -- compiles as
   # an ok image of this machine's architecture, with one toolchain on each system, and runs through the
   # platform's runner. The server and the tools built over them are the same programs, and start.
@@ -248,9 +248,9 @@ jobs:
       - name: Build with the host graph's platform
         run: |
           set -euo pipefail
-          mcpp build --host-platform openkal-platform@0.17.3 ${{ matrix.target }} 2>&1 | tee build.log
-          grep -q 'Host platform openkal-platform 0.17.3 (--host-platform): build programs are [a-z0-9_]*-openkal images run by okrun' build.log
-          mcpp build -p devtools --host-platform openkal-platform@0.17.3 ${{ matrix.target }}
+          mcpp build --host-platform openkal-platform@0.18.0 ${{ matrix.target }} 2>&1 | tee build.log
+          grep -q 'Host platform openkal-platform 0.18.0 (--host-platform): build programs are [a-z0-9_]*-openkal images run by okrun' build.log
+          mcpp build -p devtools --host-platform openkal-platform@0.18.0 ${{ matrix.target }}
           for exe in mcppls mcppls-devtools; do
             path=$(find target -type f \( -name "$exe" -o -name "$exe.exe" \) -path '*/bin/*' -newer mcpp.toml | head -1)
             echo "$exe -> $path"

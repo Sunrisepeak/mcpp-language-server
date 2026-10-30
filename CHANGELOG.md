@@ -65,6 +65,11 @@ the openkal kit, with which any target's code reads with the standard library (e
   `kit --openkal` makes the openkal kit, `kit --platform P --archive DIR` a target kit and its release archive, `kit
   --verify` checks a kit; `release xlings` renders the descriptors from a release's assets; `check platforms` holds
   the new CI jobs and the lock's kit names.
+- **mcpp 2026.10.30.1, openkal-platform 0.18.0 and mcpplibs.os 0.2.3.** The workspace requires mcpp 2026.10.30.1,
+  whose `mcpp pack` holds the legs it names and whose `mcpp test --archive` runs a leg on every system, and selects
+  openkal-platform 0.18.0 with mcpplibs.os 0.2.3, which pins its openkal-linux: openkal-linux 0.18.3 (directory handles with `O_PATH`: programs start under Android's `run-as`),
+  openkal-musl 0.22.9 (`pread`, `pwrite` and their vector forms) and openkal-llvm-runtime 0.16.9 (`thread_local`
+  destructors in an ok image). The openkal kit is `mcppls-kit-openkal-0.18.0`; its libc++ is 22.1.8, as before.
 
 ## [0.0.19] — 2026-10-29
 

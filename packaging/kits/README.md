@@ -16,8 +16,8 @@ The server chooses the kit of each project's target (S4 5.1).
 ## The openkal kit
 
 Kit version 2, one kit for both openkal targets: libc++ 22.1.8's headers and
-module sources as openkal-platform 0.17.3's C++ run-time (openkal-llvm-runtime
-0.16.6) configures them, openkal-musl 0.22.6's headers, openkal's and the image
+module sources as openkal-platform 0.18.0's C++ run-time (openkal-llvm-runtime
+0.16.9) configures them, openkal-musl 0.22.9's headers, openkal's and the image
 loader's, and under `include/<target>/` what differs between the architectures
 (musl's generated and per-architecture headers). Each entry of `targets` lists
 its include directories in the order the build reads them, with the defines a
