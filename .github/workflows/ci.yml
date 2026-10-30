@@ -184,10 +184,6 @@ jobs:
   # The unit tests, on each platform's own system, from the archives `build` wrote: the bytes built once
   # on Linux, run where they will run (mcpp SPEC-015 §4). The payloads ship release builds, and every
   # release-only defect found so far (design 12.9, K7 and K13) was invisible to the dev profile.
-  #
-  # macOS builds its own: mcpp 2026.10.30.1 cannot start the macOS tests it unpacks from an archive written on
-  # Linux ("Input/output error", run 40964600266), while the same Linux-built programs unpacked by tar run there
-  # (stage/). The archive's run is kept as evidence, not as the gate, until mcpp starts them.
   test:
     name: unit tests (${{ matrix.platform }}, ${{ matrix.profile }})
     needs: build
@@ -201,8 +197,8 @@ jobs:
           - { platform: linux-x64,    os: ubuntu-24.04,     profile: release }
           - { platform: linux-arm64,  os: ubuntu-24.04-arm, profile: dev }
           - { platform: linux-arm64,  os: ubuntu-24.04-arm, profile: release }
-          - { platform: darwin-arm64, os: macos-14,         profile: dev,     native: '--target aarch64-macos' }
-          - { platform: darwin-arm64, os: macos-14,         profile: release, native: '--target aarch64-macos' }
+          - { platform: darwin-arm64, os: macos-14,         profile: dev }
+          - { platform: darwin-arm64, os: macos-14,         profile: release }
           - { platform: win32-x64,    os: windows-2022,     profile: dev }
           - { platform: win32-x64,    os: windows-2022,     profile: release }
     defaults:
@@ -216,7 +212,6 @@ jobs:
           name: tests-${{ matrix.platform }}-${{ matrix.profile }}
           path: test-archives
       - name: Run the archived tests
-        if: '!matrix.native'
         run: |
           set -euo pipefail
           failed=''
@@ -226,26 +221,6 @@ jobs:
             echo "::endgroup::"
           done
           if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi
-      - name: Build and run the tests here
-        if: matrix.native
-        run: |
-          set -euo pipefail
-          mcpp test --profile ${{ matrix.profile }} ${{ matrix.native }}
-          for package in pack devtools model-gateway; do
-            mcpp test -p "$package" --profile ${{ matrix.profile }} ${{ matrix.native }}
-          done
-      - name: The archived tests, as evidence
-        if: matrix.native
-        continue-on-error: true
-        run: |
-          set -uo pipefail
-          mcpp test --archive test-archives/pack.tar.gz
-          program=$(find target/.test-archive -type f -name test_targets | head -1)
-          if [ -n "$program" ]; then
-            ls -l@ "$program"; xattr -l "$program"; codesign -dvvv "$program" 2>&1 | head -20
-            "$program"; echo "exit $?"
-            cp "$program" "$RUNNER_TEMP/copy" && "$RUNNER_TEMP/copy"; echo "a copy: exit $?"
-          fi
 
   # ---------------------------------------------------------------------------
   # THE HOST GRAPH ON THE PLATFORM (mcpp SPEC-013 §6): with `--host-platform openkal-platform@0.17.3`
