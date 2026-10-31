@@ -9,12 +9,16 @@ product version unchanged.
 
 ## [0.0.20] — 2026-10-30
 
-The bundled engine is unchanged ([mcppls-clangd 0.0.17](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.17),
-`23.1.0-mcppls.5`), native on each system. One package serves every system and architecture: one payload, one VSIX,
-one CLion plugin. A project is read without a compiler with the semantic kit of its target, and the payload carries
-the openkal kit, with which any target's code reads with the standard library (ecosystem design 2026-10-29 §9). Built
-with mcpp 2026.10.31.2 over openkal-platform 0.19.0, openkal 0.18's version group, for every target, ok images included,
-and mcpplibs.os 0.2.4; the runner each system's payload carries maps the image it runs.
+The bundled engine is [mcppls-clangd 0.0.18](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.18)
+(`23.1.0-mcppls.6`) as its ok image `clangd.okb` on every system, each of which it passed mcppls-clangd's acceptance
+against the native clangd on (parse time at most 1.3 times, resident memory above it by at most the image's size;
+`openkal-acceptance.json`): one engine of both architectures, started by the payload's runner. On Linux the engine
+therefore needs nothing of the system: glibc and musl distributions, old and new, run it alike. One package serves every system and architecture: one payload, one
+VSIX, one CLion plugin. A project is read without a compiler with the semantic kit of its target, and the payload
+carries the openkal kit, with which any target's code reads with the standard library (ecosystem design 2026-10-29
+§9). Built with mcpp 2026.10.31.2 over openkal-platform 0.19.2, openkal 0.18's version group, for every target, ok
+images included, and mcpplibs.os 0.2.4; the runner each system's payload carries maps the image it runs, releases it
+once the image is loaded, and admits it on the processor's SHA-256 instructions.
 
 ### One package for every system
 
@@ -39,7 +43,9 @@ and mcpplibs.os 0.2.4; the runner each system's payload carries maps the image i
   runner starts. The payload carries the image once (`clangd/openkal/`), every entry that selects it names it with
   `engines.clangd.runner`, and its identity names `openkal`; the server verifies it as it verifies a native engine,
   and starts it, its version probe and `mcppls check` through the runner. `payload --clangd openkal=DIR` replaces the
-  lock's image, as `--clangd <platform>=DIR` replaces a native engine.
+  lock's image, as `--clangd <platform>=DIR` replaces a native engine. Every row of the lock names it (`openkal-acceptance.json`
+  of mcppls-clangd 0.0.18); macOS arm64 is the closest to the bound, 1.05 times in the release's measurement and 1.25 to
+  1.38 times in four earlier runs.
 
 ### The status of a workspace, for any program
 

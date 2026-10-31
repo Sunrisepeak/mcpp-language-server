@@ -52,21 +52,21 @@ release 里的每个文件都列在它的 `MANIFEST.md` 里，说明是什么、
 
 ## 支持的 Linux 系统
 
-服务端和它的运行器不需要系统提供任何东西，在同架构的任何 Linux 上都能运行。能支持到哪些系统，取决于 payload 里带的 clangd：
+服务端、它的运行器以及 payload 为 Linux 带的 clangd 都不需要系统提供任何东西，在同架构的任何 Linux 上都能运行，不论 glibc 还是 musl、新旧：Ubuntu 18.04、RHEL 8、Amazon Linux 2、Alpine 与当前的系统一样。
 
-| 平台 | clangd | 需要 | 能运行的系统 |
-|---|---|---|---|
-| `linux-x64` | mcppls-clangd 23.1.0，在 Ubuntu 20.04 上构建，libstdc++ 与 zlib 已静态链接 | glibc 2.31 | Ubuntu 20.04、Debian 11、RHEL 和 Rocky Linux 9、openEuler 22.03 LTS 及以上 |
-| `linux-arm64` | 同一引擎，以相同方式为 arm64 构建 | glibc 2.31 | 同上各系统的 arm64 版本 |
+| 平台 | clangd | 需要 |
+|---|---|---|
+| `linux-x64` | mcppls-clangd 0.0.18 的 ok 映像 `clangd.okb`，由 payload 的运行器启动 | 不需要系统提供任何东西 |
+| `linux-arm64` | 同一个 `clangd.okb` | 不需要系统提供任何东西 |
 
-更老的系统——Ubuntu 18.04、Debian 10、RHEL 和 Rocky Linux 8、Amazon Linux 2——上，自带的 clangd 无法启动。这时 mcppls 仍提供它自己的模块级功能（模块跳转、import 补全、模块诊断），状态栏会说明原因；也可以用 `mcppls.clangd` 指定一个能在该系统上运行的 clangd。Alpine 等基于 musl 的发行版，两种架构的 clangd 都无法运行。
+某个系统用 ok 映像，条件是映像在该系统上对照原生 clangd 通过 mcppls-clangd 的验收：每个用例都应答，解析时间不超过原生的 1.3 倍，常驻内存比原生多出的部分不超过映像本身的大小。每个 mcppls-clangd 版本都发布这些测量（`openkal-acceptance.json`）。0.0.20 中映像用于全部四个平台。macOS arm64 上它的解析时间离界限最近：发布时的测量为原生的 1.05 倍，此前同一映像在同类机器上的四次运行为 1.25 至 1.38 倍。
 
 ### Android 上的 Termux
 
 装了 Termux 的 Android 手机或平板运行的是 `linux-arm64` 版本，没有单独的安装包。Termux 的 PRoot（很多方案在它下面运行 Linux 系统）是受支持的环境：
 
 - **服务端**就是 payload 里的那个：把 `mcppls-payload-<version>.tar.gz` 解压到插件查找的位置（做法同[其他编辑器：从 release 安装](#其他编辑器从-release-安装)），再由你在那里运行的编辑器（比如 Neovim）启动它；或者把 `mcppls-<version>-linux-aarch64` 以 `mcppls` 之名放到 `PATH` 上；或者在 Termux 里运行的兼容 VS Code 的编辑器中安装 `mcppls-<version>.vsix`。
-- **clangd** 和任何 `linux-arm64` 系统上的一样，是 glibc 程序，所以上表的要求同样适用：CI 是在 Termux 里用 `proot-distro` 装的 Debian 中运行它的。clangd 在这台机器上无法运行（glibc 低于要求）时状态是 `engine-incompatible`，被沙箱拒绝启动时是 `engine-start-failed` 并写明原因；两种情况下 mcppls 都仍提供模块级功能。
+- **clangd** 和任何 `linux-arm64` 系统上的一样，是同一个 ok 映像，由同一个运行器启动：CI 在 Termux 里用 `proot-distro` 装的 Debian 中运行它。被沙箱拒绝启动时状态是 `engine-start-failed` 并写明原因，mcppls 仍提供模块级功能。
 - **mcppls 为 PRoot 做了什么。** 它会检测自己运行在哪种沙箱里（`mcppls report` 里显示为 `server.sandbox`，在这里是 `proot`），并按 PRoot 的应答方式启动程序。PRoot 有两个行为曾让它无法工作：Termux 的 PRoot 拒绝“通过目录句柄启动程序”的那个调用，所以服务端启动 clangd 时会说“not supported”；PRoot 的快速路径还会在 `openat` 之后留下被改写的寄存器，读文件就报 “outside every preopened directory”（issue #32）。不需要任何配置。
 
 ## 从源码构建
@@ -122,7 +122,7 @@ VS Code 有装卸扩展的命令行；Zed 和 CLion 没有。对这两个编辑�
 | 组成 | 是什么 | 为什么锁定版本 |
 |---|---|---|
 | `mcppls.okb` 与 `okrun` | 服务端（两种架构的映像），以及启动它的各系统平台运行器 | — |
-| clangd 23.1.0 | mcppls 用它做引擎，处理除模块级请求之外的一切，每个平台各一份原生程序 | 不同 clangd 版本的模块支持不一样；mcppls 生成的参数是按这个版本对齐的 |
+| clangd 23.1.0 | mcppls 用它做引擎，处理除模块级请求之外的一切：每个系统的运行器启动的 ok 映像 `clangd.okb` | 不同 clangd 版本的模块支持不一样；mcppls 生成的参数是按这个版本对齐的 |
 | openkal 工具包 | 一个语义工具包：openkal-musl 之上的 libc++ 头文件与模块源码，两种架构 | 编译器给不了 `import std` 的机器上，靠它也能解析，对任何目标都可用 |
 | `mcppls-kit-<target>` | 某个目标的语义工具包，编辑器询问后安装 | 目标所在系统自身的头文件和宏 |
 
