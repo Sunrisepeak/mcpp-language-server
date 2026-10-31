@@ -25,24 +25,30 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 
 | | 按平台各一份 | 是否必需 |
 |---|---|---|
-| `mcppls-<platform>.vsix` | 是 | 是 |
-| `payload-<platform>.tar.gz` | 是 | 是 |
+| `mcppls-<version>.vsix` | 否——一个服务所有系统 | 是 |
+| `mcppls-payload-<version>.tar.gz` | 否——里面每个平台一个条目 | 是 |
 | `mcppls-zed-<version>.tar.gz` | 否 | 是 |
-| `mcppls-clion-<version>-<platform>.zip` | 是 | 是 |
+| `mcppls-clion-<version>.zip` | 否——一个服务所有系统 | 是 |
 | `mcppls-<version>-openkal.zip` | 否——一个包服务所有系统和架构 | 是 |
 | `mcppls-<version>.okb` | 否——两种架构的映像 | 是 |
 | `mcppls-<version>-<system>-<arch>`（`linux-x86_64`、`linux-aarch64`、`macos-aarch64`、`windows-x86_64.exe`） | 每个系统与架构一个 | 是 |
+| `mcppls-kit-openkal-<平台版本>.tar.gz` | 否——所有 openkal 目标的工具包 | 是 |
+| `mcppls-kit-<target>-<version>.tar.gz` | 每个平台的目标一个（`x86_64-linux-gnu`、`aarch64-linux-gnu`、`arm64-apple-darwin`、`x86_64-w64-mingw32`） | 是 |
 | `SHA256SUMS`、`MANIFEST.md` | 否 | 是 |
 
-增减 release 文件只需修改这份发布清单，workflow 不用改。
+增减 release 文件只需修改这份发布清单，workflow 不用改；模式里的 `*` 代表 release 不写出的版本（工具包的版本），`{kit}` 代表 `packaging/payload.lock.json` 为平台写的工具包名。
 
-**服务端只有一份字节。** 它按架构构建为 ok 映像（mcpp 的 `<arch>-openkal`，平台为 openkal-platform），上表中凡是带服务端的文件，带的都是这些映像：okb 带两份；每个 payload 和 VSIX 都把这个 okb 作为 `bin/mcppls.okb`，旁边是本平台的运行器 `bin/okrun`；通用包在 `lib/<arch>/` 下带两份，并带它服务的每个系统的运行器；单文件是一个系统的运行器，里面装着一份映像。CI 把每一个都与最先构建的映像（`server-image`）比对：通用包在 Linux、macOS、Windows 上的各行、okb、每个 payload 的 okb、每个 VSIX 的 okb（`distribution`，“一个 okb，每个运行器都能启动它”），并在各自的系统上运行它分发的每个运行器。按平台不同的只有 clangd 和工具包，所以 payload、VSIX 和 CLion 的包仍然按平台各一份。
+**一个包服务所有系统**（生态设计 2026-10-29 §9）。服务端按架构构建为 ok 映像（mcpp 的 `openkal` 集合，平台为 openkal-platform），上表中凡是带服务端的文件，带的都是这些映像：okb 带两份；openkal 树在 `lib/<arch>/` 下带两份，并带启动器 `bin/mcppls`、`bin/mcppls.exe` 与它服务的每个系统的运行器；payload 把 okb 作为 `bin/mcppls.okb`，运行器放在 `libexec/okrun/<system>-<arch>/`，VSIX 与 CLion 插件带这个 payload；单文件是一个系统的运行器，里面装着一份映像。按平台不同的只有 clangd（`clangd/<platform>/`，各系统原生）和目标的工具包；payload.json 中每个平台的条目写出它的运行器和引擎。
 
 | 任务（`ci.yml`） | 产出 | 运行于 |
 |---|---|---|
-| `server-universal` | 每个系统的 self-contained 通用包（`mcpp pack --target x86_64-openkal --mode self-contained --pkg-format zip`）；在 Linux 上还有 okb（`--pkg-format okb`，用 `okld bundle check` 检查）和单文件（`--pkg-format single-file --systems linux,macos,windows`，两种架构） | Linux、macOS、Windows |
-| `server-openkal` | `mcppls-<version>-openkal.zip`：用 `mcpp pack --merge` 合并 Linux 的包（其运行器与 Windows 的）和 macOS 的包，带 linux-x86_64、linux-aarch64、macos-aarch64 与 windows-x86_64 的运行器 | Linux |
-| `distribution` | 不产出文件：每个 VSIX 只带一个 okb，就是那一个 okb，它的运行器能启动它；通用包和单文件能启动服务端 | 每个平台 |
+| `build` | 每个平台的程序、测试工具（`stage-<platform>`）与单元测试，测试写成归档（`mcpp test --no-run --archive`） | Linux |
+| `test` | 不产出文件：每个平台的测试归档在它自己的系统上运行（`mcpp test --archive`），两种 profile | 每个平台 |
+| `server` | 一次构建得到 `mcppls-<version>-openkal.zip` 与 `mcppls-<version>.okb`（`mcpp pack --target openkal --mode self-contained --systems all --pkg-format zip,okb`），树的 `runs_on.self` 覆盖每个平台；以及单文件（`--pkg-format single-file --systems all`） | Linux |
+| `kits` | 每个平台的目标工具包 `mcppls-kit-<target>-<version>.tar.gz` | Linux、Linux arm64、macOS |
+| `payload` | openkal 工具包与唯一的 payload | Linux |
+| `vsix` | 唯一的 VSIX | Linux |
+| `distribution` | 不产出文件：VSIX 只带一个 okb，就是那一个 okb，本平台的运行器能启动它；树的启动器和单文件能启动服务端 | 每个平台 |
 
 ## 发起一次发布
 
@@ -65,10 +71,10 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 一个 release 到达用户要经过五步，只有第一步是自动的：
 
 1. 这次运行把 release 创建成**草稿**。
-2. 你在本地验证草稿里的 `mcppls-<platform>.vsix`（见[核实一次发布](#核实一次发布)）。
+2. 你在本地验证草稿里的 `mcppls-<version>.vsix`（见[核实一次发布](#核实一次发布)）。
 3. 你发布这个草稿。这会触发 `.github/workflows/publish-openvsx.yml`，把同样的文件发到 Open VSX（见 [Open VSX](#open-vsx)）。
 4. 你把同样的文件上传到 VS Code Marketplace（见[下文](#vs-code-marketplace)）。
-5. 你把四个 `mcppls-clion-<version>-<platform>.zip` 上传到 JetBrains Marketplace（见[下文](#jetbrains-marketplace)）。
+5. 你把 `mcppls-clion-<version>.zip` 上传到 JetBrains Marketplace（见[下文](#jetbrains-marketplace)）。
 
 关掉 `draft` 的运行有意跳过第 2 步：release 立即发布，并由它的 `openvsx` job 发到 Open VSX，因为 workflow 创建的 release 不会触发其他 workflow。
 
@@ -79,7 +85,7 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 | Job | 通过条件 |
 |---|---|
 | CI | `ci.yml` 的每个 job 都通过 |
-| plugins (Linux) | Zed 扩展能构建、能打包；CLion 插件按平台各构建一个包，每个包带着本平台的 payload |
+| plugins (Linux) | Zed 扩展能构建、能打包；CLion 插件构建一个包，带着有每个平台条目的 payload |
 | install | devtools 装好 Zed 扩展和本平台的 CLion 包；Zed 回退使用的服务端和 CLion 包自带的服务端都能应答 `inferred` 这个 fixture；`uninstall` 之后什么都不留下 |
 | performance | 五次冷启动首次导航的中位数在 12 秒以内，五次热启动在 5 秒以内，且没有检查失败 |
 | performance on a real project (Linux) | 服务端能通过 `self-mcpp` 这个 fixture：固定某次提交的 mcpp 仓库本身 |
@@ -105,7 +111,7 @@ nightly 运行还多一个 `termux` job：termux 自己的用户空间和 PRoot�
 随附的 clangd 是 mcppls-clangd，在它自己的仓库发布，在这里由 `packaging/payload.lock.json` 锁定。
 同时涉及两边的改动按下面的顺序进行，保证引擎发布出来的东西已经和本仓库的 CI 一起通过，发布后不会再冒出问题：
 
-1. **引擎 PR 的 CI 为每个平台构建打包好的部件**（`clangd-<platform>-portable`，带 `engine.json`），验证方式与正式发布相同。
+1. **引擎 PR 的 CI 为每个平台构建打包好的部件**（`clangd-<platform>-portable`，带写明平台的 `engine.json`），验证方式与正式发布相同。
 2. **本仓库的 PR 在引擎合入之前就用这份构建测试。** 提交 `packaging/engine-candidate.json`，写明引擎 PR 的那次运行：
 
    ```json
@@ -113,7 +119,7 @@ nightly 运行还多一个 `termux` job：termux 自己的用户空间和 PRoot�
      "engine-commit": "<构建它的引擎 PR head>" }
    ```
 
-   CI 的 `payload` 任务随后用那次运行的部件组装每个平台的 payload，而不是锁文件里的归档，之后的所有任务都测试它。发现的问题在哪个 PR 就在哪个 PR 修，并把文件指向新的运行，直到两边都通过。
+   CI 的 `payload` 任务随后用那次运行的部件（`payload --clangd <platform>=<部件> ... --candidate`）组装 payload，而不是锁文件里的归档，之后的所有任务都测试它。发现的问题在哪个 PR 就在哪个 PR 修，并把文件指向新的运行，直到两边都通过。
 3. **合入并发布引擎**，再把锁文件切换到发布的归档（大小和 SHA-256，各自用两次下载和发布的 `.sha256` 核对），并在同一个提交里**删除候选文件**。CI 在发布的字节上再跑一次。
 4. 合入本 PR 并发布。
 
@@ -125,7 +131,7 @@ nightly 运行还多一个 `termux` job：termux 自己的用户空间和 PRoot�
 
 | 输入 | 作用 |
 |---|---|
-| `payload-run` | 测试该分支某次 CI 运行（填它的 run id）构建好的 payload，不再重新构建：约 35 分钟而不是 80 分钟，测的就是 PR 的 CI 测过的那份字节 |
+| `payload-run` | 测试该分支某次 CI 运行（填它的 run id）构建好的 payload、测试工具和工具包，不再重新构建：约 35 分钟而不是 80 分钟，测的就是 PR 的 CI 测过的那份字节 |
 | `scope` | `all`（所有任务）或 `ux`（只跑 ux 轮次、预算汇总和对比） |
 | `ux-repeat` | 每一轮把 edits 阶段（输入、保存、U5、U6、U7a、U15）跑这么多次，每次一个新的 server 会话，复用 cold 和 warm 阶段准备好的东西：填 4，三轮合计每项 12 个样本，只构建一次 |
 | `ux-baseline` | 一个已发布的版本（`v0.0.16`），它的 server 在同一批机器上跑同样的阶段，用自己的工作区和缓存，与本版本按 A B B A 交替；`ux budgets` 随后输出 `mcppls-devtools measure compare`：输入、保存、状态变化、空闲和超时这几项数字并排列出，中位数比基线差、且超出两者波动范围的会被标出 |
@@ -148,7 +154,7 @@ nightly 运行还多一个 `termux` job：termux 自己的用户空间和 PRoot�
 
 ## Open VSX
 
-Open VSX 是兼容 VS Code 的编辑器（Cursor、VSCodium、Windsurf、Trae 等）查找扩展的地方。release 一发布，`.github/workflows/publish-openvsx.yml` 就把它的每个 `mcppls-<platform>.vsix` 发到命名空间 `sunrisepeak`：无论是在网页上发布（`release: published`），还是 Release 直接发布时由它的 `openvsx` job 调用。它从 release 下载这些文件，对照 `SHA256SUMS` 检查，确认 token 有权发布到这个命名空间，然后逐个发布；每个 VSIX 自带平台信息，所以每个平台拿到的都是自己的文件。发布完成后，它会把每个文件从 Open VSX 重新下载下来，与 `SHA256SUMS` 比对哈希；Open VSX 提供的内容不一致时，这个 job 就会失败。GitHub 上的 pre-release 按普通版本发布。
+Open VSX 是兼容 VS Code 的编辑器（Cursor、VSCodium、Windsurf、Trae 等）查找扩展的地方。release 一发布，`.github/workflows/publish-openvsx.yml` 就把它的 `mcppls-<version>.vsix` 发到命名空间 `sunrisepeak`：无论是在网页上发布（`release: published`），还是 Release 直接发布时由它的 `openvsx` job 调用。它从 release 下载这个文件，对照 `SHA256SUMS` 检查，确认 token 有权发布到这个命名空间，然后发布；这个 VSIX 不写目标平台，Open VSX 把它列为 universal。发布完成后，它会把文件从 Open VSX 重新下载下来，与 `SHA256SUMS` 比对哈希；Open VSX 提供的内容不一致时，这个 job 就会失败。GitHub 上的 pre-release 按普通版本发布。
 
 Open VSX 已有的版本会被跳过（`--skip-duplicate`），所以重跑是安全的：**Actions → Publish to Open VSX → Run workflow**，填上标签，只会补发缺的部分。
 
@@ -156,12 +162,12 @@ token 是仓库 secret `OVSX_PAT`，属于拥有该命名空间的 Open VSX 账�
 
 ## VS Code Marketplace
 
-本地验证之后手动上传：把已发布 release 的每个 `mcppls-<platform>.vsix` 上传到 publisher `sunrisepeak`，可以用 `npx @vscode/vsce publish --packagePath <这些文件>`，也可以在 publisher 管理页面上逐个上传（第一个用新建扩展，其余用 *Update*）。一个版本号只发布一次：Marketplace 只接受比它见过的所有版本都高的版本号。
+本地验证之后手动上传：把已发布 release 的 `mcppls-<version>.vsix` 上传到 publisher `sunrisepeak`，可以用 `npx @vscode/vsce publish --packagePath <这个文件>`，也可以在 publisher 管理页面上用 *Update* 上传。0.0.19 及以前按平台各有一个文件的列表，由这一个 universal 文件取代。一个版本号只发布一次：Marketplace 只接受比它见过的所有版本都高的版本号。
 
 ## JetBrains Marketplace
 
-本地验证之后手动上传：插件 `io.github.sunrisepeak.mcppls`（vendor 为 Sunrisepeak）接收已发布 release 的四个 `mcppls-clion-<version>-<platform>.zip`，每个作为一次单独的更新上传（版本号为 `<version>-linux-x86_64`、`<version>-linux-arm64`、`<version>-mac-arm64` 和 `<version>-windows-x86_64`，即构建给它们加的后缀）。Marketplace 按 `plugin.xml` 中对 IDE 所在系统和架构的依赖（`com.intellij.modules.os.*`、`com.intellij.modules.arch.*`）给 IDE 下发对应的包，每个包都声明了这些依赖；这也是 `since-build` 为 261 的原因，这是 Marketplace 这样做的第一个 IDE 版本。新插件的第一次上传要经过 JetBrains 审核；依赖本插件的 mcpp-clion 要等本插件上架后才能被接受。
+本地验证之后手动上传：插件 `io.github.sunrisepeak.mcppls`（vendor 为 Sunrisepeak）接收已发布 release 的 `mcppls-clion-<version>.zip`，一个包服务所有系统（0.0.19 按系统各一个包，靠 `com.intellij.modules.os.*` 与 `com.intellij.modules.arch.*` 依赖区分，这个包不再声明它们）。`since-build` 仍为 261。新插件的第一次上传要经过 JetBrains 审核；依赖本插件的 mcpp-clion 要等本插件上架后才能被接受。
 
 ## 还没做的
 
-xlings 索引上有服务端（openxlings/xim-pkgindex 的 `pkgs/m/mcppls.lua`），由提交到索引的 pull request 更新；release workflow 不会开这个 pull request。`mcppls-devtools release xlings` 能生成包描述文件。从 workflow 直接上传到 VS Code Marketplace 或 JetBrains Marketplace 是有意不做的：两者都要留在上面的本地验证之后。
+xlings 索引上有服务端（openxlings/xim-pkgindex 的 `pkgs/m/mcpp-language-server.lua`）和各工具包（`pkgs/m/mcppls-kit-<target>.lua`、`mcppls-kit-openkal.lua`），由提交到索引的 pull request 更新；release workflow 不会开这个 pull request。`mcppls-devtools release xlings --release DIR --out DIR` 从 release 的文件生成描述文件：服务端一个资产，各系统块写出它的 `mcpp-package.json` 中 `runs_on.self` 覆盖的架构；每个工具包一个资产，适用所有系统。从 workflow 直接上传到 VS Code Marketplace 或 JetBrains Marketplace 是有意不做的：两者都要留在上面的本地验证之后。

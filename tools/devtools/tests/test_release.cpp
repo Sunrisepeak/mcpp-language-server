@@ -34,61 +34,49 @@ void write(const std::string& path, std::string_view content) {
 
 constexpr std::string_view RELEASE_MANIFEST = R"({
   "release-name": "mcpp-language-server {version}",
-  "platforms": ["linux-x64"],
+  "platforms": ["linux-x64", "win32-x64"],
   "assets": [
-    { "id": "payload", "pattern": "payload-{platform}.tar.gz", "per-platform": true, "required": true,
-      "what": "The payload", "install": "Unpack it" }
+    { "id": "payload", "pattern": "mcppls-payload-{version}.tar.gz", "per-platform": false, "required": true,
+      "what": "The payload", "install": "Unpack it" },
+    { "id": "kit-openkal", "pattern": "mcppls-kit-openkal-*.tar.gz", "per-platform": false, "required": true,
+      "what": "The openkal kit", "install": "xlings" },
+    { "id": "kit", "pattern": "mcppls-kit-{kit}-*.tar.gz", "per-platform": true, "required": true,
+      "what": "A target's kit", "install": "xlings" }
   ],
   "not-in-a-release": []
 })";
 
-// One payload-<platform>.tar.gz, shaped like CI's real one: a top-level `payload/` directory
-// holding bin/<exeName> and a two-file kit/.
-std::string make_payload_tarball(const std::string& directory, std::string_view platformTarget, std::string_view exeName) {
-    std::error_code ignored;
-    const std::string sourceDir { base::join_path(directory, std::format("payload-source-{}", platformTarget)) };
-    (void)std::filesystem::create_directories(base::join_path(sourceDir, "bin"), ignored);
-    (void)std::filesystem::create_directories(base::join_path(sourceDir, "kit"), ignored);
-    (void) os::fs::write(base::join_path(sourceDir, std::format("bin/{}", exeName)), "ELF-ish server bytes");
-    (void) base::make_executable(std::array { base::join_path(sourceDir, std::format("bin/{}", exeName)) }).has_value();
-    (void) os::fs::write(base::join_path(sourceDir, "kit/kit.json"), R"({"kit-version": 1})");
-    (void) os::fs::write(base::join_path(sourceDir, "kit/module.pcm"), "pcm-bytes");
+constexpr std::string_view LOCK = R"({"clangd-version": "23.1.0-mcppls.5", "libcxx-version": "23.1.0", "entries": {},
+    "platforms": {"linux-x64": {"kit": {"name": "x86_64-linux-gnu"}}, "win32-x64": {"kit": {"name": "x86_64-w64-mingw32"}}}})";
 
-    const std::string tarball { base::join_path(directory, std::format("payload-{}.tar.gz", platformTarget)) };
-    const std::vector<ar::WriteEntry> entries {
-        { base::join_path(sourceDir, "bin"), "bin" },
-        { base::join_path(sourceDir, "kit"), "kit" },
-    };
-    auto wrote = ar::write(tarball, "payload", entries);
+// A file of the release that only has to be there: its bytes are not read.
+void asset(const std::string& directory, std::string_view name) { write(base::join_path(directory, std::string { name }), "x"); }
+
+// The openkal tree, as `mcpp pack --target openkal --mode self-contained --systems all --pkg-format zip` writes it:
+// one top directory and mcpp-package.json saying where it runs.
+void make_tree(const std::string& directory, std::string_view version) {
+    const std::string source { base::join_path(directory, "tree-source") };
+    write(base::join_path(source, "mcpp-package.json"),
+          R"({"schema": 1, "runs_on": {"self": ["linux-aarch64", "linux-x86_64", "macos-aarch64", "windows-x86_64"], "with": {"okrun": ["macos-x86_64"]}}})");
+    write(base::join_path(source, "bin/mcppls"), "#!/bin/sh\n");
+    const std::string name { std::format("mcppls-{}-openkal", version) };
+    const std::vector<ar::WriteEntry> entries { { base::join_path(source, "mcpp-package.json"), "mcpp-package.json" }, { base::join_path(source, "bin"), "bin" } };
+    auto wrote = ar::write(base::join_path(directory, name + ".zip.tar.gz"), name, entries);
     if (!wrote) throw std::runtime_error(wrote.error().message);
-    return tarball;
-}
-
-// make_xlings_artifacts processes every platform the lock has, so a test that wants it to succeed
-// has to provide one tarball per platform -- a partial payloads directory is exactly the "missing
-// tarball" test below.
-// A release's directory: the payload tarballs (the kit comes from these) and the server's single
-// file of each system and architecture (the server comes from these).
-void make_every_payload_tarball(const std::string& directory) {
-    make_payload_tarball(directory, "linux-x64", "mcppls");
-    make_payload_tarball(directory, "linux-arm64", "mcppls");
-    make_payload_tarball(directory, "darwin-arm64", "mcppls");
-    make_payload_tarball(directory, "win32-x64", "mcppls.exe");
-    for (const std::string_view file : { "linux-x86_64", "linux-aarch64", "macos-aarch64", "windows-x86_64.exe" }) {
-        write(base::join_path(directory, std::format("mcppls-2026.9.16.1-{}", file)), "single file\n");
-    }
+    // The writer writes a gzip-compressed tar; the reader reads by content, so the name the release gives it is kept.
+    std::filesystem::rename(base::join_path(directory, name + ".zip.tar.gz"), base::join_path(directory, name + ".zip"));
+    std::filesystem::remove_all(source);
 }
 
 std::string make_root() {
     const std::string root { scratch("root") };
     write(base::join_path(root, "LICENSE"), "Apache-2.0\n");
     write(base::join_path(root, "packaging/release.manifest.json"), RELEASE_MANIFEST);
-    write(base::join_path(root, "packaging/payload.lock.json"), R"({"clangd-version": "23.1.0", "libcxx-version": "23.1.0", "entries": {},
-            "platforms": {"linux-x64": {}, "linux-arm64": {}, "darwin-arm64": {}, "win32-x64": {}}})");
+    write(base::join_path(root, "packaging/payload.lock.json"), LOCK);
     write(base::join_path(root, "packaging/xlings/mcpp-language-server.lua.in"),
-          "ref = \"@VERSION@\"\ndeps = { \"xim:llvm-tools@@CLANGD_VERSION@\" }\nsha256 = \"@SHA256_LINUX_X86_64@\"\n");
+          "archs = {@ARCHS@}\ndeps = { \"xim:llvm-tools@@CLANGD_VERSION@\", \"xim:mcppls-kit-openkal@@OPENKAL_KIT_VERSION@\" }\nxpm = {\n@XPM_SYSTEMS@}\n");
     write(base::join_path(root, "packaging/xlings/mcppls-kit.lua.in"),
-          "ref = \"@KIT_VERSION@\"\nsha256 = \"@KIT_SHA256_LINUX_X86_64@\"\n");
+          "name = \"mcppls-kit-@KIT_NAME@\"\nwhat = \"@KIT_WHAT@\"\nlicenses = {@KIT_LICENSES@}\nref = \"@KIT_VERSION@\"\nurl = \"@KIT_URL@\"\nsha256 = \"@KIT_SHA256@\"\nfor = \"@KIT_TARGET@\"\n");
     return root;
 }
 
@@ -97,82 +85,74 @@ std::string make_root() {
 int main() {
     using namespace mcppls::testing;
 
-    "release check: a staged directory matching the manifest passes"_test = [&] {
+    "release check: a staged directory matching the manifest passes, its kits named by the lock"_test = [&] {
         const std::string root { make_root() };
         const std::string staged { scratch("staged") };
-        (void) os::fs::write(base::join_path(staged, "payload-linux-x64.tar.gz"), "x");
-        auto checked = release::check_release(root, "2026.9.16.1", staged, false);
+        for (std::string_view name : { "mcppls-payload-0.0.20.tar.gz", "mcppls-kit-openkal-0.19.0.tar.gz", "mcppls-kit-x86_64-linux-gnu-23.1.0.tar.gz",
+                                       "mcppls-kit-x86_64-w64-mingw32-23.1.0.tar.gz" }) {
+            asset(staged, name);
+        }
+        auto checked = release::check_release(root, "0.0.20", staged, false);
         expect(checked.has_value());
-        if (checked) expect(checked->ok);
+        if (checked) expect(checked->ok) << (checked->problems.empty() ? std::string {} : checked->problems.front());
+        asset(staged, "mcppls-kit-riscv64-linux-gnu-23.1.0.tar.gz");
+        checked = release::check_release(root, "0.0.20", staged, false);
+        expect(checked.has_value() && !checked->ok) << "a kit of no platform is undeclared";
         std::filesystem::remove_all(root);
     };
 
-    "release check: a missing required file fails"_test = [&] {
+    "release check: a missing required file fails, a kit of a platform included"_test = [&] {
         const std::string root { make_root() };
-        const std::string staged { scratch("staged-empty") };
-        auto checked = release::check_release(root, "2026.9.16.1", staged, false);
+        const std::string staged { scratch("staged-partial") };
+        for (std::string_view name : { "mcppls-payload-0.0.20.tar.gz", "mcppls-kit-openkal-0.19.0.tar.gz", "mcppls-kit-x86_64-linux-gnu-23.1.0.tar.gz" }) {
+            asset(staged, name);
+        }
+        auto checked = release::check_release(root, "0.0.20", staged, false);
         expect(checked.has_value());
-        if (checked) expect(!checked->ok);
+        if (checked) {
+            expect(!checked->ok);
+            expect(std::ranges::any_of(checked->problems, [](const std::string& p) { return p.contains("mcppls-kit-x86_64-w64-mingw32-*"); }));
+        }
         std::filesystem::remove_all(root);
     };
 
-    "release xlings: server and kit archives are written, with sha256 rendered into both templates"_test = [&] {
-        std::error_code ignored;
+    "release xlings: one server asset for the systems it runs on, one descriptor per kit"_test = [&] {
         const std::string root { make_root() };
-        const std::string payloads { scratch("payloads") };
-        make_every_payload_tarball(payloads);
+        const std::string releaseDir { scratch("release") };
+        make_tree(releaseDir, "0.0.20");
+        for (std::string_view name : { "mcppls-kit-openkal-0.19.0.tar.gz", "mcppls-kit-x86_64-linux-gnu-23.1.0.tar.gz", "mcppls-kit-x86_64-w64-mingw32-23.1.0.tar.gz" }) {
+            asset(releaseDir, name);
+        }
         const std::string out { scratch("xlings-out") };
-
-        auto result = release::make_xlings_artifacts(root, payloads, out, std::string { "2026.9.16.1" },
-                                                      std::nullopt, std::nullopt);
-        expect(result.has_value());
+        auto result = release::make_xlings_artifacts(root, releaseDir, out, std::string { "0.0.20" }, std::string { "https://example.org/r/" }, std::nullopt);
+        expect(result.has_value()) << (result ? std::string {} : result.error().message);
         if (!result) return;
-
-        const std::string serverArchive { base::join_path(out, "mcpp-language-server-2026.9.16.1-linux-x86_64.tar.gz") };
-        const std::string kitArchive { base::join_path(out, "mcppls-kit-23.1.0-linux-x86_64.tar.gz") };
-        expect(std::filesystem::is_regular_file(serverArchive, ignored));
-        expect(std::filesystem::is_regular_file(kitArchive, ignored));
-
-        // The server archive carries the single file as bin/mcppls, and LICENSE, nothing from kit/.
-        auto serverEntries = ar::extract(serverArchive, base::join_path(out, "server-check"), [](std::string_view) { return true; });
-        expect(serverEntries.has_value());
-        if (serverEntries) {
-            expect(std::ranges::find(*serverEntries, "bin/mcppls") != serverEntries->end());
-            expect(std::ranges::find(*serverEntries, "LICENSE") != serverEntries->end());
-            expect(os::fs::read(base::join_path(out, "server-check/bin/mcppls")).value_or("") == "single file\n");
-        }
-        auto kitEntries = ar::extract(kitArchive, base::join_path(out, "kit-check"), [](std::string_view) { return true; });
-        expect(kitEntries.has_value());
-        if (kitEntries) {
-            expect(std::ranges::find(*kitEntries, "kit.json") != kitEntries->end());
-            expect(std::ranges::find(*kitEntries, "module.pcm") != kitEntries->end());
-        }
-
-        auto serverLua = os::fs::read(base::join_path(out, "mcpp-language-server.lua"));
-        expect(serverLua.has_value());
-        if (serverLua) {
-            expect(serverLua->contains("ref = \"2026.9.16.1\""));
-            // `@...@`-shaped placeholders are gone; a legitimate "@" (xlings' `pkg@version` syntax
-            // inside the rendered value itself, e.g. "xim:llvm-tools@23.1.0") is not one.
-            expect(!serverLua->contains("@VERSION@"));
-            expect(!serverLua->contains("@CLANGD_VERSION@"));
-            expect(!serverLua->contains("@SHA256_LINUX_X86_64@"));
-        }
-        auto kitLua = os::fs::read(base::join_path(out, "mcppls-kit.lua"));
-        expect(kitLua.has_value());
-        if (kitLua) {
-            expect(kitLua->contains("ref = \"23.1.0\""));
-            expect(!kitLua->contains("@"));
-        }
+        expect(result->written.size() == 4u);
+        const auto server = os::fs::read(base::join_path(out, "mcpp-language-server.lua")).value_or("");
+        expect(server.contains("archs = {\"aarch64\", \"x86_64\"}"));
+        expect(server.contains("xim:llvm-tools@23.1.0\"")) << "the engine's LLVM base";
+        expect(server.contains("xim:mcppls-kit-openkal@0.19.0\""));
+        expect(server.contains("url = \"https://example.org/r/mcppls-0.0.20-openkal.zip\""));
+        expect(server.contains("macosx = {") && server.contains("windows = {") && server.contains("linux = {"));
+        const auto mac = server.substr(server.find("macosx = {"));
+        expect(mac.substr(0, mac.find("},\n        },")).find("x86_64") == std::string::npos) << "macOS runs on arm64 only by itself";
+        const auto kit = os::fs::read(base::join_path(out, "mcppls-kit-x86_64-w64-mingw32.lua")).value_or("");
+        expect(kit.contains("name = \"mcppls-kit-x86_64-w64-mingw32\"") && kit.contains("ref = \"23.1.0\"") && kit.contains("ZPL-2.1"));
+        expect(kit.contains("url = \"https://example.org/r/mcppls-kit-x86_64-w64-mingw32-23.1.0.tar.gz\""));
+        expect(!kit.contains("@KIT"));
+        expect(os::fs::read(base::join_path(out, "mcppls-kit-openkal.lua")).value_or("").contains("ref = \"0.19.0\""));
         std::filesystem::remove_all(root);
     };
 
-    "release xlings: a missing payload tarball is an error naming which platform"_test = [&] {
+    "release xlings: a missing kit is an error naming the platform"_test = [&] {
         const std::string root { make_root() };
-        const std::string payloads { scratch("payloads-empty") };
-        const std::string out { scratch("xlings-out-empty") };
-        auto result = release::make_xlings_artifacts(root, payloads, out, std::string { "2026.9.16.1" }, std::nullopt, std::nullopt);
+        const std::string releaseDir { scratch("release-partial") };
+        make_tree(releaseDir, "0.0.20");
+        asset(releaseDir, "mcppls-kit-openkal-0.19.0.tar.gz");
+        asset(releaseDir, "mcppls-kit-x86_64-linux-gnu-23.1.0.tar.gz");
+        auto result = release::make_xlings_artifacts(root, releaseDir, scratch("xlings-out-partial"), std::string { "0.0.20" }, std::nullopt, std::nullopt);
         expect(!result.has_value());
+        if (!result) expect(result.error().message.contains("win32-x64")) << result.error().message;
         std::filesystem::remove_all(root);
     };
 

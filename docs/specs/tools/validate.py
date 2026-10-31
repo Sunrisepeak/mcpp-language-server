@@ -86,7 +86,7 @@ check("S2 example finished message watches the build description and the module 
 check("S2 example stream reports progress before finishing", any(json.loads(l)["kind"] == "progress" for l in lines[:-1]))
 check("S2 example envelope carries inputs-fingerprint", "inputs-fingerprint" in envelope["data"])
 check("S2 example envelope of a read-only command declares read-project only", envelope["effects"] == ["read-project"])
-for name in ["s4-kit-linux-x64.json", "s4-kit-win32-x64.json", "s4-kit-darwin-arm64.json"]:
+for name in ["s4-kit-linux-x64.json", "s4-kit-win32-x64.json", "s4-kit-darwin-arm64.json", "s4-kit-openkal.json"]:
     validate(f"S4 example validates: {name}", s4, load(ex / name))
 
 identity_schema = schemas["s4-engine-identity.schema.json"]
@@ -179,6 +179,16 @@ check("S4 darwin kit declares macos-sdk", {"kind": "macos-sdk"} in darwin.get("r
 for name in ["s4-kit-linux-x64.json", "s4-kit-win32-x64.json", "s4-kit-darwin-arm64.json"]:
     kit = load(ex / name)
     check(f"S4 {name}: libc++ version equals pinned clangd 23.1.0", kit["stdlib"]["version"] == "23.1.0")
+openkal = load(ex / "s4-kit-openkal.json")
+check("S4 s4-kit-openkal.json: kit-version 2 serves x86_64-openkal and aarch64-openkal",
+      openkal["kit-version"] == 2 and set(openkal["targets"]) == {"x86_64-openkal", "aarch64-openkal"})
+check("S4 s4-kit-openkal.json: the top level is one of its targets",
+      any(t["target"] == openkal["target"] and t["system-include-directories"] == openkal["system-include-directories"]
+          for t in openkal["targets"].values()))
+check("S4 s4-kit-openkal.json: each target reads its own architecture's headers and not the other's",
+      all(any(f"include/{name}/" in d for d in t["system-include-directories"])
+          and not any(f"include/{other}/" in d for d in t["system-include-directories"] for other in openkal["targets"] if other != name)
+          for name, t in openkal["targets"].items()))
 
 # 4. negative cases: schemas reject what the text forbids
 base_kit = load(ex / "s4-kit-linux-x64.json")
@@ -187,7 +197,9 @@ for label, mutate in [
     ("parent traversal", lambda k: k["system-include-directories"].append("include/../../etc")),
     ("drive prefix", lambda k: k.update({"sysroot": "C:/sdk"})),
     ("backslash separator", lambda k: k["licenses"].append("licenses\\X.TXT")),
-    ("unknown kit-version", lambda k: k.update({"kit-version": 2})),
+    ("unknown kit-version", lambda k: k.update({"kit-version": 3})),
+    ("targets in kit-version 1", lambda k: k.update({"targets": {"x86_64-openkal": {"target": "x86_64-unknown-none-elf", "system-include-directories": []}}})),
+    ("a target without its triple", lambda k: k.update({"kit-version": 2, "targets": {"x86_64-openkal": {"system-include-directories": []}}})),
     ("missing licenses", lambda k: k.pop("licenses")),
 ]:
     kit = copy.deepcopy(base_kit); mutate(kit)

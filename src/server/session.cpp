@@ -252,6 +252,9 @@ private:
         case EventKind::cache_swept:
             if (auto* root = root_by_key_(event.rootKey)) root->handle_cache_swept(event.message);
             break;
+        case EventKind::kit_installed:
+            if (auto* root = root_by_key_(event.rootKey)) root->handle_kit_installed(event.message);
+            break;
         case EventKind::deferred_answer:
             // A request whose heavy half ran off the loop (the sweep command): the loop answers,
             // exactly as if the work had finished here -- see the comment at EventKind.
@@ -306,6 +309,18 @@ private:
         if (method == lsp::method::WORKSPACE_EXECUTE_COMMAND && params.value("command", std::string {}) == "mcppls.describeOnline") {
             std::size_t started { 0 };
             for (auto& root : roots_) started += root->describe_online() ? 1 : 0;
+            reply_(id, Json { { "started", started } });
+            return;
+        }
+        // Ecosystem design §9.2: the person accepted, in their editor, to install the semantic kit of a target. Every root
+        // that reads with a stand-in for it (or for the target named, `arguments: [{ target }]`) installs it once in the
+        // background; the answer says how many started.
+        if (method == lsp::method::WORKSPACE_EXECUTE_COMMAND && params.value("command", std::string {}) == "mcppls.installKit") {
+            const Json arguments = params.value("arguments", Json::array());
+            std::string target;
+            if (arguments.is_array() && !arguments.empty() && arguments[0].is_object()) target = arguments[0].value("target", std::string {});
+            std::size_t started { 0 };
+            for (auto& root : roots_) started += root->install_kit(target) ? 1 : 0;
             reply_(id, Json { { "started", started } });
             return;
         }

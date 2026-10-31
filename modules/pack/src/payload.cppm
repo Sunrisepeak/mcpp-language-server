@@ -1,19 +1,26 @@
-// Putting the server, clangd and the semantic kit into the payload layout, and checking that an
-// assembled payload is complete and internally consistent.
+// Putting the server, the engine of each platform and the openkal kit into the payload layout,
+// and checking that an assembled payload is complete and internally consistent.
 //
-// This ports assemble_payload.py, including its `verify()` (also reachable as `--verify PAYLOAD`
-// and, having already verified what it just built, at the end of assembling) and its `--from`
-// (copy an already-assembled payload, keeping the executable bits, then verify the copy). The
-// layout is the contract the server and the editor extensions rely on:
+// ONE PAYLOAD FOR EVERY PLATFORM (payload version 5; ecosystem design 2026-10-29 §9): the server is
+// one okb of both architectures, started on each system by the platform's runner, which the
+// payload carries for every system it serves; the engine (clangd) of a platform is native, or the ok
+// image `clangd.okb` the platform's runner starts -- the lock's row chooses (part 2 §25.3), and the
+// image is carried once for every platform that selects it; the kit is the openkal kit, whose
+// standard library reads code for any target. The layout is the
+// contract the server and the editor extensions rely on:
 //
 //     <payload>/
-//       payload.json                  versions and relative paths of the three parts
-//       bin/mcppls[.exe]              the server; or, as an image (below):
-//       bin/mcppls.okb + bin/okrun[.exe]
-//       clangd/bin/clangd[.exe]
-//       clangd/lib/clang/<major>/include/...
-//       kit/kit.json + kit data        (spec S4)
-//       licenses/                      mcppls and LLVM license texts
+//       payload.json                          version, the server, the kit, and per platform its runner,
+//                                             engine and integrity-checked files
+//       bin/mcppls.okb                        the server: the image of x86_64 and of aarch64
+//       libexec/okrun/<system>/okrun[.exe]    the runner of each system (linux-x86_64, macos-aarch64, ...)
+//       clangd/<platform>/bin/clangd[.exe]    the engine of each platform (linux-x64, darwin-arm64, ...)
+//       clangd/<platform>/lib/clang/<major>/include/...
+//       clangd/<platform>/engine.json
+//       clangd/openkal/bin/clangd.okb         the ok image of the engine, for the platforms whose row selects it,
+//       clangd/openkal/lib/clang/<major>/...  their entries naming it with `engines.clangd.runner`
+//       kit/kit.json + kit data               the openkal kit (spec S4, kit-version 2)
+//       licenses/                             mcppls, LLVM and the runner's license texts
 export module mcppls.pack.payload;
 
 import std;
@@ -23,46 +30,49 @@ import mcppls.pack.lock;
 
 export namespace mcppls::pack::payload {
 
-// usable plan W9.4: records size and sha256 of clangd and the kit manifest, so the server can tell
-// a corrupt or tampered payload from a working one at startup. overall design 5.6 added `engines`.
-inline constexpr int PAYLOAD_VERSION { 3 };
-// Version 4 adds `engines.clangd.identity`: an engine with immutable provenance (engine.json).
-inline constexpr int IDENTIFIED_PAYLOAD_VERSION { 4 };
+// Version 5: one payload for every platform. Every engine carries its immutable identity
+// (S4-4-10), as version 4 did for its one platform.
+inline constexpr int PAYLOAD_VERSION { 5 };
+
+// The engine of one platform: mcppls.pack.clangd::trim's output (or a maintained engine part). A
+// directory holding bin/clangd.okb is the ok image, whose identity names openkal.
+struct PlatformEngine {
+    std::string platform;          // one of the lock's platforms
+    std::string clangdDirectory;
+};
 
 struct AssembleOptions {
-    std::string platform;                      // one of the lock's platforms
-    std::string serverPath;                    // the mcppls executable built for `platform`
-    // THE SERVER AS AN IMAGE (mcpp design 2026-10-28 part 2 §5, §15): one okb that every system of its architectures
-    // runs, and the loader of `platform` that starts it. When `serverImage` is set the payload carries
-    // `bin/mcppls.okb` and `bin/okrun[.exe]`, `serverPath` is not read, and payload.json's `server` names both
-    // (`path` and `runner`): an editor starts `<runner> <path> serve`.
-    std::string serverImage;
-    std::string serverRunner;
-    std::string clangdDirectory;                // produced by mcppls.pack.clangd::trim
-    std::string kitDirectory;                   // produced by mcppls.pack.kit (ported separately)
-    std::string outDirectory;                   // replaced if it exists
-    std::string repositoryRoot;                 // LICENSE and (best-effort) git provenance live here
-    std::optional<std::string> serverVersion;   // defaults to mcppls::base::VERSION
+    std::string serverImage;                  // the okb of every architecture (`mcpp pack --target openkal --pkg-format okb`)
+    // The tree `mcpp pack --target openkal --mode self-contained --systems all` wrote, unpacked: its
+    // `libexec/okrun/<system>/` holds the runner of each system, and its mcpp-package.json says
+    // where it runs (`runs_on.self`).
+    std::string serverTree;
+    std::vector<PlatformEngine> engines;      // one per platform the payload serves
+    std::string kitDirectory;                 // the openkal kit (mcppls.pack.openkal)
+    std::string outDirectory;                 // replaced if it exists
+    std::string repositoryRoot;               // LICENSE and (best-effort) git provenance live here
+    std::optional<std::string> serverVersion; // defaults to mcppls::base::VERSION
     // A new engine under test (docs/92-release.md, "A new engine"): another fork version of the locked LLVM base is taken,
     // its identity still checked. A release never sets it: its engine is the lock's.
     bool candidateEngine { false };
 };
 
-// Assembles the payload directory; returns its path. Every check assemble_payload.py made before
-// writing anything survives here as a base::fail before this function touches the output
-// directory: the four inputs must exist and be the right shape, or nothing is written at all.
+// Assembles the payload directory; returns its path. The inputs are checked before the output
+// directory is touched: every server part, engine and the kit must exist and be the right shape,
+// and the server tree must run on every platform's system by itself, or nothing is written.
 base::Result<std::string> assemble(const AssembleOptions& options, const lock::Lock& lockData);
 
-// The problems found in an assembled payload; empty means it is complete. Every one of
-// assemble_payload.py's `verify()` checks -- the manifest shape, the four parts it names, the
-// kit's own rules (spec S4 section 4), the startup integrity files' sha256, and paths that
-// collide only in case -- is here, in the same order.
+// The problems found in an assembled payload; empty means it is complete: the manifest's shape,
+// the server and every platform's runner and engine, the kit's own rules (spec S4 section 4), the
+// integrity files' sha256, and paths that collide only in case.
 std::vector<std::string> verify(std::string_view payloadDirectory);
 
+// The problems of a kit by spec S4's rules (data only, std provided, paths present, libc++ the
+// version its headers carry, a macOS kit's SDK requirement): a payload's kit and a target kit alike.
+std::vector<std::string> verify_kit(std::string_view kitDirectory);
+
 // Copies an already-assembled payload from `source` to `out` -- keeping the executable bits,
-// which a copy that writes each file by hand does not -- then verifies the copy. This is
-// assemble_payload.py's `--from`: a caller that already has a payload (CI, which built one per
-// platform in an earlier job) puts it where a packaging step wants it.
+// which a copy that writes each file by hand does not -- then verifies the copy.
 base::Result<std::string> copy_from(std::string_view source, std::string_view out);
 
 } // namespace mcppls::pack::payload

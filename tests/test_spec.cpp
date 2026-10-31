@@ -242,12 +242,33 @@ int main(int argc, char* argv[]) {
         unknownRequirement["requires"] = Json::array({ Json { { "kind", "quantum-sdk" } } });
         expect(!mcppls::spec::parse_kit(unknownRequirement, "/k").has_value());
         auto future = valid;
-        future["kit-version"] = 2;
+        future["kit-version"] = 3;
         expect(!mcppls::spec::parse_kit(future, "/k").has_value());
+        auto targetsInVersion1 = valid;
+        targetsInVersion1["targets"] = Json { { "x86_64-openkal", Json { { "target", "x86_64-unknown-none-elf" }, { "system-include-directories", Json::array() } } } };
+        expect(!mcppls::spec::parse_kit(targetsInVersion1, "/k").has_value()) << "targets is kit-version 2's";
         auto extended = valid;
         extended["vendor-field"] = Json { { "x", 1 } };
         extended["stdlib"]["vendor"] = "y";
         expect(mcppls::spec::parse_kit(extended, "/k").has_value()) << "fields a consumer does not know are ignored";
+    };
+
+    "a kit of several targets serves each with its own include directories (kit-version 2)"_test = [&] {
+        auto text = os::fs::read(base::join_path(root, "docs/specs/examples/s4-kit-openkal.json"));
+        expect(fatal(text.has_value()));
+        auto kit = mcppls::spec::parse_kit(Json::parse(*text), "/kits/openkal");
+        expect(fatal(kit.has_value())) << (kit ? "" : kit.error().message);
+        expect(kit->variants.size() == 2u);
+        const auto arm = mcppls::spec::kit_variant(*kit, "aarch64-openkal");
+        expect(fatal(arm.has_value()));
+        expect(arm->target == "aarch64-unknown-none-elf" && arm->variants.empty());
+        expect(std::ranges::any_of(arm->systemIncludeDirectories, [](const std::string& d) { return d.contains("include/aarch64-openkal/"); }));
+        expect(std::ranges::none_of(arm->systemIncludeDirectories, [](const std::string& d) { return d.contains("x86_64"); }));
+        expect(arm->moduleMetadata == kit->moduleMetadata) << "one standard library for every target";
+        expect(!mcppls::spec::kit_variant(*kit, "riscv64-openkal").has_value());
+        auto noTarget = Json::parse(*text);
+        noTarget["targets"]["x86_64-openkal"].erase("target");
+        expect(!mcppls::spec::parse_kit(noTarget, "/k").has_value());
     };
 
     "discovery output is interpreted"_test = [&] {

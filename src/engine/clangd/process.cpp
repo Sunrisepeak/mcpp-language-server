@@ -623,8 +623,10 @@ base::Result<void> ClangdProcess::start(const ProcessConfig& config, MessageHand
     stop(std::chrono::milliseconds { 200 });
     config_ = config;
     mcpplibs::os::process::spawn_options options;
-    options.program = config.executable;
+    // An ok-image engine (clangd.okb) is started by its runner, the image as the runner's first argument.
+    options.program = config.runner.empty() ? config.executable : config.runner;
     options.args = clangd_arguments(config);
+    if (!config.runner.empty()) options.args.insert(options.args.begin(), config.executable);
     options.cwd = config.workDirectory;
     options.own_unit = true;
     options.bound_lifetime = true;

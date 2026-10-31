@@ -274,6 +274,15 @@ struct Workspace::Impl final : engine::Host {
     bool payloadCorrupt { false };
     std::optional<spec::Kit> kit;
     std::string macosSdk;
+    // S4 section 5 (ecosystem design §9.2): the kits this root chooses from, and the choice for its target. A kit that
+    // stands in for the target's own (the openkal kit, or the host's for another target) names the one that would serve
+    // it, which the status offers to install.
+    std::vector<spec::Kit> kits;
+    std::string kitTarget;
+    std::string kitMissingTarget;
+    bool kitInstalling { false };
+    // How the last kit install the person asked for ended (S3 `kitInstall`): {outcome, message, target, at}; null before.
+    Json kitInstall;
     DocumentStore documents_;
     mutable std::unordered_map<std::string, std::string> canonicalByUri;
     index::ModuleIndex index;
@@ -575,6 +584,9 @@ struct Workspace::Impl final : engine::Host {
     std::optional<Clock::time_point> loadGiveUpAt;       // the producer has not answered: take what there is (design 4.1)
     std::optional<Clock::time_point> lastResortAt;       // nothing at all came: serve without a database rather than nothing
     std::optional<Clock::time_point> sdkCheckAt;
+    // While the kit of the target is missing: when to look again for it, installed by the editor, by hand, or by
+    // another window (a kit appears in xlings' store without this server's own install).
+    std::optional<Clock::time_point> kitCheckAt;
 
     // Model sources (design 4.1). The cache is per source and carries a fingerprint of everything
     // the producer read, so a session can start from it and confirm it in the background.
@@ -1051,6 +1063,7 @@ struct Workspace::Impl final : engine::Host {
         consider(lastResortAt);
         consider(producerSoftAt);
         consider(sdkCheckAt);
+        consider(kitCheckAt);
         consider(statusFlushAt);
         consider(leaseRenewAt);
         consider(tokensRefreshAt);
@@ -2555,6 +2568,8 @@ struct Workspace::Impl final : engine::Host {
         if (!selected.retryable) targetReadRetries = 0;
         const auto previous = project::target_selection_key(targetSelection);
         targetSelection = selected;
+        // S4 section 5: the kit follows the target; the load below reads with the kit of the new one.
+        if (previous != project::target_selection_key(targetSelection)) select_kit();
         targetSelectionInput = message.value("input", std::string {});
         targetReadPending = false;
         targetRetryAt.reset();
@@ -3805,6 +3820,151 @@ struct Workspace::Impl final : engine::Host {
         return profile;
     }
 
+    // ---- the kit of the target (S4 section 5) -----------------------------------------------
+
+    // The kits as they are now, read again after an install.
+    void read_kits() {
+        kits.clear();
+        if (payloadCorrupt || !kitEnabled) return;
+        payload.kits = engine::kit_roots(payload);
+        kits = engine::load_kits(payload);
+    }
+
+    // The kit for this root's target: the one it asks mcpp for, else this host's own.
+    void select_kit() {
+        const std::string before { kit ? std::format("{} {}", kit->name, kit->target) : std::string {} };
+        if (payloadCorrupt || !kitEnabled) {
+            kit.reset();
+            kitTarget.clear();
+            kitMissingTarget.clear();
+            return;
+        }
+        auto choice = engine::choose_kit(kits, payload.explicitKit, targetSelection.requestedTarget, engine::host_kit_target());
+        kit = std::move(choice.kit);
+        kitTarget = std::move(choice.target);
+        kitMissingTarget = std::move(choice.missingTarget);
+        if (kit && spec::requires_macos_sdk(*kit) && macosSdk.empty()) {
+            macosSdk = engine::macos_sdk_path();
+            // usable plan W5.4 / U7: keep looking every 30s so installing the Command Line Tools
+            // while the server runs is picked up without a restart.
+            if (macosSdk.empty()) sdkCheckAt = Clock::now() + std::chrono::seconds { 30 };
+        }
+        kitCheckAt.reset();
+        if (!kitMissingTarget.empty()) kitCheckAt = Clock::now() + std::chrono::seconds { 30 };
+        const std::string after { kit ? std::format("{} {}", kit->name, kit->target) : std::string {} };
+        if (after == before) return;
+        if (!kit) log::warning("no semantic kit serves {} ({})", kitTarget, root);
+        else log::info("semantic kit {} ({}) for {} at {}{} ({})", kit->name, kit->target, kitTarget, kit->root,
+                       kitMissingTarget.empty() ? std::string {} : std::format(", standing in for mcppls-kit-{}", kitMissingTarget), root);
+    }
+
+    std::string kit_install_command() const {
+        if (kitMissingTarget.empty()) return {};
+        return payload.kitVersion.empty() ? std::format("xlings install mcppls-kit-{}", kitMissingTarget)
+                                          : std::format("xlings install mcppls-kit-{}@{}", kitMissingTarget, payload.kitVersion);
+    }
+
+    // What reading with the stand-in leaves out (§9.2, said as it is): with the openkal kit, `import std` and the
+    // standard library work and this system's own headers and macros do not.
+    std::string kit_missing_message() const {
+        const std::string command { kit_install_command() };
+        if (!kit) return std::format("no semantic kit serves {}; install the kit for it: {}", kitTarget, command);
+        if (!kit->target.ends_with("-none-elf")) {
+            return std::format("the semantic kit for {} is not installed: files are read with the kit for {}; install it: {}", kitMissingTarget,
+                               engine::kit_target_name(kit->target), command);
+        }
+        std::string_view system { "this system's own headers and macros" };
+        if (kitMissingTarget.ends_with("-w64-mingw32")) system = "windows.h and the other Windows headers, and _WIN32";
+        else if (kitMissingTarget.ends_with("-apple-darwin")) system = "the macOS SDK's headers, and __APPLE__";
+        else if (kitMissingTarget.ends_with("-linux-gnu")) system = "glibc's and the Linux kernel's own headers, and __linux__";
+        return std::format("the semantic kit for {} is not installed: files are read with the openkal kit, so import std and the standard "
+                           "library work, while {} are not available; install it: {}",
+                           kitMissingTarget, system, command);
+    }
+
+    static std::optional<std::string> find_xlings() {
+        if (auto found = toolrun::find_program("xlings")) return found;
+        std::error_code ignored;
+        const std::string installed { base::join_path(base::home_directory(),
+                                                      std::format(".xlings/subos/current/bin/xlings{}", os::conventions().exe_suffix)) };
+        if (std::filesystem::is_regular_file(installed, ignored)) return installed;
+        return std::nullopt;
+    }
+
+    bool install_kit(std::string_view wanted) {
+        const std::string target { wanted.empty() ? kitMissingTarget : std::string { wanted } };
+        if (target.empty() || kitInstalling) return false;
+        const auto at = std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
+        const auto xlings = find_xlings();
+        if (!xlings) {
+            kitInstall = Json { { "outcome", "failed" }, { "target", target }, { "at", at },
+                                { "message", std::format("xlings is not installed, so mcppls-kit-{} cannot be installed here; install xlings, or unpack the "
+                                                         "release's mcppls-kit-{}-<version>.tar.gz into its store", target, target) } };
+            update_status();
+            return false;
+        }
+        const std::string package { payload.kitVersion.empty() ? std::format("mcppls-kit-{}", target)
+                                                               : std::format("mcppls-kit-{}@{}", target, payload.kitVersion) };
+        log::info("installing the semantic kit {} with {}, as asked ({})", package, *xlings, root);
+        kitInstalling = true;
+        update_status();
+        auto queue = events;
+        const std::string rootKey { key };
+        std::thread { [queue, rootKey, program = *xlings, package, target]() {
+            auto result = toolrun::run({ .program = program,
+                                         .arguments = { "install", package, "-y" },
+                                         .purpose = "kit-install",
+                                         .network = toolrun::Network::allowed,
+                                         .bounds = os::process::bounds { .hard = std::chrono::minutes { 15 } } });
+            const bool ok { result && result->status.success() && !result->timed_out };
+            std::string message { ok ? std::format("{} is installed", package) : std::string {} };
+            if (!result) message = std::format("{} could not be started: {}", program, result.error().message);
+            else if (!ok) message = std::format("xlings install {} failed ({}): {}", package, result->timed_out ? "timed out" : "exit status",
+                                                base::last_lines(result->err.empty() ? result->out : result->err, 6));
+            queue->push(Event { EventKind::kit_installed, Json { { "ok", ok }, { "message", message }, { "target", target } }, 0, {}, rootKey });
+        } }.detach();
+        return true;
+    }
+
+    // The kits installed since they were read: the target's kit, installed by the editor itself or by hand, is taken
+    // without a restart; the project is read again with it.
+    void look_for_kits() {
+        if (kitInstalling || payloadCorrupt || !kitEnabled) {
+            if (!kitMissingTarget.empty()) kitCheckAt = Clock::now() + std::chrono::seconds { 30 };
+            return;
+        }
+        if (engine::kit_roots(payload) == payload.kits) {
+            if (!kitMissingTarget.empty()) kitCheckAt = Clock::now() + std::chrono::seconds { 30 };
+            return;
+        }
+        const std::string before { kit ? kit->root : std::string {} };
+        read_kits();
+        select_kit();
+        if ((kit ? kit->root : std::string {}) == before) return;
+        log::info("a semantic kit was installed; reading the project with {} ({})", kit ? kit->name : std::string { "none" }, root);
+        schedule_reload();
+        update_status();
+    }
+
+    void kit_installed(const Json& outcome) {
+        kitInstalling = false;
+        const bool ok { outcome.value("ok", false) };
+        kitInstall = Json { { "outcome", ok ? "installed" : "failed" }, { "target", outcome.value("target", std::string {}) },
+                            { "message", outcome.value("message", std::string {}) },
+                            { "at", std::format("{:%FT%TZ}", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now())) } };
+        journal.add("kit-install", kitInstall);
+        if (!ok) {
+            log::warning("the semantic kit install failed ({}): {}", root, kitInstall.value("message", std::string {}));
+            update_status();
+            return;
+        }
+        log::info("{}; reading the project with it ({})", kitInstall.value("message", std::string {}), root);
+        read_kits();
+        select_kit();
+        schedule_reload();
+        update_status();
+    }
+
     // K-6: whether what makes the state degraded is only what passes by itself (PASSING_ISSUES).
     bool degraded_only_in_passing() const {
         if ((model && !model->issues.empty()) || !staleModelReason.empty() || (kit && spec::requires_macos_sdk(*kit) && macosSdk.empty())) return false;
@@ -3978,7 +4138,8 @@ struct Workspace::Impl final : engine::Host {
         if (state == State::ready || state == State::degraded) say_one_engine_per_file_once();
         // A start that ends degraded is the one most worth reading: it is said too, with the state it reached.
         if ((state == State::ready || state == State::degraded) && !startup.said) say_startup_(state);
-        if (!clientSupportsStatus) return;
+        // Past here the status is built for every client: one that does not understand
+        // `cxxModules/status` is not sent it, and `mcppls status` (S3 section 8) still reads it.
         Json issues = Json::array();
         auto add = [&](std::string_view code, std::string_view message, std::string_view command, std::string_view title = "Fix",
                        std::string_view category = "project") {
@@ -4054,6 +4215,18 @@ struct Workspace::Impl final : engine::Host {
             add("sdk-missing", "the macOS SDK was not found; install the Command Line Tools", "mcppls.installCommandLineTools", "Install Command Line Tools",
                 "environment");
         }
+        // S4 section 5 (ecosystem design §9.2): the kit of the target is not installed and another stands in. Said with
+        // what is missing and the command that installs it; a client that knows `askInstall` may offer to install it
+        // in the background (mcppls.installKit).
+        if (!kitMissingTarget.empty() && model && model->usesKit) {
+            add("kit-missing", kit_missing_message(), "mcppls.installKit", "Install Kit", "environment");
+            if (!issues.empty() && issues.back().value("code", std::string {}) == "kit-missing") {
+                issues.back()["kit"] = Json { { "target", kitMissingTarget }, { "package", std::format("mcppls-kit-{}", kitMissingTarget) },
+                                              { "version", payload.kitVersion }, { "command", kit_install_command() } };
+                issues.back()["askInstall"] = !kitInstalling;
+                if (kitInstalling) issues.back()["installing"] = true;
+            }
+        }
         Json notices = Json::array();
         if (model) {
             for (const auto& notice : model->notices) notices.push_back(Json { { "code", notice.code }, { "message", notice.message } });
@@ -4093,6 +4266,7 @@ struct Workspace::Impl final : engine::Host {
         if (const Json selection = target_selection_json(); selection.is_object()) params["targetSelection"] = selection;
         if (!notices.empty()) params["notices"] = std::move(notices);
         if (!onlineRun.is_null()) params["onlineRun"] = onlineRun;   // D-5, S3-4-26
+        if (!kitInstall.is_null()) params["kitInstall"] = kitInstall;
         if (core && core->toPrepare > 0) params["progress"] = Json { { "done", core->prepared }, { "total", core->toPrepare } };
         if (const Json cache = cache_fragment_(); cache.is_object()) params["cache"] = std::move(cache);
         attach_auto_bundles(params["issues"]);
@@ -4112,7 +4286,20 @@ struct Workspace::Impl final : engine::Host {
         lastStatus = std::move(serialized);
         lastSentState = state;
         lastStatusSentAt = now;
-        client.notify("cxxModules/status", std::move(params));
+        state_status_file_(params);
+        if (clientSupportsStatus) client.notify("cxxModules/status", std::move(params));
+    }
+
+    // What `mcppls status` reads of this instance (S3 section 8): the status it last sent, and the
+    // mcpp it ran for the root, written where its `instance.json` is. A reader that finds the
+    // instance gone ignores the file; the server removes it when it releases the workspace.
+    void state_status_file_(const Json& params) const {
+        if (!lease) return;
+        Json document { { "schema", 1 }, { "status", params } };
+        if (const auto self = os::process::self()) document["pid"] = static_cast<std::int64_t>(self->id);
+        if (detectedSource == project::SourceKind::mcpp)
+            document["mcpp"] = Json { { "version", producerVersion }, { "program", producerPath } };
+        (void)os::fs::write_atomic(lease->status_path(), document.dump());
     }
 
     // ---- timers -----------------------------------------------------------------------
@@ -4443,6 +4630,10 @@ struct Workspace::Impl final : engine::Host {
             // parse as an engine's is dropped, like the watcher registrations' answers.
             client.send(lsp::make_request(std::format("w:{}:t{}", key, ++tokensRefreshes), lsp::method::WORKSPACE_SEMANTIC_TOKENS_REFRESH, nullptr));
         }
+        if (kitCheckAt && *kitCheckAt <= now) {
+            kitCheckAt.reset();
+            look_for_kits();
+        }
         if (sdkCheckAt && *sdkCheckAt <= now) {
             sdkCheckAt.reset();
             if (kit && spec::requires_macos_sdk(*kit) && macosSdk.empty()) {
@@ -4533,20 +4724,10 @@ void Workspace::start(Json clientParams, bool clientSupportsStatus, bool usePoll
             impl_->coreEngine->warm(recent);
         }
     }
-    if (!impl_->payloadCorrupt && impl_->kitEnabled && !impl_->payload.kit.empty()) {
-        if (auto kit = spec::load_kit(impl_->payload.kit)) {
-            impl_->kit = std::move(*kit);
-            if (spec::requires_macos_sdk(*impl_->kit)) {
-                impl_->macosSdk = engine::macos_sdk_path();
-                // usable plan W5.4 / U7: keep looking every 30s so installing the Command Line Tools
-                // while the server runs is picked up without a restart.
-                if (impl_->macosSdk.empty()) impl_->sdkCheckAt = Clock::now() + std::chrono::seconds { 30 };
-            }
-            log::info("semantic kit {} at {} ({})", impl_->kit->name, impl_->kit->root, root_);
-        } else {
-            log::warning("semantic kit unusable ({}): {}", root_, kit.error().message);
-        }
-    }
+    // S4 section 5: the kits this root chooses from, and the one for its target; a target that changes, or a kit
+    // installed meanwhile, chooses again.
+    impl_->read_kits();
+    impl_->select_kit();
     if (impl_->coreEngine != nullptr && impl_->answers_) impl_->answers_->load();
     for (const auto& engine : impl_->engines) engine->start(*impl_);
     // Without a core engine nothing else settles initialize.
@@ -5389,6 +5570,10 @@ bool Workspace::describe_online() {
     return true;
 }
 
+bool Workspace::install_kit(std::string_view target) { return impl_->install_kit(target); }
+
+void Workspace::handle_kit_installed(const Json& outcome) { impl_->kit_installed(outcome); }
+
 void Workspace::apply_build_program() {
     // Asked for: the project is described again whether or not a change is waiting.
     if (impl_->buildProgramPending.empty() && impl_->buildProgramHeld.empty()) {
@@ -5424,6 +5609,8 @@ void Workspace::reload_with_options(const SessionOptions& options, const std::st
     impl_->options.buildDiscoveryAskBeforeDownload = options.buildDiscoveryAskBeforeDownload;
     impl_->compilerOverride = compilerOverride;
     impl_->kitEnabled = kitEnabled;
+    impl_->read_kits();
+    impl_->select_kit();
     impl_->schedule_reload();
 }
 

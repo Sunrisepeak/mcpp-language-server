@@ -112,7 +112,7 @@ struct SessionOptions {
 // `deferred_answer` carries the reply of a request whose heavy half ran off the loop (the sweep
 // command, 0.0.10 review): a thread posts it, the loop answers the client, so the loop itself is
 // never held by the work -- the same shape as `bundle_written`, for a request reply.
-enum class EventKind { client_message, client_closed, engine_event, model_loaded, target_selected, external, review_finished, tool_run, bundle_written, cache_swept, deferred_answer };
+enum class EventKind { client_message, client_closed, engine_event, model_loaded, target_selected, external, review_finished, tool_run, bundle_written, cache_swept, deferred_answer, kit_installed };
 
 struct Event {
     EventKind kind { EventKind::client_message };
@@ -252,6 +252,12 @@ public:
     // Plan 2026-09-27 B-2: describe the project once more, this time letting the build tool reach the network
     // (the person's choice, from the editor). Later loads are offline again. False: nothing needs a download.
     bool describe_online();
+    // The semantic kit of this root's target (S4 section 5, ecosystem design §9.2), installed by xlings in the
+    // background: the person's choice, from the editor. `target` empty: the kit the status says is missing. False:
+    // nothing is missing, or an install runs already.
+    bool install_kit(std::string_view target);
+    // How that install ended (`{ok, message, target}`): the kits are read again and the project with them.
+    void handle_kit_installed(const Json& outcome);
     void clear_review();
 
     // A `workspace/didChangeConfiguration` changed a setting whose `applies` is `reload` (config

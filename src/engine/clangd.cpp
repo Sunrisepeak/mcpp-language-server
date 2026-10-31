@@ -1880,6 +1880,7 @@ private:
         const int generation { ++generation_ };
         ProcessConfig config;
         config.executable = options_.executable;
+        config.runner = options_.runner;
         config.version = options_.version;
         config.databaseDirectory = databaseDirectory_;
         config.workDirectory = host_->root_directory();

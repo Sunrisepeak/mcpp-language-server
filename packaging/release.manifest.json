@@ -10,19 +10,19 @@
   "assets": [
     {
       "id": "vsix",
-      "pattern": "mcppls-{platform}.vsix",
-      "per-platform": true,
+      "pattern": "mcppls-{version}.vsix",
+      "per-platform": false,
       "required": true,
-      "what": "The VS Code extension for one platform, with that platform's payload inside it",
+      "what": "The VS Code extension, one for every system: it carries the one payload, whose entry for the machine it runs on starts the server",
       "install": "`code --install-extension <file>`, or the Extensions view's “Install from VSIX…”"
     },
     {
       "id": "payload",
-      "pattern": "payload-{platform}.tar.gz",
-      "per-platform": true,
+      "pattern": "mcppls-payload-{version}.tar.gz",
+      "per-platform": false,
       "required": true,
-      "what": "The server, the clangd it drives and the semantic kit, as one tree. The server is the one okb of every architecture (`bin/mcppls.okb`), started by the platform's runner (`bin/okrun`), as payload.json's `server` says. The VSIX and the CLion package carry these bytes; Zed and Neovim use it installed beside their plugin",
-      "install": "Unpack it; `payload/bin/okrun payload/bin/mcppls.okb serve` speaks LSP over stdio. For a command named `mcppls`, use the universal package or a single file below"
+      "what": "The server, the clangd of every platform and the openkal semantic kit, as one tree (`payload/`). The server is the one okb of every architecture (`bin/mcppls.okb`); payload.json's entry for each platform names the runner that starts it (`libexec/okrun/<system>-<arch>/okrun[.exe]`) and the clangd it drives (`clangd/<platform>/`). The VSIX and the CLion plugin carry these bytes; Zed and Neovim use it installed beside their plugin",
+      "install": "Unpack it; `payload/libexec/okrun/<system>-<arch>/okrun payload/bin/mcppls.okb serve` speaks LSP over stdio. For a command named `mcppls`, use the openkal package or a single file below"
     },
     {
       "id": "zed",
@@ -30,31 +30,31 @@
       "per-platform": false,
       "required": true,
       "what": "The Zed extension directory `mcppls-zed/`: extension.toml, the compiled extension.wasm and the crate it was compiled from, which Zed's dev-extension install compiles again. Platform-independent; the server comes from PATH or the installed payload",
-      "install": "Unpack it, then Zed's command palette: `zed: install dev extension`, and choose `mcppls-zed` (Zed compiles it, which needs Rust through rustup). The server is `mcppls` on PATH (the universal package or a single file), else the payload `mcppls-devtools extension --editor zed --install` puts in place"
+      "install": "Unpack it, then Zed's command palette: `zed: install dev extension`, and choose `mcppls-zed` (Zed compiles it, which needs Rust through rustup). The server is `mcppls` on PATH (the openkal package or a single file), else the payload `mcppls-devtools extension --editor zed --install` puts in place"
     },
     {
       "id": "clion",
-      "pattern": "mcppls-clion-{version}-{platform}.zip",
-      "per-platform": true,
+      "pattern": "mcppls-clion-{version}.zip",
+      "per-platform": false,
       "required": true,
-      "what": "The CLion plugin for one platform, with that platform's payload inside it (`mcppls-clion/payload/`), so it needs nothing else installed. Its plugin.xml depends on the platform's `com.intellij.modules.os.*` and `com.intellij.modules.arch.*`, by which the JetBrains Marketplace gives CLion 2026.1 and later the package of its own system. Gradle and the JDK it compiles with come from the `clion` feature (xim:gradle, xim:jdk-temurin)",
-      "install": "The JetBrains Marketplace, or CLion: Settings → Plugins → the gear menu → *Install Plugin from Disk* with this platform's file, and restart"
+      "what": "The CLion plugin, one for every system, with the one payload inside it (`mcppls-clion/payload/`), so it needs nothing else installed. Gradle and the JDK it compiles with come from the `clion` feature (xim:gradle)",
+      "install": "The JetBrains Marketplace, or CLion: Settings → Plugins → the gear menu → *Install Plugin from Disk*, and restart"
     },
     {
       "id": "openkal",
       "pattern": "mcppls-{version}-openkal.zip",
       "per-platform": false,
       "required": true,
-      "what": "The server for every system and architecture as one package (mcpp's universal package): both architectures' images under `lib/<arch>/`, the launchers `bin/mcppls` and `bin/mcppls.cmd`, and the platform's runner of Linux x86_64 and aarch64, macOS arm64 and Windows x86_64 under `libexec/okrun/`, so it needs nothing installed. The server alone: clangd and the kit come from a payload, PATH or xlings",
-      "install": "Unpack it and put its `bin/` on PATH; `mcppls serve` speaks LSP over stdio (on Windows `bin\\\\mcppls.cmd`)"
+      "what": "The server for every system and architecture as one package (mcpp's tree of the `openkal` set): both architectures' images under `lib/<arch>/`, the launchers `bin/mcppls` (POSIX) and `bin/mcppls.exe` (Windows), and the platform's runner of Linux x86_64 and aarch64, macOS arm64 and Windows x86_64 under `libexec/okrun/`, so it needs nothing installed; its mcpp-package.json says where it runs (`runs_on`). The server alone: clangd and the kits come from a payload, PATH or xlings",
+      "install": "Unpack it and put its `bin/` on PATH; `mcppls serve` speaks LSP over stdio"
     },
     {
       "id": "okb",
       "pattern": "mcppls-{version}.okb",
       "per-platform": false,
       "required": true,
-      "what": "The server as one okb (openkal's universal image package): the image of x86_64 and of aarch64, which the platform's runner of any system starts. Every payload and VSIX carries these bytes as `bin/mcppls.okb`",
-      "install": "`okrun mcppls-{version}.okb serve`, with the platform's runner of this system: a payload's `bin/okrun`, or the universal package's `libexec/okrun/<system>-<arch>/okrun`"
+      "what": "The server as one okb (openkal's image package): the image of x86_64 and of aarch64, which the platform's runner of any system starts. The payload, and so every editor's plugin, carries these bytes as `bin/mcppls.okb`",
+      "install": "`okrun mcppls-{version}.okb serve`, with the platform's runner of this system: the payload's or the openkal package's `libexec/okrun/<system>-<arch>/okrun`"
     },
     {
       "id": "single-linux-x86_64",
@@ -89,6 +89,22 @@
       "install": "Rename it `mcppls.exe`, put it on PATH; `mcppls serve` speaks LSP over stdio"
     },
     {
+      "id": "kit-openkal",
+      "pattern": "mcppls-kit-openkal-*.tar.gz",
+      "per-platform": false,
+      "required": true,
+      "what": "The openkal semantic kit (spec S4, kit-version 2), the one the payload carries: libc++ headers and the `std` and `std.compat` module sources, openkal-musl's headers, and the generated headers of each architecture. With it a project is read without a compiler for any target: `import std` and the standard library work, a system's own headers and macros do not. Its version is the openkal platform's",
+      "install": "`xlings install mcppls-kit-openkal`, or unpack it into the xlings store as `xim-x-mcppls-kit-openkal/<version>/`"
+    },
+    {
+      "id": "kit",
+      "pattern": "mcppls-kit-{kit}-*.tar.gz",
+      "per-platform": true,
+      "required": true,
+      "what": "The semantic kit of one target (spec S4): libc++ headers and module sources of the clangd's LLVM release, and the system's C library headers where they may be shipped (macOS: the installed SDK). The server installs the kit of a project's target with xlings once the editor asks; this file is the same kit for a machine without the network",
+      "install": "`xlings install mcppls-kit-<target>@<version>`, or unpack it into the xlings store as `xim-x-mcppls-kit-<target>/<version>/`"
+    },
+    {
       "id": "checksums",
       "pattern": "SHA256SUMS",
       "per-platform": false,
@@ -107,7 +123,7 @@
   ],
   "not-in-a-release": [
     "The Claude Code plugin: it is consumed from the repository through its marketplace file, not downloaded as an archive.",
-    "xlings-res archives and the rendered xim-pkgindex descriptors: the ecosystem publish path is deliberately out of scope for this release, so `mcppls-devtools release xlings` is not run.",
+    "The rendered xim-pkgindex descriptors (`mcppls-devtools release xlings`): they name these assets by their URLs and go to xim-pkgindex, not to the release page.",
     "The model gateway: a separate package, built and tested on its own, not part of what a user installs."
   ]
 }

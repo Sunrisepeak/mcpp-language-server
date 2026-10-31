@@ -6,7 +6,7 @@
 // build tools it starts. That decision is resolve.rs, which `cargo test` covers on the host.
 mod resolve;
 
-use resolve::{resolve, Launch, Platform};
+use resolve::{resolve, Arch, Launch, Platform};
 use zed_extension_api::{self as zed, Result};
 
 struct Mcppls;
@@ -22,13 +22,17 @@ impl zed::Extension for Mcppls {
         worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
         let env = worktree.shell_env();
-        let (os, _) = zed::current_platform();
+        let (os, arch) = zed::current_platform();
         let platform = match os {
             zed::Os::Windows => Platform::Windows,
             zed::Os::Mac => Platform::Mac,
             zed::Os::Linux => Platform::Linux,
         };
-        let Launch { command, args } = resolve(worktree.which("mcppls"), platform, &env)?;
+        let arch = match arch {
+            zed::Architecture::Aarch64 => Arch::Aarch64,
+            _ => Arch::X86_64,
+        };
+        let Launch { command, args } = resolve(worktree.which("mcppls"), platform, arch, &env)?;
         Ok(zed::Command {
             command,
             args,

@@ -37,7 +37,7 @@ mcpp run -p devtools -- extension --editor vscode --install  # payload、VS Code
 操作系统是 mcpplibs.os 的，每个成员直接调用它：文件、进程、环境变量、目录、回环 socket 与标准流。mcppls 不在它之上另设一层；`modules/base` 与 `modules/toolrun` 只放 mcppls 自己的东西（它的缓存目录、payload 名称、不经相对 PATH 项找程序的规则）。
 | `tools/model-gateway` | `mcppls-model`，参考实现的 model gateway | openkal, tinyhttps |
 
-`mcpp build -p <member>` 和 `mcpp test -p <member>` 只作用于一个成员；`--workspace` 作用于全部成员（根包用不带参数的命令就能作用到）。系统是值而不是预处理分支：mcpplibs.os 的 `host()` 在原生构建中为常量表达式，ok 映像（`<arch>-openkal`）中为装载时的系统；`mcppls::base::payload_platform()` 连同架构给出名称，所以 arm64 构建为 `linux-arm64`（`mcppls-devtools check os-surface`）。平台本身就是 `packaging/payload.lock.json` 里的各行；VS Code 扩展、`release.manifest.json` 和 CI 按平台运行的 job 列出的必须是同一组平台（`mcppls-devtools check platforms`）。
+`mcpp build -p <member>` 和 `mcpp test -p <member>` 只作用于一个成员；`--workspace` 作用于全部成员（根包用不带参数的命令就能作用到）。系统是值而不是预处理分支：mcpplibs.os 的 `host()` 在原生构建中为常量表达式，ok 映像（`<arch>-openkal`）中为装载时的系统；`mcppls::base::payload_platform()` 连同架构给出名称，所以 arm64 构建为 `linux-arm64`（`mcppls-devtools check os-surface`）。平台本身就是 `packaging/payload.lock.json` 里的各行；VS Code 扩展、CLion 构建、`release.manifest.json` 和 CI 按平台运行的 job（`build`、`test`、`kits`、`conformance`、`vscode-e2e`、`distribution`，以及 release checks 的 `install`）列出的必须是同一组平台，每一行还要写明它的工具包（`mcppls-devtools check platforms`）。
 
 ## 按任务分类的命令
 
@@ -78,18 +78,19 @@ mcpp run -p devtools -- extension --editor vscode --install  # payload、VS Code
 
 | 任务 | 命令 |
 |---|---|
-| 本机对应的 payload：服务端是 okb（`bin/mcppls.okb`）和本机的运行器（`bin/okrun`），由工具打包 | `mcpp run -p devtools -- payload` |
-| 另一个平台的 payload，由 okb 和该平台的运行器（通用包的 `libexec/okrun/<system>-<arch>/`）组成 | `mcpp run -p devtools -- payload --platform win32-x64 --server-image mcppls.okb --server-runner okrun.exe` |
-| 服务端改为该平台程序的 payload | `mcpp run -p devtools -- payload --platform win32-x64 --server PATH` |
-| 对一个 payload 的服务端运行测试（`--server` 取 okb；运行器是 `payload.json` 指定的那个） | `mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture …` |
+| payload，一个服务所有平台：okb 与带每个系统运行器的树由工具打包（`mcpp pack --target openkal --mode self-contained --systems all --pkg-format zip,okb`），每个平台的 clangd 取自锁文件，加上 openkal 工具包 | `mcpp run -p devtools -- payload` |
+| 用已经构建好的部分组装：okb、树（目录或其 zip）、工具包、自己的引擎 | `mcpp run -p devtools -- payload --server-image mcppls.okb --server-tree mcppls-<v>-openkal.zip --kit DIR [--clangd <platform>=DIR ...] [--platforms linux-x64,win32-x64]` |
+| 对一个 payload 的服务端运行测试（`--server` 取 okb；运行器是 payload 中本平台条目指定的那个） | `mcppls-conformance run --server payload/bin/mcppls.okb --payload payload --fixture …` |
 | 检查一个 payload | `mcpp run -p devtools -- payload --verify DIR` |
-| 单独构建语义工具包 | `mcpp run -p devtools -- kit --platform linux-x64 --out DIR` |
+| openkal 工具包，取自 mcpp 对每个 openkal 目标的构建数据库 | `mcpp run -p devtools -- kit --openkal --out DIR [--archive DIR]` |
+| 某个目标的工具包，及其 release 归档（`mcppls-kit-<target>-<version>.tar.gz`） | `mcpp run -p devtools -- kit --platform linux-x64 --out DIR [--archive DIR]` |
+| 按 S4 的规则检查一个工具包 | `mcpp run -p devtools -- kit --verify DIR` |
 | 编辑器扩展 | `mcpp run -p devtools -- extension [--editor vscode\|zed\|clion\|all] [--install [--link]]` |
-| 安装一个已有的插件（来自某次 release） | `... -- extension --editor zed --install --plugin PATH --payload DIR`；`... -- extension --editor clion --install --plugin mcppls-clion-<version>-<platform>.zip`（包里自带 payload） |
-| 用若干平台的 payload 构建 CLion 的包（CI） | `mcpp run --features clion -p devtools -- extension --editor clion --payloads DIR`（DIR 下是 `<platform>/payload`）；每个包写到 `target/pack/mcppls-clion-<version>-<platform>.zip` |
+| 安装一个已有的插件（来自某次 release） | `... -- extension --editor zed --install --plugin PATH --payload DIR`；`... -- extension --editor clion --install --plugin mcppls-clion-<version>.zip`（包里自带 payload） |
+| 用已经做好的 payload 构建 CLion 的包（CI） | `mcpp run --features clion -p devtools -- extension --editor clion --payload DIR`；写到 `target/pack/mcppls-clion-<version>.zip` |
 | 移除已安装的扩展 | `mcpp run -p devtools -- uninstall --editor vscode\|zed\|clion\|all` |
 | 检查暂存好的 release | `mcppls-devtools release check --version V --dir release [--render]` |
-| 一次 release 的 xlings 产物（取自它的 payload 和单文件） | `mcppls-devtools release xlings --payloads DIR --out DIR` |
+| 一次 release 的 xim-pkgindex 描述文件（取自它的 openkal 树和各工具包） | `mcppls-devtools release xlings --release DIR --out DIR [--url PREFIX]` |
 
 ## 环境
 

@@ -11,6 +11,7 @@ import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.lsp.connection;
 import mcppls.orchestrator.instance;
+import mcppls.toolrun;
 import nlohmann.json;
 
 namespace os = mcpplibs::os;
@@ -512,6 +513,30 @@ int main() {
         auto result = os::process::run(std::move(options), os::process::bounds { .hard = std::chrono::seconds { 60 } });
         expect(fatal(result.has_value()));
         expect(result->out == "from-parent") << result->out;
+    };
+
+    // The project a tool runs for is its working directory (mcpp docs/50): a variable an editor
+    // inherited from another project's terminal, which a version manager's shim would read when
+    // the directory has no pin of its own, does not reach it.
+    "a tool run does not carry another project's XLINGS_PROJECT_DIR"_test = [&] {
+        auto environment = os::env::variables();
+        environment.push_back("XLINGS_PROJECT_DIR=/some/other/project");
+        environment.push_back("MCPPLS_TEST_VARIABLE=kept");
+        const auto args = child({ "--env", "XLINGS_PROJECT_DIR" });
+        mcppls::toolrun::Request request;
+        request.program = args.program.string();
+        request.arguments = args.args;
+        request.workDirectory = base::current_directory();
+        request.purpose = "test";
+        request.environment = environment;
+        request.bounds = os::process::bounds { .hard = std::chrono::seconds { 60 } };
+        const auto result = mcppls::toolrun::run(request);
+        expect(fatal(result.has_value()));
+        expect(result->out == "<unset>") << result->out;
+        request.arguments = { "--env", "MCPPLS_TEST_VARIABLE" };
+        const auto kept = mcppls::toolrun::run(request);
+        expect(fatal(kept.has_value()));
+        expect(kept->out == "kept") << kept->out;
     };
 
     // A value is reported as it was set, backslashes included: a program that

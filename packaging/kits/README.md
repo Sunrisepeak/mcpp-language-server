@@ -1,4 +1,4 @@
-# mcppls-kit
+# The semantic kits
 
 A semantic kit (spec [S4](../../docs/specs/s4-semantic-kit.md)) gives clangd a
 standard library with module semantics when the project's own compiler cannot
@@ -6,17 +6,40 @@ be used: there is none installed, discovery is turned off, or the workspace is
 not trusted. It is data only — standard library headers, the `std` and
 `std.compat` module sources, their module manifest, C library headers where they
 may be redistributed, license texts and `kit.json`. Nothing in it is compiled.
+The server chooses the kit of each project's target (S4 5.1).
 
-`mcppls-devtools kit` (`modules/pack/src/kit.cpp`) produces a kit from the inputs in
-`packaging/payload.lock.json`; the recipe for each platform is named there.
+| Kit | Made by | Shipped as |
+|---|---|---|
+| the openkal kit | `mcppls-devtools kit --openkal` (`modules/pack/src/openkal.cpp`), from mcpp's build database of `x86_64-openkal` and `aarch64-openkal` | in every payload (`kit/`); `mcppls-kit-openkal-<platform version>.tar.gz` and `mcppls-kit-openkal` |
+| a target kit | `mcppls-devtools kit --platform P` (`modules/pack/src/kit.cpp`), from the inputs in `packaging/payload.lock.json`; the recipe of each platform is named there | `mcppls-kit-<target>-<version>.tar.gz` and `mcppls-kit-<target>` (`--archive DIR` writes the archive) |
 
-## The three kits
+## The openkal kit
 
-| Platform | Recipe | Target | Standard library | C library headers |
-|---|---|---|---|---|
-| `linux-x64` | `libcxx-source` | `x86_64-unknown-linux-gnu` | libc++ 23.1.0, configured from the llvm-project source and installed as headers and module sources | glibc and Linux kernel headers from the build host's `libc6-dev` and `linux-libc-dev` packages, in `sysroot/usr/include`, with their copyright files |
-| `win32-x64` | `llvm-mingw` | `x86_64-w64-mingw32` | libc++ 23.1.0 headers and module sources from llvm-mingw 20260826, built on the same LLVM | mingw-w64 headers from `generic-w64-mingw32/include`, without `*.idl`, `*.tlb` and `*.def`, with the mingw-w64 `COPYING` files |
-| `darwin-arm64` | `libcxx-source` | `arm64-apple-darwin` | libc++ 23.1.0, configured for arm64 macOS | none: Apple's SDK license does not allow a kit to carry them, so the kit requires the SDK installed on the user's machine |
+Kit version 2, one kit for both openkal targets: libc++ 22.1.8's headers and
+module sources as openkal-platform 0.19.2's C++ run-time (openkal-llvm-runtime
+0.16.12) configures them, openkal-musl 0.23.2's headers, openkal's and the image
+loader's, and under `include/<target>/` what differs between the architectures
+(musl's generated and per-architecture headers). Each entry of `targets` lists
+its include directories in the order the build reads them, with the defines a
+unit of an ok image reads with (`__OPENKAL__`, `__unix__`, `_XOPEN_SOURCE=700`)
+and `--target=<arch>-unknown-none-elf`. The module manifest
+`lib/libc++.modules.json` names `std` and `std.compat`, whose sources sit beside
+the `std/*.inc` they include. Its `stdlib.version` is read from the headers'
+`__config`, not from clangd: 19 MiB, 2 127 files, 1.9 MiB compressed.
+
+## The target kits
+
+Each is published as `mcppls-kit-<name>`, the `kit.name` of its row in
+`packaging/payload.lock.json`.
+
+| Platform | Package | Recipe | Target | Standard library | C library headers |
+|---|---|---|---|---|---|
+| `linux-x64` | `mcppls-kit-x86_64-linux-gnu` | `libcxx-source` | `x86_64-unknown-linux-gnu` | libc++ 23.1.0, configured from the llvm-project source and installed as headers and module sources | glibc and Linux kernel headers from the build host's `libc6-dev` and `linux-libc-dev` packages, in `sysroot/usr/include`, with their copyright files |
+| `linux-arm64` | `mcppls-kit-aarch64-linux-gnu` | `libcxx-source` | `aarch64-unknown-linux-gnu` | the same, for aarch64 | the same, from an arm64 host's packages |
+| `win32-x64` | `mcppls-kit-x86_64-w64-mingw32` | `llvm-mingw` | `x86_64-w64-mingw32` | libc++ 23.1.0 headers and module sources from llvm-mingw 20260826, built on the same LLVM | mingw-w64 headers from `generic-w64-mingw32/include`, without `*.idl`, `*.tlb` and `*.def`, with the mingw-w64 `COPYING` files |
+| `darwin-arm64` | `mcppls-kit-arm64-apple-darwin` | `libcxx-source` | `arm64-apple-darwin` | libc++ 23.1.0, configured for arm64 macOS | none: Apple's SDK license does not allow a kit to carry them, so the kit requires the SDK installed on the user's machine |
+
+Measured for 0.0.19, when each payload carried its platform's kit:
 
 | Platform | Size, MiB | Compressed, MiB |
 |---|---|---|
@@ -51,7 +74,7 @@ linux-x64:
 
 ```json
 {
-  "kit-version": 1,
+  "kit-version": 2,
   "name": "mcppls-kit-libcxx-23.1.0-x86_64-unknown-linux-gnu",
   "target": "x86_64-unknown-linux-gnu",
   "stdlib": {

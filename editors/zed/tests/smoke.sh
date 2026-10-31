@@ -70,9 +70,10 @@ zed_data="$data/zed"
 # that Zed says "zed is already running" and exits.
 if [ "${#zed_data}" -gt 80 ]; then echo "$root is too deep: Zed's socket path would not fit; use a shorter ZED_SMOKE_DIR" >&2; exit 2; fi
 workspace="$root/workspace"
-# The installed payload's server: the platform's runner starting the okb (payload.json's `server`).
+# The installed payload's server: this platform's runner starting the okb (payload.json's entry for it).
 # The process is the runner's; the image runs inside it.
-server="$root/server/bin/okrun"
+case "$(uname -m)" in aarch64|arm64) arch=aarch64 ;; *) arch=x86_64 ;; esac
+server="$root/server/libexec/okrun/linux-$arch/okrun"
 image="$root/server/bin/mcppls.okb"
 cp -r "$repo/conformance/fixtures/inferred" "$workspace"
 

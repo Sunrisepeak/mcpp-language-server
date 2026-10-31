@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Installs the pinned mcpp through xlings and selects the pinned LLVM toolchain.
-# MCPP_VERSION=latest installs the newest mcpp the index has (nightly, usable plan 5.2).
+# MCPP_VERSION=latest installs the newest mcpp the index has (nightly, usable plan 5.2). A branch of
+# mcpp under review (MCPP_SOURCE_REF) is built by this one (.github/actions/setup-mcpp).
 # Retries because the index and the release mirrors are reached over the network.
 set -euo pipefail
 : "${MCPP_VERSION:?pin the mcpp version in the workflow}"

@@ -50,8 +50,20 @@ local function installed_payload()
   return data and table.concat({ data, 'mcppls', 'payload' }, sep)
 end
 
+-- This machine's platform as a payload names it (`${process.platform}-${process.arch}` in Node's words):
+-- linux-x64, linux-arm64, darwin-arm64, win32-x64.
+local function current_platform()
+  local uname = uv.os_uname()
+  local system = is_windows and 'win32' or (uname.sysname == 'Darwin' and 'darwin' or 'linux')
+  local machine = (uname.machine or ''):lower()
+  local arch = (machine == 'aarch64' or machine == 'arm64') and 'arm64' or 'x64'
+  return system .. '-' .. arch
+end
+
 -- The `server` of the payload at `payload`, as its payload.json says: `path`, and `runner` when the
--- server is an image the runner starts. Nil when the payload or its manifest is not there.
+-- server is an image the runner starts. One payload serves every platform (payload version 5): the
+-- runner is this platform's entry's; a payload of version 4 and earlier names its one runner in
+-- `server`. Nil when the payload or its manifest is not there, or it carries nothing for this platform.
 local function payload_server(payload)
   local file = io.open(payload .. sep .. 'payload.json', 'r')
   if not file then
@@ -61,6 +73,13 @@ local function payload_server(payload)
   file:close()
   if not ok or type(manifest) ~= 'table' or type(manifest.server) ~= 'table' or type(manifest.server.path) ~= 'string' then
     return nil
+  end
+  if type(manifest.platforms) == 'table' then
+    local entry = manifest.platforms[current_platform()]
+    if type(entry) ~= 'table' or type(entry.runner) ~= 'string' then
+      return nil
+    end
+    return { path = manifest.server.path, runner = entry.runner }
   end
   return manifest.server
 end
@@ -79,7 +98,7 @@ local function command_for(server)
   local manifest = payload_server(payload)
   local runner = bin .. sep .. (is_windows and 'okrun.exe' or 'okrun')
   if manifest and manifest.runner and vim.fs.normalize(payload .. '/' .. manifest.path) == vim.fs.normalize(server) then
-    runner = payload .. sep .. manifest.runner
+    runner = payload .. sep .. manifest.runner:gsub('/', sep)
   end
   return executable(runner) and { runner, server } or nil
 end

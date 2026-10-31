@@ -1,6 +1,7 @@
 // Reducing an official clangd release archive to what the payload ships, or taking a maintained
 // engine part (mcppls-clangd's `clangd-<version>-<platform>.tar.gz`, whose clangd/ holds
-// engine.json) exactly as it was built and qualified.
+// engine.json; its ok image `clangd-<version>-openkal.tar.gz` holds bin/clangd.okb) exactly as it
+// was built and qualified.
 //
 // This ports trim_clangd.py. Keeps bin/clangd[.exe], lib/clang/<major>/include (clang's builtin
 // headers, which clangd finds relative to its own executable) and LICENSE.TXT; everything else in
@@ -24,7 +25,7 @@ struct Options {
 
 struct Result {
     std::string directory;                // outDirectory, canonicalized
-    std::string binary;                    // <directory>/bin/clangd[.exe]
+    std::string binary;                    // <directory>/bin/clangd[.exe], or bin/clangd.okb of the ok image
     std::string clangMajor;               // "23" from lib/clang/23/...
     std::size_t filesKept { 0 };
     std::uint64_t totalBytes { 0 };

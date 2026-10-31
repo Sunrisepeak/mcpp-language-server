@@ -26,6 +26,7 @@
   "command.mcppls.turnOnInWorkspace.title": "在此工作区开启",
   "command.mcppls.runBuildToolInTerminal.title": "在终端中运行构建工具",
   "command.mcppls.askBeforeDownloading.title": "在此工作区下载前先询问",
+  "command.mcppls.askBeforeInstallingKits.title": "在此工作区安装语义 kit 前先询问",
   "command.mcppls.turnOffOtherCppFeatures.title": "关闭其他 C++ 语言特性",
   "command.mcppls.restoreOtherCppFeatures.title": "恢复其他 C++ 语言特性",
   "config.mcppls.compiler.markdownDescription": "语言服务跟随其语义的编译器，绝对路径或 `PATH` 上的名字。留空表示从构建系统与本机自动发现。",

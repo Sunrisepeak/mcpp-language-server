@@ -33,4 +33,8 @@ std::string_view xlings_arch(Arch arch);
 // The architecture as Apple's tools name it (lipo -thin, CMAKE_OSX_ARCHITECTURES).
 std::string_view apple_arch(Arch arch);
 
+// The system and architecture as mcpp names them (`--systems`, `runs_on`, `libexec/okrun/<system>/`):
+// linux-x86_64, linux-aarch64, macos-aarch64, windows-x86_64.
+std::string runner_system(Target target);
+
 } // namespace mcppls::pack::targets

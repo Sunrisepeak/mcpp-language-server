@@ -26,6 +26,7 @@
   "command.mcppls.turnOnInWorkspace.title": "Turn On in This Workspace",
   "command.mcppls.runBuildToolInTerminal.title": "Run the Build Tool in a Terminal",
   "command.mcppls.askBeforeDownloading.title": "Ask Before Downloading in This Workspace",
+  "command.mcppls.askBeforeInstallingKits.title": "Ask Before Installing Semantic Kits in This Workspace",
   "command.mcppls.turnOffOtherCppFeatures.title": "Turn Off Other C++ Language Features",
   "command.mcppls.restoreOtherCppFeatures.title": "Restore Other C++ Language Features",
   "config.mcppls.compiler.markdownDescription": "Compiler whose semantics the language server follows, as an absolute path or a name on `PATH`. Empty means discovered automatically from the build system and the machine.",

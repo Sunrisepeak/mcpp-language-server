@@ -12,10 +12,14 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.vfs.VirtualFile
+import com.google.gson.JsonObject
+import com.intellij.platform.lsp.api.Lsp4jClient
+import com.intellij.platform.lsp.api.LspServerNotificationsHandler
 import com.intellij.platform.lsp.api.LspServerSupportProvider
 import com.intellij.platform.lsp.api.ProjectWideLspServerDescriptor
 import com.intellij.platform.lsp.api.customization.LspCompletionCustomizer
 import com.intellij.platform.lsp.api.customization.LspCustomization
+import org.eclipse.lsp4j.ClientCapabilities
 
 // Starts `mcppls serve` for C and C++ files. Everything else — finding the build, preparing the
 // modules, driving clangd — happens in the server, which is why this file is this short.
@@ -47,9 +51,9 @@ internal class McpplsServerSupportProvider : LspServerSupportProvider {
             is Launch.Refused -> tellOnce(project, launch.reason)
             Launch.Missing -> tellOnce(
                 project,
-                "This build of the plugin carries no language server for this system, and there is no mcppls on the PATH " +
-                    "CLion sees. Install the plugin from the Marketplace (its package for this system carries the server), " +
-                    "or put mcppls on the PATH: `xlings install mcppls`, or the release's universal package.",
+                "This build of the plugin carries no language server, and there is no mcppls on the PATH CLion sees. " +
+                    "Install the plugin from the Marketplace (it carries the server for every system), or put mcppls on the " +
+                    "PATH: `xlings install mcpp-language-server`, or the release's openkal package.",
             )
         }
     }
@@ -80,6 +84,18 @@ internal class McpplsEditorListener : EditorFactoryListener {
 
 private class McpplsServerDescriptor(project: Project) :
     ProjectWideLspServerDescriptor(project, "mcppls") {
+
+    // The server sends `cxxModules/status` to a client that declares it (S3 3); the plugin reads the semantic kit's
+    // part of it (KitPrompt) and nothing else.
+    override val clientCapabilities: ClientCapabilities
+        get() = super.clientCapabilities.apply {
+            val modules = JsonObject().apply { addProperty("version", 1); addProperty("status", true) }
+            val merged = (experimental as? JsonObject) ?: JsonObject()
+            merged.add("cxxModules", modules)
+            experimental = merged
+        }
+
+    override fun createLsp4jClient(handler: LspServerNotificationsHandler): Lsp4jClient = McpplsLspClient(handler, project)
 
     override fun isSupportedFile(file: VirtualFile) = file.extension?.lowercase() in CXX_EXTENSIONS
 

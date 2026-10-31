@@ -14,17 +14,18 @@ Every integration below starts the server as `mcppls serve` (LSP over stdio) —
   [release page](https://github.com/Sunrisepeak/mcpp-language-server/releases) -- one package for
   Linux, macOS and Windows on x86_64 and arm64 -- unpack it and put its `bin/` on `PATH`; or put the
   single file of your system, `mcppls-<version>-<system>-<arch>`, on `PATH` as `mcppls`. For the
-  pinned clangd and semantic kit, unpack `payload-<platform>.tar.gz` too and pass its directory as
-  `--payload`.
+  pinned clangd and the openkal kit, unpack `mcppls-payload-<version>.tar.gz` too (one for every
+  platform) and pass its directory as `--payload`.
 - **Once published to the xlings index**: `xlings install mcpp-language-server -y -g` (xlings
   package `mcpp-language-server`, program `mcppls`). Not published there yet.
 - **Or build it locally**: `mcpp build` from a clone of this repository, binary at
   `target/<triple>/<fingerprint>/bin/mcppls` (for example
   `target/x86_64-linux-gnu/<fingerprint>/bin/mcppls` on Linux); put that `bin/` directory
   on `PATH`.
-- **Or assemble a runnable payload** (server + clangd + a semantic kit) as described in
-  `../../packaging/README.md`; its server is `bin/okrun bin/mcppls.okb`, which an integration that
-  takes a command and arguments can start directly.
+- **Or assemble a runnable payload** (the server, the runner of each system, the clangd of each
+  platform and the openkal kit) as described in `../../packaging/README.md`; its server is
+  `libexec/okrun/<system>-<arch>/okrun bin/mcppls.okb`, which an integration that takes a command
+  and arguments can start directly.
 
 ## Claude Code
 

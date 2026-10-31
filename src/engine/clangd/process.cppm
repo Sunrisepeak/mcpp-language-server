@@ -13,6 +13,7 @@ export namespace mcppls::engine::clangd {
 
 struct ProcessConfig {
     std::string executable;
+    std::string runner;              // an ok-image engine's runner: `runner executable args…`; empty for a program
     std::string version;             // e.g. "23.1.0"
     std::string databaseDirectory;   // what clangd reads (--compile-commands-dir)
     std::string workDirectory;

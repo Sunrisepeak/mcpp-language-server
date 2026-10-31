@@ -98,7 +98,8 @@ std::optional<std::string> find_program(std::string_view name, std::string_view 
 
 // How a language server is started, as an editor starts it: the program itself, or, for an image
 // (`.okb`, `.oke`), the platform's runner and then the image. The runner is the one the image's
-// payload names (payload.json's `server.runner`, with the image under the payload's `bin/`), else
+// payload names for this platform (payload.json's `platforms.<platform>.runner`, or `server.runner`
+// before payload version 5, with the image under the payload's `bin/`), else
 // `okrun` beside the image (`okrun.exe` on Windows). A harness given `--server bin/mcppls.okb`
 // therefore starts what the payload's editor starts.
 base::Result<std::vector<std::string>> server_command(std::string_view server);

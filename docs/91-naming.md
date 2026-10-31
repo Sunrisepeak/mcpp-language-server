@@ -18,7 +18,7 @@ later, the places to change are the ones listed below — and the schema `$id`s,
 | Project / package | `mcpp-language-server` | What it is, spelled out; the name a package index carries. The PACKAGE only — every plugin uses the short name below |
 | Executable, module namespace, settings prefix | `mcppls` | What you type and what you read in code: `mcppls serve`, `import mcppls.lsp`, `mcppls.trace` |
 | Plugin display name | **C++ Modules Language Server** | What it does first, so it is findable; the same in all four listings, so they read as one product |
-| Semantic kit package | `mcppls-kit` | A separate artifact with its own version, named after what produces it |
+| Semantic kit packages | `mcppls-kit-<target>`, `mcppls-kit-openkal` | Separate artifacts, one per target, each with its own version (a target kit's is its libc++'s, the openkal kit's its platform's), named after what produces them and the target they serve |
 
 ## Plugin identity per editor
 

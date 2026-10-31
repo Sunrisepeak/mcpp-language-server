@@ -8,6 +8,7 @@ export import mcppls.pack.clangd;
 export import mcppls.pack.fetch;
 export import mcppls.pack.kit;
 export import mcppls.pack.lock;
+export import mcppls.pack.openkal;
 export import mcppls.pack.payload;
 export import mcppls.pack.release;
 export import mcppls.pack.targets;

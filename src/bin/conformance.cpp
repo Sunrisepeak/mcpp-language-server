@@ -26,6 +26,8 @@ import mcppls.bundle.zip;
 import mcpplibs.os;
 import mcppls.base.channel;
 import mcppls.base.home;
+import mcppls.base.payload;
+import mcppls.engine.payload;
 import mcppls.toolrun;
 
 namespace os = mcpplibs::os;
@@ -63,6 +65,18 @@ bool write_artifact(const std::string& path, const Json& value) {
         say("conformance: cannot serialize {}: {}", path, error.what());
         return false;
     }
+}
+
+// The clangd a payload carries for this platform: payload version 5's entry for it, else the one platform's layout.
+std::string payload_clangd(std::string_view payload) {
+    if (auto text = os::fs::read(base::join_path(payload, "payload.json"))) {
+        if (auto manifest = mcppls::engine::read_payload_manifest(*text)) {
+            if (auto entry = mcppls::engine::payload_entry(*manifest, base::payload_platform()); entry && !entry->clangd.empty()) {
+                return base::join_path(payload, entry->clangd);
+            }
+        }
+    }
+    return base::join_path(payload, "clangd/bin/clangd") + std::string { os::conventions().exe_suffix };
 }
 
 struct Options {
@@ -2560,7 +2574,7 @@ public:
 
     // The clangd of the run: --clangd, else the payload's.
     std::string clangd_program() const {
-        return !options_.clangd.empty() ? options_.clangd : base::join_path(options_.payload, "clangd/bin/clangd") + std::string { os::conventions().exe_suffix };
+        return !options_.clangd.empty() ? options_.clangd : payload_clangd(options_.payload);
     }
 
     // A check's "retired-by": the capability that retires the workaround whose defect the check watches, for an engine
@@ -2569,17 +2583,14 @@ public:
     std::optional<std::string> retired_canary(const Json& check) const {
         const std::string feature { check.value("retired-by", std::string {}) };
         if (feature.empty() || !options_.clangd.empty() || options_.payload.empty()) return std::nullopt;
+        // The engine of this platform's entry: payload version 5 names one per platform, an older one its only engine.
         const auto text = os::fs::read(base::join_path(options_.payload, "payload.json"));
         if (!text) return std::nullopt;
-        const Json manifest = Json::parse(*text, nullptr, false);
-        if (manifest.is_discarded() || manifest.value("payload-version", 0) < 4) return std::nullopt;
-        const Json* identity { nullptr };
-        if (const auto engines = manifest.find("engines"); engines != manifest.end() && engines->is_object()) {
-            if (const auto clangd = engines->find("clangd"); clangd != engines->end() && clangd->is_object()) {
-                if (const auto found = clangd->find("identity"); found != clangd->end() && found->is_object()) identity = &*found;
-            }
-        }
-        if (identity == nullptr) return std::nullopt;
+        const auto manifest = mcppls::engine::read_payload_manifest(*text);
+        if (!manifest || manifest->version < 4) return std::nullopt;
+        const auto entry = mcppls::engine::payload_entry(*manifest, base::payload_platform());
+        if (!entry || !entry->identity.is_object()) return std::nullopt;
+        const Json* identity { &entry->identity };
         for (const auto& declared : identity->value("features", Json::array())) {
             if (declared.is_string() && declared.get<std::string>() == feature) {
                 return std::format("retired: the payload's engine {} declares {}", identity->value("engine-version", std::string {}), feature);
@@ -5985,14 +5996,23 @@ int prepare_payload_corrupt(const std::string& source) {
         say("payload-corrupt: {} is not a JSON object", manifestPath);
         return 1;
     }
-    if (!manifest.contains("files")) manifest["files"] = Json::object();
-    const std::string clangd { base::join_path(target, "clangd/bin/clangd") };
-    for (const auto& [relative, path] : { std::pair { std::string { "clangd/bin/clangd" }, clangd },
-                                          std::pair { std::string { "kit/kit.json" }, base::join_path(target, "kit/kit.json") } }) {
-        if (manifest["files"].contains(relative) || !std::filesystem::is_regular_file(path, ignored)) continue;
+    // Payload version 5 holds every platform: this platform's engine and its own integrity files are under its entry.
+    std::string clangdRelative { "clangd/bin/clangd" };
+    Json* files { &manifest["files"] };
+    if (manifest.contains("platforms") && manifest["platforms"].is_object() && manifest["platforms"].contains(std::string { base::payload_platform() })) {
+        Json& entry = manifest["platforms"][std::string { base::payload_platform() }];
+        clangdRelative = entry.value("engines", Json::object()).value("clangd", Json::object()).value("path", clangdRelative);
+        files = &entry["files"];
+    }
+    if (!files->is_object()) *files = Json::object();
+    if (!manifest["files"].is_object()) manifest["files"] = Json::object();
+    const std::string clangd { base::join_path(target, clangdRelative) };
+    for (const auto& [relative, path, into] : { std::tuple { clangdRelative, clangd, files },
+                                                std::tuple { std::string { "kit/kit.json" }, base::join_path(target, "kit/kit.json"), &manifest["files"] } }) {
+        if (into->contains(relative) || !std::filesystem::is_regular_file(path, ignored)) continue;
         auto content = os::fs::read(path);
         if (!content) continue;
-        manifest["files"][relative] = { { "size", content->size() }, { "sha256", base::sha256_hex(*content) } };
+        (*into)[relative] = { { "size", content->size() }, { "sha256", base::sha256_hex(*content) } };
     }
     if (auto written = os::fs::write(manifestPath, manifest.dump(2)); !written) {
         say("payload-corrupt: {}", written.error().message());
@@ -6001,7 +6021,7 @@ int prepare_payload_corrupt(const std::string& source) {
     // Corrupt it now, after the manifest above was computed from the still-intact file.
     auto intact = os::fs::read(clangd);
     if (!intact) {
-        say("payload-corrupt: {} has no clangd/bin/clangd", source);
+        say("payload-corrupt: {} has no {}", source, clangdRelative);
         return 1;
     }
     if (auto written = os::fs::write(clangd, std::string_view { *intact }.substr(0, std::min<std::size_t>(1024, intact->size()))); !written) {
@@ -6399,7 +6419,7 @@ int prepare_crashing_clangd(std::string_view kind, const std::string& payload, s
         return 2;
     }
     const std::string workspace { base::current_directory() };
-    const std::string real { base::join_path(payload, "clangd/bin/clangd") };
+    const std::string real { payload_clangd(payload) };
     if (!std::filesystem::exists(real, ignored)) {
         say("{}: no clangd at {}", kind, real);
         return 1;

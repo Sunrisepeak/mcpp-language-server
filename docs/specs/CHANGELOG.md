@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-10-31 — S4: an engine that is an ok image
+
+S4-4-12: a payload entry's engine may be the ok image `clangd.okb`, started by the platform's runner, which the entry
+names under `engines.clangd.runner`; the image's identity names the platform `openkal`, and one image serves every
+entry that selects it. The identity schema's `platform` gains `openkal`. Additive: payload version stays 5.
+
+## 2026-10-30 — S4 kit version 2 and the kit of a target; S3: a kit the server installs when asked
+
+S4 kit version 2 adds `targets` (S4-3-11): a kit that serves several targets with one standard library gives each its
+complete, ordered include directories, and its top level is one of them (S4-3-12). The openkal kit every mcppls payload
+carries is one ([example](examples/s4-kit-openkal.json)). S4-4-5 is revised: a libc++ kit's `stdlib.version` is the
+version of the headers it carries; a kit a payload carries is used with the payload's engine whatever their versions,
+and a target kit installed on its own is taken at the engine's LLVM base. S4 5.1 says how a consumer chooses the kit of
+a project's target among the kits it has (S4-5.1-1): the explicit one, the target's, its own system's, the openkal kit;
+a stand-in names the published kit that would serve the target (S4-5.1-2), which is installed only with the person's
+consent (S4-5.1-3). Section 6 lists the kits distributed: the openkal kit and `mcppls-kit-<target>`.
+
+S3: the issue `kit-missing` names the missing kit, what reading with the stand-in leaves out and the command that
+installs it, and does not make a root `degraded` (S3-4-37); `askInstall` and the command `mcppls.installKit` let a
+client offer to install it in the background (S3-4-38); `kitInstall` says how the install ended (S3-4-39); a client may
+install every kit on the person's say-so and offers a way back (S3-4-40). `payload-corrupt` also covers a payload with
+no entry for the server's platform. All additive: protocol version stays 1.
+
 ## 2026-10-29 — S3: code templates
 
 S3 6.4 describes the code templates a server may offer for the declaration every program needs and nothing declares
