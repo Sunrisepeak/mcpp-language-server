@@ -79,7 +79,7 @@ by hand.
 
 | Entry | What | Used by |
 |---|---|---|
-| `mcppls-clangd-<platform>` | a platform's native engine, where its row selects it (no row in 0.0.20), mcppls-clangd's `clangd-<engine>-<platform>.tar.gz`: clangd, its builtin headers, licenses and `engine.json` (source and binary identity), taken byte for byte | `mcppls.pack.clangd` |
+| `mcppls-clangd-<platform>` | a platform's native engine, where its row selects it (Linux in 0.0.20), mcppls-clangd's `clangd-<engine>-<platform>.tar.gz`: clangd, its builtin headers, licenses and `engine.json` (source and binary identity), taken byte for byte | `mcppls.pack.clangd` |
 | `mcppls-clangd-openkal` | the engine's ok image, `clangd-<engine>-openkal.tar.gz`: `bin/clangd.okb` of both architectures, which each system's runner starts, its builtin headers, licenses and `engine.json` (platform `openkal`), taken byte for byte and carried once for every platform whose row selects it | `mcppls.pack.clangd`, `mcppls.pack.payload` |
 | `llvm-project-src` | llvm-project 23.1.0 source archive | `mcppls.pack.kit`, recipe `libcxx-source` |
 | `llvm-mingw` | llvm-mingw 20260826 (LLVM 23.1.0), UCRT, Linux x86_64 host | `mcppls.pack.kit`, recipe `llvm-mingw` |

@@ -79,6 +79,23 @@ std::string payload_clangd(std::string_view payload) {
     return base::join_path(payload, "clangd/bin/clangd") + std::string { os::conventions().exe_suffix };
 }
 
+// How the payload's engine of this platform starts: the program, or, for the ok image clangd.okb (S4-4-12), its
+// runner with the image as the first argument.
+struct ClangdCommand {
+    std::string program;
+    std::vector<std::string> prefix;
+};
+ClangdCommand payload_clangd_command(std::string_view payload) {
+    if (auto text = os::fs::read(base::join_path(payload, "payload.json"))) {
+        if (auto manifest = mcppls::engine::read_payload_manifest(*text)) {
+            if (auto entry = mcppls::engine::payload_entry(*manifest, base::payload_platform()); entry && !entry->clangdRunner.empty()) {
+                return { base::join_path(payload, entry->clangdRunner), { base::join_path(payload, entry->clangd) } };
+            }
+        }
+    }
+    return { payload_clangd(payload), {} };
+}
+
 struct Options {
     std::string server;
     // How the server starts: the program, or an image's runner and the image (toolrun::server_command).
@@ -2576,6 +2593,15 @@ public:
     std::string clangd_program() const {
         return !options_.clangd.empty() ? options_.clangd : payload_clangd(options_.payload);
     }
+    // The command that starts it: --clangd names a program; a payload's engine may be an image its runner starts.
+    ClangdCommand clangd_command() const {
+        return !options_.clangd.empty() ? ClangdCommand { options_.clangd, {} } : payload_clangd_command(options_.payload);
+    }
+    std::vector<std::string> clangd_arguments_with(std::vector<std::string> arguments) const {
+        auto command = clangd_command();
+        command.prefix.insert(command.prefix.end(), arguments.begin(), arguments.end());
+        return command.prefix;
+    }
 
     // A check's "retired-by": the capability that retires the workaround whose defect the check watches, for an engine
     // whose verified identity declares it (the server's own rule, engine/clangd.cpp). Such an engine does not have the
@@ -2632,7 +2658,8 @@ public:
         const std::string path { base::join_path(workspace_, file) };
         const std::string original { text_of(file) };
         DirectClangd clangd;
-        if (auto started = clangd.start(clangd_program(), direct_arguments(arguments), workspace_, direct_environment(), std::chrono::seconds { 30 }); !started) {
+        if (auto started = clangd.start(clangd_command().program, clangd_arguments_with(direct_arguments(arguments)), workspace_, direct_environment(),
+                                        std::chrono::seconds { 30 }); !started) {
             why = started.error().message;
             return std::nullopt;
         }
@@ -2684,7 +2711,8 @@ public:
         if (action == "diagnostics") {
             const std::string path { base::join_path(workspace_, file) };
             DirectClangd clangd;
-            if (auto started = clangd.start(clangd_program(), direct_arguments(arguments), workspace_, direct_environment(), std::chrono::seconds { 30 }); !started) {
+            if (auto started = clangd.start(clangd_command().program, clangd_arguments_with(direct_arguments(arguments)), workspace_, direct_environment(),
+                                        std::chrono::seconds { 30 }); !started) {
                 return { false, started.error().message };
             }
             clangd.open(path, text_of(file));
@@ -4655,8 +4683,8 @@ public:
             if (!std::filesystem::is_regular_file(clangd, ignored)) return { false, "no clangd: pass --clangd or --payload" };
             os::process::spawn_options spawn;
             spawn.bound_lifetime = true;
-            spawn.program = clangd;
-            spawn.args = { std::format("--check={}", base::join_path(workspace_, file)), "--check-tidy-time=0" };
+            spawn.program = clangd_command().program;
+            spawn.args = clangd_arguments_with({ std::format("--check={}", base::join_path(workspace_, file)), "--check-tidy-time=0" });
             spawn.cwd = workspace_;
             const std::chrono::seconds limit { check.value("seconds", 10) };
             auto running = std::async(std::launch::async, [spawn, limit]() mutable { return os::process::run(std::move(spawn), os::process::bounds { .hard = limit }); });
@@ -6420,6 +6448,7 @@ int prepare_crashing_clangd(std::string_view kind, const std::string& payload, s
     }
     const std::string workspace { base::current_directory() };
     const std::string real { payload_clangd(payload) };
+    const ClangdCommand realCommand { payload_clangd_command(payload) };
     if (!std::filesystem::exists(real, ignored)) {
         say("{}: no clangd at {}", kind, real);
         return 1;
@@ -6439,12 +6468,14 @@ int prepare_crashing_clangd(std::string_view kind, const std::string& payload, s
     const std::string script { std::format(
         "#!/bin/sh\n"
         "real='{}'\n"
-        "case \"$1\" in --version|--help) exec \"$real\" \"$@\" ;; esac\n"
-        "[ -e '{}' ] && exec \"$real\" \"$@\"\n"
+        // The ok image's runner takes the image first (S4-4-12); a program engine has none.
+        "image='{}'\n"
+        "case \"$1\" in --version|--help) exec \"$real\" ${{image:+\"$image\"}} \"$@\" ;; esac\n"
+        "[ -e '{}' ] && exec \"$real\" ${{image:+\"$image\"}} \"$@\"\n"
         ": > '{}'\n"
         // A background job of sh reads /dev/null: the editor's input goes to clangd through a descriptor kept first.
         "exec 3<&0\n"
-        "\"$real\" \"$@\" <&3 3<&- &\n"
+        "\"$real\" ${{image:+\"$image\"}} \"$@\" <&3 3<&- &\n"
         "child=$!\n"
         // The wrapper must look busy for the stuck watch: it samples this process's own CPU, and an idle
         // shell around a working clangd reads as a dead engine (the first answer then lost the 3s+5s race
@@ -6454,7 +6485,8 @@ int prepare_crashing_clangd(std::string_view kind, const std::string& payload, s
         "{}"
         "kill -KILL $child\n"
         "exit {}\n",
-        real, crashed, crashed, context, crasher.empty() ? 137 : 139) };
+        realCommand.program, realCommand.prefix.empty() ? std::string {} : realCommand.prefix.front(), crashed, crashed, context,
+        crasher.empty() ? 137 : 139) };
     const std::string clangd { base::join_path(directory, "clangd") };
     if (auto written = os::fs::write(clangd, script); !written) {
         say("{}: {}", kind, written.error().message());

@@ -105,21 +105,28 @@ the machine — reads with that compiler's headers and is not affected.
 
 ## Supported Linux systems
 
-The server, its runner and the clangd the payload carries for Linux need nothing of the system, and run
-on any Linux of their architecture, glibc or musl, old or new: Ubuntu 18.04, RHEL 8, Amazon Linux 2 and
-Alpine as well as current systems.
+The server and its runner need nothing of the system and run on any Linux of their architecture. The
+floor is set by the clangd the payload carries for Linux, the native engine:
 
-| Platform | clangd | Needs |
-|---|---|---|
-| `linux-x64` | mcppls-clangd 0.0.18's ok image `clangd.okb`, which the payload's runner starts | nothing of the system |
-| `linux-arm64` | the same `clangd.okb` | nothing of the system |
+| Platform | clangd | Needs | Runs on |
+|---|---|---|---|
+| `linux-x64` | mcppls-clangd 0.0.18, built on Ubuntu 20.04 with libstdc++ and zlib linked in | glibc 2.31 | Ubuntu 20.04, Debian 11, RHEL and Rocky Linux 9, openEuler 22.03 LTS and later |
+| `linux-arm64` | the same engine, built the same way for arm64 | glibc 2.31 | the same systems, on arm64 |
 
-A system's clangd is the ok image where the image meets mcppls-clangd's acceptance on that system
-against the native clangd: every case answered, parse time at most 1.3 times the native one's, and
-resident memory above it by at most the image's own size. Each mcppls-clangd release publishes the
-measurements (`openkal-acceptance.json`). In 0.0.20 the image serves all four platforms. On macOS arm64
-its parse time is the closest to the bound: 1.05 times the native one's in the release's measurement,
-and between 1.25 and 1.38 times in four earlier runs of the same images on the same kind of machine.
+On an older system — Ubuntu 18.04, Debian 10, RHEL and Rocky Linux 8, Amazon Linux 2 — the bundled
+clangd cannot start. mcppls then keeps its own module-level features (module navigation, import
+completion, module diagnostics), and its status says why; `mcppls.clangd` can name a clangd that
+does run there. Alpine and other musl distributions run neither architecture's clangd.
+
+**Which engine a platform gets.** On macOS arm64 and Windows x64 the payload's clangd is mcppls-clangd's
+ok image `clangd.okb`, which the payload's runner starts; on Linux it is the native clangd. The image is
+chosen for a system where it meets mcppls-clangd's acceptance against the native clangd there (every case
+answered, parse time at most 1.3 times the native one's, resident memory above it by at most the image's
+own size; each release publishes `openkal-acceptance.json`) and has what mcppls uses of that system's
+native engine. It passes the acceptance on all four systems, but on Linux the native engine builds modules
+in isolated workers and keeps them across sessions in its own module cache, which the image, like every
+engine on macOS and Windows, does not: with the image a Linux workspace built every module again in each
+session (176 of 176 in mcppls's own measurement) and was ready after 33 s rather than within 12 s.
 
 ### Android, under Termux
 
@@ -130,9 +137,10 @@ for it. Termux's PRoot, which many setups run a Linux system under, is a support
   as in [Another editor, from a release](#another-editor-from-a-release), and start it from the
   editor you run there (Neovim, say); or put `mcppls-<version>-linux-aarch64` on `PATH` as `mcppls`;
   or install `mcppls-<version>.vsix` in a VS Code-compatible editor running inside Termux.
-- **clangd** is the same ok image as on any `linux-arm64` system, started by the same runner: CI runs
-  it in a Debian that `proot-distro` installs in Termux. Where the sandbox refuses to start it, the
-  status says `engine-start-failed` with the reason, and mcppls keeps its module-level features.
+- **clangd** is the same glibc program as on any `linux-arm64` system, so the floor in the table
+  applies: CI runs it in a Debian that `proot-distro` installs in Termux. Where it cannot run (a glibc
+  below the floor) the status says `engine-incompatible`, and where the sandbox refuses to start it,
+  `engine-start-failed` with the reason; either way mcppls keeps its module-level features.
 - **What mcppls does for PRoot.** It detects the sandbox it runs in (`mcppls report` shows it as
   `server.sandbox`, `proot` there) and starts programs the way PRoot answers. Two PRoot behaviors
   used to stop it: Termux's PRoot refuses the call that starts a program from a directory handle, so
@@ -220,7 +228,7 @@ To point the extension at a payload without repackaging, put it at `editors/vsco
 | Part | What it is | Why it is pinned |
 |---|---|---|
 | `mcppls.okb` and `okrun` | The server, as the images of both architectures, and the platform's runner of each system, which starts it | — |
-| clangd 23.1.0 | The engine it drives for everything but module-level requests: the ok image `clangd.okb`, which the runner of each system starts | Module support differs between clangd releases; the arguments mcppls generates are matched to this one |
+| clangd 23.1.0 | The engine it drives for everything but module-level requests: the ok image `clangd.okb`, which the runner starts, on macOS and Windows; the native clangd on Linux | Module support differs between clangd releases; the arguments mcppls generates are matched to this one |
 | The openkal kit | A semantic kit: libc++ headers and module sources over openkal-musl, for both architectures | It is what makes `import std` resolve on a machine whose compiler cannot provide it, for any target |
 | `mcppls-kit-<target>` | The semantic kit of a target, installed when the editor asks | The target's own system headers and macros |
 

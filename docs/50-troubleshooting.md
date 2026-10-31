@@ -365,10 +365,12 @@ incident).
 **"The bundled clangd cannot run on this system".** clangd did not start at all: the system's
 program loader refused it, and its message is in the status and the log (for example
 ``version `GLIBCXX_3.4.30' not found``). No restart can change that, so none is tried; mcppls's own
-engine answers module navigation, `import` completion and module diagnostics meanwhile. The bundled
-clangd is the ok image `clangd.okb`, which the payload's runner starts and which needs nothing of the
-system ([the install guide](00-install.md)), so this means a damaged payload. An editor that starts
-`mcppls` itself can give it a clangd of your own, 23.1 or later, with `--clangd PATH`.
+engine answers module navigation, `import` completion and module diagnostics meanwhile. On Linux the
+bundled clangd is the native engine, which needs glibc 2.31 — the systems it runs on are listed in
+[the install guide](00-install.md); there this usually means an older or a musl system (Alpine). On macOS
+and Windows it is the ok image `clangd.okb`, which the payload's runner starts and which needs nothing of
+the system, so there it means a damaged payload. An editor that starts `mcppls` itself can give it a
+clangd of your own, 23.1 or later, with `--clangd PATH`.
 
 **On Termux or PRoot.** `mcppls report` shows the sandbox the server runs in as `server.sandbox`
 (`proot`, say). An engine that cannot be started there is the status issue `engine-start-failed`, with

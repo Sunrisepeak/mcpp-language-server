@@ -4,6 +4,20 @@
   "clangd-version": "23.1.0-mcppls.6",
   "libcxx-version": "23.1.0",
   "entries": {
+    "mcppls-clangd-linux-x64": {
+      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.18/clangd-23.1.0-mcppls.6-linux-x64.tar.gz",
+      "file": "clangd-23.1.0-mcppls.6-linux-x64.tar.gz",
+      "size": 20960868,
+      "sha256": "62c53af9c371f5987183ec2403febf36e2073a64865cbbbe3abfe26ace7b084c",
+      "license": "Apache-2.0 WITH LLVM-exception"
+    },
+    "mcppls-clangd-linux-arm64": {
+      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.18/clangd-23.1.0-mcppls.6-linux-arm64.tar.gz",
+      "file": "clangd-23.1.0-mcppls.6-linux-arm64.tar.gz",
+      "size": 19906106,
+      "sha256": "6ab8e403237d419644dd301aa95dfa48c199b83fa6b161043c38770e1bb6c8f1",
+      "license": "Apache-2.0 WITH LLVM-exception"
+    },
     "mcppls-clangd-openkal": {
       "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.18/clangd-23.1.0-mcppls.6-openkal.tar.gz",
       "file": "clangd-23.1.0-mcppls.6-openkal.tar.gz",
@@ -29,7 +43,7 @@
   },
   "platforms": {
     "linux-x64": {
-      "clangd": "mcppls-clangd-openkal",
+      "clangd": "mcppls-clangd-linux-x64",
       "kit": {
         "recipe": "libcxx-source",
         "source": "llvm-project-src",
@@ -39,7 +53,7 @@
       "server-target": "x86_64-linux-gnu"
     },
     "linux-arm64": {
-      "clangd": "mcppls-clangd-openkal",
+      "clangd": "mcppls-clangd-linux-arm64",
       "kit": {
         "recipe": "libcxx-source",
         "source": "llvm-project-src",
