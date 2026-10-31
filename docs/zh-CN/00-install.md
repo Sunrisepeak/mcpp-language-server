@@ -71,7 +71,7 @@ release 里的每个文件都列在它的 `MANIFEST.md` 里，说明是什么、
 
 ## 从源码构建
 
-服务端基于 [mcpplibs.os](https://github.com/mcpplibs/os)（其下为 [openkal](https://github.com/mcpplibs/openkal)）用 C++23 modules 写成，用 [mcpp](https://github.com/mcpp-community/mcpp) 2026.10.31.2 或更新版本构建。工作区唯一的平台 openkal-platform 0.19.1 说明了每个目标的 C 库和 C++ 运行时，因此没有成员声明它们：
+服务端基于 [mcpplibs.os](https://github.com/mcpplibs/os)（其下为 [openkal](https://github.com/mcpplibs/openkal)）用 C++23 modules 写成，用 [mcpp](https://github.com/mcpp-community/mcpp) 2026.10.31.2 或更新版本构建。工作区唯一的平台 openkal-platform 0.19.2 说明了每个目标的 C 库和 C++ 运行时，因此没有成员声明它们：
 
 ```bash
 mcpp build                                        # 服务端
@@ -95,7 +95,7 @@ mcpp run -p devtools -- extension --install       # payload、扩展，装进 VS
 | payload 携带的 okb：两种架构的映像在一个文件里 | `mcpp pack --release --target openkal --pkg-format okb` |
 | 一个包服务所有系统和架构 | `mcpp pack --release --target openkal --mode self-contained --systems all --pkg-format zip,okb -o DIR/`（一次构建得到树与 okb；平台运行器能到达的每个系统的运行器，在本机以平台的托管安排构建） |
 | 每个系统和架构一个单文件 | `mcpp pack --release --target openkal --pkg-format single-file --systems all -o DIR/` |
-| 构建程序作为 ok 映像运行 | `mcpp build --host-platform openkal-platform@0.19.1` |
+| 构建程序作为 ok 映像运行 | `mcpp build --host-platform openkal-platform@0.19.2` |
 
 **零配置。** 打包需要什么，都写在 `mcpp.toml` 的 `[xlings.workspace]` 里——VS Code 扩展需要 Node，Zed 需要 Rust——工具启动前 `mcpp run` 会先把这些准备好。payload 本身（clangd、语义工具包）由工具用 C++ 组装，不涉及任何解释器。所有贡献者会用到的命令都在 [93-devtools.md](93-devtools.md) 里。Gradle 和它要用的 JDK 放在 `clion` feature 后面（`mcpp run --features clion ...`），这样不构建那个插件的人就不用下载它们。没有什么需要手动安装，工具也不会背着你装东西：需要什么，只写在这一份 manifest 里。
 

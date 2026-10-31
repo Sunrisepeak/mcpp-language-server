@@ -21,7 +21,7 @@ PROTOCOL.md for the full method list, error codes and configuration.
 ## Build form
 
 On openkal, like every other program in this repository: the workspace's
-platform, openkal-platform 0.19.1, states LLVM 23.1.3, openkal-musl and
+platform, openkal-platform 0.19.2, states LLVM 23.1.3, openkal-musl and
 openkal-llvm-runtime (openkal beneath musl, libc++ above it) for every target, so
 one source builds every target, cross-built from Linux (`.agents/docs/design.md`
 §2.2), and this member declares none of them.
