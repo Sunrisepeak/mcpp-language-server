@@ -1031,6 +1031,14 @@ int main() {
             << "in process, the bounds are off";
     };
 
+    "only the native Linux engine is given the owned cache's bound: an ok image has no isolated workers"_test = [] {
+        const std::optional<std::uint64_t> asked { 3072 };
+        expect(cld::owned_cache_payload_bound(true, true, "", asked) == asked) << "the native Linux engine";
+        expect(!cld::owned_cache_payload_bound(true, true, "okrun", asked)) << "clangd.okb on Linux builds in process, as elsewhere";
+        expect(!cld::owned_cache_payload_bound(true, false, "", asked)) << "a native engine on macOS or Windows";
+        expect(!cld::owned_cache_payload_bound(false, true, "", asked)) << "an engine whose identity was not verified";
+    };
+
     "on macOS background indexing yields to cold module work unless the user chooses its priority"_test = [] {
         cld::ProcessConfig config;
         const std::string defaultPriority { "--background-index-priority=background" };

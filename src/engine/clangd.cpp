@@ -68,6 +68,12 @@ std::vector<std::string> managed_package_stores() {
 }
 } // namespace
 
+std::optional<std::uint64_t> owned_cache_payload_bound(bool verified, bool linuxHost, std::string_view runner,
+                                                       std::optional<std::uint64_t> requestedMiB) {
+    if (!verified || !linuxHost || !runner.empty()) return std::nullopt;
+    return requestedMiB;
+}
+
 EngineTraits traits_for_version(std::string_view version, std::span<const std::string> disabled,
                                std::span<const std::string> verifiedFeatures) {
     // Every compensation for clangd's own defects is a registered workaround (import-hang plan §9).
@@ -1893,8 +1899,8 @@ private:
         // process per module, costs many times an in-process build; there it compiles in clangd, as upstream
         // does. Only a verified maintained engine has the option (an external clangd would refuse to start).
         config.inProcessModuleBuilds = !options_.verifiedFeatures.empty() && !toolrun::sandbox().empty();
-        // Its owned module cache bounds isolated workers, which it has on Linux only; elsewhere a bound fails every build.
-        if (!options_.verifiedFeatures.empty() && os::host() == os::platform::linux) config.ownedCachePayloadMiB = options_.ownedCachePayloadMiB;
+        config.ownedCachePayloadMiB = owned_cache_payload_bound(!options_.verifiedFeatures.empty(), os::host() == os::platform::linux,
+                                                                options_.runner, options_.ownedCachePayloadMiB);
         if (base::to_lower_ascii(options_.formatFallbackStyle) == "mcpp" && !options_.mcppFormatStyle)
             add_issue_(Issue { "format-style-unavailable", "the selected engine does not declare the mcpp formatting style", "mcppls.showLogs", "environment" });
         config.modulesSupport = modulesSupport_;   // WA-CLANGD-009

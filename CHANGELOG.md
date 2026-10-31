@@ -45,7 +45,9 @@ once the image is loaded, and admits it on the processor's SHA-256 instructions.
   and starts it, its version probe and `mcppls check` through the runner. `payload --clangd openkal=DIR` replaces the
   lock's image, as `--clangd <platform>=DIR` replaces a native engine. Every row of the lock names it (`openkal-acceptance.json`
   of mcppls-clangd 0.0.18); macOS arm64 is the closest to the bound, 1.05 times in the release's measurement and 1.25 to
-  1.38 times in four earlier runs.
+  1.38 times in four earlier runs. On Linux the image builds modules in process, as every engine does on macOS
+  and Windows: isolated module workers, and the owned cache bound that is theirs, are the native Linux engine's, and
+  the bound given to the image failed every module build (the bench's warm completion found nothing to complete).
 
 ### The status of a workspace, for any program
 
