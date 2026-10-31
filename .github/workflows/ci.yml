@@ -1501,7 +1501,7 @@ jobs:
           [ "$runner" = 'libexec/okrun/${{ matrix.system }}/okrun${{ matrix.exe }}' ] || { echo "::error::this platform's runner is $runner"; exit 1; }
           # The server's okb, and the engine's once where a platform's engine is the ok image (S4-4-12).
           okbs=$(cd "$payload" && find . -name '*.okb' | sed 's#^\./##' | sort | tr '\n' ' ')
-          named=$({ echo bin/mcppls.okb; jq -r '.platforms[].engines.clangd | select(.runner) | .path' "$payload/payload.json"; } | sort -u | tr '\n' ' ')
+          named=$({ echo bin/mcppls.okb; jq -r '.platforms[].engines.clangd | select(.runner) | .path' "$payload/payload.json" | tr -d '\r'; } | sort -u | tr '\n' ' ')
           echo "okbs: $okbs"
           [ "$okbs" = "$named" ] || { echo "::error::the VSIX carries $okbs; payload.json names $named"; exit 1; }
           want=$("$python" -c "import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], 'rb').read()).hexdigest())" server/mcppls-*.okb)
@@ -1512,10 +1512,10 @@ jobs:
           "$payload/$runner" "$payload/bin/mcppls.okb" version | tee version.txt
           grep -q '^mcppls ' version.txt
           # An engine that is the ok image starts through the same runner and states the version the entry names.
-          engine=$(jq -r '.platforms["${{ matrix.platform }}"].engines.clangd | select(.runner) | .path' "$payload/payload.json")
+          engine=$(jq -r '.platforms["${{ matrix.platform }}"].engines.clangd | select(.runner) | .path' "$payload/payload.json" | tr -d '\r')
           if [ -n "$engine" ]; then
             "$payload/$runner" "$payload/$engine" --version | tee engine.txt
-            grep -qF "$(jq -r '.platforms["${{ matrix.platform }}"].engines.clangd.version' "$payload/payload.json")" engine.txt
+            grep -qF "$(jq -r '.platforms["${{ matrix.platform }}"].engines.clangd.version' "$payload/payload.json" | tr -d '\r')" engine.txt
           fi
       - name: The tree starts the server here, with nothing installed
         run: |
