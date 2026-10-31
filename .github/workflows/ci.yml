@@ -1045,6 +1045,12 @@ jobs:
           # runner's gcc is not (`-m32`), and nothing here runs a 32-bit program.
           make -j"$(nproc)" HAS_LOADER_32BIT= || { sed -i '/^#    ifndef SYS_SECCOMP/,/^#    endif/d' compat.h && make -j"$(nproc)" HAS_LOADER_32BIT=; }
           mkdir -p ~/proot-bin && cp proot ~/proot-bin/proot
+      # The cached binary links libtalloc, which the runner image no longer carries (ubuntu-24.04,
+      # 2026-11-01: "libtalloc.so.2: cannot open shared object file"); the build step installs it
+      # only when it builds.
+      - name: The library proot links
+        if: steps.proot-cache.outputs.cache-hit == 'true'
+        run: sudo apt-get update -q && sudo apt-get install -y -q libtalloc2
       - name: proot itself works, and is the one we built
         run: |
           set -euo pipefail
