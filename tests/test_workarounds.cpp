@@ -50,7 +50,7 @@ int main() {
         expect(pinned.tested && pinned.hangsOnTrailingDotModuleName && pinned.hangsOnUnresolvedImports);
         const auto bundled = cld::traits_for_version(mcppls::base::CLANGD_VERSION);
         expect(bundled.tested && bundled.kitStdlibVersion == "23.1.0") << "the bundled maintained engine is the tested one, its kit the LLVM base";
-        expect(!cld::traits_for_version("23.1.0-mcppls.7").tested) << "another maintained build is not";
+        expect(!cld::traits_for_version("23.1.0-mcppls.8").tested) << "another maintained build is not";
         expect(pinned.needsModulePreparation && pinned.needsModuleHints && pinned.msvcStlNeedsNoAlignedAllocation);
         expect(!cld::traits_for_version("23.1.1").msvcStlNeedsNoAlignedAllocation);
         expect(cld::traits_for_version("23.1.1").hangsOnTrailingDotModuleName);
