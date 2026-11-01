@@ -394,7 +394,7 @@ jobs:
           engine_pid() {
             # The ok image runs as okrun with clangd.okb in its arguments; the native engine is a process named clangd.
             for p in $(pgrep -f 'clangd.okb' || true); do grep -q okrun "/proc/$p/comm" 2>/dev/null && { echo "$p"; return; }; done
-            for p in $(pgrep -f '/bin/clangd( |$)' || true); do echo "$p"; return; done
+            for p in $(pgrep -f '/bin/clangd(\.real)?( |$)' || true); do echo "$p"; return; done
           }
           stage cold 1
           ( stage warm perf --expect-warm ) & st=$!
