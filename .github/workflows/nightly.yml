@@ -358,8 +358,8 @@ jobs:
           for i in $(seq 1 200); do pid=$(engine_pid); [ -n "$pid" ] && break; sleep 0.1; done
           echo "engine pid=$pid"
           if [ -n "$pid" ]; then
-            cp "/proc/$pid/maps" "$out/maps-perf.txt"
-            sudo perf record -F 499 -g -p "$pid" -o "$out/perf.data" -- sleep 35 2> "$out/perf-record.txt" || true
+            ( for k in 1 2 3 4 5 6; do sleep 3; cp "/proc/$pid/maps" "$out/maps-perf-$k.txt" 2>/dev/null; done ) &
+            sudo perf record -F 499 -g -p "$pid" -o "$out/perf.data" -- sleep 25 2> "$out/perf-record.txt" || true
             cp "/proc/$pid/maps" "$out/maps-perf-after.txt" 2>/dev/null || true
           fi
           wait $st
