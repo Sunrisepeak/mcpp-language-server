@@ -339,7 +339,7 @@ jobs:
           ${runner:+"$baseline/$runner"} "$baseline/$(jq -r .server.path "$baseline/payload.json")" --version
       - name: Probe -- cold, then warm under perf, then warm under strace
         run: |
-          set -uo pipefail
+          set +e
           sudo apt-get update -qq >/dev/null && sudo apt-get install -y -qq strace linux-tools-common "linux-tools-$(uname -r)" >/dev/null || echo "::warning::perf not installed"
           sudo sysctl -w kernel.perf_event_paranoid=-1 kernel.kptr_restrict=0 >/dev/null || true
           nproc; cat /proc/loadavg
@@ -373,6 +373,8 @@ jobs:
           wait $st
           cp -a "$work/cache-a/logs" "$out/logs" 2>/dev/null || true
           head -40 "$out/strace-c.txt" 2>/dev/null; cat "$out/perf-dso.txt" 2>/dev/null | head -40
+          sudo chown -R "$(id -u):$(id -g)" "$out"; chmod -R a+r "$out"
+          true
       - uses: actions/upload-artifact@v7
         if: always()
         with:
