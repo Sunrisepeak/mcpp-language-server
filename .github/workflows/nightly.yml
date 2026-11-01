@@ -27,6 +27,9 @@ on:
       ux-baseline:
         description: A release (v0.0.16) whose server runs the same stages beside this one, on the same machine
         default: ''
+      engine-run:
+        description: 'probe: a mcppls-clangd CI run whose native linux-x64 engine replaces the payload''s (same source, other format)'
+        default: ''
 
 permissions:
   contents: read
@@ -337,6 +340,35 @@ jobs:
           baseline="$RUNNER_TEMP/baseline/payload"
           runner=$(jq -r '.platforms["linux-x64"].runner // .server.runner // empty' "$baseline/payload.json")
           ${runner:+"$baseline/$runner"} "$baseline/$(jq -r .server.path "$baseline/payload.json")" --version
+      - uses: actions/download-artifact@v8
+        if: inputs.engine-run != ''
+        with:
+          name: clangd-linux-x64-portable
+          repository: Sunrisepeak/mcppls-clangd
+          run-id: ${{ inputs.engine-run }}
+          github-token: ${{ github.token }}
+          path: native-engine
+      - name: probe -- the native engine of the same source in the payload
+        if: inputs.engine-run != ''
+        run: |
+          set -euo pipefail
+          find native-engine -maxdepth 3 | head -20
+          for a in native-engine/*.tar.gz; do [ -f "$a" ] && tar -xzf "$a" -C native-engine; done
+          part=$(dirname "$(find native-engine -path '*clangd/engine.json' | head -1)")
+          cat "$part/engine.json"
+          rm -rf payload/clangd/linux-x64 && mkdir -p payload/clangd && cp -a "$part" payload/clangd/linux-x64
+          chmod +x payload/clangd/linux-x64/bin/*
+          python3 - <<'PY'
+          import json, hashlib, os
+          p = 'payload/payload.json'; d = json.load(open(p))
+          e = json.load(open('payload/clangd/linux-x64/engine.json'))
+          rel = 'clangd/linux-x64/bin/clangd'; b = open('payload/' + rel, 'rb').read()
+          row = d['platforms']['linux-x64']
+          row['engines']['clangd'] = {'path': rel, 'version': e['engine-version'], 'identity': e}
+          row.setdefault('files', {})[rel] = {'sha256': hashlib.sha256(b).hexdigest(), 'size': len(b)}
+          json.dump(d, open(p, 'w'), indent=2)
+          print(json.dumps(row['engines'], indent=1)[:600])
+          PY
       - name: Probe -- cold, then warm under perf, then warm under strace
         run: |
           set +e
