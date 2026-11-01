@@ -351,7 +351,9 @@ jobs:
             echo "stage $1 $2: exit $?"; grep -E "U2-restarts|U2-bmi|first ready" "$out/stage-$1-$2.txt" | head -4
           }
           engine_pid() {
+            # The ok image runs as okrun with clangd.okb in its arguments; the native engine is a process named clangd.
             for p in $(pgrep -f 'clangd.okb' || true); do grep -q okrun "/proc/$p/comm" 2>/dev/null && { echo "$p"; return; }; done
+            for p in $(pgrep -x clangd || true); do echo "$p"; return; done
           }
           stage cold 1
           ( stage warm perf --expect-warm ) & st=$!
@@ -359,13 +361,16 @@ jobs:
           echo "engine pid=$pid"
           if [ -n "$pid" ]; then
             ( for k in 1 2 3 4 5 6; do sleep 3; cp "/proc/$pid/maps" "$out/maps-perf-$k.txt" 2>/dev/null; done ) &
+            sudo perf stat -e task-clock,page-faults,minor-faults,major-faults,context-switches,cpu-migrations -p "$pid" -o "$out/perf-stat.txt" -- sleep 25 &
             sudo perf record -F 499 -g -p "$pid" -o "$out/perf.data" -- sleep 25 2> "$out/perf-record.txt" || true
+            wait
             cp "/proc/$pid/maps" "$out/maps-perf-after.txt" 2>/dev/null || true
           fi
           wait $st
           sudo chmod a+r "$out/perf.data" 2>/dev/null || true
           sudo perf script -i "$out/perf.data" -F tid,time,ip,sym,dso 2>/dev/null | gzip > "$out/perf-script.txt.gz" || true
           sudo perf report -i "$out/perf.data" --no-children --sort dso --stdio 2>/dev/null | head -60 > "$out/perf-dso.txt" || true
+          sudo perf report -i "$out/perf.data" --no-children --sort dso,sym --stdio -g none 2>/dev/null | head -200 > "$out/perf-sym.txt" || true
           ( stage warm strace --expect-warm ) & st=$!
           for i in $(seq 1 200); do pid=$(engine_pid); [ -n "$pid" ] && break; sleep 0.1; done
           echo "engine pid=$pid"
