@@ -27,6 +27,9 @@ on:
       ux-baseline:
         description: A release (v0.0.16) whose server runs the same stages beside this one, on the same machine
         default: ''
+      engine-args:
+        description: 'probe: arguments the native engine (engine-run) is started with besides the server''s'
+        default: ''
       engine-run:
         description: 'probe: a mcppls-clangd CI run whose native linux-x64 engine replaces the payload''s (same source, other format)'
         default: ''
@@ -358,12 +361,18 @@ jobs:
           cat "$part/engine.json"
           rm -rf payload/clangd/linux-x64 && mkdir -p payload/clangd && cp -a "$part" payload/clangd/linux-x64
           chmod +x payload/clangd/linux-x64/bin/*
+          if [ -n '${{ inputs.engine-args }}' ]; then
+            mv payload/clangd/linux-x64/bin/clangd payload/clangd/linux-x64/bin/clangd.real
+            printf '#!/bin/sh\nexec "$(dirname "$0")/clangd.real" %s "$@"\n' '${{ inputs.engine-args }}' > payload/clangd/linux-x64/bin/clangd
+            chmod +x payload/clangd/linux-x64/bin/clangd; cat payload/clangd/linux-x64/bin/clangd
+          fi
           python3 - <<'PY'
           import json, hashlib, os
           p = 'payload/payload.json'; d = json.load(open(p))
           e = json.load(open('payload/clangd/linux-x64/engine.json'))
           rel = 'clangd/linux-x64/bin/clangd'; b = open('payload/' + rel, 'rb').read()
           row = d['platforms']['linux-x64']
+          e['sha256'] = hashlib.sha256(b).hexdigest()
           row['engines']['clangd'] = {'path': rel, 'version': e['engine-version'], 'identity': e}
           row.setdefault('files', {})[rel] = {'sha256': hashlib.sha256(b).hexdigest(), 'size': len(b)}
           json.dump(d, open(p, 'w'), indent=2)
