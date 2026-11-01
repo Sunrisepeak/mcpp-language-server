@@ -30,7 +30,7 @@
   ],
   "server-arguments": [
     "--log-level",
-    "debug"
+    "info"
   ],
   "checks": [
     {

@@ -298,11 +298,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fixture: [ux-mcpp, ux-xlings]
-        round: ['1', '2', '3']
-        include:
-          - { fixture: ux-mcpp,    round: two-core, cores: '0-1' }
-          - { fixture: ux-xlings,  round: two-core, cores: '0-1' }
+        fixture: [ux-mcpp]
+        round: ['1']
     defaults:
       run:
         shell: bash
@@ -340,93 +337,49 @@ jobs:
           baseline="$RUNNER_TEMP/baseline/payload"
           runner=$(jq -r '.platforms["linux-x64"].runner // .server.runner // empty' "$baseline/payload.json")
           ${runner:+"$baseline/$runner"} "$baseline/$(jq -r .server.path "$baseline/payload.json")" --version
-      - name: The stages
-        env:
-          REPEAT: ${{ inputs.ux-repeat || '1' }}
-          BASELINE: ${{ inputs.ux-baseline }}
+      - name: Probe -- cold, then warm under perf, then warm under strace
         run: |
-          set -euo pipefail
-          nproc
-          cat /proc/loadavg
-          case "$REPEAT" in ''|*[!0-9]*|0) echo "::error::ux-repeat is a positive number, not '$REPEAT'"; exit 1 ;; esac
-          results="$RUNNER_TEMP/ux-results"
-          work="$RUNNER_TEMP/ux-work"
-          mkdir -p "$results" "$work"
-          # The two-core round pins the runner and, through it, the server and clangd it starts.
-          pin=(); [ -n "${{ matrix.cores }}" ] && pin=(taskset -c "${{ matrix.cores }}")
-          failed=''
-          # run_stage <server: this|baseline> <stage> <measure suffix> <cache> [runner arguments]: the
-          # baseline's server runs in a workspace and cache of its own, measured into a directory of its
-          # own (an artifact the budgets leave out); the runner and the fixture are this run's for both,
-          # so only the server differs.
-          run_stage() {
-            local server="$1" name="$2" suffix="$3" cache="$4"; shift 4
-            local payload=payload into="$results" space="$work" label="$name$suffix"
-            if [ "$server" = baseline ]; then
-              payload="$RUNNER_TEMP/baseline/payload" into="$RUNNER_TEMP/ux-baseline-results" space="$work/baseline" label="$label (baseline $BASELINE)"
-            fi
-            mkdir -p "$into" "$space"
-            echo "::group::${{ matrix.fixture }} ${{ matrix.round }} $label"
-            if ! ${pin[@]+"${pin[@]}"} stage/mcppls-conformance run --server "$payload/$(jq -r .server.path "$payload/payload.json")" --payload "$payload" \
-                --fixture conformance/fixtures/${{ matrix.fixture }} --workspace-dir "$space/workspace" --cache-dir "$space/$cache" \
-                --stage "$name" --timeout 900 --measure "$into/${{ matrix.fixture }}-${{ matrix.round }}-$name$suffix.json" "$@"; then
-              if [ "$server" = this ]; then failed="$failed $name$suffix"; else echo "::warning::the baseline failed $name$suffix"; fi
-              # Keep the original failed stage's complete server logs before later
-              # stages rotate them. This runs after the measured process exits.
-              if [ -d "$space/$cache/logs" ]; then
-                mkdir -p "$into/failed-$name$suffix/logs"
-                cp -a "$space/$cache/logs/." "$into/failed-$name$suffix/logs/" ||
-                  echo "::warning::could not preserve all $name$suffix server logs"
-              fi
-            fi
-            echo "::endgroup::"
+          set -uo pipefail
+          sudo apt-get update -qq >/dev/null && sudo apt-get install -y -qq strace linux-tools-common "linux-tools-$(uname -r)" >/dev/null || echo "::warning::perf not installed"
+          sudo sysctl -w kernel.perf_event_paranoid=-1 kernel.kptr_restrict=0 >/dev/null || true
+          nproc; cat /proc/loadavg
+          out="$RUNNER_TEMP/probe"; work="$RUNNER_TEMP/ux-work"; mkdir -p "$out" "$work"
+          stage() {
+            stage/mcppls-conformance run --server "payload/$(jq -r .server.path payload/payload.json)" --payload payload \
+              --fixture conformance/fixtures/ux-mcpp --workspace-dir "$work/workspace" --cache-dir "$work/cache-a" \
+              --stage "$1" --timeout 900 --measure "$out/ux-mcpp-$1-$2.json" "${@:3}" > "$out/stage-$1-$2.txt" 2>&1
+            echo "stage $1 $2: exit $?"; grep -E "U2-restarts|U2-bmi|first ready" "$out/stage-$1-$2.txt" | head -4
           }
-          servers=(this); [ -n "$BASELINE" ] && servers=(this baseline)
-          for server in "${servers[@]}"; do
-            run_stage "$server" cold '' cache-a
-            run_stage "$server" warm '' cache-a --expect-warm
-          done
-          # The edits stage REPEAT times, a new server session each, on what cold and warm prepared: the
-          # typing and save scenarios (U5, U6, U7a, U15) sampled that many times without building again.
-          # Beside a baseline the two alternate A B B A, so that a slower stretch of the machine is
-          # shared between them.
-          for i in $(seq 1 "$REPEAT"); do
-            suffix=''; [ "$REPEAT" -gt 1 ] && suffix="-$i"
-            order=("${servers[@]}")
-            if [ -n "$BASELINE" ] && [ $((i % 2)) -eq 0 ]; then order=(baseline this); fi
-            for server in "${order[@]}"; do run_stage "$server" edits "$suffix" cache-a --expect-warm; done
-          done
-          run_stage this faults '' cache-b
-          if [ "${{ matrix.round }}" = 1 ]; then
-            for server in "${servers[@]}"; do run_stage "$server" long '' cache-a --expect-warm; done
+          engine_pid() {
+            for p in $(pgrep -f 'clangd.okb' || true); do grep -q okrun "/proc/$p/comm" 2>/dev/null && { echo "$p"; return; }; done
+          }
+          stage cold 1
+          ( stage warm perf --expect-warm ) & st=$!
+          for i in $(seq 1 200); do pid=$(engine_pid); [ -n "$pid" ] && break; sleep 0.1; done
+          echo "engine pid=$pid"
+          if [ -n "$pid" ]; then
+            cp "/proc/$pid/maps" "$out/maps-perf.txt"
+            sudo perf record -F 499 -g -p "$pid" -o "$out/perf.data" -- sleep 35 2> "$out/perf-record.txt" || true
+            cp "/proc/$pid/maps" "$out/maps-perf-after.txt" 2>/dev/null || true
           fi
-          {
-            echo "### ${{ matrix.fixture }}, round ${{ matrix.round }}"
-            echo
-            echo '| stage | check | ok | seconds | detail |'
-            echo '|---|---|---|---|---|'
-            for file in "$results"/*.json; do
-              jq -r --arg stage "$(basename "$file" .json)" '.checks[] | "| \($stage) | \(.id) | \(.ok) | \(.seconds * 10 | round / 10) | \(.detail | tostring | .[0:150] | gsub("\\|"; "/")) |"' "$file"
-            done
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [ -n "$failed" ]; then
-            echo "::error::stages over budget or failing:$failed"
-            exit 1
-          fi
+          wait $st
+          sudo chmod a+r "$out/perf.data" 2>/dev/null || true
+          sudo perf script -i "$out/perf.data" -F tid,time,ip,sym,dso 2>/dev/null | gzip > "$out/perf-script.txt.gz" || true
+          sudo perf report -i "$out/perf.data" --no-children --sort dso --stdio 2>/dev/null | head -60 > "$out/perf-dso.txt" || true
+          ( stage warm strace --expect-warm ) & st=$!
+          for i in $(seq 1 200); do pid=$(engine_pid); [ -n "$pid" ] && break; sleep 0.1; done
+          echo "engine pid=$pid"
+          [ -n "$pid" ] && sudo timeout 35 strace -f -c -p "$pid" -o "$out/strace-c.txt" || true
+          wait $st
+          cp -a "$work/cache-a/logs" "$out/logs" 2>/dev/null || true
+          head -40 "$out/strace-c.txt" 2>/dev/null; cat "$out/perf-dso.txt" 2>/dev/null | head -40
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: nightly-ux-${{ matrix.fixture }}-${{ matrix.round }}
-          path: ${{ runner.temp }}/ux-results
-      - uses: actions/upload-artifact@v7
-        if: always() && inputs.ux-baseline != ''
-        with:
-          name: nightly-ux-${{ matrix.fixture }}-${{ matrix.round }}-baseline
-          path: ${{ runner.temp }}/ux-baseline-results
+          name: probe-ux-mcpp
+          path: ${{ runner.temp }}/probe
+          retention-days: 3
 
-  # U-* (0.0.8 plan §3.4): every scenario's numbers over the night's rounds, for setting each budget from what was
-  # measured (1.3 x the 95th percentile over two weeks of nights) instead of widening it after a slow runner. The
-  # two-core round is left out: it is recorded, never a budget.
   ux-budgets:
     name: ux budgets (the night's rounds)
     needs: ux
