@@ -9,17 +9,17 @@ product version unchanged.
 
 ## [0.0.20] — 2026-10-30
 
-The bundled engine is [mcppls-clangd 0.0.18](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.18)
-(`23.1.0-mcppls.6`): its ok image `clangd.okb`, started by the payload's runner, on macOS arm64 and Windows x64, and
-the native clangd on Linux. The image passed mcppls-clangd's acceptance against the native clangd on all four systems
-(parse time at most 1.3 times, resident memory above it by at most the image's size; `openkal-acceptance.json`); on
-Linux the native engine also builds modules in isolated workers and keeps them across sessions, which the image does
-not, and with the image a Linux workspace rebuilt every module in each session (ready after 33 s rather than 12 s). One package serves every system and architecture: one payload, one
+The bundled engine is [mcppls-clangd 0.0.19](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.19)
+(`23.1.0-mcppls.7`) as its ok image `clangd.okb` on every system, each of which it passed mcppls-clangd's acceptance
+against the native clangd on (parse time at most 1.3 times, resident memory above it by at most the image's size, as
+many modules built at once, and on macOS the SDK found for a command that names none; `openkal-acceptance.json`): one
+engine of both architectures, started by the payload's runner. On Linux the engine
+therefore needs nothing of the system: glibc and musl distributions, old and new, run it alike. One package serves every system and architecture: one payload, one
 VSIX, one CLion plugin. A project is read without a compiler with the semantic kit of its target, and the payload
 carries the openkal kit, with which any target's code reads with the standard library (ecosystem design 2026-10-29
-§9). Built with mcpp 2026.10.31.2 over openkal-platform 0.19.2, openkal 0.18's version group, for every target, ok
-images included, and mcpplibs.os 0.2.4; the runner each system's payload carries maps the image it runs, releases it
-once the image is loaded, and admits it on the processor's SHA-256 instructions.
+§9). Built with mcpp 2026.10.31.2 over openkal-platform 0.20.1, openkal 0.19's version group, for every target, ok
+images included, and mcpplibs.os 0.2.6; the runner each system's payload carries releases the image file once the
+image is loaded and verifies an okb's chunk digests on several processors at once.
 
 ### One package for every system
 
@@ -44,11 +44,18 @@ once the image is loaded, and admits it on the processor's SHA-256 instructions.
   runner starts. The payload carries the image once (`clangd/openkal/`), every entry that selects it names it with
   `engines.clangd.runner`, and its identity names `openkal`; the server verifies it as it verifies a native engine,
   and starts it, its version probe and `mcppls check` through the runner. `payload --clangd openkal=DIR` replaces the
-  lock's image, as `--clangd <platform>=DIR` replaces a native engine. The lock's rows for macOS arm64 and Windows x64 name it; the
-  Linux rows name the native engine (above). macOS arm64 is the closest to the parse-time bound, 1.05 times in the
-  release's measurement and 1.25 to 1.38 times in four earlier runs. An ok-image engine builds modules in process on
-  every system: isolated module workers, and the owned cache bound that is theirs, are the native Linux engine's, and
-  that bound given to an image fails every module build. The conformance runner starts a payload's image engine
+  lock's image, as `--clangd <platform>=DIR` replaces a native engine. Every row of the lock names it (`openkal-acceptance.json`
+  of mcppls-clangd 0.0.19): parse time 0.60 to 1.10 times the native clangd's, resident memory 8 to 51 MiB above it.
+  The image reached that through four corrections beneath mcppls, each in the layer that owns it (ecosystem design
+  2026-10-30 part 2 §25.9): LLVM answered no physical cores for the image's target, so it prepared one module at a time
+  where the native clangd prepares two (openkal 0.19's `kal_task_cores`, and `kal_task_set_priority` for background
+  threads); every program's identifier was 1, so a module lock named its reader as its owner (openkal-musl 0.24); on
+  macOS each thread-local access of the image made a system call (openkal-macos 0.17.1), 1.25 to 1.96 times the native
+  parse time before and 0.90 to 1.00 after; and on macOS clangd found no SDK for a command that names none, which the
+  standard library module needs (the openkal series asks `xcrun`, as every Apple build of clangd does). On Linux the
+  image builds modules in process, as every engine does on macOS and Windows: isolated module workers, and the owned
+  cache bound that is theirs, are the native Linux engine's, and the bound given to the image failed every module build
+  (the bench's warm completion found nothing to complete). The conformance runner starts a payload's image engine
   through its runner.
 
 ### The status of a workspace, for any program

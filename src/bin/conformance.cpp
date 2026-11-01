@@ -1337,11 +1337,18 @@ public:
         return std::nullopt;
     }
 
-    // clangd processes among the descendants of `serverPid`.
+    // The engine's processes among the descendants of `serverPid`: clangd itself, or the runner that started clangd's ok
+    // image (`okrun <payload>/clangd/openkal/bin/clangd.okb ...`), whose process bears the runner's name.
     static std::vector<std::int64_t> clangd_pids(std::int64_t serverPid) {
         std::vector<std::int64_t> found;
         for (const auto pid : tree_pids(serverPid)) {
-            if (pid != serverPid && comm_of(pid).starts_with("clangd")) found.push_back(pid);
+            if (pid == serverPid) continue;
+            if (comm_of(pid).starts_with("clangd")) {
+                found.push_back(pid);
+            } else if (const auto argv = os::fs::read(std::format("/proc/{}/cmdline", pid));
+                       argv && std::string_view { *argv }.contains("clangd.okb")) {
+                found.push_back(pid);
+            }
         }
         return found;
     }
