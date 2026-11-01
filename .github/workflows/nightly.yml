@@ -353,12 +353,12 @@ jobs:
           engine_pid() {
             # The ok image runs as okrun with clangd.okb in its arguments; the native engine is a process named clangd.
             for p in $(pgrep -f 'clangd.okb' || true); do grep -q okrun "/proc/$p/comm" 2>/dev/null && { echo "$p"; return; }; done
-            for p in $(pgrep -x clangd || true); do echo "$p"; return; done
+            for p in $(pgrep -f '/bin/clangd( |$)' || true); do echo "$p"; return; done
           }
           stage cold 1
           ( stage warm perf --expect-warm ) & st=$!
           for i in $(seq 1 200); do pid=$(engine_pid); [ -n "$pid" ] && break; sleep 0.1; done
-          echo "engine pid=$pid"
+          echo "engine pid=$pid"; ps -eo pid,comm,args | grep -i clangd | grep -v grep | cut -c1-200
           if [ -n "$pid" ]; then
             ( for k in 1 2 3 4 5 6; do sleep 3; cp "/proc/$pid/maps" "$out/maps-perf-$k.txt" 2>/dev/null; done ) &
             sudo perf stat -e task-clock,page-faults,minor-faults,major-faults,context-switches,cpu-migrations -p "$pid" -o "$out/perf-stat.txt" -- sleep 25 &
