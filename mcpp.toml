@@ -24,7 +24,7 @@ members = [
 # THE PLATFORM OF EVERY TARGET (mcpp SPEC-013): openkal-platform states the C library
 # (openkal-musl) and the C++ run-time (openkal-llvm-runtime) above openkal, the toolchain, and for
 # an ok image (`<arch>-openkal`) its tools, link, seal and runner. The ok images take it here too:
-# 0.20.1's version group is openkal 0.19's, which mcpplibs.os 0.2.6 is written against: the host's
+# 0.20.2's version group is openkal 0.19's, which mcpplibs.os 0.2.6 is written against: the host's
 # physical cores and a context's claim on the processors, which clangd.okb's thread pools read
 # (part 2 §25.9), and the okrun that releases the image file once loaded and verifies an okb's chunk
 # digests on several contexts (clangd.okb's memory and start, part 2 §25.3), and on macOS a context's
@@ -32,7 +32,7 @@ members = [
 # member declares a run-time. A Windows build is the GNU row (`--target x86_64-windows-gnu`): the
 # platform states no MSVC arrangement.
 [workspace.target.'cfg(any(linux, macos, windows, os = "openkal"))']
-platform = "openkal-platform@0.20.1"
+platform = "openkal-platform@0.20.2"
 
 # The first mcpp that packs the openkal set as one tree with every system's runner and runs tests built once
 # on every system (2026.10.30.1, SPEC-014 2.0 and SPEC-015), and that builds that tree's Windows launcher over
@@ -49,7 +49,7 @@ tinyhttps            = "0.3.1"
 # openkal implementation of each system is os's dependency, named by it; no program here names it.
 # 0.2.1 carries what mcppls's own modules/os and modules/platform did (bounded runs, threads,
 # environment entries, a bounded read, canonical names); 0.2.6 is written against openkal 0.19, the
-# version group openkal-platform 0.20.1 names.
+# version group openkal-platform 0.20.2 names.
 [workspace.dependencies.mcpplibs]
 os = "0.2.6"
 
