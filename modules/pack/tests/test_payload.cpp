@@ -351,10 +351,13 @@ int main(int argc, char* argv[]) {
         auto assembled = payload::assemble(options_for(fixture, { "linux-x64" }, base::join_path(work, "payload-tampered")), lockData);
         expect(fatal(assembled.has_value()));
         if (!assembled) return;
-        {
-            std::ofstream tamper { base::join_path(*assembled, "clangd/linux-x64/bin/clangd"), std::ios::binary | std::ios::app };
-            tamper << "tampered";
-        }
+        // On a linux-x64 host assemble() has just started this clangd (`--version`), and a file
+        // some process still executes cannot be opened for writing (ETXTBSY): the tampered
+        // bytes take the name by a rename, which no running program refuses.
+        const std::string engine { base::join_path(*assembled, "clangd/linux-x64/bin/clangd") };
+        put(engine + ".tampered", os::fs::read(engine).value_or(std::string {}) + "tampered");
+        std::filesystem::rename(engine + ".tampered", engine, ignored);
+        expect(fatal(!ignored)) << ignored.message();
         auto problems = payload::verify(*assembled);
         expect(std::ranges::any_of(problems, [](const std::string& p) { return p.contains("sha256") || p.contains("bytes"); }));
         auto manifest = nlohmann::json::parse(os::fs::read(base::join_path(*assembled, "payload.json")).value_or("{}"));
