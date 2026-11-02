@@ -24,21 +24,22 @@ members = [
 # THE PLATFORM OF EVERY TARGET (mcpp SPEC-013): openkal-platform states the C library
 # (openkal-musl) and the C++ run-time (openkal-llvm-runtime) above openkal, the toolchain, and for
 # an ok image (`<arch>-openkal`) its tools, link, seal and runner. The ok images take it here too:
-# 0.20.2's version group is openkal 0.19's, which mcpplibs.os 0.2.6 is written against: the host's
-# physical cores and a context's claim on the processors, which clangd.okb's thread pools read
-# (part 2 §25.9), and the okrun that releases the image file once loaded and verifies an okb's chunk
-# digests on several contexts (clangd.okb's memory and start, part 2 §25.3), and on macOS a context's
-# identity without a system call (openkal-macos 0.17.1). The system triples take its hosted arrangement, so one source builds every target and no
-# member declares a run-time. A Windows build is the GNU row (`--target x86_64-windows-gnu`): the
-# platform states no MSVC arrangement.
+# 0.21.1's version group is openkal 0.21's, which mcpplibs.os 0.2.7 is written against: an okrun
+# that maps an image's instructions from its file rather than copying them and admits an okb member
+# it has compared before without reading it (clangd.okb's start and memory, part 3 §17.1), a C library whose allocator is mimalloc and whose memory is an openkal
+# region (part 3 §7), and the owned module cache and its workers answered by openkal (the engine's
+# openkal series). The system triples take its hosted arrangement, so one source builds every
+# target and no member declares a run-time. A Windows build is the GNU row (`--target
+# x86_64-windows-gnu`): the platform states no MSVC arrangement.
 [workspace.target.'cfg(any(linux, macos, windows, os = "openkal"))']
-platform = "openkal-platform@0.20.2"
+platform = "openkal-platform@0.21.1"
 
-# The first mcpp that packs the openkal set as one tree with every system's runner and runs tests built once
-# on every system (2026.10.30.1, SPEC-014 2.0 and SPEC-015), and that builds that tree's Windows launcher over
-# a platform other than its own openkal rows' (2026.10.31.2, openkal-platform 0.19.0).
+# The first mcpp whose openkal rows are openkal-platform 0.21.0: its C library embeds its allocator, the
+# allocator's link libraries are the C library's, and the openkal set's Windows launcher is built over
+# mcpplibs.os 0.2.7 (2026.11.2.2). It packs that set as one tree with every system's runner and runs tests
+# built once on every system, as every mcpp since 2026.10.30.1 does (SPEC-014 2.0 and SPEC-015).
 [workspace.package]
-mcpp = ">=2026.10.31.2"
+mcpp = ">=2026.11.2.2"
 
 # One version of each third-party package for every member.
 [workspace.dependencies]
@@ -48,10 +49,10 @@ tinyhttps            = "0.3.1"
 # The operating-system layer: mcpplibs.os over openkal (mcpp design 2026-10-26 part 2). The
 # openkal implementation of each system is os's dependency, named by it; no program here names it.
 # 0.2.1 carries what mcppls's own modules/os and modules/platform did (bounded runs, threads,
-# environment entries, a bounded read, canonical names); 0.2.6 is written against openkal 0.19, the
-# version group openkal-platform 0.20.2 names.
+# environment entries, a bounded read, canonical names); 0.2.7 is written against openkal 0.21, the
+# version group openkal-platform 0.21.1 names.
 [workspace.dependencies.mcpplibs]
-os = "0.2.6"
+os = "0.2.7"
 
 [workspace.dependencies.nlohmann]
 json = "3.12.0"
