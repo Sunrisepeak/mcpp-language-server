@@ -95,6 +95,33 @@ int main() {
         std::filesystem::remove_all(directory, ignored);
     };
 
+    "a copy under a read lease is a copy of its module, and nothing else is"_test = [] {
+        std::error_code ignored;
+        const std::string directory { scratch("lease-copy") };
+        write_canonical(directory, "mcpp.ui", 16);
+        write_copy(directory, "mcpp.ui", "20261102-065432-123456.-3fa9c1", 16);
+        expect(bmi::module_of_bmi("mcpp.ui-20261102-065432-123456.-3fa9c1.pcm") == "mcpp.ui");
+        expect(bmi::is_versioned_copy("mcpp.ui-20261102-065432-123456.-3fa9c1.pcm", directory));
+        expect(bmi::module_of_bmi("mcpp.ui.-3fa9c1.pcm") == "mcpp.ui.-3fa9c1") << "a lease suffix without a stamp is a name";
+        expect(!bmi::is_versioned_copy("mcpp.ui.pcm", directory));
+        std::filesystem::remove_all(directory, ignored);
+    };
+
+    "a published BMI's unit directory is above its command directory and any producer chain"_test = [] {
+        expect(bmi::unit_directory_of_bmi("/c/modules/ui.cppm-0A1B/1111/mcpp.ui.pcm") == "/c/modules/ui.cppm-0A1B");
+        expect(bmi::unit_directory_of_bmi("/c/modules/ui.cppm-0A1B/1111/producer-chain-v2-2222/mcpp.ui.pcm") == "/c/modules/ui.cppm-0A1B");
+    };
+
+    "a unit's lock is named by clangd's digest of its path"_test = [] {
+        // The name clangd 23.1.0-mcppls.9 gave this unit's directory and lock, on Linux.
+        if (os::host() == os::platform::linux)
+            expect(bmi::unit_lock_name("/eng/e2e/module_cache_lease.py_cachemode_legacy/A.cppm") == "7AAEC1B73AB3C4AA");
+        else
+            expect(bmi::unit_lock_name("/Work/Ui.cppm") == bmi::unit_lock_name("/work/ui.cppm")) << "folded where names ignore case";
+        expect(bmi::unit_lock_name("/work/a/../ui.cppm") == bmi::unit_lock_name("/work/ui.cppm")) << "dots removed";
+        expect(bmi::unit_lock_name("/work/ui.cppm").size() == 16u);
+    };
+
     "a sweep takes the copies and leaves every canonical BMI, and the report says the same numbers"_test = [] {
         std::error_code ignored;
         const std::string workspace { scratch("sweep") };

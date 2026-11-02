@@ -28,6 +28,7 @@ import mcppls.base.channel;
 import mcppls.base.home;
 import mcppls.base.payload;
 import mcppls.engine.payload;
+import mcppls.engine.clangd.bmi;
 import mcppls.toolrun;
 
 namespace os = mcpplibs::os;
@@ -1453,10 +1454,10 @@ Json latency_stats(std::vector<double> seconds) {
 std::string state_or_none(const Json& status) { return status.is_object() ? status.value("state", std::string {}) : std::string {}; }
 
 // Every module file clangd published under a cache directory, path -> size and modification time. clangd keeps a copy for
-// its readers with a timestamp in its name (`mcpp.log-20260930-010313-591880.pcm`): not a build, so not listed.
+// its readers with a timestamp in its name (`mcpp.log-20260930-010313-591880.pcm`, under a read lease
+// `mcpp.log-20260930-010313-591880.-3fa9c1.pcm`): not a build, so not listed (engine::clangd::is_versioned_copy).
 std::map<std::string, std::string> all_module_files(const std::string& cacheDirectory) {
     std::error_code ignored;
-    static const std::regex COPY { R"(-\d{8}-\d{6}-\d+\.pcm$)" };
     std::map<std::string, std::string> files;
     if (cacheDirectory.empty()) return files;
     std::vector<std::string> pending { cacheDirectory };
@@ -1469,7 +1470,7 @@ std::map<std::string, std::string> all_module_files(const std::string& cacheDire
                 continue;
             }
             const std::string name { base::file_name(entry) };
-            if (!name.ends_with(".pcm") || !entry.contains("/modules/") || std::regex_search(name, COPY)) continue;
+            if (!name.ends_with(".pcm") || !entry.contains("/modules/") || mcppls::engine::clangd::is_versioned_copy(name, directory)) continue;
             const auto stamp = base::file_stamp(entry);
             files[entry] = stamp ? std::format("{}:{}", stamp->size, static_cast<std::int64_t>(stamp->modified_ns)) : std::string {};
         }
@@ -1486,10 +1487,10 @@ struct Builds {
     std::size_t first { 0 };
 };
 Builds builds_since(const std::map<std::string, std::string>& before, const std::map<std::string, std::string>& now) {
-    // A module file is <modules>/<unit>-<hash>/<command hash>/<name>.pcm: its unit is two directories up. An owned
+    // A module file's unit is its directory, <modules>/<unit>-<hash> (engine::clangd::unit_directory_of_bmi). An owned
     // payload's unit is the source it was built from.
     const auto unit_of = [](const std::string& path) {
-        return owned_payload(path) ? owned_payload_source(path) : base::parent_path(base::parent_path(path));
+        return owned_payload(path) ? owned_payload_source(path) : mcppls::engine::clangd::unit_directory_of_bmi(path);
     };
     const auto size_of = [](const std::string& stamp) { return stamp.substr(0, stamp.find(':')); };
     std::set<std::string> unitsBefore;
@@ -3566,7 +3567,8 @@ public:
     // Stale module locks for `module`, as clangd 23.1 leaves them: `.locks/<hash>.lock`, a symlink to `<hash>.lock-<random>`
     // whose content is "hostname pid". `variant` says whose: a dead pid on this host is broken by clangd; a live pid, or
     // another host's, is waited for (up to 260 s a generation, 0.0.6). The module's published files are removed so that it has
-    // to be built and its lock is taken.
+    // to be built and its lock is taken. A unit's lock is named like its directory, <modules>/<unit>-<hash>; one published to
+    // the owned cache has no directory, and its lock is named from its source (engine::clangd::unit_lock_name).
     std::optional<Injected> inject_lock(const std::string& module, const std::string& variant, std::string& why) {
         std::error_code ignored;
         const auto published = module_files(cacheDirectory_, module);
@@ -3574,21 +3576,26 @@ public:
             why = std::format("no module file of {} in the cache to build again", module);
             return std::nullopt;
         }
-        std::set<std::string> sourceDirectories;
+        std::set<std::pair<std::string, std::string>> unitLocks;   // (<modules>/.locks, hash)
         for (const auto& [path, stamp] : published) {
-            sourceDirectories.insert(base::parent_path(base::parent_path(path)));
+            if (owned_payload(path)) {
+                const std::string source { owned_payload_source(path) };
+                if (!source.empty())
+                    unitLocks.emplace(base::join_path(base::parent_path(base::parent_path(base::parent_path(path))), ".locks"),
+                                      mcppls::engine::clangd::unit_lock_name(source));
+            } else {
+                const std::string directory { mcppls::engine::clangd::unit_directory_of_bmi(path) };
+                const std::string name { base::file_name(directory) };
+                if (const std::size_t dash { name.rfind('-') }; dash != std::string::npos)
+                    unitLocks.emplace(base::join_path(base::parent_path(directory), ".locks"), name.substr(dash + 1));
+            }
             std::error_code ignored;
             std::filesystem::remove(path, ignored);
         }
         const std::string host { variant == "foreign-host" ? std::string { "some-other-host" } : host_name() };
         const std::string pid { variant == "dead-pid" ? std::string { "3999999" } : std::string { "1" } };
         std::size_t created { 0 };
-        for (const auto& directory : sourceDirectories) {
-            const std::string name { base::file_name(directory) };
-            const std::size_t dash { name.rfind('-') };
-            if (dash == std::string::npos) continue;
-            const std::string hash { name.substr(dash + 1) };
-            const std::string locks { base::join_path(base::parent_path(directory), ".locks") };
+        for (const auto& [locks, hash] : unitLocks) {
             (void)std::filesystem::create_directories(locks, ignored);
             const std::string owner { base::join_path(locks, hash + ".lock-deadbeef") };
             const std::string link { base::join_path(locks, hash + ".lock") };

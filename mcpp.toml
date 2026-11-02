@@ -58,6 +58,7 @@ json = "3.12.0"
 
 [workspace.dependencies.compat]
 libarchive = "3.8.7"
+xxhash     = "0.8.3"
 
 [package]
 name        = "mcpp-language-server"
@@ -108,6 +109,10 @@ mcppls-toolrun                 = { path = "modules/toolrun" }
 
 [dependencies.nlohmann]
 json.workspace = true
+
+# clangd names a module unit's lock by the XXH3 digest of its path (engine::clangd::unit_lock_name).
+[dependencies.compat]
+xxhash.workspace = true
 
 [dev-dependencies]
 mcppls-testing = { path = "modules/testing" }

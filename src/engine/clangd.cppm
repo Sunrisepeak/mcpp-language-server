@@ -22,10 +22,10 @@ inline constexpr std::string_view ENGINE_ID { "clangd" };
 EngineTraits traits_for_version(std::string_view version, std::span<const std::string> disabled = {},
                                std::span<const std::string> verifiedFeatures = {});
 
-// The bound of mcppls-clangd's owned module cache to give an engine: it bounds isolated module workers, which
-// only the native Linux engine has; any other engine given one fails every module build. An ok-image engine
-// (one started by a `runner`) builds in process on every system, Linux included. Unset: give none.
-std::optional<std::uint64_t> owned_cache_payload_bound(bool verified, bool linuxHost, std::string_view runner,
+// The bound of mcppls-clangd's owned module cache to give an engine: an engine whose verified identity declares
+// the cache (`owned-module-cache`: the system it runs on provides what the cache needs, native or ok image) is
+// given it; any other engine given one fails every module build. Unset: give none.
+std::optional<std::uint64_t> owned_cache_payload_bound(std::span<const std::string> verifiedFeatures,
                                                        std::optional<std::uint64_t> requestedMiB);
 
 // WA-CLANGD-009: whether the project of `plan` uses C++ modules at all -- a unit that is part of or provides a module,

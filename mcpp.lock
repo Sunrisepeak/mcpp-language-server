@@ -29,6 +29,12 @@ version = "3.6.1"
 source  = "index+compat@3.6.1"
 hash    = "fnv1a:bb700e69e973ccd0"
 
+[package."compat.xxhash"]
+namespace = "compat"
+version = "0.8.3"
+source  = "index+compat@0.8.3"
+hash    = "fnv1a:34ff2cfbc5643020"
+
 [package."compat.xz"]
 namespace = "compat"
 version = "5.8.3"

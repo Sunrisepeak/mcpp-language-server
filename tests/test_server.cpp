@@ -1031,12 +1031,14 @@ int main() {
             << "in process, the bounds are off";
     };
 
-    "only the native Linux engine is given the owned cache's bound: an ok image has no isolated workers"_test = [] {
+    "an engine is given the owned cache's bound when its verified identity declares the cache"_test = [] {
         const std::optional<std::uint64_t> asked { 3072 };
-        expect(cld::owned_cache_payload_bound(true, true, "", asked) == asked) << "the native Linux engine";
-        expect(!cld::owned_cache_payload_bound(true, true, "okrun", asked)) << "clangd.okb on Linux builds in process, as elsewhere";
-        expect(!cld::owned_cache_payload_bound(true, false, "", asked)) << "a native engine on macOS or Windows";
-        expect(!cld::owned_cache_payload_bound(false, true, "", asked)) << "an engine whose identity was not verified";
+        const std::vector<std::string> owned { "semantic-tokens-range", "owned-module-cache" };
+        const std::vector<std::string> portable { "semantic-tokens-range" };
+        expect(cld::owned_cache_payload_bound(owned, asked) == asked) << "a native engine of Linux or macOS, or clangd.okb";
+        expect(!cld::owned_cache_payload_bound(portable, asked)) << "the native engine of Windows: a copy for each reader";
+        expect(!cld::owned_cache_payload_bound({}, asked)) << "an engine whose identity was not verified";
+        expect(!cld::owned_cache_payload_bound(owned, std::nullopt)) << "nothing asked: the engine's own bound";
     };
 
     "on macOS background indexing yields to cold module work unless the user chooses its priority"_test = [] {
