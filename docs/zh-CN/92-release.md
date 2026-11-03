@@ -2,7 +2,7 @@
 
 [English](../92-release.md) | **简体中文**
 
-> release 发布在本仓库的 GitHub release 页面。release 一发布，Open VSX 会自动跟上；VS Code Marketplace 在本地验证过 release 的 VSIX 之后手动上传；xlings 索引还不是发布渠道（见下文）。每个渠道用到的标识符见 [91-naming.md](91-naming.md)。
+> release 发布在本仓库的 GitHub release 页面。release 一发布，Open VSX 会自动跟上；VS Code Marketplace 在本地验证过 release 的 VSIX 之后手动上传；xlings 通过单独维护的索引条目分发 `mcppls`（见下文）。每个渠道用到的标识符见 [91-naming.md](91-naming.md)。
 
 ## 版本号
 
@@ -168,6 +168,16 @@ token 是仓库 secret `OVSX_PAT`，属于拥有该命名空间的 Open VSX 账�
 
 本地验证之后手动上传：插件 `io.github.sunrisepeak.mcppls`（vendor 为 Sunrisepeak）接收已发布 release 的 `mcppls-clion-<version>.zip`，一个包服务所有系统（0.0.19 按系统各一个包，靠 `com.intellij.modules.os.*` 与 `com.intellij.modules.arch.*` 依赖区分，这个包不再声明它们）。`since-build` 仍为 261。新插件的第一次上传要经过 JetBrains 审核；依赖本插件的 mcpp-clion 要等本插件上架后才能被接受。
 
-## 还没做的
+## xlings 索引
 
-xlings 索引上有服务端（openxlings/xim-pkgindex 的 `pkgs/m/mcpp-language-server.lua`）和各工具包（`pkgs/m/mcppls-kit-<target>.lua`、`mcppls-kit-openkal.lua`），由提交到索引的 pull request 更新；release workflow 不会开这个 pull request。`mcppls-devtools release xlings --release DIR --out DIR` 从 release 的文件生成描述文件：服务端一个资产，各系统块写出它的 `mcpp-package.json` 中 `runs_on.self` 覆盖的架构；每个工具包一个资产，适用所有系统。从 workflow 直接上传到 VS Code Marketplace 或 JetBrains Marketplace 是有意不做的：两者都要留在上面的本地验证之后。
+xlings 索引以 `mcppls` 分发服务端，对应 openxlings/xim-pkgindex 的
+`pkgs/m/mcppls.lua`。其完整载荷归档包含服务端、引擎与语义工具包。索引条目及其区域镜像
+通过单独的索引 pull request 更新；release workflow 不会开这个 pull request。
+
+`mcppls-devtools release xlings --release DIR --out DIR` 从自包含的 OpenKAL 目录包与工具包
+归档生成候选描述文件。服务端输出名为 `mcpp-language-server.lua`，同时生成
+`mcppls-kit-<target>.lua` 与 `mcppls-kit-openkal.lua`。这些输出需要单独的索引评审。
+独立工具包以 release 归档分发；当前公开索引中没有独立工具包条目。
+
+从 workflow 直接上传到 VS Code Marketplace 或 JetBrains Marketplace 是有意不做的：
+两者都要留在上面的本地验证之后。

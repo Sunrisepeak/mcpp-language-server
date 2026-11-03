@@ -2,7 +2,7 @@
 
 > Releases are published on this repository's GitHub release page. Open VSX follows automatically
 > when a release is published; the VS Code Marketplace is uploaded to by hand, after the release's
-> VSIX files are verified locally; the xlings index is not a channel yet (below).
+> VSIX files are verified locally; xlings serves `mcppls` through a separately maintained index entry (below).
 > [91-naming.md](91-naming.md) has the identifiers each uses.
 
 ## Versions
@@ -242,12 +242,18 @@ dependencies, which this package does not declare). `since-build` stays 261. A n
 upload is reviewed by JetBrains, and mcpp-clion, which depends on this plugin, is accepted once this
 plugin is listed.
 
-## Not here yet
+## The xlings index
 
-The xlings index carries the server (`pkgs/m/mcpp-language-server.lua` in openxlings/xim-pkgindex)
-and the kits (`pkgs/m/mcppls-kit-<target>.lua`, `mcppls-kit-openkal.lua`), updated by a pull request
-to the index; the release workflow does not open it. `mcppls-devtools release xlings --release DIR
---out DIR` renders the descriptors from a release's assets: the server's one asset, whose system
-blocks name the architectures its `mcpp-package.json` `runs_on.self` covers, and one asset per kit for
-every system. Uploading to the VS Code Marketplace or the JetBrains Marketplace
+The xlings index carries the server as `mcppls` (`pkgs/m/mcppls.lua` in
+openxlings/xim-pkgindex). Its full payload archive includes the server, engine and semantic kits.
+The entry and its regional mirrors are updated through a separate index pull request; the release
+workflow does not open that pull request.
+
+`mcppls-devtools release xlings --release DIR --out DIR` renders proposed descriptors from the
+self-contained OpenKAL tree and kit archives. Its server output is named `mcpp-language-server.lua`,
+and it also emits `mcppls-kit-<target>.lua` and `mcppls-kit-openkal.lua`. These outputs require their
+own index review. Standalone kits are distributed as release archives; standalone kit entries are
+not currently present in the published index.
+
+Uploading to the VS Code Marketplace or the JetBrains Marketplace
 from a workflow is deliberately not done: both stay behind the local verification above.
