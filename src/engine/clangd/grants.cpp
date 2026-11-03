@@ -99,6 +99,26 @@ void add_unique(std::vector<std::string>& out, std::string path) {
     if (std::ranges::none_of(out, [&](const std::string& known) { return base::same_path(known, path); })) out.push_back(std::move(path));
 }
 
+std::string entry_path(const normalize::EngineEntry& entry, std::string_view path) {
+    return base::is_absolute_path(path) ? std::string { path } : base::join_path(entry.directory, path);
+}
+
+void add_argument_directories(std::vector<std::string>& out, const normalize::EngineEntry& entry) {
+    for (std::size_t i { 1 }; i < entry.arguments.size(); ++i) {
+        const std::string_view argument { entry.arguments[i] };
+        const std::string_view next { i + 1 < entry.arguments.size() ? std::string_view { entry.arguments[i + 1] } : std::string_view {} };
+        for (const auto& flag : PATH_FLAGS) {
+            bool took_next { false };
+            const auto value = flag_value(argument, next, flag, took_next);
+            if (!value) continue;
+            const std::string path { entry_path(entry, *value) };
+            add_unique(out, flag.file ? base::parent_path(path) : path);
+            if (took_next) ++i;
+            break;
+        }
+    }
+}
+
 } // namespace
 
 GrantSetting parse_grant_setting(std::span<const std::string> members) {
@@ -129,28 +149,13 @@ GrantSetting parse_grant_setting(std::span<const std::string> members) {
 std::vector<std::string> plan_directories(const normalize::EnginePlan& plan) {
     std::vector<std::string> out;
     for (const auto& entry : plan.entries) {
-        const auto absolute = [&](std::string_view path) {
-            return base::is_absolute_path(path) ? std::string { path } : base::join_path(entry.directory, path);
-        };
         add_unique(out, entry.directory);
-        if (!entry.file.empty()) add_unique(out, base::parent_path(absolute(entry.file)));
+        if (!entry.file.empty()) add_unique(out, base::parent_path(entry_path(entry, entry.file)));
         // The compiler's installation: the directory above the one its program is in (<prefix>/bin/clang++),
         // where its headers and libraries are found. A bare name is found on PATH and adds nothing here.
         if (!entry.arguments.empty() && base::is_absolute_path(entry.arguments.front()))
             add_unique(out, base::parent_path(base::parent_path(entry.arguments.front())));
-        for (std::size_t i { 1 }; i < entry.arguments.size(); ++i) {
-            const std::string_view argument { entry.arguments[i] };
-            const std::string_view next { i + 1 < entry.arguments.size() ? std::string_view { entry.arguments[i + 1] } : std::string_view {} };
-            for (const auto& flag : PATH_FLAGS) {
-                bool took_next { false };
-                const auto value = flag_value(argument, next, flag, took_next);
-                if (!value) continue;
-                const std::string path { absolute(*value) };
-                add_unique(out, flag.file ? base::parent_path(path) : path);
-                if (took_next) ++i;
-                break;
-            }
-        }
+        add_argument_directories(out, entry);
     }
     return out;
 }
