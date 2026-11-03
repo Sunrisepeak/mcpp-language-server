@@ -123,6 +123,21 @@ int main() {
             << "a writable grant is never merged away";
     };
 
+    "too many writable grants are retained for refusal rather than replaced with unrestricted defaults"_test = [] {
+        const std::string root { scratch("writable-limit") };
+        cld::GrantInputs inputs;
+        inputs.root = made(root, "project");
+        for (int i { 0 }; i < 17; ++i)
+            inputs.writable.push_back(made(root, std::format("write-{}", i)));
+        const auto grants = cld::engine_grants(inputs);
+        expect(grants.size() == 18u) << "an empty set would give the engine the whole file system";
+        expect(cld::covered(grants, inputs.root));
+        for (const auto& path : inputs.writable) {
+            const auto* grant = find(grants, path);
+            expect(grant != nullptr && grant->writable) << path;
+        }
+    };
+
     "a database naming a directory the engine was not given says which; one beneath a grant, or absent, does not"_test = [] {
         const std::string root { scratch("uncovered") };
         const std::vector<cld::Grant> grants { cld::Grant { made(root, "project"), true, false } };

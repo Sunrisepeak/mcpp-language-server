@@ -190,10 +190,11 @@ std::vector<Grant> engine_grants(const GrantInputs& inputs) {
     }
     // AT MOST SIXTEEN, the number every implementation gives one start (openkal-linux, -macos and -windows 0.23
     // refuse more, and the C library holds no more). Two read-only grants become the directory both are beneath,
-    // the pair whose directory is deepest first; a set that still does not fit is none, the runner's own defaults.
+    // the pair whose directory is deepest first. A set that still does not fit is retained: the start must be
+    // refused by the system, never replaced with the runner's unrestricted defaults.
     while (grants.size() > MAX_GRANTS) {
         const auto [best, unchanging] = deepest_shared(grants);
-        if (best.empty()) return {};
+        if (best.empty()) return grants;
         std::erase_if(grants, [&](const Grant& g) { return !g.writable && base::is_within(g.path, best); });
         grants.push_back(Grant { best, false, unchanging });
     }

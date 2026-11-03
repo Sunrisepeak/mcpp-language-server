@@ -14,7 +14,9 @@ std::unexpected<Error> fail(std::string_view code, std::string message) {
 }
 
 std::unexpected<Error> fail(std::string_view code, const mcpplibs::os::error& error) {
-    return std::unexpected<Error> { make_error(code, error.message()) };
+    auto converted = make_error(code, error.message());
+    converted.osCode = error.code;
+    return std::unexpected<Error> { std::move(converted) };
 }
 
 std::string to_string(const Error& error) {

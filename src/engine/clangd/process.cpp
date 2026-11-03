@@ -664,6 +664,11 @@ base::Result<void> ClangdProcess::start(const ProcessConfig& config, MessageHand
             connection_ = std::move(*held);
             return {};
         }
+        // Only a missing capability permits the documented fallback. A failed
+        // sandbox setup, invalid grant set or exhausted resource must not turn
+        // the caller's confinement request into an unconfined start.
+        if (held.error().osCode != mcpplibs::os::errc::not_supported)
+            return std::unexpected { held.error() };
         base::log::warning("clangd ({}) cannot be held to its directories by this system ({}); it is held by openkal alone",
                            config.workDirectory, held.error().message);
         retry.confine = false;

@@ -7,9 +7,12 @@
 import std;
 import mcpplibs.os;
 import mcppls.testing;
+import mcppls.base.error;
+import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.lsp.connection;
+import mcppls.engine.clangd.process;
 import mcppls.orchestrator.instance;
 import mcppls.toolrun;
 import nlohmann.json;
@@ -156,6 +159,40 @@ int main() {
         expect(base::is_absolute_path(self)) << self;
         std::error_code ignored;
         expect(std::filesystem::is_regular_file(self, ignored)) << self;
+    };
+
+    "connection preserves the system classification of a failed start"_test = [&] {
+        auto options = child({ "--echo" });
+        options.program = base::join_path(self, "missing-child");
+        auto connection = mcppls::lsp::Connection::start(options, [](nlohmann::json) {}, [] {});
+        expect(fatal(!connection));
+        expect(connection.error().code == "spawn-failed");
+        expect(connection.error().osCode.has_value());
+        expect(connection.error().osCode != os::errc::not_supported);
+    };
+
+    "a missing confined engine is reported without a confinement fallback"_test = [&] {
+        namespace cld = mcppls::engine::clangd;
+        cld::ProcessConfig config;
+        config.executable = "missing-image.oke";
+        config.runner = base::join_path(self, "missing-runner");
+        config.workDirectory = base::current_directory();
+        config.grants.push_back({ config.workDirectory, true, false });
+        config.confine = true;
+        std::vector<std::string> messages;
+        struct Logging {
+            base::log::Level previous { base::log::level() };
+            ~Logging() { base::log::set_sink({}); base::log::set_level(previous); }
+        } logging;
+        base::log::set_level(base::log::Level::warning);
+        base::log::set_sink([&](std::string_view line) { messages.emplace_back(line); });
+        cld::ClangdProcess engine;
+        auto started = engine.start(config, [](nlohmann::json) {}, [] {}, [](std::string_view) {});
+        expect(fatal(!started));
+        expect(started.error().osCode.has_value());
+        expect(std::ranges::none_of(messages, [](const std::string& line) {
+            return line.find("held by openkal alone") != std::string::npos;
+        })) << "a startup error is not evidence that confinement is unsupported";
     };
 
     "echo round trip through pipes"_test = [&] {
