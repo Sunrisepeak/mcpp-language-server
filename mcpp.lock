@@ -10,24 +10,28 @@ namespace = "compat"
 version = "1.0.8"
 source  = "index+compat@1.0.8"
 hash    = "fnv1a:e0e808c73d8f562d"
+targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
 [package."compat.libarchive"]
 namespace = "compat"
 version = "3.8.7"
 source  = "index+compat@3.8.7"
 hash    = "fnv1a:c4f73335678a009e"
+targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
 [package."compat.lz4"]
 namespace = "compat"
 version = "1.10.0"
 source  = "index+compat@1.10.0"
 hash    = "fnv1a:c1f0fef08251ee13"
+targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
 [package."compat.mbedtls"]
 namespace = "compat"
 version = "3.6.1"
 source  = "index+compat@3.6.1"
 hash    = "fnv1a:bb700e69e973ccd0"
+targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
 [package."compat.mimalloc"]
 namespace = "compat"
@@ -37,29 +41,26 @@ hash    = "fnv1a:44a30e7e4403e477"
 origin  = "platform"
 targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
-[package."compat.xxhash"]
-namespace = "compat"
-version = "0.8.3"
-source  = "index+compat@0.8.3"
-hash    = "fnv1a:34ff2cfbc5643020"
-
 [package."compat.xz"]
 namespace = "compat"
 version = "5.8.3"
 source  = "index+compat@5.8.3"
 hash    = "fnv1a:8556dee38703a791"
+targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
 [package."compat.zlib"]
 namespace = "compat"
 version = "1.3.2"
 source  = "index+compat@1.3.2"
 hash    = "fnv1a:9f13dbeaae3ef4c0"
+targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
 [package."compat.zstd"]
 namespace = "compat"
 version = "1.5.7"
 source  = "index+compat@1.5.7"
 hash    = "fnv1a:cc855914d41f9bfb"
+targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
 [package."mcpp.plugins"]
 namespace = "mcpp"
@@ -78,77 +79,77 @@ targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-lin
 
 [package."openkal"]
 namespace = "mcpplibs"
-version = "0.21.0"
-source  = "index+mcpplibs@0.21.0"
-hash    = "fnv1a:4707ae0764444448"
+version = "0.23.0"
+source  = "index+mcpplibs@0.23.0"
+hash    = "fnv1a:3503e00759ddec3e"
 targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
 [package."openkal-ld"]
 namespace = "mcpplibs"
-version = "0.3.1"
-source  = "index+mcpplibs@0.3.1"
-hash    = "fnv1a:d518f77275c5bb94"
+version = "0.4.2"
+source  = "index+mcpplibs@0.4.2"
+hash    = "fnv1a:dda721727a9668e4"
 origin  = "platform"
 targets = ["aarch64-openkal", "x86_64-openkal"]
 
 [package."openkal-linux"]
 namespace = "mcpplibs"
-version = "0.22.0"
-source  = "index+mcpplibs@0.22.0"
-hash    = "fnv1a:5fe0713332cb49ec"
+version = "0.24.0"
+source  = "index+mcpplibs@0.24.0"
+hash    = "fnv1a:2cce8733161f726e"
 targets = ["aarch64-linux-musl", "x86_64-linux-gnu"]
 
 [package."openkal-llvm-runtime"]
 namespace = "mcpplibs"
-version = "0.17.1"
-source  = "index+mcpplibs@0.17.1"
-hash    = "fnv1a:0a754d335bd6d845"
+version = "0.18.3"
+source  = "index+mcpplibs@0.18.3"
+hash    = "fnv1a:4768fa337e73ae0a"
 origin  = "platform"
 targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
 [package."openkal-macos"]
 namespace = "mcpplibs"
-version = "0.19.0"
-source  = "index+mcpplibs@0.19.0"
-hash    = "fnv1a:408266b0aa72ab37"
+version = "0.21.3"
+source  = "index+mcpplibs@0.21.3"
+hash    = "fnv1a:49a4f7a822f341dd"
 targets = ["aarch64-macos"]
 
 [package."openkal-musl"]
 namespace = "mcpplibs"
-version = "0.26.1"
-source  = "index+mcpplibs@0.26.1"
-hash    = "fnv1a:bb6bf5df70ee8e6a"
+version = "0.27.2"
+source  = "index+mcpplibs@0.27.2"
+hash    = "fnv1a:b2d031df6c125110"
 origin  = "platform"
 targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
 [package."openkal-platform"]
 namespace = "mcpplibs"
-version = "0.21.1"
-source  = "index+mcpplibs@0.21.1"
-hash    = "fnv1a:59ca822a5ea5cb39"
+version = "0.23.2"
+source  = "index+mcpplibs@0.23.2"
+hash    = "fnv1a:6a1b512a679a9076"
 origin  = "platform"
 targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
 [package."openkal-tools"]
 namespace = "mcpplibs"
-version = "0.3.1"
-source  = "index+mcpplibs@0.3.1"
-hash    = "fnv1a:4c7af473eb9cd27f"
+version = "0.4.2"
+source  = "index+mcpplibs@0.4.2"
+hash    = "fnv1a:212baa73d3150a6f"
 origin  = "platform"
 targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
 [package."openkal-windows"]
 namespace = "mcpplibs"
-version = "0.17.0"
-source  = "index+mcpplibs@0.17.0"
-hash    = "fnv1a:441aba2a33793c11"
+version = "0.19.0"
+source  = "index+mcpplibs@0.19.0"
+hash    = "fnv1a:ed6e142a025d4fff"
 targets = ["x86_64-windows-gnu"]
 
 [package."mcpplibs.os"]
 namespace = "mcpplibs"
-version = "0.2.7"
-source  = "index+mcpplibs@0.2.7"
-hash    = "fnv1a:d0be99a500330ae4"
+version = "0.2.8"
+source  = "index+mcpplibs@0.2.8"
+hash    = "fnv1a:d0be90a50032fb99"
 targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
 [package."tinyhttps"]
@@ -156,6 +157,7 @@ namespace = "mcpplibs"
 version = "0.3.1"
 source  = "index+mcpplibs@0.3.1"
 hash    = "fnv1a:a8acdb89364006ee"
+targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
 [package."nlohmann.json"]
 namespace = "nlohmann"
