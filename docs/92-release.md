@@ -97,18 +97,22 @@ CLion plugins, installs them, measures performance and stability, stages everyth
 against the manifest and writes `SHA256SUMS` and `MANIFEST.md`. Only when all of that passes does it
 create the tag and publish the staged candidate, file for file.
 
-A release reaches its users in five steps, and only the first is automatic:
+An existing tag must name the same commit. Existing release assets are not overwritten; an
+already published release is sent to an editor registry through its publisher workflow.
+
+A release reaches its users in five steps:
 
 1. The run creates the release as a **draft**.
 2. You verify the draft's `mcppls-<version>.vsix` locally ([Verifying a release](#verifying-a-release)).
 3. You publish the draft. That triggers `.github/workflows/publish-openvsx.yml`, which puts the same
    files on Open VSX ([Open VSX](#open-vsx)).
 4. You upload the same file to the VS Code Marketplace ([below](#the-vs-code-marketplace)).
-5. You upload `mcppls-clion-<version>.zip` to the JetBrains Marketplace
-   ([below](#the-jetbrains-marketplace)).
+5. `.github/workflows/publish-jetbrains.yml` uploads the published `mcppls-clion-<version>.zip`
+   to the JetBrains Marketplace ([below](#the-jetbrains-marketplace)).
 
-A run with `draft` off skips step 2 on purpose: the release is published at once, and its `openvsx`
-job sends it to Open VSX, since a release created by a workflow triggers no other workflow.
+A run with `draft` off skips step 2: the release is published at once, and its `openvsx` and
+`jetbrains` jobs invoke the two publisher workflows, since a release created by a workflow
+triggers no other workflow.
 
 ## The pre-release test
 
@@ -235,12 +239,17 @@ it has had.
 
 ## The JetBrains Marketplace
 
-Uploaded by hand, after the local verification: the plugin `io.github.sunrisepeak.mcppls` (vendor
-Sunrisepeak) gets `mcppls-clion-<version>.zip` of the published release, one package for every
-system (0.0.19 had one per system, by `com.intellij.modules.os.*` and `com.intellij.modules.arch.*`
-dependencies, which this package does not declare). `since-build` stays 261. A new plugin's first
-upload is reviewed by JetBrains, and mcpp-clion, which depends on this plugin, is accepted once this
-plugin is listed.
+The repository secret `JETBRAINS_TOKEN` authorizes `.github/workflows/publish-jetbrains.yml`.
+Publishing a draft triggers it; a release created already published invokes it from `release.yml`.
+It downloads the existing `mcppls-clion-<version>.zip`, checks `SHA256SUMS`, the plugin XML ID and
+version, then uploads that archive through the Marketplace update API. The workflow retains the
+platform receipt, including the submitted update ID and approval status. Public availability follows
+Marketplace approval.
+
+The plugin `io.github.sunrisepeak.mcppls` (vendor Sunrisepeak) carries one package for every system.
+Version 0.0.19 used a package per system, selected by `com.intellij.modules.os.*` and
+`com.intellij.modules.arch.*` dependencies; the universal package declares neither. `since-build`
+stays 261. A new plugin is registered manually before automated updates can use its XML ID.
 
 ## The xlings index
 

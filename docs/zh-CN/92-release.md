@@ -68,15 +68,18 @@ CI *构建时用*的版本号是另一回事，放在 `.github/versions.env` 里
 
 接下来这次运行会执行下面的 pre-release 测试：重新运行完整的 CI，构建 Zed 和 CLion 插件并安装，测性能和稳定性，把所有东西暂存好，对着发布清单检查，写出 `SHA256SUMS` 和 `MANIFEST.md`。只有全部通过，才会创建标签，把暂存好的候选版本逐个文件发布出去。
 
-一个 release 到达用户要经过五步，只有第一步是自动的：
+已有标签必须指向同一提交。已有 release 的资源不被覆盖；向编辑器注册表补发时，
+使用对应发布工作流处理已有 release。
+
+一个 release 到达用户要经过五步：
 
 1. 这次运行把 release 创建成**草稿**。
 2. 你在本地验证草稿里的 `mcppls-<version>.vsix`（见[核实一次发布](#核实一次发布)）。
 3. 你发布这个草稿。这会触发 `.github/workflows/publish-openvsx.yml`，把同样的文件发到 Open VSX（见 [Open VSX](#open-vsx)）。
 4. 你把同样的文件上传到 VS Code Marketplace（见[下文](#vs-code-marketplace)）。
-5. 你把 `mcppls-clion-<version>.zip` 上传到 JetBrains Marketplace（见[下文](#jetbrains-marketplace)）。
+5. `.github/workflows/publish-jetbrains.yml` 把已发布的 `mcppls-clion-<version>.zip` 上传到 JetBrains Marketplace（见[下文](#jetbrains-marketplace)）。
 
-关掉 `draft` 的运行有意跳过第 2 步：release 立即发布，并由它的 `openvsx` job 发到 Open VSX，因为 workflow 创建的 release 不会触发其他 workflow。
+关掉 `draft` 的运行跳过第 2 步：release 立即发布，并由它的 `openvsx` 与 `jetbrains` job 调用两个发布工作流，因为 workflow 创建的 release 不会触发其他 workflow。
 
 ## pre-release 测试
 
@@ -166,7 +169,16 @@ token 是仓库 secret `OVSX_PAT`，属于拥有该命名空间的 Open VSX 账�
 
 ## JetBrains Marketplace
 
-本地验证之后手动上传：插件 `io.github.sunrisepeak.mcppls`（vendor 为 Sunrisepeak）接收已发布 release 的 `mcppls-clion-<version>.zip`，一个包服务所有系统（0.0.19 按系统各一个包，靠 `com.intellij.modules.os.*` 与 `com.intellij.modules.arch.*` 依赖区分，这个包不再声明它们）。`since-build` 仍为 261。新插件的第一次上传要经过 JetBrains 审核；依赖本插件的 mcpp-clion 要等本插件上架后才能被接受。
+仓库 secret `JETBRAINS_TOKEN` 为 `.github/workflows/publish-jetbrains.yml` 提供上传凭据。
+发布草稿会触发该工作流；直接创建公开 release 时，由 `release.yml` 调用。工作流下载
+已有的 `mcppls-clion-<version>.zip`，核对 `SHA256SUMS`、插件 XML ID 和版本，再通过
+Marketplace 更新 API 上传同一归档。工作流保留平台回执，其中包含提交的更新 ID 与审核
+状态。公开可见性由 Marketplace 审核决定。
+
+插件 `io.github.sunrisepeak.mcppls`（vendor 为 Sunrisepeak）的一个包服务所有系统。
+0.0.19 按系统分别打包，靠 `com.intellij.modules.os.*` 与 `com.intellij.modules.arch.*`
+依赖区分；通用包不再声明这两类依赖。`since-build` 仍为 261。新插件先手动注册，后续
+自动更新再使用它的 XML ID。
 
 ## xlings 索引
 
