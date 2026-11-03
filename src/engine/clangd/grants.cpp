@@ -78,21 +78,19 @@ std::string common_ancestor(std::string_view a, std::string_view b) {
     return out;
 }
 
-// Of the read-only grants after the first, the directory two of them are beneath that is deepest, and whether both
-// are unchanging; empty when no two share one.
-std::pair<std::string, bool> deepest_shared(std::span<const Grant> grants) {
+// Of the read-only grants after the first, the directory two of them are beneath that is deepest;
+// empty when no two share one.
+std::string deepest_shared(std::span<const Grant> grants) {
     std::string best;
-    bool unchanging { false };
     for (std::size_t i { 1 }; i < grants.size(); ++i) {
         for (std::size_t j { i + 1 }; j < grants.size(); ++j) {
             if (grants[i].writable || grants[j].writable) continue;
             std::string ancestor { common_ancestor(grants[i].path, grants[j].path) };
             if (ancestor.empty() || ancestor.size() <= best.size()) continue;
             best = std::move(ancestor);
-            unchanging = grants[i].unchanging && grants[j].unchanging;
         }
     }
-    return { best, unchanging };
+    return best;
 }
 
 void add_unique(std::vector<std::string>& out, std::string path) {
@@ -193,10 +191,12 @@ std::vector<Grant> engine_grants(const GrantInputs& inputs) {
     // the pair whose directory is deepest first. A set that still does not fit is retained: the start must be
     // refused by the system, never replaced with the runner's unrestricted defaults.
     while (grants.size() > MAX_GRANTS) {
-        const auto [best, unchanging] = deepest_shared(grants);
+        const std::string best { deepest_shared(grants) };
         if (best.empty()) return grants;
         std::erase_if(grants, [&](const Grant& g) { return !g.writable && base::is_within(g.path, best); });
-        grants.push_back(Grant { best, false, unchanging });
+        // The wider directory also contains files outside the original grants;
+        // immutable children cannot promise that their parent never changes.
+        grants.push_back(Grant { best, false, false });
     }
     return grants;
 }

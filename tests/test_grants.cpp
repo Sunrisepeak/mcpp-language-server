@@ -123,6 +123,30 @@ int main() {
             << "a writable grant is never merged away";
     };
 
+    "coalescing immutable payload directories never marks their wider parent unchanging"_test = [] {
+        const std::string root { scratch("coalesced-changing") };
+        cld::GrantInputs inputs;
+        inputs.root = made(root, "project");
+        for (int i { 0 }; i < 13; ++i)
+            inputs.writable.push_back(made(root, std::format("write-{}", i)));
+        inputs.payload = { made(root, "shared/a"), made(root, "shared/b") };
+        inputs.named = { made(root, "shared/live") };
+        const auto grants = cld::engine_grants(inputs);
+        expect(grants.size() <= 16u);
+        const auto* parent = find(grants, base::join_path(root, "shared"));
+        expect(fatal(parent != nullptr));
+        expect(!parent->writable);
+        expect(!parent->unchanging) << "a wider grant includes files outside the immutable payloads";
+        expect(cld::covered(grants, inputs.named.front()));
+
+        inputs.named.clear();
+        inputs.writable.push_back(made(root, "write-13"));
+        const auto payloadOnly = cld::engine_grants(inputs);
+        const auto* wider = find(payloadOnly, base::join_path(root, "shared"));
+        expect(fatal(wider != nullptr));
+        expect(!wider->unchanging) << "unlisted siblings are also outside the immutable payloads";
+    };
+
     "too many writable grants are retained for refusal rather than replaced with unrestricted defaults"_test = [] {
         const std::string root { scratch("writable-limit") };
         cld::GrantInputs inputs;
@@ -155,5 +179,5 @@ int main() {
         if (os::host() != os::platform::windows) expect(!cld::system_roots().empty()) << "/usr at least";
     };
 
-    return 0;
+    return report();
 }

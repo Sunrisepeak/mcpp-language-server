@@ -172,4 +172,6 @@ int main() {
         const Json alone = completion::keywords_only(templates);
         expect(alone["isIncomplete"] == true && labels_of(alone["items"]) == both()) << "on their own while the engine has not answered";
     };
+
+    return report();
 }
