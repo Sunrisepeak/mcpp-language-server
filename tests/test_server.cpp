@@ -937,6 +937,11 @@ int main() {
         expect(cld::engine_workers(16, 2 * GiB) == 2u) << "never below two, whatever the memory";
         expect(cld::engine_workers(16, 64 * GiB) == 8u);
         expect(cld::engine_workers(16, 8 * GiB, 12) == 12u && cld::engine_workers(16, std::nullopt, 0) == 8u) << "the setting wins; 0 is auto";
+        // mcppls.resources (mcpp design 2026-11-03 part 4 §16): performance takes every thread, economy two; the setting wins.
+        expect(cld::engine_workers(16, 64 * GiB, std::nullopt, "performance") == 16u && cld::engine_workers(128, std::nullopt, std::nullopt, "performance") == 64u);
+        expect(cld::engine_workers(16, 8 * GiB, std::nullopt, "performance") == 4u) << "still no more than half the memory in gigabytes";
+        expect(cld::engine_workers(16, 64 * GiB, std::nullopt, "economy") == 2u && cld::engine_workers(16, 64 * GiB, 6, "economy") == 6u);
+        expect(cld::engine_workers(16, 64 * GiB, std::nullopt, "balanced") == cld::engine_workers(16, 64 * GiB)) << "balanced is as before";
         // One worker is always the person's.
         expect(cld::preparation_limit(8, true) == 7u) << "a file waits on these modules: every worker but the person's";
         expect(cld::preparation_limit(8, false) == 3u) << "nobody waits on them: half of the rest";
@@ -1113,6 +1118,17 @@ int main() {
         expect(fatal(read.crash.has_value()));
         expect(read.crash->action == "building preamble" && read.crash->file == "/p/src/main.cpp");
         expect(!posix.read("  Filename: /p/other.cpp").crash) << "one file per context";
+    };
+
+    "an ok-image engine's fault report is kept as a crash's (openkal 0.23, KAL_DEBUG_PROP_FAULT_REPORT)"_test = [] {
+        cld::LogReader reader;
+        auto read = reader.read("openkal: fault: SIGSEGV (address not mapped) at 0x10");
+        expect(fatal(read.crash.has_value()));
+        expect(read.important && read.crash->exception == "SIGSEGV (address not mapped) at 0x10");
+        read = reader.read("openkal:   #0 0x0000100000123456 /p/clangd.okb clang::Sema::Foo+0x14");
+        expect(fatal(read.crash.has_value()));
+        expect(read.important && read.crash->stack.size() == 1u && read.crash->stack[0].starts_with("#0 0x0000100000123456"));
+        expect(!reader.read("I[18:14:52.000] clangd version 23.1.0").important) << "the report ends with its lines";
     };
 
     "LLVM's stack dump after a crash is kept for its report, as clangd prints it (K-3)"_test = [] {

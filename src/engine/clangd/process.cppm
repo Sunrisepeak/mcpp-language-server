@@ -8,6 +8,7 @@ import nlohmann.json;
 import mcppls.base.error;
 import mcppls.base.log;
 import mcppls.lsp.connection;
+import mcppls.engine.clangd.grants;
 
 export namespace mcppls::engine::clangd {
 
@@ -39,6 +40,12 @@ struct ProcessConfig {
     // change (module-input-recheck, seconds), and completion's own slots (interactive-actions).
     std::optional<int> moduleInputRecheck;
     std::optional<int> interactiveActions;
+    // An ok-image engine's directories (grants.cppm); empty, the runner's own defaults (the whole file system).
+    std::vector<Grant> grants;
+    bool confine { false };          // held to them by the system as well (mcppls.engine.confine)
+    // mcppls.resources: balanced, performance or economy, which the engine and the workers it starts read (openkal
+    // 0.23, KAL_SPAWN_RESOURCES_*); empty, the caller's.
+    std::string resources;
 };
 
 class Process {
@@ -82,7 +89,7 @@ std::vector<std::string> clangd_arguments(const ProcessConfig& config);
 struct CrashContext {
     std::string action;      // "Build AST", "building preamble", ...; empty when clangd crashed outside those
     std::string file;        // the file clangd was working on
-    std::string exception;   // Windows' exception code; empty elsewhere
+    std::string exception;   // Windows' exception code, or an ok-image engine's fault (openkal's report); empty elsewhere
     std::vector<std::string> stack;   // the stack dump's lines (numbered entries and frames), at most MAX_STACK_LINES
     static constexpr std::size_t MAX_STACK_LINES { 64 };
 };

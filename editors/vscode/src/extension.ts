@@ -753,7 +753,8 @@ export function activate(context: vscode.ExtensionContext): TestApi {
                 // names a hand edit may touch; the new ones are named so the list says what it restarts for.
                 || event.affectsConfiguration('mcppls.engine') || event.affectsConfiguration('mcppls.engine.name')
                 || event.affectsConfiguration('mcppls.format.fallbackStyle') || event.affectsConfiguration('mcppls.engine.workers')
-                || event.affectsConfiguration('mcppls.engine.preambleStorage')
+                || event.affectsConfiguration('mcppls.engine.preambleStorage') || event.affectsConfiguration('mcppls.resources')
+                || event.affectsConfiguration('mcppls.grants') || event.affectsConfiguration('mcppls.engine.confine')
                 || event.affectsConfiguration('mcppls.engine.diagnosticsWhileTyping') || event.affectsConfiguration('mcppls.buildTool')
                 || event.affectsConfiguration('mcppls.toolEnvironment') || event.affectsConfiguration('mcppls.semanticTokens.modules')
                 || event.affectsConfiguration('mcppls.completion.triggerOnSpace')

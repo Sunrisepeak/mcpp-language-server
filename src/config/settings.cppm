@@ -152,6 +152,10 @@ private:
     std::vector<Problem> problems_;
 };
 
+// mcppls.cache.maxBytes as it holds: the value set, or the default the resource preference gives it (mcppls.resources,
+// mcpp design 2026-11-03 part 4 §16): 8G for performance, 4G for balanced, 1G for economy.
+std::string cache_max_bytes(const Settings& settings);
+
 // `mcppls settings --format markdown [--lang en|zh-CN]`: the reference table grouped by category
 // (`docs/30-settings.md` and its zh-CN mirror embed this verbatim between two markers, so
 // `tests/test_settings.cpp` can hold the file to the renderer byte for byte).

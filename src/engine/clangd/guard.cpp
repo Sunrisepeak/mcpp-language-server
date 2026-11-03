@@ -321,9 +321,12 @@ bool engine_working(std::string_view state) {
     return false;
 }
 
-std::size_t engine_workers(std::size_t hardwareThreads, std::optional<std::uint64_t> memoryBytes, std::optional<std::size_t> configured) {
+std::size_t engine_workers(std::size_t hardwareThreads, std::optional<std::uint64_t> memoryBytes, std::optional<std::size_t> configured,
+                           std::string_view resources) {
     if (configured && *configured > 0) return std::clamp<std::size_t>(*configured, 1, 64);
-    std::size_t workers { std::clamp<std::size_t>(hardwareThreads > 1 ? hardwareThreads - 1 : 1, 2, 8) };
+    if (resources == "economy") return 2;
+    std::size_t workers { resources == "performance" ? std::clamp<std::size_t>(hardwareThreads, 2, 64)
+                                                     : std::clamp<std::size_t>(hardwareThreads > 1 ? hardwareThreads - 1 : 1, 2, 8) };
     if (memoryBytes && *memoryBytes > 0) {
         const std::uint64_t gigabytes { *memoryBytes / (std::uint64_t { 1 } << 30) };
         workers = std::min<std::size_t>(workers, std::max<std::size_t>(2, static_cast<std::size_t>(gigabytes / 2)));

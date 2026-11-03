@@ -58,6 +58,31 @@ image is loaded and verifies an okb's chunk digests on several processors at onc
   (the bench's warm completion found nothing to complete). The conformance runner starts a payload's image engine
   through its runner.
 
+### What the engine spends and what it reaches
+
+- **`mcppls.resources`** (`balanced`, `performance`, `economy`; mcpp design 2026-11-03 part 4 §16): what the engine
+  spends the machine for. The engine and every module worker it starts read it (openkal 0.23,
+  `KAL_SPAWN_RESOURCES_*`), and each layer acts on it within itself: the runner keeps an image's prepared data and
+  the snapshot of its initialisers for performance and balanced and reads a start's pages ahead for performance; the C
+  library's allocator gives memory back after a second for performance and at once for economy. mcppls's own
+  automatic values follow it: clangd's workers (`engine.workers=auto`) are every hardware thread for performance and
+  two for economy, and the cache budget (`cache.maxBytes`, unset) is 8G and 1G. `balanced`, the default, keeps every
+  value of 0.0.19.
+- **An ok-image engine is given what it reads and writes** (`mcppls.grants`; part 4 §9.3). The runner of `clangd.okb`
+  is started with the project (writable, the directory the engine runs in), mcppls's caches, the temporary directory
+  and the runner's caches (writable), the engine's own files (read-only and unchanging), the package stores, the
+  system's roots, and every directory the engine database names (read-only); a directory reached through a link is
+  given under both names. A database that later names a directory the engine was not given starts it again with it.
+  `mcppls.grants` adds directories (a path read-only, `rw:<path>` writable), or gives the runner's own default, the
+  whole file system (`all`). `mcppls.engine.confine` has the system hold the engine to them as well (Landlock on
+  Linux, the sandbox on macOS); Windows cannot, and there the engine is held by openkal alone and the log says so.
+  `mcppls report` lists the directories of each start.
+- **A module is rebuilt when a header is created earlier on its search path** (mcppls-clangd 0.0.20, openkal 0003):
+  the engine's module workers record the names they found absent, and a BMI whose absent name now exists is built
+  again. clang's own validation reads the BMI's inputs, of which such a header is not one.
+- **An ok-image engine's fault report is kept** with a crash's (openkal 0.23): `openkal: fault: ...` and a line per
+  frame, named from the image, are never left out of the log and go into the crash report.
+
 ### The status of a workspace, for any program
 
 - **`mcppls status [--root <dir>] --format json`** (S3 section 8) prints the state of the servers serving a workspace

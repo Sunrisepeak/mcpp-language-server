@@ -5,7 +5,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-    answerBudgetSetting, buildDiscoveryChange, buildDiscoveryOptions, buildInitializationOptions, InspectedValue, legacyNamesInUse, RENAMED_SETTINGS, resolveRenamed, SettingsReader, workersSetting,
+    answerBudgetSetting, buildDiscoveryChange, grantsSetting, buildDiscoveryOptions, buildInitializationOptions, InspectedValue, legacyNamesInUse, RENAMED_SETTINGS, resolveRenamed, SettingsReader, workersSetting,
 } from '../../src/settingsRead';
 
 /** A configuration with the given user values: `global` for the user's settings, `workspace` for the folder's. */
@@ -59,6 +59,16 @@ suite('S-2: what the server is sent', () => {
         }
         assert.strictEqual(workersSetting(''), 'auto');
         assert.strictEqual(workersSetting(undefined), 'auto');
+    });
+
+    test('the resource preference, the grants and confinement are sent, and only values the server takes (0.0.20)', () => {
+        const defaults = buildInitializationOptions(reader(), '');
+        assert.deepStrictEqual([defaults.resources, defaults.grants, defaults['engine.confine']], ['balanced', [], false]);
+        const set = buildInitializationOptions(reader({ resources: 'economy', grants: [' /opt/sdk ', 'rw:/data', '', 7],
+            'engine.confine': true }), '');
+        assert.deepStrictEqual([set.resources, set.grants, set['engine.confine']], ['economy', ['/opt/sdk', 'rw:/data'], true]);
+        assert.strictEqual(buildInitializationOptions(reader({ resources: 'fastest' }), '').resources, 'balanced');
+        assert.deepStrictEqual(grantsSetting('all'), [], 'a string is not the array the setting is');
     });
 
     test('the answer settings are sent, and only values the server takes', () => {

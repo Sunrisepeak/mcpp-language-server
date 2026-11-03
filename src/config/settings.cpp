@@ -186,6 +186,43 @@ const std::vector<Setting>& shipped_registry() {
             .clientConfigurable = true,
         },
         Setting {
+            .key = "resources", .kind = Kind::enumeration, .values = { "balanced", "performance", "economy" }, .defaultValue = "balanced",
+            .commandLine = "--resources", .surface = Surface::server, .applies = Applies::restart, .category = "engines",
+            .since = "0.0.20",
+            .summary = "What the engine spends the machine for. `balanced`: as before, and economy where memory or the cache's disk runs "
+                       "short. `performance` spends memory and disk for time: a worker per hardware thread, an 8G cache budget, an "
+                       "ok-image engine's start read ahead and its initialisers kept. `economy` spends time for them: two workers, a 1G "
+                       "budget, nothing kept that can be computed again. An engine and the workers it starts read it (openkal 0.23).",
+            .summaryZh = "引擎为何花费机器资源。`balanced`：同以往，内存或缓存所在磁盘紧张时按 economy。`performance` 以内存和磁盘换时间："
+                         "每个硬件线程一个 worker、8G 缓存预算、ok 映像引擎的启动预读并保留初始化结果。`economy` 以时间换内存和磁盘：两个 "
+                         "worker、1G 预算，能重算的都不保留。引擎及其启动的 worker 都读取它（openkal 0.23）。",
+            .clientConfigurable = true,
+        },
+        Setting {
+            .key = "grants", .kind = Kind::list, .defaultValue = "", .commandLine = "--grant", .commandLineRepeatable = true,
+            .surface = Surface::server, .applies = Applies::restart, .category = "engines", .since = "0.0.20",
+            .summary = "Directories an ok-image engine (clangd.okb) is given besides those mcppls gives it: the project, its caches, the "
+                       "temporary directory, the engine's own files, the package stores, the system's roots and every directory the "
+                       "compile commands name. A path is read-only, `rw:<path>` writable; `all` gives the engine the whole file system, "
+                       "as its runner does by itself. A program engine is not affected.",
+            .summaryZh = "ok 映像引擎（clangd.okb）在 mcppls 给出的目录之外还得到的目录。mcppls 给出：项目、它的缓存、临时目录、引擎自己的"
+                         "文件、包仓库、系统根目录，以及编译命令提到的每个目录。写路径为只读，`rw:<路径>` 为可写；`all` 给引擎整个文件系统，"
+                         "与运行器自己的默认相同。程序形态的引擎不受影响。",
+            .clientConfigurable = true,
+        },
+        Setting {
+            .key = "engine.confine", .kind = Kind::boolean, .defaultValue = "false", .commandLine = "--engine-confine",
+            .surface = Surface::server, .applies = Applies::restart, .category = "engines", .since = "0.0.20",
+            .summary = "Hold an ok-image engine to its directories by the system as well (Landlock on Linux, the sandbox on macOS; "
+                       "openkal 0.23 `KAL_SPAWN_CONFINE`): an engine made to reach a file some other way is refused. Windows holds a "
+                       "program to directories only by changing who may reach them for everyone; there, and on a Linux without "
+                       "Landlock, the engine runs held by openkal alone, and the log says so.",
+            .summaryZh = "让系统也把 ok 映像引擎限制在它得到的目录内（Linux 的 Landlock、macOS 的沙箱；openkal 0.23 `KAL_SPAWN_CONFINE`）："
+                         "被诱使以其他方式访问文件的引擎会被拒绝。Windows 只能通过改变所有人对目录的访问权来限制程序；在 Windows 和没有 "
+                         "Landlock 的 Linux 上，引擎只由 openkal 限制，日志会说明。",
+            .clientConfigurable = true,
+        },
+        Setting {
             .key = "compiler", .kind = Kind::string, .defaultValue = "", .commandLine = "--compiler", .surface = Surface::server,
             .applies = Applies::reload, .category = "engines", .since = "0.0.1",
             .summary = "Use this compiler for module semantics instead of what was detected: an absolute path, a name on `PATH`, or "
@@ -884,6 +921,14 @@ std::string applies_cell(Applies applies, bool zh) {
 }
 
 } // namespace
+
+std::string cache_max_bytes(const Settings& settings) {
+    if (settings.origin("cache.maxBytes") != Origin::defaulted) return settings.string_value("cache.maxBytes");
+    const std::string resources { settings.string_value("resources") };
+    if (resources == "performance") return "8G";
+    if (resources == "economy") return "1G";
+    return settings.string_value("cache.maxBytes");
+}
 
 std::string to_markdown(std::span<const Setting> rows, std::string_view lang) {
     const bool zh { is_zh(lang) };

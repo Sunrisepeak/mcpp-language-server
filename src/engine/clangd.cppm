@@ -9,6 +9,7 @@ import nlohmann.json;
 import mcppls.normalize.plan;
 import mcppls.engine;
 import mcppls.engine.clangd.process;
+import mcppls.engine.clangd.grants;
 
 export namespace mcppls::engine::clangd {
 
@@ -72,6 +73,13 @@ struct Options {
     // is built for the index; one is built at a time, and none is started while they are at work (tests shorten it).
     std::chrono::milliseconds implementationQuiet { std::chrono::seconds { 10 } };
     std::function<std::unique_ptr<Process>()> processFactory;   // empty: a real clangd process
+    // mcppls.resources (mcpp design 2026-11-03 part 4 §16): what the engine spends the machine for, which it and the
+    // workers it starts read; the automatic workers follow it (engine_workers).
+    std::string resources { "balanced" };
+    // mcppls.grants: directories added to those an ok-image engine is given, or `all` for the runner's defaults
+    // (grants.cppm); mcppls.engine.confine: the engine held to them by the system as well.
+    GrantSetting grants;
+    bool confine { false };
 };
 
 std::unique_ptr<Engine> make_engine(Options options);

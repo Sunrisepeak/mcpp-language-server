@@ -833,7 +833,7 @@ struct Workspace::Impl final : engine::Host {
         cache::Budget budget;
         // A setting that does not parse says so (review 2026-10-03): the default quietly holding is
         // how a typo'd budget used to look exactly like no budget at all.
-        if (const std::string given { options.settings.string_value("cache.maxBytes") }; !given.empty()) {
+        if (const std::string given { config::settings::cache_max_bytes(options.settings) }; !given.empty()) {
             if (const auto bytes = cache::parse_bytes(given)) budget.perWorkspace = *bytes;
             else log::warning("setting cache.maxBytes \"{}\" does not parse (4G, 512M, 100K, bytes or unlimited); keeping the default", given);
         }

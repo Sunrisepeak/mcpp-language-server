@@ -476,6 +476,19 @@ LogReader::Read LogReader::read(std::string_view line) {
         return read;
     }
     inCrash_ = false;
+    // THE IMPLEMENTATION'S FAULT REPORT (openkal 0.23, KAL_DEBUG_PROP_FAULT_REPORT): an ok-image engine ended for a fault
+    // says what and where, `openkal: fault: <what> at <address>', then a line per frame, `openkal:   #N <address> <file>
+    // <symbol>+<offset>', named from the image. Kept as a crash's own report is.
+    static constexpr std::string_view FAULT { "openkal: fault: " };
+    static constexpr std::string_view FAULT_FRAME { "openkal:   #" };
+    if (line.starts_with(FAULT) || line.starts_with(FAULT_FRAME)) {
+        read.important = true;
+        if (!crash_) crash_ = CrashContext {};
+        if (line.starts_with(FAULT)) crash_->exception = std::string { base::trim(line.substr(FAULT.size())) };
+        else if (crash_->stack.size() < CrashContext::MAX_STACK_LINES) crash_->stack.emplace_back(base::trim(line.substr(8)));
+        read.crash = crash_;
+        return read;
+    }
     if (trimmed.starts_with("Exception Code: ")) {
         read.important = true;
         // K-3 (plan 0.0.8): a crash outside an AST worker has no context before it; its code and frames are kept all the same.
@@ -630,6 +643,32 @@ base::Result<void> ClangdProcess::start(const ProcessConfig& config, MessageHand
     options.cwd = config.workDirectory;
     options.own_unit = true;
     options.bound_lifetime = true;
+    if (!config.runner.empty() && !config.grants.empty()) {
+        std::vector<mcpplibs::os::process::grant> grants;
+        for (const auto& grant : config.grants)
+            grants.push_back({ .name = grant.path, .path = grant.path, .read_only = !grant.writable, .unchanging = grant.unchanging });
+        options.grants = std::move(grants);
+        options.confine = config.confine;
+    }
+    using mcpplibs::os::process::resources;
+    options.preference = config.resources == "performance" ? resources::performance
+                       : config.resources == "economy"     ? resources::economy
+                       : config.resources == "balanced"    ? resources::balanced
+                                                           : resources::unstated;
+    // A system that cannot hold the engine to its directories (Windows; Linux without Landlock) refuses the request
+    // rather than starting it unheld: the engine starts held by openkal alone, and the log says so.
+    if (options.confine) {
+        auto retry = options;
+        auto held = lsp::Connection::start(std::move(options), onMessage, onClosed, onLog);
+        if (held) {
+            connection_ = std::move(*held);
+            return {};
+        }
+        base::log::warning("clangd ({}) cannot be held to its directories by this system ({}); it is held by openkal alone",
+                           config.workDirectory, held.error().message);
+        retry.confine = false;
+        options = std::move(retry);
+    }
     auto connection = lsp::Connection::start(std::move(options), std::move(onMessage), std::move(onClosed), std::move(onLog));
     if (!connection) return std::unexpected { connection.error() };
     connection_ = std::move(*connection);

@@ -315,6 +315,34 @@
           ],
           "description": "%config.mcppls.engine.preambleStorage.description%"
         },
+        "mcppls.resources": {
+          "type": "string",
+          "enum": [
+            "balanced",
+            "performance",
+            "economy"
+          ],
+          "default": "balanced",
+          "enumDescriptions": [
+            "%config.mcppls.resources.enum.0%",
+            "%config.mcppls.resources.enum.1%",
+            "%config.mcppls.resources.enum.2%"
+          ],
+          "description": "%config.mcppls.resources.description%"
+        },
+        "mcppls.grants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "%config.mcppls.grants.description%"
+        },
+        "mcppls.engine.confine": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.mcppls.engine.confine.description%"
+        },
         "mcppls.engine.diagnosticsWhileTyping": {
           "type": "string",
           "enum": [

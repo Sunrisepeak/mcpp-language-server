@@ -18,6 +18,7 @@ import mcppls.engine.clangd.definition;
 import mcppls.engine.clangd.guard;
 import mcppls.engine.clangd.primer;
 import mcppls.engine.clangd.process;
+import mcppls.engine.clangd.grants;
 import mcppls.engine.clangd.workarounds;
 import mcppls.engine.native.index;
 import mcpplibs.os;
@@ -173,6 +174,10 @@ private:
     bool planApplied_ { false };
     std::string writtenDatabase_;
     std::optional<normalize::EnginePlan> pendingDatabasePlan_; // published only after the previous process is gone
+    // An ok-image engine's directories as it was started with them (grants.cppm), and those the engine database last
+    // named; a database naming one they do not cover starts the engine again. Empty: the runner's defaults.
+    std::vector<Grant> granted_;
+    std::vector<std::string> namedDirectories_;
     std::string writtenStructure_;   // the written database without module hints
     std::map<std::string, std::string, std::less<>> writtenArguments_;   // path key -> the unit's engine command, without hints
     std::set<std::string> excluded_;   // path keys
@@ -903,7 +908,14 @@ public:
         const bool modulesSwitch { traits_.scansModulesOnEveryRequest && usesModules != modulesSupport_ && (usesModules || !planApplied_) };
         if (traits_.scansModulesOnEveryRequest) remember_modules_verdict_(usesModules);
         if (modulesSwitch) modulesSupport_ = usesModules;
-        const bool restartNeeded { ((providerLeft || argumentsChanged) && planApplied_ && handshakeDone_) || modulesSwitch };
+        // An ok-image engine reaches only the directories it was given (grants.cppm): one the database now names that
+        // they do not cover is given by starting the engine again with it.
+        namedDirectories_ = plan_directories(*plan);
+        const std::vector<std::string> ungranted { granted_.empty() ? std::vector<std::string> {} : uncovered(granted_, namedDirectories_) };
+        // The first plan too: an engine started before the database was pushed was given what it could be then.
+        const bool grantsShort { !ungranted.empty() };
+        const bool firstPlan { !planApplied_ };
+        const bool restartNeeded { ((providerLeft || argumentsChanged) && planApplied_ && handshakeDone_) || grantsShort || modulesSwitch };
         // A retiring clangd can still reread this path while its workers stop. Preserve its
         // complete configuration until reaped; consecutive plans replace only the pending one.
         if (restartNeeded || reaping_ || pendingDatabasePlan_) pendingDatabasePlan_ = *plan;
@@ -1009,14 +1021,17 @@ public:
                                          : "the project uses no modules, so clangd runs without its modules support (WA-CLANGD-009)",
                              RestartCause::user);
         } else if (restartNeeded) {
-            const std::string reason { providerLeft
-                ? std::format("a module's unit left the engine database ({})", providersMoved.front())
-                : std::format("units are compiled with other arguments ({})", base::file_name(argumentsChangedFor.front())) };
+            const std::string reason { providerLeft ? std::format("a module's unit left the engine database ({})", providersMoved.front())
+                : argumentsChanged ? std::format("units are compiled with other arguments ({})", base::file_name(argumentsChangedFor.front()))
+                                   : std::format("the engine database names a directory the engine was not given ({})", ungranted.front()) };
             // Fix plan F14: a switch of toolchain, profile or context is the person's own doing, and so is the build
             // tool's model replacing the provisional one (F4): at once, and never counted against clangd.
             if (toolchainChanged || fromProvisional) {
                 request_restart_(std::format("{}: {}", toolchainChanged ? "the toolchain, profile or context changed" : "the build tool's model replaced the provisional one",
                                              reason), RestartCause::user);
+            } else if (grantsShort && firstPlan) {
+                // Before the engine has a file open: at once, which costs nothing.
+                request_restart_(reason, RestartCause::plan);
             } else {
                 schedule_plan_restart_(reason);
             }
@@ -1891,8 +1906,28 @@ private:
         config.databaseDirectory = databaseDirectory_;
         config.workDirectory = host_->root_directory();
         config.verboseLog = options_.verboseLog;
-        workers_ = engine_workers(std::thread::hardware_concurrency(), total_memory_bytes(), options_.workers);
+        workers_ = engine_workers(std::thread::hardware_concurrency(), total_memory_bytes(), options_.workers, options_.resources);
         config.workers = workers_;
+        config.resources = options_.resources;
+        // An ok-image engine is given what it reads and writes (mcpp design 2026-11-03 part 4 §9.3): the project, mcppls's
+        // caches, the temporary directory and the runner's caches, its own files, the package stores and the system's
+        // roots, and every directory the engine database names; `mcppls.grants` adds to them, or gives the runner's own.
+        granted_.clear();
+        if (!options_.runner.empty() && !options_.grants.all) {
+            if (pendingDatabasePlan_) namedDirectories_ = plan_directories(*pendingDatabasePlan_);
+            GrantInputs inputs;
+            inputs.root = host_->root_directory();
+            inputs.writable = { host_->cache_directory(), databaseDirectory_, base::spelled(std::filesystem::temp_directory_path(ignored)) };
+            for (auto& cache : runner_caches()) inputs.writable.push_back(std::move(cache));
+            inputs.payload = { base::parent_path(base::parent_path(options_.executable)) };
+            inputs.readable = managed_package_stores();
+            for (auto& root : system_roots()) inputs.readable.push_back(std::move(root));
+            inputs.named = namedDirectories_;
+            inputs.added = options_.grants.added;
+            granted_ = engine_grants(inputs);
+            config.grants = granted_;
+            config.confine = options_.confine;
+        }
         config.fallbackStyle = format_fallback_style(options_.formatFallbackStyle, options_.mcppFormatStyle,
             std::filesystem::is_regular_file(base::join_path(host_->root_directory(), "mcpp.toml"), ignored));
         // Under PRoot every process is traced call by call, so mcppls-clangd's supervised compiler worker, a
@@ -1924,7 +1959,12 @@ private:
         }
         if (!process_) process_ = make_process_();
         lastConfig_ = config;
-        host_->record_event("engine-start", Json { { "engine", std::string { ENGINE_ID } }, { "generation", generation }, { "arguments", clangd_arguments(config) } });
+        Json grantsJson = Json::array();
+        for (const auto& grant : granted_)
+            grantsJson.push_back(Json { { "path", grant.path }, { "writable", grant.writable }, { "unchanging", grant.unchanging } });
+        host_->record_event("engine-start", Json { { "engine", std::string { ENGINE_ID } }, { "generation", generation }, { "arguments", clangd_arguments(config) },
+                                                   { "resources", options_.resources }, { "grants", std::move(grantsJson) } });
+        if (!granted_.empty()) log::info("clangd ({}) is given {} directories (mcppls.grants: `all` gives it the runner's own)", host_->root_directory(), granted_.size());
         auto sink = sink_;
         const std::string root { host_->root_directory() };
         // robustness design C7: clangd's errors are forwarded without flooding the log; failures are read from every line.

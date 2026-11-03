@@ -10,6 +10,7 @@ import mcppls.engine.payload;
 import mcppls.engine.native;
 import mcppls.engine.native.index;
 import mcppls.engine.clangd;
+import mcppls.engine.clangd.grants;
 import mcppls.orchestrator.cache;
 import mcppls.orchestrator.workspace;
 import mcppls.ai.model.source;
@@ -45,7 +46,7 @@ orchestrator::EngineFactories engine_factories(const orchestrator::SessionOption
         // given three quarters of that (ux-mcpp: a profile change's modules beside the first profile's, with every
         // reader's copy, waited out admission and the files that needed them stalled). Unlimited is unbounded; the
         // option is a 32-bit count of MiB.
-        if (const auto budget = orchestrator::cache::parse_bytes(options.settings.string_value("cache.maxBytes"))) {
+        if (const auto budget = orchestrator::cache::parse_bytes(config::settings::cache_max_bytes(options.settings))) {
             constexpr std::uint64_t MIB { std::uint64_t { 1 } << 20 };
             clangd.ownedCachePayloadMiB = *budget == std::numeric_limits<std::uint64_t>::max()
                 ? 0 : std::clamp<std::uint64_t>(*budget / 4 * 3 / MIB, 1024, std::numeric_limits<std::uint32_t>::max());
@@ -58,6 +59,10 @@ orchestrator::EngineFactories engine_factories(const orchestrator::SessionOption
             if (error == std::errc {} && end == text.data() + text.size() && workers > 0) clangd.workers = workers;
             else base::log::warning("mcppls.engine.workers is '{}', neither auto nor a number; using auto", options.engineWorkers);
         }
+        clangd.resources = options.settings.string_value("resources");
+        clangd.grants = engine::clangd::parse_grant_setting(options.settings.list_value("grants"));
+        for (const auto& problem : clangd.grants.problems) base::log::warning("{}", problem);
+        clangd.confine = options.settings.bool_value("engine.confine");
         clangd.disabledWorkarounds = options.disabledWorkarounds;
         clangd.preambleStorage = options.preambleStorage;
         clangd.diagnosticsWhileTyping = options.diagnosticsWhileTyping == "always";

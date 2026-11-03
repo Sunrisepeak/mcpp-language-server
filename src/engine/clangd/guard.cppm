@@ -227,8 +227,11 @@ std::string worker_file(std::string_view threadName);
 // person's first hover slowed by clangd crowding the machine -- is kept by the worker reserved for the person
 // (preparation_limit) and by background work that yields (N-7 only when the editor is idle), not by fewer workers.
 // `configured` (mcppls.engine.workers) replaces the automatic value when it is a positive number.
+// THE RESOURCE PREFERENCE (mcppls.resources, mcpp design 2026-11-03 part 4 §16) moves the automatic value: `balanced`
+// is the value above; `performance` spends the machine for time, every hardware thread and still no more than half the
+// memory in gigabytes; `economy` spends time for the machine, two.
 std::size_t engine_workers(std::size_t hardwareThreads, std::optional<std::uint64_t> memoryBytes = std::nullopt,
-                           std::optional<std::size_t> configured = std::nullopt);
+                           std::optional<std::size_t> configured = std::nullopt, std::string_view resources = "balanced");
 // How many modules are prepared at once (R-1): the workers but one, which is kept for the files and requests a person
 // is waiting on. `waitingOnPreparation`: a file someone waits for needs modules that are not ready -- then preparation
 // is what they are waiting for and takes every worker but that one; otherwise it takes half of them.
