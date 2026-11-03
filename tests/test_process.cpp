@@ -171,13 +171,15 @@ int main() {
         expect(connection.error().osCode != os::errc::not_supported);
     };
 
-    "a missing confined engine is reported without a confinement fallback"_test = [&] {
+    "an invalid engine grant is refused without a confinement fallback"_test = [&] {
         namespace cld = mcppls::engine::clangd;
         cld::ProcessConfig config;
         config.executable = "missing-image.oke";
         config.runner = base::join_path(self, "missing-runner");
         config.workDirectory = base::current_directory();
-        config.grants.push_back({ config.workDirectory, true, false });
+        // Grant preparation fails before the confinement capability check on
+        // every host, including Windows where confinement is unsupported.
+        config.grants.push_back({ base::join_path(self, "missing-grant"), true, false });
         config.confine = true;
         std::vector<std::string> messages;
         struct Logging {
@@ -190,6 +192,7 @@ int main() {
         auto started = engine.start(config, [](nlohmann::json) {}, [] {}, [](std::string_view) {});
         expect(fatal(!started));
         expect(started.error().osCode.has_value());
+        expect(started.error().osCode != os::errc::not_supported);
         expect(std::ranges::none_of(messages, [](const std::string& line) {
             return line.find("held by openkal alone") != std::string::npos;
         })) << "a startup error is not evidence that confinement is unsupported";
