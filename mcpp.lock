@@ -86,9 +86,9 @@ targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-lin
 
 [package."openkal-ld"]
 namespace = "mcpplibs"
-version = "0.4.3"
-source  = "index+mcpplibs@0.4.3"
-hash    = "fnv1a:dda722727a966a97"
+version = "0.4.4"
+source  = "index+mcpplibs@0.4.4"
+hash    = "fnv1a:dda71f727a96657e"
 origin  = "platform"
 targets = ["aarch64-openkal", "x86_64-openkal"]
 
@@ -101,9 +101,9 @@ targets = ["aarch64-linux-musl", "x86_64-linux-gnu"]
 
 [package."openkal-llvm-runtime"]
 namespace = "mcpplibs"
-version = "0.18.4"
-source  = "index+mcpplibs@0.18.4"
-hash    = "fnv1a:4768f5337e73a58b"
+version = "0.18.5"
+source  = "index+mcpplibs@0.18.5"
+hash    = "fnv1a:4768f4337e73a3d8"
 origin  = "platform"
 targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
@@ -116,25 +116,25 @@ targets = ["aarch64-macos"]
 
 [package."openkal-musl"]
 namespace = "mcpplibs"
-version = "0.27.3"
-source  = "index+mcpplibs@0.27.3"
-hash    = "fnv1a:b2d032df6c1252c3"
+version = "0.27.4"
+source  = "index+mcpplibs@0.27.4"
+hash    = "fnv1a:b2d037df6c125b42"
 origin  = "platform"
 targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
 [package."openkal-platform"]
 namespace = "mcpplibs"
-version = "0.23.3"
-source  = "index+mcpplibs@0.23.3"
-hash    = "fnv1a:6a1b522a679a9229"
+version = "0.23.4"
+source  = "index+mcpplibs@0.23.4"
+hash    = "fnv1a:6a1b532a679a93dc"
 origin  = "platform"
 targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
 [package."openkal-tools"]
 namespace = "mcpplibs"
-version = "0.4.3"
-source  = "index+mcpplibs@0.4.3"
-hash    = "fnv1a:212ba973d31508bc"
+version = "0.4.4"
+source  = "index+mcpplibs@0.4.4"
+hash    = "fnv1a:212ba873d3150709"
 origin  = "platform"
 targets = ["aarch64-linux-musl", "aarch64-macos", "aarch64-openkal", "x86_64-linux-gnu", "x86_64-openkal", "x86_64-windows-gnu"]
 
