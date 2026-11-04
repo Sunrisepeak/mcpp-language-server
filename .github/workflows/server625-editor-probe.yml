@@ -19,6 +19,8 @@ jobs:
           - {platform: win32-x64, os: windows-2022}
     env:
       XLINGS_NON_INTERACTIVE: '1'
+      PROBE_PLATFORM: ${{ matrix.platform }}
+      PROBE_ADD_LOADER_GRANT: '1'
     defaults:
       run:
         shell: bash
@@ -62,15 +64,12 @@ jobs:
             stage/mcppls-conformance run --server "$PWD/payload/bin/mcppls.okb" --payload "$PWD/payload" \
               --fixture "$PWD/conformance/fixtures/tokens-large-file" --stage "$phase" \
               --workspace-dir "$PROBE_OUT/tokens/workspace" --cache-dir "$PROBE_OUT/cache" \
-              --timeout 30 --keep --measure "$PROBE_OUT/tokens/$phase.json" \
-              --timing-evidence "$PROBE_OUT/tokens/$phase-evidence.json" "${extra[@]}" \
+              --timeout 30 --keep --measure "$PROBE_OUT/tokens/$phase.json" "${extra[@]}" \
               > "$PROBE_OUT/tokens/$phase-observed.log" 2>&1
             observed=$?
             set -e
             printf '%s\n' "$observed" > "$PROBE_OUT/tokens/$phase-exit.txt"
           done
-          # Preserve reports at the top level too for the bounded log collector.
-          cp "$PROBE_OUT"/tokens/*-evidence.json "$PROBE_OUT/"
           python3 .github/scripts/server625-editor-probe.py collect
       - uses: actions/upload-artifact@v7
         if: always()

@@ -16,6 +16,18 @@ if a.mode == 'prepare':
     text = source.read_text()
     needle = "check('definition of hello::greet lands in greet.cppm', ok, vim.inspect(uris(result or {})))"
     assert text.count(needle) == 1
+    if os.environ.get('PROBE_ADD_LOADER_GRANT') == '1':
+        payload = Path('payload').resolve()
+        manifest = json.loads((payload / 'payload.json').read_text())
+        runner = payload / manifest['platforms'][os.environ['PROBE_PLATFORM']]['runner']
+        assert runner.is_file()
+        before = 'mcppls.setup({ server = server })'
+        assert text.count(before) == 1
+        text = text.replace(before, 'mcppls.setup({ server = server, init_options = { grants = { '
+                            + json.dumps(str(runner.parent)) + ' } } })')
+        (out / 'added-readonly-loader-grant.json').write_text(json.dumps(dict(
+            path=str(runner.parent), writable=False,
+            scope='Only extra read-only loader directory; exact frozen server/engine payload retained.'), indent=2))
     observer = r'''
 -- This diagnostic ends after the original first-navigation check. Its return
 -- code and answer are evidence; it is not a replacement for the full smoke CI.
