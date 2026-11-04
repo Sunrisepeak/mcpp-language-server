@@ -2137,7 +2137,11 @@ int main() {
         auto engine = cld::make_engine(std::move(options));
         engine->start(host);
         expect(configs->empty()) << "cached-model adoption runs before the first timer turn";
-        expect(engine->next_deadline().has_value()) << "a cold start still wakes immediately without a plan";
+        expect(!engine->next_deadline().has_value()) << "waiting for the first plan does not busy-poll";
+        engine->handle_timers();
+        host.pump(*engine);
+        engine->handle_timers();
+        expect(configs->empty()) << "asynchronous target selection may take more than one event-loop turn";
         mcppls::normalize::EnginePlan first;
         first.entries.push_back(mcppls::normalize::EngineEntry { root, source,
             { "clang++", "-I" + join_path(external, "first"), "-c", source }, "hello", "hello", {}, {} });
@@ -2145,6 +2149,7 @@ int main() {
         superseded.entries.front().arguments.insert(superseded.entries.front().arguments.begin() + 1, "-DSUPERSEDED");
         engine->apply(&superseded);
         engine->apply(&first);
+        expect(engine->next_deadline().has_value()) << "the first plan schedules an immediate launch";
         engine->handle_timers();
         host.pump(*engine);
         expect(fatal(configs->size() == 1u));
@@ -2179,7 +2184,13 @@ int main() {
         expect(configs->size() == 2u);
         cold->handle_timers();
         host.pump(*cold);
-        expect(configs->size() == 3u && cold->status().restarts == 0u) << "no cached plan still starts on the first timer turn";
+        expect(configs->size() == 2u) << "a cold start also waits for the workspace's first plan decision";
+        cold->apply(nullptr);
+        expect(cold->next_deadline().has_value());
+        cold->handle_timers();
+        host.pump(*cold);
+        expect(configs->size() == 3u && cold->status().restarts == 0u && cold->status().accepting)
+            << "an explicit no-plan fallback starts immediately and completes the handshake";
         cold->shut_down();
         std::filesystem::remove_all(root, ignored);
         std::filesystem::remove_all(external, ignored);

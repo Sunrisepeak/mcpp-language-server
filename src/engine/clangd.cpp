@@ -173,6 +173,7 @@ private:
     // Plan.
     bool planApplied_ { false };
     bool initialStartPending_ { false };
+    bool initialStartReady_ { false };
     std::string writtenDatabase_;
     std::optional<normalize::EnginePlan> pendingDatabasePlan_; // published only after the previous process is gone
     // An ok-image engine's directories as it was started with them (grants.cppm), and those the engine database last
@@ -781,8 +782,9 @@ public:
             }
             log::info("workarounds for clangd {}: {}", options_.version.empty() ? "?" : options_.version, ids.empty() ? "none" : ids);
         }
-        // Let the synchronous cached-model adoption supply the first grants.
-        // With no cached plan the next event-loop turn still starts the engine.
+        // The first plan supplies the grants, including when cached-model
+        // adoption waits for asynchronous target selection. Workspace's existing
+        // model fallback eventually applies a plan or explicitly applies nullptr.
         initialStartPending_ = !options_.runner.empty() && !options_.grants.all;
         if (!initialStartPending_) start_process_();
     }
@@ -814,9 +816,12 @@ public:
     }
 
     void apply(const normalize::EnginePlan* plan) override {
-        if (initialStartPending_ && plan != nullptr) {
-            pendingDatabasePlan_ = *plan;
-            return;
+        if (initialStartPending_) {
+            initialStartReady_ = true;
+            if (plan != nullptr) {
+                pendingDatabasePlan_ = *plan;
+                return;
+            }
         }
         if (plan == nullptr) {
             // The project model did not load in time: serve without a database.
@@ -1534,7 +1539,7 @@ public:
     }
 
     std::optional<Clock::time_point> next_deadline() const override {
-        if (initialStartPending_) return Clock::now();
+        if (initialStartPending_ && initialStartReady_) return Clock::now();
         std::optional<Clock::time_point> deadline;
         auto consider = [&](const std::optional<Clock::time_point>& at) {
             if (at && (!deadline || *at < *deadline)) deadline = at;
@@ -1584,7 +1589,7 @@ public:
     }
 
     void handle_timers() override {
-        if (initialStartPending_) start_process_();
+        if (initialStartPending_ && initialStartReady_) start_process_();
         const auto now = Clock::now();
         std::vector<std::string> paused;
         for (const auto& [uri, typing] : typing_) {
@@ -1847,6 +1852,7 @@ private:
     void start_process_() {
         std::error_code ignored;
         initialStartPending_ = false;
+        initialStartReady_ = false;
         handshakeDone_ = false;
         accepting_ = false;
         // The previous process is gone. Its grants must not make applying the
