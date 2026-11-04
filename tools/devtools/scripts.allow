@@ -9,3 +9,4 @@ docs/specs/tools/validate.py	JSON Schema 2020-12 validation, and no C++ library 
 editors/zed/tests/smoke.sh	The real-Zed smoke (plan 0.0.8 part 2 Z-2, Z-3): drives a GUI editor binary under xvfb, starts and stops it, and inspects its process tree; that is shell work, and no mcpp-built program can stand in for Zed.
 editors/zed/tests/lsp_frames.py	The smoke's helper that reads the LSP frames a wrapper recorded between Zed and mcppls; kept beside smoke.sh, which needs it only in the same CI job.
 .github/scripts/stability_evidence.py	CI stability diagnostics: retains bounded text logs, CDB excerpts and measurements for each native conformance round, preserves its verdict, and cleans its owned scratch after collection.
+.github/scripts/publish-jetbrains.py	Release distribution: verifies the immutable CLion archive digest and plugin descriptor, then submits one Marketplace upload after the product is built; this CI-only publisher uses the host's HTTP and ZIP libraries.
