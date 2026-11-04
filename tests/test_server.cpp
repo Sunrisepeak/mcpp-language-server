@@ -18,6 +18,7 @@ import mcppls.engine.native;
 import mcppls.engine.native.index;
 import mcppls.engine.clangd;
 import mcppls.engine.clangd.process;
+import mcppls.engine.clangd.grants;
 import mcppls.engine.clangd.definition;
 import mcppls.engine.clangd.guard;
 import mcppls.engine.clangd.primer;
@@ -2098,6 +2099,90 @@ int main() {
         expect(std::ranges::none_of(engine->status().issues, [](const auto& issue) { return issue.code == "engine-database-write-failed"; }));
         engine->shut_down();
         std::filesystem::remove_all(root, ignored);
+    };
+
+    "an image starts with its cached plan grants and a replacement never checks retired grants"_test = [] {
+        std::error_code ignored;
+        using mcppls::base::join_path;
+        using namespace std::chrono_literals;
+        const auto suffix = std::format("{}", std::chrono::steady_clock::now().time_since_epoch().count());
+        const std::string root { join_path(base::spelled(os::dirs::temp()), "mcppls-test-grant-start-" + suffix) };
+        const std::string external { join_path(base::current_directory(), ".mcppls-test-grant-start-" + suffix) };
+        (void)std::filesystem::create_directories(root, ignored);
+        (void)std::filesystem::create_directories(join_path(external, "first"), ignored);
+        (void)std::filesystem::create_directories(join_path(external, "second"), ignored);
+        const std::string executable { join_path(root, "clangd") };
+        const std::string source { join_path(root, "module.cppm") };
+        (void)os::fs::write(executable, "pretend-clangd");
+        (void)os::fs::write(source, "export module hello;\n");
+        class GrantedProcess : public BuildingProcess {
+        public:
+            std::shared_ptr<std::vector<cld::ProcessConfig>> configurations;
+            GrantedProcess(std::shared_ptr<Shared> shared, std::shared_ptr<std::vector<cld::ProcessConfig>> configs)
+                : BuildingProcess(std::move(shared)), configurations(std::move(configs)) {}
+            mcppls::base::Result<void> start(const cld::ProcessConfig& config, MessageHandler message, ClosedHandler closed, LogHandler log) override {
+                configurations->push_back(config);
+                return BuildingProcess::start(config, std::move(message), std::move(closed), std::move(log));
+            }
+        };
+        auto shared = std::make_shared<BuildingProcess::Shared>();
+        auto configs = std::make_shared<std::vector<cld::ProcessConfig>>();
+        cld::Options options;
+        options.executable = executable;
+        options.runner = executable;   // the process double captures the image's real launch configuration
+        options.version = "23.1.0";
+        options.primeImplementationUnits = false;
+        options.processFactory = [shared, configs] { return std::make_unique<GrantedProcess>(shared, configs); };
+        RecordingHost host { root };
+        auto engine = cld::make_engine(std::move(options));
+        engine->start(host);
+        expect(configs->empty()) << "cached-model adoption runs before the first timer turn";
+        expect(engine->next_deadline().has_value()) << "a cold start still wakes immediately without a plan";
+        mcppls::normalize::EnginePlan first;
+        first.entries.push_back(mcppls::normalize::EngineEntry { root, source,
+            { "clang++", "-I" + join_path(external, "first"), "-c", source }, "hello", "hello", {}, {} });
+        auto superseded = first;
+        superseded.entries.front().arguments.insert(superseded.entries.front().arguments.begin() + 1, "-DSUPERSEDED");
+        engine->apply(&superseded);
+        engine->apply(&first);
+        engine->handle_timers();
+        host.pump(*engine);
+        expect(fatal(configs->size() == 1u));
+        const auto initialDatabase = os::fs::read(join_path(configs->back().databaseDirectory, "compile_commands.json")).value_or("");
+        expect(initialDatabase.contains("module.cppm") && !initialDatabase.contains("-DSUPERSEDED"));
+        expect(cld::covered(configs->back().grants, join_path(external, "first")));
+        expect(!cld::covered(configs->back().grants, join_path(external, "second"))) << "unrelated directories are not granted";
+        expect(engine->status().restarts == 0u && !engine->report()["restartScheduled"].get<bool>());
+        auto second = first;
+        second.entries.front().arguments.insert(second.entries.front().arguments.begin() + 1, "-I" + join_path(external, "second"));
+        engine->apply(&second);
+        expect(engine->report()["restartScheduled"].get<bool>()) << "a later plan requiring another directory still restarts";
+        expect(engine->restart_on_request());
+        const auto deadline = eng::Clock::now() + 2s;
+        while (eng::Clock::now() < deadline && configs->size() < 2u) {
+            host.pump(*engine);
+            std::this_thread::sleep_for(5ms);
+        }
+        host.pump(*engine);
+        expect(fatal(configs->size() == 2u));
+        expect(cld::covered(configs->back().grants, join_path(external, "second")));
+        expect(engine->status().restarts == 1u);
+        expect(!engine->report()["restartScheduled"].get<bool>()) << "the retired grants cannot schedule a redundant restart";
+        engine->shut_down();
+        cld::Options coldOptions;
+        coldOptions.executable = executable;
+        coldOptions.runner = executable;
+        coldOptions.version = "23.1.0";
+        coldOptions.processFactory = [shared, configs] { return std::make_unique<GrantedProcess>(shared, configs); };
+        auto cold = cld::make_engine(std::move(coldOptions));
+        cold->start(host);
+        expect(configs->size() == 2u);
+        cold->handle_timers();
+        host.pump(*cold);
+        expect(configs->size() == 3u && cold->status().restarts == 0u) << "no cached plan still starts on the first timer turn";
+        cold->shut_down();
+        std::filesystem::remove_all(root, ignored);
+        std::filesystem::remove_all(external, ignored);
     };
 
     "a retiring process keeps its database and its successor sees only the latest plan"_test = [] {
