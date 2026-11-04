@@ -165,6 +165,11 @@ releases has already passed this repository's CI with it, and the release brings
      "engine-commit": "<the engine PR head it was built from>" }
    ```
 
+   Server compilation can run while the upstream builds finish. The `engine candidate parts` job
+   admits payload assembly only after all five parts and the bundle identity check pass, with
+   matching run/head metadata and immutable artifact digests; known upstream failures or
+   cancellations refuse admission.
+
    CI's `payload` job then assembles the payload from that run's parts instead of the lock's
    archives (`payload --clangd <platform>=<part> ... --candidate`: a fork version other than the
    lock's is taken for the same LLVM base, its identity still checked), and every later job tests it. Fix what it
