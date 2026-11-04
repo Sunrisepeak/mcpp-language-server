@@ -154,99 +154,11 @@ jobs:
           ARCHIVE_PROFILE: ${{ matrix.profile }}
         run: |
           set -euo pipefail
-          # PE debug executables exhaust the runner before all tests can be linked. Keep the
-          # same tests and profile, but archive disjoint groups and then reclaim only executable
-          # bytes verified against their archive. Objects, modules and the package's programs stay.
-          python3 - <<'PY'
-          import collections, hashlib, json, os, pathlib, shutil, subprocess, tarfile
-
-          target = os.environ['ARCHIVE_TARGET']
-          profile = os.environ['ARCHIVE_PROFILE']
-          target_root = pathlib.Path('target', target).resolve(strict=True)
-          archives = pathlib.Path('test-archives')
-          archives.mkdir()
-          receipt = []
-
-          def digest(stream):
-              return hashlib.file_digest(stream, 'sha256').hexdigest()
-
-          for package in ('mcppls', 'pack', 'devtools', 'model-gateway'):
-              selection = [] if package == 'mcppls' else ['-p', package]
-              listed = subprocess.run(['mcpp', 'test', *selection, '--list', '--message-format', 'json'],
-                                      check=True, text=True, capture_output=True)
-              rows = [json.loads(line) for line in listed.stdout.splitlines() if line.strip()]
-              names = [row['test'] for row in rows if 'test' in row]
-              summaries = [row['summary']['total'] for row in rows if 'summary' in row]
-              assert names and len(names) == len(set(names)) and summaries == [len(names)], rows
-              filters = sorted({name[:7] for name in names})
-              groups = {word: sorted(name for name in names if word in name) for word in filters}
-              # mcpp's positional filter is a substring. Prove disjoint, complete selection
-              # rather than assuming prefixes or a shell glob have exact-match semantics.
-              assert collections.Counter(name for group in groups.values() for name in group) == collections.Counter(names)
-              assert max(map(len, groups.values())) <= 4, groups
-              archived = []
-              for index, (word, expected) in enumerate(groups.items()):
-                  archive = archives / f'{package}-{index:02}.tar.gz'
-                  print(f'::group::{package}: {", ".join(expected)}', flush=True)
-                  subprocess.run(['mcpp', 'test', *selection, word, '--profile', profile,
-                                  '--target', target, '--no-run', '--archive', str(archive)], check=True)
-                  with tarfile.open(archive, 'r:gz') as source:
-                      # Read once: backward seeks re-inflate the package's large debug
-                      # programs for every test. Finish the gzip stream to verify its CRC.
-                      members, manifests, hashes = [], [], {}
-                      for member in source:
-                          name = pathlib.PurePosixPath(member.name)
-                          assert not member.issym() and not member.islnk()
-                          assert not name.is_absolute() and '..' not in name.parts
-                          members.append(member)
-                          if member.isfile():
-                              if name.name == 'mcpp-tests.json':
-                                  manifests.append((member, json.load(source.extractfile(member))))
-                              else:
-                                  hashes[str(name)] = digest(source.extractfile(member))
-                      while source.fileobj.read(1024 * 1024):
-                          pass
-                      assert len(manifests) == 1
-                      manifest = manifests[0][1]
-                      assert manifest['schema'] == 1 and len(manifest['legs']) == 1
-                      leg = manifest['legs'][0]
-                      assert leg['triple'] == target
-                      assert collections.Counter(t['name'] for t in leg['tests']) == collections.Counter(expected)
-                      root = pathlib.PurePosixPath(manifests[0][0].name).parent
-                      by_name = {str(pathlib.PurePosixPath(m.name)): m for m in members}
-                      required = list(leg['programs'].values())
-                      for test in leg['tests']:
-                          required.extend([test['program'], *test['files']])
-                      assert all(str(root / name) in by_name and by_name[str(root / name)].isfile()
-                                 for name in required)
-                      verified = []
-                      for test in leg['tests']:
-                          executable = pathlib.PurePosixPath(test['program']).name
-                          assert executable == test['name'] + '.exe'
-                          expected_hash = hashes[str(root / test['program'])]
-                          matches = []
-                          for path in target_root.glob(f'*/bin/**/{executable}'):
-                              assert not path.is_symlink() and path.resolve().is_relative_to(target_root)
-                              with path.open('rb') as content:
-                                  if digest(content) == expected_hash:
-                                      matches.append(path)
-                          assert matches, (test['name'], 'no matching archived executable')
-                          verified.extend((path, expected_hash) for path in matches)
-                  # Validate the whole group's archive before deleting any of its executables.
-                  reclaimed = sum(path.stat().st_size for path, _ in verified)
-                  for path, _ in verified:
-                      path.unlink()
-                  with archive.open('rb') as content:
-                      archive_hash = digest(content)
-                  receipt.append(dict(package=package, filter=word, tests=expected, archive=str(archive),
-                                      sha256=archive_hash, reclaimed_bytes=reclaimed,
-                                      free_bytes=shutil.disk_usage('.').free))
-                  archived.extend(expected)
-                  print(json.dumps(receipt[-1]), flush=True)
-                  print('::endgroup::', flush=True)
-              assert collections.Counter(archived) == collections.Counter(names)
-          (archives / 'coverage.json').write_text(json.dumps(receipt, indent=2) + '\n')
-          PY
+          # Keep every dev test and its debug information. Bounded raw groups
+          # become one verified container per package before native execution.
+          python3 .github/scripts/test_archive_tests.py
+          python3 .github/scripts/archive-tests.py \
+            --target "$ARCHIVE_TARGET" --profile "$ARCHIVE_PROFILE"
       # The repository's invariants (docs/93-devtools.md): versions agree everywhere, the platform
       # surface is six constants, members depend only downward and nothing but devtools reaches
       # packaging, no script outside the allowlist -- and the server's own symbol table carries no
