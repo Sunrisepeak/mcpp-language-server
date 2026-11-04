@@ -64,8 +64,8 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # The mcpp every job builds with, on each system: the pinned release, or a branch of mcpp under review
-  # (MCPP_SOURCE_REF), which the latest released mcpp builds here once per commit and system and caches for
-  # every job after this one (.github/actions/setup-mcpp).
+  # (MCPP_SOURCE_REF). Each consumer also calls setup-mcpp and restores its own compiler cache.
+  # Keep these per-host warmers independent: a queued host must not serialize other hosts' builds.
   mcpp:
     name: mcpp (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -91,7 +91,6 @@ jobs:
   # matrix to them. `--workspace` cannot write an archive, so each package with tests writes its own.
   build:
     name: build (${{ matrix.platform }}, ${{ matrix.profile }})
-    needs: mcpp
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
@@ -229,7 +228,6 @@ jobs:
   # platform's runner. The server and the tools built over them are the same programs, and start.
   host-platform:
     name: build programs as images (${{ matrix.os }})
-    needs: mcpp
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -267,7 +265,6 @@ jobs:
   # zip,okb`); the single files cover every leg and system (`--pkg-format single-file --systems all`).
   server:
     name: the server (one tree, one okb, the single files)
-    needs: mcpp
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -1772,7 +1769,6 @@ jobs:
   # 2026.1, the oldest build it claims, and against the one it is built on.
   clion-verify:
     name: CLion plugin verifier
-    needs: mcpp
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
