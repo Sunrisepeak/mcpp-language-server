@@ -1919,7 +1919,11 @@ private:
             inputs.root = host_->root_directory();
             inputs.writable = { host_->cache_directory(), databaseDirectory_, base::spelled(std::filesystem::temp_directory_path(ignored)) };
             for (auto& cache : runner_caches()) inputs.writable.push_back(std::move(cache));
-            inputs.payload = { base::parent_path(base::parent_path(options_.executable)) };
+            // A module worker starts through this loader again. Its directory
+            // can be separate from clangd's in a portable payload, and must
+            // resolve through the same read-only grants as the engine itself.
+            inputs.payload = { base::parent_path(base::parent_path(options_.executable)),
+                               base::parent_path(options_.runner) };
             inputs.readable = managed_package_stores();
             for (auto& root : system_roots()) inputs.readable.push_back(std::move(root));
             inputs.named = namedDirectories_;

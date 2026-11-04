@@ -91,12 +91,13 @@ int main() {
         const std::string project { made(root, "project") };
         const std::string cache { made(root, "cache") };
         const std::string payload { made(root, "payload/clangd") };
+        const std::string loader { made(root, "payload/libexec/okrun/native") };
         const std::string store { made(root, "store") };
         const std::string storeWritable { made(root, "store/lib/1.0") };
         cld::GrantInputs inputs;
         inputs.root = project;
         inputs.writable = { cache, base::join_path(cache, "inner") };
-        inputs.payload = { payload };
+        inputs.payload = { payload, loader };
         inputs.readable = { store, base::join_path(root, "absent") };
         inputs.named = { made(root, "project/include"), made(root, "store/lib") };
         inputs.added = { cld::Grant { storeWritable, true, false } };
@@ -107,6 +108,9 @@ int main() {
         expect(fatal(c != nullptr));
         expect(c->writable);
         const auto* p = find(grants, payload);
+        const auto* l = find(grants, loader);
+        expect(fatal(l != nullptr)) << "a separate loader directory remains available to module workers";
+        expect(!l->writable && l->unchanging) << "the loader is an immutable read-only payload input";
         expect(fatal(p != nullptr));
         expect(!p->writable && p->unchanging) << "the engine's own files, which nothing changes";
         expect(find(grants, store) != nullptr && !find(grants, store)->writable);
