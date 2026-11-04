@@ -13,18 +13,30 @@ namespace cld = mcppls::engine::clangd;
 
 namespace {
 
-std::string scratch(std::string_view name) {
-    std::error_code ignored;
+std::string scratch_spelled(std::string_view name) {
+    std::error_code error;
     const std::string root { base::join_path(base::spelled(os::dirs::temp()),
         std::format("mcppls-test-grants-{}-{}", name, std::chrono::steady_clock::now().time_since_epoch().count())) };
-    (void)std::filesystem::create_directories(root, ignored);
+    (void)std::filesystem::create_directories(root, error);
+    if (error) throw std::filesystem::filesystem_error("create grant fixture", root, error);
     return root;
 }
 
+std::string scratch(std::string_view name) {
+    const auto root = scratch_spelled(name);
+    // The cardinality cases count distinct directories. A short TEMP spelling
+    // on Windows also offers its canonical alias, so use one physical spelling
+    // here; the product still retains aliases when callers supply them.
+    const auto physical = base::canonical_path(root);
+    if (physical.empty()) throw std::runtime_error("cannot resolve grant fixture " + root);
+    return physical;
+}
+
 std::string made(const std::string& root, std::string_view child) {
-    std::error_code ignored;
+    std::error_code error;
     const std::string path { base::join_path(root, child) };
-    (void)std::filesystem::create_directories(path, ignored);
+    (void)std::filesystem::create_directories(path, error);
+    if (error) throw std::filesystem::filesystem_error("create grant fixture", path, error);
     return path;
 }
 
@@ -159,6 +171,35 @@ int main() {
         for (const auto& path : inputs.writable) {
             const auto* grant = find(grants, path);
             expect(grant != nullptr && grant->writable) << path;
+        }
+    };
+
+    "excess writable roots retain every spelling and canonical alias"_test = [] {
+        const auto root = scratch_spelled("writable-aliases");
+        cld::GrantInputs inputs;
+        inputs.root = made(root, "project");
+        for (int i { 0 }; i < 17; ++i)
+            inputs.writable.push_back(made(root, std::format("write-{}", i)));
+        auto paths = inputs.writable;
+        paths.push_back(inputs.root);
+        std::vector<std::string> expected;
+        const auto keep = [&](std::string path) {
+            path = base::normalize_path(path);
+            if (std::ranges::none_of(expected, [&](const std::string& known) { return base::same_path(known, path); }))
+                expected.push_back(std::move(path));
+        };
+        for (const auto& path : paths) {
+            keep(path);
+            const auto resolved = base::canonical_path(path);
+            expect(!resolved.empty());
+            if (!resolved.empty()) keep(resolved);
+        }
+        const auto grants = cld::engine_grants(inputs);
+        expect(grants.size() == expected.size());
+        expect(grants.size() > 16u);
+        for (const auto& path : expected) {
+            const auto* grant = find(grants, path);
+            expect(grant != nullptr && grant->writable && !grant->unchanging) << path;
         }
     };
 
