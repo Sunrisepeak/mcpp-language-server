@@ -1,7 +1,8 @@
 # Making a release
 
-> Releases are published on this repository's GitHub release page. Open VSX follows automatically
-> when a release is published; the VS Code Marketplace is uploaded to by hand, after the release's
+> Releases are published on this repository's GitHub release page. Publisher workflows submit the
+> verified archives to Open VSX and JetBrains; public JetBrains availability depends on review.
+> The VS Code Marketplace is uploaded to by hand, after the release's
 > VSIX files are verified locally; xlings serves `mcppls` through a separately maintained index entry (below).
 > [91-naming.md](91-naming.md) has the identifiers each uses.
 
@@ -264,5 +265,5 @@ and it also emits `mcppls-kit-<target>.lua` and `mcppls-kit-openkal.lua`. These 
 own index review. Standalone kits are distributed as release archives; standalone kit entries are
 not currently present in the published index.
 
-Uploading to the VS Code Marketplace or the JetBrains Marketplace
-from a workflow is deliberately not done: both stay behind the local verification above.
+The VS Code Marketplace receives its archive through the manual upload after local verification
+described above.

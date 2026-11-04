@@ -2,7 +2,7 @@
 
 [English](../92-release.md) | **简体中文**
 
-> release 发布在本仓库的 GitHub release 页面。release 一发布，Open VSX 会自动跟上；VS Code Marketplace 在本地验证过 release 的 VSIX 之后手动上传；xlings 通过单独维护的索引条目分发 `mcppls`（见下文）。每个渠道用到的标识符见 [91-naming.md](91-naming.md)。
+> release 发布在本仓库的 GitHub release 页面。发布工作流向 Open VSX 与 JetBrains 提交已校验的归档；JetBrains 的公开可见性取决于审核。VS Code Marketplace 在本地验证过 release 的 VSIX 之后手动上传；xlings 通过单独维护的索引条目分发 `mcppls`（见下文）。每个渠道用到的标识符见 [91-naming.md](91-naming.md)。
 
 ## 版本号
 
@@ -191,5 +191,4 @@ xlings 索引以 `mcppls` 分发服务端，对应 openxlings/xim-pkgindex 的
 `mcppls-kit-<target>.lua` 与 `mcppls-kit-openkal.lua`。这些输出需要单独的索引评审。
 独立工具包以 release 归档分发；当前公开索引中没有独立工具包条目。
 
-从 workflow 直接上传到 VS Code Marketplace 或 JetBrains Marketplace 是有意不做的：
-两者都要留在上面的本地验证之后。
+VS Code Marketplace 按上文的本地验证与手动上传流程接收归档。
