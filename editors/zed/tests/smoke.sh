@@ -72,7 +72,7 @@ if [ "${#zed_data}" -gt 80 ]; then echo "$root is too deep: Zed's socket path wo
 workspace="$root/workspace"
 # The installed payload's server: this platform's runner starting the okb (payload.json's entry for it).
 # The process is the runner's; the image runs inside it.
-case "$(uname -m)" in aarch64|arm64) arch=aarch64 ;; *) arch=x86_64 ;; esac
+case "$(uname -m)" in aarch64|arm64) arch=aarch64; platform=linux-arm64 ;; *) arch=x86_64; platform=linux-x64 ;; esac
 server="$root/server/libexec/okrun/linux-$arch/okrun"
 image="$root/server/bin/mcppls.okb"
 cp -r "$repo/conformance/fixtures/inferred" "$workspace"
@@ -89,10 +89,7 @@ summary() {
 
 # The pids of the running mcppls server (the real one, not the script around it).
 server_pids() {
-  local exe
-  for exe in /proc/[0-9]*/exe; do
-    if [ "$(readlink "$exe" 2>/dev/null)" = "$server" ]; then basename "$(dirname "$exe")"; fi
-  done
+  python3 "$here/payload_processes.py" "$root/server" "$platform" server || true
 }
 
 # A clangd that Zed started: a child of Zed, or a program out of the languages directory it
@@ -166,14 +163,8 @@ has_directory_workspace() {
 # Initialization is proved by the engine's own protocol log and a live direct child of mcppls,
 # not by module-layer diagnostics or Zed's separate clangd. Module preparation may still continue.
 has_mcppls_engine() {
-  local pid
   grep -qsE 'clangd \(.*\): .*<-- initialized' "$root"/cache/logs/server-*.log || return 1
-  for pid in $(server_pids); do
-    if ps -eo ppid=,comm= | awk -v parent="$pid" '$1 == parent && $2 ~ /^clangd/ { found=1 } END { exit !found }'; then
-      return 0
-    fi
-  done
-  return 1
+  python3 "$here/payload_processes.py" "$root/server" "$platform" engine >/dev/null
 }
 
 # ---------------------------------------------------------------------------------------------

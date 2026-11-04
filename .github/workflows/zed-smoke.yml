@@ -36,6 +36,8 @@ jobs:
         mode: [recommended, default]
     steps:
       - uses: actions/checkout@v7
+      - name: Payload process observer controls
+        run: python3 editors/zed/tests/test_payload_processes.py
       - name: Version pins
         run: |
           set -euo pipefail
