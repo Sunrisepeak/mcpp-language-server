@@ -6025,7 +6025,7 @@ int prepare_payload_corrupt(const std::string& source) {
     for (const auto& entry : std::filesystem::recursive_directory_iterator { source, failed }) {
         if (!entry.is_regular_file()) continue;
         if ((entry.status().permissions() & std::filesystem::perms::owner_exec) == std::filesystem::perms::none) continue;
-        executables.push_back(base::join_path(target, std::filesystem::relative(entry.path(), source).generic_string()));
+        executables.push_back(base::join_path(target, entry.path().lexically_relative(source).generic_string()));
     }
     if (auto marked = base::make_executable(executables); !marked) {
         say("payload-corrupt: {}", marked.error().message);

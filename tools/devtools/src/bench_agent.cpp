@@ -115,7 +115,7 @@ std::map<std::string, std::pair<std::uint64_t, std::int64_t>> agent_run_snapshot
     for (auto it = std::filesystem::recursive_directory_iterator(root, error);
         !error && it != std::filesystem::recursive_directory_iterator(); it.increment(error)) {
         if (!it->is_regular_file()) continue;
-        const auto relative = std::filesystem::relative(it->path(), root);
+        const auto relative = it->path().lexically_relative(root);
         if (!relative.empty()) {
             const std::string first { relative.begin()->string() };
             if (first == "target" || first == ".git") continue;

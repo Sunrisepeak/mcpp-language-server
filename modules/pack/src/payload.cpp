@@ -45,6 +45,8 @@ base::Result<void> copy_one(const std::string& from, const std::string& to) {
 // shutil.copytree(src, dst, ignore=shutil.ignore_patterns(excludeName)) -- content only. The one
 // executable either tree carries (the clangd binary) gets its bit set explicitly afterward, just
 // as assemble_payload.py does; nothing else in either tree needs to be.
+// The iterator already supplies names beneath src. Keep those names instead of
+// resolving a link target, which may lie elsewhere or need another path syntax.
 base::Result<void> copy_tree(const std::string& src, const std::string& dst, std::string_view excludeName) {
     std::error_code failed;
     auto it = std::filesystem::recursive_directory_iterator(src, failed);
@@ -52,7 +54,7 @@ base::Result<void> copy_tree(const std::string& src, const std::string& dst, std
     for (; it != std::filesystem::recursive_directory_iterator(); it.increment(failed)) {
         if (failed) return base::fail("payload-copy", std::format("cannot list {}: {}", src, failed.message()));
         const auto& entryPath = it->path();
-        const std::string relative { std::filesystem::relative(entryPath, src).generic_string() };
+        const std::string relative { entryPath.lexically_relative(src).generic_string() };
         const std::string destination { base::join_path(dst, relative) };
         if (it->is_directory(failed)) {
             if (std::error_code failed; !std::filesystem::create_directories(destination, failed) && failed) return base::fail("create-directory", std::format("cannot create {}: {}", destination, failed.message()));
@@ -78,7 +80,7 @@ base::Result<void> copy_tree_preserving_modes(const std::string& src, const std:
     for (; it != std::filesystem::recursive_directory_iterator(); it.increment(failed)) {
         if (failed) return base::fail("payload-copy", std::format("cannot list {}: {}", src, failed.message()));
         const auto& entryPath = it->path();
-        const std::string relative { std::filesystem::relative(entryPath, src).generic_string() };
+        const std::string relative { entryPath.lexically_relative(src).generic_string() };
         const std::string destination { base::join_path(dst, relative) };
         if (it->is_symlink(failed)) {
             const auto target = std::filesystem::read_symlink(entryPath, failed);
@@ -161,7 +163,7 @@ void data_only_problems(const std::string& kitDir, std::vector<std::string>& pro
     auto it = std::filesystem::recursive_directory_iterator(kitDir, failed);
     for (; !failed && it != std::filesystem::recursive_directory_iterator(); it.increment(failed)) {
         const auto& entryPath = it->path();
-        const std::string relative { std::filesystem::relative(entryPath, kitDir).generic_string() };
+        const std::string relative { entryPath.lexically_relative(kitDir).generic_string() };
         const std::string name { entryPath.filename().string() };
         if (it->is_directory(failed)) {
             // Rule 4: the macOS SDK may not be redistributed.
@@ -634,7 +636,7 @@ std::vector<std::string> verify(std::string_view payloadDirectory) {
     auto it = std::filesystem::recursive_directory_iterator(dir, failed);
     for (; !failed && it != std::filesystem::recursive_directory_iterator(); it.increment(failed)) {
         if (!it->is_regular_file(failed)) continue;
-        const std::string relative { std::filesystem::relative(it->path(), dir).generic_string() };
+        const std::string relative { it->path().lexically_relative(dir).generic_string() };
         const auto [entryIt, inserted] = seen.try_emplace(base::to_lower_ascii(relative), relative);
         if (!inserted && entryIt->second != relative) problems.push_back(std::format("paths differ only in case: {} and {}", entryIt->second, relative));
         if (relative.size() > longest) { longest = relative.size(); longestPath = relative; }
