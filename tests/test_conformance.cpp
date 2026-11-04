@@ -36,7 +36,9 @@ std::optional<std::string> runner_path() {
 }
 
 std::string pcm_bytes(const std::string& source) {
-    return source + "\n" + std::string(256, 'x');
+    std::string spelling { source };
+    if (os::host() == os::platform::windows) std::ranges::replace(spelling, '/', '\\');
+    return spelling + "\n" + std::string(256, 'x');
 }
 
 int serve() {
@@ -538,8 +540,6 @@ int main() {
     };
     "module reuse drains partial read copies and preserves cold, rebuild and missing-state checks"_test = [&] {
         std::error_code ignored;
-        // Owned payloads are Linux's cache representation; its source scanner uses POSIX paths.
-        if (os::host() != os::platform::linux) return;
         const std::string cache { base::join_path(root, "module-cache") };
         const std::string source { base::join_path(cache, "std.cppm") };
         const std::string stable { base::join_path(cache, "modules/.owned-payload-v1/generation-0-1/payload.pcm") };

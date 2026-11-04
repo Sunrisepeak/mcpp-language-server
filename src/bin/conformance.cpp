@@ -383,7 +383,7 @@ std::map<std::string, std::string> snapshot(const std::string& root) {
     return files;
 }
 
-// mcppls-clangd's owned module cache (Linux) publishes every module file as
+// mcppls-clangd's owned module cache publishes every module file as
 // <modules>/.owned-payload-v1/generation-<slot>-<n>/payload.pcm, so neither the name nor the directory says whose it
 // is. The file does: its control block names the unit it was built from (ORIGINAL_FILE), the first absolute source
 // path in it, and the unit's own `export module` declaration names the module.
@@ -392,14 +392,16 @@ bool owned_payload(std::string_view path) { return path.contains("/.owned-payloa
 std::string owned_payload_source(const std::string& path) {
     static std::map<std::string, std::string> known;
     if (const auto found = known.find(path); found != known.end()) return found->second;
-    static const std::regex SOURCE { R"((/[\w./+-]+\.(?:cppm|ixx|cxxm|mpp|cc|cpp|cxx|c\+\+m)))" };
+    // A Windows ORIGINAL_FILE starts with a volume and may use either separator.
+    // Matching only its first slash loses the volume and cannot open the source.
+    static const std::regex SOURCE { R"(((?:[A-Za-z]:[\/\\]|/)[\w./\\+ -]+\.(?:cppm|ixx|cxxm|mpp|cc|cpp|cxx|c\+\+m)))" };
     std::string source;
     std::ifstream in { path, std::ios::binary };
     std::string head(1 << 16, '\0');
     in.read(head.data(), static_cast<std::streamsize>(head.size()));
     head.resize(static_cast<std::size_t>(in.gcount()));
     std::smatch match;
-    if (std::regex_search(head, match, SOURCE)) source = match[1].str();
+    if (std::regex_search(head, match, SOURCE)) source = base::normalize_path(match[1].str());
     known.emplace(path, source);
     return source;
 }

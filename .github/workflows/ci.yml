@@ -230,6 +230,16 @@ jobs:
           failed=''
           for archive in test-archives/*.tar.gz; do
             echo "::group::$archive"
+            # The released mcpp can leave a long Windows test path behind when
+            # it removes this extraction directory. Use the host's filesystem
+            # implementation before the next archive; every test still runs.
+            python - <<'PYCODE'
+          from pathlib import Path
+          import shutil
+          extraction = Path('target/.test-archive/run')
+          if extraction.exists():
+              shutil.rmtree(extraction)
+          PYCODE
             if ! mcpp test --archive "$archive"; then failed="$failed $(basename "$archive" .tar.gz)"; fi
             echo "::endgroup::"
           done
