@@ -1,0 +1,86 @@
+name: server625-editor-probe
+on:
+  push:
+    branches: [ci/server625-editor-probe]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  evidence:
+    name: frozen625 editor evidence ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {platform: linux-x64, os: ubuntu-24.04}
+          - {platform: darwin-arm64, os: macos-15}
+          - {platform: win32-x64, os: windows-2022}
+    env:
+      XLINGS_NON_INTERACTIVE: '1'
+      PROBE_OUT: ${{ runner.temp }}/server625-evidence
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - uses: ./.github/actions/payload
+        with:
+          platform: ${{ matrix.platform }}
+          run-id: '41775013004'
+          kit: 'true'
+      - name: Install the exact tested Neovim
+        run: |
+          set -euo pipefail
+          xlings install nvim@0.12.5 -y -g
+          xlings use nvim 0.12.5
+      - name: Observe the first original navigation check
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = Windows ]; then export PROBE_OUT="$(cygpath -m "$PROBE_OUT")"; fi
+          python3 .github/scripts/server625-editor-probe.py prepare
+          server="$PWD/payload/bin/mcppls.okb"
+          [ "$RUNNER_OS" = Windows ] && server="$(cygpath -w "$server")"
+          set +e
+          MCPPLS_SERVER="$server" nvim --headless --clean -l editors/nvim/tests/smoke.lua setup > "$PROBE_OUT/neovim-observed.log" 2>&1
+          observed=$?
+          set -e
+          printf '%s\n' "$observed" > "$PROBE_OUT/neovim-exit.txt"
+          test -s "$PROBE_OUT/neovim-evidence.json"
+          python3 .github/scripts/server625-editor-probe.py collect
+      - name: Observe unchanged cold and warm token fixtures
+        if: matrix.platform == 'linux-x64'
+        run: |
+          set -euo pipefail
+          mkdir -p "$PROBE_OUT/tokens"
+          for phase in cold warm; do
+            extra=(); [ "$phase" = warm ] && extra+=(--expect-warm)
+            set +e
+            stage/mcppls-conformance run --server "$PWD/payload/bin/mcppls.okb" --payload "$PWD/payload" \
+              --fixture "$PWD/conformance/fixtures/tokens-large-file" --stage "$phase" \
+              --workspace-dir "$PROBE_OUT/tokens/workspace" --cache-dir "$PROBE_OUT/cache" \
+              --timeout 30 --keep --measure "$PROBE_OUT/tokens/$phase.json" \
+              --timing-evidence "$PROBE_OUT/tokens/$phase-evidence.json" "${extra[@]}" \
+              > "$PROBE_OUT/tokens/$phase-observed.log" 2>&1
+            observed=$?
+            set -e
+            printf '%s\n' "$observed" > "$PROBE_OUT/tokens/$phase-exit.txt"
+          done
+          # Preserve reports at the top level too for the bounded log collector.
+          cp "$PROBE_OUT"/tokens/*-evidence.json "$PROBE_OUT/"
+          python3 .github/scripts/server625-editor-probe.py collect
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: server625-editor-evidence-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/server625-evidence/*.json
+            ${{ runner.temp }}/server625-evidence/*.log
+            ${{ runner.temp }}/server625-evidence/*.txt
+            ${{ runner.temp }}/server625-evidence/server-logs/
+            ${{ runner.temp }}/server625-evidence/tokens/*.json
+            ${{ runner.temp }}/server625-evidence/tokens/*.log
+            ${{ runner.temp }}/server625-evidence/tokens/*.txt
+          retention-days: 14
