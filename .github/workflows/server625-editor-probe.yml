@@ -19,12 +19,13 @@ jobs:
           - {platform: win32-x64, os: windows-2022}
     env:
       XLINGS_NON_INTERACTIVE: '1'
-      PROBE_OUT: ${{ runner.temp }}/server625-evidence
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v7
+      - name: Diagnostic output directory
+        run: echo "PROBE_OUT=$RUNNER_TEMP/server625-evidence" >> "$GITHUB_ENV"
       - uses: ./.github/actions/setup-mcpp
       - uses: ./.github/actions/payload
         with:
