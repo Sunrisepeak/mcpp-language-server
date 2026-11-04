@@ -191,18 +191,28 @@ jobs:
                   subprocess.run(['mcpp', 'test', *selection, word, '--profile', profile,
                                   '--target', target, '--no-run', '--archive', str(archive)], check=True)
                   with tarfile.open(archive, 'r:gz') as source:
-                      members = source.getmembers()
-                      assert all(not m.issym() and not m.islnk() for m in members)
-                      assert all(not pathlib.PurePosixPath(m.name).is_absolute()
-                                 and '..' not in pathlib.PurePosixPath(m.name).parts for m in members)
-                      manifests = [m for m in members if pathlib.PurePosixPath(m.name).name == 'mcpp-tests.json']
+                      # Read once: backward seeks re-inflate the package's large debug
+                      # programs for every test. Finish the gzip stream to verify its CRC.
+                      members, manifests, hashes = [], [], {}
+                      for member in source:
+                          name = pathlib.PurePosixPath(member.name)
+                          assert not member.issym() and not member.islnk()
+                          assert not name.is_absolute() and '..' not in name.parts
+                          members.append(member)
+                          if member.isfile():
+                              if name.name == 'mcpp-tests.json':
+                                  manifests.append((member, json.load(source.extractfile(member))))
+                              else:
+                                  hashes[str(name)] = digest(source.extractfile(member))
+                      while source.fileobj.read(1024 * 1024):
+                          pass
                       assert len(manifests) == 1
-                      manifest = json.load(source.extractfile(manifests[0]))
+                      manifest = manifests[0][1]
                       assert manifest['schema'] == 1 and len(manifest['legs']) == 1
                       leg = manifest['legs'][0]
                       assert leg['triple'] == target
                       assert collections.Counter(t['name'] for t in leg['tests']) == collections.Counter(expected)
-                      root = pathlib.PurePosixPath(manifests[0].name).parent
+                      root = pathlib.PurePosixPath(manifests[0][0].name).parent
                       by_name = {str(pathlib.PurePosixPath(m.name)): m for m in members}
                       required = list(leg['programs'].values())
                       for test in leg['tests']:
@@ -213,7 +223,7 @@ jobs:
                       for test in leg['tests']:
                           executable = pathlib.PurePosixPath(test['program']).name
                           assert executable == test['name'] + '.exe'
-                          expected_hash = digest(source.extractfile(by_name[str(root / test['program'])]))
+                          expected_hash = hashes[str(root / test['program'])]
                           matches = []
                           for path in target_root.glob(f'*/bin/**/{executable}'):
                               assert not path.is_symlink() and path.resolve().is_relative_to(target_root)
