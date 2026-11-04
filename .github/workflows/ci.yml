@@ -268,6 +268,7 @@ jobs:
         with:
           name: tests-${{ matrix.platform }}-${{ matrix.profile }}
           path: test-archives
+          compression-level: 0
           retention-days: 7
       # A tarball keeps executable bits, which an artifact zip does not.
       - name: The test tools of ${{ matrix.platform }}
