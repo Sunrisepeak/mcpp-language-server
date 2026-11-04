@@ -22,9 +22,9 @@ if a.mode == 'prepare':
         runner = payload / manifest['platforms'][os.environ['PROBE_PLATFORM']]['runner']
         assert runner.is_file()
         before = 'mcppls.setup({ server = server })'
-        assert text.count(before) == 1
+        assert before in text
         text = text.replace(before, 'mcppls.setup({ server = server, init_options = { grants = { '
-                            + json.dumps(str(runner.parent)) + ' } } })')
+                            + json.dumps(str(runner.parent)) + ' } } })', 1)
         (out / 'added-readonly-loader-grant.json').write_text(json.dumps(dict(
             path=str(runner.parent), writable=False,
             scope='Only extra read-only loader directory; exact frozen server/engine payload retained.'), indent=2))
