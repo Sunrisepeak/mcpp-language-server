@@ -1,7 +1,8 @@
 name: windows-dev-archive-probe
-on:
+'on':
   push:
-    branches: [ci/windows-dev-archive-probe]
+    branches:
+    - ci/windows-dev-archive-probe
 permissions:
   contents: read
   actions: read
@@ -28,106 +29,74 @@ jobs:
     - uses: actions/checkout@v7
     - uses: ./.github/actions/setup-mcpp
     - name: Build the server, its tools and devtools for ${{ matrix.target }}
-      run: 'set -euo pipefail
-
+      run: |
+        set -euo pipefail
         mcpp build --profile ${{ matrix.profile }} --target ${{ matrix.target }}
-
         mcpp build -p devtools --profile ${{ matrix.profile }} --target ${{ matrix.target }}
-
-        '
     - name: The executables are programs of ${{ matrix.target }}
-      run: "set -euo pipefail\nmkdir -p stage\nfor exe in mcppls mcppls-conformance mcppls-lspgen mcppls-mock-mcpp\
-        \ mcppls-mock-model mcppls-devtools; do\n  path=$(find target/${{ matrix.target }} -type f -name \"$exe${{\
-        \ matrix.exe }}\" -path '*/bin/*' | head -1)\n  [ -n \"$path\" ] || { echo \"::error::no $exe was built\"\
-        ; exit 1; }\n  file \"$path\"\n  case \"${{ matrix.target }}\" in\n    *windows*)      file \"$path\" |\
-        \ grep -q 'PE32+ executable' ;;\n    *macos*)        file \"$path\" | grep -q 'Mach-O 64-bit arm64' ;;\n\
-        \    aarch64-linux*) file \"$path\" | grep -q 'ELF 64-bit LSB .*ARM aarch64' ;;\n    x86_64-linux*)  file\
-        \ \"$path\" | grep -q 'ELF 64-bit LSB .*x86-64' ;;\n  esac\n  case \"$exe\" in mcppls|mcppls-lspgen) ;;\
-        \ *) cp \"$path\" stage/ ;; esac\ndone\n(cd stage && sha256sum * | tee SHA256SUMS)\n"
+      run: |
+        set -euo pipefail
+        mkdir -p stage
+        for exe in mcppls mcppls-conformance mcppls-lspgen mcppls-mock-mcpp mcppls-mock-model mcppls-devtools; do
+          path=$(find target/${{ matrix.target }} -type f -name "$exe${{ matrix.exe }}" -path '*/bin/*' | head -1)
+          [ -n "$path" ] || { echo "::error::no $exe was built"; exit 1; }
+          file "$path"
+          case "${{ matrix.target }}" in
+            *windows*)      file "$path" | grep -q 'PE32+ executable' ;;
+            *macos*)        file "$path" | grep -q 'Mach-O 64-bit arm64' ;;
+            aarch64-linux*) file "$path" | grep -q 'ELF 64-bit LSB .*ARM aarch64' ;;
+            x86_64-linux*)  file "$path" | grep -q 'ELF 64-bit LSB .*x86-64' ;;
+          esac
+          case "$exe" in mcppls|mcppls-lspgen) ;; *) cp "$path" stage/ ;; esac
+        done
+        (cd stage && sha256sum * | tee SHA256SUMS)
     - name: The tests, built once and archived
       if: matrix.platform != 'win32-x64' || matrix.profile != 'dev'
-      run: "set -euo pipefail\nmkdir -p test-archives\ncommon=(--profile ${{ matrix.profile }} --target ${{ matrix.target\
-        \ }} --no-run)\n# The server's own tests, then each member's that has tests. The server's dev tests with\
-        \ their debug\n# information are more than 4 GiB, one gzip member since mcpp 2026.10.30.1.\necho \"::group::mcppls\"\
-        \nmcpp test \"${common[@]}\" --archive test-archives/mcppls.tar.gz\necho \"::endgroup::\"\nfor package in\
-        \ pack devtools model-gateway; do\n  echo \"::group::$package\"\n  mcpp test -p \"$package\" \"${common[@]}\"\
-        \ --archive \"test-archives/$package.tar.gz\"\n  echo \"::endgroup::\"\ndone\nls -l test-archives\n"
+      run: |
+        set -euo pipefail
+        mkdir -p test-archives
+        common=(--profile ${{ matrix.profile }} --target ${{ matrix.target }} --no-run)
+        # The server's own tests, then each member's that has tests. The server's dev tests with their debug
+        # information are more than 4 GiB, one gzip member since mcpp 2026.10.30.1.
+        echo "::group::mcppls"
+        mcpp test "${common[@]}" --archive test-archives/mcppls.tar.gz
+        echo "::endgroup::"
+        for package in pack devtools model-gateway; do
+          echo "::group::$package"
+          mcpp test -p "$package" "${common[@]}" --archive "test-archives/$package.tar.gz"
+          echo "::endgroup::"
+        done
+        ls -l test-archives
     - name: The Windows dev tests, archived before reclaiming their executable space
       if: matrix.platform == 'win32-x64' && matrix.profile == 'dev'
       env:
         ARCHIVE_TARGET: ${{ matrix.target }}
         ARCHIVE_PROFILE: ${{ matrix.profile }}
-      run: "set -euo pipefail\n# PE debug executables exhaust the runner before all tests can be linked. Keep the\n\
-        # same tests and profile, but archive disjoint groups and then reclaim only executable\n# bytes verified\
-        \ against their archive. Objects, modules and the package's programs stay.\npython3 - <<'PY'\nimport collections,\
-        \ hashlib, json, os, pathlib, shutil, subprocess, tarfile\n\ntarget = os.environ['ARCHIVE_TARGET']\nprofile\
-        \ = os.environ['ARCHIVE_PROFILE']\ntarget_root = pathlib.Path('target', target).resolve(strict=True)\narchives\
-        \ = pathlib.Path('test-archives')\narchives.mkdir()\nreceipt = []\n\ndef digest(stream):\n    return hashlib.file_digest(stream,\
-        \ 'sha256').hexdigest()\n\nfor package in ('mcppls', 'pack', 'devtools', 'model-gateway'):\n    selection\
-        \ = [] if package == 'mcppls' else ['-p', package]\n    listed = subprocess.run(['mcpp', 'test', *selection,\
-        \ '--list', '--message-format', 'json'],\n                            check=True, text=True, capture_output=True)\n\
-        \    rows = [json.loads(line) for line in listed.stdout.splitlines() if line.strip()]\n    names = [row['test']\
-        \ for row in rows if 'test' in row]\n    summaries = [row['summary']['total'] for row in rows if 'summary'\
-        \ in row]\n    assert names and len(names) == len(set(names)) and summaries == [len(names)], rows\n    filters\
-        \ = sorted({name[:7] for name in names})\n    groups = {word: sorted(name for name in names if word in name)\
-        \ for word in filters}\n    # mcpp's positional filter is a substring. Prove disjoint, complete selection\n\
-        \    # rather than assuming prefixes or a shell glob have exact-match semantics.\n    assert collections.Counter(name\
-        \ for group in groups.values() for name in group) == collections.Counter(names)\n    assert max(map(len,\
-        \ groups.values())) <= 4, groups\n    archived = []\n    for index, (word, expected) in enumerate(groups.items()):\n\
-        \        archive = archives / f'{package}-{index:02}.tar.gz'\n        print(f'::group::{package}: {\", \"\
-        .join(expected)}', flush=True)\n        subprocess.run(['mcpp', 'test', *selection, word, '--profile', profile,\n\
-        \                        '--target', target, '--no-run', '--archive', str(archive)], check=True)\n     \
-        \   with tarfile.open(archive, 'r:gz') as source:\n            members = source.getmembers()\n         \
-        \   assert all(not m.issym() and not m.islnk() for m in members)\n            assert all(not pathlib.PurePosixPath(m.name).is_absolute()\n\
-        \                       and '..' not in pathlib.PurePosixPath(m.name).parts for m in members)\n        \
-        \    manifests = [m for m in members if pathlib.PurePosixPath(m.name).name == 'mcpp-tests.json']\n     \
-        \       assert len(manifests) == 1\n            manifest = json.load(source.extractfile(manifests[0]))\n\
-        \            assert manifest['schema'] == 1 and len(manifest['legs']) == 1\n            leg = manifest['legs'][0]\n\
-        \            assert leg['triple'] == target\n            assert collections.Counter(t['name'] for t in leg['tests'])\
-        \ == collections.Counter(expected)\n            root = pathlib.PurePosixPath(manifests[0].name).parent\n\
-        \            by_name = {str(pathlib.PurePosixPath(m.name)): m for m in members}\n            required =\
-        \ list(leg['programs'].values())\n            for test in leg['tests']:\n                required.extend([test['program'],\
-        \ *test['files']])\n            assert all(str(root / name) in by_name and by_name[str(root / name)].isfile()\n\
-        \                       for name in required)\n            verified = []\n            for test in leg['tests']:\n\
-        \                executable = pathlib.PurePosixPath(test['program']).name\n                assert executable\
-        \ == test['name'] + '.exe'\n                expected_hash = digest(source.extractfile(by_name[str(root /\
-        \ test['program'])]))\n                matches = []\n                for path in target_root.glob(f'*/bin/**/{executable}'):\n\
-        \                    assert not path.is_symlink() and path.resolve().is_relative_to(target_root)\n     \
-        \               with path.open('rb') as content:\n                        if digest(content) == expected_hash:\n\
-        \                            matches.append(path)\n                assert matches, (test['name'], 'no matching\
-        \ archived executable')\n                verified.extend((path, expected_hash) for path in matches)\n  \
-        \      # Validate the whole group's archive before deleting any of its executables.\n        reclaimed =\
-        \ sum(path.stat().st_size for path, _ in verified)\n        for path, _ in verified:\n            path.unlink()\n\
-        \        with archive.open('rb') as content:\n            archive_hash = digest(content)\n        receipt.append(dict(package=package,\
-        \ filter=word, tests=expected, archive=str(archive),\n                            sha256=archive_hash, reclaimed_bytes=reclaimed,\n\
-        \                            free_bytes=shutil.disk_usage('.').free))\n        archived.extend(expected)\n\
-        \        print(json.dumps(receipt[-1]), flush=True)\n        print('::endgroup::', flush=True)\n    assert\
-        \ collections.Counter(archived) == collections.Counter(names)\n(archives / 'coverage.json').write_text(json.dumps(receipt,\
-        \ indent=2) + '\\n')\nPY\n"
+      run: |
+        set -euo pipefail
+        # Keep every dev test and its debug information. Bounded raw groups
+        # become one verified container per package before native execution.
+        python3 .github/scripts/test_archive_tests.py
+        python3 .github/scripts/archive-tests.py \
+          --target "$ARCHIVE_TARGET" --profile "$ARCHIVE_PROFILE"
     - name: Repository invariants
       if: matrix.platform == 'linux-x64' && matrix.profile == 'dev'
-      run: 'set -euo pipefail
-
-        devtools=$(find target -type f -name mcppls-devtools -path ''*/bin/*'' | head -1)
-
-        server=$(find target -type f -name mcppls -path ''*/bin/*'' | head -1)
-
+      run: |
+        set -euo pipefail
+        devtools=$(find target -type f -name mcppls-devtools -path '*/bin/*' | head -1)
+        server=$(find target -type f -name mcppls -path '*/bin/*' | head -1)
         "$devtools" check all
-
         "$devtools" check binary --server "$server"
-
-        '
     - name: Generated protocol is fresh
       if: matrix.platform == 'linux-x64' && matrix.profile == 'dev'
-      run: 'mcpp run mcppls-lspgen -- generate --meta-model vendor/lsp-metamodel/metaModel-3.18.json --out src/lsp
-
+      run: |
+        mcpp run mcppls-lspgen -- generate --meta-model vendor/lsp-metamodel/metaModel-3.18.json --out src/lsp
         git diff --exit-code src/lsp
-
-        '
     - uses: actions/upload-artifact@v7
       with:
         name: tests-${{ matrix.platform }}-${{ matrix.profile }}
         path: test-archives
+        compression-level: 0
         retention-days: 7
     - name: The test tools of ${{ matrix.platform }}
       if: matrix.profile == 'release'
@@ -161,6 +130,12 @@ jobs:
         name: tests-${{ matrix.platform }}-${{ matrix.profile }}
         path: test-archives
     - name: Run the archived tests
-      run: "set -euo pipefail\nfailed=''\nfor archive in test-archives/*.tar.gz; do\n  echo \"::group::$archive\"\
-        \n  if ! mcpp test --archive \"$archive\"; then failed=\"$failed $(basename \"$archive\" .tar.gz)\"; fi\n\
-        \  echo \"::endgroup::\"\ndone\nif [ -n \"$failed\" ]; then echo \"::error::failed:$failed\"; exit 1; fi\n"
+      run: |
+        set -euo pipefail
+        failed=''
+        for archive in test-archives/*.tar.gz; do
+          echo "::group::$archive"
+          if ! mcpp test --archive "$archive"; then failed="$failed $(basename "$archive" .tar.gz)"; fi
+          echo "::endgroup::"
+        done
+        if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi
