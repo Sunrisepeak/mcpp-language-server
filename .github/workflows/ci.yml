@@ -260,12 +260,21 @@ jobs:
             # The released mcpp can leave a long Windows test path behind when
             # it removes this extraction directory. Use the host's filesystem
             # implementation before the next archive; every test still runs.
+            # Windows may briefly retain an executable after its test exits.
+            # Retry sharing violations only, within a fixed cleanup budget.
             python - <<'PYCODE'
           from pathlib import Path
           import shutil
+          import time
           extraction = Path('target/.test-archive/run')
-          if extraction.exists():
-              shutil.rmtree(extraction)
+          deadline = time.monotonic() + 10
+          while extraction.exists():
+              try:
+                  shutil.rmtree(extraction)
+              except OSError as error:
+                  if getattr(error, 'winerror', None) not in (32, 33) or time.monotonic() >= deadline:
+                      raise
+                  time.sleep(0.1)
           PYCODE
             if ! mcpp test --archive "$archive"; then failed="$failed $(basename "$archive" .tar.gz)"; fi
             echo "::endgroup::"
