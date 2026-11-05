@@ -1,4 +1,5 @@
 import com.intellij.driver.client.Remote
+import com.intellij.driver.client.service
 import com.intellij.driver.client.utility
 import com.intellij.driver.model.OnDispatcher
 import com.intellij.driver.sdk.Document
@@ -70,6 +71,10 @@ interface ExtensionPointRemote { fun getExtensionList(): List<ProviderRemote> }
 interface ProviderRemote { fun getClass(): JavaClassRemote }
 @Remote("java.lang.Class")
 interface JavaClassRemote { fun getName(): String }
+@Remote("community.mcpp.mcppls.McpplsProjectSettings", plugin = PLUGIN_ID)
+interface ProjectSettingsRemote { fun getEffective(): EngineChoiceRemote }
+@Remote("community.mcpp.mcppls.Engines", plugin = PLUGIN_ID)
+interface EngineChoiceRemote { fun getStored(): String }
 @Remote("com.intellij.openapi.project.DumbService")
 interface DumbServiceFactory { fun getInstance(project: Project): DumbServiceRemote }
 @Remote("com.intellij.openapi.project.DumbService")
@@ -278,7 +283,9 @@ class PackagedPluginTest {
                             passed()
                             stage = Stage.MCPPLS_ONLY_SELECTION
                             invokeAction("community.mcpp.mcppls.UseMcpplsOnly")
-                            passed()
+                            await("the actual project mode is mcppls only") {
+                                service<ProjectSettingsRemote>(project).getEffective().getStored() == "mcppls-only"
+                            }
                             stage = Stage.IMPORT_DIAGNOSTIC
                             val brokenDocument = requireNotNull(editors.getSelectedTextEditor()).getDocument()
                             await("mcppls's missing import diagnostic reaches the actual editor", 120) {
@@ -324,7 +331,10 @@ class PackagedPluginTest {
                             stage = Stage.NAV_DEFINITION
                             val main = requireNotNull(editors.getSelectedTextEditor())
                             withContext(OnDispatcher.EDT) { main.getCaretModel().moveToOffset(main.getDocument().getText().indexOf("answer") + 2) }
-                            invokeAction("GotoDeclaration")
+                            // Exercise the focused editor's real action context; null-component
+                            // ActionManager invocation also reaches native backend readiness checks.
+                            @Suppress("OPT_IN_USAGE")
+                            mainComponent.keyboard { hotKey(java.awt.event.KeyEvent.VK_CONTROL, java.awt.event.KeyEvent.VK_B) }
                             await("navigation opens the exported module declaration", 120) { editors.getSelectedTextEditor()?.getDocument()?.getText()?.contains("export module hello.greet") == true }
                             stage = Stage.MODULE_CLOSE
                             dismissTrialTip()

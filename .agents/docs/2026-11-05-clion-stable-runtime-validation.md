@@ -16,7 +16,7 @@ status: active
 
 | 入口 | 输入 | 启动条件 | 能证明什么 |
 |---|---|---|---|
-| adapter 基线 | 当前 PR 插件源码，一次打包；原公开 0.0.19 payload 的所有成员保持相同 | adapter／CI 变更；不依赖新引擎或新服务器的编译与接纳 | 当前插件在稳定 IDE 中驱动旧公开后端的兼容性 |
+| 当前服务器早期回归 | 当前 adapter 与既有 Linux x64 release 行编译的当前原生服务器；公开 0.0.19 engine／kit 全部成员保持相同；一次打包 | 所有影响 adapter／服务器／payload 的变更；等待原 build，不依赖 candidate 接纳 | 当前 adapter 与当前服务器在冻结公开引擎上的双稳定兼容性 |
 | candidate | 本轮 qualified payload，经原 headless 套件后一次 buildPlugin | 原引擎接纳、payload、headless 检查均成功 | 实际新候选组合的双稳定 IDE 运行结果 |
 | 独立发布回归 | 已发布的插件 ZIP | workflow_dispatch | 指定公开发布包的运行兼容性 |
 
@@ -31,10 +31,14 @@ Running 与实际版本、内置 payload 的启动、编辑器中的缺失 impor
 工程后的进程退出。第二个 CMake 工程验证默认不被接管。没有外部 mcpp 或语言
 服务器的 PATH，HOME 与缓存隔离；不会读取用户现场工程或日志。
 
-候选触发范围包含服务器源码、模块、版本／payload pins、打包与 adapter。早期
-基线在 PR 中仅为 adapter／CI 变更运行。报告分别记录实际插件版本、实际服务端
-版本、ZIP SHA256、IDE 版本／build 与断言结果。只上传该公开报告，不上传原始
-IDE 日志或工程路径。基线成功不会提升 candidate、台账或发布资格。
+候选与早期回归的触发范围包含服务器源码、模块、版本／payload pins、打包与
+adapter。报告分别记录实际插件版本、实际服务端版本、ZIP SHA256、IDE 版本／build
+与断言结果。既有 Linux x64 release 编译行上传小型原生服务器 artifact，
+早期打包只等待 build 与变更分类；八个 build 矩阵项都在 Ubuntu 交叉编译，
+不等待 macOS runner，但任一 build 失败仍会阻止该回归。没有新增服务器重复编译
+或 LLVM 构建。原 candidate 的 server／payload／引擎接纳依赖保持不变。
+只上传该公开报告，不上传原始 IDE 日志或工程路径。早期回归成功不会提升
+candidate、台账或发布资格。
 
 ## 真实 GUI 找到的调度缺口
 
@@ -73,7 +77,9 @@ Strict IDE 错误栈经过 `OneEngine.fileOpened → onEdt → lower`，随后
 ## 测试适配与产品问题分离
 
 Remote Driver 本身要求读写语义：读取 daemon highlights 放在 read-action 中，
-caret／lookup 操作在 EDT，关闭项目走实际 CloseProject action。单候选补全可由
+caret／lookup 操作在 EDT，关闭项目走实际 CloseProject action。定义跳转在实际
+编辑器取得焦点、索引完成且项目服务确认 `mcppls-only` 后发送真实 Ctrl+B，
+并检查选中的编辑器确实打开导出模块。单候选补全可由
 平台直接插入，因此 fixture 有两个真实同前缀模块，以验证弹窗选择；不把这些
 测试适配问题当作产品缺陷。
 
@@ -94,17 +100,33 @@ payload 的 3598 个文件成员逐一 SHA256 相同。ZIP SHA256 为
 261 有 21 处 deprecated 警告，262 另有 1 处 scheduled-for-removal 警告；门禁未过滤。
 这仅证明静态 API 兼容，不能替代真实功能运行。
 
-当前 adapter 与上述完整冻结 0.0.19 payload 在 261 的真实模块、CMake 两个
-工程阶段已全部通过，Strict IDE 错误检查保留。额外的 C++ 类型错误诊断、实际
-模块补全插入、定义跳转和关闭后端进程均有断言。SDK 试用提示的正常 Close
-操作放在关闭工程之前，避免 SDK 自身 tooltip 的后台销毁线程错误；没有过滤
-该错误。只有完成整个 IDE context 的阶段才记为已验证，失败报告仍保留实际
-版本、ZIP 身份与已完成阶段，不把没有认证的功能记为产品失败。
+早前 261 本地基线的模块与 CMake 两阶段通过，但当时尚未追加显式索引完成、
+编辑器焦点前置，不能替代当前完整测试流程。SDK 试用提示的正常 Close 操作
+放在关闭工程之前，避免 SDK tooltip 的后台销毁线程错误；没有过滤错误。
+只有完成整个 IDE context 的阶段才记为已验证。
 
-修复后的 0.0.20 原生服务器与旧公开引擎组成独立诊断 ZIP，已有初始化、诊断和
-补全的局部结果，但 261 的真实 Goto action 停在平台准备阶段，没有发出
-`definition` 请求；正在核对焦点与 indexing 前置条件。这不是正式候选，也没有
-把局部成功写成整组通过。完整 candidate 的两个稳定版本仍须经过原接纳门禁。
+CI 42007093672 的实际 ZIP 已冻结，SHA256 为
+`ae373842604e1c230d2bd099ac0b54ccf8f8d06d4ccd6a0473c9b54bbc7009b1`。
+它与上述本地 ZIP 的全部 payload 文件及 adapter class 成员相同，仅构建 Manifest
+不同。CI 42013684711 的两个稳定 IDE 都准确失败于 `MODULES.NAV_DEFINITION`；
+固定同一个 CI ZIP 的 261 本地重放完成 17 项前置后同样失败。
+
+单变量对照保留该 ZIP、项目、`mcppls-only`、索引、焦点、120 秒导航期限、
+3 分钟 context 期限与 Strict IDE 错误门禁。原测试以 SDK `invokeAction` 调用
+`GotoDeclaration`；固定 Driver 实现将 inputEvent、component 和 place 均传 null。
+改为向已经取得焦点的真实编辑器发送默认键位 Ctrl+B 后，261 完整模块与 CMake
+两阶段的 30 项检查通过，包括到正确导出模块的跳转与后端退出。两个对照的持久化
+项目设置都为 `mcppls-only`；正式测试还直接断言项目服务的实际 effective 值。
+
+这说明原测试入口未提供真实键盘事件对应的编辑器上下文，不能将该失败直接归为
+服务器、SDK 或 IDE 产品缺陷。协程采样没有证明某个具体 awaiter；失败对照的
+原生动作后端记录了 `GenericBackendActionOperationHandler` 的 requirements-not-ready
+与 ActionUnavailable，范围只限该动作准备路径。没有通过直接 LSP 请求代替导航，
+也没有删掉索引、焦点或选中目标断言。
+
+修复后 0.0.20 原生服务器与旧公开引擎组成的独立诊断 ZIP 曾完成初始化、诊断与
+补全部分；它与冻结 CI 基线的输入不同，不能作为后者的完整资格，也不是正式候选。
+完整 candidate 的两个稳定版本仍须经过原接纳门禁。
 
 另保留一个旧 headless 互操作反例：同文档先由 OneEngine 写入 Syntax，随后
 Nova 的 `FrontendDaemonHost` 经 RD document 初次绑定回包覆盖为原默认值及
@@ -112,5 +134,29 @@ None。旧两参调度与本轮显式 NON_MODAL 对照均能复现；已排除�
 事件不执行”的解释。没有循环重写用户选择，没有新增未经验证的 provider。
 临时观测代码全部恢复。原 headless 套件保留，CI 结果仍须据实际检查判断。
 
-262 完整 GUI、当前 PR 的实际 CI／required checks 与正式 payload 尚待记录；
-本地基线和原生诊断控制均不提升候选台账或发布资格。
+262 使用同一冻结 CI ZIP、真实键盘入口与实际项目服务设置断言，完成 19 项检查，
+包括 `NAV_DEFINITION` 与 `MODULE_CLOSE`，但 Strict context 关闭时因公开 0.0.19
+后端返回 `the file changed again` 而失败。错误在导航键盘事件之前已发生；本轮
+堆栈只证明 LSP response error，未单独捕获该次请求的方法与 ID，不能把它计为
+某一方法的精确重放。该消息与前述旧队列反例一致，但不据此推断该次请求的方法与 ID；
+修复后组合的同流程结果见下文。没有抑制错误，262 整轮不记为通过。
+
+修复后的固定原生 0.0.20 诊断 ZIP（SHA256
+`2e5f7a3eb3b8e87c862a49297564125c2d5b7607cc36cbc000def52c33e57ed0`）
+在 261 与 262 均通过完整 30 项检查，Strict、模块与 CMake 两阶段全部通过。
+两版均直接确认实际 `mcppls-only`、真实 Ctrl+B 的正确导出定义与关闭后的后端退出。
+其 3593 个 engine／kit 文件成员及 47 个 adapter class 与冻结 CI 基线逐字节相同。
+该结果证明本轮当前 adapter／修复后服务器／公开引擎组合可用；因为服务器载体与
+版本都改变，不将其表述成对单一内部实现行的性能或因果证明。
+
+早期 CI 因此使用当前原生服务器与冻结公开 engine／kit，避免把已知旧服务器缺陷
+永久设为当前修复的必过前提。公开 0.0.19 输入仍作为错误对照保留。打包步骤验证
+原生服务器版本与 SHA256，替换 manifest 中服务器身份，记录当前源码 commit 与
+非 candidate 标记，并重新核对所有 engine／kit 成员未变。
+
+修正后的实际 CI／required checks 与正式 payload 尚待记录。本地早期回归和原生
+诊断控制均不提升候选台账或发布资格。
+
+报告只包含固定枚举 stage、projectKind、逐项 passedChecks、实际公开版本和 ZIP
+摘要；失败控制台只打印固定阶段。原异常和 Strict IDE 检查仍使测试失败，原始
+JUnit／IDE 日志不上传。缺失 IDE 的负向控制确认报告仍存在且控制台不暴露输入路径。

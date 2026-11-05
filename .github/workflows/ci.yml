@@ -157,6 +157,25 @@ jobs:
             case "$exe" in mcppls|mcppls-lspgen) ;; *) cp "$path" stage/ ;; esac
           done
           (cd stage && sha256sum * | tee SHA256SUMS)
+      # Reuse this native build for early CLion runtime regression. It must not
+      # wait for candidate engine admission or rebuild LLVM for an adapter test.
+      - name: The current native Linux server
+        if: matrix.platform == 'linux-x64' && matrix.profile == 'release'
+        run: |
+          set -euo pipefail
+          mkdir -p native-server
+          server=$(find target/${{ matrix.target }} -type f -name mcppls -path '*/bin/*' -print -quit)
+          test -n "$server"
+          cp "$server" native-server/mcppls
+          native-server/mcppls version
+          (cd native-server && sha256sum mcppls > SHA256SUMS)
+      - uses: actions/upload-artifact@v7
+        if: matrix.platform == 'linux-x64' && matrix.profile == 'release'
+        with:
+          name: native-server-linux-x64
+          path: native-server
+          if-no-files-found: error
+          retention-days: 7
       - name: The tests, built once and archived
         if: matrix.platform != 'win32-x64' || matrix.profile != 'dev'
         run: |
@@ -1862,7 +1881,6 @@ jobs:
     timeout-minutes: 5
     outputs:
       changed: ${{ steps.files.outputs.changed }}
-      adapter_changed: ${{ steps.files.outputs.adapter_changed }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -1875,23 +1893,21 @@ jobs:
         run: |
           set -euo pipefail
           changed=false
-          adapter_changed=false
           if [ "$EVENT" != pull_request ]; then
-            changed=true; adapter_changed=true
+            changed=true
           elif [[ "$HEAD_REF" == release/* || "$BASE_REF" == release/* ]]; then
-            echo "a release branch"; changed=true; adapter_changed=true
+            echo "a release branch"; changed=true
           else
             while read -r file; do
               case "$file" in
                 .github/workflows/*|editors/clion/*)
-                  echo "reaches the adapter: $file"; changed=true; adapter_changed=true ;;
+                  echo "reaches the adapter: $file"; changed=true ;;
                 src/*|modules/*|mcpp.toml|mcpp.lock|build.mcpp|packaging/*|tools/devtools/*|.github/versions.env|.github/actions/setup-mcpp/*|.github/actions/payload/*|.github/scripts/install-mcpp.sh)
                   echo "reaches the server or payload: $file"; changed=true ;;
               esac
             done < <(git diff --name-only HEAD^1 HEAD)
           fi
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
-          echo "adapter_changed=$adapter_changed" >> "$GITHUB_OUTPUT"
 
   # CLion 2026.2.3 itself, headless, with the platform's test framework: the sandbox holds the plugin,
   # carrying the one payload this run built (MCPPLS_PAYLOAD), and the
@@ -1949,13 +1965,15 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # Adapter compatibility can be checked while an engine candidate is still
-  # unqualified. Build only the current adapter, carrying the unchanged public
-  # 0.0.19 payload. This separate regression does not qualify the new backend.
+  # Test the current adapter and native server while an engine candidate is
+  # unqualified, preserving the published 0.0.19 engine/kit bytes. This does not
+  # qualify the candidate image or its final payload. The old server remains a
+  # recorded negative control for request-lifecycle errors; it is not required
+  # to pass a regression that checks the fix for those errors.
   clion-adapter-baseline-package:
-    name: CLion adapter with the published payload
-    needs: clion-changes
-    if: needs.clion-changes.outputs.adapter_changed == 'true'
+    name: CLion current server with the published engine
+    needs: [build, clion-changes]
+    if: needs.clion-changes.outputs.changed == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -1977,24 +1995,57 @@ jobs:
             --pattern 'mcppls-clion-0.0.19-linux-x64.zip' --dir baseline-plugin
           unzip -q baseline-plugin/mcppls-clion-0.0.19-linux-x64.zip -d baseline-plugin/unpacked
           jq -e '.server.version == "0.0.19"' baseline-plugin/unpacked/mcppls-clion/payload/payload.json
-      - name: Package this adapter once with the released backend
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-server-linux-x64
+          path: native-server
+      - name: Replace only the published server with the current native build
+        run: |
+          set -euo pipefail
+          (cd native-server && sha256sum --check SHA256SUMS)
+          chmod +x native-server/mcppls
+          native-server/mcppls version
+          python3 - <<'PYTHON'
+          import hashlib, json, os, pathlib, shutil, subprocess, tomllib
+          payload = pathlib.Path('baseline-plugin/unpacked/mcppls-clion/payload')
+          manifest_path = payload / 'payload.json'
+          manifest = json.loads(manifest_path.read_text())
+          assert manifest['payload-version'] == 4 and manifest['platform'] == 'linux-x64'
+          assert manifest['server']['version'] == '0.0.19'
+          version = tomllib.loads(pathlib.Path('mcpp.toml').read_text())['package']['version']
+          source = pathlib.Path('native-server/mcppls')
+          assert subprocess.check_output([str(source.resolve()), 'version'], text=True).split()[:2] == ['mcppls', version]
+          frozen = {str(p.relative_to(payload)): hashlib.sha256(p.read_bytes()).hexdigest()
+                    for root in ('clangd', 'kit') for p in (payload / root).rglob('*') if p.is_file()}
+          assert frozen and 'clangd/bin/clangd' in frozen and 'kit/kit.json' in frozen
+          destination = payload / 'bin/mcppls'
+          shutil.copy2(source, destination)
+          manifest['server'] = {'path': 'bin/mcppls', 'version': version}
+          manifest['build'] = {'source': 'from-source', 'commit': os.environ['GITHUB_SHA'], 'dirty': False}
+          manifest['regression'] = {'frozen-engine-release': 'v0.0.19', 'candidate-qualified': False}
+          manifest['files']['bin/mcppls'] = {'sha256': hashlib.sha256(destination.read_bytes()).hexdigest(),
+                                            'size': destination.stat().st_size}
+          manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
+          assert all(hashlib.sha256((payload / path).read_bytes()).hexdigest() == sha for path, sha in frozen.items())
+          print('current native server:', version, '; preserved engine/kit members:', len(frozen))
+          PYTHON
+      - name: Package this adapter once with the current server and published engine
         run: |
           gradle --no-daemon --max-workers=4 -p editors/clion buildPlugin \
             -Pmcppls.payload="$PWD/baseline-plugin/unpacked/mcppls-clion/payload"
       - uses: actions/upload-artifact@v7
         with:
-          name: mcppls-clion-adapter-baseline-zip
+          name: mcppls-clion-current-server-zip
           path: editors/clion/build/distributions/mcppls-clion-*.zip
           if-no-files-found: error
 
   clion-stable-adapter:
-    name: CLion stable adapter regression (public backend)
+    name: CLion stable current-server regression (public engine)
     needs: clion-adapter-baseline-package
     uses: ./.github/workflows/clion-stable.yml
     with:
-      plugin_artifact: mcppls-clion-adapter-baseline-zip
-      expected_server_version: '0.0.19'
-      report_name: clion-stable-adapter-baseline
+      plugin_artifact: mcppls-clion-current-server-zip
+      report_name: clion-stable-current-server
 
   # Both stable IDEs install the same candidate ZIP. This independent build has
   # no dependency on the plugin's source output or a per-IDE recompilation.
