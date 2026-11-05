@@ -128,6 +128,18 @@ interface KeyFactory { fun findKeyByName(name: String): KeyRemote? }
 interface KeyRemote
 
 class PackagedPluginTest {
+    private enum class Stage {
+        FIXTURE, IDE_LAUNCH, PROJECT_OPEN, IDE_IDENTITY, PROVIDER, INITIAL_EDITOR,
+        CMAKE_OWNERSHIP, CMAKE_CLOSE, SERVER_RUNNING, SERVER_IDENTITY, CARRIED_PAYLOAD,
+        MCPPLS_ONLY_SELECTION, IMPORT_DIAGNOSTIC, CPP_TYPE_DIAGNOSTIC,
+        MODULE_COMPLETION, COMPLETION_ORIGIN, COMPLETION_INSERTION,
+        NAV_INDEXING, NAV_FOCUS, NAV_DEFINITION, MODULE_CLOSE, STRICT_IDE_CLOSE, COMPLETE,
+    }
+    private enum class ProjectKind { MODULES, CMAKE }
+    private var stage = Stage.FIXTURE
+    private var projectKind = ProjectKind.MODULES
+    private val passedChecks = linkedSetOf<String>()
+    private fun passed() { passedChecks += "${projectKind.name}.${stage.name}" }
     init {
         di = DI {
             extend(di)
@@ -144,7 +156,7 @@ class PackagedPluginTest {
     private fun await(what: String, seconds: Long = 60, condition: () -> Boolean) {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds)
         while (System.nanoTime() < deadline) {
-            if (condition()) return
+            if (condition()) { passed(); return }
             Thread.sleep(100)
         }
         fail<Unit>(what)
@@ -167,6 +179,8 @@ class PackagedPluginTest {
         var strictIdeRun = false
         try {
             for (kind in listOf("modules", "cmake")) {
+                projectKind = if (kind == "modules") ProjectKind.MODULES else ProjectKind.CMAKE
+                stage = Stage.FIXTURE
                 val fixture = Files.createTempDirectory(output, "project space 项目-")
                 Files.createDirectories(fixture.resolve("src/greet"))
                 if (kind == "modules") Files.writeString(fixture.resolve("mcpp.toml"), "[package]\nname = \"stable-language-test\"\nversion = \"0.1.0\"\n")
@@ -197,16 +211,25 @@ class PackagedPluginTest {
                     // Synthetic fixtures only: retain exact RPC ordering when strict IDE errors fail.
                     addSystemProperty("idea.log.debug.categories", "#com.intellij.platform.lsp.impl.logging.LanguageServiceLoggerService")
                 }
+                passed()
+                stage = Stage.IDE_LAUNCH
                 context.runIdeWithDriver(runTimeout = 3.minutes).useDriverAndCloseIde {
+                    passed()
+                    stage = Stage.PROJECT_OPEN
                     waitForProjectOpen()
+                    passed()
                     withContext {
+                        stage = Stage.IDE_IDENTITY
                         val app = utility<ApplicationInfoFactory>().getInstance()
                         assertEquals(version, app.getFullVersion(), "the requested stable IDE actually runs")
                         actualBuild = app.getBuild().asString()
                         pluginVersion = requireNotNull(utility<PluginManagerFactory>().getPlugin(utility<PluginIdFactory>().getId(PLUGIN_ID))).getVersion()
+                        passed()
                         val project = singleProject()
+                        stage = Stage.PROVIDER
                         val provider = utility<ExtensionPointFactory>().create("com.intellij.platform.lsp.serverSupportProvider")
                             .getExtensionList().single { it.getClass().getName() == PROVIDER }.getClass()
+                        passed()
                         val manager = utility<LspManagerFactory>().getInstance(project)
                         val vfs = utility<LocalFileSystemFactory>().getInstance()
                         val editors = utility<FileEditorManagerFactory>().getInstance(project)
@@ -216,18 +239,28 @@ class PackagedPluginTest {
                             val close = ui.x("//div[@visible_text='Close' and contains(@javaclass,'ActionLink')]")
                             if (close.present()) close.click()
                         }
+                        stage = Stage.INITIAL_EDITOR
                         openEditor(requireNotNull(vfs.refreshAndFindFileByPath(fixture.resolve(if (kind == "cmake") "src/main.cpp" else "src/broken.cpp").toString())))
+                        passed()
                         if (kind == "cmake") {
+                            stage = Stage.CMAKE_OWNERSHIP
                             Thread.sleep(5000)
                             assertTrue(manager.getServersForProvider(provider).isEmpty(), "CMake stays with CLion's engine by default")
+                            passed()
+                            stage = Stage.CMAKE_CLOSE
                             dismissTrialTip()
                             invokeAction("CloseProject")
+                            passed()
                         } else {
+                            stage = Stage.SERVER_RUNNING
                             await("the packaged plugin starts a running language server") { manager.getServersForProvider(provider).any { it.getState().name() == "Running" } }
+                            stage = Stage.SERVER_IDENTITY
                             val server = manager.getServersForProvider(provider).single()
                             serverVersion = requireNotNull(server.getInitializeResult()).getServerInfo().getVersion()
                             assertTrue(serverVersion.matches(Regex("\\d+\\.\\d+\\.\\d+")), "the real server completes initialize")
                             assertEquals(System.getProperty("mcppls.clion.expectedServerVersion") ?: Regex("^\\d+\\.\\d+\\.\\d+").find(pluginVersion)?.value, serverVersion, "the expected carried server actually runs")
+                            passed()
+                            stage = Stage.CARRIED_PAYLOAD
                             val command = server.getDescriptor().createCommandLine()
                             assertTrue(command.getExePath().contains("/payload/"), "the installed ZIP supplies its server runner")
                             val imagePath = command.getParametersList().getList().firstOrNull { it.endsWith("/payload/bin/mcppls.okb") }
@@ -242,11 +275,16 @@ class PackagedPluginTest {
                                 }.findFirst().orElse(null)
                             }
                             assertNotNull(serverProcess, "the carried server is an IDE descendant")
+                            passed()
+                            stage = Stage.MCPPLS_ONLY_SELECTION
                             invokeAction("community.mcpp.mcppls.UseMcpplsOnly")
+                            passed()
+                            stage = Stage.IMPORT_DIAGNOSTIC
                             val brokenDocument = requireNotNull(editors.getSelectedTextEditor()).getDocument()
                             await("mcppls's missing import diagnostic reaches the actual editor", 120) {
                                 withContext(OnDispatcher.EDT) { withReadAction { utility<HighlightsFactory>().getHighlights(brokenDocument, null, project).any { it.getDescription()?.contains("missing.module") == true } } }
                             }
+                            stage = Stage.CPP_TYPE_DIAGNOSTIC
                             openEditor(requireNotNull(vfs.refreshAndFindFileByPath(fixture.resolve("src/type-error.cpp").toString())))
                             val typeErrorDocument = requireNotNull(editors.getSelectedTextEditor()).getDocument()
                             await("the carried compiler engine diagnoses a real C++ type error", 120) {
@@ -257,6 +295,7 @@ class PackagedPluginTest {
                                     }
                                 } }
                             }
+                            stage = Stage.MODULE_COMPLETION
                             openEditor(requireNotNull(vfs.refreshAndFindFileByPath(fixture.resolve("src/scratch.cpp").toString())))
                             val scratch = requireNotNull(editors.getSelectedTextEditor())
                             withContext(OnDispatcher.EDT) { scratch.getCaretModel().moveToOffset(scratch.getDocument().getText().length) }
@@ -266,33 +305,45 @@ class PackagedPluginTest {
                             await("the actual completion popup offers the project's module", 120) {
                                 withContext(OnDispatcher.EDT) { module = lookups.getActiveLookup()?.getItems()?.firstOrNull { it.getLookupString() == "hello.greet" }; module != null }
                             }
+                            stage = Stage.COMPLETION_ORIGIN
                             val mark = requireNotNull(utility<KeyFactory>().findKeyByName("community.mcpp.mcppls.item"))
                             assertEquals(true, requireNotNull(module).getUserData(mark), "the popup item came from mcppls")
+                            passed()
+                            stage = Stage.COMPLETION_INSERTION
                             withContext(OnDispatcher.EDT) { lookups.getActiveLookup()!!.setCurrentItem(requireNotNull(module)) }
                             invokeAction("EditorChooseLookupItem")
                             await("choosing completion inserts the module name") { scratch.getDocument().getText().contains("import hello.greet") }
+                            stage = Stage.NAV_INDEXING
                             openEditor(requireNotNull(vfs.refreshAndFindFileByPath(fixture.resolve("src/main.cpp").toString())))
                             await("project indexing settles before navigation", 120) { !utility<DumbServiceFactory>().getInstance(project).isDumb() }
+                            stage = Stage.NAV_FOCUS
                             dismissTrialTip()
                             val mainComponent = ui.x("//div[@class='EditorComponentImpl' and @accessiblename='Editor for main.cpp']")
                             mainComponent.click()
                             await("the main editor owns keyboard focus") { mainComponent.isFocusOwner() }
+                            stage = Stage.NAV_DEFINITION
                             val main = requireNotNull(editors.getSelectedTextEditor())
                             withContext(OnDispatcher.EDT) { main.getCaretModel().moveToOffset(main.getDocument().getText().indexOf("answer") + 2) }
                             invokeAction("GotoDeclaration")
                             await("navigation opens the exported module declaration", 120) { editors.getSelectedTextEditor()?.getDocument()?.getText()?.contains("export module hello.greet") == true }
+                            stage = Stage.MODULE_CLOSE
                             dismissTrialTip()
                             invokeAction("CloseProject")
                             await("closing the project ends its language server", 30) { !serverProcess!!.isAlive }
                         }
+                        stage = Stage.STRICT_IDE_CLOSE
                     }
                 }
+                passed()
                 if (kind == "modules") modulesPhasePassed = true else cmakePhasePassed = true
             }
             strictIdeRun = true
+            stage = Stage.COMPLETE
+            passed()
         } finally {
             // Failure reports retain actual public versions and completed phases, never logs or paths.
-            Files.writeString(output.resolve("result.json"), """{"ideVersion":"$version","ideBuild":"$actualBuild","pluginZipSha256":"$zipSha","pluginVersion":"$pluginVersion","serverVersion":"$serverVersion","serverCarrier":"$serverCarrier","strictIdeRun":$strictIdeRun,"modulesPhasePassed":$modulesPhasePassed,"cmakePhasePassed":$cmakePhasePassed,"verifiedModuleChecks":${if (modulesPhasePassed) "[\"startup\",\"carriedPayload\",\"diagnostic\",\"cxxTypeDiagnostic\",\"moduleCompletion\",\"completionInsertion\",\"navigation\",\"projectCloseCleanup\"]" else "[]"}}""" + "\n")
+            val passedJson = passedChecks.joinToString(prefix = "[", postfix = "]") { "\"$it\"" }
+            Files.writeString(output.resolve("result.json"), """{"ideVersion":"$version","ideBuild":"$actualBuild","pluginZipSha256":"$zipSha","pluginVersion":"$pluginVersion","serverVersion":"$serverVersion","serverCarrier":"$serverCarrier","stage":"${stage.name}","projectKind":"${projectKind.name}","passedChecks":$passedJson,"strictIdeRun":$strictIdeRun,"modulesPhasePassed":$modulesPhasePassed,"cmakePhasePassed":$cmakePhasePassed,"verifiedModuleChecks":${if (modulesPhasePassed) "[\"startup\",\"carriedPayload\",\"diagnostic\",\"cxxTypeDiagnostic\",\"moduleCompletion\",\"completionInsertion\",\"navigation\",\"projectCloseCleanup\"]" else "[]"}}""" + "\n")
         }
     }
 }

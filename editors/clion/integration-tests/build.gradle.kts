@@ -1,3 +1,7 @@
+import org.gradle.api.tasks.testing.TestDescriptor
+import org.gradle.api.tasks.testing.TestResult
+import org.gradle.kotlin.dsl.KotlinClosure2
+
 plugins {
     kotlin("jvm") version "2.4.0"
 }
@@ -35,6 +39,17 @@ tasks.test {
     for (key in listOf("pluginZip", "ideVersion", "ideHome", "output", "expectedServerVersion")) {
         providers.gradleProperty(key).orNull?.let { systemProperty("mcppls.clion.$key", it) }
     }
+    val resultsDirectory = providers.gradleProperty("output").orNull?.let { file(it) }
+        ?: layout.buildDirectory.dir("stable-runtime").get().asFile
+    systemProperty("mcppls.clion.output", resultsDirectory.absolutePath)
+    afterTest(KotlinClosure2<TestDescriptor, TestResult, Unit>({ _, result ->
+        if (result.resultType == TestResult.ResultType.FAILURE) {
+            val report = runCatching { resultsDirectory.resolve("result.json").readText() }.getOrDefault("")
+            val stage = Regex("\"stage\":\"([A-Z_]+)\"").find(report)?.groupValues?.get(1) ?: "REPORT_UNAVAILABLE"
+            val project = Regex("\"projectKind\":\"([A-Z_]+)\"").find(report)?.groupValues?.get(1) ?: "UNKNOWN"
+            logger.lifecycle("CLION_FAILED_STAGE=$project.$stage")
+        }
+    }))
     // The installed ZIP must supply its server and kit. No external server,
     // mcpp or compiler on PATH can make a broken carried payload pass.
     environment("PATH", "/usr/bin:/bin")
@@ -49,5 +64,9 @@ tasks.test {
     environment("XDG_DATA_HOME", isolatedHome.resolve(".local/share").absolutePath)
     environment("MCPP_HOME", isolatedHome.resolve(".mcpp").absolutePath)
     environment("MCPPLS_CACHE_DIR", isolatedHome.resolve("mcppls-cache").absolutePath)
-    testLogging { events("passed", "failed", "skipped") }
+    testLogging {
+        events("passed", "failed", "skipped")
+        // The fixed stage above is public; complete exceptions stay in local test/IDE logs.
+        showExceptions = false
+    }
 }
