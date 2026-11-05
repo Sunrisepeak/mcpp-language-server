@@ -6,6 +6,7 @@ import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
@@ -109,8 +110,12 @@ internal object OneEngine {
             .notify(project)
     }
 
+    // Highlighting changes can drop PSI caches. Use a write-safe modality
+    // explicitly instead of inheriting a background callback's modality.
     private fun onEdt(project: Project, action: () -> Unit) =
-        ApplicationManager.getApplication().invokeLater({ if (!project.isDisposed) action() }, project.disposed)
+        ApplicationManager.getApplication().invokeLater(
+            { if (!project.isDisposed) action() }, ModalityState.nonModal(), project.disposed,
+        )
 }
 
 // Whether this project was asked about the engines; the tests read it.

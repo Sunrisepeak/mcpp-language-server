@@ -290,12 +290,13 @@ private:
     // not build the file at every key (its own debounce follows its build time, which is about a person's pace between
     // keys); once they pause for `quiet`, the latest version is asked for again with diagnostics. The requests that
     // build the file whatever it is asked to (semantic tokens, highlights, code actions, hints, symbols, folding) wait
-    // for the pause as well, the latest of each kind; one replaced by a later one is answered "content modified".
+    // for the pause as well. Each keeps its parameters and deadline until answered or cancelled by the client;
+    // another request of the same method, even on the same version, is independent (LSP 3.17).
     struct Typing {
         std::string path;
         std::int64_t version { 0 };
         Clock::time_point due;
-        std::map<std::string, Waiting> waiting;   // method -> the latest request of it
+        std::vector<Waiting> waiting;   // arrival order, including concurrent requests of the same method
     };
     std::map<std::string, Typing> typing_;   // client URI -> its pause pending
     std::map<std::string, std::size_t> sentHashes_;   // client URI -> the hash of the text clangd was last given
@@ -790,6 +791,16 @@ public:
     }
 
     void shut_down() override {
+        // Stop accepting work before completing callbacks: every request still owned here
+        // must finish even when the process never produces another event.
+        accepting_ = false;
+        unavailable_ = true;
+        flush_deferred_without_engine_();
+        auto pending = std::exchange(pending_, {});
+        for (auto& [id, request] : pending) {
+            if (request.purpose == Purpose::client && request.reply) request.reply(Answer {});
+        }
+        answer_searches_();
         if (process_ && process_->running() && handshakeDone_) (void)send_(lsp::make_notification("exit", nullptr));
         if (process_) process_->stop(std::chrono::seconds { 2 });
         if (reaper_.joinable()) reaper_.join();   // P-3: a clangd being let go of is gone before the server is
@@ -1292,10 +1303,7 @@ public:
                 if (method == "textDocument/diagnostic") {
                     end_typing_(typing->first);   // asked for the diagnostics now: the pause is now
                 } else if (builds_main_file_(method)) {
-                    Reply replaced;
-                    if (const auto slot = typing->second.waiting.find(method); slot != typing->second.waiting.end()) replaced = std::move(slot->second.reply);
-                    typing->second.waiting.insert_or_assign(method, Waiting { message, std::move(reply), limit });
-                    if (replaced) replaced(Answer { Answer::Kind::error, Json { { "code", lsp::CONTENT_MODIFIED }, { "message", "the file changed again" } } });
+                    typing->second.waiting.push_back(Waiting { message, std::move(reply), limit });
                     return;
                 }
             }
@@ -1320,6 +1328,7 @@ public:
         };
         take(deferred_, "clangd to accept requests");
         for (auto& [key, requests] : heldRequests_) take(requests, "its file to be given to clangd");
+        for (auto& [uri, typing] : typing_) take(typing.waiting, "a pause in typing");
         std::erase_if(heldRequests_, [](const auto& item) { return item.second.empty(); });
         for (auto& [waiting, waitedFor] : overdue) {
             const std::string method { waiting.message.value("method", std::string {}) };
@@ -1364,13 +1373,7 @@ public:
             if (take(requests)) return;
         }
         for (auto& [uri, typing] : typing_) {
-            for (auto it = typing.waiting.begin(); it != typing.waiting.end(); ++it) {
-                if (it->second.message["id"] != clientRequestId) continue;
-                Reply reply { std::move(it->second.reply) };
-                typing.waiting.erase(it);
-                if (reply) reply(Answer { Answer::Kind::cancelled, nullptr });
-                return;
-            }
+            if (take(typing.waiting)) return;
         }
         for (const auto& [engineId, request] : pending_) {
             if (request.purpose == Purpose::client && request.clientId == clientRequestId) {
@@ -1581,7 +1584,10 @@ public:
         for (const auto& [key, requests] : heldRequests_) {
             for (const auto& waiting : requests) consider(waiting.limit);
         }
-        for (const auto& [uri, typing] : typing_) consider(typing.due);
+        for (const auto& [uri, typing] : typing_) {
+            consider(typing.due);
+            for (const auto& waiting : typing.waiting) consider(waiting.limit);
+        }
         for (const auto& [key, unit] : background_) consider(unit.built ? unit.usedAt + BACKGROUND_IDLE : unit.openedAt + BACKGROUND_BUILD_LIMIT);
         consider(implementationRestAt_);
         if (const auto quietAt = implementation_quiet_at_(); quietAt && *quietAt > Clock::now()) consider(quietAt);
@@ -1817,7 +1823,7 @@ private:
         }
         heldRequests_.clear();
         for (auto& [uri, typing] : typing_) {
-            for (auto& [method, waiting] : typing.waiting) toFlush.push_back(std::move(waiting));
+            for (auto& waiting : typing.waiting) toFlush.push_back(std::move(waiting));
         }
         typing_.clear();
         for (auto& waiting : toFlush) {
@@ -2361,7 +2367,8 @@ private:
 
     // A4: the pause came (or something needs the diagnostics now): clangd is asked for the latest version with them, and
     // the requests that waited go on to it.
-    void end_typing_(const std::string& uri) {
+    // A caller may pass the map key itself: own it before erasing that element.
+    void end_typing_(std::string uri) {
         const auto found = typing_.find(uri);
         if (found == typing_.end()) return;
         Typing typing { std::move(found->second) };
@@ -2375,7 +2382,7 @@ private:
                                                Json { { "textDocument", Json { { "uri", uri }, { "version", typing.version } } },
                                                       { "contentChanges", Json::array() }, { "wantDiagnostics", true } }));
         }
-        for (auto& [method, waiting] : typing.waiting) {
+        for (auto& waiting : typing.waiting) {
             if (given) request_now_(waiting.message, std::move(waiting.reply), waiting.limit);
             else if (waiting.reply) waiting.reply(Answer {});
         }
@@ -2385,7 +2392,7 @@ private:
     void forget_typing_(const std::string& uri) {
         const auto found = typing_.find(uri);
         if (found == typing_.end()) return;
-        for (auto& [method, waiting] : found->second.waiting) {
+        for (auto& waiting : found->second.waiting) {
             if (waiting.reply) waiting.reply(Answer {});
         }
         typing_.erase(found);

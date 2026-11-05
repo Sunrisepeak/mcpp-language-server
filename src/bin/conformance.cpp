@@ -538,6 +538,7 @@ public:
         std::optional<Clock::time_point> answered;
         bool isError { false };
         Json result = nullptr;
+        Json error = nullptr;
     };
     std::map<std::int64_t, AsyncRequest> asyncRequests;
     // Every `workspace/semanticTokens/refresh` the server asked for, when it arrived: an editor asks for the tokens of the
@@ -809,6 +810,7 @@ public:
             it->second.answered = Clock::now();
             it->second.isError = message.contains("error");
             it->second.result = message.value("result", Json {});
+            it->second.error = message.value("error", Json {});
             break;
         }
         default: break;
@@ -2832,10 +2834,52 @@ public:
         return std::ranges::any_of(it->second, [&](const Json& diagnostic) { return diagnostic.value("message", std::string {}).contains(needle); });
     }
 
+    // Every still-live request survives the typing debounce. Repeated methods can describe different
+    // positions even at the same document version; a later normal edit is not a client cancellation.
+    std::pair<bool, std::string> run_typing_requests(const Json&, const std::string& file) {
+        open(file);
+        const std::string documentUri { uri(file) };
+        if (!client_.wait_for([&] { return client_.diagnosticsCount[documentUri] > 0; }, timeout_)) return { false, "no diagnostics before the request burst" };
+        const std::string original { text_of(file) };
+        change(file, original + "\n// same-version request burst\n");
+        std::vector<std::int64_t> live;
+        const auto symbols = [&] {
+            return client_.send_async("textDocument/documentSymbol", Json { { "textDocument", Json { { "uri", documentUri } } } });
+        };
+        for (int i { 0 }; i < 3; ++i) live.push_back(symbols());
+        for (int character : { 4, 8 }) {
+            live.push_back(client_.send_async("textDocument/documentHighlight", Json { { "textDocument", Json { { "uri", documentUri } } },
+                { "position", Json { { "line", 0 }, { "character", character } } } }));
+        }
+        // CLion also asks document links again as editor annotations refresh.
+        for (int i { 0 }; i < 3; ++i) {
+            live.push_back(client_.send_async("textDocument/documentLink", Json { { "textDocument", Json { { "uri", documentUri } } } }));
+        }
+        const auto cancelled { symbols() };
+        client_.notify("$/cancelRequest", Json { { "id", cancelled } });
+        change(file, original + "\n// a later version does not cancel earlier requests\n");
+        live.push_back(symbols());
+        const bool answered { client_.wait_for([&] {
+            return client_.asyncRequests[cancelled].answered.has_value() && std::ranges::all_of(live, [&](auto id) {
+                return client_.asyncRequests[id].answered.has_value();
+            });
+        }, std::chrono::seconds { 30 }) };
+        const auto errors { std::ranges::count_if(live, [&](auto id) { return client_.asyncRequests[id].isError; }) };
+        const auto& cancellation = client_.asyncRequests[cancelled];
+        // Cancellation may reach a server after its result was sent. Either outcome is legal;
+        // an error must acknowledge the actual cancellation, never invent a content modification.
+        const bool cancellationValid { !cancellation.isError || cancellation.error.value("code", 0) == lsp::REQUEST_CANCELLED };
+        change(file, original);
+        client_.drain(std::chrono::milliseconds { 500 });
+        return { answered && errors == 0 && cancellationValid,
+            std::format("{} live same-method requests across two versions: {}, {} errors; explicit cancellation {}",
+                live.size(), answered ? "all answered" : "not all answered", errors, cancellationValid ? "valid" : "wrong error") };
+    }
+
     // A4 (plan 2026-10-14): keys typed in a burst, each followed by the semantic tokens request an editor sends after an
     // edit. The file is diagnosed once the typing pauses, not at every key ("max-during" publications while typing), the
-    // latest version within "within-seconds" of the last key ("type" is what is typed, at "line" and "character"); every token request is answered, the superseded ones
-    // possibly "content modified", the last with tokens.
+    // latest version within "within-seconds" of the last key ("type" is what is typed, at "line" and "character");
+    // every token request is answered, the last with tokens.
     std::pair<bool, std::string> run_typing_diagnostics(const Json& check, const std::string& file) {
         open(file);
         const std::string documentUri { uri(file) };
@@ -2888,19 +2932,19 @@ public:
         const bool answered { client_.wait_for([&] {
             return std::ranges::all_of(tokens, [&](std::int64_t id) { return client_.asyncRequests[id].answered.has_value(); });
         }, std::chrono::seconds { 30 }) };
-        const std::size_t modified { static_cast<std::size_t>(std::ranges::count_if(tokens, [&](std::int64_t id) { return client_.asyncRequests[id].isError; })) };
+        const std::size_t errors { static_cast<std::size_t>(std::ranges::count_if(tokens, [&](std::int64_t id) { return client_.asyncRequests[id].isError; })) };
         const auto& lastTokens = client_.asyncRequests[tokens.back()];
         const bool lastHasTokens { !lastTokens.isError && lastTokens.result.is_object() && lastTokens.result.contains("data") };
         change(file, original);
         client_.drain(std::chrono::milliseconds { 500 });
         const int maxDuring { check.value("max-during", 0) };
         const std::string detail { std::format("{} keys: {} publication(s) while typing (at most {}{}), the last version {}diagnosed{}; token requests {} "
-                                               "answered, {} superseded, the last {}", typed.size(), during, maxDuring,
+                                               "answered, {} errors, the last {}", typed.size(), during, maxDuring,
                                                published > 0 ? std::format("; versions {} of {}..{}", duringVersions, firstTyped, last) : std::string {},
                                                diagnosed ? "" : "not ",
                                                expect.empty() ? "" : mentions ? std::format(" with '{}'", expect) : std::format(" without '{}'", expect),
-                                               answered ? "all" : "not all", modified, lastHasTokens ? "with tokens" : "without tokens") };
-        return { during <= maxDuring && diagnosed && mentions && answered && lastHasTokens, detail };
+                                               answered ? "all" : "not all", errors, lastHasTokens ? "with tokens" : "without tokens") };
+        return { during <= maxDuring && diagnosed && mentions && answered && errors == 0 && lastHasTokens, detail };
     }
 
     std::pair<bool, std::string> run_typing(const Json& check, const std::string& file) {
@@ -5468,6 +5512,7 @@ public:
         if (kind == "tokens-latency") return run_tokens_latency(check, file);
         if (kind == "typing") return run_typing(check, file);
         if (kind == "typing-diagnostics") return run_typing_diagnostics(check, file);
+        if (kind == "typing-requests") return run_typing_requests(check, file);
         if (kind == "edit-save") return run_edit_save(check);
         if (kind == "fault") return run_fault(check);
         if (kind == "timeline") return run_timeline(check);

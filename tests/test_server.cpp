@@ -162,6 +162,7 @@ public:
     struct Shared {
         std::mutex mutex;
         std::vector<Json> sent;
+        MessageHandler reply;   // a test completes an actual forwarded request by its engine ID
         LogHandler log;   // what the running process writes to stderr, for a test to say something as clangd
         bool diagnose { false };   // each opened file comes back with one warning, not none
         bool holdPrimes { false }; // a long closure has no prime diagnostics until it finishes
@@ -173,6 +174,7 @@ public:
     mcppls::base::Result<void> start(const cld::ProcessConfig&, MessageHandler onMessage, ClosedHandler, LogHandler onLog) override {
         onMessage_ = std::move(onMessage);
         shared_->log = std::move(onLog);
+        shared_->reply = onMessage_;
         shared_->finish = [this](const std::string& uri) { publish_(uri); };
         running_ = true;
         return {};
@@ -1372,6 +1374,128 @@ int main() {
         expect(answer->kind == eng::Answer::Kind::unavailable) << "unavailable: the next engine answers it";
         expect(std::ranges::find(host.events, std::string { "request-timeout" }) != host.events.end());
         engine->shut_down();
+        std::filesystem::remove_all(root, ignored);
+    };
+
+    "requests waiting for a typing pause keep their own parameters, lifetime and cancellation"_test = [] {
+        using namespace std::chrono_literals;
+        std::error_code ignored;
+        const std::string root { base::join_path(base::spelled(os::dirs::temp()),
+            std::format("mcppls-test-typing-requests-{}", eng::Clock::now().time_since_epoch().count())) };
+        (void)std::filesystem::create_directories(root, ignored);
+        const std::string executable { base::join_path(root, "clangd") };
+        (void)os::fs::write(executable, "pretend-clangd");
+        auto shared = std::make_shared<BuildingProcess::Shared>();
+        cld::Options options;
+        options.executable = executable;
+        options.version = "23.1.0";
+        options.requestTimeout = 100ms;
+        options.primeImplementationUnits = false;
+        options.processFactory = [shared] { return std::make_unique<BuildingProcess>(shared); };
+        RecordingHost host { root };
+        auto engine = cld::make_engine(std::move(options));
+        engine->start(host);
+        host.pump(*engine);
+        const std::string a { base::join_path(root, "a.cpp") }, b { base::join_path(root, "b.cpp") };
+        const std::string aUri { base::path_to_uri(a) }, bUri { base::path_to_uri(b) };
+        const std::string text { "int value() { return 42; }\n" };
+        mcppls::normalize::EnginePlan plan;
+        for (const auto& file : { a, b }) {
+            (void)os::fs::write(file, text);
+            plan.entries.push_back(mcppls::normalize::EngineEntry { root, file, { "clang++", "-std=c++23", "-c", file }, {}, {}, {}, {} });
+        }
+        engine->apply(&plan);
+        const auto readyBy = eng::Clock::now() + 2s;
+        do {
+            host.pump(*engine);
+            if (engine->status().accepting) break;
+            std::this_thread::sleep_for(1ms);
+        } while (eng::Clock::now() < readyBy);
+        expect(fatal(engine->status().accepting)) << "the plan and handshake complete before requests are tested";
+        for (const auto& file : { a, b }) {
+            engine->document(eng::DocumentEvent { eng::DocumentChange::opened,
+                eng::DocumentView { base::path_to_uri(file), file, "cpp", 1, text } });
+        }
+        host.pump(*engine);
+        const auto change = [&](const std::string& file, int version) {
+            const std::string changed { text + std::format("// version {}\n", version) };
+            const Json message { { "jsonrpc", "2.0" }, { "method", "textDocument/didChange" },
+                { "params", Json { { "textDocument", Json { { "uri", base::path_to_uri(file) }, { "version", version } } },
+                    { "contentChanges", Json::array({ Json { { "text", changed } } }) } } } };
+            engine->document(eng::DocumentEvent { eng::DocumentChange::changed,
+                eng::DocumentView { base::path_to_uri(file), file, "cpp", version, changed }, &message });
+        };
+        std::map<int, std::vector<eng::Answer>> answers;
+        const auto ask = [&](int id, const std::string& file, std::string_view method, int character = 0) {
+            const Json params { { "textDocument", Json { { "uri", base::path_to_uri(file) } } },
+                { "position", Json { { "line", 0 }, { "character", character } } } };
+            const Json message { { "jsonrpc", "2.0" }, { "id", id }, { "method", method }, { "params", params } };
+            engine->request(eng::RequestView { method, &params, file, text }, message,
+                [&, id](eng::Answer answer) { answers[id].push_back(std::move(answer)); });
+        };
+        change(a, 2);
+        change(b, 2);
+        ask(10, a, "textDocument/documentSymbol");
+        ask(11, a, "textDocument/documentSymbol");   // same version and method, no cancellation
+        ask(12, a, "textDocument/documentHighlight", 4);
+        ask(13, a, "textDocument/documentHighlight", 8); // different parameters must survive
+        ask(14, b, "textDocument/documentSymbol");      // another document has an independent queue
+        ask(15, a, "textDocument/documentSymbol");
+        engine->cancel(15);
+        expect(answers[15].size() == 1u && answers[15][0].kind == eng::Answer::Kind::cancelled);
+        change(a, 3);                                  // a real later edit does not cancel a client request
+        ask(16, a, "textDocument/documentSymbol");
+        for (int id : { 10, 11, 12, 13, 14, 16 }) expect(answers[id].empty()) << "still waiting: " << id;
+        // An explicit diagnostic request ends the pause without relying on a wall-clock sleep.
+        ask(20, a, "textDocument/diagnostic");
+        ask(21, b, "textDocument/diagnostic");
+        std::vector<Json> forwarded;
+        {
+            const std::lock_guard lock { shared->mutex };
+            for (const auto& message : shared->sent) {
+                if (message.contains("id") && message.value("method", std::string {}).starts_with("textDocument/")) forwarded.push_back(message);
+            }
+        }
+        const auto count = [&](std::string_view method, const std::string& uri) {
+            return std::ranges::count_if(forwarded, [&](const Json& message) {
+                return message.value("method", std::string {}) == method && message["params"]["textDocument"]["uri"] == uri;
+            });
+        };
+        expect(count("textDocument/documentSymbol", aUri) == 3);
+        expect(count("textDocument/documentSymbol", bUri) == 1);
+        std::vector<int> positions;
+        for (const auto& message : forwarded) {
+            if (message.value("method", std::string {}) == "textDocument/documentHighlight") positions.push_back(message["params"]["position"]["character"]);
+            shared->reply(Json { { "jsonrpc", "2.0" }, { "id", message["id"] }, { "result", Json::array() } });
+        }
+        expect(positions == std::vector<int> { 4, 8 });
+        host.pump(*engine);
+        for (int id : { 10, 11, 12, 13, 14, 16 }) {
+            expect(answers[id].size() == 1u) << "exactly one completion: " << id;
+            if (!answers[id].empty()) expect(answers[id][0].kind == eng::Answer::Kind::result) << "not cancelled or superseded: " << id;
+        }
+        engine->cancel(15);
+        expect(answers[15].size() == 1u) << "a repeated cancellation does not answer twice";
+        change(a, 4);
+        ask(30, a, "textDocument/documentSymbol");
+        const auto deadline = engine->next_deadline();
+        expect(fatal(deadline.has_value()));
+        expect(*deadline < eng::Clock::now() + 150ms) << "the request's original limit is earlier than the typing pause";
+        std::this_thread::sleep_for(120ms);
+        engine->handle_timers();
+        expect(answers[30].size() == 1u && answers[30][0].kind == eng::Answer::Kind::unavailable) << "typing cannot postpone a deadline";
+        change(a, 5);
+        ask(31, a, "textDocument/documentSymbol");
+        engine->document(eng::DocumentEvent { eng::DocumentChange::closed, eng::DocumentView { aUri, a, "cpp", 5, text } });
+        expect(answers[31].size() == 1u && answers[31][0].kind == eng::Answer::Kind::unavailable) << "closing the file drains its queue";
+        change(b, 3);
+        ask(32, b, "textDocument/documentSymbol");
+        ask(33, b, "textDocument/documentSymbol");
+        ask(34, b, "textDocument/hover");  // already forwarded, not held for typing
+        engine->shut_down();
+        expect(answers[34].size() == 1u) << "shutdown also completes an already forwarded request";
+        expect(answers[32].size() == 1u && answers[33].size() == 1u) << "shutdown drains every remaining future";
+        expect(answers[15].size() == 1u && answers[30].size() == 1u && answers[31].size() == 1u) << "drained requests are never completed twice";
         std::filesystem::remove_all(root, ignored);
     };
 

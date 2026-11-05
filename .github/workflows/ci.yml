@@ -1862,6 +1862,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       changed: ${{ steps.files.outputs.changed }}
+      adapter_changed: ${{ steps.files.outputs.adapter_changed }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -1874,19 +1875,23 @@ jobs:
         run: |
           set -euo pipefail
           changed=false
+          adapter_changed=false
           if [ "$EVENT" != pull_request ]; then
-            changed=true
+            changed=true; adapter_changed=true
           elif [[ "$HEAD_REF" == release/* || "$BASE_REF" == release/* ]]; then
-            echo "a release branch"; changed=true
+            echo "a release branch"; changed=true; adapter_changed=true
           else
             while read -r file; do
               case "$file" in
-                editors/clion/*|src/lsp/*|src/orchestrator/*|tools/devtools/*)
-                  echo "reaches the plugin: $file"; changed=true ;;
+                .github/workflows/*|editors/clion/*)
+                  echo "reaches the adapter: $file"; changed=true; adapter_changed=true ;;
+                src/*|modules/*|mcpp.toml|mcpp.lock|build.mcpp|packaging/*|tools/devtools/*|.github/versions.env|.github/actions/setup-mcpp/*|.github/actions/payload/*|.github/scripts/install-mcpp.sh)
+                  echo "reaches the server or payload: $file"; changed=true ;;
               esac
             done < <(git diff --name-only HEAD^1 HEAD)
           fi
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "adapter_changed=$adapter_changed" >> "$GITHUB_OUTPUT"
 
   # CLion 2026.2.3 itself, headless, with the platform's test framework: the sandbox holds the plugin,
   # carrying the one payload this run built (MCPPLS_PAYLOAD), and the
@@ -1927,7 +1932,12 @@ jobs:
         run: |
           set -euo pipefail
           "$MCPPLS_PAYLOAD/libexec/okrun/linux-x86_64/okrun" "$MCPPLS_PAYLOAD/bin/mcppls.okb" version
-          gradle --no-daemon test
+          gradle --no-daemon test buildPlugin
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mcppls-clion-zip
+          path: editors/clion/build/distributions/mcppls-clion-*.zip
+          if-no-files-found: error
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -1938,6 +1948,61 @@ jobs:
             editors/clion/build/idea-sandbox/*/log
           if-no-files-found: ignore
           retention-days: 7
+
+  # Adapter compatibility can be checked while an engine candidate is still
+  # unqualified. Build only the current adapter, carrying the unchanged public
+  # 0.0.19 payload. This separate regression does not qualify the new backend.
+  clion-adapter-baseline-package:
+    name: CLion adapter with the published payload
+    needs: clion-changes
+    if: needs.clion-changes.outputs.adapter_changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - name: Gradle from xlings
+        run: xlings install gradle -y -g
+      - uses: actions/cache@v6
+        with:
+          path: ~/.gradle/caches/modules-2
+          key: gradle-clion-${{ hashFiles('editors/clion/gradle.properties', 'editors/clion/build.gradle.kts') }}
+      - name: The unchanged public payload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p baseline-plugin
+          gh release download v0.0.19 --repo Sunrisepeak/mcpp-language-server \
+            --pattern 'mcppls-clion-0.0.19-linux-x64.zip' --dir baseline-plugin
+          unzip -q baseline-plugin/mcppls-clion-0.0.19-linux-x64.zip -d baseline-plugin/unpacked
+          jq -e '.server.version == "0.0.19"' baseline-plugin/unpacked/mcppls-clion/payload/payload.json
+      - name: Package this adapter once with the released backend
+        run: |
+          gradle --no-daemon --max-workers=4 -p editors/clion buildPlugin \
+            -Pmcppls.payload="$PWD/baseline-plugin/unpacked/mcppls-clion/payload"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mcppls-clion-adapter-baseline-zip
+          path: editors/clion/build/distributions/mcppls-clion-*.zip
+          if-no-files-found: error
+
+  clion-stable-adapter:
+    name: CLion stable adapter regression (public backend)
+    needs: clion-adapter-baseline-package
+    uses: ./.github/workflows/clion-stable.yml
+    with:
+      plugin_artifact: mcppls-clion-adapter-baseline-zip
+      expected_server_version: '0.0.19'
+      report_name: clion-stable-adapter-baseline
+
+  # Both stable IDEs install the same candidate ZIP. This independent build has
+  # no dependency on the plugin's source output or a per-IDE recompilation.
+  clion-stable:
+    needs: clion-e2e
+    uses: ./.github/workflows/clion-stable.yml
+    with:
+      plugin_artifact: mcppls-clion-zip
 
   # ---------------------------------------------------------------------------
   # The agent task benchmark's baseline/reference pairs (tools/bench/README.md, design
