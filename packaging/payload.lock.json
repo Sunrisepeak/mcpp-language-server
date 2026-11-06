@@ -1,14 +1,14 @@
 {
   "lock-version": 1,
   "comment": "Every upstream input of the payload and the target kits, and the one table of platforms. Change versions here only; CI fetches, verifies and assembles. Each sha256 was checked against two independent downloads and against the digest the release publishes beside the asset. The server version is read from mcpp.toml. A platform is named <os>-<arch> as VS Code names extension targets; each row names the engine its payload entry carries, the target kit built for it (published as mcppls-kit-<kit.name>) and the target its test tools are built for. The VS Code extension, the CLion plugin, the release manifest and CI's matrices list the same platforms, which `mcppls-devtools check platforms` holds them to.",
-  "clangd-version": "23.1.0-mcppls.7",
+  "clangd-version": "23.1.0-mcppls.9",
   "libcxx-version": "23.1.0",
   "entries": {
     "mcppls-clangd-openkal": {
-      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.19/clangd-23.1.0-mcppls.7-openkal.tar.gz",
-      "file": "clangd-23.1.0-mcppls.7-openkal.tar.gz",
-      "size": 44396288,
-      "sha256": "8677ad04dfab4762e671b070dd80277d23eab4d8cd4073caa5d357c8e79da055",
+      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.20/clangd-23.1.0-mcppls.9-openkal.tar.gz",
+      "file": "clangd-23.1.0-mcppls.9-openkal.tar.gz",
+      "size": 50278153,
+      "sha256": "1b971298c0674025298a1f0658c4d6e4498f0cd0a2686a2757fdeca25ef9b748",
       "license": "Apache-2.0 WITH LLVM-exception"
     },
     "llvm-project-src": {

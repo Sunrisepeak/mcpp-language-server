@@ -56,7 +56,7 @@ release 里的每个文件都列在它的 `MANIFEST.md` 里，说明是什么、
 
 | 平台 | clangd | 需要 |
 |---|---|---|
-| `linux-x64` | mcppls-clangd 0.0.19 的 ok 映像 `clangd.okb`，由 payload 的运行器启动 | 不需要系统提供任何东西 |
+| `linux-x64` | mcppls-clangd 0.0.20 的 ok 映像 `clangd.okb`，由 payload 的运行器启动 | 不需要系统提供任何东西 |
 | `linux-arm64` | 同一个 `clangd.okb` | 不需要系统提供任何东西 |
 
 某个系统用 ok 映像，条件是映像在该系统上对照原生 clangd 通过 mcppls-clangd 的验收：每个用例都应答，解析时间不超过原生的 1.3 倍，常驻内存比原生多出的部分不超过映像本身的大小。每个 mcppls-clangd 版本都发布这些测量（`openkal-acceptance.json`）；验收还要求映像同时构建的模块数不少于原生 clangd，并且在 macOS 上与原生 clangd 一样为未指明 SDK 的命令找到 SDK。0.0.20 中映像用于全部四个平台；mcppls-clangd 0.0.19 发布时的测量中，它的解析时间为原生的 0.60 至 1.10 倍（不含与含标准库：Windows x64 0.60 与 0.74，macOS arm64 1.00 与 0.90，Linux arm64 0.95 与 1.06，Linux x64 1.01 与 1.10），常驻内存比原生多 8 至 51 MiB。

@@ -111,7 +111,7 @@ Alpine as well as current systems.
 
 | Platform | clangd | Needs |
 |---|---|---|
-| `linux-x64` | mcppls-clangd 0.0.19's ok image `clangd.okb`, which the payload's runner starts | nothing of the system |
+| `linux-x64` | mcppls-clangd 0.0.20's ok image `clangd.okb`, which the payload's runner starts | nothing of the system |
 | `linux-arm64` | the same `clangd.okb` | nothing of the system |
 
 A system's clangd is the ok image where the image meets mcppls-clangd's acceptance on that system

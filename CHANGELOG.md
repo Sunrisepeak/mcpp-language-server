@@ -7,18 +7,18 @@ release's notes are that section.
 Versions are three-part semantic versions, `MAJOR.MINOR.PATCH`, and every editor plugin carries the
 product version unchanged.
 
-## [0.0.20] — 2026-10-30
+## [0.0.20] — 2026-11-06
 
-The bundled engine is [mcppls-clangd 0.0.19](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.19)
-(`23.1.0-mcppls.7`) as its ok image `clangd.okb` on every system, each of which it passed mcppls-clangd's acceptance
+The bundled engine is [mcppls-clangd 0.0.20](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.20)
+(`23.1.0-mcppls.9`) as its ok image `clangd.okb` on every system, each of which it passed mcppls-clangd's acceptance
 against the native clangd on (parse time at most 1.3 times, resident memory above it by at most the image's size, as
 many modules built at once, and on macOS the SDK found for a command that names none; `openkal-acceptance.json`): one
 engine of both architectures, started by the payload's runner. On Linux the engine
 therefore needs nothing of the system: glibc and musl distributions, old and new, run it alike. One package serves every system and architecture: one payload, one
 VSIX, one CLion plugin. A project is read without a compiler with the semantic kit of its target, and the payload
 carries the openkal kit, with which any target's code reads with the standard library (ecosystem design 2026-10-29
-§9). Built with mcpp 2026.10.31.2 over openkal-platform 0.20.1, openkal 0.19's version group, for every target, ok
-images included, and mcpplibs.os 0.2.6; the runner each system's payload carries releases the image file once the
+§9). Built with mcpp 2026.11.5.1 over openkal-platform 0.24.0 and mcpplibs.os 0.3.0 for every target, ok
+images included; the runner each system's payload carries releases the image file once the
 image is loaded and verifies an okb's chunk digests on several processors at once.
 
 ### Performance qualification
@@ -29,7 +29,8 @@ image is loaded and verifies an okb's chunk digests on several processors at onc
   1.15 target and strict failure remain visible separately from release
   eligibility; other performance and correctness gates are unchanged. The
   exception applies only to this engine release and the server carrying its
-  exact published bytes. It expires for the next engine version. The
+  exact published bytes. The qualifying product CI measurement met the original
+  1.15 target, so the exception was not applied. It expires for the next engine version. The
   [performance investigation](https://github.com/Sunrisepeak/mcpp-language-server/issues/77)
   records the server/engine OKE and OKB measurements and deferred optimization.
 - Windows native and image engines use different module paths. Historical
