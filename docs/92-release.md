@@ -185,6 +185,28 @@ than `main` may use it: the nightly's ux rounds are where an engine change to id
 latency shows, so they see the engine before it is released. Artifacts are kept 14 days; an older run
 is rebuilt by re-running the engine PR's CI.
 
+### Engine 0.0.20 performance exception
+
+The engine's warm-prime report distinguishes the 1.15 target (`target_met`)
+from release eligibility (`accepted`). For engine 0.0.20 only, Linux x64 cold
+CPU may exceed that target when image/native CPU is at most 1.25 and the
+increase is at most 3.0 CPU seconds in the unchanged 304-unit fixture.
+The report retains the strict failure, issue reference, producer commit and
+SHA256 identities of the measured native engine, runner and image.
+
+This rule requires measurement version 3. Cold/warm readiness latency, warm
+CPU, other gated hosts' CPU, complete-lifetime faults, semantic checks,
+resource limits, cancellation, crashes and final server/editor UX retain
+their existing gates. A missing or invalid measurement refuses admission.
+The next engine version uses the original target again. The server uses this
+exception only with the exact published 0.0.20 engine bytes, after candidate
+and published-payload checks.
+
+The [performance issue](https://github.com/Sunrisepeak/mcpp-language-server/issues/77)
+records the measured limits, including the Windows cold-readiness tradeoff.
+The release notes disclose an applied exception; an accepted release does
+not mark the original performance target as achieved.
+
 ## Measuring a change
 
 What the nightly measures varies from run to run on the same bytes: a slower runner, a busier hour.

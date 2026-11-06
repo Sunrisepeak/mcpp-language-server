@@ -21,6 +21,23 @@ carries the openkal kit, with which any target's code reads with the standard li
 images included, and mcpplibs.os 0.2.6; the runner each system's payload carries releases the image file once the
 image is loaded and verifies an okb's chunk digests on several processors at once.
 
+### Performance qualification
+
+- Engine 0.0.20 has a temporary Linux x64 cold-CPU exception: at most 1.25
+  times native CPU and at most 3.0 additional CPU seconds in the unchanged
+  304-unit warm-prime workload. Version 3 accounting is required. The original
+  1.15 target and strict failure remain visible separately from release
+  eligibility; other performance and correctness gates are unchanged. The
+  exception applies only to this engine release and the server carrying its
+  exact published bytes. It expires for the next engine version. The
+  [performance investigation](https://github.com/Sunrisepeak/mcpp-language-server/issues/77)
+  records the server/engine OKE and OKB measurements and deferred optimization.
+- Windows native and image engines use different module paths. Historical
+  cold readiness was 11.667 to 16.534 seconds; warm readiness was 9.361 to
+  5.344 seconds. These workload-specific results are not a general latency
+  guarantee. Final server/editor UX checks remain required; the CPU exception
+  does not waive failed interactions or debugger compatibility checks.
+
 ### One package for every system
 
 - **One payload** (`payload.json` version 5): the server's okb of both architectures (`bin/mcppls.okb`), the runner
