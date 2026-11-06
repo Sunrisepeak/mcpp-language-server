@@ -1,8 +1,8 @@
 name: Publish to Open VSX
 
 # Open VSX is where VS Code-compatible editors (Cursor, VSCodium, Windsurf, Trae, ...) find
-# extensions. Its version of a release is the release's own `mcppls-<platform>.vsix` files, the ones
-# the maintainer verified locally, so a release reaches Open VSX when it is published, not before:
+# extensions. Its version of a release is the release's own `mcppls-<version>.vsix`, one file for every
+# system, the one the maintainer verified locally, so a release reaches Open VSX when it is published, not before:
 #
 #   release.yml makes a draft -> the maintainer verifies its VSIX files locally -> publishes the
 #   draft (this workflow runs) -> uploads the same files to the VS Code Marketplace by hand.
@@ -63,7 +63,7 @@ jobs:
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
         run: npx --yes ovsx@1.2.0 verify-pat sunrisepeak
-      # Each VSIX carries its target platform, so Open VSX serves each platform its own file.
+      # One VSIX for every system (no target platform; a release before 0.0.20 had one per platform).
       # --skip-duplicate: a version Open VSX already has is left alone, which makes re-runs no-ops.
       - name: Publish
         env:
@@ -88,14 +88,17 @@ jobs:
           cd vsix
           failed=0
           for vsix in mcppls-*.vsix; do
+            # The file of a VSIX with no target platform is listed as `universal`.
             target="${vsix#mcppls-}"; target="${target%.vsix}"
+            [ "$target" = "$version" ] && target=universal
             want=$(grep " ${vsix}\$" SHA256SUMS | cut -d' ' -f1)
             [ -n "$want" ] || { echo "::error::SHA256SUMS has no entry for $vsix"; failed=1; continue; }
             url=""
             # O-6 (plan 0.0.8): Open VSX took more than three minutes to list 0.0.7's darwin-arm64 after it was published
             # (run 36692618794): up to ten minutes before this counts as a failure.
             for attempt in $(seq 1 40); do
-              url=$(curl -fsS --retry 3 "$api/$target/$version" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("files", {}).get("download", ""))' 2>/dev/null || true)
+              path="$api/$target/$version"; [ "$target" = universal ] && path="$api/$version"
+              url=$(curl -fsS --retry 3 "$path" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("files", {}).get("download", ""))' 2>/dev/null || true)
               [ -n "$url" ] && break
               echo "$target $version is not listed yet ($attempt/40)"; sleep 15
             done

@@ -8,9 +8,9 @@ name: Release
 #
 # The release is a draft unless asked otherwise, because it is verified before anyone gets it: the
 # maintainer tries the draft's `mcppls-<platform>.vsix` files locally, then publishes the draft.
-# Publishing it is what sends the same files to Open VSX (publish-openvsx.yml, on
-# `release: published`); a release created here already published calls that workflow itself (the
-# `openvsx` job), since a release created with GITHUB_TOKEN triggers no other workflow.
+# Publishing it sends the same files to Open VSX and JetBrains through their
+# `release: published` workflows. A release created already published calls both itself,
+# since GITHUB_TOKEN does not trigger another workflow.
 #
 # What it deliberately does NOT do: upload to the VS Code Marketplace, which the maintainer does by
 # hand after the same local verification, or publish to the xlings index. See docs/92-release.md.
@@ -135,13 +135,21 @@ jobs:
           section=$(awk -v heading="## [$version]" 'index($0, heading) == 1 { on = 1; next } on && /^## \[/ { exit } on { print }' CHANGELOG.md)
           [ -n "$(printf '%s' "$section" | tr -d '[:space:]')" ] || { echo "::error::CHANGELOG.md has no [$version] section"; exit 1; }
           { head -n 1 release/MANIFEST.md; printf '\n## What changed\n'; printf '%s\n' "$section"; printf '\n## Files\n'; tail -n +2 release/MANIFEST.md; } > "$notes"
-          git tag -f "$tag" && git push -f origin "$tag" || echo "tag $tag already points here"
+          commit=$(git rev-parse HEAD)
+          remote=$(git ls-remote origin "refs/tags/$tag" "refs/tags/$tag^{}" | awk '
+            /\^\{\}$/ { peeled=$1 } !/\^\{\}$/ { direct=$1 }
+            END { print peeled ? peeled : direct }')
+          if [ -n "$remote" ]; then
+            [ "$remote" = "$commit" ] || { echo "::error::existing tag $tag names another commit"; exit 1; }
+          else
+            git tag "$tag" "$commit"
+            git push origin "refs/tags/$tag"
+          fi
           gh release create "$tag" release/* \
             --title "mcpp-language-server $tag" \
             --notes-file "$notes" \
             ${{ github.event.inputs.draft == 'false' && ' ' || '--draft' }} \
-            ${{ github.event.inputs.prerelease == 'false' && ' ' || '--prerelease' }} \
-            || gh release upload "$tag" release/* --clobber
+            ${{ github.event.inputs.prerelease == 'false' && ' ' || '--prerelease' }}
 
   # Only a release created already published: a draft reaches Open VSX when the maintainer publishes
   # it, through publish-openvsx.yml's own `release: published` trigger.
@@ -149,6 +157,14 @@ jobs:
     needs: [what, publish]
     if: github.event.inputs.draft == 'false'
     uses: ./.github/workflows/publish-openvsx.yml
+    with:
+      tag: ${{ needs.what.outputs.tag }}
+    secrets: inherit
+
+  jetbrains:
+    needs: [what, publish]
+    if: github.event.inputs.draft == 'false'
+    uses: ./.github/workflows/publish-jetbrains.yml
     with:
       tag: ${{ needs.what.outputs.tag }}
     secrets: inherit

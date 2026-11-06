@@ -26,6 +26,9 @@ import mcppls.bundle.zip;
 import mcpplibs.os;
 import mcppls.base.channel;
 import mcppls.base.home;
+import mcppls.base.payload;
+import mcppls.engine.payload;
+import mcppls.engine.clangd.bmi;
 import mcppls.toolrun;
 
 namespace os = mcpplibs::os;
@@ -63,6 +66,35 @@ bool write_artifact(const std::string& path, const Json& value) {
         say("conformance: cannot serialize {}: {}", path, error.what());
         return false;
     }
+}
+
+// The clangd a payload carries for this platform: payload version 5's entry for it, else the one platform's layout.
+std::string payload_clangd(std::string_view payload) {
+    if (auto text = os::fs::read(base::join_path(payload, "payload.json"))) {
+        if (auto manifest = mcppls::engine::read_payload_manifest(*text)) {
+            if (auto entry = mcppls::engine::payload_entry(*manifest, base::payload_platform()); entry && !entry->clangd.empty()) {
+                return base::join_path(payload, entry->clangd);
+            }
+        }
+    }
+    return base::join_path(payload, "clangd/bin/clangd") + std::string { os::conventions().exe_suffix };
+}
+
+// How the payload's engine of this platform starts: the program, or, for the ok image clangd.okb (S4-4-12), its
+// runner with the image as the first argument.
+struct ClangdCommand {
+    std::string program;
+    std::vector<std::string> prefix;
+};
+ClangdCommand payload_clangd_command(std::string_view payload) {
+    if (auto text = os::fs::read(base::join_path(payload, "payload.json"))) {
+        if (auto manifest = mcppls::engine::read_payload_manifest(*text)) {
+            if (auto entry = mcppls::engine::payload_entry(*manifest, base::payload_platform()); entry && !entry->clangdRunner.empty()) {
+                return { base::join_path(payload, entry->clangdRunner), { base::join_path(payload, entry->clangd) } };
+            }
+        }
+    }
+    return { payload_clangd(payload), {} };
 }
 
 struct Options {
@@ -351,7 +383,7 @@ std::map<std::string, std::string> snapshot(const std::string& root) {
     return files;
 }
 
-// mcppls-clangd's owned module cache (Linux) publishes every module file as
+// mcppls-clangd's owned module cache publishes every module file as
 // <modules>/.owned-payload-v1/generation-<slot>-<n>/payload.pcm, so neither the name nor the directory says whose it
 // is. The file does: its control block names the unit it was built from (ORIGINAL_FILE), the first absolute source
 // path in it, and the unit's own `export module` declaration names the module.
@@ -360,14 +392,16 @@ bool owned_payload(std::string_view path) { return path.contains("/.owned-payloa
 std::string owned_payload_source(const std::string& path) {
     static std::map<std::string, std::string> known;
     if (const auto found = known.find(path); found != known.end()) return found->second;
-    static const std::regex SOURCE { R"((/[\w./+-]+\.(?:cppm|ixx|cxxm|mpp|cc|cpp|cxx|c\+\+m)))" };
+    // A Windows ORIGINAL_FILE starts with a volume and may use either separator.
+    // Matching only its first slash loses the volume and cannot open the source.
+    static const std::regex SOURCE { R"(((?:[A-Za-z]:[\/\\]|/)[\w./\\+ -]+\.(?:cppm|ixx|cxxm|mpp|cc|cpp|cxx|c\+\+m)))" };
     std::string source;
     std::ifstream in { path, std::ios::binary };
     std::string head(1 << 16, '\0');
     in.read(head.data(), static_cast<std::streamsize>(head.size()));
     head.resize(static_cast<std::size_t>(in.gcount()));
     std::smatch match;
-    if (std::regex_search(head, match, SOURCE)) source = match[1].str();
+    if (std::regex_search(head, match, SOURCE)) source = base::normalize_path(match[1].str());
     known.emplace(path, source);
     return source;
 }
@@ -504,6 +538,7 @@ public:
         std::optional<Clock::time_point> answered;
         bool isError { false };
         Json result = nullptr;
+        Json error = nullptr;
     };
     std::map<std::int64_t, AsyncRequest> asyncRequests;
     // Every `workspace/semanticTokens/refresh` the server asked for, when it arrived: an editor asks for the tokens of the
@@ -775,6 +810,7 @@ public:
             it->second.answered = Clock::now();
             it->second.isError = message.contains("error");
             it->second.result = message.value("result", Json {});
+            it->second.error = message.value("error", Json {});
             break;
         }
         default: break;
@@ -1306,11 +1342,18 @@ public:
         return std::nullopt;
     }
 
-    // clangd processes among the descendants of `serverPid`.
+    // The engine's processes among the descendants of `serverPid`: clangd itself, or the runner that started clangd's ok
+    // image (`okrun <payload>/clangd/openkal/bin/clangd.okb ...`), whose process bears the runner's name.
     static std::vector<std::int64_t> clangd_pids(std::int64_t serverPid) {
         std::vector<std::int64_t> found;
         for (const auto pid : tree_pids(serverPid)) {
-            if (pid != serverPid && comm_of(pid).starts_with("clangd")) found.push_back(pid);
+            if (pid == serverPid) continue;
+            if (comm_of(pid).starts_with("clangd")) {
+                found.push_back(pid);
+            } else if (const auto argv = os::fs::read(std::format("/proc/{}/cmdline", pid));
+                       argv && std::string_view { *argv }.contains("clangd.okb")) {
+                found.push_back(pid);
+            }
         }
         return found;
     }
@@ -1415,10 +1458,10 @@ Json latency_stats(std::vector<double> seconds) {
 std::string state_or_none(const Json& status) { return status.is_object() ? status.value("state", std::string {}) : std::string {}; }
 
 // Every module file clangd published under a cache directory, path -> size and modification time. clangd keeps a copy for
-// its readers with a timestamp in its name (`mcpp.log-20260930-010313-591880.pcm`): not a build, so not listed.
+// its readers with a timestamp in its name (`mcpp.log-20260930-010313-591880.pcm`, under a read lease
+// `mcpp.log-20260930-010313-591880.-3fa9c1.pcm`): not a build, so not listed (engine::clangd::is_versioned_copy).
 std::map<std::string, std::string> all_module_files(const std::string& cacheDirectory) {
     std::error_code ignored;
-    static const std::regex COPY { R"(-\d{8}-\d{6}-\d+\.pcm$)" };
     std::map<std::string, std::string> files;
     if (cacheDirectory.empty()) return files;
     std::vector<std::string> pending { cacheDirectory };
@@ -1431,7 +1474,7 @@ std::map<std::string, std::string> all_module_files(const std::string& cacheDire
                 continue;
             }
             const std::string name { base::file_name(entry) };
-            if (!name.ends_with(".pcm") || !entry.contains("/modules/") || std::regex_search(name, COPY)) continue;
+            if (!name.ends_with(".pcm") || !entry.contains("/modules/") || mcppls::engine::clangd::is_versioned_copy(name, directory)) continue;
             const auto stamp = base::file_stamp(entry);
             files[entry] = stamp ? std::format("{}:{}", stamp->size, static_cast<std::int64_t>(stamp->modified_ns)) : std::string {};
         }
@@ -1448,10 +1491,10 @@ struct Builds {
     std::size_t first { 0 };
 };
 Builds builds_since(const std::map<std::string, std::string>& before, const std::map<std::string, std::string>& now) {
-    // A module file is <modules>/<unit>-<hash>/<command hash>/<name>.pcm: its unit is two directories up. An owned
+    // A module file's unit is its directory, <modules>/<unit>-<hash> (engine::clangd::unit_directory_of_bmi). An owned
     // payload's unit is the source it was built from.
     const auto unit_of = [](const std::string& path) {
-        return owned_payload(path) ? owned_payload_source(path) : base::parent_path(base::parent_path(path));
+        return owned_payload(path) ? owned_payload_source(path) : mcppls::engine::clangd::unit_directory_of_bmi(path);
     };
     const auto size_of = [](const std::string& stamp) { return stamp.substr(0, stamp.find(':')); };
     std::set<std::string> unitsBefore;
@@ -2560,7 +2603,16 @@ public:
 
     // The clangd of the run: --clangd, else the payload's.
     std::string clangd_program() const {
-        return !options_.clangd.empty() ? options_.clangd : base::join_path(options_.payload, "clangd/bin/clangd") + std::string { os::conventions().exe_suffix };
+        return !options_.clangd.empty() ? options_.clangd : payload_clangd(options_.payload);
+    }
+    // The command that starts it: --clangd names a program; a payload's engine may be an image its runner starts.
+    ClangdCommand clangd_command() const {
+        return !options_.clangd.empty() ? ClangdCommand { options_.clangd, {} } : payload_clangd_command(options_.payload);
+    }
+    std::vector<std::string> clangd_arguments_with(std::vector<std::string> arguments) const {
+        auto command = clangd_command();
+        command.prefix.insert(command.prefix.end(), arguments.begin(), arguments.end());
+        return command.prefix;
     }
 
     // A check's "retired-by": the capability that retires the workaround whose defect the check watches, for an engine
@@ -2569,17 +2621,14 @@ public:
     std::optional<std::string> retired_canary(const Json& check) const {
         const std::string feature { check.value("retired-by", std::string {}) };
         if (feature.empty() || !options_.clangd.empty() || options_.payload.empty()) return std::nullopt;
+        // The engine of this platform's entry: payload version 5 names one per platform, an older one its only engine.
         const auto text = os::fs::read(base::join_path(options_.payload, "payload.json"));
         if (!text) return std::nullopt;
-        const Json manifest = Json::parse(*text, nullptr, false);
-        if (manifest.is_discarded() || manifest.value("payload-version", 0) < 4) return std::nullopt;
-        const Json* identity { nullptr };
-        if (const auto engines = manifest.find("engines"); engines != manifest.end() && engines->is_object()) {
-            if (const auto clangd = engines->find("clangd"); clangd != engines->end() && clangd->is_object()) {
-                if (const auto found = clangd->find("identity"); found != clangd->end() && found->is_object()) identity = &*found;
-            }
-        }
-        if (identity == nullptr) return std::nullopt;
+        const auto manifest = mcppls::engine::read_payload_manifest(*text);
+        if (!manifest || manifest->version < 4) return std::nullopt;
+        const auto entry = mcppls::engine::payload_entry(*manifest, base::payload_platform());
+        if (!entry || !entry->identity.is_object()) return std::nullopt;
+        const Json* identity { &entry->identity };
         for (const auto& declared : identity->value("features", Json::array())) {
             if (declared.is_string() && declared.get<std::string>() == feature) {
                 return std::format("retired: the payload's engine {} declares {}", identity->value("engine-version", std::string {}), feature);
@@ -2621,7 +2670,8 @@ public:
         const std::string path { base::join_path(workspace_, file) };
         const std::string original { text_of(file) };
         DirectClangd clangd;
-        if (auto started = clangd.start(clangd_program(), direct_arguments(arguments), workspace_, direct_environment(), std::chrono::seconds { 30 }); !started) {
+        if (auto started = clangd.start(clangd_command().program, clangd_arguments_with(direct_arguments(arguments)), workspace_, direct_environment(),
+                                        std::chrono::seconds { 30 }); !started) {
             why = started.error().message;
             return std::nullopt;
         }
@@ -2673,7 +2723,8 @@ public:
         if (action == "diagnostics") {
             const std::string path { base::join_path(workspace_, file) };
             DirectClangd clangd;
-            if (auto started = clangd.start(clangd_program(), direct_arguments(arguments), workspace_, direct_environment(), std::chrono::seconds { 30 }); !started) {
+            if (auto started = clangd.start(clangd_command().program, clangd_arguments_with(direct_arguments(arguments)), workspace_, direct_environment(),
+                                        std::chrono::seconds { 30 }); !started) {
                 return { false, started.error().message };
             }
             clangd.open(path, text_of(file));
@@ -2783,10 +2834,52 @@ public:
         return std::ranges::any_of(it->second, [&](const Json& diagnostic) { return diagnostic.value("message", std::string {}).contains(needle); });
     }
 
+    // Every still-live request survives the typing debounce. Repeated methods can describe different
+    // positions even at the same document version; a later normal edit is not a client cancellation.
+    std::pair<bool, std::string> run_typing_requests(const Json&, const std::string& file) {
+        open(file);
+        const std::string documentUri { uri(file) };
+        if (!client_.wait_for([&] { return client_.diagnosticsCount[documentUri] > 0; }, timeout_)) return { false, "no diagnostics before the request burst" };
+        const std::string original { text_of(file) };
+        change(file, original + "\n// same-version request burst\n");
+        std::vector<std::int64_t> live;
+        const auto symbols = [&] {
+            return client_.send_async("textDocument/documentSymbol", Json { { "textDocument", Json { { "uri", documentUri } } } });
+        };
+        for (int i { 0 }; i < 3; ++i) live.push_back(symbols());
+        for (int character : { 4, 8 }) {
+            live.push_back(client_.send_async("textDocument/documentHighlight", Json { { "textDocument", Json { { "uri", documentUri } } },
+                { "position", Json { { "line", 0 }, { "character", character } } } }));
+        }
+        // CLion also asks document links again as editor annotations refresh.
+        for (int i { 0 }; i < 3; ++i) {
+            live.push_back(client_.send_async("textDocument/documentLink", Json { { "textDocument", Json { { "uri", documentUri } } } }));
+        }
+        const auto cancelled { symbols() };
+        client_.notify("$/cancelRequest", Json { { "id", cancelled } });
+        change(file, original + "\n// a later version does not cancel earlier requests\n");
+        live.push_back(symbols());
+        const bool answered { client_.wait_for([&] {
+            return client_.asyncRequests[cancelled].answered.has_value() && std::ranges::all_of(live, [&](auto id) {
+                return client_.asyncRequests[id].answered.has_value();
+            });
+        }, std::chrono::seconds { 30 }) };
+        const auto errors { std::ranges::count_if(live, [&](auto id) { return client_.asyncRequests[id].isError; }) };
+        const auto& cancellation = client_.asyncRequests[cancelled];
+        // Cancellation may reach a server after its result was sent. Either outcome is legal;
+        // an error must acknowledge the actual cancellation, never invent a content modification.
+        const bool cancellationValid { !cancellation.isError || cancellation.error.value("code", 0) == lsp::REQUEST_CANCELLED };
+        change(file, original);
+        client_.drain(std::chrono::milliseconds { 500 });
+        return { answered && errors == 0 && cancellationValid,
+            std::format("{} live same-method requests across two versions: {}, {} errors; explicit cancellation {}",
+                live.size(), answered ? "all answered" : "not all answered", errors, cancellationValid ? "valid" : "wrong error") };
+    }
+
     // A4 (plan 2026-10-14): keys typed in a burst, each followed by the semantic tokens request an editor sends after an
     // edit. The file is diagnosed once the typing pauses, not at every key ("max-during" publications while typing), the
-    // latest version within "within-seconds" of the last key ("type" is what is typed, at "line" and "character"); every token request is answered, the superseded ones
-    // possibly "content modified", the last with tokens.
+    // latest version within "within-seconds" of the last key ("type" is what is typed, at "line" and "character");
+    // every token request is answered, the last with tokens.
     std::pair<bool, std::string> run_typing_diagnostics(const Json& check, const std::string& file) {
         open(file);
         const std::string documentUri { uri(file) };
@@ -2839,19 +2932,19 @@ public:
         const bool answered { client_.wait_for([&] {
             return std::ranges::all_of(tokens, [&](std::int64_t id) { return client_.asyncRequests[id].answered.has_value(); });
         }, std::chrono::seconds { 30 }) };
-        const std::size_t modified { static_cast<std::size_t>(std::ranges::count_if(tokens, [&](std::int64_t id) { return client_.asyncRequests[id].isError; })) };
+        const std::size_t errors { static_cast<std::size_t>(std::ranges::count_if(tokens, [&](std::int64_t id) { return client_.asyncRequests[id].isError; })) };
         const auto& lastTokens = client_.asyncRequests[tokens.back()];
         const bool lastHasTokens { !lastTokens.isError && lastTokens.result.is_object() && lastTokens.result.contains("data") };
         change(file, original);
         client_.drain(std::chrono::milliseconds { 500 });
         const int maxDuring { check.value("max-during", 0) };
         const std::string detail { std::format("{} keys: {} publication(s) while typing (at most {}{}), the last version {}diagnosed{}; token requests {} "
-                                               "answered, {} superseded, the last {}", typed.size(), during, maxDuring,
+                                               "answered, {} errors, the last {}", typed.size(), during, maxDuring,
                                                published > 0 ? std::format("; versions {} of {}..{}", duringVersions, firstTyped, last) : std::string {},
                                                diagnosed ? "" : "not ",
                                                expect.empty() ? "" : mentions ? std::format(" with '{}'", expect) : std::format(" without '{}'", expect),
-                                               answered ? "all" : "not all", modified, lastHasTokens ? "with tokens" : "without tokens") };
-        return { during <= maxDuring && diagnosed && mentions && answered && lastHasTokens, detail };
+                                               answered ? "all" : "not all", errors, lastHasTokens ? "with tokens" : "without tokens") };
+        return { during <= maxDuring && diagnosed && mentions && answered && errors == 0 && lastHasTokens, detail };
     }
 
     std::pair<bool, std::string> run_typing(const Json& check, const std::string& file) {
@@ -3520,7 +3613,8 @@ public:
     // Stale module locks for `module`, as clangd 23.1 leaves them: `.locks/<hash>.lock`, a symlink to `<hash>.lock-<random>`
     // whose content is "hostname pid". `variant` says whose: a dead pid on this host is broken by clangd; a live pid, or
     // another host's, is waited for (up to 260 s a generation, 0.0.6). The module's published files are removed so that it has
-    // to be built and its lock is taken.
+    // to be built and its lock is taken. A unit's lock is named like its directory, <modules>/<unit>-<hash>; one published to
+    // the owned cache has no directory, and its lock is named from its source (engine::clangd::unit_lock_name).
     std::optional<Injected> inject_lock(const std::string& module, const std::string& variant, std::string& why) {
         std::error_code ignored;
         const auto published = module_files(cacheDirectory_, module);
@@ -3528,21 +3622,26 @@ public:
             why = std::format("no module file of {} in the cache to build again", module);
             return std::nullopt;
         }
-        std::set<std::string> sourceDirectories;
+        std::set<std::pair<std::string, std::string>> unitLocks;   // (<modules>/.locks, hash)
         for (const auto& [path, stamp] : published) {
-            sourceDirectories.insert(base::parent_path(base::parent_path(path)));
+            if (owned_payload(path)) {
+                const std::string source { owned_payload_source(path) };
+                if (!source.empty())
+                    unitLocks.emplace(base::join_path(base::parent_path(base::parent_path(base::parent_path(path))), ".locks"),
+                                      mcppls::engine::clangd::unit_lock_name(source));
+            } else {
+                const std::string directory { mcppls::engine::clangd::unit_directory_of_bmi(path) };
+                const std::string name { base::file_name(directory) };
+                if (const std::size_t dash { name.rfind('-') }; dash != std::string::npos)
+                    unitLocks.emplace(base::join_path(base::parent_path(directory), ".locks"), name.substr(dash + 1));
+            }
             std::error_code ignored;
             std::filesystem::remove(path, ignored);
         }
         const std::string host { variant == "foreign-host" ? std::string { "some-other-host" } : host_name() };
         const std::string pid { variant == "dead-pid" ? std::string { "3999999" } : std::string { "1" } };
         std::size_t created { 0 };
-        for (const auto& directory : sourceDirectories) {
-            const std::string name { base::file_name(directory) };
-            const std::size_t dash { name.rfind('-') };
-            if (dash == std::string::npos) continue;
-            const std::string hash { name.substr(dash + 1) };
-            const std::string locks { base::join_path(base::parent_path(directory), ".locks") };
+        for (const auto& [locks, hash] : unitLocks) {
             (void)std::filesystem::create_directories(locks, ignored);
             const std::string owner { base::join_path(locks, hash + ".lock-deadbeef") };
             const std::string link { base::join_path(locks, hash + ".lock") };
@@ -4644,8 +4743,8 @@ public:
             if (!std::filesystem::is_regular_file(clangd, ignored)) return { false, "no clangd: pass --clangd or --payload" };
             os::process::spawn_options spawn;
             spawn.bound_lifetime = true;
-            spawn.program = clangd;
-            spawn.args = { std::format("--check={}", base::join_path(workspace_, file)), "--check-tidy-time=0" };
+            spawn.program = clangd_command().program;
+            spawn.args = clangd_arguments_with({ std::format("--check={}", base::join_path(workspace_, file)), "--check-tidy-time=0" });
             spawn.cwd = workspace_;
             const std::chrono::seconds limit { check.value("seconds", 10) };
             auto running = std::async(std::launch::async, [spawn, limit]() mutable { return os::process::run(std::move(spawn), os::process::bounds { .hard = limit }); });
@@ -5413,6 +5512,7 @@ public:
         if (kind == "tokens-latency") return run_tokens_latency(check, file);
         if (kind == "typing") return run_typing(check, file);
         if (kind == "typing-diagnostics") return run_typing_diagnostics(check, file);
+        if (kind == "typing-requests") return run_typing_requests(check, file);
         if (kind == "edit-save") return run_edit_save(check);
         if (kind == "fault") return run_fault(check);
         if (kind == "timeline") return run_timeline(check);
@@ -5972,7 +6072,7 @@ int prepare_payload_corrupt(const std::string& source) {
     for (const auto& entry : std::filesystem::recursive_directory_iterator { source, failed }) {
         if (!entry.is_regular_file()) continue;
         if ((entry.status().permissions() & std::filesystem::perms::owner_exec) == std::filesystem::perms::none) continue;
-        executables.push_back(base::join_path(target, std::filesystem::relative(entry.path(), source).generic_string()));
+        executables.push_back(base::join_path(target, entry.path().lexically_relative(source).generic_string()));
     }
     if (auto marked = base::make_executable(executables); !marked) {
         say("payload-corrupt: {}", marked.error().message);
@@ -5985,14 +6085,23 @@ int prepare_payload_corrupt(const std::string& source) {
         say("payload-corrupt: {} is not a JSON object", manifestPath);
         return 1;
     }
-    if (!manifest.contains("files")) manifest["files"] = Json::object();
-    const std::string clangd { base::join_path(target, "clangd/bin/clangd") };
-    for (const auto& [relative, path] : { std::pair { std::string { "clangd/bin/clangd" }, clangd },
-                                          std::pair { std::string { "kit/kit.json" }, base::join_path(target, "kit/kit.json") } }) {
-        if (manifest["files"].contains(relative) || !std::filesystem::is_regular_file(path, ignored)) continue;
+    // Payload version 5 holds every platform: this platform's engine and its own integrity files are under its entry.
+    std::string clangdRelative { "clangd/bin/clangd" };
+    Json* files { &manifest["files"] };
+    if (manifest.contains("platforms") && manifest["platforms"].is_object() && manifest["platforms"].contains(std::string { base::payload_platform() })) {
+        Json& entry = manifest["platforms"][std::string { base::payload_platform() }];
+        clangdRelative = entry.value("engines", Json::object()).value("clangd", Json::object()).value("path", clangdRelative);
+        files = &entry["files"];
+    }
+    if (!files->is_object()) *files = Json::object();
+    if (!manifest["files"].is_object()) manifest["files"] = Json::object();
+    const std::string clangd { base::join_path(target, clangdRelative) };
+    for (const auto& [relative, path, into] : { std::tuple { clangdRelative, clangd, files },
+                                                std::tuple { std::string { "kit/kit.json" }, base::join_path(target, "kit/kit.json"), &manifest["files"] } }) {
+        if (into->contains(relative) || !std::filesystem::is_regular_file(path, ignored)) continue;
         auto content = os::fs::read(path);
         if (!content) continue;
-        manifest["files"][relative] = { { "size", content->size() }, { "sha256", base::sha256_hex(*content) } };
+        (*into)[relative] = { { "size", content->size() }, { "sha256", base::sha256_hex(*content) } };
     }
     if (auto written = os::fs::write(manifestPath, manifest.dump(2)); !written) {
         say("payload-corrupt: {}", written.error().message());
@@ -6001,7 +6110,7 @@ int prepare_payload_corrupt(const std::string& source) {
     // Corrupt it now, after the manifest above was computed from the still-intact file.
     auto intact = os::fs::read(clangd);
     if (!intact) {
-        say("payload-corrupt: {} has no clangd/bin/clangd", source);
+        say("payload-corrupt: {} has no {}", source, clangdRelative);
         return 1;
     }
     if (auto written = os::fs::write(clangd, std::string_view { *intact }.substr(0, std::min<std::size_t>(1024, intact->size()))); !written) {
@@ -6399,7 +6508,8 @@ int prepare_crashing_clangd(std::string_view kind, const std::string& payload, s
         return 2;
     }
     const std::string workspace { base::current_directory() };
-    const std::string real { base::join_path(payload, "clangd/bin/clangd") };
+    const std::string real { payload_clangd(payload) };
+    const ClangdCommand realCommand { payload_clangd_command(payload) };
     if (!std::filesystem::exists(real, ignored)) {
         say("{}: no clangd at {}", kind, real);
         return 1;
@@ -6419,12 +6529,14 @@ int prepare_crashing_clangd(std::string_view kind, const std::string& payload, s
     const std::string script { std::format(
         "#!/bin/sh\n"
         "real='{}'\n"
-        "case \"$1\" in --version|--help) exec \"$real\" \"$@\" ;; esac\n"
-        "[ -e '{}' ] && exec \"$real\" \"$@\"\n"
+        // The ok image's runner takes the image first (S4-4-12); a program engine has none.
+        "image='{}'\n"
+        "case \"$1\" in --version|--help) exec \"$real\" ${{image:+\"$image\"}} \"$@\" ;; esac\n"
+        "[ -e '{}' ] && exec \"$real\" ${{image:+\"$image\"}} \"$@\"\n"
         ": > '{}'\n"
         // A background job of sh reads /dev/null: the editor's input goes to clangd through a descriptor kept first.
         "exec 3<&0\n"
-        "\"$real\" \"$@\" <&3 3<&- &\n"
+        "\"$real\" ${{image:+\"$image\"}} \"$@\" <&3 3<&- &\n"
         "child=$!\n"
         // The wrapper must look busy for the stuck watch: it samples this process's own CPU, and an idle
         // shell around a working clangd reads as a dead engine (the first answer then lost the 3s+5s race
@@ -6434,7 +6546,8 @@ int prepare_crashing_clangd(std::string_view kind, const std::string& payload, s
         "{}"
         "kill -KILL $child\n"
         "exit {}\n",
-        real, crashed, crashed, context, crasher.empty() ? 137 : 139) };
+        realCommand.program, realCommand.prefix.empty() ? std::string {} : realCommand.prefix.front(), crashed, crashed, context,
+        crasher.empty() ? 137 : 139) };
     const std::string clangd { base::join_path(directory, "clangd") };
     if (auto written = os::fs::write(clangd, script); !written) {
         say("{}: {}", kind, written.error().message());

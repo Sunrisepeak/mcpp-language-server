@@ -44,11 +44,11 @@ if there is none for my platform — and check that it works on my C++ modules p
 
 | 编辑器 | 文件 | 安装方式 |
 |---|---|---|
-| VS Code | [Marketplace](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server)，或 `mcppls-<平台>.vsix` | 搜索 *mcppls* 或 *C++ Modules Language Server*，或 `code --install-extension mcppls-<平台>.vsix` |
-| Cursor、VSCodium、Windsurf 等兼容 VS Code 的编辑器 | [Open VSX](https://open-vsx.org/extension/sunrisepeak/mcpp-language-server)，或 `mcppls-<平台>.vsix` | 在编辑器的扩展视图里搜索 *mcppls*，或从那里安装 `.vsix` |
+| VS Code | [Marketplace](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server)，或 `mcppls-<版本>.vsix`（一个服务所有系统） | 搜索 *mcppls* 或 *C++ Modules Language Server*，或 `code --install-extension mcppls-<版本>.vsix` |
+| Cursor、VSCodium、Windsurf 等兼容 VS Code 的编辑器 | [Open VSX](https://open-vsx.org/extension/sunrisepeak/mcpp-language-server)，或 `mcppls-<版本>.vsix` | 在编辑器的扩展视图里搜索 *mcppls*，或从那里安装 `.vsix` |
 | Zed | `mcppls-zed-<版本>.tar.gz` | 见[安装文档](docs/zh-CN/00-install.md) |
-| CLion | JetBrains Marketplace，或 `mcppls-clion-<版本>-<platform>.zip` | 见[安装文档](docs/zh-CN/00-install.md) |
-| Neovim | `payload-<平台>.tar.gz` | 解压为 `<user data>/mcppls/payload`（见[安装文档](docs/zh-CN/00-install.md)），再装 [editors/nvim](editors/nvim/README.md) 里的插件 |
+| CLion | JetBrains Marketplace，或 `mcppls-clion-<版本>.zip`（一个服务所有系统） | 见[安装文档](docs/zh-CN/00-install.md) |
+| Neovim | `mcppls-payload-<版本>.tar.gz`（一个服务所有平台） | 解压为 `<user data>/mcppls/payload`（见[安装文档](docs/zh-CN/00-install.md)），再装 [editors/nvim](editors/nvim/README.md) 里的插件 |
 | 其他支持 LSP 的编辑器 | `mcppls-<版本>-openkal.zip`（所有系统与架构），或单文件 `mcppls-<版本>-<系统>-<架构>` | 把其中的 `bin/`（或以 `mcppls` 为名的单文件）放到 `PATH` 上，用 `mcppls serve` 启动；payload 补上锁定版本的 clangd 与工具包（`--payload`） |
 
 ### 从源码构建

@@ -1,8 +1,9 @@
-// Packaging: a payload (the server, a trimmed clangd, the semantic kit), the editor extensions
-// built around it, and removing what was installed.
+// Packaging: the payload (the server, the engine of every platform, the openkal kit), the editor
+// extensions built around it, and removing what was installed.
 //
-//   mcppls-devtools payload [--platform P] [--server PATH | --dev] [--clangd DIR] [--kit DIR]
-//                            [--cache DIR] [--out DIR] [--verify DIR] [--from DIR] [--only clangd]
+//   mcppls-devtools payload [--platforms P,...] [--server-image OKB --server-tree TREE | --dev]
+//                            [--clangd P=DIR ...] [--kit DIR] [--cache DIR] [--out DIR]
+//                            [--verify DIR] [--from DIR] [--only clangd --platform P]
 //   mcppls-devtools extension [--editor vscode|zed|clion|all] [--install] [--payload DIR] [--out FILE]
 //   mcppls-devtools uninstall [--editor ...]
 export module mcppls.devtools.packaging;

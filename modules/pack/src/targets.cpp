@@ -34,4 +34,9 @@ std::string_view xlings_arch(Arch arch) { return arch == Arch::arm64 ? "aarch64"
 
 std::string_view apple_arch(Arch arch) { return arch == Arch::arm64 ? "arm64" : "x86_64"; }
 
+std::string runner_system(Target target) {
+    const std::string_view os { target.os == Os::win32 ? "windows" : target.os == Os::darwin ? "macos" : "linux" };
+    return std::format("{}-{}", os, xlings_arch(target.arch));
+}
+
 } // namespace mcppls::pack::targets

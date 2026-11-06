@@ -13,15 +13,12 @@ out of the files mcppls answers. Everything else happens in the server.
 mcpp run --features clion -p devtools -- extension --editor clion
 ```
 
-That puts this machine's payload in place (assembled, or the one `--payload` names) and runs
-`gradle buildPluginVariants_<os>_<arch>` here with `-Pmcppls.payload.<platform>=<payload>`: the
-package of this system, carrying the payload at `mcppls-clion/payload/`, written to
-`target/pack/mcppls-clion-<version>-<platform>.zip`. `--payloads DIR` (a directory of
-`<platform>/payload`) builds the package of every platform it holds, which is what a release does.
-Each package's `plugin.xml` depends on its system's `com.intellij.modules.os.*` and
-`com.intellij.modules.arch.*`, by which the JetBrains Marketplace gives CLion 2026.1 and later the
-package of its own system. Without a payload, `gradle buildPlugin` makes a plugin that carries no
-server and starts `mcppls` from PATH (a build for development).
+That puts the payload in place (assembled, or the one `--payload` names) and runs `gradle
+buildPlugin` here with `-Pmcppls.payload=<payload>`: one package for every system, carrying the
+payload at `mcppls-clion/payload/` (the server, the runner of each system, the clangd of each
+platform and the openkal kit), written to `target/pack/mcppls-clion-<version>.zip`; a release does
+the same. Without a payload, `gradle buildPlugin` makes a plugin that carries no server and starts
+`mcppls` from PATH (a build for development).
 Gradle is installed for you if it is missing — `xim:gradle` declares the JDK it runs on, so the one
 package brings both.
 
@@ -38,10 +35,10 @@ The first build downloads the CLion SDK it compiles against, so it is long and n
 mcpp run --features clion -p devtools -- extension --editor clion --install
 ```
 
-That builds this system's package and unpacks it into the plugins directory of every CLion that has
+That builds the package and unpacks it into the plugins directory of every CLion that has
 run on this machine — what **Install Plugin from Disk** does — so restart CLion afterwards.
 `--clion-dir DIR` names one plugins directory instead; `--plugin FILE` installs a package you
-already have, such as a release's `mcppls-clion-<version>-<platform>.zip`.
+already have, such as a release's `mcppls-clion-<version>.zip`.
 
 ```bash
 mcpp run -p devtools -- uninstall --editor clion
@@ -52,17 +49,27 @@ mcpp run -p devtools -- uninstall --editor clion
 The plugin starts, in this order (`ServerLaunch.kt`):
 
 1. `MCPPLS_SERVER`, a program's absolute path (development and tests);
-2. the payload it carries, `<plugin>/payload`, as its `payload.json` says: the platform's runner
-   `bin/okrun` starting the server's image `bin/mcppls.okb`. A payload built for another system is
-   refused, with what to install instead; a runner or clangd that lost its executable bit in the
-   installation gets it back;
-3. `mcppls` on the PATH the IDE sees (`xlings install mcppls`, the universal package or a single
-   file), for a build without a payload.
+2. the payload it carries, `<plugin>/payload`, as its `payload.json`'s entry for this platform says:
+   the system's runner `libexec/okrun/<system>-<arch>/okrun` starting the server's image
+   `bin/mcppls.okb`. A payload with no entry for this platform is refused, naming the platforms it
+   carries; a runner or clangd that lost its executable bit in the installation gets it back;
+3. `mcppls` on the PATH the IDE sees (`xlings install mcpp-language-server`, the openkal package or
+   a single file), for a build without a payload.
 
 With none of them, the plugin says so once per project and starts nothing.
 
-CLion 2026.1 and later are supported (`sinceBuild` 261). The plugin is built against CLion 2026.2.3
-and tested inside it; the Plugin Verifier checks it against 2026.1 as well.
+The plugin declares `experimental.cxxModules` and reads one thing of the server's status: a
+`kit-missing` issue. Without a compiler a project reads with the semantic kit of its target, and with
+the openkal kit until that one is installed; the plugin then asks once per kit, in a balloon:
+*Install* (the plugin runs the issue's `xlings install mcppls-kit-<target>@<version>` in the
+background, and the server finds the installed kit within half a minute), *Always Install Kits*,
+*Copy Command* and *Don't Ask Again*, and says once how the install ended. Tools | mcppls | *Ask Before
+Installing Semantic Kits* takes the answers back (`KitInstall.kt`).
+
+CLion 2026.1 and later are supported (`sinceBuild` 261). The plugin is built against CLion 2026.2.3.
+CI also installs the same packaged ZIP in stable CLion 2026.1.5.2 and 2026.2.4.1 and checks the
+language features in each running IDE. The Plugin Verifier separately checks the declared oldest
+CLion and the build SDK.
 
 ## One engine per file
 
@@ -149,6 +156,38 @@ and the okb); the PATH the tests see has neither `mcppls` nor `mcpp`. CI runs `v
 the tests when the change reaches the plugin, the protocol or the server, and on release branches,
 nightly and releases (`.github/workflows/ci.yml`, `clion-verify` and `clion-e2e`). The CLion
 downloads are about 1.9 GB each and are cached by version.
+
+### The packaged plugin in stable CLion
+
+The independent `integration-tests` build installs one packaged plugin ZIP in CLion 2026.1.5.2
+and 2026.2.4.1. It does not compile the plugin against each IDE: both runs test the same distributed
+bytes. CI packages the candidate ZIP once after the existing headless suite, then calls
+`.github/workflows/clion-stable.yml` for both stable versions. An earlier regression reuses the
+current Linux x64 release server build and preserves every public 0.0.19 engine and kit file when
+packaging the current adapter. Both IDEs test that same ZIP. It waits
+for the existing native build matrix, without depending on candidate engine admission or another
+LLVM build. Its report names the adapter and server versions separately; this regression does not
+qualify the final candidate image or payload. The final candidate payload still goes through both
+stable IDEs after admission. The workflow can also test
+a published release without rebuilding its server or clangd.
+
+```bash
+gradle --no-daemon -p integration-tests test \
+  -PpluginZip=/path/to/mcppls-clion.zip \
+  -PideVersion=2026.1.5.2 -Poutput=/path/to/results
+```
+
+A virtual display is needed on a machine without a desktop, for example `xvfb-run -a gradle ...`.
+`-PideHome=/path/to/clion` reuses a complete local IDE distribution. The plugin ZIP must carry its
+payload: the test's PATH supplies neither mcpp nor a language server.
+
+The test opens a module project in the actual IDE. It checks the packaged server's initialize,
+a missing-import diagnostic in the editor, a completion popup item marked as mcppls's, insertion of
+that item, navigation by Ctrl+B in the focused editor to an exported declaration, and process cleanup
+when the project closes. It confirms that the project actually uses mcppls-only before navigation.
+A second project checks that CMake stays with CLion by default. The report contains only public
+versions, the ZIP digest, the current fixed stage and the checks already passed. A failure prints its
+stage to the console; raw IDE logs and project paths are not published.
 
 ### In a CLion with its engine running
 

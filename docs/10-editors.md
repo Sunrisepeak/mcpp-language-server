@@ -14,15 +14,17 @@ so `mcpp run` provisions it before the tool starts. Gradle and the JDK it runs o
 `mcpp run --features clion -p devtools -- extension --editor clion`. Zed and CLion have no
 command line for installing a plugin, so `--install` leaves on disk exactly what their own UI would:
 for Zed it stops one step short and names the palette action, the recommended route (`--link`
-takes that step too); for CLion it unpacks this system's package as *Install Plugin from Disk*
-does. Zed starts `mcppls` from PATH, or else the server of the payload `--install` puts at
-`<user data>/mcppls/payload`: its runner `bin/okrun` starting the okb `bin/mcppls.okb`, as its
-`payload.json` says. The CLion package carries its own payload, as the VSIX does.
+takes that step too); for CLion it unpacks the package as *Install Plugin from Disk* does. Zed
+starts `mcppls` from PATH, or else the server of the payload `--install` puts at
+`<user data>/mcppls/payload`: this system's runner `libexec/okrun/<system>-<arch>/okrun` starting
+the okb `bin/mcppls.okb`, as the payload's entry for this platform says. The CLion package carries
+the payload, as the VSIX does: one payload, one VSIX and one CLion package serve every system.
 
 ## VS Code
 
-Install **C++ Modules** (`sunrisepeak.mcpp-language-server`). It carries the server, a pinned
-clangd and the semantic kit; nothing else to install and nothing to configure. Settings and
+Install **C++ Modules** (`sunrisepeak.mcpp-language-server`). One extension for every system: it
+carries the server, the pinned clangd of each platform and the openkal semantic kit, and starts the
+runner and clangd of the machine it runs on; nothing else to install and nothing to configure. Settings and
 commands are in [30-settings.md](30-settings.md); the extension's own page is
 [editors/vscode/README.md](../editors/vscode/README.md).
 
@@ -123,6 +125,15 @@ To keep mcppls off in one project, a project's `.zed/settings.json` names the se
 (and names clangd back, since a project's list replaces yours); see
 [editors/zed/README.md](../editors/zed/README.md#keeping-mcppls-off-for-one-project).
 
+**The semantic kit of a target.** Without a compiler, a project reads with the semantic kit of its
+target, and with the openkal kit until that kit is installed: `import std` and the standard library
+work, the system's own headers and macros do not, and the status bar says which kit is missing. The
+extension asks once per kit whether to install it: *Install* has the server install it in the
+background (xlings), *Always Install Kits* installs the next ones without asking, *Copy Command* copies
+`xlings install mcppls-kit-<target>@<version>`, *Don't Ask Again* keeps the openkal kit. How the
+install ended is told once. *C++ Modules: Ask Before Installing Semantic Kits in This Workspace*
+takes the answers back ([00-install.md](00-install.md#the-semantic-kit-of-a-target)).
+
 ## Neovim
 
 The plugin at [`editors/nvim/`](../editors/nvim/README.md) (Neovim 0.10 or later) finds `mcppls` —
@@ -141,11 +152,11 @@ them off). There is no per-project switch; the README shows two ways to keep it 
 
 The plugin at [`editors/clion/`](../editors/clion/README.md) registers mcppls through the IntelliJ
 platform's LSP API. It is on the JetBrains Marketplace as **C++ Modules Language Server**
-(`io.github.sunrisepeak.mcppls`), one package per system and architecture, each carrying that
-platform's server, pinned clangd and semantic kit; CLion 2026.1 and later are given the package of
-their own system. It is built against, and tested inside, CLion 2026.2.3.
-`mcpp run --features clion -p devtools -- extension --editor clion --install` builds this system's
-package and unpacks it into every CLion's plugins directory; restart CLion.
+(`io.github.sunrisepeak.mcppls`), one package for every system, carrying the server, the pinned
+clangd of each platform and the openkal semantic kit; it starts the runner and clangd of the machine
+CLion runs on. CLion 2026.1 and later; it is built against, and tested inside, CLion 2026.2.3.
+`mcpp run --features clion -p devtools -- extension --editor clion --install` builds the package and
+unpacks it into every CLion's plugins directory; restart CLion.
 
 A file is answered by one engine. A project CLion models itself -- a loaded CMake, compilation
 database or Makefile workspace, or a `CMakeLists.txt` at the root -- is answered by CLion's own C/C++
@@ -167,11 +178,18 @@ named once per project, with the way to turn it off. To keep mcppls off for one 
 is, disable the plugin for that project in Settings | Plugins
 ([editors/clion/README.md](../editors/clion/README.md#keeping-mcppls-off-for-one-project)).
 
+The semantic kit of a project's target is asked about as in VS Code, in a balloon with *Install*,
+*Always Install Kits*, *Copy Command* and *Don't Ask Again*; *Install* runs `xlings install
+mcppls-kit-<target>@<version>` in the background, and the server finds the installed kit within half
+a minute. Tools | mcppls | *Ask Before Installing Semantic Kits* takes the answers back. The plugin
+declares `experimental.cxxModules` for this and reads nothing else of the server's status.
+
 ## Any other LSP client
 
 `mcppls serve` speaks LSP over stdio: the release's `mcppls-<version>-openkal.zip` or single file
-gives you an `mcppls`, and a payload's server is `<payload>/bin/okrun <payload>/bin/mcppls.okb serve`.
-The server needs to find a payload for its pinned clangd and kit — see [00-install.md](00-install.md).
+gives you an `mcppls`, and a payload's server is `<payload>/libexec/okrun/<system>-<arch>/okrun
+<payload>/bin/mcppls.okb serve`. The server needs to find a payload for its pinned clangd and kit —
+see [00-install.md](00-install.md).
 
 ## Any other MCP client
 

@@ -23,16 +23,17 @@ members = [
 
 # THE PLATFORM OF EVERY TARGET (mcpp SPEC-013): openkal-platform states the C library
 # (openkal-musl) and the C++ run-time (openkal-llvm-runtime) above openkal, the toolchain, and for
-# an ok image (`<arch>-openkal`) its tools, link, seal and runner. mcpp selects it for the ok-image
-# rows by its target table; the system triples take its hosted arrangement here, so one source
-# builds every target and no member declares a run-time. A Windows build is the GNU row
-# (`--target x86_64-windows-gnu`): the platform states no MSVC arrangement.
-[workspace.target.'cfg(any(linux, macos, windows))']
-platform = "openkal-platform@0.17.3"
+# an ok image (`<arch>-openkal`) its tools, link, seal and runner. The ok images take it here too:
+# Platform 0.24 supplies OpenKal 0.24, musl 0.28, runtime 0.19 and tools 0.5,
+# matching OS 0.3. System triples use its hosted arrangement; images use its
+# standalone runtime. The Windows hosted target is x86_64-windows-gnu.
+[workspace.target.'cfg(any(linux, macos, windows, os = "openkal"))']
+platform = "openkal-platform@0.24.0"
 
-# The first mcpp that reads `platform` (2026.10.27.1); an older one would build without it.
+# 2026.11.3.1 is the compiler floor for standard modules built with the
+# platform's flags. CI bootstraps with the published 2026.11.5.1 release.
 [workspace.package]
-mcpp = ">=2026.10.27.1"
+mcpp = ">=2026.11.3.1"
 
 # One version of each third-party package for every member.
 [workspace.dependencies]
@@ -41,20 +42,20 @@ tinyhttps            = "0.3.1"
 
 # The operating-system layer: mcpplibs.os over openkal (mcpp design 2026-10-26 part 2). The
 # openkal implementation of each system is os's dependency, named by it; no program here names it.
-# 0.2.1 carries what mcppls's own modules/os and modules/platform did (bounded runs, threads,
-# environment entries, a bounded read, canonical names).
+# OS 0.3 selects OpenKal 0.24 and matching per-system backends.
 [workspace.dependencies.mcpplibs]
-os = "0.2.1"
+os = "0.3.0"
 
 [workspace.dependencies.nlohmann]
 json = "3.12.0"
 
 [workspace.dependencies.compat]
 libarchive = "3.8.7"
+xxhash     = "0.8.3"
 
 [package]
 name        = "mcpp-language-server"
-version     = "0.0.19"
+version     = "0.0.20"
 description = "Compiler-agnostic C++ modules language server"
 license     = "Apache-2.0"
 authors     = ["Sunrisepeak"]
@@ -101,6 +102,10 @@ mcppls-toolrun                 = { path = "modules/toolrun" }
 
 [dependencies.nlohmann]
 json.workspace = true
+
+# clangd names a module unit's lock by the XXH3 digest of its path (engine::clangd::unit_lock_name).
+[dependencies.compat]
+xxhash.workspace = true
 
 [dev-dependencies]
 mcppls-testing = { path = "modules/testing" }

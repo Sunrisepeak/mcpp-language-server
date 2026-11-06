@@ -163,6 +163,20 @@ int main() {
         expect(values.problems().front().key == "buildTool");
     };
 
+    "the cache budget follows the resource preference unless it is set (mcpp design 2026-11-03 part 4 §16)"_test = [] {
+        settings::Settings balanced;
+        expect(settings::cache_max_bytes(balanced) == "4G") << "balanced is as before";
+        settings::Settings performance;
+        performance.apply_initialization_options(Json { { "resources", "performance" } });
+        expect(settings::cache_max_bytes(performance) == "8G");
+        settings::Settings economy;
+        economy.apply_initialization_options(Json { { "resources", "economy" } });
+        expect(settings::cache_max_bytes(economy) == "1G");
+        settings::Settings set;
+        set.apply_initialization_options(Json { { "resources", "economy" }, { "cache", Json { { "maxBytes", "6G" } } } });
+        expect(settings::cache_max_bytes(set) == "6G") << "a budget set wins over the preference";
+    };
+
     "an alias is honoured wherever the current name is"_test = [] {
         static const std::vector<settings::Setting> rows { settings::Setting {
             .key = "testOnly.currentName",
@@ -232,8 +246,9 @@ int main() {
                 expect(schema.value("type", std::string {}) == "array") << name;
                 std::vector<std::string> defaultMembers;
                 for (const auto& item : schema.at("default")) defaultMembers.push_back(item.get<std::string>());
-                std::vector<std::string> rowMembers;
-                for (auto piece : base::split(row->defaultValue, ',')) rowMembers.emplace_back(piece);
+                std::vector<std::string> rowMembers;   // an empty default is a list of none
+                if (!row->defaultValue.empty())
+                    for (auto piece : base::split(row->defaultValue, ',')) rowMembers.emplace_back(piece);
                 expect(defaultMembers == rowMembers) << name;
                 if (schema.contains("items") && schema.at("items").contains("enum")) {
                     expect(schema.at("items").at("enum").get<std::vector<std::string>>() == row->values) << name;

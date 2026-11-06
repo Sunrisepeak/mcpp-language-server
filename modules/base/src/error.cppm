@@ -10,6 +10,9 @@ export namespace mcppls::base {
 struct Error {
     std::string code;
     std::string message;
+    // The system's classification, when this error came from an OS operation.
+    // Callers can distinguish an unsupported request from one that was refused.
+    std::optional<mcpplibs::os::errc> osCode {};
 };
 
 template <class T>

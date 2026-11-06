@@ -42,52 +42,26 @@ kotlin {
     compilerOptions { jvmDefault = JvmDefaultMode.NO_COMPATIBILITY }
 }
 
-// The payload each package carries (design 2026-10-29 §2.1): `-Pmcppls.payload.<platform>=<dir>` for the
-// platforms of packaging/release.manifest.json, each a payload directory as a release's
-// payload-<platform>.tar.gz unpacks it (named `payload`, holding payload.json). MCPPLS_PAYLOAD names this
-// machine's, for a developer and the tests. With any of them the build makes one package per system and
-// architecture, each with its payload at `<plugin>/payload`, and the sandbox the tests run in is this
-// machine's; with none, the plugin carries no server (a build for development).
+// The payload the package carries (ecosystem design 2026-10-29 §9.3): one payload for every system, given with
+// `-Pmcppls.payload=<dir>` (a directory named `payload` holding payload.json, as the release's payload.tar.gz unpacks
+// it) or MCPPLS_PAYLOAD for a developer and the tests. With it the plugin carries it at `<plugin>/payload`, and so does
+// the sandbox the tests run in; without it the plugin carries no server (a build for development). The platforms it
+// serves are packaging/payload.lock.json's, which `mcppls-devtools check platforms` holds this list to.
 val platforms = listOf("linux-x64", "linux-arm64", "darwin-arm64", "win32-x64")
-val hostPlatform: String = run {
-    val os = System.getProperty("os.name").lowercase()
-    val system = when {
-        os.startsWith("windows") -> "win32"
-        os.startsWith("mac") -> "darwin"
-        else -> "linux"
-    }
-    val arch = System.getProperty("os.arch").lowercase()
-    "$system-${if (arch == "aarch64" || arch == "arm64") "arm64" else "x64"}"
-}
-val payloads: Map<String, File> = platforms.mapNotNull { platform ->
-    val named = providers.gradleProperty("mcppls.payload.$platform").orNull
-        ?: providers.environmentVariable("MCPPLS_PAYLOAD").orNull?.takeIf { platform == hostPlatform }
-    named?.let { platform to File(it).absoluteFile }
-}.toMap()
-payloads.forEach { (platform, directory) ->
+val payload: File? = (providers.gradleProperty("mcppls.payload").orNull ?: providers.environmentVariable("MCPPLS_PAYLOAD").orNull)
+    ?.let { File(it).absoluteFile }
+payload?.let { directory ->
     require(directory.name == "payload" && directory.resolve("payload.json").isFile) {
-        "the payload for $platform must be a directory named payload holding payload.json: $directory"
+        "the payload must be a directory named payload holding payload.json: $directory"
     }
 }
 
 intellijPlatform {
     pluginConfiguration {
-        // 2026.1 is the first IDE the Marketplace gives a package for its own system and architecture.
         ideaVersion {
             sinceBuild = "261"
             untilBuild = provider { null }
         }
-    }
-    nativeVariants {
-        enabled = payloads.isNotEmpty()
-        // A directory named `payload` lands as `<plugin>/payload`: the tree keeps the paths below its root.
-        fun carried(platform: String) = payloads[platform]?.let { directory ->
-            fileTree(directory.parentFile) { include("${directory.name}/**") }
-        } ?: files()
-        linux.x86_64.from(carried("linux-x64"))
-        linux.arm64.from(carried("linux-arm64"))
-        mac.arm64.from(carried("darwin-arm64"))
-        windows.x86_64.from(carried("win32-x64"))
     }
     // `gradle verifyPlugin`: the plugin against the oldest CLion it claims (sinceBuild 261) and the
     // one it is built on. Each download is about 1.9 GB; CI caches them by version.
@@ -108,7 +82,7 @@ tasks.test {
     val home = layout.buildDirectory.dir("home").get().asFile.also { it.mkdirs() }
     environment("PATH", "/usr/bin:/bin")
     environment("XDG_DATA_HOME", home.resolve(".local/share").absolutePath)
-    systemProperty("mcppls.carriesPayload", payloads.containsKey(hostPlatform).toString())
+    systemProperty("mcppls.carriesPayload", (payload != null).toString())
     environment("MCPPLS_CACHE_DIR", layout.buildDirectory.dir("mcppls-cache").get().asFile.absolutePath)
     // The server reads the login shell's environment to find build tools; an empty home and a plain
     // `sh` keep whatever the machine's profile adds (an installed mcpp, say) out of the test.
@@ -124,14 +98,21 @@ tasks.test {
     testLogging { showStandardStreams = true; events("passed", "failed", "skipped") }
 }
 
-// A program of the payload (its runner, clangd) keeps its executable bit in this system's package, as it has
-// in the payload; the plugin also puts the bit back when an installation loses it (ServerLaunch.kt). The bits
-// are read from the payloads themselves: the archive's own source is a copy that lost them.
-val programs: Set<String> = payloads.values.flatMap { directory ->
+// The payload lands as `<plugin>/payload`, in the package and in the sandboxes the IDE and the tests run.
+val carried = payload?.let { directory -> fileTree(directory.parentFile) { include("${directory.name}/**") } }
+if (carried != null) {
+    tasks.prepareSandbox { from(carried) { into(pluginName) } }
+    tasks.prepareTestSandbox { from(carried) { into(pluginName) } }
+}
+
+// A program of the payload (each runner, each clangd) keeps its executable bit in the package, as it has in the
+// payload; the plugin also puts the bit back when an installation loses it (ServerLaunch.kt). The bits are read from
+// the payload itself: the archive's own source is a copy that may have lost them.
+val programs: Set<String> = payload?.let { directory ->
     directory.walkTopDown().filter { it.isFile && it.canExecute() }
-        .map { "${directory.name}/${it.relativeTo(directory).invariantSeparatorsPath}" }.toList()
-}.toSet()
-tasks.withType<Zip>().matching { it.name.startsWith("buildPluginVariants_") }.configureEach {
+        .map { "${directory.name}/${it.relativeTo(directory).invariantSeparatorsPath}" }.toSet()
+} ?: emptySet()
+tasks.buildPlugin {
     eachFile {
         val path = relativePath.pathString
         if (programs.any { path == it || path.endsWith("/$it") }) permissions { unix("rwxr-xr-x") }

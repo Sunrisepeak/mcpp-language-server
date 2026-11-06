@@ -109,6 +109,12 @@ export function preambleStorageSetting(value: string | undefined): 'auto' | 'dis
     return value === 'disk' || value === 'memory' ? value : 'auto';
 }
 
+/** `grants` as the server takes it: the strings of an array, trimmed, without empty ones; anything else is none. */
+export function grantsSetting(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter((item) => item.length > 0);
+}
+
 /** One of `values` (the first is the default): anything else is the default. */
 export function oneOf<T extends string>(value: string | undefined, values: readonly [T, ...T[]]): T {
     return values.find((candidate) => candidate === value) ?? values[0];
@@ -145,6 +151,11 @@ export function buildInitializationOptions(configuration: SettingsReader, compil
         'engine.preambleStorage': preambleStorageSetting(configuration.get<string>('engine.preambleStorage')),
         // A4 (plan 2026-10-14): whether clangd checks a file at every key or once typing pauses; a change restarts the server.
         'engine.diagnosticsWhileTyping': oneOf(configuration.get<string>('engine.diagnosticsWhileTyping'), ['auto', 'always']),
+        // 0.0.20 (mcpp design 2026-11-03 part 4 §16, §9.3): what the engine spends the machine for, the directories an
+        // ok-image engine is given besides mcppls's own, and whether the system holds it to them; a change restarts the server.
+        resources: oneOf(configuration.get<string>('resources'), ['balanced', 'performance', 'economy']),
+        grants: grantsSetting(configuration.get<unknown>('grants')),
+        'engine.confine': get('engine.confine', false),
         // The formatting fallback without a project .clang-format; a change restarts the server.
         'format.fallbackStyle': configuration.get<string>('format.fallbackStyle') || 'auto',
         // build description design 4.4: how the user's build tool may be run.

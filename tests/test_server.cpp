@@ -18,6 +18,7 @@ import mcppls.engine.native;
 import mcppls.engine.native.index;
 import mcppls.engine.clangd;
 import mcppls.engine.clangd.process;
+import mcppls.engine.clangd.grants;
 import mcppls.engine.clangd.definition;
 import mcppls.engine.clangd.guard;
 import mcppls.engine.clangd.primer;
@@ -161,6 +162,7 @@ public:
     struct Shared {
         std::mutex mutex;
         std::vector<Json> sent;
+        MessageHandler reply;   // a test completes an actual forwarded request by its engine ID
         LogHandler log;   // what the running process writes to stderr, for a test to say something as clangd
         bool diagnose { false };   // each opened file comes back with one warning, not none
         bool holdPrimes { false }; // a long closure has no prime diagnostics until it finishes
@@ -172,6 +174,7 @@ public:
     mcppls::base::Result<void> start(const cld::ProcessConfig&, MessageHandler onMessage, ClosedHandler, LogHandler onLog) override {
         onMessage_ = std::move(onMessage);
         shared_->log = std::move(onLog);
+        shared_->reply = onMessage_;
         shared_->finish = [this](const std::string& uri) { publish_(uri); };
         running_ = true;
         return {};
@@ -937,6 +940,11 @@ int main() {
         expect(cld::engine_workers(16, 2 * GiB) == 2u) << "never below two, whatever the memory";
         expect(cld::engine_workers(16, 64 * GiB) == 8u);
         expect(cld::engine_workers(16, 8 * GiB, 12) == 12u && cld::engine_workers(16, std::nullopt, 0) == 8u) << "the setting wins; 0 is auto";
+        // mcppls.resources (mcpp design 2026-11-03 part 4 §16): performance takes every thread, economy two; the setting wins.
+        expect(cld::engine_workers(16, 64 * GiB, std::nullopt, "performance") == 16u && cld::engine_workers(128, std::nullopt, std::nullopt, "performance") == 64u);
+        expect(cld::engine_workers(16, 8 * GiB, std::nullopt, "performance") == 4u) << "still no more than half the memory in gigabytes";
+        expect(cld::engine_workers(16, 64 * GiB, std::nullopt, "economy") == 2u && cld::engine_workers(16, 64 * GiB, 6, "economy") == 6u);
+        expect(cld::engine_workers(16, 64 * GiB, std::nullopt, "balanced") == cld::engine_workers(16, 64 * GiB)) << "balanced is as before";
         // One worker is always the person's.
         expect(cld::preparation_limit(8, true) == 7u) << "a file waits on these modules: every worker but the person's";
         expect(cld::preparation_limit(8, false) == 3u) << "nobody waits on them: half of the rest";
@@ -1031,6 +1039,16 @@ int main() {
             << "in process, the bounds are off";
     };
 
+    "an engine is given the owned cache's bound when its verified identity declares the cache"_test = [] {
+        const std::optional<std::uint64_t> asked { 3072 };
+        const std::vector<std::string> owned { "semantic-tokens-range", "owned-module-cache" };
+        const std::vector<std::string> portable { "semantic-tokens-range" };
+        expect(cld::owned_cache_payload_bound(owned, asked) == asked) << "a native engine of Linux or macOS, or clangd.okb";
+        expect(!cld::owned_cache_payload_bound(portable, asked)) << "the native engine of Windows: a copy for each reader";
+        expect(!cld::owned_cache_payload_bound({}, asked)) << "an engine whose identity was not verified";
+        expect(!cld::owned_cache_payload_bound(owned, std::nullopt)) << "nothing asked: the engine's own bound";
+    };
+
     "on macOS background indexing yields to cold module work unless the user chooses its priority"_test = [] {
         cld::ProcessConfig config;
         const std::string defaultPriority { "--background-index-priority=background" };
@@ -1103,6 +1121,17 @@ int main() {
         expect(fatal(read.crash.has_value()));
         expect(read.crash->action == "building preamble" && read.crash->file == "/p/src/main.cpp");
         expect(!posix.read("  Filename: /p/other.cpp").crash) << "one file per context";
+    };
+
+    "an ok-image engine's fault report is kept as a crash's (openkal 0.23, KAL_DEBUG_PROP_FAULT_REPORT)"_test = [] {
+        cld::LogReader reader;
+        auto read = reader.read("openkal: fault: SIGSEGV (address not mapped) at 0x10");
+        expect(fatal(read.crash.has_value()));
+        expect(read.important && read.crash->exception == "SIGSEGV (address not mapped) at 0x10");
+        read = reader.read("openkal:   #0 0x0000100000123456 /p/clangd.okb clang::Sema::Foo+0x14");
+        expect(fatal(read.crash.has_value()));
+        expect(read.important && read.crash->stack.size() == 1u && read.crash->stack[0].starts_with("#0 0x0000100000123456"));
+        expect(!reader.read("I[18:14:52.000] clangd version 23.1.0").important) << "the report ends with its lines";
     };
 
     "LLVM's stack dump after a crash is kept for its report, as clangd prints it (K-3)"_test = [] {
@@ -1345,6 +1374,128 @@ int main() {
         expect(answer->kind == eng::Answer::Kind::unavailable) << "unavailable: the next engine answers it";
         expect(std::ranges::find(host.events, std::string { "request-timeout" }) != host.events.end());
         engine->shut_down();
+        std::filesystem::remove_all(root, ignored);
+    };
+
+    "requests waiting for a typing pause keep their own parameters, lifetime and cancellation"_test = [] {
+        using namespace std::chrono_literals;
+        std::error_code ignored;
+        const std::string root { base::join_path(base::spelled(os::dirs::temp()),
+            std::format("mcppls-test-typing-requests-{}", eng::Clock::now().time_since_epoch().count())) };
+        (void)std::filesystem::create_directories(root, ignored);
+        const std::string executable { base::join_path(root, "clangd") };
+        (void)os::fs::write(executable, "pretend-clangd");
+        auto shared = std::make_shared<BuildingProcess::Shared>();
+        cld::Options options;
+        options.executable = executable;
+        options.version = "23.1.0";
+        options.requestTimeout = 100ms;
+        options.primeImplementationUnits = false;
+        options.processFactory = [shared] { return std::make_unique<BuildingProcess>(shared); };
+        RecordingHost host { root };
+        auto engine = cld::make_engine(std::move(options));
+        engine->start(host);
+        host.pump(*engine);
+        const std::string a { base::join_path(root, "a.cpp") }, b { base::join_path(root, "b.cpp") };
+        const std::string aUri { base::path_to_uri(a) }, bUri { base::path_to_uri(b) };
+        const std::string text { "int value() { return 42; }\n" };
+        mcppls::normalize::EnginePlan plan;
+        for (const auto& file : { a, b }) {
+            (void)os::fs::write(file, text);
+            plan.entries.push_back(mcppls::normalize::EngineEntry { root, file, { "clang++", "-std=c++23", "-c", file }, {}, {}, {}, {} });
+        }
+        engine->apply(&plan);
+        const auto readyBy = eng::Clock::now() + 2s;
+        do {
+            host.pump(*engine);
+            if (engine->status().accepting) break;
+            std::this_thread::sleep_for(1ms);
+        } while (eng::Clock::now() < readyBy);
+        expect(fatal(engine->status().accepting)) << "the plan and handshake complete before requests are tested";
+        for (const auto& file : { a, b }) {
+            engine->document(eng::DocumentEvent { eng::DocumentChange::opened,
+                eng::DocumentView { base::path_to_uri(file), file, "cpp", 1, text } });
+        }
+        host.pump(*engine);
+        const auto change = [&](const std::string& file, int version) {
+            const std::string changed { text + std::format("// version {}\n", version) };
+            const Json message { { "jsonrpc", "2.0" }, { "method", "textDocument/didChange" },
+                { "params", Json { { "textDocument", Json { { "uri", base::path_to_uri(file) }, { "version", version } } },
+                    { "contentChanges", Json::array({ Json { { "text", changed } } }) } } } };
+            engine->document(eng::DocumentEvent { eng::DocumentChange::changed,
+                eng::DocumentView { base::path_to_uri(file), file, "cpp", version, changed }, &message });
+        };
+        std::map<int, std::vector<eng::Answer>> answers;
+        const auto ask = [&](int id, const std::string& file, std::string_view method, int character = 0) {
+            const Json params { { "textDocument", Json { { "uri", base::path_to_uri(file) } } },
+                { "position", Json { { "line", 0 }, { "character", character } } } };
+            const Json message { { "jsonrpc", "2.0" }, { "id", id }, { "method", method }, { "params", params } };
+            engine->request(eng::RequestView { method, &params, file, text }, message,
+                [&, id](eng::Answer answer) { answers[id].push_back(std::move(answer)); });
+        };
+        change(a, 2);
+        change(b, 2);
+        ask(10, a, "textDocument/documentSymbol");
+        ask(11, a, "textDocument/documentSymbol");   // same version and method, no cancellation
+        ask(12, a, "textDocument/documentHighlight", 4);
+        ask(13, a, "textDocument/documentHighlight", 8); // different parameters must survive
+        ask(14, b, "textDocument/documentSymbol");      // another document has an independent queue
+        ask(15, a, "textDocument/documentSymbol");
+        engine->cancel(15);
+        expect(answers[15].size() == 1u && answers[15][0].kind == eng::Answer::Kind::cancelled);
+        change(a, 3);                                  // a real later edit does not cancel a client request
+        ask(16, a, "textDocument/documentSymbol");
+        for (int id : { 10, 11, 12, 13, 14, 16 }) expect(answers[id].empty()) << "still waiting: " << id;
+        // An explicit diagnostic request ends the pause without relying on a wall-clock sleep.
+        ask(20, a, "textDocument/diagnostic");
+        ask(21, b, "textDocument/diagnostic");
+        std::vector<Json> forwarded;
+        {
+            const std::lock_guard lock { shared->mutex };
+            for (const auto& message : shared->sent) {
+                if (message.contains("id") && message.value("method", std::string {}).starts_with("textDocument/")) forwarded.push_back(message);
+            }
+        }
+        const auto count = [&](std::string_view method, const std::string& uri) {
+            return std::ranges::count_if(forwarded, [&](const Json& message) {
+                return message.value("method", std::string {}) == method && message["params"]["textDocument"]["uri"] == uri;
+            });
+        };
+        expect(count("textDocument/documentSymbol", aUri) == 3);
+        expect(count("textDocument/documentSymbol", bUri) == 1);
+        std::vector<int> positions;
+        for (const auto& message : forwarded) {
+            if (message.value("method", std::string {}) == "textDocument/documentHighlight") positions.push_back(message["params"]["position"]["character"]);
+            shared->reply(Json { { "jsonrpc", "2.0" }, { "id", message["id"] }, { "result", Json::array() } });
+        }
+        expect(positions == std::vector<int> { 4, 8 });
+        host.pump(*engine);
+        for (int id : { 10, 11, 12, 13, 14, 16 }) {
+            expect(answers[id].size() == 1u) << "exactly one completion: " << id;
+            if (!answers[id].empty()) expect(answers[id][0].kind == eng::Answer::Kind::result) << "not cancelled or superseded: " << id;
+        }
+        engine->cancel(15);
+        expect(answers[15].size() == 1u) << "a repeated cancellation does not answer twice";
+        change(a, 4);
+        ask(30, a, "textDocument/documentSymbol");
+        const auto deadline = engine->next_deadline();
+        expect(fatal(deadline.has_value()));
+        expect(*deadline < eng::Clock::now() + 150ms) << "the request's original limit is earlier than the typing pause";
+        std::this_thread::sleep_for(120ms);
+        engine->handle_timers();
+        expect(answers[30].size() == 1u && answers[30][0].kind == eng::Answer::Kind::unavailable) << "typing cannot postpone a deadline";
+        change(a, 5);
+        ask(31, a, "textDocument/documentSymbol");
+        engine->document(eng::DocumentEvent { eng::DocumentChange::closed, eng::DocumentView { aUri, a, "cpp", 5, text } });
+        expect(answers[31].size() == 1u && answers[31][0].kind == eng::Answer::Kind::unavailable) << "closing the file drains its queue";
+        change(b, 3);
+        ask(32, b, "textDocument/documentSymbol");
+        ask(33, b, "textDocument/documentSymbol");
+        ask(34, b, "textDocument/hover");  // already forwarded, not held for typing
+        engine->shut_down();
+        expect(answers[34].size() == 1u) << "shutdown also completes an already forwarded request";
+        expect(answers[32].size() == 1u && answers[33].size() == 1u) << "shutdown drains every remaining future";
+        expect(answers[15].size() == 1u && answers[30].size() == 1u && answers[31].size() == 1u) << "drained requests are never completed twice";
         std::filesystem::remove_all(root, ignored);
     };
 
@@ -2072,6 +2223,101 @@ int main() {
         expect(std::ranges::none_of(engine->status().issues, [](const auto& issue) { return issue.code == "engine-database-write-failed"; }));
         engine->shut_down();
         std::filesystem::remove_all(root, ignored);
+    };
+
+    "an image starts with its cached plan grants and a replacement never checks retired grants"_test = [] {
+        std::error_code ignored;
+        using mcppls::base::join_path;
+        using namespace std::chrono_literals;
+        const auto suffix = std::format("{}", std::chrono::steady_clock::now().time_since_epoch().count());
+        const std::string root { join_path(base::spelled(os::dirs::temp()), "mcppls-test-grant-start-" + suffix) };
+        const std::string external { join_path(base::current_directory(), ".mcppls-test-grant-start-" + suffix) };
+        (void)std::filesystem::create_directories(root, ignored);
+        (void)std::filesystem::create_directories(join_path(external, "first"), ignored);
+        (void)std::filesystem::create_directories(join_path(external, "second"), ignored);
+        const std::string executable { join_path(root, "clangd") };
+        const std::string source { join_path(root, "module.cppm") };
+        (void)os::fs::write(executable, "pretend-clangd");
+        (void)os::fs::write(source, "export module hello;\n");
+        class GrantedProcess : public BuildingProcess {
+        public:
+            std::shared_ptr<std::vector<cld::ProcessConfig>> configurations;
+            GrantedProcess(std::shared_ptr<Shared> shared, std::shared_ptr<std::vector<cld::ProcessConfig>> configs)
+                : BuildingProcess(std::move(shared)), configurations(std::move(configs)) {}
+            mcppls::base::Result<void> start(const cld::ProcessConfig& config, MessageHandler message, ClosedHandler closed, LogHandler log) override {
+                configurations->push_back(config);
+                return BuildingProcess::start(config, std::move(message), std::move(closed), std::move(log));
+            }
+        };
+        auto shared = std::make_shared<BuildingProcess::Shared>();
+        auto configs = std::make_shared<std::vector<cld::ProcessConfig>>();
+        cld::Options options;
+        options.executable = executable;
+        options.runner = executable;   // the process double captures the image's real launch configuration
+        options.version = "23.1.0";
+        options.primeImplementationUnits = false;
+        options.processFactory = [shared, configs] { return std::make_unique<GrantedProcess>(shared, configs); };
+        RecordingHost host { root };
+        auto engine = cld::make_engine(std::move(options));
+        engine->start(host);
+        expect(configs->empty()) << "cached-model adoption runs before the first timer turn";
+        expect(!engine->next_deadline().has_value()) << "waiting for the first plan does not busy-poll";
+        engine->handle_timers();
+        host.pump(*engine);
+        engine->handle_timers();
+        expect(configs->empty()) << "asynchronous target selection may take more than one event-loop turn";
+        mcppls::normalize::EnginePlan first;
+        first.entries.push_back(mcppls::normalize::EngineEntry { root, source,
+            { "clang++", "-I" + join_path(external, "first"), "-c", source }, "hello", "hello", {}, {} });
+        auto superseded = first;
+        superseded.entries.front().arguments.insert(superseded.entries.front().arguments.begin() + 1, "-DSUPERSEDED");
+        engine->apply(&superseded);
+        engine->apply(&first);
+        expect(engine->next_deadline().has_value()) << "the first plan schedules an immediate launch";
+        engine->handle_timers();
+        host.pump(*engine);
+        expect(fatal(configs->size() == 1u));
+        const auto initialDatabase = os::fs::read(join_path(configs->back().databaseDirectory, "compile_commands.json")).value_or("");
+        expect(initialDatabase.contains("module.cppm") && !initialDatabase.contains("-DSUPERSEDED"));
+        expect(cld::covered(configs->back().grants, join_path(external, "first")));
+        expect(!cld::covered(configs->back().grants, join_path(external, "second"))) << "unrelated directories are not granted";
+        expect(engine->status().restarts == 0u && !engine->report()["restartScheduled"].get<bool>());
+        auto second = first;
+        second.entries.front().arguments.insert(second.entries.front().arguments.begin() + 1, "-I" + join_path(external, "second"));
+        engine->apply(&second);
+        expect(engine->report()["restartScheduled"].get<bool>()) << "a later plan requiring another directory still restarts";
+        expect(engine->restart_on_request());
+        const auto deadline = eng::Clock::now() + 2s;
+        while (eng::Clock::now() < deadline && configs->size() < 2u) {
+            host.pump(*engine);
+            std::this_thread::sleep_for(5ms);
+        }
+        host.pump(*engine);
+        expect(fatal(configs->size() == 2u));
+        expect(cld::covered(configs->back().grants, join_path(external, "second")));
+        expect(engine->status().restarts == 1u);
+        expect(!engine->report()["restartScheduled"].get<bool>()) << "the retired grants cannot schedule a redundant restart";
+        engine->shut_down();
+        cld::Options coldOptions;
+        coldOptions.executable = executable;
+        coldOptions.runner = executable;
+        coldOptions.version = "23.1.0";
+        coldOptions.processFactory = [shared, configs] { return std::make_unique<GrantedProcess>(shared, configs); };
+        auto cold = cld::make_engine(std::move(coldOptions));
+        cold->start(host);
+        expect(configs->size() == 2u);
+        cold->handle_timers();
+        host.pump(*cold);
+        expect(configs->size() == 2u) << "a cold start also waits for the workspace's first plan decision";
+        cold->apply(nullptr);
+        expect(cold->next_deadline().has_value());
+        cold->handle_timers();
+        host.pump(*cold);
+        expect(configs->size() == 3u && cold->status().restarts == 0u && cold->status().accepting)
+            << "an explicit no-plan fallback starts immediately and completes the handshake";
+        cold->shut_down();
+        std::filesystem::remove_all(root, ignored);
+        std::filesystem::remove_all(external, ignored);
     };
 
     "a retiring process keeps its database and its successor sees only the latest plan"_test = [] {

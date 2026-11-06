@@ -34,3 +34,6 @@ editors/clion/.intellijPlatform/
 
 # Ad-hoc reviews and the throwaway scripts they came with (issue analyses, not shipped).
 .agents/reviews/
+
+# Isolated real-IDE integration sandboxes and caches.
+/out

@@ -8,12 +8,13 @@ import com.intellij.openapi.util.SystemInfo
 import com.intellij.util.system.CpuArch
 import java.io.File
 
-// Where the server is and the command that starts it (design 2026-10-29 §2.2). In order:
+// Where the server is and the command that starts it (design 2026-10-29 §2.2; ecosystem design 2026-10-29 §9). In order:
 //
 //   1. MCPPLS_SERVER, a program's absolute path (development and tests; the VS Code extension's name for it);
-//   2. the payload this plugin carries, `<plugin>/payload`: the Marketplace's package for this system holds this
-//      system's payload, and payload.json's `server` says what starts (the runner and the okb, or a program);
-//   3. `mcppls` on PATH: the universal package, a single file or xlings, for a build of the plugin without a payload.
+//   2. the payload this plugin carries, `<plugin>/payload`: one payload for every system (payload version 5), whose
+//      entry for this platform names the runner that starts the server image and the engine it drives (a payload of
+//      version 4 and earlier is one platform's: its `server` says what starts, the runner and the okb, or a program);
+//   3. `mcppls` on PATH: the openkal tree, a single file or xlings, for a build of the plugin without a payload.
 internal sealed interface Launch {
     data class Found(val command: List<String>, val source: String) : Launch
     // Something was named and cannot start; the reason says what to do.
@@ -58,28 +59,51 @@ internal fun resolveLaunch(
     return Launch.Missing
 }
 
-// The command payload.json's `server` names, with the executable bits a package may have lost put back: the runner,
-// a program server, and the clangd the server starts.
+// The command payload.json names for `platform`, with the executable bits a package may have lost put back: the runner,
+// a program server, and the clangd the server starts. A payload with no entry for `platform` is refused, saying which
+// platforms it carries.
 internal fun payloadLaunch(payload: File, platform: String = currentPlatform()): Launch {
     val manifest = readManifest(payload)
         ?: return Launch.Refused("The plugin's payload manifest ${payload.resolve("payload.json")} cannot be read. Reinstall the plugin.")
-    val built = manifest.get("platform")?.takeIf { it.isJsonPrimitive }?.asString
-    if (built != null && built != platform) {
-        return Launch.Refused("This package of the plugin is built for $built, and this machine is $platform. Install the plugin's package for this system.")
+    if (platformPart(manifest, platform) == null) {
+        val carried = payloadPlatforms(manifest).joinToString(", ").ifEmpty { "none" }
+        return Launch.Refused("The plugin's payload carries no server for $platform; it carries $carried. Reinstall the plugin, or put mcppls on the PATH.")
     }
-    val command = serverCommand(payload, manifest)
+    val command = serverCommand(payload, manifest, platform)
         ?: return Launch.Refused("The language server in the plugin's payload ($payload) is missing or incomplete. Reinstall the plugin.")
-    member(manifest, "clangd", "path")?.let { payload.resolve(it) }?.takeIf { it.isFile }?.let { runnable(it) }
+    platformPart(manifest, platform)?.clangd?.let { payload.resolve(it) }?.takeIf { it.isFile }?.let { runnable(it) }
     return Launch.Found(command, "payload")
 }
 
-// payload.json's `server`: the image through the runner it names (`bin/okrun bin/mcppls.okb`), or a program alone.
-// Null when what it names is not there.
-internal fun serverCommand(payload: File, manifest: JsonObject? = readManifest(payload)): List<String>? {
+// This platform's part of a payload: the runner of the server image (none for a program server) and the engine.
+internal data class PlatformPart(val runner: String?, val clangd: String?)
+
+// Payload version 5 has an entry per platform; versions 1 to 4 are the one platform they name (a payload naming none
+// was assembled for the machine it is on).
+internal fun platformPart(manifest: JsonObject, platform: String): PlatformPart? {
+    manifest.get("platforms")?.takeIf { it.isJsonObject }?.asJsonObject?.let { platforms ->
+        val entry = platforms.get(platform)?.takeIf { it.isJsonObject }?.asJsonObject ?: return null
+        val runner = entry.get("runner")?.takeIf { it.isJsonPrimitive }?.asString
+        val clangd = entry.get("engines")?.takeIf { it.isJsonObject }?.asJsonObject?.let { member(it, "clangd", "path") }
+        return PlatformPart(runner, clangd)
+    }
+    val built = manifest.get("platform")?.takeIf { it.isJsonPrimitive }?.asString
+    if (built != null && built != platform) return null
+    return PlatformPart(member(manifest, "server", "runner"), member(manifest, "clangd", "path"))
+}
+
+internal fun payloadPlatforms(manifest: JsonObject): List<String> =
+    manifest.get("platforms")?.takeIf { it.isJsonObject }?.asJsonObject?.keySet()?.toList()
+        ?: listOfNotNull(manifest.get("platform")?.takeIf { it.isJsonPrimitive }?.asString)
+
+// What starts the server on `platform`: the image through this platform's runner (`libexec/okrun/<system>/okrun
+// bin/mcppls.okb`), or a program alone. Null when what it names is not there.
+internal fun serverCommand(payload: File, manifest: JsonObject? = readManifest(payload), platform: String = currentPlatform()): List<String>? {
     val path = manifest?.let { member(it, "server", "path") } ?: return null
     val image = payload.resolve(path)
     if (!image.isFile) return null
-    val runner = member(manifest, "server", "runner") ?: return listOf(runnable(image).path)
+    val part = platformPart(manifest, platform) ?: return null
+    val runner = part.runner ?: return listOf(runnable(image).path)
     val program = payload.resolve(runner)
     return if (program.isFile) listOf(runnable(program).path, image.path) else null
 }

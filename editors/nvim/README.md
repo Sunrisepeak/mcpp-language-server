@@ -11,17 +11,18 @@ Neovim 0.10 or later. CI runs it on 0.10.4, 0.11.5 and 0.12.5.
 The plugin starts `mcppls serve`. It looks for the server in this order:
 
 1. `server` given to `setup()`: a program, or a payload's image `<payload>/bin/mcppls.okb`, which it
-   starts through the runner the payload names (`<payload>/bin/okrun`)
+   starts through the runner the payload names for this platform
+   (`<payload>/libexec/okrun/<system>-<arch>/okrun`)
 2. `mcppls` on `PATH`
 3. the server of the payload `MCPPLS_PAYLOAD` names, else of `<user data>/mcppls/payload`, where
    `mcpp run -p devtools -- extension --install` puts it (`~/.local/share` on Linux,
-   `~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows): as its `payload.json`
-   says, the platform's runner `bin/okrun` starting the image `bin/mcppls.okb`
+   `~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows): as its `payload.json`'s
+   entry for this platform says, the system's runner starting the image `bin/mcppls.okb`
 
-The simplest way to get it: download `payload-<platform>.tar.gz` (`linux-x64`, `linux-arm64`,
-`darwin-arm64`, `win32-x64`) from the [release page](https://github.com/Sunrisepeak/mcpp-language-server/releases)
-and unpack it into that user data directory, so it is `<user data>/mcppls/payload`. The payload
-carries a pinned clangd and the semantic kit, so nothing else is needed. An `mcppls` on `PATH` (the
+The simplest way to get it: download `mcppls-payload-<version>.tar.gz`, one for every platform, from
+the [release page](https://github.com/Sunrisepeak/mcpp-language-server/releases) and unpack it into
+that user data directory, so it is `<user data>/mcppls/payload`. The payload carries the pinned clangd
+of every platform and the openkal semantic kit, so nothing else is needed. An `mcppls` on `PATH` (the
 release's `mcppls-<version>-openkal.zip` or single file) comes first.
 
 ## Install the plugin

@@ -188,15 +188,18 @@ base::Result<Result> take_engine_part(const std::string& archivePath, const Opti
     std::filesystem::rename(base::join_path(scratch, "clangd"), options.outDirectory, moved);
     std::filesystem::remove_all(scratch, ignored);
     if (moved) return base::fail("clangd-part", std::format("cannot place the engine part of {}: {}", archivePath, moved.message()));
-    const std::string binary { base::join_path(options.outDirectory, std::format("bin/clangd{}", targets::executable_suffix(target))) };
+    // The ok image (mcppls-clangd's `clangd-<version>-openkal` part) is data its runner reads: not marked, not run here.
+    const std::string image { base::join_path(options.outDirectory, "bin/clangd.okb") };
+    const bool ok { std::filesystem::is_regular_file(image, ignored) };
+    const std::string binary { ok ? image : base::join_path(options.outDirectory, std::format("bin/clangd{}", targets::executable_suffix(target))) };
     for (const std::string& required : { binary, base::join_path(options.outDirectory, "LICENSE.TXT"), base::join_path(options.outDirectory, "engine.json") }) {
         if (!std::filesystem::is_regular_file(required, ignored)) return base::fail("clangd-missing-binary", std::format("{} has no {}", archivePath, required));
     }
-    if (target.os != targets::Os::win32) {
+    if (!ok && target.os != targets::Os::win32) {
         const std::vector<std::string> executables { binary };
         if (auto marked = base::make_executable(executables); !marked) return std::unexpected { marked.error() };
     }
-    auto versionLine = version_line(binary, options.platform);
+    auto versionLine = ok ? base::Result<std::optional<std::string>> { std::optional<std::string> {} } : version_line(binary, options.platform);
     if (!versionLine) return std::unexpected { versionLine.error() };
     return Result {
         .directory = base::canonical_path(options.outDirectory),

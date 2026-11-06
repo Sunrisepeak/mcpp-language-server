@@ -164,6 +164,10 @@ void WorkspaceLease::renew(std::chrono::system_clock::time_point now) {
     write_instance(shared_, workspaceDirectory_, directory_, token_, root_, now);
 }
 
+std::string WorkspaceLease::status_path() const {
+    return base::join_path(shared_ ? directory_ : workspaceDirectory_, "status.json");
+}
+
 void WorkspaceLease::release() {
     std::error_code ignored;
     if (released_) return;
@@ -176,6 +180,7 @@ void WorkspaceLease::release() {
     if (const auto current = read_lease(workspaceDirectory_); current && current->token == token_) {
         std::filesystem::remove_all(lease_path(workspaceDirectory_), ignored);
         (void)[&] { std::error_code failed; std::filesystem::remove(instance_path(shared_, workspaceDirectory_, directory_), failed); return !failed; }();
+        std::filesystem::remove(status_path(), ignored);
     }
 }
 

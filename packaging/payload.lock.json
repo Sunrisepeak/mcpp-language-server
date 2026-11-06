@@ -1,35 +1,14 @@
 {
   "lock-version": 1,
-  "comment": "Every upstream input of the bundled payload, and the one table of platforms. Change versions here only; CI fetches, verifies and assembles. Each sha256 was checked against two independent downloads and against the digest the release publishes beside the asset. The server version is read from mcpp.toml. A platform is named <os>-<arch> as VS Code names extension targets; the VS Code extension, the release manifest and CI's matrices list the same platforms, which `mcppls-devtools check platforms` holds them to.",
-  "clangd-version": "23.1.0-mcppls.5",
+  "comment": "Every upstream input of the payload and the target kits, and the one table of platforms. Change versions here only; CI fetches, verifies and assembles. Each sha256 was checked against two independent downloads and against the digest the release publishes beside the asset. The server version is read from mcpp.toml. A platform is named <os>-<arch> as VS Code names extension targets; each row names the engine its payload entry carries, the target kit built for it (published as mcppls-kit-<kit.name>) and the target its test tools are built for. The VS Code extension, the CLion plugin, the release manifest and CI's matrices list the same platforms, which `mcppls-devtools check platforms` holds them to.",
+  "clangd-version": "23.1.0-mcppls.9",
   "libcxx-version": "23.1.0",
   "entries": {
-    "mcppls-clangd-linux-x64": {
-      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.17/clangd-23.1.0-mcppls.5-linux-x64.tar.gz",
-      "file": "clangd-23.1.0-mcppls.5-linux-x64.tar.gz",
-      "size": 20958477,
-      "sha256": "b2625e139b049fe7f05abefe013eaafc8e02c4000c5fc9b10ca96cbed48c3641",
-      "license": "Apache-2.0 WITH LLVM-exception"
-    },
-    "mcppls-clangd-linux-arm64": {
-      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.17/clangd-23.1.0-mcppls.5-linux-arm64.tar.gz",
-      "file": "clangd-23.1.0-mcppls.5-linux-arm64.tar.gz",
-      "size": 19905303,
-      "sha256": "86bdb8e9da8b7793c2b1b8ce4b0f6088068d98ad2399c9644ec5492eed66e1a8",
-      "license": "Apache-2.0 WITH LLVM-exception"
-    },
-    "mcppls-clangd-darwin-arm64": {
-      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.17/clangd-23.1.0-mcppls.5-darwin-arm64.tar.gz",
-      "file": "clangd-23.1.0-mcppls.5-darwin-arm64.tar.gz",
-      "size": 19859900,
-      "sha256": "b074da48002393e8f288b61cd0aaf357dccc6d5c84ea11c253777e7ae2877dee",
-      "license": "Apache-2.0 WITH LLVM-exception"
-    },
-    "mcppls-clangd-win32-x64": {
-      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.17/clangd-23.1.0-mcppls.5-win32-x64.tar.gz",
-      "file": "clangd-23.1.0-mcppls.5-win32-x64.tar.gz",
-      "size": 20242765,
-      "sha256": "db89c00263be56d23fee0b1efd343073f6ed6dd3bacad9263e3cd71ad00dc5cd",
+    "mcppls-clangd-openkal": {
+      "url": "https://github.com/Sunrisepeak/mcppls-clangd/releases/download/v0.0.20/clangd-23.1.0-mcppls.9-openkal.tar.gz",
+      "file": "clangd-23.1.0-mcppls.9-openkal.tar.gz",
+      "size": 50278153,
+      "sha256": "1b971298c0674025298a1f0658c4d6e4498f0cd0a2686a2757fdeca25ef9b748",
       "license": "Apache-2.0 WITH LLVM-exception"
     },
     "llvm-project-src": {
@@ -50,38 +29,42 @@
   },
   "platforms": {
     "linux-x64": {
-      "clangd": "mcppls-clangd-linux-x64",
+      "clangd": "mcppls-clangd-openkal",
       "kit": {
         "recipe": "libcxx-source",
         "source": "llvm-project-src",
-        "target": "x86_64-unknown-linux-gnu"
+        "target": "x86_64-unknown-linux-gnu",
+        "name": "x86_64-linux-gnu"
       },
       "server-target": "x86_64-linux-gnu"
     },
     "linux-arm64": {
-      "clangd": "mcppls-clangd-linux-arm64",
+      "clangd": "mcppls-clangd-openkal",
       "kit": {
         "recipe": "libcxx-source",
         "source": "llvm-project-src",
-        "target": "aarch64-unknown-linux-gnu"
+        "target": "aarch64-unknown-linux-gnu",
+        "name": "aarch64-linux-gnu"
       },
       "server-target": "aarch64-linux-musl"
     },
     "darwin-arm64": {
-      "clangd": "mcppls-clangd-darwin-arm64",
+      "clangd": "mcppls-clangd-openkal",
       "kit": {
         "recipe": "libcxx-source",
         "source": "llvm-project-src",
-        "target": "arm64-apple-darwin"
+        "target": "arm64-apple-darwin",
+        "name": "arm64-apple-darwin"
       },
       "server-target": "aarch64-macos"
     },
     "win32-x64": {
-      "clangd": "mcppls-clangd-win32-x64",
+      "clangd": "mcppls-clangd-openkal",
       "kit": {
         "recipe": "llvm-mingw",
         "source": "llvm-mingw",
-        "target": "x86_64-w64-mingw32"
+        "target": "x86_64-w64-mingw32",
+        "name": "x86_64-w64-mingw32"
       },
       "server-target": "x86_64-windows-gnu"
     }

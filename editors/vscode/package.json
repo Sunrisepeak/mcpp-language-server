@@ -2,7 +2,7 @@
   "name": "mcpp-language-server",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "0.0.19",
+  "version": "0.0.20",
   "publisher": "sunrisepeak",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -256,6 +256,11 @@
         "category": "C++ Modules"
       },
       {
+        "command": "mcppls.askBeforeInstallingKits",
+        "title": "%command.mcppls.askBeforeInstallingKits.title%",
+        "category": "C++ Modules"
+      },
+      {
         "command": "mcppls.turnOffOtherCppFeatures",
         "title": "%command.mcppls.turnOffOtherCppFeatures.title%",
         "category": "C++ Modules"
@@ -309,6 +314,34 @@
             "%config.mcppls.engine.preambleStorage.enum.2%"
           ],
           "description": "%config.mcppls.engine.preambleStorage.description%"
+        },
+        "mcppls.resources": {
+          "type": "string",
+          "enum": [
+            "balanced",
+            "performance",
+            "economy"
+          ],
+          "default": "balanced",
+          "enumDescriptions": [
+            "%config.mcppls.resources.enum.0%",
+            "%config.mcppls.resources.enum.1%",
+            "%config.mcppls.resources.enum.2%"
+          ],
+          "description": "%config.mcppls.resources.description%"
+        },
+        "mcppls.grants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "%config.mcppls.grants.description%"
+        },
+        "mcppls.engine.confine": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.mcppls.engine.confine.description%"
         },
         "mcppls.engine.diagnosticsWhileTyping": {
           "type": "string",

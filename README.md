@@ -51,11 +51,11 @@ Download from the [release page](https://github.com/Sunrisepeak/mcpp-language-se
 
 | Editor | Asset | Install |
 |---|---|---|
-| VS Code | the [Marketplace](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server), or `mcppls-<platform>.vsix` | search *mcppls* or *C++ Modules Language Server*, or `code --install-extension mcppls-<platform>.vsix` |
-| Cursor, VSCodium, Windsurf and other VS Code-compatible editors | [Open VSX](https://open-vsx.org/extension/sunrisepeak/mcpp-language-server), or `mcppls-<platform>.vsix` | search *mcppls* in the editor's extensions view, or install the `.vsix` from it |
+| VS Code | the [Marketplace](https://marketplace.visualstudio.com/items?itemName=sunrisepeak.mcpp-language-server), or `mcppls-<version>.vsix` (one for every system) | search *mcppls* or *C++ Modules Language Server*, or `code --install-extension mcppls-<version>.vsix` |
+| Cursor, VSCodium, Windsurf and other VS Code-compatible editors | [Open VSX](https://open-vsx.org/extension/sunrisepeak/mcpp-language-server), or `mcppls-<version>.vsix` | search *mcppls* in the editor's extensions view, or install the `.vsix` from it |
 | Zed | `mcppls-zed-<version>.tar.gz` | see [docs/00-install.md](docs/00-install.md) |
-| CLion | the JetBrains Marketplace, or `mcppls-clion-<version>-<platform>.zip` | see [docs/00-install.md](docs/00-install.md) |
-| Neovim | `payload-<platform>.tar.gz` | unpack it as `<user data>/mcppls/payload` ([docs/00-install.md](docs/00-install.md)), then the plugin in [editors/nvim](editors/nvim/README.md) |
+| CLion | the JetBrains Marketplace, or `mcppls-clion-<version>.zip` (one for every system) | see [docs/00-install.md](docs/00-install.md) |
+| Neovim | `mcppls-payload-<version>.tar.gz` (one for every platform) | unpack it as `<user data>/mcppls/payload` ([docs/00-install.md](docs/00-install.md)), then the plugin in [editors/nvim](editors/nvim/README.md) |
 | Any other LSP client | `mcppls-<version>-openkal.zip` (every system and architecture), or the single file `mcppls-<version>-<system>-<arch>` | put its `bin/` (or the file, as `mcppls`) on `PATH`, run `mcppls serve`; a payload adds the pinned clangd and kit (`--payload`) |
 
 ### From source

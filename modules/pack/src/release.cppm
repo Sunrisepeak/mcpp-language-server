@@ -15,7 +15,9 @@ export namespace mcppls::pack::release {
 
 struct Asset {
     std::string id;
-    std::string pattern;      // "{platform}" and "{version}" placeholders, `std::format`-free
+    // "{platform}", "{version}" and "{kit}" (the platform's kit, packaging/payload.lock.json's `kit.name`)
+    // placeholders, `std::format`-free; a `*` stands for a version the release does not name (a kit's).
+    std::string pattern;
     bool perPlatform { false };
     bool required { false };
     std::string what;
@@ -25,6 +27,7 @@ struct Asset {
 struct Manifest {
     std::string releaseName;   // "{version}" placeholder
     std::vector<std::string> platforms;
+    std::map<std::string, std::string> kits;   // platform -> its kit's name, for "{kit}"; the caller fills it from the lock
     std::vector<Asset> assets;
     std::vector<std::string> notInARelease;
 };
@@ -32,7 +35,7 @@ struct Manifest {
 base::Result<Manifest> load_manifest(std::string_view path);
 
 // One file name this release declares, and the asset it comes from -- one row per platform for a
-// per-platform asset, one row otherwise.
+// per-platform asset, one row otherwise. A name with a `*` matches any file of that shape.
 struct Expected {
     std::string name;
     Asset asset;

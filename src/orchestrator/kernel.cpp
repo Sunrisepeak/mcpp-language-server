@@ -199,6 +199,9 @@ struct Kernel::Impl {
         case EventKind::tool_run:
             if (event.rootKey == workspace->key()) workspace->handle_tool_run(event.message);
             break;
+        case EventKind::kit_installed:
+            if (event.rootKey == workspace->key()) workspace->handle_kit_installed(event.message);
+            break;
         case EventKind::external:
             if (event.message.is_null()) externalClosed = true;
             else external.push_back(std::move(event.message));

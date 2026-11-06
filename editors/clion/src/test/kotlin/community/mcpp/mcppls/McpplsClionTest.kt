@@ -154,8 +154,8 @@ class McpplsClionTest : UsefulTestCase() {
         println("CLION-ENGINE-EVIDENCE [$what] completions: $completions")
     }
 
-    // payload.json's `server` is what starts: the image through the runner it names, or a program; a payload built
-    // for another system is refused; MCPPLS_SERVER comes first and PATH last.
+    // A payload of version 4 and earlier is one platform's: its `server` is what starts, the image through the runner it
+    // names, or a program; a payload built for another system is refused; MCPPLS_SERVER comes first and PATH last.
     fun testThePayloadStartsWhatItsManifestNames() {
         val payload = Files.createTempDirectory("mcppls-payload").toFile()
         try {
@@ -163,16 +163,16 @@ class McpplsClionTest : UsefulTestCase() {
             val runner = bin.resolve("okrun").also { it.writeText("runner") }
             val image = bin.resolve("mcppls.okb").also { it.writeText("okb") }
             payload.resolve("payload.json").writeText("""{"platform": "linux-x64", "server": {"path": "bin/mcppls.okb", "runner": "bin/okrun"}}""")
-            assertEquals(listOf(runner.path, image.path), serverCommand(payload))
+            assertEquals(listOf(runner.path, image.path), serverCommand(payload, platform = "linux-x64"))
             assertTrue("the runner's executable bit is put back", runner.canExecute())
             assertEquals(Launch.Found(listOf(runner.path, image.path), "payload"), payloadLaunch(payload, "linux-x64"))
             assertTrue("another system's payload is refused", payloadLaunch(payload, "win32-x64") is Launch.Refused)
             image.delete()
-            assertNull("an image that is not there is not started", serverCommand(payload))
+            assertNull("an image that is not there is not started", serverCommand(payload, platform = "linux-x64"))
             assertTrue(payloadLaunch(payload, "linux-x64") is Launch.Refused)
             val program = bin.resolve("mcppls").also { it.writeText("program") }
             payload.resolve("payload.json").writeText("""{"server": {"path": "bin/mcppls"}}""")
-            assertEquals(listOf(program.path), serverCommand(payload))
+            assertEquals(listOf(program.path), serverCommand(payload, platform = "linux-x64"))
 
             val elsewhere = File("/usr/bin/env")
             val onPath = { elsewhere }
@@ -185,6 +185,49 @@ class McpplsClionTest : UsefulTestCase() {
         } finally {
             payload.deleteRecursively()
         }
+    }
+
+    // One payload for every system (payload version 5): this platform's entry names the runner and the engine; a platform
+    // the payload has no entry for is refused, saying which it carries.
+    fun testOnePayloadStartsThisPlatformsRunner() {
+        val payload = Files.createTempDirectory("mcppls-payload-one").toFile()
+        try {
+            val image = payload.resolve("bin").also { it.mkdirs() }.resolve("mcppls.okb").also { it.writeText("okb") }
+            val runner = payload.resolve("libexec/okrun/linux-x86_64").also { it.mkdirs() }.resolve("okrun").also { it.writeText("runner") }
+            payload.resolve("payload.json").writeText(
+                """{"payload-version": 5, "server": {"version": "0.0.20", "path": "bin/mcppls.okb"}, "kit": {"name": "k", "path": "kit"},
+                   "platforms": {
+                     "linux-x64": {"runner": "libexec/okrun/linux-x86_64/okrun", "engines": {"clangd": {"version": "23", "path": "clangd/linux-x64/bin/clangd"}}},
+                     "win32-x64": {"runner": "libexec/okrun/windows-x86_64/okrun.exe", "engines": {"clangd": {"version": "23", "path": "clangd/win32-x64/bin/clangd.exe"}}}}}""")
+            assertEquals(Launch.Found(listOf(runner.path, image.path), "payload"), payloadLaunch(payload, "linux-x64"))
+            assertTrue("the runner's executable bit is put back", runner.canExecute())
+            val refused = payloadLaunch(payload, "darwin-arm64")
+            assertTrue("a platform the payload lacks is refused: $refused", refused is Launch.Refused &&
+                refused.reason.contains("darwin-arm64") && refused.reason.contains("linux-x64, win32-x64"))
+            assertNull("its runner is not there", serverCommand(payload, platform = "win32-x64"))
+        } finally {
+            payload.deleteRecursively()
+        }
+    }
+
+    // The semantic kit of a target: the status's kit-missing issue, asked once per kit (KitPrompt).
+    fun testAKitIsAskedAboutOncePerKit() {
+        val status = com.google.gson.JsonParser.parseString(
+            """{"issues": [{"code": "kit-missing", "message": "the semantic kit for x86_64-linux-gnu is not installed", "askInstall": true,
+                "kit": {"target": "x86_64-linux-gnu", "package": "mcppls-kit-x86_64-linux-gnu", "version": "23.1.0",
+                        "command": "xlings install mcppls-kit-x86_64-linux-gnu@23.1.0"}}],
+               "kitInstall": {"outcome": "installed", "target": "x86_64-linux-gnu", "message": "installed", "at": "2026-10-30T00:00:00Z"}}""").asJsonObject
+        val issue = checkNotNull(kitIssue(status))
+        assertEquals("mcppls-kit-x86_64-linux-gnu@23.1.0", issue.key)
+        assertEquals(KitAction.ASK, kitAction(issue, never = false, always = false, askedAbout = emptyList(), open = false))
+        assertEquals(KitAction.INSTALL, kitAction(issue, never = false, always = true, askedAbout = emptyList(), open = false))
+        assertEquals(KitAction.NONE, kitAction(issue, never = true, always = false, askedAbout = emptyList(), open = false))
+        assertEquals(KitAction.NONE, kitAction(issue, never = false, always = true, askedAbout = listOf(issue.key), open = false))
+        assertEquals(KitAction.NONE, kitAction(issue, never = false, always = false, askedAbout = emptyList(), open = true))
+        assertEquals(KitAction.NONE, kitAction(issue.copy(askInstall = false), never = false, always = true, askedAbout = emptyList(), open = false))
+        assertEquals("2026-10-30T00:00:00Z", kitInstallToTell(status, emptyList())?.at)
+        assertNull(kitInstallToTell(status, listOf("2026-10-30T00:00:00Z")))
+        assertNull(kitIssue(com.google.gson.JsonParser.parseString("""{"issues": []}""").asJsonObject))
     }
 
     // This machine's package carries the payload, and that is what the plugin starts.

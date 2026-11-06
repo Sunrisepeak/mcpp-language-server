@@ -4,6 +4,7 @@
 import * as vscode from 'vscode';
 import { cacheSegment, clampMaxLength, combineTier, fits, Tier, CxxCacheStatus } from './cacheSegment';
 import type { OnlineRun } from './downloadAsk';
+import type { KitInstall } from './kitAsk';
 import { offersCacheReset, RESET_CACHE_COMMAND } from './cacheReset';
 import { cachedCacheDetail, OPEN_CACHE_HUB_COMMAND, SWEEP_WORKSPACE_CACHE_COMMAND, COPY_AGENT_PROMPT_COMMAND, REVEAL_CACHE_DIRECTORY_COMMAND } from './cacheSweep';
 import { COPY_REPOSITORY_URL_COMMAND } from './commands';
@@ -62,6 +63,8 @@ export interface CxxModulesStatus {
     notices?: ModuleIssue[];
     // D-5 (plan 0.0.9): how the last fetch the person asked for ended (downloadPrompt.ts tells it once).
     onlineRun?: OnlineRun;
+    // S3-4-39: how the last semantic kit install the person asked for ended (kitPrompt.ts tells it once).
+    kitInstall?: KitInstall;
     // 0.0.10 plan C-13.1 (S3-4-29): the cache's coarse numbers, present when the client declared
     // `status: true`; the detail lives behind `cxxModules/cache`.
     cache?: CxxCacheStatus;

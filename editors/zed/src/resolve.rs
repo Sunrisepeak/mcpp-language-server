@@ -9,6 +9,13 @@ pub enum Platform {
     Windows,
 }
 
+/// The machine's architecture, as the payload names its runners' directories.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Arch {
+    X86_64,
+    Aarch64,
+}
+
 /// What Zed is asked to run.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Launch {
@@ -22,19 +29,29 @@ pub const NOT_FOUND: &str = "mcppls is not on PATH. Build and install it from a 
 /// PATH first (`on_path` is what the worktree's `which` found): an `mcppls` the user installed -- the
 /// universal package's launcher, a single file, or a build of their own. Then the payload
 /// `mcpp run -p devtools -- extension --editor zed --install` puts at <user data>/mcppls/payload
-/// (tools/devtools/src/editors.cppm), whose server is an image: the platform's runner `bin/okrun`
-/// starts `bin/mcppls.okb`, as its payload.json's `server` says. The sandbox cannot look outside this
-/// extension's work directory, so that layout is taken as written rather than read, and not checked to
-/// exist: when it is missing, starting it fails with its path in the message. Only when neither can be
-/// named is the error the one above.
-pub fn resolve(on_path: Option<String>, platform: Platform, env: &[(String, String)]) -> Result<Launch, String> {
+/// (tools/devtools/src/editors.cppm), whose server is an image: one payload for every system, whose
+/// runner of this system and architecture, `libexec/okrun/<system>-<arch>/okrun`, starts
+/// `bin/mcppls.okb`, as its payload.json's entry for this platform says. The sandbox cannot look
+/// outside this extension's work directory, so that layout is taken as written rather than read, and
+/// not checked to exist: when it is missing, starting it fails with its path in the message. Only when
+/// neither can be named is the error the one above.
+pub fn resolve(on_path: Option<String>, platform: Platform, arch: Arch, env: &[(String, String)]) -> Result<Launch, String> {
     if let Some(command) = on_path {
         return Ok(Launch { command, args: vec!["serve".to_string()] });
     }
     let payload = installed_payload(platform, env).ok_or_else(|| NOT_FOUND.to_string())?;
     let (separator, exe) = if platform == Platform::Windows { ('\\', ".exe") } else { ('/', "") };
+    let system = match platform {
+        Platform::Linux => "linux",
+        Platform::Mac => "macos",
+        Platform::Windows => "windows",
+    };
+    let arch = match arch {
+        Arch::X86_64 => "x86_64",
+        Arch::Aarch64 => "aarch64",
+    };
     Ok(Launch {
-        command: format!("{payload}{separator}bin{separator}okrun{exe}"),
+        command: format!("{payload}{separator}libexec{separator}okrun{separator}{system}-{arch}{separator}okrun{exe}"),
         args: vec![format!("{payload}{separator}bin{separator}mcppls.okb"), "serve".to_string()],
     })
 }
@@ -67,14 +84,14 @@ mod tests {
 
     #[test]
     fn path_wins_over_the_installed_payload() {
-        let launch = resolve(Some("/usr/bin/mcppls".into()), Platform::Linux, &env(&[("HOME", "/home/u")])).unwrap();
+        let launch = resolve(Some("/usr/bin/mcppls".into()), Platform::Linux, Arch::X86_64, &env(&[("HOME", "/home/u")])).unwrap();
         assert_eq!(launch, Launch { command: "/usr/bin/mcppls".into(), args: vec!["serve".into()] });
     }
 
     #[test]
     fn the_installed_payload_runs_its_image_through_its_runner() {
-        let launch = resolve(None, Platform::Linux, &env(&[("HOME", "/home/u")])).unwrap();
-        assert_eq!(launch.command, "/home/u/.local/share/mcppls/payload/bin/okrun");
+        let launch = resolve(None, Platform::Linux, Arch::X86_64, &env(&[("HOME", "/home/u")])).unwrap();
+        assert_eq!(launch.command, "/home/u/.local/share/mcppls/payload/libexec/okrun/linux-x86_64/okrun");
         assert_eq!(launch.args, ["/home/u/.local/share/mcppls/payload/bin/mcppls.okb", "serve"]);
     }
 
@@ -90,24 +107,30 @@ mod tests {
 
     #[test]
     fn neither_gives_the_error_that_names_the_fix() {
-        let error = resolve(None, Platform::Linux, &[]).unwrap_err();
+        let error = resolve(None, Platform::Linux, Arch::X86_64, &[]).unwrap_err();
         assert_eq!(error, NOT_FOUND);
         assert!(error.contains("mcppls is not on PATH"));
         assert!(error.contains("extension --editor zed --install"));
-        assert!(resolve(None, Platform::Windows, &env(&[("HOME", "C:\\Users\\u")])).is_err());
+        assert!(resolve(None, Platform::Windows, Arch::X86_64, &env(&[("HOME", "C:\\Users\\u")])).is_err());
     }
 
     #[test]
     fn windows_runner_is_an_exe_under_local_app_data() {
-        let launch = resolve(None, Platform::Windows, &env(&[("LocalAppData", "C:\\Users\\u\\AppData\\Local")])).unwrap();
-        assert_eq!(launch.command, "C:\\Users\\u\\AppData\\Local\\mcppls\\payload\\bin\\okrun.exe");
+        let launch = resolve(None, Platform::Windows, Arch::X86_64, &env(&[("LocalAppData", "C:\\Users\\u\\AppData\\Local")])).unwrap();
+        assert_eq!(launch.command, "C:\\Users\\u\\AppData\\Local\\mcppls\\payload\\libexec\\okrun\\windows-x86_64\\okrun.exe");
         assert_eq!(launch.args, ["C:\\Users\\u\\AppData\\Local\\mcppls\\payload\\bin\\mcppls.okb", "serve"]);
     }
 
     #[test]
+    fn linux_arm64_takes_its_own_runner() {
+        let launch = resolve(None, Platform::Linux, Arch::Aarch64, &env(&[("HOME", "/home/u")])).unwrap();
+        assert_eq!(launch.command, "/home/u/.local/share/mcppls/payload/libexec/okrun/linux-aarch64/okrun");
+    }
+
+    #[test]
     fn mac_payload_is_under_application_support() {
-        let launch = resolve(None, Platform::Mac, &env(&[("HOME", "/Users/u")])).unwrap();
-        assert_eq!(launch.command, "/Users/u/Library/Application Support/mcppls/payload/bin/okrun");
+        let launch = resolve(None, Platform::Mac, Arch::Aarch64, &env(&[("HOME", "/Users/u")])).unwrap();
+        assert_eq!(launch.command, "/Users/u/Library/Application Support/mcppls/payload/libexec/okrun/macos-aarch64/okrun");
         assert_eq!(launch.args[0], "/Users/u/Library/Application Support/mcppls/payload/bin/mcppls.okb");
     }
 }

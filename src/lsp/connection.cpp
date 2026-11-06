@@ -18,7 +18,7 @@ base::Result<std::unique_ptr<Connection>> Connection::start(mcpplibs::os::proces
     options.out = process::stdio::pipe;
     options.err = onErrorLine ? process::stdio::pipe : process::stdio::error;
     auto started = process::process::spawn(options);
-    if (!started) return base::fail("spawn-failed", started.error().message());
+    if (!started) return base::fail("spawn-failed", started.error());
 
     auto connection = std::make_unique<Connection>();
     connection->process_ = std::move(*started);

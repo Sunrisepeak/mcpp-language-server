@@ -9,6 +9,7 @@ import nlohmann.json;
 import mcppls.normalize.plan;
 import mcppls.engine;
 import mcppls.engine.clangd.process;
+import mcppls.engine.clangd.grants;
 
 export namespace mcppls::engine::clangd {
 
@@ -22,6 +23,12 @@ inline constexpr std::string_view ENGINE_ID { "clangd" };
 EngineTraits traits_for_version(std::string_view version, std::span<const std::string> disabled = {},
                                std::span<const std::string> verifiedFeatures = {});
 
+// The bound of mcppls-clangd's owned module cache to give an engine: an engine whose verified identity declares
+// the cache (`owned-module-cache`: the system it runs on provides what the cache needs, native or ok image) is
+// given it; any other engine given one fails every module build. Unset: give none.
+std::optional<std::uint64_t> owned_cache_payload_bound(std::span<const std::string> verifiedFeatures,
+                                                       std::optional<std::uint64_t> requestedMiB);
+
 // WA-CLANGD-009: whether the project of `plan` uses C++ modules at all -- a unit that is part of or provides a module,
 // imports one (`import std;` included), or an import nothing provides (a stand-in, or an issue naming the module).
 // A project that does not gets a clangd without --experimental-modules-support.
@@ -29,6 +36,7 @@ bool plan_uses_modules(const normalize::EnginePlan& plan);
 
 struct Options {
     std::string executable;        // empty, or a file that does not exist: the engine is unavailable
+    std::string runner;            // the program that starts an ok-image engine (`okrun clangd.okb`); empty for a program
     std::string version;
     bool payloadCorrupt { false };
     bool verboseLog { false };
@@ -65,6 +73,13 @@ struct Options {
     // is built for the index; one is built at a time, and none is started while they are at work (tests shorten it).
     std::chrono::milliseconds implementationQuiet { std::chrono::seconds { 10 } };
     std::function<std::unique_ptr<Process>()> processFactory;   // empty: a real clangd process
+    // mcppls.resources (mcpp design 2026-11-03 part 4 §16): what the engine spends the machine for, which it and the
+    // workers it starts read; the automatic workers follow it (engine_workers).
+    std::string resources { "balanced" };
+    // mcppls.grants: directories added to those an ok-image engine is given, or `all` for the runner's defaults
+    // (grants.cppm); mcppls.engine.confine: the engine held to them by the system as well.
+    GrantSetting grants;
+    bool confine { false };
 };
 
 std::unique_ptr<Engine> make_engine(Options options);

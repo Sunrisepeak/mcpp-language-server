@@ -24,6 +24,9 @@
 
 日志文件不会随编辑器关闭而消失：报告里写明路径，日志按时间戳保存在缓存目录下。
 
+`mcppls status --root <dir>` 回答一个更短的问题——这个工作区有没有服务器在服务、处于什么状态、用哪个引擎、kit 与 mcpp——毫秒级，
+不启动任何东西；`--format json` 是 mcpp 的 IDE 插件读取的形式（[S3 第 8 节](../specs/s3-lsp-extensions.md)）。
+
 ### 日志里写了什么
 
 默认（`info`）级别的日志不开 `debug` 就能回答“为什么慢”“为什么这样做”。下面这些行格式固定，报告的 `events` 里有同样的事实。
@@ -142,7 +145,7 @@ mcppls report --bundle problem.zip --root path/to/project   # 可加 --hide-proj
 
 **“clangd stopped making progress; it was restarted”。** clangd 有请求一直没答，期间也没答任何别的请求，并且五秒内几乎没用 CPU：它在等一个不会来的东西，而不是在编译（编译会一直占着一个核，这种情况不会被打断）。`events` 日志里有一条带具体数字的 `engine-stuck`。已经观察到 clangd 23.1 在某个模块的源文件一秒内被改两次之后出现这种情况。在 Windows 上服务端读不到 clangd 的 CPU 时间，所以检测不到；clangd 不再应答的文件仍会被逐个搁置。同样的提示也用于相反的情况（0.0.8）：clangd 在每个核上忙了几分钟，你打开的文件却一直处于"queued"，什么也没完成——三分钟里没有任何文件的诊断、没有应答、没有模块建好，而且有文件已经排队四分钟。这种情况出现在一个被项目大部分代码导入的模块开着自动保存被重写之后；上面那种卡死检测看不到它，因为 clangd 一直在占用 CPU。`events` 日志里有一条 `engine-busy-without-progress`，事故记录会保存 clangd 的日志。在 Linux 上能更早发现原因：某个 clangd 工作线程在一个 clangd 这段时间里从没说过在构建的文件上占满一个核达半分钟（文件关闭时 clangd 放手、却从未停下的构建），会立即重启 clangd（`engine-orphan-spin`，事故记录里有这个线程和它的 CPU 时间）。
 
-**“The bundled clangd cannot run on this system”。** clangd 根本没有启动起来：系统的程序加载器拒绝了它，加载器的原话在状态和日志里（例如 ``version `GLIBCXX_3.4.30' not found``）。重启改变不了这一点，所以不会再重启；这期间由 mcppls 自己的引擎应答模块跳转、`import` 补全和模块诊断。在 Linux arm64 上，内置的 clangd 需要 glibc 2.34 和 GCC 12 的 libstdc++——它能运行的系统列在[安装指南](00-install.md)里。其他平台上出现这个提示，通常是 musl 系统（Alpine），或者 payload 损坏了。由编辑器自己启动 `mcppls` 的，可以用 `--clangd PATH` 换成你自己的 clangd（23.1 或更新）。
+**“The bundled clangd cannot run on this system”。** clangd 根本没有启动起来：系统的程序加载器拒绝了它，加载器的原话在状态和日志里（例如 ``version `GLIBCXX_3.4.30' not found``）。重启改变不了这一点，所以不会再重启；这期间由 mcppls 自己的引擎应答模块跳转、`import` 补全和模块诊断。内置的 clangd 是 ok 映像 `clangd.okb`，由 payload 的运行器启动，不需要系统提供任何东西（[安装指南](00-install.md)），出现这个提示意味着 payload 损坏了。由编辑器自己启动 `mcppls` 的，可以用 `--clangd PATH` 换成你自己的 clangd（23.1 或更新）。
 
 **在 Termux 或 PRoot 里。** `mcppls report` 把服务端运行所在的沙箱显示为 `server.sandbox`（比如 `proot`）。引擎在那里起不来时，状态里是 `engine-start-failed` 并写明原因；见 [Android 上的 Termux](00-install.md#android-上的-termux)。
 

@@ -27,6 +27,7 @@ import mcppls.cli.options;
 import mcppls.cli.query;
 import mcppls.cli.cache;
 import mcppls.cli.settings;
+import mcppls.cli.status;
 import mcppls.config.settings;
 import mcppls.orchestrator.report;
 import mcppls.orchestrator.kernel;
@@ -63,9 +64,14 @@ Loaded load(std::string_view root, const cmdline::ParsedArgs& args, bool trusted
     Loaded loaded;
     const auto session = session_options(args);
     loaded.payload = engine::resolve_payload(engine::PayloadRequest { session.payloadDirectory, session.clangd, session.kit });
-    if (session.semanticKit != "off" && !loaded.payload.kit.empty()) {
-        if (auto kit = spec::load_kit(loaded.payload.kit)) loaded.kit = std::move(*kit);
-        else base::log::warning("semantic kit unusable: {}", kit.error().message);
+    // S4 section 5: the kit of the target asked for, else of this host.
+    if (session.semanticKit != "off") {
+        const bool named { session.mcppTarget != "auto" && session.mcppTarget != "project" };
+        auto choice = engine::kit_for_target(loaded.payload, named ? session.mcppTarget : std::string {});
+        loaded.kit = std::move(choice.kit);
+        if (!choice.missingTarget.empty()) {
+            base::log::warning("the semantic kit for {} is not installed; install it: xlings install mcppls-kit-{}", choice.missingTarget, choice.missingTarget);
+        }
     }
     toolchain::ProbeCache cache { base::join_path(base::cache_directory(), "toolchains/probe.json") };
     project::LoadOptions options;
@@ -167,9 +173,12 @@ int command_check(const cmdline::ParsedArgs& args) {
         std::println(std::cerr, "check: {}", written.error().message);
         return 2;
     }
+    const auto engine = engine::engine_command(loaded.payload.clangd, loaded.payload.clangdRunner);
+    auto arguments = engine.arguments;
+    arguments.insert(arguments.end(), { "--check=" + file, "--experimental-modules-support", "--compile-commands-dir=" + directory, "--log=error" });
     auto result = mcppls::toolrun::run({
-        .program = loaded.payload.clangd,
-        .arguments = { "--check=" + file, "--experimental-modules-support", "--compile-commands-dir=" + directory, "--log=error" },
+        .program = engine.program,
+        .arguments = arguments,
         .workDirectory = root,
         .purpose = "check",
         .root = root,
@@ -461,6 +470,7 @@ int run(int argc, char* argv[]) {
     (void)app.subcommand(review_command(handled, status));
     (void)app.subcommand(cache_command(handled, status));
     (void)app.subcommand(settings_command(handled, status));
+    (void)app.subcommand(status_command(handled, status));
 
     cmdline::App versionCommand { "version" };
     (void)versionCommand.description("Print the version");

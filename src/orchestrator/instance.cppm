@@ -35,6 +35,9 @@ public:
     bool shared() const { return shared_; }                        // another live instance owns the workspace directory
     void renew(std::chrono::system_clock::time_point now);         // the owner's lease heartbeat, and every instance's `instance.json` heartbeat
     void release();                                                // the owner drops its lease; a guest removes its directory
+    // Where this instance states its last `cxxModules/status` for `mcppls status` (S3 section 8): beside its own
+    // `instance.json`, so the instance's liveness and its state are read from one directory.
+    std::string status_path() const;
 
 private:
     std::string workspaceDirectory_;

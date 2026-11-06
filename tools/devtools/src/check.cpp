@@ -454,10 +454,12 @@ base::Result<Report> platforms(const std::string& root) {
         const std::string serverTarget { row.value("server-target", std::string {}) };
         if (serverTarget.empty()) {
             report.problems.push_back(std::format("{}: platform {} has no server-target", lockPath, name));
-        } else if (name != "linux-x64") {
-            // Every server but the Linux x64 host's own is cross-built by CI's cross-build job.
+        } else {
+            // Every platform's programs and tests are built on Linux by CI's build job (built once, run on each system).
             crossTargets.insert(serverTarget);
         }
+        const std::string kitName { row.value("kit", nlohmann::json::object()).value("name", std::string {}) };
+        if (kitName.empty()) report.problems.push_back(std::format("{}: platform {} names no kit.name (its published kit, mcppls-kit-<name>)", lockPath, name));
     }
     for (const auto& item : entries.items()) {
         const std::string name { item.key() };
@@ -487,7 +489,7 @@ base::Result<Report> platforms(const std::string& root) {
         report.problems.push_back(std::format("{} declares no SUPPORTED_PLATFORMS", tsPath));
     }
 
-    // The CLion plugin's packages: one per platform, each carrying that platform's payload.
+    // The CLion plugin: one package, the payload of every platform inside it.
     const std::string gradlePath { base::join_path(root, "editors/clion/build.gradle.kts") };
     auto gradleText = os::fs::read(gradlePath);
     if (!gradleText) return base::fail("read-file", gradleText.error());
@@ -515,8 +517,8 @@ base::Result<Report> platforms(const std::string& root) {
         std::string_view file;
         std::string_view job;
     };
-    for (const Job job : { Job { "ci.yml", "payload" }, Job { "ci.yml", "conformance" }, Job { "ci.yml", "vscode-e2e" },
-                           Job { "release-checks.yml", "install" } }) {
+    for (const Job job : { Job { "ci.yml", "build" }, Job { "ci.yml", "test" }, Job { "ci.yml", "kits" }, Job { "ci.yml", "conformance" },
+                           Job { "ci.yml", "vscode-e2e" }, Job { "ci.yml", "distribution" }, Job { "release-checks.yml", "install" } }) {
         const std::string path { base::join_path(root, std::format(".github/workflows/{}", job.file)) };
         auto text = os::fs::read(path);
         if (!text) return base::fail("read-file", text.error());
@@ -531,13 +533,13 @@ base::Result<Report> platforms(const std::string& root) {
         const std::string path { base::join_path(root, ".github/workflows/ci.yml") };
         auto text = os::fs::read(path);
         if (!text) return base::fail("read-file", text.error());
-        if (const auto block = workflow_job(*text, "cross-build")) {
+        if (const auto block = workflow_job(*text, "build")) {
             const auto listed = yaml_values(*block, "target");
             for (const auto& target : crossTargets) {
-                if (!listed.contains(target)) report.problems.push_back(std::format("{} job cross-build does not build {}", path, target));
+                if (!listed.contains(target)) report.problems.push_back(std::format("{} job build does not build {}", path, target));
             }
         } else {
-            report.problems.push_back(std::format("{} has no job cross-build", path));
+            report.problems.push_back(std::format("{} has no job build", path));
         }
     }
 

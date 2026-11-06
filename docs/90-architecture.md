@@ -61,7 +61,15 @@ editor / coding agent / CI
   are removed in the background when clangd starts.
 - **The server knows the sandbox it runs in.** Under PRoot (termux) it starts programs the way that
   sandbox answers; the report shows it as `server.sandbox`.
-- **The server itself makes no network calls.** Runs it starts are offline by default; model
+- **One package serves every system.** The server is one okb of both architectures; the payload
+  carries the runner of every system and the clangd of every platform, and the server, like each
+  editor, takes the payload's entry for the platform it runs on.
+- **A project without a compiler reads with the kit of its target.** The kit is chosen per root
+  from the target the project asks for, else the host's: the target's own kit when installed, else
+  the openkal kit the payload carries, with which `import std` works and the target's system headers
+  do not; the status names the kit that is missing, and an install the editor asks for runs in the
+  background ([S4 5.1](specs/s4-semantic-kit.md)).
+- **The server itself makes no network calls.** Runs it starts are offline by default, and a kit is installed only when the editor asks; model
   features are opt-in and live behind a separate process.
 
 ## The specifications

@@ -154,6 +154,33 @@ int main(int argc, char* argv[]) {
         expect(!std::filesystem::exists(out + ".part", ignored));
     };
 
+    // Part 2 §25.3: the ok image's part, which every platform selecting it takes as it is; its runner reads it.
+    "the ok image's part is taken as it is, not marked executable and not run"_test = [&] {
+        const std::string top { "clangd-23.1.0-mcppls.6-openkal" };
+        const std::string zip { base::join_path(work, "engine-part-ok.zip") };
+        expect(fatal(write_zip(zip, {
+            { top + "/clangd/bin/clangd.okb", "an ok image of clangd", false },
+            { top + "/clangd/LICENSE.TXT", "Apache-2.0 WITH LLVM-exception", false },
+            { top + "/clangd/engine.json", R"({"platform": "openkal"})", false },
+            { top + "/clangd/lib/clang/23/include/stddef.h", "typedef long ptrdiff_t;", false },
+        })));
+        for (const std::string_view platform : { "linux-x64", "win32-x64" }) {
+            const std::string out { base::join_path(work, std::format("part-ok-{}", platform)) };
+            auto result = clangd::trim(clangd::Options {
+                .platform = std::string { platform }, .outDirectory = out, .zip = zip, .cacheDirectory = base::join_path(work, "cache"),
+            }, lockData);
+            expect(fatal(result.has_value())) << (result ? std::string {} : result.error().message);
+            if (!result) return;
+            expect(result->enginePart && !result->versionLine) << platform;
+            expect(result->binary == base::join_path(out, "bin/clangd.okb")) << result->binary;
+            expect(os::fs::read(result->binary).value_or("") == "an ok image of clangd");
+            if (os::host() != os::platform::windows) {
+                const auto mode = std::filesystem::status(result->binary).permissions();
+                expect((mode & std::filesystem::perms::owner_exec) == std::filesystem::perms::none) << "an image is data its runner reads";
+            }
+        }
+    };
+
     "a maintained engine part without its license is refused"_test = [&] {
         const std::string top { "clangd-23.1.0-mcppls.0-win32-x64" };
         const std::string zip { base::join_path(work, "engine-part-unlicensed.zip") };

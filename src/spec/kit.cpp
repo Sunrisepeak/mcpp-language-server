@@ -29,11 +29,33 @@ base::Result<std::string> kit_path(std::string_view root, const nlohmann::json& 
     return base::join_path(root, path);
 }
 
+// The include directories, sysroot and arguments of the top level or of one `targets` entry.
+base::Result<void> parse_layout(const nlohmann::json& document, std::string_view root, std::string_view where,
+                                std::vector<std::string>& includes, std::optional<std::string>& sysroot,
+                                std::vector<std::string>& arguments) {
+    const auto listed = document.find("system-include-directories");
+    if (listed == document.end() || !listed->is_array()) return base::fail("kit-invalid", std::format("{} needs system-include-directories", where));
+    for (const auto& directory : *listed) {
+        auto path = kit_path(root, directory, "system-include-directories");
+        if (!path) return std::unexpected { path.error() };
+        includes.push_back(std::move(*path));
+    }
+    if (const auto given = document.find("sysroot"); given != document.end() && !given->is_null()) {
+        auto path = kit_path(root, *given, "sysroot");
+        if (!path) return std::unexpected { path.error() };
+        sysroot = std::move(*path);
+    }
+    for (const auto& argument : document.value("arguments", nlohmann::json::array())) {
+        if (argument.is_string()) arguments.push_back(argument.get<std::string>());
+    }
+    return {};
+}
+
 } // namespace
 
 base::Result<Kit> parse_kit(const nlohmann::json& document, std::string_view kitRoot) {
     if (!document.is_object()) return base::fail("kit-invalid", "kit.json is not an object");
-    if (document.value("kit-version", 0) != KIT_VERSION) {
+    if (const int version { document.value("kit-version", 0) }; version < 1 || version > KIT_VERSION) {
         return base::fail("kit-unsupported", std::format("unsupported kit-version {}", document.value("kit-version", 0)));
     }
     Kit kit;
@@ -54,20 +76,26 @@ base::Result<Kit> parse_kit(const nlohmann::json& document, std::string_view kit
     if (!metadataPath) return std::unexpected { metadataPath.error() };
     kit.moduleMetadata = std::move(*metadataPath);
 
-    const auto includes = document.find("system-include-directories");
-    if (includes == document.end() || !includes->is_array()) return base::fail("kit-invalid", "kit.json needs system-include-directories");
-    for (const auto& directory : *includes) {
-        auto path = kit_path(kit.root, directory, "system-include-directories");
-        if (!path) return std::unexpected { path.error() };
-        kit.systemIncludeDirectories.push_back(std::move(*path));
+    if (auto layout = parse_layout(document, kit.root, "kit.json", kit.systemIncludeDirectories, kit.sysroot, kit.arguments); !layout) {
+        return std::unexpected { layout.error() };
     }
-    if (const auto sysroot = document.find("sysroot"); sysroot != document.end() && !sysroot->is_null()) {
-        auto path = kit_path(kit.root, *sysroot, "sysroot");
-        if (!path) return std::unexpected { path.error() };
-        kit.sysroot = std::move(*path);
-    }
-    for (const auto& argument : document.value("arguments", nlohmann::json::array())) {
-        if (argument.is_string()) kit.arguments.push_back(argument.get<std::string>());
+    // Kit version 2: one kit for several targets, each with the include directories in its own order (a C library's
+    // headers of an architecture come before its generic ones).
+    if (const auto targets = document.find("targets"); targets != document.end()) {
+        if (document.value("kit-version", 0) < 2 || !targets->is_object()) return base::fail("kit-invalid", "targets is an object of kit-version 2");
+        for (const auto& item : targets->items()) {
+            const std::string name { item.key() };
+            const auto& entry = item.value();
+            if (!entry.is_object()) return base::fail("kit-invalid", std::format("targets.{} is not an object", name));
+            KitVariant variant { .name = name, .target = entry.value("target", std::string {}) };
+            if (variant.target.empty()) return base::fail("kit-invalid", std::format("targets.{} needs target", name));
+            if (auto layout = parse_layout(entry, kit.root, std::format("targets.{}", name), variant.systemIncludeDirectories, variant.sysroot,
+                                           variant.arguments);
+                !layout) {
+                return std::unexpected { layout.error() };
+            }
+            kit.variants.push_back(std::move(variant));
+        }
     }
     for (const auto& requirement : document.value("requires", nlohmann::json::array())) {
         const std::string kind { requirement.is_object() ? requirement.value("kind", std::string {}) : std::string {} };
@@ -95,6 +123,18 @@ base::Result<Kit> load_kit(std::string_view kitRoot) {
 
 bool requires_macos_sdk(const Kit& kit) {
     return std::ranges::find(kit.requirements, "macos-sdk") != kit.requirements.end();
+}
+
+std::optional<Kit> kit_variant(const Kit& kit, std::string_view name) {
+    const auto found = std::ranges::find(kit.variants, name, &KitVariant::name);
+    if (found == kit.variants.end()) return std::nullopt;
+    Kit served { kit };
+    served.target = found->target;
+    served.systemIncludeDirectories = found->systemIncludeDirectories;
+    served.sysroot = found->sysroot;
+    served.arguments = found->arguments;
+    served.variants.clear();
+    return served;
 }
 
 } // namespace mcppls::spec

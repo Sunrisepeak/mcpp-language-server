@@ -79,7 +79,7 @@ base::Result<void> copy_tree_skip_named(const std::filesystem::path& source, con
             continue;
         }
         if (!it->is_regular_file()) continue;
-        const auto relative = std::filesystem::relative(it->path(), source);
+        const auto relative = it->path().lexically_relative(source);
         if (auto copied = copy_one_file(it->path(), destination / relative); !copied) {
             return base::fail("bench-review", std::format("copying {}: {}", it->path().string(), copied.error().message));
         }
@@ -93,7 +93,7 @@ base::Result<void> copy_tree_over(const std::filesystem::path& source, const std
         it != std::filesystem::recursive_directory_iterator(); it.increment(error)) {
         if (error) return base::fail("bench-review", std::format("walking {}: {}", source.string(), error.message()));
         if (!it->is_regular_file()) continue;
-        const auto relative = std::filesystem::relative(it->path(), source);
+        const auto relative = it->path().lexically_relative(source);
         if (auto copied = copy_one_file(it->path(), destination / relative); !copied) {
             return base::fail("bench-review", std::format("copying {}: {}", it->path().string(), copied.error().message));
         }
@@ -157,7 +157,9 @@ nlohmann::json review_snapshot(const std::string& directory) {
     for (const auto& path : paths) {
         auto content = os::fs::read(path.string());
         if (!content) continue;
-        const auto relative = std::filesystem::relative(path, directory).generic_string();
+        // Snapshot the entry's name in this tree, including a file alias's own
+        // name, rather than the physical target of the entry.
+        const auto relative = path.lexically_relative(directory).generic_string();
         files[relative] = base::sha256_hex(*content);
     }
     return files;

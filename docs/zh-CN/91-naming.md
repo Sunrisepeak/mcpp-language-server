@@ -17,7 +17,7 @@
 | 项目 / 包 | `mcpp-language-server` | 完整拼出它是什么；包索引里用的名字。只用于包本身——每个插件都用下面的简称 |
 | 可执行文件、模块命名空间、设置前缀 | `mcppls` | 命令行输入和代码中使用的名字：`mcppls serve`、`import mcppls.lsp`、`mcppls.trace` |
 | 插件显示名 | **C++ Modules Language Server** | 先说它做什么，方便被搜到；四个市场用同一个名字，读起来像同一个产品 |
-| 语义工具包的包名 | `mcppls-kit` | 独立的产物，有自己的版本号，名称取自生成它的程序 |
+| 语义工具包的包名 | `mcppls-kit-<target>`、`mcppls-kit-openkal` | 独立的产物，每个目标一个，各有自己的版本号（目标工具包取其 libc++ 的版本，openkal 工具包取其平台的版本），名称取自生成它的程序和它服务的目标 |
 
 ## 各编辑器里的插件标识
 

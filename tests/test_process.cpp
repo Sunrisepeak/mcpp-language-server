@@ -7,10 +7,14 @@
 import std;
 import mcpplibs.os;
 import mcppls.testing;
+import mcppls.base.error;
+import mcppls.base.log;
 import mcppls.base.path;
 import mcppls.base.text;
 import mcppls.lsp.connection;
+import mcppls.engine.clangd.process;
 import mcppls.orchestrator.instance;
+import mcppls.toolrun;
 import nlohmann.json;
 
 namespace os = mcpplibs::os;
@@ -155,6 +159,43 @@ int main() {
         expect(base::is_absolute_path(self)) << self;
         std::error_code ignored;
         expect(std::filesystem::is_regular_file(self, ignored)) << self;
+    };
+
+    "connection preserves the system classification of a failed start"_test = [&] {
+        auto options = child({ "--echo" });
+        options.program = base::join_path(self, "missing-child");
+        auto connection = mcppls::lsp::Connection::start(options, [](nlohmann::json) {}, [] {});
+        expect(fatal(!connection));
+        expect(connection.error().code == "spawn-failed");
+        expect(connection.error().osCode.has_value());
+        expect(connection.error().osCode != os::errc::not_supported);
+    };
+
+    "an invalid engine grant is refused without a confinement fallback"_test = [&] {
+        namespace cld = mcppls::engine::clangd;
+        cld::ProcessConfig config;
+        config.executable = "missing-image.oke";
+        config.runner = base::join_path(self, "missing-runner");
+        config.workDirectory = base::current_directory();
+        // Grant preparation fails before the confinement capability check on
+        // every host, including Windows where confinement is unsupported.
+        config.grants.push_back({ base::join_path(self, "missing-grant"), true, false });
+        config.confine = true;
+        std::vector<std::string> messages;
+        struct Logging {
+            base::log::Level previous { base::log::level() };
+            ~Logging() { base::log::set_sink({}); base::log::set_level(previous); }
+        } logging;
+        base::log::set_level(base::log::Level::warning);
+        base::log::set_sink([&](std::string_view line) { messages.emplace_back(line); });
+        cld::ClangdProcess engine;
+        auto started = engine.start(config, [](nlohmann::json) {}, [] {}, [](std::string_view) {});
+        expect(fatal(!started));
+        expect(started.error().osCode.has_value());
+        expect(started.error().osCode != os::errc::not_supported);
+        expect(std::ranges::none_of(messages, [](const std::string& line) {
+            return line.find("held by openkal alone") != std::string::npos;
+        })) << "a startup error is not evidence that confinement is unsupported";
     };
 
     "echo round trip through pipes"_test = [&] {
@@ -512,6 +553,30 @@ int main() {
         auto result = os::process::run(std::move(options), os::process::bounds { .hard = std::chrono::seconds { 60 } });
         expect(fatal(result.has_value()));
         expect(result->out == "from-parent") << result->out;
+    };
+
+    // The project a tool runs for is its working directory (mcpp docs/50): a variable an editor
+    // inherited from another project's terminal, which a version manager's shim would read when
+    // the directory has no pin of its own, does not reach it.
+    "a tool run does not carry another project's XLINGS_PROJECT_DIR"_test = [&] {
+        auto environment = os::env::variables();
+        environment.push_back("XLINGS_PROJECT_DIR=/some/other/project");
+        environment.push_back("MCPPLS_TEST_VARIABLE=kept");
+        const auto args = child({ "--env", "XLINGS_PROJECT_DIR" });
+        mcppls::toolrun::Request request;
+        request.program = args.program.string();
+        request.arguments = args.args;
+        request.workDirectory = base::current_directory();
+        request.purpose = "test";
+        request.environment = environment;
+        request.bounds = os::process::bounds { .hard = std::chrono::seconds { 60 } };
+        const auto result = mcppls::toolrun::run(request);
+        expect(fatal(result.has_value()));
+        expect(result->out == "<unset>") << result->out;
+        request.arguments = { "--env", "MCPPLS_TEST_VARIABLE" };
+        const auto kept = mcppls::toolrun::run(request);
+        expect(fatal(kept.has_value()));
+        expect(kept->out == "kept") << kept->out;
     };
 
     // A value is reported as it was set, backslashes included: a program that

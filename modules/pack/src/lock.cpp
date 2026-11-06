@@ -74,6 +74,7 @@ base::Result<Lock> load(std::string_view path) {
             parsed.kit.recipe = kit->value("recipe", std::string {});
             parsed.kit.source = kit->value("source", std::string {});
             parsed.kit.target = kit->value("target", std::string {});
+            parsed.kit.name = kit->value("name", std::string {});
         }
         lockData.platforms.emplace(item.key(), std::move(parsed));
     }

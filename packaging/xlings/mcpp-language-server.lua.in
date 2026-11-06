@@ -1,9 +1,12 @@
 -- mcpp-language-server: the compiler-agnostic C++ modules language server, program mcppls (xim-pkgindex entry).
 --
--- Rendered by `mcppls-devtools release xlings` for one release; the
--- rendered file goes to xim-pkgindex as pkgs/m/mcpp-language-server.lua. The server finds
--- clangd on PATH (llvm-tools) and the semantic kit in the xlings store
--- (mcppls-kit), which is what the two dependencies install.
+-- Rendered by `mcppls-devtools release xlings` for one release; the rendered file goes to
+-- xim-pkgindex as pkgs/m/mcpp-language-server.lua. One asset for every system: the release's
+-- openkal tree (mcppls-<version>-openkal.zip), the server's images of both architectures with the
+-- runner of each system it runs on by itself; each system block names the architectures its
+-- mcpp-package.json `runs_on.self` covers. The server finds clangd on PATH (llvm-tools) and reads
+-- code without a compiler with the openkal kit (mcppls-kit-openkal); the kit of a project's target
+-- (mcppls-kit-<target>) is installed when the editor asks for it.
 package = {
     spec = "2",
 
@@ -15,7 +18,7 @@ package = {
     repo = "https://github.com/Sunrisepeak/mcpp-language-server",
 
     type = "package",
-    archs = {"x86_64", "aarch64"},
+    archs = {@ARCHS@},
     status = "dev",
     categories = {"lsp", "cpp"},
     keywords = {"c++", "modules", "lsp", "clangd", "mcpp"},
@@ -24,36 +27,26 @@ package = {
     xvm_enable = true,
 
     xpm = {
-        source = "xlings-res",
-        deps = { "xim:llvm-tools@@CLANGD_VERSION@", "xim:mcppls-kit@@KIT_VERSION@" },
-        linux = {
-            ["latest"] = { ref = "@VERSION@" },
-            ["@VERSION@"] = { res = true, sha256 = { x86_64 = "@SHA256_LINUX_X86_64@", aarch64 = "@SHA256_LINUX_AARCH64@" } },
-        },
-        macosx = {
-            ["latest"] = { ref = "@VERSION@" },
-            ["@VERSION@"] = { res = true, sha256 = { aarch64 = "@SHA256_MACOSX_AARCH64@" } },
-        },
-        windows = {
-            ["latest"] = { ref = "@VERSION@" },
-            ["@VERSION@"] = { res = true, sha256 = { x86_64 = "@SHA256_WINDOWS_X86_64@" } },
-        },
-    },
+        deps = { "xim:llvm-tools@@CLANGD_VERSION@", "xim:mcppls-kit-openkal@@OPENKAL_KIT_VERSION@" },
+@XPM_SYSTEMS@    },
 }
 
 import("xim.libxpkg.pkginfo")
 import("xim.libxpkg.xvm")
 
 function install()
-    -- The archive holds mcpp-language-server-<version>-<os>-<arch>/bin/mcppls[.exe].
-    local root = pkginfo.install_file():replace(".tar.gz", "")
+    -- The archive holds mcppls-<version>-openkal/: bin/mcppls (POSIX launcher), bin/mcppls.exe (Windows
+    -- launcher), lib/<arch>/mcppls.oke and libexec/okrun/<system>-<arch>/.
+    local root = pkginfo.install_file():replace(".zip", "")
     os.tryrm(pkginfo.install_dir())
     os.trymv(root, pkginfo.install_dir())
     return true
 end
 
 function config()
-    xvm.add("mcppls", { bindir = path.join(pkginfo.install_dir(), "bin") })
+    local opts = { bindir = path.join(pkginfo.install_dir(), "bin") }
+    if os.host() == "windows" then opts.alias = "mcppls.exe" end
+    xvm.add("mcppls", opts)
     return true
 end
 
