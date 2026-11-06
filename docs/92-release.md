@@ -202,6 +202,9 @@ The next engine version uses the original target again. The server uses this
 exception only with the exact published 0.0.20 engine bytes, after candidate
 and published-payload checks.
 
+The qualifying engine 0.0.20 product CI measured a Linux x64 cold-CPU ratio
+of 1.109. It met the original 1.15 target, so this exception was not applied.
+
 The [performance issue](https://github.com/Sunrisepeak/mcpp-language-server/issues/77)
 records the measured limits, including the Windows cold-readiness tradeoff.
 The release notes disclose an applied exception; an accepted release does
