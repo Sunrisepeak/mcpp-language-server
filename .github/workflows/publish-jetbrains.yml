@@ -58,7 +58,7 @@ jobs:
           python3 .github/scripts/publish-jetbrains.py --archive "published/mcppls-clion-$VERSION.zip" \
             --xml-id io.github.sunrisepeak.mcppls --version "$VERSION" --sha256 "$wanted" \
             --output published/jetbrains-receipt.json
-      - uses: actions/upload-artifact@v8
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: jetbrains-${{ inputs.tag || github.event.release.tag_name }}-receipt
