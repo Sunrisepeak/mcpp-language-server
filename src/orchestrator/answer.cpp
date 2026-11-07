@@ -248,6 +248,19 @@ Json clipped_documentation(const Json& documentation, std::size_t limit) {
     return Json();
 }
 
+// A line of `#include`, `#include_next` or `#import`: what it names is a file, the filesystem's and not the code's, and
+// the words of `<sys/types.h>` are no identifiers of the program (issue 80).
+bool include_line(std::string_view text, std::size_t offset) {
+    const std::size_t lineStart { offset == 0 ? 0 : text.rfind('\n', offset - 1) + 1 };   // npos + 1 is 0
+    std::size_t i { lineStart };
+    while (i < offset && blank(text[i])) ++i;
+    if (i >= text.size() || text[i] != '#') return false;
+    ++i;
+    while (i < text.size() && blank(text[i]) && text[i] != '\n') ++i;
+    const std::string_view rest { text.substr(i) };
+    return rest.starts_with("include") || rest.starts_with("import");
+}
+
 } // namespace
 
 // ---- what is asked ------------------------------------------------------------------------------------------------
@@ -295,6 +308,7 @@ std::string_view name_of(Context::Place place) {
 std::optional<Context> context_at(std::string_view text, base::Position position, Kind kind) {
     const auto offset = base::offset_at(text, position);
     if (!offset) return std::nullopt;
+    if (include_line(text, *offset)) return std::nullopt;
     // The word: typed up to the cursor for a completion, the whole identifier under it otherwise.
     std::size_t start { *offset };
     while (start > 0 && identifier_char(text[start - 1])) --start;

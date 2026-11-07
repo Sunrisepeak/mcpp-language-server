@@ -287,15 +287,39 @@ int main() {
                 { "insert", Json { { "start", Json { { "line", 1 }, { "character", 17 } } }, { "end", Json { { "line", 1 }, { "character", 18 } } } } },
                 { "replace", Json { { "start", Json { { "line", 1 }, { "character", 17 } } }, { "end", Json { { "line", 1 }, { "character", 18 } } } } } } } },
         }) } };
-        const Json moved = completion::retarget(answer, Position { 1, 19 });
+        const Json moved = completion::retarget(answer, *early, *later);
         expect(moved["isIncomplete"] == false);
         expect(moved["items"].size() == 3u) << moved.dump();
         expect(moved["items"][0]["textEdit"]["range"]["end"]["character"] == 19) << "the edit replaces the word up to the new cursor";
         expect(moved["items"][0]["textEdit"]["range"]["start"]["character"] == 17);
         expect(moved["items"][1]["label"] == "swap") << "an item without an edit is kept";
         expect(moved["items"][2]["textEdit"]["insert"]["end"]["character"] == 19 && moved["items"][2]["textEdit"]["replace"]["end"]["character"] == 19);
-        expect(completion::retarget(answer["items"], Position { 1, 19 })["items"].size() == 3u) << "a bare array is a list too";
-        expect(completion::retarget(Json(nullptr), Position { 1, 19 })["items"].empty());
+        expect(completion::retarget(answer["items"], *early, *later)["items"].size() == 3u) << "a bare array is a list too";
+        expect(completion::retarget(Json(nullptr), *early, *later)["items"].empty());
+    };
+
+    "an edit that reaches past the cursor still does when the answer is given further on (issue 80)"_test = [] {
+        // The editor typed the closing quote; clangd's include completion takes it: insert [10, 13) at the cursor 12.
+        const auto edit = [](int insertEnd, int replaceEnd) {
+            return Json { { "isIncomplete", false }, { "items", Json::array({ Json { { "label", " foo_header.h\"" }, { "textEdit", Json {
+                { "newText", "foo_header.h\"" },
+                { "insert", Json { { "start", Json { { "line", 0 }, { "character", 10 } } }, { "end", Json { { "line", 0 }, { "character", insertEnd } } } } },
+                { "replace", Json { { "start", Json { { "line", 0 }, { "character", 10 } } }, { "end", Json { { "line", 0 }, { "character", replaceEnd } } } } } } } } }) } };
+        };
+        const auto early = completion::word_key("#include \"fo\"\n", Position { 0, 12 });
+        const auto later = completion::word_key("#include \"foo\"\n", Position { 0, 13 });
+        expect(early && later && completion::typed_on(*early, *later));
+        expect(early->after == "\"" && early->character == 12) << early->after;
+        const Json moved = completion::retarget(edit(13, 12), *early, *later);
+        const Json& e = moved["items"][0]["textEdit"];
+        expect(e["insert"]["start"]["character"] == 10 && e["insert"]["end"]["character"] == 14)
+            << "the closing quote is still replaced, one column on: " << e.dump();
+        expect(e["replace"]["end"]["character"] == 13) << "a range that ended at the cursor ends at the new one";
+        // `#include "foo` with the line after the cursor changed: the edit ends at the cursor.
+        const auto changed = completion::word_key("#include \"foo\n", Position { 0, 13 });
+        expect(completion::typed_on(*early, *changed));
+        expect(completion::retarget(edit(13, 12), *early, *changed)["items"][0]["textEdit"]["insert"]["end"]["character"] == 13)
+            << "text after the cursor that is not there any more is not replaced";
     };
 
     "a complete answer holds for its word while the document outside the word is the same (0.0.14 A1)"_test = [] {

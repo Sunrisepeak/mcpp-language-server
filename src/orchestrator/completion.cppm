@@ -70,11 +70,14 @@ bool in_import_directive(std::string_view linePrefix);
 Json without_engine(const Json& wordItems);
 
 // C-2 (plan 0.0.8 part 2): the word a completion is asked in -- its line, the text of that line before the word -- and
-// what of the word has been typed up to the cursor.
+// what of the word has been typed up to the cursor; with the cursor's column and the rest of the line after it, which
+// say where an answer's edits that reach past the cursor end (retarget).
 struct WordKey {
     int line { 0 };
     std::string before;
     std::string typed;
+    int character { 0 };
+    std::string after;
     bool operator==(const WordKey&) const = default;
 };
 // nullopt when `position` is not in `text`.
@@ -90,11 +93,14 @@ std::optional<std::uint64_t> outside_word(std::string_view text, base::Position 
 // A completion result the client filters by itself as the person types: a list not marked incomplete.
 bool is_complete(const Json& result);
 
-// C-2: a completion answered for an earlier position in the same word, for `position`: each item's edit that replaced
+// C-2: a completion answered at `from`, an earlier position in the same word, for `to`: each item's edit that replaced
 // the word up to the old cursor replaces it up to this one (a client drops an item whose range does not contain the
-// position it asked at). Items without an edit are kept as they are; an edit on another line or starting after
-// `position` drops its item. The result is a CompletionList, with the engine's `isIncomplete`.
-Json retarget(const Json& result, base::Position position);
+// position it asked at). An edit that also replaced text after the old cursor -- clangd's include completion takes the
+// closing quote an editor typed, its replace range the rest of the identifier -- replaces the same text after this
+// one while the line after the cursor is as it was; otherwise it ends at the cursor (issue 80). Items without an edit
+// are kept as they are; an edit on another line or starting after the cursor drops its item. The result is a
+// CompletionList, with the engine's `isIncomplete`.
+Json retarget(const Json& result, const WordKey& from, const WordKey& to);
 
 // UP-25 (issue #24): what the core engine has been answering for one file, and the budget those answers earn. clangd
 // 23.1 answers a module importer's completions in about a second -- just past the flat budget -- so the flat budget

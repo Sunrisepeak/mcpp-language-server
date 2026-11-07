@@ -71,6 +71,14 @@ int main() {
         expect(second->place == Context::Place::arrow && second->receiver == "m_logger") << second->receiver;
         expect(second->enclosing == "g@1") << second->enclosing;
 
+        // An include line names files: nothing kept answers it (issue 80).
+        for (const char* line : { "#include <sys/ty|>\n", "  #  include \"foo_header.|\"\n", "#import <Foundation/Fo|>\n" }) {
+            const auto [include, atInclude] = cursor(line);
+            expect(!answer::context_at(include, atInclude, Kind::completion).has_value()) << line;
+        }
+        const auto [notInclude, atNot] = cursor("int included = 0;\nint x = incl|;\n");
+        expect(answer::context_at(notInclude, atNot, Kind::completion).has_value()) << "a word that begins like a directive is code";
+
         const auto [qualified, at3] = cursor("int x = std::views::|;\n");
         const auto third = answer::context_at(qualified, at3, Kind::completion);
         expect(fatal(third.has_value()));

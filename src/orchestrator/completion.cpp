@@ -188,7 +188,9 @@ std::optional<WordKey> word_key(std::string_view text, base::Position position) 
     std::size_t start { *offset };
     while (start > 0 && base::is_identifier_char(text[start - 1])) --start;
     const std::size_t lineStart { start == 0 ? 0 : text.rfind('\n', start - 1) + 1 };   // npos + 1 is 0
-    return WordKey { position.line, std::string { text.substr(lineStart, start - lineStart) }, std::string { text.substr(start, *offset - start) } };
+    const std::size_t lineEnd { std::min(text.find('\n', *offset), text.size()) };
+    return WordKey { position.line, std::string { text.substr(lineStart, start - lineStart) }, std::string { text.substr(start, *offset - start) },
+                     position.character, std::string { text.substr(*offset, lineEnd - *offset) } };
 }
 
 std::optional<std::uint64_t> outside_word(std::string_view text, base::Position position) {
@@ -212,19 +214,23 @@ bool typed_on(const WordKey& earlier, const WordKey& later) {
 
 namespace {
 
-// A range on `position`'s line that starts at or before it, ended at it; false when it cannot be.
-bool end_range_at(Json& range, base::Position position) {
+// A range on the cursor's line that starts at or before it, moved from the cursor `from` to `to`: an end at or past the
+// old cursor keeps its distance from it while the line after the cursor is the same, any other ends at the new cursor;
+// false when it cannot be.
+bool end_range_at(Json& range, const WordKey& from, const WordKey& to) {
     if (!range.is_object() || !range.contains("start") || !range.contains("end")) return false;
     const Json& start { range["start"] };
-    if (start.value("line", -1) != position.line || range["end"].value("line", -1) != position.line) return false;
-    if (start.value("character", -1) > position.character) return false;
-    range["end"] = Json { { "line", position.line }, { "character", position.character } };
+    if (start.value("line", -1) != to.line || range["end"].value("line", -1) != to.line) return false;
+    if (start.value("character", -1) > to.character) return false;
+    const int end { range["end"].value("character", -1) };
+    const bool past { from.line == to.line && from.after == to.after && end >= from.character };
+    range["end"] = Json { { "line", to.line }, { "character", past ? to.character + (end - from.character) : to.character } };
     return true;
 }
 
 } // namespace
 
-Json retarget(const Json& result, base::Position position) {
+Json retarget(const Json& result, const WordKey& from, const WordKey& to) {
     const bool list { result.is_object() };
     Json out { { "isIncomplete", list && result.value("isIncomplete", false) }, { "items", Json::array() } };
     const Json* items { list ? lsp::find(result, "items") : &result };
@@ -233,8 +239,8 @@ Json retarget(const Json& result, base::Position position) {
         if (item.contains("textEdit") && item["textEdit"].is_object()) {
             Json& edit { item["textEdit"] };
             // TextEdit has a range; InsertReplaceEdit an insert and a replace range, both starting at the word.
-            const bool kept { edit.contains("range") ? end_range_at(edit["range"], position)
-                                                     : end_range_at(edit["insert"], position) && end_range_at(edit["replace"], position) };
+            const bool kept { edit.contains("range") ? end_range_at(edit["range"], from, to)
+                                                     : end_range_at(edit["insert"], from, to) && end_range_at(edit["replace"], from, to) };
             if (!kept) continue;
         }
         out["items"].push_back(std::move(item));

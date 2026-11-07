@@ -2130,7 +2130,7 @@ struct Workspace::Impl final : engine::Host {
         job.coreAnswered = true;
         job.answeredBy = std::string { coreEngine->id() };
         ++completionsFromWord;
-        finish_job(jobId, completion::retarget(answer->second.result, position));
+        finish_job(jobId, completion::retarget(answer->second.result, answer->second.key, *key));
         return true;
     }
 
@@ -2148,7 +2148,7 @@ struct Workspace::Impl final : engine::Host {
                 job.coreAnswered = true;
                 job.answeredBy = std::string { coreEngine->id() };
                 ++lateCompletionsServed;
-                finish_job(jobId, completion::retarget(answer->second.result, position));
+                finish_job(jobId, completion::retarget(answer->second.result, answer->second.key, *key));
                 return true;
             }
             lateAnswers.erase(answer);
@@ -2187,10 +2187,12 @@ struct Workspace::Impl final : engine::Host {
             if (job == jobs.end()) continue;
             const auto position = position_of(job->second.params);
             if (!position) continue;
+            const auto key = completion::word_key(job->second.text, *position);
+            if (!key) continue;
             job->second.coreAnswered = true;
             job->second.answeredBy = std::string { coreEngine->id() };
             ++lateCompletionsServed;
-            finish_job(waiter, completion::retarget(answer.value, *position));
+            finish_job(waiter, completion::retarget(answer.value, late.key, *key));
         }
     }
 
