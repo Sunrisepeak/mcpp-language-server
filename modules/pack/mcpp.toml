@@ -17,12 +17,10 @@ mcpplibs.os.workspace = true
 tinyhttps.workspace = true
 mcppls-base = { path = "../base" }
 mcppls-toolrun = { path = "../toolrun" }
+"mcpplibs.mwrap.libarchive" = { workspace = true }
 
 [dependencies.nlohmann]
 json.workspace = true
-
-[dependencies.compat]
-libarchive.workspace = true
 
 [dev-dependencies]
 mcppls-testing = { path = "../testing" }

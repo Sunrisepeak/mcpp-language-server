@@ -176,7 +176,7 @@ extension and installs it, naming each step and how long it took. If something i
 | One file per system and architecture | `mcpp pack --release --target openkal --pkg-format single-file --systems all -o DIR/` |
 | Build programs as ok images | `mcpp build --host-platform openkal-platform@0.21.1` |
 
-**Zero setup.** What packaging needs is declared in `mcpp.toml`'s `[xlings.workspace]` — Node for
+**Zero setup.** What packaging needs is declared in `mcpp.toml`'s `[workspace.xlings.workspace]` — Node for
 the VS Code extension, Rust for Zed — so `mcpp run` provisions it before the tool starts. The
 payload itself (clangd, the semantic kit) is assembled by the tool in C++; no interpreter is
 involved. Every contributor command is in [93-devtools.md](93-devtools.md). Gradle and its JDK are behind the `clion` feature

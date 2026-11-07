@@ -98,8 +98,8 @@ devtools 自己不装任何东西。它要运行的工具都声明在根目录�
 
 | 工具 | 给谁用 | 声明位置 |
 |---|---|---|
-| Node（npm、npx） | VS Code 扩展 | `[xlings.workspace]`，`when = "dev"` |
-| Rust（cargo、rustup） | Zed 扩展 | `[xlings.workspace]`，`when = "dev"` |
+| Node（npm、npx） | VS Code 扩展 | `[workspace.xlings.workspace]`，`when = "dev"` |
+| Rust（cargo、rustup） | Zed 扩展 | `[workspace.xlings.workspace]`，`when = "dev"` |
 | Gradle 及其 JDK | CLion 插件 | `[feature-xlings.clion]`：`mcpp run -p devtools --features clion -- extension --editor clion` |
 | cmake、ninja | 语义工具包里 libc++ 的 configure 步骤 | 由宿主机提供（CI 会安装） |
 
