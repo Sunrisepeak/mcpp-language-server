@@ -22,6 +22,8 @@ struct Asset {
     bool required { false };
     std::string what;
     std::string install;
+    // server, vscode, clion, zed, claude-code; `release` for what every release carries (SHA256SUMS, MANIFEST.md).
+    std::string component { "release" };
 };
 
 struct Manifest {
@@ -40,11 +42,28 @@ struct Expected {
     std::string name;
     Asset asset;
 };
-std::vector<Expected> expected_files(const Manifest& manifest, std::string_view version);
+// THE VERSIONS OF A RELEASE (docs/92-release.md "Versions"): each component's own, which its assets' `{version}`
+// stands for, and the components the release carries -- every one for a series release, one for a component's patch.
+struct Versions {
+    std::string release;                                // the release's own: the series' X.Y.0, or the component's
+    std::map<std::string, std::string> byComponent;
+    std::set<std::string> components;                   // empty: every component
+    bool carries(std::string_view component) const {
+        return component == "release" || components.empty() || components.contains(std::string { component });
+    }
+    std::string of(std::string_view component) const {
+        const auto it = byComponent.find(std::string { component });
+        return it == byComponent.end() ? release : it->second;
+    }
+};
+// Every component at one version: the series release of that version.
+Versions one_version(std::string_view version);
+
+std::vector<Expected> expected_files(const Manifest& manifest, const Versions& versions);
 
 // The MANIFEST.md text release_manifest.py's `--render` writes into the staged directory: every
 // declared file, what it is, how to install it, and which ones are missing from THIS directory.
-std::string render(const Manifest& manifest, std::string_view version, const std::vector<Expected>& files,
+std::string render(const Manifest& manifest, const Versions& versions, const std::vector<Expected>& files,
                    const std::set<std::string>& onDisk);
 
 struct CheckReport {
@@ -53,10 +72,11 @@ struct CheckReport {
     std::vector<std::string> notes;       // "ok: NAME (N MB)" / "absent (optional): NAME" -- informational
 };
 
-// Checks `directory`'s files against what `manifest` declares for `version`. When `renderAlso` is
-// set, writes MANIFEST.md into the directory first (as release_manifest.py's `--render` does), so
-// it is judged present for the rest of the check the same way SHA256SUMS is.
-base::Result<CheckReport> check(const Manifest& manifest, std::string_view version, std::string_view directory,
+// Checks `directory`'s files against what `manifest` declares for `versions`: every required asset of a
+// component the release carries is present and not empty, and nothing else is there. When `renderAlso`
+// is set, writes MANIFEST.md into the directory first (as release_manifest.py's `--render` does), so it
+// is judged present for the rest of the check the same way SHA256SUMS is.
+base::Result<CheckReport> check(const Manifest& manifest, const Versions& versions, std::string_view directory,
                                 bool renderAlso);
 
 } // namespace mcppls::pack::release

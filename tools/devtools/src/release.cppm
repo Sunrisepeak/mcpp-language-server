@@ -16,7 +16,12 @@ export namespace mcppls::devtools::release {
 
 // packaging/release.manifest.json, checked (and, when `render` is set, rendered as MANIFEST.md
 // into `directory`) against a staged release directory.
-base::Result<mcppls::pack::release::CheckReport> check_release(const std::string& root, const std::string& version,
+// The versions a release carries (docs/92-release.md "Versions"): every component's, from its sites, and the
+// components of the release -- every one for `all`, else the one named. `version` must be the release's own.
+base::Result<mcppls::pack::release::Versions> release_versions(const std::string& root, const std::string& version,
+                                                                 const std::string& component);
+base::Result<mcppls::pack::release::CheckReport> check_release(const std::string& root,
+                                                                const mcppls::pack::release::Versions& versions,
                                                                 const std::string& directory, bool render);
 
 struct XlingsResult {

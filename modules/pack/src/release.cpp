@@ -50,6 +50,7 @@ base::Result<Manifest> load_manifest(std::string_view path) {
             asset.required = raw.value("required", false);
             asset.what = raw.value("what", std::string {});
             asset.install = raw.value("install", std::string {});
+            asset.component = raw.value("component", std::string { "release" });
             manifest.assets.push_back(std::move(asset));
         }
         if (json.contains("not-in-a-release")) {
@@ -61,9 +62,17 @@ base::Result<Manifest> load_manifest(std::string_view path) {
     return manifest;
 }
 
-std::vector<Expected> expected_files(const Manifest& manifest, std::string_view version) {
+Versions one_version(std::string_view version) {
+    Versions v {};
+    v.release = std::string { version };
+    return v;
+}
+
+std::vector<Expected> expected_files(const Manifest& manifest, const Versions& versions) {
     std::vector<Expected> out;
     for (const auto& asset : manifest.assets) {
+        if (!versions.carries(asset.component)) continue;
+        const std::string version { versions.of(asset.component) };
         if (asset.perPlatform) {
             for (const auto& platform : manifest.platforms) {
                 const auto kit = manifest.kits.find(platform);
@@ -76,10 +85,13 @@ std::vector<Expected> expected_files(const Manifest& manifest, std::string_view 
     return out;
 }
 
-std::string render(const Manifest& manifest, std::string_view version, const std::vector<Expected>& files,
+std::string render(const Manifest& manifest, const Versions& versions, const std::vector<Expected>& files,
                    const std::set<std::string>& onDisk) {
+    const std::string version { versions.release };
     std::string out;
-    out += std::format("# {}\n\n", apply(manifest.releaseName, "", version));
+    std::string carried;
+    for (const auto& c : versions.components) carried += (carried.empty() ? "" : ", ") + c;
+    out += std::format("# {}{}\n\n", apply(manifest.releaseName, "", version), carried.empty() ? "" : std::format(" ({})", carried));
     out += "| File | What it is | How to install it |\n";
     out += "|---|---|---|\n";
     for (const auto& file : files) {
@@ -99,7 +111,7 @@ std::string render(const Manifest& manifest, std::string_view version, const std
     return out;
 }
 
-base::Result<CheckReport> check(const Manifest& manifest, std::string_view version, std::string_view directory,
+base::Result<CheckReport> check(const Manifest& manifest, const Versions& versions, std::string_view directory,
                                 bool renderAlso) {
     std::error_code ignored;
     if (!std::filesystem::is_directory(directory, ignored)) {
@@ -112,10 +124,10 @@ base::Result<CheckReport> check(const Manifest& manifest, std::string_view versi
         if (std::filesystem::is_regular_file(path, ignored)) onDisk.insert(std::string { base::file_name(path) });
     }
 
-    const auto declared = expected_files(manifest, version);
+    const auto declared = expected_files(manifest, versions);
 
     if (renderAlso) {
-        const std::string text { render(manifest, version, declared, onDisk) };
+        const std::string text { render(manifest, versions, declared, onDisk) };
         if (auto written = os::fs::write_atomic(base::join_path(directory, "MANIFEST.md"), text); !written) {
             return base::fail("write-file", written.error());
         }

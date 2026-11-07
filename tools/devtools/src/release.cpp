@@ -36,7 +36,30 @@ std::optional<std::string> leftover_placeholder(std::string_view text) {
 
 } // namespace
 
-base::Result<pack::release::CheckReport> check_release(const std::string& root, const std::string& version,
+base::Result<pack::release::Versions> release_versions(const std::string& root, const std::string& version,
+                                                         const std::string& component) {
+    // THE VERSIONS (docs/92-release.md "Versions"): each component's own, from its sites; the release is the series'
+    // (every component) or one component's patch, and `version` must be the release's.
+    pack::release::Versions versions {};
+    auto all = mcppls::devtools::version::component_versions(root);
+    if (!all) return std::unexpected { all.error() };
+    versions.byComponent = *all;
+    if (component.empty() || component == "all") {
+        versions.release = all->at("server");
+    } else {
+        if (!all->contains(component))
+            return base::fail("release-component", std::format("'{}' is not a component; the components are server, vscode, "
+                                                                 "clion, zed and claude-code", component));
+        versions.release = all->at(component);
+        versions.components = { component };
+    }
+    if (version != versions.release)
+        return base::fail("release-version", std::format("the release is {}{} by the manifests, not {}", versions.release,
+                                                         versions.components.empty() ? "" : std::format(" ({})", component), version));
+    return versions;
+}
+
+base::Result<pack::release::CheckReport> check_release(const std::string& root, const pack::release::Versions& versions,
                                                         const std::string& directory, bool render) {
     auto manifest = pack::release::load_manifest(base::join_path(root, "packaging/release.manifest.json"));
     if (!manifest) return std::unexpected { manifest.error() };
@@ -46,7 +69,7 @@ base::Result<pack::release::CheckReport> check_release(const std::string& root, 
             if (!row.kit.name.empty()) manifest->kits[platform] = row.kit.name;
         }
     }
-    return pack::release::check(*manifest, version, directory, render);
+    return pack::release::check(*manifest, versions, directory, render);
 }
 
 namespace {
@@ -214,7 +237,12 @@ int command_release_check(const cmdline::ParsedArgs& arguments) {
         std::println(std::cerr, "mcppls-devtools: release check needs --version and --dir");
         return 2;
     }
-    auto report = release::check_release(root, *version, *directory, arguments.is_flag_set("render"));
+    auto versions = release::release_versions(root, *version, std::string { arguments.value("component").value_or("all") });
+    if (!versions) {
+        std::println(std::cerr, "mcppls-devtools: {}", versions.error().message);
+        return 1;
+    }
+    auto report = release::check_release(root, *versions, *directory, arguments.is_flag_set("render"));
     if (!report) {
         std::println(std::cerr, "mcppls-devtools: {}", report.error().message);
         return 1;
@@ -266,7 +294,8 @@ cmdline::App release_command(bool& handled, int& status) {
         .description("Check a staged release directory against packaging/release.manifest.json")
         .option("version").takes_value().value_name("VERSION").help("The release being staged").option("dir")
         .takes_value().value_name("DIR").help("The staged release directory").option("render")
-        .help("Also write MANIFEST.md into the directory");
+        .help("Also write MANIFEST.md into the directory").option("component").takes_value().value_name("COMPONENT")
+        .help("A component's own release (server, vscode, clion, zed, claude-code); default all, the series release");
     (void) command.subcommand("xlings")
         .description("Render the xim-pkgindex descriptors of a release: the server's one asset and each kit's")
         .option("release").takes_value().value_name("DIR").help("A release's directory: mcppls-<version>-openkal.zip and mcppls-kit-*.tar.gz").option("out")

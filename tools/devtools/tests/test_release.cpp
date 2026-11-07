@@ -6,6 +6,7 @@ import std;
 import mcppls.testing;
 import mcppls.base.path;
 import mcppls.pack.archive;
+import mcppls.pack.release;
 import mcppls.devtools.release;
 import mcpplibs.os;
 
@@ -92,11 +93,11 @@ int main() {
                                        "mcppls-kit-x86_64-w64-mingw32-23.1.0.tar.gz" }) {
             asset(staged, name);
         }
-        auto checked = release::check_release(root, "0.0.20", staged, false);
+        auto checked = release::check_release(root, mcppls::pack::release::one_version("0.0.20"), staged, false);
         expect(checked.has_value());
         if (checked) expect(checked->ok) << (checked->problems.empty() ? std::string {} : checked->problems.front());
         asset(staged, "mcppls-kit-riscv64-linux-gnu-23.1.0.tar.gz");
-        checked = release::check_release(root, "0.0.20", staged, false);
+        checked = release::check_release(root, mcppls::pack::release::one_version("0.0.20"), staged, false);
         expect(checked.has_value() && !checked->ok) << "a kit of no platform is undeclared";
         std::filesystem::remove_all(root);
     };
@@ -107,7 +108,7 @@ int main() {
         for (std::string_view name : { "mcppls-payload-0.0.20.tar.gz", "mcppls-kit-openkal-0.19.0.tar.gz", "mcppls-kit-x86_64-linux-gnu-23.1.0.tar.gz" }) {
             asset(staged, name);
         }
-        auto checked = release::check_release(root, "0.0.20", staged, false);
+        auto checked = release::check_release(root, mcppls::pack::release::one_version("0.0.20"), staged, false);
         expect(checked.has_value());
         if (checked) {
             expect(!checked->ok);
