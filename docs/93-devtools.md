@@ -49,9 +49,11 @@ its payload names, its rule that a program is never found through a relative PAT
 
 `mcpp build -p <member>` and `mcpp test -p <member>` reach one member; `--workspace` reaches all of
 them (the root package is reached by the plain command). The system is a value, never a
-preprocessor branch: mcpplibs.os's `host()` is a constant expression on a native build and the
-loaded system in an ok image (`<arch>-openkal`), and `mcppls::base::payload_platform()` names it with
-the architecture, so an arm64 build says `linux-arm64` (`mcppls-devtools check os-surface`).
+preprocessor branch and never a header: mcpplibs.os's `host()` is a constant expression on a native
+build and the loaded system in an ok image (`<arch>-openkal`), and `mcppls::base::payload_platform()`
+names it with the architecture, so an arm64 build says `linux-arm64`; the operating system is
+imported from mcpplibs.os and the C library from mcpplibs.mwrap.libc, and no source or test includes
+a header (`mcppls-devtools check os-surface`).
 The platforms themselves are the rows of `packaging/payload.lock.json`; the VS Code extension, the
 CLion build, `release.manifest.json` and CI's per-platform jobs (`build`, `test`, `kits`,
 `conformance`, `vscode-e2e`, `distribution`, the release checks' `install`) list the same ones, and

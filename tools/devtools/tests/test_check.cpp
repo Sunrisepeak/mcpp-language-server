@@ -45,12 +45,26 @@ int main() {
     using namespace mcppls::testing;
     const std::string root { repository_root() };
 
-    "os-surface: no source of this tree branches on the platform in the preprocessor"_test = [&] {
+    "os-surface: no source of this tree includes a header or branches on the platform in the preprocessor"_test = [&] {
         auto report = check::os_surface(root);
         expect(report.has_value());
         if (!report) return;
         print_problems(*report);
         expect(report->ok);
+    };
+
+    "os-surface: a header or a platform branch in a source is reported with its place"_test = [&] {
+        const std::string tree { scratch("os-surface") };
+        (void)os::fs::write(base::join_path(tree, "mcpp.toml"), "[package]\nname = \"probe\"\n");
+        (void)std::filesystem::create_directories(base::join_path(tree, "src"));
+        (void)os::fs::write(base::join_path(tree, "src/a.cpp"), "#include <unistd.h>\nimport std;\n#if defined(_WIN32)\n#endif\n");
+        auto report = check::os_surface(tree);
+        expect(report.has_value());
+        if (!report) return;
+        expect(!report->ok);
+        expect(report->problems.size() == 2u) << report->problems.size();
+        expect(report->problems.size() == 2u && report->problems[0].contains("a.cpp:1 includes a header (<unistd.h>)")) << (report->problems.empty() ? std::string {} : report->problems.front());
+        expect(report->problems.size() == 2u && report->problems[1].contains("a.cpp:3 branches on _WIN32")) << (report->problems.empty() ? std::string {} : report->problems.front());
     };
 
     "layers: this tree's members depend only on strictly lower layers"_test = [&] {

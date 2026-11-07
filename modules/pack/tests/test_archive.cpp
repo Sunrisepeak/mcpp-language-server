@@ -2,11 +2,6 @@
 // behaving, so the fixtures here are written with libarchive's own writer and read back: a top
 // directory that gets stripped, a selection, an executable bit, a symlink materialized as a copy,
 // and the two paths an archive could use to write outside the directory it was given.
-#include <cerrno>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <unistd.h>
-
 import std;
 import mcpplibs.mwrap.libarchive;
 import mcppls.testing;
@@ -158,58 +153,6 @@ int main() {
     using namespace mcppls::testing;
 
     const std::string work { temp_dir("work") };
-
-    // WHAT `fstat` SAYS ABOUT A DESCRIPTOR THE PROGRAM JUST OPENED.
-    //
-    // `archive_write_open_filename.c:178` OPENS AND `:189` FSTATS, and it is
-    // the second that fails:
-    //
-    //     mine->fd = open(mbs, flags, 0666);   // succeeds, the file exists
-    //     if (fstat(mine->fd, &st) != 0)       // EACCES
-    //         archive_set_error(a, errno, "Couldn't stat '%s'", mbs);
-    //
-    // Which is why every path-shaped explanation died: the path had already
-    // succeeded by then. Three guesses were spent on the name --- that it lay
-    // outside the program's preopened directories, that the two temp-directory
-    // helpers disagreed about its 8.3 form, that the 8.3 component was what
-    // failed --- and a path with no short component directly beneath a held
-    // directory fails identically. `stat` on that same path answers correctly.
-    //
-    // So the question is about the DESCRIPTOR, not the name, and this asks it
-    // in four calls rather than through an archive writer.
-    "fstat answers for a descriptor this program just opened"_test = [&] {
-        const std::string missing { base::join_path(work, "definitely-not-here") };
-        struct ::stat st {};
-        errno = 0;
-        const int rc { ::stat(missing.c_str(), &st) };
-        const int missingErrno { errno };
-        std::println(std::cerr, "stat('{}') -> rc={} errno={} ({})",
-                     missing, rc, missingErrno, std::strerror(missingErrno));
-        expect(rc != 0);
-        expect(missingErrno == ENOENT);
-
-        const std::string made { base::join_path(work, "opened-here") };
-        errno = 0;
-        const int fd { ::open(made.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666) };
-        std::println(std::cerr, "open('{}') -> fd={} errno={} ({})",
-                     made, fd, errno, std::strerror(errno));
-        expect(fd >= 0);
-        if (fd < 0) return;
-
-        struct ::stat fdSt {};
-        errno = 0;
-        const int fstatRc { ::fstat(fd, &fdSt) };
-        const int fstatErrno { errno };
-        std::println(std::cerr, "fstat({}) -> rc={} errno={} ({}) size={}",
-                     fd, fstatRc, fstatErrno, std::strerror(fstatErrno),
-                     static_cast<long long>(fdSt.st_size));
-        ::close(fd);
-
-        // THE ONE THAT MATTERS. A descriptor this program opened a line ago is
-        // valid by construction, so `fstat` on it has nothing to refuse.
-        expect(fstatRc == 0);
-        expect(fstatErrno == 0);
-    };
 
     "a tar.gz is listed without writing anything"_test = [&] {
         const std::string path { base::join_path(work, "list.tar.gz") };

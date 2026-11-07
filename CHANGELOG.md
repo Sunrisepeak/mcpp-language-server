@@ -36,8 +36,10 @@ with zlib writes. Built with mcpp 2026.11.7.2 over openkal-platform 0.24.3 and m
 
 ### Changed
 
-- libarchive and xxHash are their mwrap modules (`mcpplibs.mwrap.libarchive`, `mcpplibs.mwrap.xxhash`); no source
-  of the server or of `modules/` includes a header.
+- libarchive and xxHash are their mwrap modules (`mcpplibs.mwrap.libarchive`, `mcpplibs.mwrap.xxhash`), and no
+  source or test includes a header: the operating system is mcpplibs.os's and the C library mcpplibs.mwrap.libc's.
+  The archive tests' probe of the C library's `open` and `fstat`, written for a Windows image fault since fixed,
+  is gone; the archive writer exercises both on every system. `mcppls-devtools check os-surface` reports a header.
 - The platform is one release, `openkal-platform@0.24.3` (its okrun reserves a thread's stack for an image's main
   thread on Windows), and every dependency is one release named by its identity in one table
   (`mcpplibs.os = "0.3.1"`, `mcpplibs.mwrap.libarchive = "3.8.7"`); mcpp 2026.11.7.2 or later builds mcppls.

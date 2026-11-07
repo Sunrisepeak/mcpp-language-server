@@ -37,7 +37,7 @@ mcpp run -p devtools -- extension --editor vscode --install  # payload、VS Code
 操作系统是 mcpplibs.os 的，每个成员直接调用它：文件、进程、环境变量、目录、回环 socket 与标准流。mcppls 不在它之上另设一层；`modules/base` 与 `modules/toolrun` 只放 mcppls 自己的东西（它的缓存目录、payload 名称、不经相对 PATH 项找程序的规则）。
 | `tools/model-gateway` | `mcppls-model`，参考实现的 model gateway | openkal, tinyhttps |
 
-`mcpp build -p <member>` 和 `mcpp test -p <member>` 只作用于一个成员；`--workspace` 作用于全部成员（根包用不带参数的命令就能作用到）。系统是值而不是预处理分支：mcpplibs.os 的 `host()` 在原生构建中为常量表达式，ok 映像（`<arch>-openkal`）中为装载时的系统；`mcppls::base::payload_platform()` 连同架构给出名称，所以 arm64 构建为 `linux-arm64`（`mcppls-devtools check os-surface`）。平台本身就是 `packaging/payload.lock.json` 里的各行；VS Code 扩展、CLion 构建、`release.manifest.json` 和 CI 按平台运行的 job（`build`、`test`、`kits`、`conformance`、`vscode-e2e`、`distribution`，以及 release checks 的 `install`）列出的必须是同一组平台，每一行还要写明它的工具包（`mcppls-devtools check platforms`）。
+`mcpp build -p <member>` 和 `mcpp test -p <member>` 只作用于一个成员；`--workspace` 作用于全部成员（根包用不带参数的命令就能作用到）。系统是值，既不是预处理分支，也不是头文件：mcpplibs.os 的 `host()` 在原生构建中为常量表达式，ok 映像（`<arch>-openkal`）中为装载时的系统；`mcppls::base::payload_platform()` 连同架构给出名称，所以 arm64 构建为 `linux-arm64`；操作系统从 mcpplibs.os 导入，C 库从 mcpplibs.mwrap.libc 导入，任何源文件和测试都不包含头文件（`mcppls-devtools check os-surface`）。平台本身就是 `packaging/payload.lock.json` 里的各行；VS Code 扩展、CLion 构建、`release.manifest.json` 和 CI 按平台运行的 job（`build`、`test`、`kits`、`conformance`、`vscode-e2e`、`distribution`，以及 release checks 的 `install`）列出的必须是同一组平台，每一行还要写明它的工具包（`mcppls-devtools check platforms`）。
 
 ## 按任务分类的命令
 

@@ -19,7 +19,12 @@ namespace {
 constexpr std::array<std::string_view, 2> SOURCE_EXTENSIONS { ".cppm", ".cpp" };
 constexpr std::array<std::string_view, 0> NO_SKIP {};
 
-// ---- os-surface: the system is a value, never a preprocessor branch -----------------------------
+// ---- os-surface: the system is a value, never a preprocessor branch, never a header -------------
+//
+// A source names the system through modules: mcpplibs.os for the operating system (files,
+// processes, the network, the system's identity) and mcpplibs.mwrap.libc for the C library. A
+// header (`<unistd.h>`, `<windows.h>`, `<cerrno>`) is one system's surface, which an ok image
+// cannot present for all of them at once.
 
 // The macros a platform branch would test. mcpplibs.os answers the system as `host()`, a constant
 // expression on a native target and the loaded system in an ok image, so code branches with `if`;
@@ -130,6 +135,13 @@ base::Result<Report> os_surface(const std::string& root) {
                 for (const auto line : base::split_lines(*text)) {
                     ++lineNumber;
                     const auto trimmed = base::trim(line);
+                    if (trimmed.starts_with("#include")) {
+                        report.ok = false;
+                        report.problems.push_back(std::format(
+                            "{}:{} includes a header ({}); import mcpplibs.os, or mcpplibs.mwrap.libc for the C library",
+                            file, lineNumber, base::trim(trimmed.substr(8))));
+                        continue;
+                    }
                     if (!trimmed.starts_with("#if") && !trimmed.starts_with("#elif")) continue;
                     for (const auto macro : PLATFORM_MACROS) {
                         if (!trimmed.contains(macro)) continue;
@@ -143,7 +155,7 @@ base::Result<Report> os_surface(const std::string& root) {
             }
         }
     }
-    if (report.ok) report.notes.push_back(std::format("OK: {} sources, no preprocessor platform branch; the system is mcpplibs.os's host()", files));
+    if (report.ok) report.notes.push_back(std::format("OK: {} sources, no header and no preprocessor platform branch; the system is mcpplibs.os's", files));
     return report;
 }
 
