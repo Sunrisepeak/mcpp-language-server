@@ -116,17 +116,17 @@ targets = ["x86_64-linux-gnu", "x86_64-openkal"]
 
 [package."openkal-platform"]
 namespace = "mcpplibs"
-version = "0.24.3"
-source  = "index+mcpplibs@0.24.3"
-hash    = "fnv1a:85275d2a77391408"
+version = "0.24.4"
+source  = "index+mcpplibs@0.24.4"
+hash    = "fnv1a:8527642a77391fed"
 origin  = "platform"
 targets = ["x86_64-linux-gnu", "x86_64-openkal"]
 
 [package."openkal-tools"]
 namespace = "mcpplibs"
-version = "0.5.2"
-source  = "index+mcpplibs@0.5.2"
-hash    = "fnv1a:17b68773cd803ae8"
+version = "0.5.3"
+source  = "index+mcpplibs@0.5.3"
+hash    = "fnv1a:17b68873cd803c9b"
 origin  = "platform"
 targets = ["x86_64-linux-gnu", "x86_64-openkal"]
 

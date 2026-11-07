@@ -26,11 +26,11 @@ members = [
 # (openkal-musl) and the C++ run-time (openkal-llvm-runtime) above openkal, the toolchain, and for
 # an ok image (`<arch>-openkal`) its tools, link, seal and runner. The ok images take it here too:
 # The platform is one release (design 2026-11-07, D20): the payload this version ships is built over
-# one version group, openkal-platform 0.24.3, which names OpenKal 0.24, musl 0.28.1, runtime 0.19.2
-# and image 0.5.2 (okrun reserves a thread's stack for an image's main thread on Windows). System triples use its hosted arrangement; images
+# one version group, openkal-platform 0.24.4, which names OpenKal 0.24, musl 0.28.1, runtime 0.19.2
+# and image 0.5.3 (okrun enters an image in its convention's floating-point state). System triples use its hosted arrangement; images
 # use its standalone runtime. The Windows hosted target is x86_64-windows-gnu.
 [workspace.target.'cfg(any(linux, macos, windows, os = "openkal"))']
-platform = "openkal-platform@0.24.3"
+platform = "openkal-platform@0.24.4"
 
 # 2026.11.7.2: the platform as one release, and the archived tests of a member carrying the member's files.
 [workspace.package]

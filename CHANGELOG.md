@@ -24,7 +24,7 @@ patch is `## [<component> X.Y.Z]` (`server`, `vscode`, `clion`, `zed`, `claude-c
 
 The bundled engine is [mcppls-clangd 0.0.21](https://github.com/Sunrisepeak/mcppls-clangd/releases/tag/v0.0.21)
 (`23.1.0-mcppls.10`), its ok image built with zlib as the native engines are, so it reads the index shards an engine
-with zlib writes. Built with mcpp 2026.11.7.2 over openkal-platform 0.24.3 and mcpplibs.os 0.3.1.
+with zlib writes. Built with mcpp 2026.11.7.2 over openkal-platform 0.24.4 and mcpplibs.os 0.3.1.
 
 ### Fixed
 
@@ -57,8 +57,8 @@ with zlib writes. Built with mcpp 2026.11.7.2 over openkal-platform 0.24.3 and m
   source or test includes a header: the operating system is mcpplibs.os's and the C library mcpplibs.mwrap.libc's.
   The archive tests' probe of the C library's `open` and `fstat`, written for a Windows image fault since fixed,
   is gone; the archive writer exercises both on every system. `mcppls-devtools check os-surface` reports a header.
-- The platform is one release, `openkal-platform@0.24.3` (its okrun reserves a thread's stack for an image's main
-  thread on Windows), and every dependency is one release named by its identity in one table
+- The platform is one release, `openkal-platform@0.24.4` (its okrun enters an image in its convention's
+  floating-point state, so the server's image reads a JSON number on Windows as on the other systems), and every dependency is one release named by its identity in one table
   (`mcpplibs.os = "0.3.1"`, `mcpplibs.mwrap.libarchive = "3.8.7"`); mcpp 2026.11.7.2 or later builds mcppls.
 - The workspace's shared tables are `[workspace.toolchain]`, `[workspace.profile.release]` and
   `[workspace.xlings.workspace]`, and one `[workspace.dependencies]` holds every shared version.
