@@ -20,6 +20,12 @@ with zlib writes. Built with mcpp 2026.11.7.2 over openkal-platform 0.24.3 and m
   zlib is unavailable") before indexing again. The 0.0.21 image reads them, and each engine now keeps its database,
   index shards and module builds in a cache context of its own identity (`clangd-<version>-<platform>-<digest>`); the
   contexts other engines left are removed when an engine starts (docs/50-troubleshooting.md).
+- **One closing quote after an include completion** ([#80](https://github.com/Sunrisepeak/mcpp-language-server/issues/80)).
+  clangd's include completion replaces the closing quote or bracket an editor typed after the cursor. A completion
+  the server answers from an earlier answer for the same word (a word's complete list, a late answer) ended every
+  edit at the cursor, so the editor's quote stayed and `#include "foo.h""` was written. An edit that reaches past
+  the old cursor now reaches as far past the new one while the line after the cursor is unchanged, and an include
+  line is never answered from kept answers, whose words are the code's identifiers.
 
 ### Added
 
@@ -33,7 +39,8 @@ with zlib writes. Built with mcpp 2026.11.7.2 over openkal-platform 0.24.3 and m
 - libarchive and xxHash are their mwrap modules (`mcpplibs.mwrap.libarchive`, `mcpplibs.mwrap.xxhash`); no source
   of the server or of `modules/` includes a header.
 - The platform is one release, `openkal-platform@0.24.3` (its okrun reserves a thread's stack for an image's main
-  thread on Windows), and mcpplibs.os is `^0.3.1`; mcpp 2026.11.7.2 or later builds mcppls.
+  thread on Windows), and every dependency is one release named by its identity in one table
+  (`mcpplibs.os = "0.3.1"`, `mcpplibs.mwrap.libarchive = "3.8.7"`); mcpp 2026.11.7.2 or later builds mcppls.
 - The workspace's shared tables are `[workspace.toolchain]`, `[workspace.profile.release]` and
   `[workspace.xlings.workspace]`, and one `[workspace.dependencies]` holds every shared version.
 - Every file a release distributes holds ok images, the engine included, and CI tests them as such: the server's

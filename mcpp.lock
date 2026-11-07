@@ -70,11 +70,11 @@ hash    = "fnv1a:9438fb3cbe77fdc7"
 origin  = "platform"
 targets = ["x86_64-linux-gnu", "x86_64-openkal"]
 
-[package."cmdline"]
+[package."mcpplibs.cmdline"]
 namespace = "mcpplibs"
 version = "0.0.2"
 source  = "index+mcpplibs@0.0.2"
-hash    = "fnv1a:f5015fdab7dc3807"
+hash    = "fnv1a:aad61299abc2c4b7"
 targets = ["x86_64-linux-gnu", "x86_64-openkal"]
 
 [package."openkal"]
@@ -137,11 +137,11 @@ source  = "index+mcpplibs@0.3.1"
 hash    = "fnv1a:c8fc76a4fc0fcfdd"
 targets = ["x86_64-linux-gnu", "x86_64-openkal"]
 
-[package."tinyhttps"]
+[package."mcpplibs.tinyhttps"]
 namespace = "mcpplibs"
 version = "0.3.1"
 source  = "index+mcpplibs@0.3.1"
-hash    = "fnv1a:a8acdb89364006ee"
+hash    = "fnv1a:c9bc1a873a07579e"
 
 [package."mcpplibs.mwrap.libarchive"]
 namespace = "mcpplibs.mwrap"

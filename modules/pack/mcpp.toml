@@ -14,13 +14,11 @@ kind = "lib"
 
 [dependencies]
 mcpplibs.os.workspace = true
-tinyhttps.workspace = true
+mcpplibs.tinyhttps.workspace = true
+mcpplibs.mwrap.libarchive.workspace = true
+nlohmann.json.workspace = true
 mcppls-base = { path = "../base" }
 mcppls-toolrun = { path = "../toolrun" }
-"mcpplibs.mwrap.libarchive" = { workspace = true }
-
-[dependencies.nlohmann]
-json.workspace = true
 
 [dev-dependencies]
 mcppls-testing = { path = "../testing" }
