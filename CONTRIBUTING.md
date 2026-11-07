@@ -94,6 +94,16 @@ The server is **C++23 named modules only** — no headers, no macros. One module
 is `export module mcppls.orchestrator.workspace;`). Keep new code inside that shape rather than
 introducing a header or a macro to work around it.
 
+## What CI runs for a change
+
+A pull request runs the jobs of the components it changes, by
+[`.github/components.tsv`](.github/components.tsv): a change of the server (`src/`, `modules/`,
+`packaging/`, `tests/`, `tools/` and the manifests) runs everything; a change of one editor plugin
+(`editors/<plugin>/`) runs that plugin's build and end-to-end tests over the payload main built for the
+same server, without building the server again; a change of the documentation runs its checks; a change
+of `.github/`, or of a path the table does not name, runs everything. The one required check is `ci`.
+Main, nightly and release runs run everything (docs/92-release.md "Versions").
+
 ## Contributions developed with an AI agent
 
 They are welcome, and they are held to the same bar as any other: the change has to prove itself

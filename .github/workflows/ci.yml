@@ -56,6 +56,88 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # WHAT THE CHANGE REACHES (docs/92-release.md "Versions"; .github/components.tsv). A pull request runs
+  # the jobs of the components it changes: the server's change runs everything, a plugin's runs that
+  # plugin's jobs, the documentation's its checks. A push, a dispatch, a release or a pull request from
+  # or into a release branch runs everything. A plugin's jobs test it over the payload of the server it
+  # is changed against: the payload main built from the same server inputs (`digest`), lent by that
+  # run (`lend`, its artifacts kept 7 days); when there is none, the server is built as well.
+  changes:
+    name: what the change reaches
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      server: ${{ steps.classify.outputs.server }}
+      vscode: ${{ steps.classify.outputs.vscode }}
+      clion: ${{ steps.classify.outputs.clion }}
+      zed: ${{ steps.classify.outputs.zed }}
+      nvim: ${{ steps.classify.outputs.nvim }}
+      agents: ${{ steps.classify.outputs.agents }}
+      zed_real: ${{ steps.classify.outputs.zed_real }}
+      packaging: ${{ steps.classify.outputs.packaging }}
+      digest: ${{ steps.classify.outputs.digest }}
+      lend: ${{ steps.classify.outputs.lend }}
+    steps:
+      # The merge commit and its first parent, the base it merges into: their difference is what the pull
+      # request changes, with no API call.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: The classification's own cases
+        run: bash .github/scripts/test_changes.sh
+      - id: classify
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          changed="$RUNNER_TEMP/changed.txt"
+          if [ "$EVENT" = pull_request ]; then git diff --name-only HEAD^1 HEAD > "$changed"; else : > "$changed"; fi
+          bash .github/scripts/changes.sh "$changed" > "$RUNNER_TEMP/reached.txt"
+          cat "$RUNNER_TEMP/reached.txt"
+          get() { sed -n "s/^$1=//p" "$RUNNER_TEMP/reached.txt"; }
+          lend=""
+          if [ "$(get server)" = false ]; then
+            plugins=false
+            for c in vscode clion zed nvim agents; do [ "$(get "$c")" = true ] && plugins=true; done
+            if [ "$plugins" = true ]; then
+              # The newest main run that built the payload from these server inputs, still within its artifacts' days.
+              lend=$(gh api "repos/${{ github.repository }}/actions/artifacts?name=server-digest-$(get digest)&per_page=20" \
+                       --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main")][0].workflow_run.id // ""')
+              if [ -z "$lend" ]; then
+                echo "no main run lends the payload of these server inputs: the server is built as well"
+                sed -i 's/^\(server\|vscode\|clion\|zed\|nvim\|agents\)=.*/\1=true/' "$RUNNER_TEMP/reached.txt"
+              else
+                echo "the payload of run $lend, built from the same server inputs"
+              fi
+            fi
+          fi
+          cat "$RUNNER_TEMP/reached.txt" >> "$GITHUB_OUTPUT"
+          echo "lend=$lend" >> "$GITHUB_OUTPUT"
+
+  # The repository's invariants (docs/93-devtools.md) when the server is not built: the build job checks
+  # them where it builds devtools anyway.
+  invariants:
+    name: repository invariants
+    needs: changes
+    if: needs.changes.outputs.server != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-mcpp
+      - run: |
+          set -euo pipefail
+          mcpp build -p devtools
+          devtools=$(find target -type f -name mcppls-devtools -path '*/bin/*' | head -1)
+          "$devtools" check all
+
+  # ---------------------------------------------------------------------------
   # The specifications' schemas, examples and the fixtures' simulated producer data (docs/specs/tools/validate.py).
   # The one Python this repository keeps (docs/93-devtools.md "What is not C++"): JSON Schema 2020-12
   # validation, which no C++ package in the mcpp index provides yet.
@@ -79,6 +161,8 @@ jobs:
   # payload assembly waits: every part and its provenance must be ready first.
   engine-candidate-parts:
     name: engine candidate parts
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 100
     steps:
@@ -108,6 +192,8 @@ jobs:
   # Keep these per-host warmers independent: a queued host must not serialize other hosts' builds.
   mcpp:
     name: mcpp (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -131,6 +217,8 @@ jobs:
   # matrix to them. `--workspace` cannot write an archive, so each package with tests writes its own.
   build:
     name: build (${{ matrix.platform }}, ${{ matrix.profile }})
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
@@ -371,6 +459,8 @@ jobs:
   # platform's runner. The server and the tools built over them are the same programs, and start.
   host-platform:
     name: build programs as images (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -408,6 +498,8 @@ jobs:
   # zip,okb`); the single files cover every leg and system (`--pkg-format single-file --systems all`).
   server:
     name: the server (one tree, one okb, the single files)
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -695,7 +787,11 @@ jobs:
   # job below installs this file, which is what a release ships.
   vsix:
     name: the VS Code extension (one VSIX)
-    needs: payload
+    needs: [changes, payload]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.vscode == 'true' }}
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
@@ -711,6 +807,7 @@ jobs:
       - uses: ./.github/actions/payload
         with:
           platform: linux-x64
+          run-id: ${{ needs.changes.outputs.lend }}
       - name: Build and package the extension
         run: |
           set -euo pipefail
@@ -1525,7 +1622,11 @@ jobs:
   # VS Code → extension → mcppls → clangd, the one VSIX on every system (design 16; ecosystem design 2026-10-29 §9.3).
   vscode-e2e:
     name: VS Code end to end (${{ matrix.platform }})
-    needs: [vsix, kits]
+    needs: [changes, vsix, kits]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.vscode == 'true' }}
+    permissions:
+      contents: read
+      actions: read
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -1567,6 +1668,8 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: kit-${{ matrix.platform }}
+          run-id: ${{ needs.changes.outputs.lend || github.run_id }}
+          github-token: ${{ github.token }}
           path: kit-archive
       - name: The kit of this platform's target, installed
         run: |
@@ -1712,7 +1815,11 @@ jobs:
   # the unpacked editor (test/runTest.ts); the main suite checks the diagnostic environment names it.
   code-oss-e2e:
     name: Code-OSS (VSCodium) end to end (${{ matrix.platform }})
-    needs: [vsix, kits]
+    needs: [changes, vsix, kits]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.vscode == 'true' }}
+    permissions:
+      contents: read
+      actions: read
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -1776,6 +1883,8 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: kit-${{ matrix.platform }}
+          run-id: ${{ needs.changes.outputs.lend || github.run_id }}
+          github-token: ${{ github.token }}
           path: kit-archive
       - name: The kit of this platform's target, installed, and the extension's test harness
         run: |
@@ -1811,7 +1920,11 @@ jobs:
   # other tool here (`nvim` in xim-pkgindex), each version installed and selected with `xlings use`.
   neovim:
     name: Neovim (${{ matrix.platform }})
-    needs: [payload, kits]
+    needs: [changes, payload, kits]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.nvim == 'true' }}
+    permissions:
+      contents: read
+      actions: read
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -1830,6 +1943,7 @@ jobs:
       - uses: ./.github/actions/payload
         with:
           platform: ${{ matrix.platform }}
+          run-id: ${{ needs.changes.outputs.lend }}
           kit: 'true'
       - name: Neovim from xlings
         run: |
@@ -1866,6 +1980,8 @@ jobs:
   # runner, and the crate still compiling to the wasm Zed loads. Every pull request: a few seconds.
   zed-unit:
     name: Zed extension (cargo test)
+    needs: changes
+    if: needs.changes.outputs.zed == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -1877,44 +1993,18 @@ jobs:
           rustup target add wasm32-wasip2
           cargo build --release --target wasm32-wasip2 --manifest-path editors/zed/Cargo.toml
 
-  # Whether the pull request needs the real Zed (zed-smoke.yml): it touches the extension, the
-  # server's protocol layer or orchestrator, or devtools (which installs the extension), or it is
-  # the pull request of a release/* branch or into one. Same method as packaging-changes below.
-  zed-changes:
-    name: does the pull request need the real Zed
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      run: ${{ steps.files.outputs.run }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 2
-      - id: files
-        env:
-          BASE_REF: ${{ github.base_ref }}
-          HEAD_REF: ${{ github.head_ref }}
-        run: |
-          set -euo pipefail
-          run=false
-          case "$BASE_REF" in release/*) echo "into $BASE_REF"; run=true ;; esac
-          case "$HEAD_REF" in release/*) echo "from $HEAD_REF"; run=true ;; esac
-          while read -r file; do
-            case "$file" in
-              editors/zed/*|src/lsp/*|src/orchestrator/*|tools/devtools/*|.github/workflows/zed-smoke.yml|.github/versions.env)
-                echo "the real Zed: $file"; run=true ;;
-            esac
-          done < <(git diff --name-only HEAD^1 HEAD)
-          echo "run=$run" >> "$GITHUB_OUTPUT"
-
   # A pull request that changes release packaging gets the same smoke from release-checks.yml, so
   # it is not run twice here. nightly.yml and every release candidate run it on their own.
   zed-smoke:
     name: real Zed
-    needs: [payload, kits, zed-changes, packaging-changes]
-    if: needs.zed-changes.outputs.run == 'true' && needs.packaging-changes.outputs.changed != 'true'
+    needs: [changes, payload, kits]
+    if: ${{ !cancelled() && !failure() && github.event_name == 'pull_request' && needs.changes.outputs.zed_real == 'true' && needs.changes.outputs.packaging != 'true' }}
+    permissions:
+      contents: read
+      actions: read
     uses: ./.github/workflows/zed-smoke.yml
+    with:
+      payload-run: ${{ needs.changes.outputs.lend }}
 
   # ---------------------------------------------------------------------------
   # The CLion plugin (editors/clion), 0.0.8 part 2 CL-2 and CL-3. Gradle comes from xlings like the
@@ -1926,6 +2016,8 @@ jobs:
   # 2026.1, the oldest build it claims, and against the one it is built on.
   clion-verify:
     name: CLion plugin verifier
+    needs: changes
+    if: needs.changes.outputs.clion == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -1949,44 +2041,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # Whether the real-CLion test below runs. It takes a CLion download and a few minutes, so a pull
-  # request runs it only when it reaches the plugin, the protocol layer the plugin talks, the part of
-  # the server that answers it, or the tool that installs it -- or is a release branch's. Everything
-  # that is not a pull request (a push to main, the nightly, Release, prerelease checks) runs it.
-  clion-changes:
-    name: does the change reach the CLion plugin
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      changed: ${{ steps.files.outputs.changed }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 2
-      - id: files
-        env:
-          EVENT: ${{ github.event_name }}
-          HEAD_REF: ${{ github.head_ref }}
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          set -euo pipefail
-          changed=false
-          if [ "$EVENT" != pull_request ]; then
-            changed=true
-          elif [[ "$HEAD_REF" == release/* || "$BASE_REF" == release/* ]]; then
-            echo "a release branch"; changed=true
-          else
-            while read -r file; do
-              case "$file" in
-                .github/workflows/*|editors/clion/*)
-                  echo "reaches the adapter: $file"; changed=true ;;
-                src/*|modules/*|mcpp.toml|mcpp.lock|build.mcpp|packaging/*|tools/devtools/*|.github/versions.env|.github/actions/setup-mcpp/*|.github/actions/payload/*|.github/scripts/install-mcpp.sh)
-                  echo "reaches the server or payload: $file"; changed=true ;;
-              esac
-            done < <(git diff --name-only HEAD^1 HEAD)
-          fi
-          echo "changed=$changed" >> "$GITHUB_OUTPUT"
-
   # CLion 2026.2.3 itself, headless, with the platform's test framework: the sandbox holds the plugin,
   # carrying the one payload this run built (MCPPLS_PAYLOAD), and the
   # plugin starts that payload's server with nothing on the PATH. The test asserts what a person sees
@@ -1996,8 +2050,11 @@ jobs:
   # own engine answers for the same file is printed in the log.
   clion-e2e:
     name: CLion 2026.2.3 (headless)
-    needs: [payload, kits, clion-changes]
-    if: needs.clion-changes.outputs.changed == 'true'
+    needs: [changes, payload, kits]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.clion == 'true' }}
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -2008,6 +2065,7 @@ jobs:
       - uses: ./.github/actions/payload
         with:
           platform: linux-x64
+          run-id: ${{ needs.changes.outputs.lend }}
           kit: 'true'
       - name: Cache the CLion downloads
         uses: actions/cache@v6
@@ -2050,8 +2108,11 @@ jobs:
   # to pass a regression that checks the fix for those errors.
   clion-adapter-baseline-package:
     name: CLion current server with the published engine
-    needs: [build, clion-changes]
-    if: needs.clion-changes.outputs.changed == 'true'
+    needs: [changes, build]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.clion == 'true' }}
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -2076,6 +2137,8 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: native-server-linux-x64
+          run-id: ${{ needs.changes.outputs.lend || github.run_id }}
+          github-token: ${{ github.token }}
           path: native-server
       - name: Replace only the published server with the current native build
         run: |
@@ -2172,40 +2235,49 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
-  # A pull request that changes release packaging is checked the way a release is: after every job
-  # above has passed, release-checks.yml runs on this run's own payloads and VSIX files. It used to
-  # be prerelease.yml on its own trigger, which ran all of CI a second time for the same commit.
-  # The paths are the ones that decide what a release builds, stages or checks.
-  packaging-changes:
-    name: does the pull request change release packaging
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      changed: ${{ steps.files.outputs.changed }}
-    steps:
-      # The merge commit and its first parent, the base it merges into: their difference is what
-      # the pull request changes, with no API call and no permission beyond reading the repository.
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 2
-      - id: files
-        run: |
-          set -euo pipefail
-          changed=false
-          while read -r file; do
-            case "$file" in
-              .github/workflows/release.yml|.github/workflows/prerelease.yml|.github/workflows/release-checks.yml|\
-              packaging/release.manifest.json|packaging/payload.lock.json|packaging/xlings/*|editors/zed/*|editors/clion/*|\
-              modules/pack/src/*|tools/devtools/src/editors.*|tools/devtools/src/packaging.*|tools/devtools/src/release.*|\
-              tools/devtools/src/kit.*)
-                echo "release packaging: $file"; changed=true ;;
-            esac
-          done < <(git diff --name-only HEAD^1 HEAD)
-          echo "changed=$changed" >> "$GITHUB_OUTPUT"
-
+  # A pull request that changes release packaging (the `packaging` of `changes`) gets the release checks
+  # after the CI it runs anyway: the plugins packaged, installed and removed, performance, stability, the
+  # staged candidate.
   release-checks:
     name: release checks
-    needs: [packaging-changes, specifications, build, test, openkal-test, server, kits, payload, vsix, conformance, clean-machine, vscode-e2e, distribution, neovim, bench-validate]
-    if: needs.packaging-changes.outputs.changed == 'true'
+    needs: [changes, specifications, build, test, openkal-test, server, kits, payload, vsix, conformance, clean-machine, vscode-e2e, distribution, neovim, bench-validate]
+    if: needs.changes.outputs.packaging == 'true'
     uses: ./.github/workflows/release-checks.yml
+
+  # ---------------------------------------------------------------------------
+  # Main lends what it built: a marker named after the server's inputs, which a pull request that changes
+  # only a plugin finds (`changes`), and whose run's payload, stage and kits it then tests over.
+  server-digest:
+    name: lend the payload of these server inputs
+    needs: [changes, build, kits, payload]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.server == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: echo '${{ needs.changes.outputs.digest }}' > "$RUNNER_TEMP/digest.txt"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: server-digest-${{ needs.changes.outputs.digest }}
+          path: ${{ runner.temp }}/digest.txt
+          retention-days: 7
+
+  # THE ONE CHECK A BRANCH REQUIRES. The jobs a change does not reach are skipped, so no job of them can be
+  # required; this one is, and it fails when any job that ran failed or was cancelled.
+  ci:
+    name: ci
+    if: always()
+    needs: [changes, invariants, specifications, engine-candidate-parts, mcpp, build, test, openkal-test, host-platform,
+            server, kits, payload, vsix, conformance, proot, ux, clean-machine, vscode-e2e, distribution, code-oss-e2e,
+            neovim, zed-unit, zed-smoke, clion-verify, clion-e2e, clion-adapter-baseline-package, clion-stable-adapter,
+            clion-stable, bench-validate, release-checks]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          set -euo pipefail
+          echo "$RESULTS"
+          if echo "$RESULTS" | grep -Eq '"(failure|cancelled)"'; then
+            echo "::error::a job this change reaches failed or was cancelled"; exit 1
+          fi
