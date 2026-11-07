@@ -10,7 +10,9 @@ check() {   # check <description> <event> <expected key=value...> -- <paths...>
     shift
     local list; list=$(mktemp)
     printf '%s\n' "$@" > "$list"
-    local got; got=$(EVENT="$event" BASE_REF=main HEAD_REF=topic bash "$here/changes.sh" "$list" 2>/dev/null)
+    local base=main
+    [ "$event" = pull_request_release ] && { event=pull_request; base=release/0.21; }
+    local got; got=$(EVENT="$event" BASE_REF="$base" HEAD_REF=topic bash "$here/changes.sh" "$list" 2>/dev/null)
     rm -f "$list"
     for kv in "${want[@]}"; do
         if ! grep -qx "$kv" <<<"$got"; then
@@ -28,7 +30,8 @@ check "a path of no component reaches everything" pull_request full=true server=
 check "a push reaches everything" push full=true server=true docs=true -- docs/x.md
 check "the real Zed for the protocol" pull_request zed_real=true server=true -- src/lsp/protocol.cpp
 check "release packaging" pull_request packaging=true -- packaging/release.manifest.json
-check "packaging is a pull request's question" push packaging=false -- packaging/release.manifest.json
+check "a flag is a changed path's question" push packaging=false zed_real=false -- packaging/release.manifest.json
+check "a release branch raises every flag" pull_request_release packaging=true zed_real=true full=true -- docs/x.md
 # The digest ignores what is not the server's.
 list=$(mktemp); echo docs/x.md > "$list"
 d1=$(EVENT=pull_request bash "$here/changes.sh" "$list" 2>/dev/null | sed -n 's/^digest=//p')
