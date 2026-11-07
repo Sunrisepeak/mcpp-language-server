@@ -40,6 +40,7 @@ std::string make_consistent_root() {
           "inline constexpr std::string_view MINIMUM_MCPP_VERSION { \"2026.9.15.1\" };\n");
     write(base::join_path(root, "editors/vscode/package.json"), "{\n  \"name\": \"mcppls\",\n  \"version\": \"0.0.1\"\n}\n");
     write(base::join_path(root, "editors/zed/extension.toml"), "id = \"mcppls\"\nversion = \"0.0.1\"\n");
+    write(base::join_path(root, "editors/zed/src/resolve.rs"), "pub const PLUGIN_VERSION: &str = \"0.0.1\";\n");
     write(base::join_path(root, "editors/clion/gradle.properties"), "pluginVersion = 0.0.1\n");
     write(base::join_path(root, "editors/claude-code/mcppls-lsp/.claude-plugin/plugin.json"),
           "{\n  \"name\": \"mcppls-lsp\",\n  \"version\": \"0.0.1\",\n  \"author\": {\n    \"name\": \"Sunrisepeak\"\n  }\n}\n");
@@ -140,6 +141,43 @@ int main() {
         const bool namesIt = std::ranges::any_of(*problems, [](const std::string& p) { return p.contains("package.json"); });
         expect(namesIt);
         std::filesystem::remove_all(root);
+    };
+
+    "a plugin's own patch is of the series and is not a problem"_test = [&] {
+        const std::string root { make_consistent_root() };
+        auto next = version::bump(root, "vscode");
+        expect(next.has_value() && *next == "0.0.2");
+        expect(version::extension_manifest_version(root).value_or("") == "0.0.2");
+        expect(version::manifest_version(root).value_or("") == "0.0.1") << "the server keeps its own patch";
+        auto problems = version::check(root);
+        expect(problems.has_value() && problems->empty());
+        std::filesystem::remove_all(root);
+    };
+
+    "a series sets every component to X.Y.0, the Zed constant with its manifest"_test = [&] {
+        const std::string root { make_consistent_root() };
+        expect(version::set_series(root, "0.22").has_value());
+        for (auto c : version::components())
+            expect(version::component_version(root, c).value_or("") == "0.22.0") << c;
+        auto text = os::fs::read(base::join_path(root, "editors/zed/src/resolve.rs"));
+        expect(text.has_value() && text->contains("\"0.22.0\""));
+        expect(version::check(root).value_or(std::vector<std::string> { "x" }).empty());
+        std::filesystem::remove_all(root);
+    };
+
+    "a Zed constant that disagrees with its manifest is reported"_test = [&] {
+        const std::string root { make_consistent_root() };
+        write(base::join_path(root, "editors/zed/src/resolve.rs"), "pub const PLUGIN_VERSION: &str = \"0.0.7\";\n");
+        auto problems = version::check(root);
+        expect(problems.has_value());
+        if (!problems) return;
+        expect(std::ranges::any_of(*problems, [](const std::string& p) { return p.contains("resolve.rs"); }));
+        std::filesystem::remove_all(root);
+    };
+
+    "the series of a version"_test = [&] {
+        expect(version::series_of("0.21.4") == std::optional<std::string> { "0.21" });
+        expect(!version::series_of("2026.11.8.1").has_value());
     };
 
     "MINIMUM_MCPP_VERSION newer than the CI-tested mcpp is reported"_test = [&] {
