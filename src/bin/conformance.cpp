@@ -2647,7 +2647,7 @@ public:
             if (argument.contains("{engine-database}")) {
                 if (database.empty()) {
                     const Json root = root_report();
-                    if (root.is_object()) database = base::join_path(root.value("cacheDirectory", std::string {}), "contexts/default/cdb");
+                    if (root.is_object()) database = mcppls::engine::engine_database_directory(root.value("cacheDirectory", std::string {}));
                 }
                 argument = base::replace_all(argument, "{engine-database}", database);
             }
@@ -4871,7 +4871,7 @@ public:
         }
         if (kind == "engine-command") {
             // 0.0.8 part 2 (X-7): the command clangd was given for `file`, read from the database the server wrote for it
-            // (under the cache directory: `contexts/default/cdb/compile_commands.json`, the newest when there are several).
+            // (under the cache directory: `contexts/<engine>/cdb/compile_commands.json`, the newest when there are several).
             // Each of `contains` is an argument of it, none of `absent` is; retried within the check's time, since the
             // database follows the model.
             const auto wanted = [&](const char* key) {
@@ -4890,7 +4890,7 @@ public:
                 std::string newest;
                 std::int64_t newestTime { -1 };
                 for (const auto& candidate : base::files_under(cacheDirectory_, std::array<std::string_view, 1> { ".json" }, {})) {
-                    if (base::file_name(candidate) != "compile_commands.json" || !candidate.contains("/contexts/default/cdb/")) continue;
+                    if (base::file_name(candidate) != "compile_commands.json" || !candidate.contains("/contexts/") || !candidate.contains("/cdb/")) continue;
                     if (const auto stamp = base::file_stamp(candidate); stamp && static_cast<std::int64_t>(stamp->modified_ns) > newestTime) {
                         newest = candidate;
                         newestTime = static_cast<std::int64_t>(stamp->modified_ns);
