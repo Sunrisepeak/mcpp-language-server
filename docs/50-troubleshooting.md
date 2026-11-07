@@ -51,8 +51,6 @@ lines have a fixed shape; the report's `events` carry the same facts.
 | `answer <kind> <file>:<line>:<column> <place> source=engine certainty=authoritative took=<ms> replaced=<source> diff=-<n>/+<n>` | clangd's own answer came after one was given, and differed by that many items (it replaces it on the next keystroke); none is written when they were the same |
 | `answers: <n> kept from the last session (<n> KB), read in <ms> ms` | At start: what the answer layer read back |
 | `the cache <dir> is not on a Dev Drive: …` | Windows only, once: see [Windows](#windows-a-cache-on-a-dev-drive) |
-| `the cache <dir> is not checked for a Dev Drive in this build …` | Windows, the ok image (every release): mcpplibs.os 0.3 answers the question only in a native Windows build, so the image does not know; see [Windows](#windows-a-cache-on-a-dev-drive) |
-| `this build does not detect a system-call translator (PRoot): …` | Linux, the ok image: mcpplibs.os 0.3 detects PRoot only in a native Linux build; under PRoot module builds run in workers |
 | `restarting clangd (<root>): <reason> (<cause>)` | Every restart, and whether it counts against clangd |
 | `the timers of <root> took <ms> ms, <ms> ms of them in <part>` | What held the event loop |
 
@@ -382,9 +380,7 @@ On Windows every check that a module or a preamble is still good is a file opera
 file, and Microsoft Defender scans each file clangd writes and reads in its cache as it happens. The
 server says once in the log, and the overview of the editor says too, when its cache is not on a
 [Dev Drive](https://learn.microsoft.com/windows/dev-drive/), where Defender scans asynchronously. The
-released server is an ok image, which cannot ask yet (mcpplibs.os 0.3 answers it only in a native
-Windows build): it says so instead, and the two ways below apply whenever the cache is elsewhere.
-Two ways help, both yours to choose; mcppls changes no security setting:
+released server, an ok image, asks Windows as a native build does (mcpplibs.os 0.4.0). Two ways help, both yours to choose; mcppls changes no security setting:
 
 - Put the cache on a Dev Drive: set the environment variable `MCPPLS_CACHE_DIR` to a folder on it.
 - Or exclude the cache folder from real-time scanning in Windows Security.

@@ -703,14 +703,10 @@ struct Workspace::Impl final : engine::Host {
         cacheDirectory = base::canonical_path(cacheDirectory);
         // 0.0.14 E1: on Windows, a cache off a Dev Drive has every file clangd writes and reads there scanned by
         // Microsoft Defender as it happens. Said once, in the log and the overview; nothing is changed for the person.
-        if constexpr (os::is_windows) {
+        // A native Windows build and an image on Windows alike (mcpplibs.os 0.4.0).
+        os::on<os::platform::windows>([&](auto) {
             cacheOnDevDrive = os::windows::on_dev_drive(std::filesystem::path { cacheDirectory });
-        } else if constexpr (os::is_image) {
-            // mcpplibs.os 0.3 answers the Dev Drive question only in a native Windows build (design
-            // 2026-11-08 supplement, F2, S3): an ok image on Windows says it does not know.
-            if (os::host() == os::platform::windows)
-                log::info("the cache {} is not checked for a Dev Drive in this build (docs/50-troubleshooting.md, \"Windows\")", cacheDirectory);
-        }
+        });
         if (cacheOnDevDrive == false) {
             log::info("the cache {} is not on a Dev Drive: Microsoft Defender scans the module and preamble files clangd writes and reads "
                       "there as it does; a Dev Drive scans them asynchronously (docs/50-troubleshooting.md, \"Windows\")", cacheDirectory);

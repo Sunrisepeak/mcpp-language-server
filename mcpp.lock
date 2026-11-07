@@ -132,9 +132,9 @@ targets = ["x86_64-linux-gnu", "x86_64-openkal"]
 
 [package."mcpplibs.os"]
 namespace = "mcpplibs"
-version = "0.3.1"
-source  = "index+mcpplibs@0.3.1"
-hash    = "fnv1a:c8fc76a4fc0fcfdd"
+version = "0.4.0"
+source  = "index+mcpplibs@0.4.0"
+hash    = "fnv1a:c06e4aa4f73f1f27"
 targets = ["x86_64-linux-gnu", "x86_64-openkal"]
 
 [package."mcpplibs.tinyhttps"]

@@ -48,7 +48,7 @@ mcpplibs.mwrap.xxhash     = "0.8.3"
 # The operating-system layer: mcpplibs.os over openkal (mcpp design 2026-10-26 part 2). The
 # openkal implementation of each system is os's dependency, named by it; no program here names it.
 # 0.3.1 reads a name in Windows' long spelling as the name it spells.
-mcpplibs.os               = "0.3.1"
+mcpplibs.os               = "0.4.0"
 nlohmann.json             = "3.12.0"
 
 [package]

@@ -225,18 +225,14 @@ void set_recorder(std::function<void(const Record&)> recorder) {
 }
 
 const std::string& sandbox() {
+    // A native Linux build and an image on Linux alike (mcpplibs.os 0.4.0): the translator is read where
+    // the build can run on Linux, and asked when it runs there.
     static const std::string answer { [] {
-        if constexpr (mcpplibs::os::is_linux) {
-            return mcpplibs::os::linux::translator().value_or(std::string {});
-        } else if constexpr (mcpplibs::os::is_image) {
-            // mcpplibs.os 0.3 answers the translator only in a native Linux build; an ok image on Linux
-            // cannot tell PRoot from the kernel (design 2026-11-08 supplement, F2, S3), so it says so.
-            if (mcpplibs::os::host() == mcpplibs::os::platform::linux)
-                base::log::info("this build does not detect a system-call translator (PRoot): module builds run in workers as on a kernel");
-            return std::string {};
-        } else {
-            return std::string {};
-        }
+        std::string name;
+        mcpplibs::os::on<mcpplibs::os::platform::linux>([&](auto) {
+            name = mcpplibs::os::linux::translator().value_or(std::string {});
+        });
+        return name;
     }() };
     return answer;
 }

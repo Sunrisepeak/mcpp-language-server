@@ -22,6 +22,6 @@ int main() {
         ok = ok && conventions.exe_suffix.empty() && conventions.path_list_separator == ':' && payload_platform() == std::format("linux-{}", arch);
         break;
     }
-    std::println("test_os: system={} platform={} image={} ok={}", os::name(os::host()), payload_platform(), os::is_image, ok);
+    std::println("test_os: system={} platform={} image={} ok={}", os::name(os::host()), payload_platform(), os::is_openkal, ok);
     return ok ? 0 : 1;
 }
