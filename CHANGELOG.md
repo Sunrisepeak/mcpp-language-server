@@ -28,6 +28,9 @@ with zlib writes. Built with mcpp 2026.11.7.2 over openkal-platform 0.24.4 and m
 
 ### Fixed
 
+- **A line logged while the process ends.** The log's state is never destroyed, so a detached thread (a daemon's
+  connection, a reader of a child's output) that writes a line after `main` returns finds it whole; such a write
+  ended a test image on Linux arm64 with SIGSEGV.
 - **Index shards one engine wrote, another reads.** The 0.0.20 image read shards that an engine with zlib had written
   (the native engine of 0.0.19 and earlier, or another clangd) and discarded each one ("Compressed string table, but
   zlib is unavailable") before indexing again. The 0.0.21 image reads them, and each engine now keeps its database,
